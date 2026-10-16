@@ -40,7 +40,6 @@ export const useDocumentViewportLayoutLifecycle = (
     let activePointerAnchor: IDocumentZoomAnchor | null = null;
     let activeLayoutTransaction: number | null = null;
     let nextLayoutTransaction = 0;
-    let transitionGeneration = 0;
     let pendingRestore: {
         anchor: IDocumentZoomAnchor | null;
         epoch: unknown;
@@ -50,7 +49,6 @@ export const useDocumentViewportLayoutLifecycle = (
     let restoreGeneration = 0;
     let restoreScheduled = false;
     let disposed = false;
-    let transitionFallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let pointerAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPointerAnchorPacketAt = 0;
     const isResizeTransitionActive = ref(false);
@@ -129,18 +127,15 @@ export const useDocumentViewportLayoutLifecycle = (
                 restoreScheduled = false;
                 const pending = pendingRestore;
                 pendingRestore = null;
-                if (
-                    disposed
-                    || !pending
-                    || pending.generation !== restoreGeneration
-                ) {
+                if (disposed) {
                     return;
                 }
-                applyAnchor(activePointerAnchor ?? layoutTransactionAnchor ?? pending.anchor, pending.epoch);
-                if (!options.isResizing?.value) {
+                if (pending?.generation === restoreGeneration) {
+                    applyAnchor(activePointerAnchor ?? layoutTransactionAnchor ?? pending.anchor, pending.epoch);
+                }
+                if (isResizeTransitionActive.value && !options.isResizing?.value) {
                     isResizeTransitionActive.value = false;
-                    if (transitionFallbackTimer !== null) clearTimeout(transitionFallbackTimer);
-                    transitionFallbackTimer = null;
+                    options.onResizeSettled?.();
                 }
             });
         });
@@ -252,8 +247,6 @@ export const useDocumentViewportLayoutLifecycle = (
         watch(options.isResizing, (resizing, wasResizing) => {
             const container = options.viewerContainer.value;
             if (resizing) {
-                transitionGeneration += 1;
-                if (transitionFallbackTimer !== null) clearTimeout(transitionFallbackTimer);
                 isResizeTransitionActive.value = true;
                 dragAnchor = container
                     ? resolveRetainedDocumentZoomAnchor(
@@ -270,17 +263,10 @@ export const useDocumentViewportLayoutLifecycle = (
                 return;
             }
             retainedAnchor = dragAnchor;
-            const generation = transitionGeneration;
-            void nextTick(() => {
-                options.onResizeSettled?.();
-                dragAnchor = null;
-                transitionFallbackTimer = setTimeout(() => {
-                    if (generation === transitionGeneration && !options.isResizing?.value) {
-                        isResizeTransitionActive.value = false;
-                    }
-                    transitionFallbackTimer = null;
-                }, 500);
-            });
+            // Settle even when the final size did not change pageLayouts.
+            // The restore frame releases the render guard before repainting.
+            scheduleAnchorRestore(dragAnchor, options.captureRestoreEpoch());
+            dragAnchor = null;
         }, {flush: 'sync'});
     }
 
@@ -328,7 +314,6 @@ export const useDocumentViewportLayoutLifecycle = (
     onScopeDispose(() => {
         disposed = true;
         pendingRestore = null;
-        if (transitionFallbackTimer !== null) clearTimeout(transitionFallbackTimer);
         if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
     });
 

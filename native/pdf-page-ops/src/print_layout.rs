@@ -1,10 +1,14 @@
 use super::*;
-use evb_native_support::output::AtomicOutput;
-use lopdf::{dictionary, DecompressError, Error as LopdfError};
 
-/// Print layout places each selected page, with its printable annotation
-/// appearances flattened, on an A4 sheet as a Form XObject: one page per sheet
-/// in single view, or a spread of two in the facing modes.
+#[path = "print_annotations.rs"]
+mod print_annotations;
+use evb_native_support::output::AtomicOutput;
+use lopdf::{DecompressError, Error as LopdfError};
+use print_annotations::*;
+
+/// Print layout places each selected page, with its printable annotations
+/// flattened, on an A4 sheet: one page per sheet in single view, or a spread of
+/// two in the facing modes. Auto single pages from a path keep their own sheets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PrintViewMode {
     Single,
@@ -45,7 +49,7 @@ const A4_WIDTH: f64 = 595.28;
 const A4_HEIGHT: f64 = 841.89;
 const ANNOTATION_FLAG_INVISIBLE: i64 = 1;
 const ANNOTATION_FLAG_HIDDEN: i64 = 2;
-const ANNOTATION_FLAG_PRINT: i64 = 4;
+pub(crate) const ANNOTATION_FLAG_PRINT: i64 = 4;
 
 struct PlacedPage {
     form_id: ObjectId,
@@ -80,13 +84,16 @@ impl PlacedPage {
 pub(crate) fn write_print_layout_path(
     input_path: &Path,
     output_path: &Path,
-    pages: Option<&[u32]>,
     view_mode: PrintViewMode,
     orientation: PrintOrientation,
+    qpdf_path: Option<&Path>,
 ) -> Result<()> {
+    if (view_mode, orientation) == (PrintViewMode::Single, PrintOrientation::Auto) {
+        return write_print_appearances_path(input_path, output_path, qpdf_path);
+    }
     let mut document = load_print_layout_pdf_path(input_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    build_print_layout(&mut document, pages, view_mode, orientation)?;
+    build_print_layout(&mut document, None, view_mode, orientation)?;
     let mut output = AtomicOutput::create(output_path)?;
     document.save_to(output.file_mut()?)?;
     output.publish_if_unchanged()?;
@@ -108,6 +115,7 @@ pub(crate) fn build_print_layout(
     let mut placed = Vec::with_capacity(page_numbers.len());
     for &page_number in &page_numbers {
         let page_id = resolve_page_id(&page_ids, page_number)?;
+        materialize_print_appearances(document, page_id, true)?;
         placed.push(embed_page_as_form(document, page_id, page_number)?);
     }
 
@@ -282,7 +290,7 @@ fn add_sheet(document: &mut Document, pages_id: ObjectId, sheet: Sheet) -> Resul
     ])))
 }
 
-fn format_operands(values: &[f64]) -> String {
+pub(crate) fn format_operands(values: &[f64]) -> String {
     values
         .iter()
         .map(|value| {
@@ -392,27 +400,19 @@ fn embed_page_as_form(
 ) -> Result<PlacedPage> {
     let page = materialized_page_dictionary(document, page_id)?;
     let bounds = visible_box(document, &page)?;
-    let rotation = normalize_page_rotation(match page.get(b"Rotate") {
-        Ok(object) => document.dereference(object)?.1.as_i64()?,
-        Err(_) => 0,
-    });
+    let unit = resolve_page_user_unit(document, page_id)?;
+    let rotation = resolve_page_rotation(document, page_id)?;
     let mut resources = resolved_dictionary(document, page.get(b"Resources").ok())?;
     let mut content = b"q\n".to_vec();
     append_decoded_page_content(document, &page, page_number, &mut content)?;
     content.extend_from_slice(b"Q\n");
-    flatten_printable_annotations(
-        document,
-        &page,
-        page_id,
-        page_number,
-        &mut resources,
-        &mut content,
-    )?;
+    flatten_printable_annotations(document, &page, &mut resources, &mut content)?;
     let mut form = Stream::new(
         Dictionary::from_iter([
             ("Type", Object::Name(b"XObject".to_vec())),
             ("Subtype", Object::Name(b"Form".to_vec())),
             ("FormType", Object::Integer(1)),
+            // The form maps raw page space to points, so the placed size is physical.
             (
                 "BBox",
                 Object::Array(
@@ -424,7 +424,7 @@ fn embed_page_as_form(
             (
                 "Matrix",
                 Object::Array(
-                    [1.0, 0.0, 0.0, 1.0, -bounds.x1, -bounds.y1]
+                    [unit, 0.0, 0.0, unit, -bounds.x1 * unit, -bounds.y1 * unit]
                         .map(number_object)
                         .to_vec(),
                 ),
@@ -436,8 +436,8 @@ fn embed_page_as_form(
     let _ = form.compress();
     Ok(PlacedPage {
         form_id: document.add_object(form),
-        width: bounds.width(),
-        height: bounds.height(),
+        width: bounds.width() * unit,
+        height: bounds.height() * unit,
         rotation,
     })
 }
@@ -449,349 +449,23 @@ fn unused_resource_name(category: &Dictionary, prefix: &str) -> String {
         .expect("an unused resource name exists")
 }
 
-fn numbers(document: &Document, object: &Object, count: usize) -> Option<Vec<f64>> {
-    let values = document.dereference(object).ok()?.1.as_array().ok()?;
-    if values.len() != count {
-        return None;
-    }
+pub(crate) fn numbers(
+    document: &impl PdfObjectSource,
+    object: &Object,
+    count: usize,
+) -> Option<Vec<f64>> {
+    let values = document.resolved(object).ok()?.as_array().ok()?;
+    (values.len() == count).then_some(())?;
     values
         .iter()
-        .map(|value| {
-            document
-                .dereference(value)
-                .ok()
-                .and_then(|(_, value)| object_to_f64(value).ok())
-        })
+        .map(|value| object_to_f64(document.resolved(value).ok()?).ok())
         .collect()
-}
-
-/// Resolve an explicit normal appearance, or draw the standard Note icon for
-/// a /Text annotation without /AP. Saved notes rely on viewers drawing this
-/// icon; print layout must materialize it before flattening the page.
-fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
-    if !annotation.has(b"AP")
-        && annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Text")
-        && annotation
-            .get(b"Name")
-            .and_then(Object::as_name)
-            .unwrap_or(b"Note")
-            == b"Note"
-    {
-        let color = match annotation.get(b"C") {
-            Ok(color) => {
-                let count = document.dereference(color).ok()?.1.as_array().ok()?.len();
-                let operator = match count {
-                    1 => "g",
-                    3 => "rg",
-                    4 => "k",
-                    _ => return None,
-                };
-                let components = numbers(document, color, count)?;
-                if components.iter().any(|value| !(0.0..=1.0).contains(value)) {
-                    return None;
-                }
-                format!("{} {operator}", format_operands(&components))
-            }
-            Err(_) => "1 1 0 rg".to_string(),
-        };
-        let content = format!(
-            "q {color} 0 G 0.8 w 1 1 m 19 1 l 19 15 l 15 19 l 1 19 l h B\n\
-             15 19 m 15 15 l 19 15 l S\n\
-             4 12 m 16 12 l 4 9 m 16 9 l 4 6 m 12 6 l S Q\n"
-        );
-        return Some(document.add_object(Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Form",
-                "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
-                "Resources" => Dictionary::new(),
-            },
-            content.into_bytes(),
-        )));
-    }
-    let appearances = document
-        .dereference(annotation.get(b"AP").ok()?)
-        .ok()?
-        .1
-        .as_dict()
-        .ok()?;
-    let normal = appearances.get(b"N").ok()?;
-    let (normal_id, resolved) = document.dereference(normal).ok()?;
-    if resolved.as_stream().is_ok() {
-        return normal_id;
-    }
-    let state = annotation.get(b"AS").ok()?.as_name().ok()?;
-    let state_object = resolved.as_dict().ok()?.get(state).ok()?;
-    let (state_id, state_resolved) = document.dereference(state_object).ok()?;
-    state_resolved.as_stream().ok().and(state_id)
-}
-
-/// Foreign FreeText without /AP uses the same parser, font admission and
-/// shaped appearance as the text editor. Only the print document gets a Form;
-/// the annotation's contents, identity, geometry and legacy status stay intact.
-fn missing_free_text_appearance(
-    document: &mut Document,
-    annotation: &Dictionary,
-    page_id: ObjectId,
-    font_ref: &mut Option<ObjectId>,
-) -> Result<ObjectId> {
-    let page_view = resolve_page_view(document, page_id)?;
-    let page_rotation = resolve_page_rotation(document, page_id)?;
-    let parsed = parse_text_box_entry(
-        document,
-        annotation,
-        (0, 0),
-        0,
-        page_view,
-        page_rotation,
-        "",
-    )?;
-    crate::text_box_font::validate_text(&parsed.text)?;
-    let source = marker_rect_to_pdf_rect_unbounded(parsed.rect, page_view, page_rotation)?;
-    let color = parse_css_rgb_color(Some(&parsed.color)).ok_or("Invalid FreeText print color")?;
-    let editor = TextBoxMutation {
-        page_index: 0,
-        stable_key: String::new(),
-        annotation_id: None,
-        text: parsed.text,
-        rect: [source.x1, source.y1, source.x2, source.y2],
-        rotation: u16::try_from(parsed.rotation)?,
-        font_size: parsed.font_size,
-        color: [color.r, color.g, color.b],
-        author: None,
-        created_at: None,
-        modified_at: None,
-    };
-    let rect =
-        read_box(document, annotation, b"Rect")?.ok_or("Invalid FreeText print rectangle")?;
-    let font_ref = *font_ref.get_or_insert_with(|| {
-        crate::text_box_font::existing_font(document)
-            .unwrap_or_else(|| crate::text_box_font::embed_font(document))
-    });
-    build_text_box_appearance(document, &editor, rect, font_ref, page_rotation)
-}
-
-fn annotation_graphics_state(
-    document: &Document,
-    annotation: &Dictionary,
-    page_number: u32,
-) -> Result<Option<Dictionary>> {
-    let mut state = Dictionary::new();
-    if let Ok(opacity) = annotation.get(b"CA") {
-        let value = document.dereference(opacity)?.1;
-        let opacity = object_to_f64(value)
-            .ok()
-            .filter(|value| (0.0..=1.0).contains(value));
-        let Some(opacity) = opacity else {
-            return Err(format!(
-                "Printable annotation on page {page_number} has an invalid opacity"
-            )
-            .into());
-        };
-        state.set("ca", number_object(opacity));
-        state.set("CA", number_object(opacity));
-    }
-    if let Ok(blend_mode) = annotation.get(b"BM") {
-        let value = document.dereference(blend_mode)?.1.clone();
-        let valid = match &value {
-            Object::Name(_) => true,
-            Object::Array(items) => {
-                !items.is_empty()
-                    && items.iter().all(|item| {
-                        document
-                            .dereference(item)
-                            .is_ok_and(|(_, item)| item.as_name().is_ok())
-                    })
-            }
-            _ => false,
-        };
-        if !valid {
-            return Err(format!(
-                "Printable annotation on page {page_number} has an invalid blend mode"
-            )
-            .into());
-        }
-        state.set("BM", value);
-    }
-    if state.is_empty() {
-        return Ok(None);
-    }
-    state.set("Type", Object::Name(b"ExtGState".to_vec()));
-    Ok(Some(state))
-}
-
-fn resource_category(
-    document: &Document,
-    resources: &Dictionary,
-    key: &[u8],
-) -> Result<Dictionary> {
-    resolved_dictionary(document, resources.get(key).ok())
-}
-
-/// Draws the normal appearance of every printable, visible annotation into
-/// the page content, fitted to its /Rect as PDF 32000-1 section 12.5.5
-/// describes. Popups and empty appearances draw nothing.
-fn flatten_printable_annotations(
-    document: &mut Document,
-    page: &Dictionary,
-    page_id: ObjectId,
-    page_number: u32,
-    resources: &mut Dictionary,
-    content: &mut Vec<u8>,
-) -> Result<()> {
-    let Ok(annotations) = page.get(b"Annots") else {
-        return Ok(());
-    };
-    let annotations = match document.dereference(annotations)?.1 {
-        Object::Array(items) => items.clone(),
-        _ => return Ok(()),
-    };
-    let mut xobjects = resource_category(document, resources, b"XObject")?;
-    let mut graphics_states = resource_category(document, resources, b"ExtGState")?;
-    let mut text_font = None;
-    let mut drew = false;
-    for item in &annotations {
-        let annotation = document.dereference(item)?.1.as_dict()?.clone();
-        let flags = annotation
-            .get(b"F")
-            .ok()
-            .and_then(|flags| document.dereference(flags).ok())
-            .and_then(|(_, flags)| flags.as_i64().ok())
-            .unwrap_or(0);
-        let printable = flags & ANNOTATION_FLAG_PRINT != 0
-            && flags & (ANNOTATION_FLAG_INVISIBLE | ANNOTATION_FLAG_HIDDEN) == 0;
-        let is_popup = annotation
-            .get(b"Subtype")
-            .and_then(Object::as_name)
-            .is_ok_and(|subtype| subtype == b"Popup");
-        if !printable || is_popup {
-            continue;
-        }
-        let appearance = if !annotation.has(b"AP")
-            && annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText")
-        {
-            Some(missing_free_text_appearance(
-                document,
-                &annotation,
-                page_id,
-                &mut text_font,
-            )?)
-        } else {
-            normal_appearance(document, &annotation)
-        };
-        let appearance_id = appearance.ok_or_else(|| {
-            format!("Printable annotation on page {page_number} has no normal appearance")
-        })?;
-        let appearance = document.get_object(appearance_id)?.as_stream()?;
-        if appearance.content.is_empty() {
-            continue;
-        }
-        let invalid_bbox =
-            || format!("Printable annotation on page {page_number} has an invalid appearance BBox");
-        let bbox = appearance
-            .dict
-            .get(b"BBox")
-            .ok()
-            .and_then(|bbox| numbers(document, bbox, 4))
-            .ok_or_else(invalid_bbox)?;
-        if bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
-            return Err(invalid_bbox().into());
-        }
-        let matrix = match appearance.dict.get(b"Matrix") {
-            Ok(matrix) => numbers(document, matrix, 6).ok_or_else(|| {
-                format!(
-                    "Printable annotation on page {page_number} has an invalid appearance Matrix"
-                )
-            })?,
-            Err(_) => vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-        };
-        let rect = annotation
-            .get(b"Rect")
-            .ok()
-            .and_then(|rect| numbers(document, rect, 4))
-            .filter(|rect| rect[2] > rect[0] && rect[3] > rect[1])
-            .ok_or_else(|| {
-                format!("Printable annotation on page {page_number} has an invalid Rect")
-            })?;
-        let corners = [
-            (bbox[0], bbox[1]),
-            (bbox[0], bbox[3]),
-            (bbox[2], bbox[1]),
-            (bbox[2], bbox[3]),
-        ]
-        .map(|(x, y)| {
-            (
-                matrix[0] * x + matrix[2] * y + matrix[4],
-                matrix[1] * x + matrix[3] * y + matrix[5],
-            )
-        });
-        let left = corners
-            .iter()
-            .map(|corner| corner.0)
-            .fold(f64::MAX, f64::min);
-        let bottom = corners
-            .iter()
-            .map(|corner| corner.1)
-            .fold(f64::MAX, f64::min);
-        let right = corners
-            .iter()
-            .map(|corner| corner.0)
-            .fold(f64::MIN, f64::max);
-        let top = corners
-            .iter()
-            .map(|corner| corner.1)
-            .fold(f64::MIN, f64::max);
-        let (width, height) = (right - left, top - bottom);
-        if width.is_nan() || height.is_nan() || width <= 0.0 || height <= 0.0 {
-            return Err(format!(
-                "Printable annotation on page {page_number} has a degenerate appearance BBox"
-            )
-            .into());
-        }
-        let rect_width = rect[2] - rect[0];
-        let rect_height = rect[3] - rect[1];
-        let scale_x = rect_width / width;
-        let scale_y = rect_height / height;
-
-        let appearance_name = unused_resource_name(&xobjects, "PrintAnnot");
-        xobjects.set(appearance_name.clone(), Object::Reference(appearance_id));
-        let graphics_state = match annotation_graphics_state(document, &annotation, page_number)? {
-            Some(state) => {
-                let name = unused_resource_name(&graphics_states, "PrintAnnot");
-                graphics_states.set(name.clone(), document.add_object(state));
-                format!("/{name} gs ")
-            }
-            None => String::new(),
-        };
-        content.extend(
-            format!(
-                "q {graphics_state}{} re W n {} cm /{appearance_name} Do Q\n",
-                format_operands(&[rect[0], rect[1], rect_width, rect_height]),
-                format_operands(&[
-                    scale_x,
-                    0.0,
-                    0.0,
-                    scale_y,
-                    rect[0] - scale_x * left,
-                    rect[1] - scale_y * bottom,
-                ]),
-            )
-            .into_bytes(),
-        );
-        drew = true;
-    }
-    if drew {
-        resources.set("XObject", Object::Dictionary(xobjects));
-        if !graphics_states.is_empty() {
-            resources.set("ExtGState", Object::Dictionary(graphics_states));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::dictionary;
 
     fn page_document(pages: &[(PdfRect, i64)]) -> Document {
         let mut document = Document::with_version("1.7");
@@ -986,41 +660,19 @@ mod tests {
             "q /PrintAnnot0 gs 100 400 200 100 re W n 2 0 0 2 100 400 cm /PrintAnnot0 Do Q"
         ));
         assert!(content.contains("400 500 20 20 re W n 1 0 0 1 400 500 cm /PrintAnnot1 Do Q"));
-        assert!(content.contains("100 200 200 80 re W n 1 0 0 1 100 200 cm /PrintAnnot2 Do Q"));
+        assert!(content.contains("100 200 200 80 re W n 1 0 0 1 0 0 cm /PrintAnnot2 Do Q"));
         assert_eq!(content.matches(" Do Q").count(), 3);
-        let xobjects = form
-            .dict
-            .get(b"Resources")
-            .unwrap()
-            .as_dict()
-            .unwrap()
-            .get(b"XObject")
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        let explicit = document
-            .get_object(
-                xobjects
-                    .get(b"PrintAnnot0")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap()
-            .as_stream()
-            .unwrap();
-        assert_eq!(explicit.content, b"1 0 0 rg 0 0 100 50 re f");
-        let text = document
-            .get_object(
-                xobjects
-                    .get(b"PrintAnnot2")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap()
-            .as_stream()
-            .unwrap();
+        let resources = resolved_dictionary(&document, form.dict.get(b"Resources").ok()).unwrap();
+        let xobjects = resolved_dictionary(&document, resources.get(b"XObject").ok()).unwrap();
+        let appearance = |name| {
+            let id = xobjects.get(name).unwrap().as_reference().unwrap();
+            document.get_object(id).unwrap().as_stream().unwrap()
+        };
+        assert_eq!(
+            appearance(b"PrintAnnot0").content,
+            b"1 0 0 rg 0 0 100 50 re f"
+        );
+        let text = appearance(b"PrintAnnot2");
         let text_content = String::from_utf8(text.content.clone()).unwrap();
         assert!(text_content.contains("1 0 0 rg"));
         assert!(text_content.contains(

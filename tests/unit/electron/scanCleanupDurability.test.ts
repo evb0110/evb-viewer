@@ -1,5 +1,6 @@
 import {
     access,
+    copyFile,
     mkdir,
     mkdtemp,
     readFile,
@@ -9,9 +10,15 @@ import {
     utimes,
     writeFile,
 } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
+import {once} from 'node:events';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname, join,
+} from 'node:path';
 import {
     afterEach,
     describe,
@@ -30,9 +37,12 @@ import {
     registerManagedProcess,
     reapOrphanedManagedProcesses,
     MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX,
-    type IManagedProcessIdentity,
     type IManagedProcessRegistryEntry,
 } from '@electron/native-tools/managedProcessRegistry';
+import {
+    getOwnStartTime,
+    type IProcessIdentity,
+} from '@electron/utils/processIdentity';
 import { terminateProcessTree } from '@electron/utils/processTree';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 
@@ -207,7 +217,7 @@ describe('scan-cleanup durability', () => {
             `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}test.json`,
         );
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
-        const identity = (pid: number): IManagedProcessIdentity => ({
+        const identity = (pid: number): IProcessIdentity => ({
             executablePath: pid === 4242 ? '/native/evb-scan-cleanup' : '/electron',
             arguments: pid === 4242
                 ? [
@@ -232,6 +242,123 @@ describe('scan-cleanup durability', () => {
         expect(readIdentity).not.toHaveBeenCalledWith(4241);
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('reaps a tool an older build recorded once that build\'s run has ended', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
+        const manifestPath = join(scratchPath, 'manifest.json');
+        const scratchBytes = 'native command still owns these bytes';
+        await writeFile(manifestPath, scratchBytes, 'utf8');
+        const binaryPath = process.platform === 'darwin'
+            ? join(namespacePath, 'EVB Viewer.app', 'Contents', 'MacOS', 'node')
+            : process.execPath;
+        if (binaryPath !== process.execPath) {
+            await mkdir(dirname(binaryPath), {recursive: true});
+            await copyFile(process.execPath, binaryPath);
+        }
+        // runNativeCommand starts a tool in its own process group, with its
+        // temporary folder at its scratch.
+        const child = spawn(binaryPath, [
+            '-e',
+            'console.log("ready"); setInterval(() => {}, 1000)',
+            '--',
+            '--manifest',
+            manifestPath,
+        ], {
+            detached: process.platform !== 'win32',
+            env: {
+                ...process.env,
+                TMPDIR: scratchPath,
+                TMP: scratchPath,
+                TEMP: scratchPath,
+            },
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+            windowsHide: true,
+        });
+        const childClosed = once(child, 'close');
+        const endedOwner = spawn(process.execPath, [
+            '-e',
+            '',
+        ], {stdio: 'ignore'});
+        const ownerClosed = once(endedOwner, 'close');
+        try {
+            await once(child.stdout, 'data');
+            await ownerClosed;
+            const registration = await registerManagedProcess(namespacePath, {
+                pid: child.pid!,
+                hasExited: () => child.exitCode !== null || child.signalCode !== null,
+                binaryPath,
+                scratchPath,
+                manifestPath,
+            });
+            const entry = JSON.parse(await readFile(registration!.entryPath, 'utf8')) as IManagedProcessRegistryEntry;
+            expect(entry).toMatchObject({
+                pid: child.pid,
+                ownerPid: process.pid,
+                binaryPath,
+                processStartTime: expect.stringMatching(/\S/u),
+            });
+            const registeredBytes = await readFile(registration!.entryPath, 'utf8');
+            await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(0);
+            await expect(readFile(registration!.entryPath, 'utf8')).resolves.toBe(registeredBytes);
+            await expect(readFile(manifestPath, 'utf8')).resolves.toBe(scratchBytes);
+            expect(() => process.kill(child.pid!, 0)).not.toThrow();
+            // Older entries, and owners whose first OS read was unknown, omit
+            // ownerStartTime. Missing birth proof cannot end this live run.
+            const unknownOwnerBytes = JSON.stringify({
+                ...entry,
+                ownerStartTime: undefined,
+            });
+            await writeFile(registration!.entryPath, unknownOwnerBytes, 'utf8');
+            await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(0);
+            await expect(readFile(registration!.entryPath, 'utf8')).resolves.toBe(unknownOwnerBytes);
+            await expect(readFile(manifestPath, 'utf8')).resolves.toBe(scratchBytes);
+            expect(() => process.kill(child.pid!, 0)).not.toThrow();
+            // What an older build recorded instead of the exact creation time:
+            // bare Linux ticks, the macOS ps start to the second, a Windows
+            // clock estimate to the millisecond. The recorded owner has ended.
+            const olderStartTime = (exact: string, pid: number) => process.platform === 'linux'
+                ? exact.split(':')[1]!
+                : process.platform === 'darwin'
+                    ? execFileSync('/bin/ps', [
+                        '-o',
+                        'lstart=',
+                        '-p',
+                        String(pid),
+                    ], {
+                        encoding: 'utf8',
+                        env: {
+                            ...process.env,
+                            LC_ALL: 'C',
+                        },
+                    }).trim().replace(/\s+/gu, ' ')
+                    : new Date(Date.parse(exact)).toISOString();
+            await writeFile(registration!.entryPath, JSON.stringify({
+                ...entry,
+                ownerPid: endedOwner.pid,
+                processStartTime: olderStartTime(entry.processStartTime!, child.pid!),
+                ownerStartTime: undefined,
+            }), 'utf8');
+            const exited = once(child, 'exit');
+
+            await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(1);
+
+            await exited;
+            await expect(access(registration!.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+            if (endedOwner.exitCode === null && endedOwner.signalCode === null) endedOwner.kill('SIGKILL');
+            await Promise.all([
+                childClosed,
+                ownerClosed,
+            ]);
+        }
     });
 
     it('reaps a managed tool by executable path and process start identity', async () => {
@@ -270,7 +397,45 @@ describe('scan-cleanup durability', () => {
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
-    it('on Windows reaps a tool started at its recorded spawn time and spares a reused pid', async () => {
+    it('on Linux reaps a tool an older build recorded by bare start ticks, only at those ticks', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
+        await mkdir(registryDirectory);
+        const writeEntry = async (pid: number) => {
+            const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${String(pid)}.json`);
+            // Builds before the boot id recorded only the ticks since boot.
+            await writeFile(entryPath, JSON.stringify({
+                version: 1,
+                pid,
+                ownerPid: 4241,
+                binaryPath: '/native/tesseract',
+                processStartTime: '180000000',
+                ownerStartTime: '170000000',
+            }), 'utf8');
+            return entryPath;
+        };
+        const orphanEntryPath = await writeEntry(4242);
+        const reusedEntryPath = await writeEntry(4343);
+        const terminate = vi.fn(async () => true);
+
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
+            isProcessAlive: pid => pid !== 4241,
+            readProcessIdentity: async pid => ({
+                executablePath: '/native/tesseract',
+                arguments: ['/native/tesseract'],
+                startTime: `70d4911d-53e3-441e-b385-a64a34cae556:${pid === 4242 ? '180000000' : '180000001'}`,
+            }),
+            terminateProcessTree: terminate,
+            platform: 'linux',
+        })).resolves.toBe(1);
+
+        expect(terminate).toHaveBeenCalledOnce();
+        expect(terminate).toHaveBeenCalledWith(4242, expect.anything());
+        await expect(access(orphanEntryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(reusedEntryPath)).resolves.toBeUndefined();
+    });
+
+    it('on Windows reaps a tool at its exact recorded creation time and spares a pid reused 100 ns later', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
         await mkdir(registryDirectory);
@@ -281,9 +446,9 @@ describe('scan-cleanup durability', () => {
                 pid,
                 ownerPid: 4241,
                 binaryPath: '/native/qpdf.exe',
-                // Registration records the clock right after spawn returns.
-                processStartTime: '2026-10-01T10:00:00.000Z',
-                ownerStartTime: '2026-10-01T09:00:00.000Z',
+                // Registration records the creation time Get-Process reports, to 100 ns.
+                processStartTime: '2026-10-01T09:59:59.8123456Z',
+                ownerStartTime: '2026-10-01T09:00:00.0000000Z',
             };
             await writeFile(entryPath, JSON.stringify(entry), 'utf8');
             return entryPath;
@@ -297,9 +462,8 @@ describe('scan-cleanup durability', () => {
             readProcessIdentity: async pid => ({
                 executablePath: '/native/QPDF.EXE',
                 arguments: ['/native/qpdf.exe'],
-                // PowerShell reports the creation time, which precedes the
-                // recorded spawn time; pid 4343 now belongs to a later process.
-                startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T11:00:00.0000000Z',
+                // pid 4343 now belongs to a process created 100 ns later.
+                startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T09:59:59.8123457Z',
             }),
             terminateProcessTree: terminate,
             platform: 'win32',
@@ -382,6 +546,7 @@ describe('scan-cleanup durability', () => {
         ]) {
             await mkdir(directory);
         }
+        const ownStartTime = await getOwnStartTime();
         const writeEntry = (pid: number, ownerPid: number, scratchPath: string) => writeFile(
             pid === 2_147_483_644 ? liveEntryPath : pid === 2_147_483_643 ? otherProfileEntryPath : finishedEntryPath,
             JSON.stringify({
@@ -390,7 +555,8 @@ describe('scan-cleanup durability', () => {
                 ownerPid,
                 binaryPath: '/native/tool',
                 processStartTime: `process-${pid}`,
-                ownerStartTime: ownerPid === process.pid ? 'live-owner' : 'dead-owner',
+                // A live owner records its own creation time.
+                ownerStartTime: ownerPid === process.pid ? ownStartTime! : 'dead-owner',
                 scratchPath,
             } satisfies IManagedProcessRegistryEntry),
             'utf8',
@@ -400,7 +566,7 @@ describe('scan-cleanup durability', () => {
         await writeEntry(2_147_483_643, 2_147_483_646, otherProfileScratch);
         const options = {
             isProcessAlive: (pid: number) => pid === process.pid,
-            readProcessIdentity: async (): Promise<IManagedProcessIdentity> => ({
+            readProcessIdentity: async (): Promise<IProcessIdentity> => ({
                 executablePath: '/electron',
                 arguments: ['electron'],
                 startTime: 'live-owner',
@@ -425,7 +591,8 @@ describe('scan-cleanup durability', () => {
     it.each([
         [
             'process start time',
-            {processStartTime: 'other-child-start'},
+            // This build's exact shape: a different value is another process.
+            {processStartTime: '70d4911d-53e3-441e-b385-a64a34cae556:101'},
         ],
         [
             'binary path',
@@ -445,7 +612,7 @@ describe('scan-cleanup durability', () => {
             ownerPid: 4241,
             binaryPath: '/native/evb-scan-cleanup',
             manifestPath: '/scratch/manifest.json',
-            processStartTime: 'child-start',
+            processStartTime: '70d4911d-53e3-441e-b385-a64a34cae556:100',
             ownerStartTime: 'owner-start',
             ...change,
         };
@@ -465,7 +632,7 @@ describe('scan-cleanup durability', () => {
                     '--manifest',
                     '/scratch/manifest.json',
                 ],
-                startTime: 'child-start',
+                startTime: '70d4911d-53e3-441e-b385-a64a34cae556:100',
             }),
             terminateProcessTree: terminate,
             platform: 'linux',
@@ -480,15 +647,128 @@ describe('scan-cleanup durability', () => {
         const manifestPath = join(namespacePath, 'manifest.json');
         const registration = await registerManagedProcess(namespacePath, {
             pid: process.pid,
+            hasExited: () => false,
             binaryPath: process.execPath,
             manifestPath,
         });
 
-        expect(JSON.parse(await readFile(registration.entryPath, 'utf8'))).toMatchObject({manifestPath});
-        await expect(access(registration.entryPath)).resolves.toBeUndefined();
-        await registration.unregister();
-        await expect(access(registration.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({manifestPath});
+        await expect(access(registration!.entryPath)).resolves.toBeUndefined();
+        await registration!.unregister();
+        await expect(access(registration!.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).resolves.toEqual([]);
+    });
+
+    it('records no marker for a child that exited before its registration read', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const child = spawn(process.execPath, [
+            '-e',
+            '',
+        ], {stdio: 'ignore'});
+        await once(child, 'exit');
+
+        await expect(registerManagedProcess(namespacePath, {
+            pid: child.pid!,
+            hasExited: () => child.exitCode !== null || child.signalCode !== null,
+            binaryPath: process.execPath,
+        })).resolves.toBeNull();
+        await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it.runIf(process.platform === 'linux')('records a child whose command line is still empty, as during its exec', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        // Node's spawn returns once exec has closed the child's descriptors,
+        // before the kernel has set up its arguments, so /proc shows no command
+        // line for a moment. Emptying the title holds that state for the test.
+        const child = spawn(process.execPath, [
+            '-e',
+            'process.title = ""; console.log("ready"); setInterval(() => {}, 1_000)',
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ]});
+        try {
+            await once(child.stdout, 'data');
+            const commandLine = await readFile(`/proc/${String(child.pid)}/cmdline`, 'utf8');
+            expect(commandLine.split('\0').filter(Boolean)).toEqual([]);
+
+            const registration = await registerManagedProcess(namespacePath, {
+                pid: child.pid!,
+                hasExited: () => child.exitCode !== null || child.signalCode !== null,
+                binaryPath: process.execPath,
+            });
+
+            expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({
+                pid: child.pid,
+                processStartTime: expect.stringMatching(/^[\da-f-]+:\d+$/u),
+            });
+        } finally {
+            child.kill();
+        }
+    });
+
+    itPosix('records a child that has exited but is not reaped yet under its start time', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        // Stop the shell before killing its child so SIGCHLD cannot make it
+        // reap the child. An immediate exit can be reaped before exec sleep.
+        // Resuming the shell in finally lets wait reap the zombie and exit.
+        const parent = spawn('sh', [
+            '-c',
+            'sleep 30 & child=$!; echo "$child"; kill -STOP $$; wait "$child"',
+        ], {
+            detached: true,
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        const parentClosed = once(parent, 'close', {signal: AbortSignal.timeout(4_000)});
+        let pid: number | undefined;
+        try {
+            const [pidText] = await once(parent.stdout, 'data', {signal: AbortSignal.timeout(1_000)}) as [Buffer];
+            const childPid = Number(pidText.toString().trim());
+            expect(Number.isSafeInteger(childPid) && childPid > 0).toBe(true);
+            pid = childPid;
+            await vi.waitFor(() => {
+                expect(execFileSync('ps', [
+                    '-o',
+                    'stat=',
+                    '-p',
+                    String(parent.pid),
+                ], {encoding: 'utf8'}).trim(), 'fixture parent must stop before its child exits').toMatch(/^T/u);
+            }, {timeout: 1_000});
+            process.kill(pid, 'SIGKILL');
+            await vi.waitFor(() => {
+                expect(execFileSync('ps', [
+                    '-o',
+                    'stat=',
+                    '-p',
+                    String(pid),
+                ], {encoding: 'utf8'}).trim(), 'fixture child must remain an unreaped zombie').toMatch(/^Z/u);
+            }, {timeout: 1_000});
+
+            const registration = await registerManagedProcess(namespacePath, {
+                pid,
+                hasExited: () => false,
+                binaryPath: '/native/tool',
+            });
+
+            expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({
+                pid,
+                processStartTime: expect.stringMatching(/\S/u),
+            });
+        } finally {
+            if (pid !== undefined) {
+                // Also release a still-running child if a fixture assertion failed.
+                try { process.kill(pid, 'SIGKILL'); } catch { /* Already reaped. */ }
+                parent.kill('SIGCONT');
+            } else {
+                process.kill(-parent.pid!, 'SIGKILL');
+            }
+            await parentClosed;
+        }
     });
 
     it('registers a process while the time locale is not English', async () => {
@@ -498,10 +778,11 @@ describe('scan-cleanup durability', () => {
         try {
             const registration = await registerManagedProcess(namespacePath, {
                 pid: process.pid,
+                hasExited: () => false,
                 binaryPath: process.execPath,
             });
-            await expect(access(registration.entryPath)).resolves.toBeUndefined();
-            await registration.unregister();
+            await expect(access(registration!.entryPath)).resolves.toBeUndefined();
+            await registration!.unregister();
         } finally {
             if (previousTimeLocale === undefined) delete process.env.LC_TIME;
             else process.env.LC_TIME = previousTimeLocale;

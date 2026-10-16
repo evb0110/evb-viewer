@@ -1,10 +1,16 @@
 import { clamp } from 'es-toolkit/math';
-import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+import {
+    admitPdfPageLabelStartNumber, PDF_PAGE_LABEL_STYLE_VALUES,
+} from '@contracts/pdfPageLabels';
+import {
+    getLabelForOffset, pageLabelMatchesText, pageLabelValuesMatch, formatPageLabelForDisplay,
+} from '@pdf-core/pdfPageLabelFormatting';
 import type {
     IPdfPageLabelRange,
     IPdfPageLabelSegment,
     TPdfPageLabelStyle,
 } from '@contracts/pdfPageLabels';
+export { formatPageLabelForDisplay } from '@pdf-core/pdfPageLabelFormatting';
 
 /** Maximum number of labels returned by one bounded window read. */
 export const PAGE_LABEL_MAX_WINDOW_PAGES = 128;
@@ -47,29 +53,9 @@ function toPositiveInt(value: unknown, fallback: number) {
     return parsed;
 }
 
-/**
- * Largest start number the alphabetic style admits: four letters, the length
- * a toolbar page indicator can show. Its labels grow by one letter per 26.
- */
-export const PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER = 26 * 4;
-
-/** Largest start number a Roman numeral can express in the classic form (MMMCMXCIX). */
-export const PAGE_LABEL_MAX_ROMAN_START_NUMBER = 3999;
-
-/** Largest start number the given style can format, for the admission boundary and its UI. */
-export function getPageLabelStartNumberMax(style: TDocumentPageLabelStyle): number {
-    if (style === 'A' || style === 'a') {
-        return PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER;
-    }
-    if (style === 'R' || style === 'r') {
-        return PAGE_LABEL_MAX_ROMAN_START_NUMBER;
-    }
-    return Number.MAX_SAFE_INTEGER;
-}
-
-function clampPageLabelStartNumber(style: TDocumentPageLabelStyle, startNumber: number) {
-    return clamp(startNumber, 1, getPageLabelStartNumberMax(style));
-}
+export {
+    getPageLabelStartNumberMax, PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER, PAGE_LABEL_MAX_ROMAN_START_NUMBER,
+} from '@contracts/pdfPageLabels';
 
 function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     if (style === null) {
@@ -80,79 +66,6 @@ function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     }
     return 'D';
 }
-function toRoman(number: number, lowerCase = false) {
-    if (number < 1) {
-        return '';
-    }
-    const numerals: Array<[number, string]> = [
-        [
-            1000,
-            'M',
-        ],
-        [
-            900,
-            'CM',
-        ],
-        [
-            500,
-            'D',
-        ],
-        [
-            400,
-            'CD',
-        ],
-        [
-            100,
-            'C',
-        ],
-        [
-            90,
-            'XC',
-        ],
-        [
-            50,
-            'L',
-        ],
-        [
-            40,
-            'XL',
-        ],
-        [
-            10,
-            'X',
-        ],
-        [
-            9,
-            'IX',
-        ],
-        [
-            5,
-            'V',
-        ],
-        [
-            4,
-            'IV',
-        ],
-        [
-            1,
-            'I',
-        ],
-    ];
-
-    let value = number;
-    let result = '';
-    for (const [
-        decimal,
-        roman,
-    ] of numerals) {
-        while (value >= decimal) {
-            result += roman;
-            value -= decimal;
-        }
-    }
-    return lowerCase ? result.toLowerCase() : result;
-}
-
 function parseRoman(value: string) {
     if (!/^[ivxlcdm]+$/i.test(value)) {
         return null;
@@ -180,19 +93,12 @@ function parseRoman(value: string) {
         return null;
     }
 
-    const canonical = toRoman(total, value === value.toLowerCase());
-    return canonical === value ? total : null;
-}
-
-function toAlphabetic(number: number, lowerCase = false) {
-    if (number < 1) {
-        return '';
-    }
-    const baseCode = lowerCase ? 0x61 : 0x41;
-    const letterIndex = (number - 1) % 26;
-    const repeatCount = Math.floor((number - 1) / 26) + 1;
-    const character = String.fromCharCode(baseCode + letterIndex);
-    return character.repeat(repeatCount);
+    return pageLabelMatchesText({
+        startPage: 1,
+        style: value === value.toLowerCase() ? 'r' : 'R',
+        prefix: '',
+        startNumber: total,
+    }, 0, value) ? total : null;
 }
 
 function parseAlphabetic(value: string) {
@@ -200,41 +106,12 @@ function parseAlphabetic(value: string) {
         return null;
     }
     const normalized = value.toLowerCase();
-    if (!/^([a-z])\1*$/.test(normalized)) {
+    if (normalized !== normalized.charAt(0).repeat(normalized.length)) {
         return null;
     }
-    const charCode = normalized.charCodeAt(0);
-    const offset = charCode - 0x61;
-    if (offset < 0 || offset > 25) {
-        return null;
-    }
+    const offset = normalized.charCodeAt(0) - 0x61;
     const repeatCount = normalized.length;
     return ((repeatCount - 1) * 26) + offset + 1;
-}
-
-function formatLabelValue(style: TDocumentPageLabelStyle, number: number) {
-    switch (style) {
-        case 'D':
-            return String(number);
-        case 'R':
-            return toRoman(number, false);
-        case 'r':
-            return toRoman(number, true);
-        case 'A':
-            return toAlphabetic(number, false);
-        case 'a':
-            return toAlphabetic(number, true);
-        case null:
-            return '';
-    }
-}
-
-function getLabelForOffset(range: IDocumentPageLabelRange, offset: number) {
-    if (range.style === null) {
-        return range.prefix;
-    }
-    const number = Math.max(1, range.startNumber + offset);
-    return range.prefix + formatLabelValue(range.style, number);
 }
 
 function findRangeIndexForPage(
@@ -270,67 +147,66 @@ function buildPageLabelSegmentsFromNormalizedRanges(
         ),
     }));
 }
-function createLiteralLabelCandidate(label: string): IDocumentPageLabelRange {
-    return {
-        startPage: 1,
-        style: null,
-        prefix: label,
-        startNumber: 1,
-    };
+/** A label prefix holding a line break was never inferred: the old `(.*?)` could not cross one. */
+const LINE_BREAK = /[\n\r\u2028\u2029]/u;
+/** Start of the longest trailing run of characters `inRun` accepts. A loop: a lazy regex overflows on a long label. */
+function trailingRunStart(label: string, inRun: (code: number) => boolean) {
+    let start = label.length;
+    while (start > 0 && inRun(label.charCodeAt(start - 1))) {
+        start -= 1;
+    }
+    return start;
 }
 function inferDecimalCandidate(label: string): IDocumentPageLabelRange | null {
-    const match = /^(.*?)(\d+)$/.exec(label);
-    if (!match) {
+    const start = trailingRunStart(label, code => code >= 0x30 && code <= 0x39);
+    if (start === label.length || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
 
     return {
         startPage: 1,
         style: 'D',
-        prefix: match[1] ?? '',
-        startNumber: toPositiveInt(match[2], 1),
+        prefix: label.slice(0, start),
+        startNumber: toPositiveInt(label.slice(start), 1),
     };
 }
 function inferRomanCandidate(label: string): IDocumentPageLabelRange | null {
-    const match = /^(.*?)([ivxlcdm]+)$/i.exec(label);
-    if (!match) {
-        return null;
-    }
-
-    const suffix = match[2] ?? '';
+    const start = trailingRunStart(label, code => 'ivxlcdm'.includes(String.fromCharCode(code | 0x20)));
+    const suffix = label.slice(start);
     const romanValue = parseRoman(suffix);
-    if (romanValue === null) {
+    if (romanValue === null || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
 
     return {
         startPage: 1,
         style: suffix === suffix.toLowerCase() ? 'r' : 'R',
-        prefix: match[1] ?? '',
+        prefix: label.slice(0, start),
         startNumber: romanValue,
     };
 }
 function inferAlphabeticCandidate(label: string): IDocumentPageLabelRange | null {
-    const match = /^(.*?)([A-Za-z]+)$/.exec(label);
-    if (!match) {
-        return null;
-    }
-
-    const suffix = match[2] ?? '';
+    const start = trailingRunStart(label, code => (code | 0x20) >= 0x61 && (code | 0x20) <= 0x7a);
+    const suffix = label.slice(start);
     const alphaValue = parseAlphabetic(suffix);
-    if (alphaValue === null) {
+    if (alphaValue === null || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
 
     return {
         startPage: 1,
         style: suffix === suffix.toLowerCase() ? 'a' : 'A',
-        prefix: match[1] ?? '',
+        prefix: label.slice(0, start),
         startNumber: alphaValue,
     };
 }
 function inferCandidates(label: string): [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] {
-    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [createLiteralLabelCandidate(label)];
+    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [{
+        startPage: 1,
+        style: null,
+        prefix: label,
+        startNumber: 1,
+    }];
     const parsedCandidates = [
         inferDecimalCandidate(label),
         inferRomanCandidate(label),
@@ -366,7 +242,7 @@ export function normalizePageLabelRanges(
         );
         const style = normalizeStyle(range.style);
         const prefix = typeof range.prefix === 'string' ? range.prefix : '';
-        const startNumber = clampPageLabelStartNumber(style, toPositiveInt(range.startNumber, 1));
+        const startNumber = toPositiveInt(range.startNumber, 1);
 
         deduped.set(startPage, {
             startPage,
@@ -480,7 +356,9 @@ function readPageLabelWindowFromNormalizedRanges(
             rangeIndex += 1;
             activeRange = ranges[rangeIndex] ?? activeRange;
         }
-        labels[page - bounds.startPage] = getLabelForOffset(activeRange, page - activeRange.startPage);
+        labels[page - bounds.startPage] = activeRange.style === null
+            ? activeRange.prefix
+            : formatPageLabelForDisplay(activeRange, page - activeRange.startPage);
     }
 
     return labels;
@@ -555,7 +433,7 @@ export function createPageLabelModel(
         }
         const range = normalizedRanges[findRangeIndexForPage(page, normalizedRanges)];
         return range
-            ? getLabelForOffset(range, page - range.startPage)
+            ? range.style === null ? range.prefix : formatPageLabelForDisplay(range, page - range.startPage)
             : String(page);
     };
 
@@ -582,21 +460,7 @@ export function getPageLabelAt(
     totalPages: number,
     ranges: readonly IDocumentPageLabelRange[],
 ): string | null {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
-    if (
-        !Number.isSafeInteger(page)
-        || page < 1
-        || page > normalizedTotalPages
-    ) {
-        return null;
-    }
-    const normalizedRanges = normalizePageLabelRanges(ranges, normalizedTotalPages);
-    const range = normalizedRanges[findRangeIndexForPage(page, normalizedRanges)];
-    return range
-        ? getLabelForOffset(range, page - range.startPage)
-        : String(page);
+    return createPageLabelModel(totalPages, ranges).labelAt(page);
 }
 function getRangeForPage(
     page: number,
@@ -665,7 +529,7 @@ export function replacePageLabelRange(
         startPage: normalizedTarget.startPage,
         style: normalizeStyle(replacement.style),
         prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
-        startNumber: toPositiveInt(replacement.startNumber, 1),
+        startNumber: admitPdfPageLabelStartNumber(normalizeStyle(replacement.style), toPositiveInt(replacement.startNumber, 1)),
     });
 
     if (normalizedTarget.endPage < normalizedTotalPages) {
@@ -735,9 +599,9 @@ export function applySparsePageLabelUpdates(
         if (page < 1 || page > totalPages) {
             continue;
         }
-        const currentModel = createPageLabelModel(totalPages, nextRanges);
+        const currentRange = getRangeForPage(page, nextRanges);
         const nextLabel = typeof update.label === 'string' ? update.label : '';
-        if (currentModel.labelAt(page) === nextLabel) {
+        if (pageLabelMatchesText(currentRange, page - currentRange.startPage, nextLabel)) {
             continue;
         }
         nextRanges = setPageLabelAt(totalPages, nextRanges, page, nextLabel);
@@ -764,8 +628,6 @@ export function countPageLabelDifferences(
 
     const before = normalizePageLabelRanges(beforeRanges, normalizedTotalPages);
     const after = normalizePageLabelRanges(afterRanges, normalizedTotalPages);
-    const beforeModel = createPageLabelModel(normalizedTotalPages, before);
-    const afterModel = createPageLabelModel(normalizedTotalPages, after);
     const boundaries = new Set<number>([
         1,
         normalizedTotalPages + 1,
@@ -791,17 +653,18 @@ export function countPageLabelDifferences(
             continue;
         }
 
+        const beforeRange = getRangeForPage(startPage, before);
+        const afterRange = getRangeForPage(startPage, after);
+        if (pageLabelFormulasMatch(beforeRange, afterRange)) {
+            continue;
+        }
         if (pageCount > EXACT_INTERVAL_SCAN_LIMIT) {
-            const beforeRange = getRangeForPage(startPage, before);
-            const afterRange = getRangeForPage(startPage, after);
-            if (!pageLabelFormulasMatch(beforeRange, afterRange)) {
-                changed += pageCount;
-            }
+            changed += pageCount;
             continue;
         }
 
         for (let page = startPage; page <= endPage; page += 1) {
-            if (beforeModel.labelAt(page) !== afterModel.labelAt(page)) {
+            if (!pageLabelValuesMatch(beforeRange, page - beforeRange.startPage, afterRange, page - afterRange.startPage)) {
                 changed += 1;
             }
         }
@@ -856,7 +719,7 @@ export function buildWholeDocumentPageLabelRanges(
         startPage: 1,
         style: options.style,
         prefix: options.prefix,
-        startNumber: options.startNumber,
+        startNumber: admitPdfPageLabelStartNumber(options.style, toPositiveInt(options.startNumber, 1)),
     }], totalPages);
 }
 
@@ -892,8 +755,7 @@ export function derivePageLabelRangesFromLabels(
             let length = 1;
             while (pageIndex + length < totalPages) {
                 const actual = pageLabels[pageIndex + length] ?? '';
-                const expected = getLabelForOffset(candidate, length);
-                if (actual !== expected) {
+                if (!pageLabelMatchesText(candidate, length, actual)) {
                     break;
                 }
                 length += 1;
@@ -964,13 +826,82 @@ function findPageByLabelInModel(
         }
         const page = segment.startPage + number - segment.startNumber;
         if (page >= segment.startPage && page <= segment.endPage) {
-            const actual = model.labelAt(page);
-            if (actual === input || actual?.toLowerCase() === candidate) {
+            if (pageLabelMatchesText(segment, page - segment.startPage, input, caseInsensitive)) {
                 return page;
             }
         }
     }
     return null;
+}
+
+/** Shortened text is a target only when exactly one physical page displays it. */
+function findPageByPresentedLabel(input: string, labels: Exclude<TDocumentPageLabelLookup, null>, folded = false): number | null {
+    const candidate = folded ? input.toLowerCase() : input;
+    let match: number | null = null;
+    const matches = (text: string) => (folded ? text.toLowerCase() : text) === candidate;
+    if (isPageLabelArray(labels)) {
+        for (let index = 0; index < labels.length; index += 1) {
+            if (matches(formatPageLabelForDisplay(labels[index] ?? ''))) {
+                if (match !== null) {
+                    return null;
+                }
+                match = index + 1;
+            }
+        }
+        return match;
+    }
+    for (const segment of labels.segments) {
+        function* candidates() {
+            if (segment.style === null) {
+                yield segment.startPage;
+                yield segment.startPage + 1;
+                return;
+            }
+            const suffix = input.slice(input.lastIndexOf('…') + 1);
+            const number = parseSegmentNumber(segment.style, folded ? suffix.toLowerCase() : suffix);
+            if (number !== null) {
+                yield segment.startPage + number - segment.startNumber;
+            }
+            if (!input.endsWith('…')) {
+                return;
+            }
+            if (segment.style === 'A' || segment.style === 'a') {
+                // Once the repeated letters fill the head, every later cycle has that same view.
+                for (let residue = 0; residue < 26; residue += 1) {
+                    const firstNumber = Math.max(26 * 32 + residue + 1,
+                        segment.startNumber + (residue - (segment.startNumber - 1) % 26 + 26) % 26);
+                    for (let step = 0; step <= 65; step += 1) {
+                        yield segment.startPage + firstNumber + step * 26 - segment.startNumber;
+                    }
+                }
+            } else if (segment.style === 'R' || segment.style === 'r') {
+                // Roman remainder repeats every thousand; the head stabilizes within 65 thousands.
+                for (let remainder = 0; remainder < 1000; remainder += 1) {
+                    const suffixLength = remainder === 0 ? 0
+                        : getLabelForOffset({
+                            ...segment,
+                            prefix: '',
+                            startNumber: remainder,
+                        }, 0).length;
+                    const thousands = Math.max(0, 33 - suffixLength, Math.ceil((segment.startNumber - remainder) / 1000));
+                    for (let step = 0; step <= 65; step += 1) {
+                        yield segment.startPage + (thousands + step) * 1000 + remainder - segment.startNumber;
+                    }
+                }
+            }
+        }
+        for (const page of candidates()) {
+            if (page < segment.startPage || page > segment.endPage
+                || !matches(formatPageLabelForDisplay(segment, page - segment.startPage))) {
+                continue;
+            }
+            if (match !== null && match !== page) {
+                return null;
+            }
+            match = page;
+        }
+    }
+    return match;
 }
 
 export function findPageByPageLabelInput(input: string, totalPages: number, pageLabels: TDocumentPageLabelLookup) {
@@ -1000,6 +931,14 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
         const caseInsensitiveModelPage = findPageByLabelInModel(trimmed, pageLabels, true);
         if (caseInsensitiveModelPage !== null) {
             return caseInsensitiveModelPage;
+        }
+    }
+
+    if (pageLabels && trimmed.includes('…')) {
+        const displayed = findPageByPresentedLabel(trimmed, pageLabels)
+            ?? findPageByPresentedLabel(trimmed, pageLabels, true);
+        if (displayed !== null) {
+            return displayed;
         }
     }
 

@@ -58,6 +58,8 @@ function createCapability() {
 }
 
 async function runUnderCapFlow() {
+    const previousPicker = Reflect.get(window, 'showSaveFilePicker');
+    Reflect.set(window, 'showSaveFilePicker', undefined);
     const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
         'browser-annotation-acceptance.pdf',
         await createAnnotatedFixture(),
@@ -119,8 +121,9 @@ async function runUnderCapFlow() {
             throw new Error('Browser annotation acceptance save did not commit the canonical writer result');
         }
 
-        const reopenedRevision = await browserDocumentStore.getDocumentRevision(workingPath);
-        const parsedAfter = await capability.parsePdfAnnotations(workingPath, {expectedDocumentRevisionToken: reopenedRevision.token});
+        browserDocumentStore.unload(sourcePath);
+        const reopenedRevision = await browserDocumentStore.getDocumentRevision(sourcePath);
+        const parsedAfter = await capability.parsePdfAnnotations(sourcePath, {expectedDocumentRevisionToken: reopenedRevision.token});
         const reopenedNote = parsedAfter.entities.find(entity => entity.kind === 'note');
         return {
             openedWithAnnotations: note.contents === 'до Привет café',
@@ -134,6 +137,7 @@ async function runUnderCapFlow() {
             await browserDocumentStore.remove(workingPath).catch(() => undefined);
         }
         await browserDocumentStore.remove(sourcePath).catch(() => undefined);
+        Reflect.set(window, 'showSaveFilePicker', previousPicker);
     }
 }
 
@@ -206,21 +210,7 @@ Reflect.set(globalThis, '__evbRunBrowserAnnotationSaveAcceptance', runAcceptance
 
 // The existing browser lane drives this button with trusted input and observes
 // long tasks, rather than asserting worker messages or private call sequences.
-async function preparePrintResponsivenessAcceptance() {
-    const pdf = await PDFDocument.create();
-    pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
-    pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
-    for (let index = 0; index < 4_000; index += 1) {
-        pdf.addPage([
-            200,
-            100,
-        ]).drawText(`Page ${index + 1}`, {
-            x: 10,
-            y: 30,
-            size: 12,
-        });
-    }
-    const input = new Uint8Array(await pdf.save());
+async function preparePrintResponsivenessAcceptance(input: Uint8Array) {
     const button = document.createElement('button');
     button.textContent = 'Prepare facing print';
     document.body.append(button);

@@ -34,6 +34,7 @@ await import('@electron/features/djvu/main/djvuPageSourceInfoCache');
 
 const mocks = vi.hoisted(() => {
     const app = { getPath: vi.fn() };
+    const settings = {rememberDocumentView: true};
     const logger = {
         debug: vi.fn(),
         error: vi.fn(),
@@ -49,6 +50,7 @@ const mocks = vi.hoisted(() => {
     });
     return {
         app,
+        settings,
         logger,
         resetStat: () => {
             stat.mockImplementation((...args: unknown[]) => {
@@ -65,6 +67,7 @@ const mocks = vi.hoisted(() => {
     };
 });
 
+vi.mock('@electron/settings', () => ({loadSettings: async () => mocks.settings}));
 vi.mock('electron', () => ({ app: mocks.app }));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
 vi.mock('fs/promises', async (importOriginal) => {
@@ -88,10 +91,12 @@ describe('recentFiles persistence', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.settings.rememberDocumentView = true;
         delete process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE;
         mocks.resetStat();
         appDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-app-data-'));
         userDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-'));
+        vi.stubEnv('EVB_APP_STATE_DIR', userDataDir);
         vi.stubEnv('TMPDIR', userDataDir);
         vi.stubEnv('TEMP', userDataDir);
         vi.stubEnv('TMP', userDataDir);
@@ -265,19 +270,23 @@ describe('recentFiles persistence', () => {
             };
         }
 
-        it('reopens unchanged bytes at the remembered view and keeps it off the list', async () => {
+        it('records a closed view while restoration is off, then restores it after opting in', async () => {
             const originalPath = writeFixture('reading.pdf', 'reading bytes');
             const {
                 recentFiles, readingViews, workingCopyStore,
             } = await load();
             const firstOpen = await openWorkingCopy(originalPath, 'first');
             await recentFiles.addRecentFile(firstOpen, 42);
+            mocks.settings.rememberDocumentView = false;
             await readingViews.rememberRecentReadingView(firstOpen, readingView, 42);
             workingCopyStore.clearWorkingCopyOriginalPaths();
 
             const reopened = await openWorkingCopy(originalPath, 'second');
             await recentFiles.addRecentFile(reopened, 42);
 
+            expect(await readingViews.getRecentReadingView(reopened, 42)).toBeNull();
+            expect(storedReadingViews()).toEqual([expect.objectContaining(readingView)]);
+            mocks.settings.rememberDocumentView = true;
             expect(await readingViews.getRecentReadingView(reopened, 42)).toEqual(readingView);
             expect(await readingViews.getRecentReadingView(reopened, 7)).toBeNull();
             expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);

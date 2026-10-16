@@ -138,6 +138,7 @@ import {
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
+import { forgetKeptOriginal } from '@electron/file-access/keptOriginalNotices';
 import { discardOcrResultsForDocument } from '@electron/features/ocr/public/index';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
@@ -440,6 +441,7 @@ export const documentsMainBindings = {
         handleOpenPdfDirectBatch(context, filePaths, requestId, batchOptions),
     cancelOpenDocumentDirectBatch: (context, requestId) =>
         handleCancelOpenDocumentDirectBatch(context, requestId),
+    forgetKeptOriginal: originalPath => forgetKeptOriginal(originalPath).then(() => undefined),
     createWorkingCopyFromData: (context, fileName, data, originalPath?, password?) =>
         handleCreateWorkingCopyFromData(context, fileName, data, originalPath, password)
             .then(result => requireDocumentRef(result)),

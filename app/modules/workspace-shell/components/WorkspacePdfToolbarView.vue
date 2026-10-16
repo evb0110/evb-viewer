@@ -145,7 +145,6 @@
                 :disabled="toolbarControlsDisabled"
                 :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
                 :compact-level="compactLevel"
-                @update:effective-zoom="handleEffectiveZoomUpdate"
                 @update:open="handleZoomDropdownOpenUpdate"
                 @fit-width="handleFitWidth"
                 @fit-height="handleFitHeight"
@@ -378,7 +377,6 @@ const emit = defineEmits<{
     'update:overflowMenuOpen': [open: boolean];
     'update:appMenuOpen': [open: boolean];
     'update:zoom': [zoom: number];
-    'update:effectiveZoom': [zoom: number];
     'update:zoomMode': [mode: TZoomMode];
     'update:fitMode': [mode: TFitMode];
     'update:viewMode': [mode: TPdfViewMode];
@@ -474,10 +472,7 @@ const zoom = computed({
     get: () => snapshot.zoom,
     set: value => emit('update:zoom', value),
 });
-const effectiveZoom = computed({
-    get: () => snapshot.effectiveZoom,
-    set: value => emit('update:effectiveZoom', value),
-});
+const effectiveZoom = computed(() => snapshot.effectiveZoom);
 const zoomMode = computed({
     get: () => snapshot.zoomMode,
     set: value => emit('update:zoomMode', value),
@@ -523,10 +518,6 @@ function handleOverflowMenuOpenUpdate(open: boolean) {
 
 function handleAppMenuOpenUpdate(open: boolean) {
     emit('update:appMenuOpen', open);
-}
-
-function handleEffectiveZoomUpdate(zoom: number) {
-    emit('update:effectiveZoom', zoom);
 }
 
 function handleOpenFile() {

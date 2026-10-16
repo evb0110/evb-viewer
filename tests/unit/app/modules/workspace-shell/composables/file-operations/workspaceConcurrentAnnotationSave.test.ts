@@ -1,3 +1,4 @@
+import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import {
     afterEach,
     describe,
@@ -57,6 +58,67 @@ describe('concurrent canonical edits during workspace save', () => {
     afterEach(() => vi.restoreAllMocks());
 
     it.each([
+        'save',
+        'save-as',
+    ] as const)('retains accepted note text and deletion when the native writer fails during %s', async (mode) => {
+        const application = new AnnotationApplication('failed-native-save');
+        const edited = savedNote();
+        const deleted = {
+            ...savedNote(),
+            identity: {
+                id: asAnnotationId('deleted-note'),
+                pdfRef: '13R',
+            },
+        };
+        application.store.replaceFromDocument([
+            edited,
+            deleted,
+        ], []);
+        application.store.updateNote(edited.identity.id, {contents: 'accepted unsaved text'});
+        application.store.delete(deleted.identity.id);
+        const {
+            deps, saveFile,
+        } = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => application.store.hasChangesSinceSavedBaseline(),
+            trySavePdfNativeMutations: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => deps.documentRevisionToken.value),
+        });
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        const service = useWorkspaceSaveServiceForTest(deps);
+        await expect(mode === 'save' ? service.handleSave() : service.handleSaveAs()).resolves.toBe(false);
+        expect(deps.trySavePdfNativeMutations).toHaveBeenCalledWith(expect.objectContaining({
+            updates: [expect.objectContaining({text: 'accepted unsaved text'})],
+            deletes: [expect.objectContaining({objectNumber: 13})],
+        }), expect.anything());
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(service.hasSaveFailure.value).toBe(true);
+        expect(application.store.get(edited.identity.id)).toMatchObject({
+            contents: 'accepted unsaved text',
+            persistedRevision: 0,
+        });
+        expect(application.store.get(deleted.identity.id)).toMatchObject({
+            deleted: true,
+            persistedRevision: 0,
+        });
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+    });
+
+    it.each([
         {
             mode: 'save',
             capturedEdit: false,
@@ -95,7 +157,6 @@ describe('concurrent canonical edits during workspace save', () => {
             getAnnotationSaveStateToken: () => application.store.mutationEpoch,
             trySavePdfNativeMutations: vi.fn(),
         });
-        const acknowledgement = vi.spyOn(application, 'acknowledgeSave');
         const transaction = usePdfViewerSaveTransaction({
             getPdfDocument: () => deps.pdfDocument.value,
             annotationApplication: shallowRef(application),
@@ -114,6 +175,12 @@ describe('concurrent canonical edits during workspace save', () => {
                 didSaveAs: mode === 'save-as',
             };
         }
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async () => ({
+            documentRevisionToken: revision.value,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        }));
         deps.trySavePdfNativeMutations = vi.fn(publishCapturedBytes);
         deps.saveWorkingCopy = vi.fn(publishCapturedBytes);
         deps.saveWorkingCopyAs = vi.fn(publishCapturedBytes);
@@ -123,15 +190,11 @@ describe('concurrent canonical edits during workspace save', () => {
 
         application.store.updateNote(note.identity.id, {contents: 'newer unsaved text'});
         finishPersistence.resolve(undefined);
-        await expect(saving).resolves.toBe(false);
+        await expect(saving).resolves.toBe(true);
 
-        expect(acknowledgement).toHaveBeenCalledOnce();
-        expect(acknowledgement.mock.results[0]?.type).toBe('throw');
-        expect(acknowledgement.mock.results[0]?.value).toMatchObject({message: expect.stringContaining('staleRevisionError')});
-        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
         expect(application.store.get(note.identity.id)).toMatchObject({
             contents: 'newer unsaved text',
-            persistedRevision: 0,
+            persistedRevision: capturedEdit ? 1 : 0,
         });
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(application.store.undo()).toBe(true);
@@ -140,7 +203,7 @@ describe('concurrent canonical edits during workspace save', () => {
             expect(application.store.undo()).toBe(true);
         }
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'saved text'});
-        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(capturedEdit);
         expect(application.store.redo()).toBe(true);
         if (capturedEdit) expect(application.store.redo()).toBe(true);
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'newer unsaved text'});

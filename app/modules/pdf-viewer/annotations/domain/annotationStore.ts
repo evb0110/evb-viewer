@@ -22,6 +22,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     buildTextMarkupSelectionPlan,
+    isReadOnlyAnnotation,
     normalizeAnnotationText,
     remapSavedSemanticFingerprint,
     saveFrontierEntityBaseline,
@@ -286,7 +287,7 @@ export class AnnotationStore {
     readonly #identities = new ExternalIdentityIndex();
     readonly #listeners = new Set<TListener>();
     readonly #history: IAnnotationHistoryAuthority;
-    readonly #saveFrontiers = new WeakMap<IAnnotationSaveFrontier, true>();
+    readonly #saveFrontiers = new WeakMap<IAnnotationSaveFrontier, ReadonlyMap<AnnotationId, ISavedSemanticEntry>>();
     readonly #persistenceIdentities = new AnnotationPersistenceIdentityLedger();
     readonly #retainedHistoryTargets = new Map<AnnotationId, number>();
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
@@ -909,7 +910,7 @@ export class AnnotationStore {
                 entity.revision,
             ])),
         };
-        this.#saveFrontiers.set(frontier, true);
+        this.#saveFrontiers.set(frontier, semanticSnapshot(entities));
         return frontier;
     }
 
@@ -922,7 +923,10 @@ export class AnnotationStore {
         bindings: readonly IPdfNativeAnnotationIdentityBinding[] = [],
         currentDocumentRevisionToken: TDocumentRevisionToken | null = frontier.documentRevisionToken,
     ) {
-        this.assertSaveFrontierCurrent(frontier, currentDocumentRevisionToken);
+        const saved = this.#saveFrontiers.get(frontier);
+        if (!saved || frontier.documentRevisionToken !== currentDocumentRevisionToken) {
+            throw new Error('staleRevisionError: document revision changed or annotation save frontier lost its authority');
+        }
         const bindingAliasToId = new Map<string, AnnotationId | null>();
         frontier.revisions.forEach((_revision, id) => {
             const entity = this.#entities.get(id);
@@ -931,11 +935,7 @@ export class AnnotationStore {
             }
             nativeBindingAliasesForEntity(entity).forEach((alias) => {
                 const existing = bindingAliasToId.get(alias);
-                if (existing !== undefined && existing !== id) {
-                    bindingAliasToId.set(alias, null);
-                    return;
-                }
-                bindingAliasToId.set(alias, id);
+                bindingAliasToId.set(alias, existing !== undefined && existing !== id ? null : id);
             });
         });
         const bindingById = new Map<AnnotationId, string>();
@@ -957,10 +957,10 @@ export class AnnotationStore {
         const updates: IHistoryEntry[] = [];
         frontier.revisions.forEach((revision, id) => {
             const entity = this.#entities.get(id);
-            if (!entity || entity.revision !== revision) {
+            if (!entity) {
                 return;
             }
-            const nextIdentity = entity.deleted
+            const nextIdentity = saved.get(id)?.deleted
                 ? identityWithPdfRef(entity.identity, undefined)
                 : identityWithPdfRef(
                     entity.identity,
@@ -977,8 +977,8 @@ export class AnnotationStore {
             });
         });
         this.#replaceEntities(updates);
-        this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
-        this.#persistenceIdentities.clear();
+        this.#savedSemanticSnapshot = new Map(saved);
+        frontier.revisions.forEach((_revision, id) => this.#persistenceIdentities.forget(id));
         this.#saveFrontiers.delete(frontier);
         this.#pruneUnretainedSavedDeletions();
         if (updates.length) {
@@ -1091,8 +1091,8 @@ export class AnnotationStore {
         update: (entity: T) => T,
     ): T {
         const before = this.#require(id);
-        if (before.deleted) {
-            throw new Error(`Annotation ${id} is deleted`);
+        if (before.deleted || isReadOnlyAnnotation(before)) {
+            throw new Error(`Annotation ${id} is ${before.deleted ? 'deleted' : 'read-only'}`);
         }
         if (expectedKind !== undefined && before.kind !== expectedKind) {
             throw new Error(`Expected a ${expectedKind} annotation, received ${before.kind}`);

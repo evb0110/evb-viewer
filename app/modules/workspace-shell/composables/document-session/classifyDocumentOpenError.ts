@@ -23,6 +23,9 @@ export function classifyDocumentOpenError(
         return t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')});
     }
     if (openError) {
+        if (openError.code === 'djvu-components-required') {
+            return t('errors.file.djvuComponentsRequired');
+        }
         return t(openError.code === 'source-changed' ? 'errors.file.changedWhileOpening' : openError.code === 'djvu-raster-limit' ? 'errors.file.djvuRasterLimit' : openError.code === 'empty-pdf' ? 'errors.file.emptyPdf' : 'errors.file.invalid');
     }
     return t(findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large' ? 'errors.file.encryptedTooLarge' : 'errors.file.openDescription');

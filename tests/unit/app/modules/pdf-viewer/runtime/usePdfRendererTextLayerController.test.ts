@@ -120,11 +120,11 @@ function createHarness() {
             textLayerCleanupFns.get(pageNumber)?.();
             textLayerCleanupFns.delete(pageNumber);
         },
-        cleanupPageIfCurrentRender: vi.fn(),
         cancelActiveTextLayerRender: vi.fn(),
         cancelActiveTextLayerRenderIfCurrent: vi.fn(),
         clearSelectionBeforePageLayerTeardown: (pageNumber) => {
             clearedSelectionPages.push(pageNumber);
+            window.getSelection()?.removeAllRanges();
             return true;
         },
         logNonCriticalStageError: vi.fn(),
@@ -133,7 +133,7 @@ function createHarness() {
     const harness = {
         clearedSelectionPages,
         contentKey: 'revision-1',
-        renderAtScale: (scale: number) => renderTextLayerForPage(
+        renderAtScale: (scale: number, publish = () => true) => renderTextLayerForPage(
             requirePageNumber(1),
             1,
             1,
@@ -159,7 +159,10 @@ function createHarness() {
             },
             scale,
             () => true,
+            publish,
         ),
+        container,
+        textLayerDiv,
         teardownInteraction,
         setupTextLayerInteraction,
         cleanupTextLayerDom,
@@ -186,6 +189,26 @@ describe('usePdfRendererTextLayerController', () => {
         expect(harness.clearedSelectionPages).toEqual([1]);
         expect(harness.teardownInteraction).not.toHaveBeenCalled();
         expect(harness.textLayerCleanupFns.get(requirePageNumber(1))).toBe(interactionAfterFirstRender);
+    });
+
+    it('keeps outgoing selection when replacement publication is refused', async () => {
+        const harness = createHarness();
+        document.body.append(harness.container);
+        try {
+            await harness.renderAtScale(1);
+            harness.textLayerDiv.textContent = 'Outgoing selectable line';
+            const range = document.createRange();
+            range.selectNodeContents(harness.textLayerDiv);
+            window.getSelection()?.addRange(range);
+            harness.contentKey = 'revision-2';
+
+            expect(await harness.renderAtScale(1, () => false)).toBe(false);
+            expect(harness.textLayerDiv.textContent).toBe('Outgoing selectable line');
+            expect(window.getSelection()?.toString()).toBe('Outgoing selectable line');
+        } finally {
+            window.getSelection()?.removeAllRanges();
+            harness.container.remove();
+        }
     });
 
     it('tears the selection and the interaction down when the layer content is rebuilt', async () => {
@@ -270,7 +293,6 @@ describe('usePdfRendererTextLayerController', () => {
             textLayerCleanupFns: new Map<TPageNumber, TPdfTextLayerCleanup>(),
             getRenderVersion: () => 1,
             cleanupTextLayer: vi.fn(),
-            cleanupPageIfCurrentRender: vi.fn(),
             cancelActiveTextLayerRender,
             cancelActiveTextLayerRenderIfCurrent: vi.fn(),
             clearSelectionBeforePageLayerTeardown: () => true,
@@ -308,7 +330,6 @@ describe('usePdfRendererTextLayerController', () => {
                     totalScaleFactor: scale,
                 }),
                 textLayerDiv,
-                preserveCanvasOnStale: true,
             },
             scale,
             () => true,

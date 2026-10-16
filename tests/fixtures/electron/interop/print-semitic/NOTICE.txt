@@ -1,0 +1,59 @@
+Public generated FreeText printing fixtures for NP-06 (#1366).
+semitic.pdf embeds partial DejaVu Sans and Noto Sans Syriac programs and leaves
+Hebrew unresourced. reference.pdf paints complete Arabic/Syriac/Hebrew sequences
+as plain page content independently shaped by HarfBuzz (uharfbuzz 0.56.3).
+harfbuzz.json records its glyph IDs, font hashes and PDF positions.
+
+DejaVu Sans 2.37: Bitstream Vera license; DejaVu changes public domain.
+License: public/fonts/annotation/LICENSE.txt.
+Noto Sans Syriac Regular: copyright 2018 Google Inc., SIL OFL 1.1.
+License: public/fonts/annotation/NotoSansSyriac-OFL.txt.
+Noto Sans Hebrew Regular 3.001: copyright 2022 The Noto Project Authors
+(https://github.com/notofonts/hebrew), SIL OFL 1.1.
+License: public/fonts/annotation/NotoSansHebrew-OFL.txt.
+
+The input reproduces partial font joining, pointed/cantillated Hebrew, and
+red DA border/green background around a padded text area. Reference
+coordinates use a 32-point font, 0.3-em insets and DejaVu's shared baseline.
+Each paragraph takes the direction of its first strong character, as EVB shows,
+saves and prints it: RTL lines end 0.3 em inside the right edge. They were moved
+there from the left inset by the content width less the line's advance, read from
+the embedded programs' hmtx, and a line-final "." took the RTL paragraph's left end
+(realign_rtl_references.py, semtext round 8). Glyph IDs and relative HarfBuzz
+positions are unchanged.
+Font byte hashes and expected positions are recorded, not inferred from EVB.
+In hebrew-reference.pdf, the spaces between Hebrew words advance with DejaVu Sans,
+the face that claims shared characters on screen and in the native layout.
+
+The embedded programs, partial ones included, are GID-stable subsets of the source
+fonts above, made with fontTools 4.66.1 and retain-gids. Each keeps the glyph count,
+every advance and side bearing, the name records, and the OS/2, hhea, maxp and hinting
+tables, so every glyph ID keeps its meaning. Each font's /W array keeps the widths of
+its retained glyph IDs only. Outlines remain for the glyphs a file draws, for the glyph
+IDs in harfbuzz.json (reference.pdf), and for the text of its annotations (reference.pdf:
+the harfbuzz.json texts), closed under GSUB. Cmap mappings remain for every retained
+glyph, so partial programs keep their single mapping (U+0628 in Source0 and Font0,
+U+0712 in Source1 and Font1). Other outlines are emptied and PostScript glyph names are
+dropped. DSIG signatures are removed, and kern or GDEF tables without entries are
+removed. The hashes in harfbuzz.json are those of public/fonts and are unchanged; the
+embedded programs have their own hashes.
+
+hebrew.pdf and hebrew-reference.pdf test the pointed/cantillated example and
+every U+0591-U+05AF mark attached separately to Beth. All five lines use the
+same independently shaped Noto Sans Hebrew positions. The mixed-script source
+uses one multiline annotation, plus a separate collapsed-color annotation.
+
+The border reference uses mitred joins, PDF's default, as the producers'
+frames and EVB's label frames do since semtext round 9; the regression
+concerns its DA color and background. Its text, "ABC", lies inside the border:
+a 140 x 60 pt box with 0.3 em side padding, at the DA's 20 pt in red, shaped
+independently with HarfBuzz in DejaVu Sans and drawn from a GID-stable subset
+of that font keeping A, B and C (add_collapsed_text.py, semtext round 9).
+reference.pdf is written whole, holding only its live page content: each ABC
+glyph is drawn with "<gid> Tj", and the page content that round 8's
+realignment replaced is gone, so the Auto print test, which lists the glyph
+codes of every stream in the file, reads the page once (normalize_reference.py,
+semtext round 10). Its rendered pixels are unchanged.
+The fourth line, a TAB b, uses independent four-space DejaVu tab placement.
+This guards against reading a preferred/partial font's space advance in the
+units of another font that actually paints the text.

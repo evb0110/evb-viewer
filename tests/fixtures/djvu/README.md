@@ -14,3 +14,11 @@ corrupt fixture by the contract tests.
 
 `sources/browser-boundary-501-pages.djvu` is also the required default Electron
 E2E viewer fixture, keeping DjVu smoke lanes independent of host generator tools.
+
+`search/regex-budget-text-layer.djvu` is not part of the corpus. It is
+`sources/bitonal-faint-pencil.djvu` with page 1's text layer set to 12,000
+`a` characters and a final `!`: `djvused -e 'select 1; set-txt FILE' -s` with
+FILE holding `(page 0 0 512 512 "…")`. The browser DjVu search budget case
+opens it and searches `a+.a+$`, which Chromium evaluates in quadratic time on
+this text, to show that a catastrophic regular expression stops with the
+budget error.

@@ -1,3 +1,4 @@
+import {createBrowserWorkingCopyFromBytes} from '@app/platform/browser-api/browserWorkingCopyService';
 // fallow-ignore-file unused-file -- bundled by browserDocumentLiveLeaseAcceptance.test.ts for Chromium.
 
 import {
@@ -7,19 +8,18 @@ import {
 import {
     loadAllRecordKeysAvailability,
     loadRecordAvailability,
-    runObjectStoresTransaction,loadBrowserTransferAuthority,
+    runObjectStoresTransaction,loadBrowserTransferAuthority,mutateBrowserTransferAuthority,
 } from '@app/platform/browser/browserDocumentIdb';
 import {loadAllChunkKeysAvailability} from '@app/platform/browser/browserDocumentChunks';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
-import {
-    createBrowserDocumentLiveLease,
-    releaseBrowserDocumentLiveLease,
-    saveBrowserDocumentLiveLease,
-    setBrowserDocumentLiveLeaseSuspended,
-} from '@app/platform/browser/browserDocumentLeaseStore';
+import {saveBrowserDocumentLiveLease} from '@app/platform/browser/browserDocumentLeaseStore';
 import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {writeRecentFilesToStorage} from '@app/platform/browser/browserRecentFilesStore';
-import {browserWindowTabsCapability} from '@app/platform/browserWindowTabs';
+import {
+    browserWindowTabsCapability, publishBrowserDocumentLiveLeases,
+} from '@app/platform/browserWindowTabs';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const OWNER_ID = 'window:482-live-lease';
 const INLINE_BYTES = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
@@ -112,7 +112,7 @@ async function inspectRefs(refs: string[]) {
 
 async function setupLiveLeaseAcceptance() {
     writeRecentFilesToStorage([]);
-    const created = await createBrowserDocumentLiveLease(OWNER_ID);
+    const created = await saveBrowserDocumentLiveLease(OWNER_ID, 0, 'active', []);
     const inlineSource = await browserDocumentStore.createStoredDocument(
         'live-lease-inline.pdf',
         INLINE_BYTES,
@@ -185,10 +185,10 @@ async function suspendLiveLeaseAcceptance() {
     if (ownerGeneration === null || !liveRefs) {
         throw new Error('Live lease acceptance was not initialized');
     }
-    const suspended = await setBrowserDocumentLiveLeaseSuspended(
+    const suspended = await saveBrowserDocumentLiveLease(
         OWNER_ID,
         ownerGeneration,
-        true,
+        'suspended',
         [
             {ref: liveRefs.inlineSource},
             {ref: liveRefs.chunkedSource},
@@ -207,10 +207,10 @@ async function resumeLiveLeaseAcceptance() {
     if (ownerGeneration === null || !liveRefs) {
         throw new Error('Live lease acceptance was not initialized');
     }
-    const resumed = await setBrowserDocumentLiveLeaseSuspended(
+    const resumed = await saveBrowserDocumentLiveLease(
         OWNER_ID,
         ownerGeneration,
-        false,
+        'active',
         [
             {ref: liveRefs.inlineSource},
             {ref: liveRefs.chunkedSource},
@@ -285,7 +285,7 @@ async function reclaimAfterConfirmedDeath() {
     if (ownerGeneration === null || !liveRefs) {
         throw new Error('Live lease acceptance was not initialized');
     }
-    const released = await releaseBrowserDocumentLiveLease(OWNER_ID, ownerGeneration);
+    const released = await saveBrowserDocumentLiveLease(OWNER_ID, ownerGeneration, 'dead', []);
     ownerGeneration = released.generation;
     const originalDateNow = Date.now;
     Date.now = () => originalDateNow() + 11 * 60 * 1_000;
@@ -348,6 +348,10 @@ function prepareDirtyTransferReceiver() {
             if (pending?.state !== 'pending') {
                 throw new Error('Dirty transfer was editable before durable acknowledgement');
             }
+            await publishBrowserDocumentLiveLeases(undefined, [
+                requireDocumentRef(transfer.payload.originalPath!),
+                requireDocumentRef(transfer.payload.snapshotPath),
+            ]);
             const committed = await browserWindowTabsCapability.transferAck({
                 transferId: transfer.transferId,
                 success: true,
@@ -383,16 +387,11 @@ async function transferDirtyTab() {
         },
     );
     const editedBytes = Uint8Array.of(90, 91, 92, 93);
-    const snapshotPath = await browserDocumentStore.createStoredDocument(
-        'transfer-dirty.pdf',
-        editedBytes,
-        {
-            kind: 'working',
-            retention: 'durable',
-            mimeType: 'application/pdf',
-            sourceRef: originalPath,
-        },
-    );
+    const snapshotPath = await createBrowserWorkingCopyFromBytes({
+        fileName: 'transfer-dirty.pdf',
+        data: editedBytes,
+        sourceRef: originalPath,
+    });
     browserWindowTabsCapability.notifyRendererReady();
     const result = await browserWindowTabsCapability.transfer({
         target: {
@@ -461,3 +460,54 @@ Reflect.set(globalThis, '__evbReadDirtyTransferObservation', readDirtyTransferOb
 Reflect.set(globalThis, '__evbWaitForDirtyTransferCommit', waitForDirtyTransferCommit);
 
 Reflect.set(globalThis, '__evbCleanupDetachedLiveLeaseDocument', (ref: string) => browserDocumentStore.cleanupDetachedDocument(ref));
+
+async function cleanOpenDocument() {
+    const source = await browserDocumentStore.createStoredDocument('clean-open.pdf', GENERATED_BYTES, {
+        kind: 'source',
+        retention: 'durable',
+        mimeType: 'application/pdf',
+    });
+    const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+    const recovery = browserWindowTabsCapability.browserRecovery!;
+    const ownerId = recovery.getOwnerId()!;
+    const saved = await recovery.save(ownerId, 0, {
+        version: 1,
+        capturedAt: requireEpochMs(Date.now()),
+        activePaneId: null,
+        activeTabId: null,
+        layout: null,
+        panes: [],
+        tabs: [],
+    }, [], [
+        source,
+        working,
+    ]);
+    await recovery.clear(ownerId, saved.generation);
+    return {
+        source,
+        working,
+        bytes: Array.from(await browserDocumentStore.read(working)),
+    };
+}
+Reflect.set(globalThis, '__evbCleanOpenDocument', cleanOpenDocument);
+Reflect.set(globalThis, '__evbPublishOpenDocument', (refs: string) => publishBrowserDocumentLiveLeases(
+    undefined, (JSON.parse(refs) as string[]).map(ref => requireDocumentRef(ref)),
+).then(() => true));
+Reflect.set(globalThis, '__evbCloseCleanSource', () => publishBrowserDocumentLiveLeases(undefined, []).then(() => true));
+Reflect.set(globalThis, '__evbCloseCleanTarget', () => publishBrowserDocumentLiveLeases(undefined, []).then(() => true));
+
+Reflect.set(globalThis, '__evbCloseTransferredDocument', async (transferId: string) => {
+    await publishBrowserDocumentLiveLeases(undefined, []);
+    await mutateBrowserTransferAuthority(transferId, current => current ? {
+        ...current,
+        decidedAt: 1,
+    } : current);
+    await browserDocumentStore.clearRecentFiles();
+    await sweepBrowserDocumentMaintenance(new Map());
+    const rows = await loadAllRecordKeysAvailability();
+    const chunks = await loadAllChunkKeysAvailability();
+    return {
+        records: rows.available && Array.isArray(rows.value) ? rows.value.length : -1,
+        chunks: chunks.available && Array.isArray(chunks.value) ? chunks.value.length : -1,
+    };
+});

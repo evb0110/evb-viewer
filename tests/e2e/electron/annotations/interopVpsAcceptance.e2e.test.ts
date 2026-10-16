@@ -25,7 +25,7 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    degrees, PDFDocument, PDFString, StandardFonts,
+    degrees, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, StandardFonts,
 } from 'pdf-lib';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
 import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
@@ -33,6 +33,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     clickAsUser,
     clickFoundAsUser,
+    revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     clickAnnotationTool,
@@ -50,6 +51,8 @@ import {
     waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    clickToolbarButtonWhenEnabled,
+    clickVisibleToolbarButton,
     triggerOpenPathInApp,
     openDocumentSidebarTab,
     openPdfInApp,
@@ -57,6 +60,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
@@ -89,6 +93,7 @@ const interopE2eFixtureDirectories: string[] = [];
 
 const sessionFixture = createElectronE2ESessionFixture({
     restartBeforeEach: true,
+    extraEnv: {EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1'},
     sessionName: () => `e2e-interop-vps-${Date.now()}`,
 });
 
@@ -531,14 +536,14 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
             });
         }
         async function rotatePage(direction: 'clockwise' | 'counterclockwise') {
-            const previous = await page.$eval(selector, entity => (entity as HTMLElement).style.cssText);
+            const previous = await page.$eval(selector, entity => (entity as HTMLElement).style.transform);
             await openDocumentSidebarTab(page, 'Pages');
             await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
             await clickFoundAsUser(page, target => Array.from(document.querySelectorAll('[role="menuitem"]'))
                 .find(item => item.textContent?.trim().toLowerCase() === `rotate ${target}`), direction, {description: `Rotate page ${direction}`});
             await page.waitForFunction((target: string, before: string) => {
                 const entity = document.querySelector<HTMLElement>(target);
-                return entity && entity.style.cssText !== before;
+                return entity && entity.style.transform !== before;
             }, {timeout: SAVE_TIMEOUT_MS}, selector, previous);
             await waitForViewerInteractive(page);
         }
@@ -687,5 +692,424 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         await waitForPdfLoaded(session.page, SAVE_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
         await expectImportedCanonicalKinds(session.page);
+    }, ACCEPTANCE_TIMEOUT_MS);
+});
+
+
+describe('Electron E2E - annotated raster readiness', () => {
+    it('waits for foreign annotation pixels before acknowledging a cold-page render', async () => {
+        const {page} = sessionFixture.getSession();
+        // Authored by PyMuPDF 1.28.2's add_stamp_annot/update writer, with a
+        // red Approved appearance. It is foreign to the canonical editor.
+        const fixture = resolve('tests/fixtures/electron/reader-approved-stamp.pdf');
+        await page.evaluate(() => {
+            const activeWorkspaceSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"]';
+            const ready = new Promise<{
+                created: boolean;
+                red: number
+            }>((resolve, reject) => {
+                const observer = new MutationObserver(() => {
+                    const api = window.__evbTestApi;
+                    const workspace = api?.getActiveWorkspaceHandle();
+                    const activeHost = document.querySelector(activeWorkspaceSelector);
+                    const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis');
+                    const status = api?.readActiveWorkspaceStateValues(['annotationCommentsStatus']).annotationCommentsStatus;
+                    if (!workspace || status !== 'ready' || chassis?.dataset.viewportLifecycle !== 'ready'
+                        || !activeHost?.querySelector('.page_container[data-page="1"] canvas')) return;
+                    observer.disconnect();
+                    // This public action awaits the page's raster before creating
+                    // its shape. Read the foreign appearance at that acknowledgement.
+                    void workspace.runAgentAction('annotation.create_shape', {
+                        page: 1,
+                        shape: 'rectangle',
+                        x: 0.1,
+                        y: 0.8,
+                        width: 0.08,
+                        height: 0.06,
+                    }).then((result) => {
+                        const canvas = document.querySelector(activeWorkspaceSelector)
+                            ?.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] canvas');
+                        const pixels = canvas?.getContext('2d', {willReadFrequently: true})
+                            ?.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let red = 0;
+                        for (let offset = 0; pixels && offset < pixels.length; offset += 4) {
+                            if (pixels[offset]! > 140 && pixels[offset + 1]! < 110
+                                && pixels[offset + 2]! < 110 && pixels[offset + 3]! > 100) red += 1;
+                        }
+                        resolve({
+                            created: result.created === true,
+                            red,
+                        });
+                    }, reject);
+                });
+                observer.observe(document.body, {
+                    subtree: true,
+                    attributes: true,
+                    childList: true,
+                });
+            });
+            Reflect.set(window, '__annotatedRasterReady', ready);
+        });
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        const atRenderReady = await page.evaluate(async () => await Reflect.get(window, '__annotatedRasterReady') as {
+            created: boolean;
+            red: number
+        });
+        console.log('cold annotated render acknowledgement', atRenderReady);
+        expect(atRenderReady.created).toBe(true);
+        expect(atRenderReady.red).toBeGreaterThan(0);
+    }, ACCEPTANCE_TIMEOUT_MS);
+});
+
+
+describe('Electron E2E - pending external page drop', () => {
+    it('cancels a pending external drop after another page edit lands', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createMultiPageTextFixturePdf('pending-drop-order.pdf', 4);
+        const inserted = await createMultiPageTextFixturePdf('pending-drop-inserted.pdf', 1);
+        mkdirSync(INTEROP_E2E_SCRATCH_ROOT, {recursive: true});
+        const directory = mkdtempSync(join(INTEROP_E2E_SCRATCH_ROOT, 'pending-page-drop-'));
+        interopE2eFixtureDirectories.push(directory);
+        const files = Array.from({length:500}, (_,index) => {
+            const path = join(directory, `insert-${index}.pdf`);
+            copyFileSync(inserted,path);
+            return path;
+        });
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await page.waitForSelector('[data-thumbnail-page="2"]');
+        const sidebarPoint = await page.$eval('.pdf-thumbnails', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: Math.min(rect.bottom - 20, window.innerHeight - 20),
+            };
+        });
+        await page.mouse.move(sidebarPoint.x, sidebarPoint.y);
+        await page.mouse.wheel({deltaY: 300});
+        await page.waitForFunction(() => {
+            const rect = document.querySelector('[data-thumbnail-page="2"]')!.getBoundingClientRect();
+            return rect.bottom > 150 && rect.bottom < window.innerHeight - 10;
+        });
+        await page.evaluate(() => document.addEventListener('drop', event => {
+            Reflect.set(window, '__pendingPageDropEvent', {
+                trusted: event.isTrusted,
+                count: (event as DragEvent).dataTransfer?.files.length,
+            });
+        }, {
+            once: true,
+            capture: true,
+        }));
+        const point = await page.$eval('[data-thumbnail-page="2"]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x:rect.left+rect.width/2,
+                y:rect.bottom-2,
+            };
+        });
+        expect(point.y).toBeLessThan(await page.evaluate(() => window.innerHeight));
+        const client = await page.createCDPSession();
+        try {
+            // Repeated entries keep registration pending without exceeding the
+            // native insertion budget: the app deduplicates the 500 paths.
+            const data = {
+                items:[],
+                files: Array.from({length: 10}, () => files).flat(),
+                dragOperationsMask:1,
+            };
+            await client.send('Input.dispatchDragEvent',{
+                type:'dragEnter',
+                ...point,
+                data,
+            });
+            await client.send('Input.dispatchDragEvent',{
+                type:'dragOver',
+                ...point,
+                data,
+            });
+            await client.send('Input.dispatchDragEvent',{
+                type:'drop',
+                ...point,
+                data,
+            });
+            console.log('trusted external drop', await page.evaluate(() => Reflect.get(window, '__pendingPageDropEvent')));
+        } finally {await client.detach();}
+        await clickAsUser(page, '[data-thumbnail-page="1"]', {button:'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description:'Delete page A while the external batch is registering'});
+        await page.waitForFunction(() => {
+            const state = window.__evbTestApi?.readActiveWorkspaceStateValues([
+                'isPageOperationInProgress',
+                'totalPages',
+            ]);
+            return state && state.isPageOperationInProgress === false && state.totalPages !== 4;
+        }, {timeout:120_000});
+        // Let the app's own insertion or explicit cancellation become observable.
+        await page.waitForFunction(() => document.body.innerText.includes('The drop was cancelled because the pages changed')
+            || (window.__evbTestApi?.readActiveWorkspaceStateValues<{totalPages: number}>(['totalPages']).totalPages ?? 0) > 4, {timeout: 120_000});
+        const result = await page.evaluate(() => ({
+            ...window.__evbTestApi?.readActiveWorkspaceStateValues<{
+                totalPages: number;
+                isPageOperationInProgress: boolean
+            }>([
+                'totalPages',
+                'isPageOperationInProgress',
+            ]),
+            visible:document.body.innerText,
+        }));
+        console.log('pending page drop outcome', result);
+        expect(result.totalPages).toBe(3);
+        expect(result.visible).toContain('The drop was cancelled because the pages changed');
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await page.waitForFunction(() => window.__evbTestApi
+            ?.readActiveWorkspaceStateValues(['totalPages']).totalPages === 4);
+        await clickToolbarButtonWhenEnabled(page, 'Redo');
+        await page.waitForFunction(() => window.__evbTestApi
+            ?.readActiveWorkspaceStateValues(['totalPages']).totalPages === 3);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixture);
+        const savedText = execFileSync(getPdfNativeToolPaths().pdftotext, [
+            fixture,
+            '-',
+        ], {encoding: 'utf8'});
+        expect(Array.from(savedText.matchAll(/Page (\d+) sample text for annotations/g), match => match[1]))
+            .toEqual([
+                '2',
+                '3',
+                '4',
+            ]);
+        const reopen = copyFreshFixture(fixture, 'pending-drop-reopen');
+        await openPdfInApp(page, reopen);
+        await waitForViewerInteractive(page);
+        expect(await page.evaluate(() => window.__evbTestApi
+            ?.readActiveWorkspaceStateValues(['totalPages']).totalPages)).toBe(3);
+    },300_000);
+});
+
+
+describe('Electron E2E - annotation save budgets and imported replies', () => {
+    it('saves and reopens 3,200 new supported shapes in one save', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createMultiPageTextFixturePdf(`many-new-shapes-${Date.now()}.pdf`, 1);
+        await openPdfInApp(page, fixture);
+        // Bulk creation is setup through the public annotation command. Save
+        // itself is the same trusted toolbar action a person uses.
+        const created = await page.evaluate(async () => {
+            const workspace = window.__evbTestApi?.getActiveWorkspaceHandle();
+            if (!workspace) throw new Error('Public workspace API was unavailable');
+            const results = await Promise.all(Array.from({length: 3_200}, () => workspace.runAgentAction(
+                'annotation.create_shape', {
+                    page: 1,
+                    shape: 'rectangle',
+                    x: 0.1,
+                    y: 0.2,
+                    width: 0.08,
+                    height: 0.06,
+                },
+            )));
+            return results.filter(result => result.created === true).length;
+        });
+        expect(created).toBe(3_200);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixture);
+        const saved = await inspectPdf(fixture);
+        expect(saved.annotations.filter(annotation => annotation.subtype === 'Square')).toHaveLength(3_200);
+        await openPdfInApp(page, copyFreshFixture(fixture, 'many-shapes-reopen'));
+        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .pdf-annotation-editor-layer')?.querySelectorAll('[data-annotation-kind="shape"]').length === 3_200);
+        const reopened = await collectAnnotationOwnershipDebugState(page);
+        expect(reopened.canonicalEntities.filter(entity => entity.kind === 'shape')).toHaveLength(3_200);
+        expect(new Set(reopened.canonicalEntities.map(entity => entity.id)).size).toBe(3_200);
+    }, 300_000);
+
+    it('explains an oversized imported identity without losing dirty edits or saved bytes', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = copyFreshFixture(resolve('tests/fixtures/electron/reader-highlight-replies.pdf'), 'oversized-identity');
+        const pdf = await PDFDocument.load(readFileSync(fixture));
+        const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+        const shape = annots.map(ref => pdf.context.lookup(ref, PDFDict))
+            .find(dict => dict.lookup(PDFName.of('Subtype'), PDFName).asString() === '/Square')!;
+        shape.set(PDFName.of('NM'), PDFHexString.fromText(`evb-shape:${'é'.repeat(1_100)}`));
+        writeFileSync(fixture, await pdf.save({useObjectStreams: false}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        const workingCopy = await getActiveWorkspaceWorkingCopyPath(page);
+        const originalBytes = readFileSync(fixture);
+        const workingBytes = readFileSync(workingCopy);
+        await clickAnnotationTool(page, 'Select');
+        const selector = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"]';
+        const target = await page.waitForSelector(selector, {visible: true});
+        await clickAsUser(page, target!);
+        await page.waitForFunction((query: string) => document.querySelector(query)?.classList.contains('is-selected'), {}, selector);
+        const start = await revealForPointer(page, target!);
+        const before = await target!.boundingBox();
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(start.x + 35, start.y + 25, {steps: 12});
+        await page.mouse.up();
+        await expect.poll(async () => {
+            const bounds = await target!.boundingBox();
+            return Math.abs(bounds!.x - before!.x) + Math.abs(bounds!.y - before!.y);
+        }).toBeGreaterThan(10);
+        expect(await page.$('.tab.is-dirty')).not.toBeNull();
+        await clickVisibleToolbarButton(page, 'Save');
+        await page.waitForSelector('.app-toast-failure', {visible: true});
+        const description = await page.$eval('.app-toast-failure', element => element.textContent);
+        expect(description).toMatch(/2048.*UTF-8|UTF-8.*2048/u);
+        expect(description).toContain('another PDF editor');
+        expect(description).toContain('Your edits remain open');
+        expect(await page.$('.tab.is-dirty')).not.toBeNull();
+        expect(readFileSync(fixture)).toEqual(originalBytes);
+        expect(readFileSync(workingCopy)).toEqual(workingBytes);
+        const artifactDirectory = resolve('.devkit/artifacts', `identity-refusal-${Date.now()}`);
+        mkdirSync(artifactDirectory, {recursive: true});
+        await page.screenshot({path: join(artifactDirectory, 'refused-save.png')});
+        copyFileSync(fixture, join(artifactDirectory, 'original.pdf'));
+        copyFileSync(workingCopy, join(artifactDirectory, 'working.pdf'));
+        console.log(`IDENTITY_REFUSAL_EVIDENCE ${artifactDirectory}`);
+    }, ACCEPTANCE_TIMEOUT_MS);
+
+    it('imports cross-page replies under their parents and keeps them after save and reopen', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = copyFreshFixture(resolve('tests/fixtures/electron/reader-highlight-replies.pdf'), 'reader-replies');
+        const pdf = await PDFDocument.load(readFileSync(fixture));
+        const firstPage = pdf.getPage(0);
+        const annots = firstPage.node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+        const replyRef = annots.find(ref => pdf.context.lookup(ref, PDFDict)
+            .lookupMaybe(PDFName.of('Contents'), PDFString)?.decodeText() === 'Reader reply on highlight')!;
+        const secondPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        firstPage.node.set(PDFName.of('Annots'), pdf.context.obj(annots.filter(ref => ref !== replyRef)));
+        secondPage.node.set(PDFName.of('Annots'), pdf.context.obj([replyRef]));
+        pdf.context.lookup(replyRef, PDFDict).set(PDFName.of('P'), secondPage.ref);
+        const statusDictionary = pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Text',
+            IRT: pdf.context.lookup(replyRef, PDFDict).get(PDFName.of('IRT'))!,
+            P: firstPage.ref,
+            Rect: [
+                100,
+                100,
+                120,
+                120,
+            ],
+            Contents: PDFString.of(''),
+            T: PDFString.of('Status reviewer'),
+            State: PDFString.of('Accepted'),
+            StateModel: PDFString.of('Review'),
+        });
+        const statusRef = pdf.context.register(statusDictionary);
+        firstPage.node.lookup(PDFName.of('Annots'), PDFArray).push(statusRef);
+
+        writeFileSync(fixture, await pdf.save({useObjectStreams: false}));
+        const originalBytes = readFileSync(fixture);
+        const statusObjectBytes = originalBytes.toString('latin1').match(new RegExp(`${statusRef.objectNumber} 0 obj[\\s\\S]*?endobj`))![0];
+        const artifactDirectory = resolve('.devkit/artifacts', `reader-replies-${Date.now()}`);
+        mkdirSync(artifactDirectory, {recursive: true});
+        const expectThreads = async (entityCount: number) => {
+            await openDocumentSidebarTab(page, 'annotations');
+            await page.waitForFunction(() => document.body.innerText.includes('Highlight parent comment'));
+            const threads = await page.evaluate(() => Array.from(document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-testid="annotation-note-reply"]'))
+                .map(reply => ({
+                    text: reply.textContent,
+                    parent: reply.closest('.note-item')?.textContent,
+                    kind: reply.closest<HTMLElement>('.note-item')?.dataset.annotationKind,
+                })));
+            expect(threads).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    text: expect.stringContaining('Reader reply on highlight'),
+                    parent: expect.stringContaining('Highlight parent comment'),
+                    kind: 'text-markup',
+                }),
+                expect.objectContaining({
+                    text: expect.stringContaining('Reader reply on square'),
+                    kind: 'shape',
+                }),
+            ]));
+            expect(threads).toHaveLength(3);
+            expect(threads).toContainEqual(expect.objectContaining({
+                text: expect.stringContaining('Accepted'),
+                kind: 'text-markup',
+            }));
+            for (const [
+                kind,
+                text,
+            ] of [
+                    [
+                        'text-markup',
+                        'Reader reply on highlight',
+                    ],
+                    [
+                        'shape',
+                        'Reader reply on square',
+                    ],
+                    [
+                        'text-markup',
+                        'Accepted',
+                    ],
+                ] as const) {
+                const replyRows = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="${kind}"] .note-item-reply`;
+                const index = await page.$$eval(replyRows, (rows, expected) => rows.findIndex(row =>
+                    row.querySelector('.note-item-reply-text')?.textContent?.trim() === expected), text);
+                expect(index).toBeGreaterThanOrEqual(0);
+                const selector = `${replyRows}:nth-child(${index + 1}) .note-item-reply-text`;
+                await revealForPointer(page, selector);
+                const deltaY = await page.$eval(selector, (reply) => {
+                    const range = document.createRange();
+                    range.selectNodeContents(reply);
+                    const bounds = range.getBoundingClientRect();
+                    const clip = reply.closest('.notes-list')!.getBoundingClientRect();
+                    return (bounds.top + bounds.bottom - clip.top - clip.bottom) / 2;
+                });
+                await page.mouse.wheel({deltaY});
+                await page.waitForFunction((target, expectedText) => {
+                    const reply = document.querySelector<HTMLElement>(target);
+                    const viewport = reply?.closest('.notes-list');
+                    if (!reply || !viewport || !reply.innerText.includes(expectedText)) {
+                        return false;
+                    }
+                    const range = document.createRange();
+                    range.selectNodeContents(reply);
+                    const bounds = range.getBoundingClientRect();
+                    const clip = viewport.getBoundingClientRect();
+                    return bounds.top >= clip.top && bounds.bottom <= clip.bottom
+                        && bounds.left >= clip.left && bounds.right <= clip.right;
+                }, {}, selector, text);
+                await page.screenshot({path: join(artifactDirectory, text === 'Accepted' ? `accepted-${entityCount}.png` : `${entityCount}-${kind}.png`)});
+            }
+            const imported = await collectAnnotationOwnershipDebugState(page);
+            expect(imported.canonicalEntities).toHaveLength(entityCount);
+            expect(imported.canonicalEntities.filter(entity => entity.kind !== 'text-box').map(entity => entity.kind).sort()).toEqual([
+                'shape',
+                'text-markup',
+            ]);
+        };
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await expectThreads(2);
+        // A real edit forces incremental writing; untouched reply dictionaries
+        // must stay in the PDF and import under the same parents on reopen.
+        await createCanonicalTextBoxWithPointer(page, 'Save preserves imported reply threads', {
+            x: 0.4,
+            y: 0.65,
+        });
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixture);
+        await openPdfInApp(page, copyFreshFixture(fixture, 'reader-replies-reopen'));
+        await waitForPdfLoaded(page);
+        await expectThreads(3);
+        const saved = await readPdfTextAnnotationRecords(fixture);
+        expect(saved.filter(annotation => annotation.contents.startsWith('Reader reply on'))).toHaveLength(2);
+        const savedBytes = readFileSync(fixture);
+        expect(savedBytes.toString('latin1')).toContain(statusObjectBytes);
+        const reopened = await PDFDocument.load(savedBytes);
+        expect(reopened.context.lookup(statusRef, PDFDict).toString()).toBe(statusDictionary.toString());
+        const reply = reopened.getPage(1).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+        expect(reply.map(ref => ref.toString())).toEqual([replyRef.toString()]);
+        expect(reopened.context.lookup(reply[0]!, PDFDict).lookup(PDFName.of('Contents'), PDFString).decodeText())
+            .toBe('Reader reply on highlight');
+        writeFileSync(join(artifactDirectory, 'input.pdf'), originalBytes);
+        copyFileSync(fixture, join(artifactDirectory, 'saved.pdf'));
+        console.log(`READER_REPLY_EVIDENCE ${artifactDirectory}`);
     }, ACCEPTANCE_TIMEOUT_MS);
 });

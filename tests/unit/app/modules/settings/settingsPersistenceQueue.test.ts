@@ -4,7 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
+import {
+    DEFAULT_SETTINGS,
+    type TSettingsSavePatch,
+} from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import {
     buildSettingsPatch,
@@ -63,11 +66,9 @@ describe('settingsPersistenceQueue', () => {
 
     it('skips platform writes when the sanitized payload has not changed', async () => {
         const snapshot = createSettings({ locale: 'fr' });
-        let lastSavedSettings: ISettingsData | null = snapshot;
+        const lastSavedSettings: ISettingsData | null = snapshot;
         const savePatch = vi.fn<() => Promise<void>>();
-        const onSaved = vi.fn((settings: ISettingsData) => {
-            lastSavedSettings = settings;
-        });
+        const onSaved = vi.fn();
 
         const queue = createSettingsPersistenceQueue({
             getSettingsSnapshot: () => snapshot,
@@ -80,7 +81,7 @@ describe('settingsPersistenceQueue', () => {
         await expect(queue.save()).resolves.toBe(true);
 
         expect(savePatch).not.toHaveBeenCalled();
-        expect(onSaved).toHaveBeenCalledWith(snapshot);
+        expect(onSaved).toHaveBeenCalledWith();
     });
 
     it('drains the latest dirty snapshot after an in-flight save finishes', async () => {
@@ -90,19 +91,22 @@ describe('settingsPersistenceQueue', () => {
         });
         let lastSavedSettings: ISettingsData | null = null;
         const firstSave = createDeferred();
-        const savePatch = vi.fn(async () => {
+        const savePatch = vi.fn(async (patch: TSettingsSavePatch) => {
             if (savePatch.mock.calls.length === 1) {
                 await firstSave.promise;
             }
+            // The owner commits the patch and sends it to this window before the save resolves.
+            lastSavedSettings = createSettings({
+                ...lastSavedSettings,
+                ...patch,
+            });
         });
 
         const queue = createSettingsPersistenceQueue({
             getSettingsSnapshot: () => snapshot,
             getLastSavedSettings: () => lastSavedSettings,
             savePatch,
-            onSaved(settings) {
-                lastSavedSettings = settings;
-            },
+            onSaved: vi.fn(),
             onSaveError: vi.fn(),
         });
 

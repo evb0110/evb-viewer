@@ -103,36 +103,20 @@ describe('createDocumentPageSourceSearchBackend', () => {
         }));
     });
 
-    it('falls back to the page text provider when indexed search is unavailable', async () => {
-        const getPageText = vi.fn().mockResolvedValue('searchable word');
-        const backend = createDocumentPageSourceSearchBackend(asSource({
+    it('does not advertise search for a text-only source', () => {
+        expect(createDocumentPageSourceSearchBackend(asSource({
             pageCount: 1,
-            textProvider: {getPageText},
-        }));
-
-        const response = await backend!.search({
-            query: 'word',
-            matchOptions: DEFAULT_DOCUMENT_SEARCH_OPTIONS,
-            signal: new AbortController().signal,
-        });
-
-        expect(getPageText).toHaveBeenCalledTimes(1);
-        expect(response.results).toHaveLength(1);
+            textProvider: {getPageText: vi.fn()},
+        }))).toBeNull();
     });
 
-    it('publishes the shared document-source minimum query length on both backends', () => {
+    it('publishes the shared document-source minimum query length on the search backend', () => {
         const providerBackend = createDocumentPageSourceSearchBackend(asSource({
             pageCount: 3,
             searchProvider: {search: vi.fn()},
             textProvider: {getPageText: vi.fn()},
         }));
-        const textBackend = createDocumentPageSourceSearchBackend(asSource({
-            pageCount: 3,
-            textProvider: {getPageText: vi.fn()},
-        }));
-
         expect(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH).toBe(2);
         expect(providerBackend?.minQueryLength).toBe(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
-        expect(textBackend?.minQueryLength).toBe(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
     });
 });

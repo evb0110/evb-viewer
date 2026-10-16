@@ -1,11 +1,10 @@
 import {parseDocumentRef} from '@contracts/documentRef';
 import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {recordPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import {
     applyParsedHighlightTextToStore, commitPdfAnnotationParseToStore,
 } from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
 import {deriveSelectedTextForParsedHighlights} from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
-import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import {
     getDocumentFilesCapability, getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
@@ -55,9 +54,9 @@ export interface IPdfDocumentAnnotationsView {
     /** Re-projects this view after an undo or redo replayed the store. */
     onHistoryReplay: () => void;
     /** Commits text-box drafts open in this view's editor. */
-    commitPendingDraftsForSave: () => void;
+    commitPendingDraftsForSave: () => void | Promise<void>;
     /** Commits this view's open draft of one annotation, when it has one. */
-    commitDraftIfOpen: (annotationId: string) => void;
+    commitDraftIfOpen: (annotationId: string) => void | Promise<void>;
     /** Where this view's editor shows an open draft, or null when it holds none. */
     getTextBoxDraftRect: (annotationId: string) => IAnnotationMarkerRect | null;
 }
@@ -66,6 +65,7 @@ export interface ICreatePdfDocumentAnnotationsOptions {
     workingCopyPath: Readonly<Ref<string | null>>;
     source: Readonly<Ref<TPdfSource | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
+    protectTextBoxDraft?: ((assertCurrent: () => void) => Promise<void>) | undefined;
 }
 
 /**
@@ -99,9 +99,15 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             redo: () => history.redo(),
         }));
     }
-    const application = shallowRef(createAnnotationApplication('no-document'));
-    const textBoxDrafts = new Map<string, string>();
+    const documentIdentity = computed(() => (
+        options.workingCopyPath.value
+            ? `path:${options.workingCopyPath.value}`
+            : annotationDocumentKey(options.source.value)
+    ));
+    const application = shallowRef(createAnnotationApplication(documentIdentity.value));
+    const textBoxDrafts = shallowReactive(new Map<string, string>());
     const textBoxDraftGenerations = new Map<string, number>();
+    const textBoxDraftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
 
     let writerParseTask: {
         document: NonNullable<TPdfDocumentView['pdfDocument']['value']>;
@@ -111,12 +117,13 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         abortController: AbortController;
         promise: Promise<boolean>;
     } | null = null;
-    function cancelWriterParse() {
+    function cancelWriterParse(controller = writerParseTask?.abortController) {
+        if (writerParseTask?.abortController !== controller) return;
         writerParseTask?.abortController.abort();
         writerParseTask = null;
     }
     onScopeDispose(cancelWriterParse, true);
-    watch(options.documentRevisionToken, cancelWriterParse, {flush: 'sync'});
+    watch(options.documentRevisionToken, () => cancelWriterParse(), {flush: 'sync'});
 
     function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>) {
         const selectedParsePath = () => {
@@ -169,6 +176,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     expectedDocumentRevisionToken: expectedRevisionToken,
                     signal: abortController.signal,
                 });
+                if (isCurrent()) recordPdfDocumentOriginalAnnotations(document, result);
                 const committed = commitPdfAnnotationParseToStore({
                     result,
                     isTransitionCurrent: isCurrent,
@@ -181,15 +189,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 if (!committed) {
                     return false;
                 }
-                const parsedMarkupGeometryByPdfRef = new Map<string, ITextMarkupEntity['quadPoints']>();
-                result.entities.forEach((entry) => {
-                    if (entry.kind === 'highlight') {
-                        parsedMarkupGeometryByPdfRef.set(
-                            pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
-                            entry.quadPoints.map(rect => ({...rect})),
-                        );
-                    }
-                });
                 void deriveSelectedTextForParsedHighlights({
                     documentSession,
                     result,
@@ -200,7 +199,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                         applyParsedHighlightTextToStore({
                             targetStore,
                             selectedTextByPdfRef,
-                            parsedMarkupGeometryByPdfRef,
+                            parsedEntities: result.entities,
                         });
                     }
                 }).catch((error) => {
@@ -216,14 +215,10 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 return false;
             }
         })().then((committed) => {
-            if (!committed && writerParseTask?.abortController === abortController) {
-                writerParseTask = null;
-            }
+            if (!committed) cancelWriterParse(abortController);
             return committed;
         }, (error: unknown) => {
-            if (writerParseTask?.abortController === abortController) {
-                writerParseTask = null;
-            }
+            cancelWriterParse(abortController);
             throw error;
         });
         writerParseTask = {
@@ -239,19 +234,12 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
 
     // The working-copy revision the store was last started or kept for.
     let storeRevision: TDocumentRevisionToken | null = null;
-    const documentIdentity = computed(() => (
-        options.workingCopyPath.value
-            ? `path:${options.workingCopyPath.value}`
-            : annotationDocumentKey(options.source.value)
-    ));
     function reset(documentKey: string) {
         cancelWriterParse();
         storeRevision = null;
-        textBoxDrafts.clear();
-        textBoxDraftGenerations.clear();
+        clearTextBoxDrafts();
         application.value = createAnnotationApplication(documentKey);
     }
-    watch(documentIdentity, reset, {immediate: true});
 
     // Canonical records describe the bytes a viewer's PDF.js document holds.
     // Save and file-history undo rewrite the working copy in place and reload
@@ -282,23 +270,19 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         storeRevision = options.documentRevisionToken.value;
     }
 
-    // One editor per annotation: editing it in one viewer first commits the
-    // draft another viewer still has open, as clicking elsewhere does in one.
-    function setTextBoxDraft(view: IPdfDocumentAnnotationsView, annotationId: string, text: string | null) {
-        if (text !== null) {
-            views.forEach((other) => {
-                if (other !== view) {
-                    other.commitDraftIfOpen(annotationId);
-                }
-            });
-        }
+    function setTextBoxDraft(annotationId: string, text: string | null) {
         if (text === null) {
             textBoxDrafts.delete(annotationId);
             textBoxDraftGenerations.delete(annotationId);
+            textBoxDraftRects.delete(annotationId);
             return;
         }
         textBoxDrafts.set(annotationId, text);
         textBoxDraftGenerations.set(annotationId, (textBoxDraftGenerations.get(annotationId) ?? 0) + 1);
+    }
+
+    function clearTextBoxDrafts() {
+        for (const id of textBoxDrafts.keys()) setTextBoxDraft(id, null);
     }
 
     function restoreTextBoxDrafts(drafts: ReadonlyArray<{
@@ -306,20 +290,11 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         text: string;
         generation: number;
     }>) {
-        textBoxDrafts.clear();
-        textBoxDraftGenerations.clear();
+        clearTextBoxDrafts();
         drafts.forEach((draft) => {
             textBoxDrafts.set(draft.annotationId, draft.text);
             textBoxDraftGenerations.set(draft.annotationId, draft.generation);
         });
-    }
-
-    /** Adds a viewer; the returned function removes it. */
-    function attachView(view: IPdfDocumentAnnotationsView) {
-        views.add(view);
-        return () => {
-            views.delete(view);
-        };
     }
 
     // Viewers receive the owner as a prop; it must stay a plain object whose
@@ -330,6 +305,8 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         documentIdentity,
         textBoxDrafts,
         textBoxDraftGenerations,
+        textBoxDraftRects,
+        protectTextBoxDraft: options.protectTextBoxDraft,
         setTextBoxDraft,
         restoreTextBoxDrafts,
         replaceLoadedDocument,
@@ -337,19 +314,27 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         feedStoreFromWriterParse,
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
-            for (const view of views) {
-                const rect = view.getTextBoxDraftRect(annotationId);
-                if (rect) {
-                    return rect;
-                }
-            }
-            return null;
+            return [...views].map(view => view.getTextBoxDraftRect(annotationId)).find(rect => rect !== null)
+                ?? textBoxDraftRects.get(annotationId) ?? null;
+        },
+        // One editor per annotation: editing it in one viewer first commits the
+        // draft another viewer still has open, as clicking elsewhere does in one.
+        commitDraftIfOpen(annotationId: string, except: IPdfDocumentAnnotationsView) {
+            const others = [...views].filter(view => view !== except);
+            return others.length ? Promise.all(others.map(view => Promise.resolve(view.commitDraftIfOpen(annotationId)))).then(() => {}) : undefined;
         },
         /** Commits every viewer's open text-box drafts, so a save sees them all. */
-        commitPendingDraftsForSave() {
-            views.forEach(view => view.commitPendingDraftsForSave());
+        async commitPendingDraftsForSave() {
+            await Promise.all([...views].map(view => Promise.resolve(view.commitPendingDraftsForSave())));
+            if (textBoxDrafts.size) throw new Error('Missing required text draft editor');
         },
-        attachView,
+        /** Adds a viewer; the returned function removes it. */
+        attachView(view: IPdfDocumentAnnotationsView) {
+            views.add(view);
+            return () => {
+                views.delete(view);
+            };
+        },
     });
 };
 

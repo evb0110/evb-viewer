@@ -1,3 +1,11 @@
+import type {FileHandle} from 'node:fs/promises';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
+import {
+    createOriginalFileContentFingerprint,
+    createOriginalFileExpectationFromStat,
+    expectationMatchesStat,
+    type IWorkingCopyOriginalFileExpectation,
+} from '@electron/file-access/originalFileExpectation';
 import {
     dirname,
     join,
@@ -10,13 +18,10 @@ import {
     type BigIntStats,
 } from 'fs';
 import {spawnSync} from 'node:child_process';
-import {
-    lstat,
-    stat,
-} from 'fs/promises';
-import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
-import {readFileChunk} from '@electron/file-access/readFileChunk';
+import {stat} from 'fs/promises';
 import { createKeyedSerialQueue } from '@electron/utils/createKeyedSerialQueue';
+export {createOriginalFileExpectationFromStat} from '@electron/file-access/originalFileExpectation';
+export type {IWorkingCopyOriginalFileExpectation} from '@electron/file-access/originalFileExpectation';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 export type TWorkingCopyBackingState =
@@ -41,15 +46,6 @@ export interface IWorkingCopyAdmissionSnapshot {
     size: bigint;
 }
 
-export interface IWorkingCopyOriginalFileExpectation {
-    contentFingerprint?: string;
-    ctimeNs?: string;
-    deviceId?: string;
-    inode?: string;
-    mtimeMs: number;
-    mtimeNs?: string;
-    size: number;
-}
 
 export interface IWorkingCopyOriginalEntry {
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
@@ -113,7 +109,6 @@ const currentWorkingCopyByOriginalPath = new Map<string, {
 }>();
 let nextWorkingCopyRegistrationId = 0;
 const RETIRED_WORKING_COPY_TTL_MS = 10 * 60 * 1000;
-const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
 interface IWindowsDirectoryLookup {
@@ -208,8 +203,7 @@ export function normalizePathForLookup(filePath: string) {
     if (isWindowsPathLike(filePath)) {
         const resolvedWindowsPath = normalizeResolvedWindowsPath(filePath);
         try {
-            // Native realpath resolves ordinary Windows case-insensitive aliases while
-            // retaining distinct spellings in a case-sensitive directory.
+            // Native realpath preserves case-sensitive spellings while resolving Windows aliases.
             const realPath = normalizeResolvedWindowsPath(realpathSync.native(resolvedWindowsPath));
             const directory = resolveWindowsDirectoryLookup(win32.dirname(realPath));
             return normalizeWindowsPathCase(realPath, directory.caseSensitive);
@@ -298,16 +292,6 @@ async function createOriginalFileExpectation(
     }
 }
 
-function expectationMatchesStat(expectation: IWorkingCopyOriginalFileExpectation, fileStat: BigIntStats) {
-    return fileStat.isFile()
-        && (expectation.deviceId === undefined || fileStat.dev.toString() === expectation.deviceId)
-        && (expectation.inode === undefined || fileStat.ino.toString() === expectation.inode)
-        && fileStat.size === BigInt(expectation.size)
-        && (expectation.mtimeNs === undefined
-            ? Math.abs(Number(fileStat.mtimeNs) / 1_000_000 - expectation.mtimeMs) < 1
-            : fileStat.mtimeNs.toString() === expectation.mtimeNs)
-        && (expectation.ctimeNs === undefined || fileStat.ctimeNs.toString() === expectation.ctimeNs);
-}
 
 function sameOriginalFileExpectation(
     left: IWorkingCopyOriginalFileExpectation | undefined,
@@ -322,64 +306,6 @@ function sameOriginalFileExpectation(
         && left.mtimeMs === right.mtimeMs;
 }
 
-function withoutOriginalFileContentFingerprint(
-    expectation: IWorkingCopyOriginalFileExpectation | undefined,
-): IWorkingCopyOriginalFileExpectation | undefined {
-    if (!expectation) {
-        return undefined;
-    }
-    const statExpectation = {...expectation};
-    delete statExpectation.contentFingerprint;
-    return statExpectation;
-}
-
-async function createOriginalFileContentFingerprint(
-    originalPath: string,
-    expectation: IWorkingCopyOriginalFileExpectation,
-    signal?: AbortSignal,
-) {
-    try {
-        signal?.throwIfAborted();
-        const before = await lstat(originalPath, {bigint: true});
-        if (!Number.isSafeInteger(Number(before.size)) || !expectationMatchesStat(expectation, before)) {
-            return undefined;
-        }
-        const hash = createOriginalFileContentFingerprintHash(Number(before.size));
-        const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES)));
-        let offset = 0;
-        while (offset < Number(before.size)) {
-            signal?.throwIfAborted();
-            const length = Math.min(buffer.byteLength, Number(before.size) - offset);
-            const bytesRead = await readFileChunk(originalPath, buffer.subarray(0, length), offset);
-            if (bytesRead <= 0) {
-                return undefined;
-            }
-            hash.update(buffer.subarray(0, bytesRead));
-            offset += bytesRead;
-        }
-        const after = await lstat(originalPath, {bigint: true});
-        signal?.throwIfAborted();
-        return expectationMatchesStat(expectation, after)
-            && expectationMatchesStat(createOriginalFileExpectationFromStat(before), after)
-            ? `sha256-full-v1:${hash.digest('hex')}`
-            : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-export function createOriginalFileExpectationFromStat(
-    originalStat: BigIntStats,
-): IWorkingCopyOriginalFileExpectation {
-    return {
-        ctimeNs: originalStat.ctimeNs.toString(),
-        deviceId: originalStat.dev.toString(),
-        inode: originalStat.ino.toString(),
-        mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
-        mtimeNs: originalStat.mtimeNs.toString(),
-        size: Number(originalStat.size),
-    };
-}
 
 function copyOriginalFileExpectation(
     expectation: IWorkingCopyOriginalFileExpectation | undefined,
@@ -405,9 +331,9 @@ function copyAdmissionSnapshot(
 }
 
 export async function captureWorkingCopyAdmissionSnapshot(
-    originalPath: string,
+    source: string | FileHandle,
 ): Promise<IWorkingCopyAdmissionSnapshot> {
-    const sourceStat = await stat(originalPath, {bigint: true});
+    const sourceStat = typeof source === 'string' ? await stat(source, {bigint: true}) : await source.stat({bigint: true});
     if (!sourceStat.isFile()) {
         throw new Error('Working-copy source is not a regular file');
     }
@@ -419,16 +345,21 @@ export async function captureWorkingCopyAdmissionSnapshot(
     };
 }
 
-// A file renamed over the original can keep its size and modification time;
-// only its identity tells it apart. A snapshot restored from a workspace
-// checkpoint carries no identity, so size and time decide for it.
-export function workingCopyAdmissionSnapshotsMatch(
+// Identity churn on network mounts needs an admitted full-content baseline.
+// Legacy checkpoints without identity retain their size/time comparison.
+export async function workingCopyAdmissionSnapshotsMatch(
     left: IWorkingCopyAdmissionSnapshot,
     right: IWorkingCopyAdmissionSnapshot,
+    originalPath?: string,
+    expectation?: IWorkingCopyOriginalFileExpectation | null,
 ) {
-    return left.size === right.size && left.mtimeNs === right.mtimeNs
-        && (left.inode === undefined || right.inode === undefined
-            || left.inode === right.inode && left.deviceId === right.deviceId);
+    if (left.size !== right.size || left.mtimeNs !== right.mtimeNs) return false;
+    if (left.inode !== undefined && right.inode !== undefined
+        && (left.inode !== right.inode || left.deviceId !== right.deviceId)) {
+        return !!originalPath && !!expectation?.contentFingerprint
+            && await createOriginalFileContentFingerprint(originalPath, expectation) === expectation.contentFingerprint;
+    }
+    return true;
 }
 
 function isSameOwner(left: number | undefined, right: number | undefined) {
@@ -611,9 +542,7 @@ export async function setWorkingCopyOriginalPath(
 
         const role = options.role ?? 'current';
         const admissionSnapshot = copyAdmissionSnapshot(options.admissionSnapshot);
-        const originalFileExpectation = withoutOriginalFileContentFingerprint(
-            copyOriginalFileExpectation(options.originalFileExpectation),
-        );
+        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
         entry = {
             ...(admissionSnapshot ? {admissionSnapshot} : {}),
             backingState: options.backingState ?? 'eager',
@@ -636,7 +565,7 @@ export async function setWorkingCopyOriginalPath(
 
     const expectationAbortController = new AbortController();
     entry.originalFileExpectationAbortController = expectationAbortController;
-    const expectation = withoutOriginalFileContentFingerprint(options.originalFileExpectation)
+    const expectation = copyOriginalFileExpectation(options.originalFileExpectation)
         ?? await createOriginalFileExpectation(
             originalPath,
             expectationAbortController.signal,
@@ -663,7 +592,7 @@ export async function setWorkingCopyOriginalPath(
         delete entry.originalFileExpectationAbortController;
         return;
     }
-    captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
+    await captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
 }
 
 function applyOriginalFileExpectation(
@@ -689,11 +618,11 @@ function captureOriginalFileContentFingerprint(
     expectation: IWorkingCopyOriginalFileExpectation | undefined,
     controller: AbortController,
 ) {
-    if (!expectation) {
+    if (!expectation || expectation.contentFingerprint) {
         delete entry.originalFileExpectationAbortController;
         return;
     }
-    void createOriginalFileContentFingerprint(entry.originalPath, expectation, controller.signal)
+    return createOriginalFileContentFingerprint(entry.originalPath, expectation, controller.signal)
         .then(contentFingerprint => {
             const activeEntry = workingCopyMap.get(workingPath);
             if (
@@ -701,7 +630,6 @@ function captureOriginalFileContentFingerprint(
                 || controller.signal.aborted
                 || activeEntry !== entry
                 || activeEntry.originalFileExpectationAbortController !== controller
-                || !isSameWorkingCopyEntry(activeEntry, entry)
                 || !sameOriginalFileExpectation(activeEntry.originalFileExpectation, expectation)
             ) {
                 return;
@@ -711,7 +639,6 @@ function captureOriginalFileContentFingerprint(
                 contentFingerprint,
             };
         })
-        .catch(() => undefined)
         .finally(() => {
             if (entry.originalFileExpectationAbortController === controller) {
                 delete entry.originalFileExpectationAbortController;
@@ -1030,14 +957,10 @@ export function transitionWorkingCopyBackingState(
     activeEntry.backingState = backingState;
     if (options.originalFileExpectation) {
         activeEntry.originalFileExpectationAbortController?.abort();
-        const originalFileExpectation = withoutOriginalFileContentFingerprint(
-            copyOriginalFileExpectation(options.originalFileExpectation),
-        );
+        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
         if (originalFileExpectation) {
             activeEntry.originalFileExpectation = originalFileExpectation;
-            const controller = new AbortController();
-            activeEntry.originalFileExpectationAbortController = controller;
-            captureOriginalFileContentFingerprint(activeEntry, workingPath, originalFileExpectation, controller);
+            delete activeEntry.originalFileExpectationAbortController;
         }
     }
     if (options.sourceBackingErrorCode === null) {
@@ -1095,6 +1018,7 @@ export function getWorkingCopyOriginalFileExpectation(
 export async function refreshWorkingCopyOriginalFileExpectation(
     workingPath: string,
     senderWebContentsId?: number,
+    admittedExpectation?: IWorkingCopyOriginalFileExpectation,
 ) {
     const activeEntry = workingCopyMap.get(workingPath);
     if (!activeEntry || !canUseWorkingCopyEntry(activeEntry, senderWebContentsId)) {
@@ -1105,21 +1029,17 @@ export async function refreshWorkingCopyOriginalFileExpectation(
     const controller = new AbortController();
     activeEntry.originalFileExpectationAbortController = controller;
     const expectation = await createOriginalFileExpectation(activeEntry.originalPath, controller.signal);
-    const currentEntry = workingCopyMap.get(workingPath);
-    if (
-        !currentEntry
-        || currentEntry !== activeEntry
-        || !canUseWorkingCopyEntry(currentEntry, senderWebContentsId)
-        || !isSameWorkingCopyEntry(currentEntry, activeEntry)
-    ) {
-        return false;
-    }
     if (expectation) {
-        currentEntry.originalFileExpectation = expectation;
-        captureOriginalFileContentFingerprint(currentEntry, workingPath, expectation, controller);
-    } else {
-        delete currentEntry.originalFileExpectation;
-        delete currentEntry.originalFileExpectationAbortController;
+        const baseline = admittedExpectation ?? activeEntry.originalFileExpectation;
+        const contentFingerprint = sameOriginalFileExpectation(baseline, expectation) && baseline?.contentFingerprint
+            ? baseline.contentFingerprint
+            : await createOriginalFileContentFingerprint(activeEntry.originalPath, expectation, controller.signal);
+        if (contentFingerprint) expectation.contentFingerprint = contentFingerprint;
     }
-    return true;
+    if (controller.signal.aborted) return false;
+    if (admittedExpectation && expectation?.contentFingerprint !== admittedExpectation.contentFingerprint) {
+        throw new OriginalPathSaveConflictError();
+    }
+    delete activeEntry.originalFileExpectationAbortController;
+    return applyOriginalFileExpectation(activeEntry, workingPath, expectation);
 }

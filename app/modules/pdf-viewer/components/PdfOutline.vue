@@ -9,7 +9,7 @@
             @set-display-mode="setDisplayMode"
             @toggle-edit-mode="toggleEditMode"
             @add-root-bookmark="addRootBookmark"
-            @remove-selected-bookmarks="removeSelectedBookmarks"
+            @remove-selected-bookmarks="removeBookmark()"
         />
 
         <template v-if="bookmarkStatus === 'loading'">
@@ -58,46 +58,40 @@
         </div>
 
         <!-- A loading outline shows no rows: they are not in their final layout yet. -->
-        <div
-            v-else-if="bookmarkStatus !== 'loading' && isEditMode"
-            class="pdf-bookmarks-tree flex flex-col app-scrollbar app-scroll-region--balanced"
-            @click="closeBookmarkContextMenu"
-        >
-            <PdfOutlineItem
-                v-for="(item, index) in bookmarks"
-                :key="item.id || index"
-                :item="item"
-                :pdf-document="props.pdfDocument"
-                @go-to-page="goToPage"
-                @activate="handleActivate"
-                @toggle-expand="toggleExpanded"
-                @open-actions="openBookmarkContextMenu"
-                @save-edit="renameBookmark"
-                @cancel-edit="cancelEditingBookmark"
-                @drag-start="handleBookmarkDragStart"
-                @drag-hover="handleBookmarkDragHover"
-                @drop-bookmark="handleBookmarkDrop"
-                @drag-end="handleBookmarkDragEnd"
-            />
-            <div
-                v-if="isEditMode"
-                class="pdf-bookmarks-drop-end"
-                :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
-                @dragover.prevent="handleTreeEndDragOver"
-                @drop.prevent="handleTreeEndDrop"
-            />
-        </div>
-
         <DocumentBookmarkTree
             v-else-if="bookmarkStatus !== 'loading'"
+            ref="bookmarkTreeRef"
+            :class="{'pdf-bookmarks-tree': isEditMode}"
             :items="sharedBookmarkItems"
             :active-id="activeItemId"
             :display-mode="displayMode"
             :expanded-ids="expandedBookmarkIds"
             :active-path-ids="activePathBookmarkIds"
+            :edit-mode="isEditMode"
+            :editing-id="editing.editingItemId.value"
+            :selected-ids="selection.selectedBookmarkIds.value"
+            :dragging-ids="dragDrop.draggingBookmarkIds.value"
+            :drop-target="dragDrop.bookmarkDropTarget.value"
+            @click="closeBookmarkContextMenu"
             @activate="activateSharedBookmark"
             @toggle-expand="toggleExpanded"
-        />
+            @open-actions="openBookmarkContextMenu"
+            @save-edit="renameBookmark"
+            @cancel-edit="cancelEditingBookmark"
+            @drag-start="handleBookmarkDragStart"
+            @drag-hover="handleBookmarkDragHover"
+            @drop-bookmark="handleBookmarkDrop"
+            @drag-end="handleBookmarkDragEnd"
+        >
+            <template v-if="isEditMode" #after>
+                <div
+                    class="pdf-bookmarks-drop-end"
+                    :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
+                    @dragover.prevent="handleTreeEndDragOver"
+                    @drop.prevent="handleTreeEndDrop"
+                />
+            </template>
+        </DocumentBookmarkTree>
 
         <PdfOutlineContextMenu
             :visible="bookmarkContextMenu.visible"
@@ -124,7 +118,6 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 
 import type {
     IBookmarkItem,
-    IBookmarkActivatePayload,
     IBookmarkDropPayload,
     IBookmarkIdentityInput,
     TBookmarkDisplayMode,
@@ -141,10 +134,8 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
     buildOutlineFromBookmarkEntries,
-    buildResolvedOutline,
     flattenBookmarks,
     type IResolvedBookmarkPageTarget,
-    parseOutlineItems,
     resolveActiveBookmarkForPage,
     resolveBookmarkPageTargets,
     resolveMaxBookmarkDepth,
@@ -154,10 +145,8 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePdfOutlineDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu';
-import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeKey';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
-import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
@@ -166,9 +155,13 @@ import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pd
 import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { getPageOpsCapability } from '@app/utils/platformDocuments';
 
 interface IProps {
     pdfDocument: IPdfDocument | null;
+    /** The bytes `pdfDocument` was opened from; the outline is read there. */
+    documentRef?: TDocumentRef | null | undefined;
     currentPage: number;
     isEditMode: boolean;
     bookmarkItems?: IPdfBookmarkEntry[] | undefined;
@@ -184,16 +177,13 @@ const emit = defineEmits<{
     'update:isEditMode': [value: boolean];
 }>();
 
-function goToPage(page: number, options?: IScrollToPageOptions) {
-    emit('goToPage', page, options);
-}
-
 function toggleEditMode() {
     isEditMode.value = !isEditMode.value;
 }
 
 const { t } = useTypedI18n();
 
+const bookmarkTreeRef = useTemplateRef<{focusActiveRow: () => Promise<void>}>('bookmarkTreeRef');
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const isLoadingIndicatorVisible = ref(false);
@@ -566,12 +556,15 @@ function setBookmarkColor(payload: {
     editing.setBookmarkColor(payload.id, payload.color);
 }
 
-function removeBookmark(id: string) {
-    editing.removeBookmark(id);
-}
-
-function removeSelectedBookmarks() {
-    editing.removeSelectedBookmarks();
+async function removeBookmark(id?: string) {
+    if (id) {
+        activeItemId.value = id;
+        editing.removeBookmark(id);
+    } else {
+        editing.removeSelectedBookmarks();
+    }
+    await nextTick();
+    await bookmarkTreeRef.value?.focusActiveRow();
 }
 
 const selectedBookmarkDeleteCount = computed(() => (
@@ -594,20 +587,6 @@ const contextRemoveBookmarkLabel = computed(() => {
     }
 
     return t('bookmarks.removeSelectedBookmarks', { count });
-});
-
-provide(pdfOutlineTreeKey, {
-    expandedBookmarkIds,
-    activeItemId,
-    editingItemId: editing.editingItemId,
-    selectedBookmarkIds: selection.selectedBookmarkIds,
-    displayMode,
-    isEditMode,
-    draggingItemIds: dragDrop.draggingBookmarkIds,
-    dropTarget: dragDrop.bookmarkDropTarget,
-    activePathBookmarkIds,
-    beginBookmarkNavigationRequest,
-    isBookmarkNavigationRequestCurrent,
 });
 
 let outlineRunId = 0;
@@ -694,7 +673,7 @@ async function updateActiveItemFromCurrentPage() {
 }
 
 // The document's bookmarks, once it has them for the bytes in hand, outrank
-// this panel's read of its own PDF.js outline, which may hold older bytes.
+// this panel's read of its own outline, which may hold older bytes.
 function getPendingBookmarkEntries() {
     return props.bookmarkItems ?? null;
 }
@@ -767,19 +746,13 @@ function isStaleOutlineRun(runId: number, pdfDocument: IPdfDocument) {
     );
 }
 
-async function resolveBookmarksFromPdf(pdfDocument: IPdfDocument) {
-    const result = await pdfDocument.getOutline();
-    const rawOutline = parseOutlineItems(result);
-
+// The native catalog reader owns the outline: it keeps a source name as the
+// target and an action other than GoTo as it is, so Save writes an untouched
+// entry back unchanged after other entries are edited.
+async function resolveBookmarksFromDocument(documentRef: TDocumentRef) {
+    const entries = await getPageOpsCapability().readOutline(documentRef);
     resetBookmarkIdentity();
-    return buildResolvedOutline(
-        rawOutline,
-        pdfDocument,
-        new Map(),
-        new Map(),
-        createBookmarkId,
-        {resolveDestinations: false},
-    );
+    return buildOutlineFromBookmarkEntries(entries, createBookmarkId);
 }
 
 async function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
@@ -834,11 +807,11 @@ function finishOutlineLoading(runId: number) {
     }
 }
 
-async function loadUsableOutline(pdfDocument: IPdfDocument, runId: number) {
+async function loadUsableOutline(pdfDocument: IPdfDocument, documentRef: TDocumentRef, runId: number) {
     beginOutlineLoading();
     outlineError.value = false;
     try {
-        const resolved = await resolveBookmarksFromPdf(pdfDocument);
+        const resolved = await resolveBookmarksFromDocument(documentRef);
         if (!isStaleOutlineRun(runId, pdfDocument)) {
             // Rows stay behind the loading state until the passive selection
             // for the current page is known. In the current-expanded mode that
@@ -857,6 +830,7 @@ async function loadOutline() {
     bookmarkDestinationCache.clear();
     bookmarkPageRefCache.clear();
     const pdfDocument = props.pdfDocument;
+    const documentRef = props.documentRef;
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
     const runId = outlineRunId;
@@ -866,12 +840,12 @@ async function loadOutline() {
         return;
     }
 
-    if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
+    if (!pdfDocument || !documentRef || !isPdfDocumentUsable(pdfDocument)) {
         clearLoadedOutline();
         return;
     }
 
-    await loadUsableOutline(pdfDocument, runId);
+    await loadUsableOutline(pdfDocument, documentRef, runId);
 }
 
 function setDisplayMode(mode: TBookmarkDisplayMode) {
@@ -882,43 +856,39 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
     }
 }
 
-function handleActivate(payload: IBookmarkActivatePayload) {
-    cancelActiveItemResolution();
-    activeItemId.value = payload.id;
-    if (isEditMode.value) {
-        if (payload.rangeSelect) {
-            selection.applyRangeSelection(payload.id);
-        } else if (payload.multiSelect) {
-            const nextSelection = new Set(selection.selectedBookmarkIds.value);
-            if (nextSelection.has(payload.id)) {
-                nextSelection.delete(payload.id);
-            } else {
-                nextSelection.add(payload.id);
-            }
-            selection.selectedBookmarkIds.value = nextSelection;
-            selection.selectionAnchorBookmarkId.value = payload.id;
-        } else {
-            selection.applySingleSelection(payload.id);
-        }
-    } else {
-        selection.applySingleSelection(payload.id);
-    }
-
-    closeBookmarkContextMenu();
-}
-
-function activateSharedBookmark(id: string) {
+function activateSharedBookmark(id: string, event?: MouseEvent | KeyboardEvent) {
     const item = flatBookmarks.value.find(candidate => candidate.id === id);
     if (!item) {
         return;
     }
-
-    handleActivate({
-        id: item.id,
-        multiSelect: false,
-        rangeSelect: false,
-    });
+    const multiSelect = event instanceof MouseEvent && (event.metaKey || event.ctrlKey);
+    const rangeSelect = event instanceof MouseEvent && event.shiftKey;
     const navigationRequestId = beginBookmarkNavigationRequest();
+    cancelActiveItemResolution();
+    activeItemId.value = id;
+    if (isEditMode.value) {
+        if (rangeSelect) {
+            selection.applyRangeSelection(id);
+        } else if (multiSelect) {
+            const nextSelection = new Set(selection.selectedBookmarkIds.value);
+            if (nextSelection.has(id)) {
+                nextSelection.delete(id);
+            } else {
+                nextSelection.add(id);
+            }
+            selection.selectedBookmarkIds.value = nextSelection;
+            selection.selectionAnchorBookmarkId.value = id;
+        } else {
+            selection.applySingleSelection(id);
+        }
+    } else {
+        selection.applySingleSelection(id);
+    }
+
+    closeBookmarkContextMenu();
+    if (isEditMode.value && (multiSelect || rangeSelect)) {
+        return;
+    }
     void navigateToBookmarkDestination({
         item,
         pdfDocument: props.pdfDocument,
@@ -956,7 +926,10 @@ function handleTreeEndDrop() {
 }
 
 watch(
-    () => props.pdfDocument,
+    [
+        () => props.pdfDocument,
+        () => props.documentRef,
+    ],
     () => loadOutline(),
     { immediate: true },
 );
@@ -1028,13 +1001,6 @@ onBeforeUnmount(() => {
     font-size: var(--app-sidebar-caption-font-size);
     line-height: 1.3;
     padding: 0 var(--app-space-3xl);
-}
-
-.pdf-bookmarks-tree {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    user-select: none;
 }
 
 .pdf-bookmarks-drop-end {

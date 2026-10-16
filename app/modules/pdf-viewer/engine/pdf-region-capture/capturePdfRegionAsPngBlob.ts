@@ -1,135 +1,107 @@
 import type { IClientRect } from '@app/modules/document-viewer/public';
 import {
-    getRectHeight, getRectWidth , toClientRect,  
+    getRectHeight, getRectWidth, intersectClientRects, toClientRect,
 } from '@app/modules/document-viewer/public';
 import { buildCanvasCapturePlan } from '@app/modules/pdf-viewer/engine/pdf-region-capture/buildCanvasCapturePlan';
 import type {
-    ICanvasSource,
-    ICaptureFragment,
-    ICapturePlan,
+    ICapturePlan, IPdfRegionPaintCapture,
 } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
+import {
+    assertCaptureImageBudget, CAPTURE_MAX_BYTES, readCapturePngSize,
+} from '@contracts/imageExportPlatformFeature';
 
-function collectCanvasSources(viewerContainer: HTMLElement): ICanvasSource[] {
-    const renderedCanvases = Array.from(
-        viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas'),
-    );
-    const fallbackCanvases = renderedCanvases.length > 0
-        ? renderedCanvases
-        : Array.from(viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
-
-    return fallbackCanvases
-        .map((canvas) => {
-            const rect = toClientRect(canvas.getBoundingClientRect());
-            return {
-                canvas,
-                rect,
-                pageNumber: Number(canvas.closest<HTMLElement>('.page_container')?.dataset.page) || null,
-            };
-        })
-        .filter((source) =>
-            source.canvas.width > 0
-            && source.canvas.height > 0
-            && getRectWidth(source.rect) > 0
-            && getRectHeight(source.rect) > 0);
-}
-
-function resolveOutputScale(fragments: readonly ICaptureFragment[]) {
-    if (fragments.length === 0) {
-        return 1;
-    }
-
-    return Math.max(
-        1,
-        ...fragments.map(fragment => Math.min(fragment.scaleX, fragment.scaleY)),
-    );
-}
-
-async function renderCapturePlan(
-    plan: ICapturePlan,
-    rasterizePageRegion?: (fragment: ICaptureFragment) => Promise<Uint8Array | null>,
-): Promise<HTMLCanvasElement | null> {
-    if (!plan.outputRect || plan.fragments.length === 0) {
-        return null;
-    }
-
-    const outputScale = resolveOutputScale(plan.fragments);
-    const outputWidth = Math.max(1, Math.round(getRectWidth(plan.outputRect) * outputScale));
-    const outputHeight = Math.max(1, Math.round(getRectHeight(plan.outputRect) * outputScale));
-
-    const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = outputWidth;
-    outputCanvas.height = outputHeight;
-    const context = outputCanvas.getContext('2d');
-    if (!context) {
-        return null;
-    }
-
-    for (const fragment of plan.fragments) {
-        const destinationX = (fragment.intersection.left - plan.outputRect.left) * outputScale;
-        const destinationY = (fragment.intersection.top - plan.outputRect.top) * outputScale;
-        const destinationWidth = getRectWidth(fragment.intersection) * outputScale;
-        const destinationHeight = getRectHeight(fragment.intersection) * outputScale;
-
-        const pngBytes = await rasterizePageRegion?.(fragment);
-        if (pngBytes) {
-            const copiedBytes = new Uint8Array(pngBytes.byteLength);
-            copiedBytes.set(pngBytes);
-            const bitmap = await createImageBitmap(new Blob([copiedBytes.buffer]));
-            context.drawImage(bitmap, destinationX, destinationY, destinationWidth, destinationHeight);
-            bitmap.close();
-        } else {
-            context.drawImage(
-                fragment.canvas,
-                fragment.sourceX,
-                fragment.sourceY,
-                fragment.sourceWidth,
-                fragment.sourceHeight,
-                destinationX,
-                destinationY,
-                destinationWidth,
-                destinationHeight,
-            );
-        }
-    }
-
-    return outputCanvas;
-}
-
-function canvasToPngBlob(canvas: HTMLCanvasElement) {
-    return new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((blob) => {
-            resolve(blob);
-        }, 'image/png');
+/** Freeze the visible initiating pane and its page mask before any asynchronous read. */
+export function freezePdfRegionCapture(viewerContainer: HTMLElement, selection: IClientRect): ICapturePlan {
+    let clipped = intersectClientRects(selection, {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
     });
+    for (let element: HTMLElement | null = viewerContainer; clipped && element; element = element.parentElement) {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        const clipX = element === viewerContainer || style.overflowX !== 'visible';
+        const clipY = element === viewerContainer || style.overflowY !== 'visible';
+        clipped = intersectClientRects(clipped, {
+            left: clipX ? box.left + element.clientLeft : clipped.left,
+            right: clipX ? box.left + element.clientLeft + element.clientWidth : clipped.right,
+            top: clipY ? box.top + element.clientTop : clipped.top,
+            bottom: clipY ? box.top + element.clientTop + element.clientHeight : clipped.bottom,
+        });
+    }
+    if (!clipped) return {
+        outputRect: null,
+        fragments: [],
+    };
+    const sources = [...viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas')]
+        .filter(canvas => canvas.width > 0 && canvas.height > 0)
+        .map(canvas => ({
+            canvas,
+            rect: toClientRect(canvas.getBoundingClientRect()),
+        }));
+    const plan = buildCanvasCapturePlan(clipped, sources);
+    if (plan.outputRect) {
+        plan.outputRect = {
+            left: Math.max(Math.ceil(clipped.left), Math.floor(plan.outputRect.left)),
+            top: Math.max(Math.ceil(clipped.top), Math.floor(plan.outputRect.top)),
+            right: Math.min(Math.floor(clipped.right), Math.ceil(plan.outputRect.right)),
+            bottom: Math.min(Math.floor(clipped.bottom), Math.ceil(plan.outputRect.bottom)),
+        };
+        assertCaptureImageBudget(Math.ceil(getRectWidth(plan.outputRect) * window.devicePixelRatio), Math.ceil(getRectHeight(plan.outputRect) * window.devicePixelRatio));
+    }
+    return plan;
 }
 
+/** One composed frame supplies every fragment. A missing reader never falls back to PDF canvases. */
 export async function capturePdfRegionAsPngBlob(
-    viewerContainer: HTMLElement,
-    selectionRect: IClientRect,
-    rasterizePageRegion?: (fragment: ICaptureFragment) => Promise<Uint8Array | null>,
+    _viewerContainer: HTMLElement,
+    _selection: IClientRect,
+    request?: IPdfRegionPaintCapture,
 ) {
-    const sources = collectCanvasSources(viewerContainer);
-    const capturePlan = buildCanvasCapturePlan(selectionRect, sources);
-    const outputRect = capturePlan.outputRect;
-    if (!outputRect || capturePlan.fragments.length === 0) {
-        return null;
+    if (!request) throw new Error('Current-view composed capture requires its initiating viewer lifetime');
+    const {
+        plan, assertCurrent,
+    } = request;
+    const outputRect = plan.outputRect;
+    if (!outputRect || !plan.fragments.length) return null;
+    assertCurrent();
+    const bytes = await request.read();
+    assertCurrent();
+    if (!bytes) return null;
+    const size = readCapturePngSize(bytes);
+    const scaleX = size.width / getRectWidth(outputRect);
+    const scaleY = size.height / getRectHeight(outputRect);
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], {type: 'image/png'}));
+    const canvas = document.createElement('canvas');
+    try {
+        assertCurrent();
+        assertCaptureImageBudget(bitmap.width, bitmap.height);
+        if (bitmap.width !== size.width || bitmap.height !== size.height) throw new Error('Capture dimensions changed during decoding');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Capture canvas is unavailable');
+        for (const fragment of plan.fragments) {
+            const rect = intersectClientRects(fragment.intersection, outputRect);
+            if (!rect) continue;
+            const x = Math.round((rect.left - outputRect.left) * scaleX);
+            const y = Math.round((rect.top - outputRect.top) * scaleY);
+            const width = Math.round((rect.right - outputRect.left) * scaleX) - x;
+            const height = Math.round((rect.bottom - outputRect.top) * scaleY) - y;
+            context.drawImage(bitmap, x, y, width, height, x, y, width, height);
+        }
+        assertCurrent();
+        const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Capture PNG encoding failed')), 'image/png'));
+        assertCurrent();
+        if (blob.size > CAPTURE_MAX_BYTES) throw new RangeError('Capture exceeds the encoded byte limit');
+        return {
+            blob,
+            outputRect,
+        };
+    } finally {
+        bitmap.close();
+        canvas.width = 0;
+        canvas.height = 0;
     }
-
-    const outputCanvas = await renderCapturePlan(capturePlan, rasterizePageRegion);
-    if (!outputCanvas) {
-        throw new Error('Failed to render capture image');
-    }
-
-    const blob = await canvasToPngBlob(outputCanvas);
-    outputCanvas.width = 0;
-    outputCanvas.height = 0;
-
-    if (!blob) {
-        throw new Error('Failed to serialize capture image');
-    }
-
-    return {
-        blob,
-        outputRect,
-    };
 }

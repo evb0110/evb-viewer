@@ -38,13 +38,12 @@
 
     fn assert_binding_ref(binding: &AnnotationIdentityBinding, expected_id: &str) -> ObjectId {
         assert_eq!(binding.annotation_id, expected_id);
-        let parts: Vec<&str> = binding.pdf_ref.split(' ').collect();
-        assert_eq!(parts.len(), 3);
-        assert_eq!(parts[2], "R");
-        let object_number: u32 = parts[0].parse().unwrap();
-        let generation: u16 = parts[1].parse().unwrap();
-        assert!(object_number > 0);
-        (object_number, generation)
+        let object_id = parse_pdfjs_annotation_object_id(&binding.pdf_ref).unwrap();
+        assert_eq!(
+            parse_pdfjs_annotation_object_id(&format_pdfjs_annotation_ref(object_id)),
+            Some(object_id)
+        );
+        object_id
     }
 
     #[test]
@@ -131,9 +130,7 @@
             .filter_map(|object_id| document.get_dictionary(object_id).ok())
             .filter_map(read_annotation_name)
             .collect::<Vec<_>>();
-        assert!(annotation_names
-            .iter()
-            .any(|name| name == "uid:0:note-one"));
+        assert!(annotation_names.iter().any(|name| name == "uid:0:note-one"));
         assert!(annotation_names
             .iter()
             .any(|name| name == "uid:0:text-box-one"));
@@ -159,8 +156,7 @@
         let mut original_bytes = Vec::new();
         document.save_to(&mut original_bytes).unwrap();
         let pdf_path = temp_pdf_path("invalid-identity-in-place");
-        let report_path =
-            temp_pdf_path("invalid-identity-in-place-report").with_extension("json");
+        let report_path = temp_pdf_path("invalid-identity-in-place-report").with_extension("json");
         write(&pdf_path, &original_bytes).unwrap();
 
         let duplicate_key = "uid:0:duplicate";
@@ -188,4 +184,237 @@
         assert!(!report_path.exists());
         let _ = remove_file(pdf_path);
         let _ = remove_file(report_path);
+    }
+
+    #[test]
+    fn saved_note_rect_keeps_the_placement_center_for_every_page_rotation() {
+        for rotation in [0, 90, 180, 270] {
+            for incremental in [false, true] {
+                let (mut document, page_id) = create_test_document();
+                document
+                    .get_dictionary_mut(page_id)
+                    .unwrap()
+                    .set("Rotate", rotation);
+                let note = binding_note();
+                let page_view = resolve_page_view(&document, page_id).unwrap();
+                let expected = pdf_point_from_marker_point(
+                    note.marker_rect.left + note.marker_rect.width / 2.0,
+                    note.marker_rect.top + note.marker_rect.height / 2.0,
+                    page_view,
+                    rotation,
+                );
+                let input = temp_pdf_path("note-center-input");
+                let output = temp_pdf_path("note-center-output");
+                document.save(&input).unwrap();
+                write(&output, read(&input).unwrap()).unwrap();
+                let mutation = NativeMutationsFile {
+                    notes: vec![note],
+                    ..NativeMutationsFile::default()
+                };
+                if incremental {
+                    append_native_mutations(&input, &output, &mutation, "D:20261013000000Z")
+                        .unwrap();
+                } else {
+                    apply_native_mutations(&mut document, &mutation, "D:20261013000000Z").unwrap();
+                    document.save(&output).unwrap();
+                }
+                let reopened = Document::load(&output).unwrap();
+                let note_id = get_page_annots(&reopened, page_id)
+                    .unwrap()
+                    .into_iter()
+                    .filter_map(|object| object.as_reference().ok())
+                    .find(|id| annotation_subtype(reopened.get_dictionary(*id).unwrap()) == "text")
+                    .unwrap();
+                let rect = parse_rect(
+                    reopened
+                        .get_dictionary(note_id)
+                        .unwrap()
+                        .get(b"Rect")
+                        .unwrap(),
+                )
+                .unwrap();
+                assert_approximately((rect.x1 + rect.x2) / 2.0, expected.0);
+                assert_approximately((rect.y1 + rect.y2) / 2.0, expected.1);
+                assert_approximately(rect.width(), 20.0);
+                assert_approximately(rect.height(), 20.0);
+                remove_file(input).unwrap();
+                remove_file(output).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn unnamed_ink_updates_by_canonical_reference_in_both_writers() {
+        for append in [false, true] {
+            let (mut document, page) = create_test_document();
+            let view = resolve_page_view(&document, page).unwrap();
+            let mut dict =
+                create_shape_annotation_dict(&ink_shape("foreign-ink", "#2563eb"), view, 0, "")
+                    .unwrap();
+            dict.remove(b"NM");
+            dict.remove(b"EVBShapeKey");
+            let annotation = document.add_object(dict);
+            document
+                .get_dictionary_mut(page)
+                .unwrap()
+                .set("Annots", vec![Object::Reference(annotation)]);
+            let mut requested = ink_shape("edited-ink", "#ef4444");
+            requested.annotation_id = Some(format!("{} {} R", annotation.0, annotation.1));
+            let saved = recovery_save(
+                document,
+                &NativeMutationsFile {
+                    shapes: Some(ShapesMutation {
+                        total_pages: 1,
+                        rewrite_shape_state: false,
+                        shapes: vec![requested],
+                        deleted_annotation_ids: Vec::new(),
+                        deleted_stable_keys: Vec::new(),
+                    }),
+                    ..Default::default()
+                },
+                append,
+            );
+            let annots = get_page_annots(&saved, page).unwrap();
+            assert_eq!(annots.len(), 1);
+            assert_eq!(annots[0].as_reference().unwrap(), annotation);
+            let color = saved
+                .get_dictionary(annotation)
+                .unwrap()
+                .get(b"C")
+                .unwrap()
+                .as_array()
+                .unwrap();
+            for (actual, expected) in color.iter().zip([239.0, 68.0, 68.0]) {
+                assert_approximately(actual.as_float().unwrap() as f64, expected / 255.0);
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_save_keeps_small_zero_and_previously_written_note_rects() {
+        let (mut document, page_id) = create_test_document();
+        let rects = [
+            vec![20.into(), 60.into(), 40.into(), 80.into()], // Base writer's 20-point note.
+            vec![
+                number_object(60.125),
+                number_object(70.25),
+                number_object(60.225),
+                number_object(70.35),
+            ],
+            vec![80.into(), 65.into(), 80.into(), 65.into()],
+        ];
+        let ids = rects
+            .iter()
+            .enumerate()
+            .map(|(index, rect)| {
+                document.add_object(dictionary! {
+                    "Type" => "Annot", "Subtype" => "Text", "Rect" => rect.clone(),
+                    "NM" => Object::string_literal(format!("untouched-{index}")),
+                    "Contents" => Object::string_literal("Existing note"),
+                })
+            })
+            .collect::<Vec<_>>();
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            ids.iter()
+                .copied()
+                .map(Object::Reference)
+                .collect::<Vec<_>>(),
+        );
+        let input = temp_pdf_path("untouched-note-input");
+        let output = temp_pdf_path("untouched-note-output");
+        document.save(&input).unwrap();
+        let original = read(&input).unwrap();
+        write(&output, &original).unwrap();
+        append_native_mutations(
+            &input,
+            &output,
+            &NativeMutationsFile {
+                text_boxes: vec![binding_editor()],
+                ..NativeMutationsFile::default()
+            },
+            "D:20261013000000Z",
+        )
+        .unwrap();
+        let written = read(&output).unwrap();
+        assert!(written.starts_with(&original));
+        let reopened = Document::load(&output).unwrap();
+        for (id, rect) in ids.iter().zip(&rects) {
+            assert_eq!(
+                reopened.get_dictionary(*id).unwrap().get(b"Rect").unwrap(),
+                &Object::Array(rect.clone())
+            );
+            let object_header = format!("\n{} {} obj", id.0, id.1);
+            assert!(
+                !written[original.len()..]
+                    .windows(object_header.len())
+                    .any(|bytes| bytes == object_header.as_bytes()),
+                "Unrelated save rewrote note {id:?}"
+            );
+        }
+        remove_file(input).unwrap();
+        remove_file(output).unwrap();
+    }
+
+    #[test]
+    fn full_rewrite_deletion_sizes_the_trailer_from_remaining_objects() {
+        let (mut document, page, annotation) = create_test_markup_pdf("Highlight");
+        apply_native_mutations(
+            &mut document,
+            &NativeMutationsFile {
+                deletes: vec![AnnotationDelete {
+                    page_index: 0,
+                    object_number: Some(annotation.0),
+                    generation_number: Some(annotation.1),
+                    stable_key: None,
+                    created_at: None,
+                }],
+                ..Default::default()
+            },
+            "D:20261013120000Z",
+        )
+        .unwrap();
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        let saved = Document::load_mem(&bytes).unwrap();
+        assert!(get_page_annots(&saved, page).unwrap().is_empty());
+        let highest = saved.objects.keys().next_back().unwrap().0;
+        assert_eq!(
+            saved.trailer.get(b"Size").unwrap().as_i64().unwrap(),
+            i64::from(highest) + 1
+        );
+    }
+
+    #[test]
+    fn canonical_annotation_references_keep_object_and_generation_identity() {
+        for (canonical, compact, expected) in [
+            ("7 0 R", "7R", (7, 0)),
+            ("17 12 R", "17R12", (17, 12)),
+            (" 0017\t0\nR ", "17R", (17, 0)),
+        ] {
+            assert_eq!(parse_pdfjs_annotation_object_id(canonical), Some(expected));
+            assert_eq!(parse_pdfjs_annotation_object_id(compact), Some(expected));
+            assert_eq!(
+                normalize_pdfjs_annotation_id(canonical).as_deref(),
+                Some(compact)
+            );
+        }
+        for invalid in [
+            "0 0 R",
+            "7 -1 R",
+            "+7 0 R",
+            "7 65536 R",
+            "4294967296 0 R",
+            "7 0 R extra",
+            "7R2R",
+            "7R-1",
+            "7 0",
+            "7 R",
+            "",
+        ] {
+            assert!(
+                parse_pdfjs_annotation_object_id(invalid).is_none(),
+                "{invalid}"
+            );
+        }
     }

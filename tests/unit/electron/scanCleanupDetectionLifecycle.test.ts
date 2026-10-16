@@ -1,6 +1,7 @@
 import {
     describe, it, expect, vi, afterEach,
 } from 'vitest';
+import type * as TInputLimits from '@contracts/scan-cleanup/inputLimits';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
@@ -50,6 +51,16 @@ import {
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {atomicReplace} from '@electron/utils/atomicReplace';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
+
+// Streaming starts above one batch, so the xlarge case needs batch + 1 pages.
+// The product batch is 1,024 pages, which made that case about 5,000 small
+// file operations. A 320-page batch still exceeds the 256-page renderer result
+// window, which is what the case bounds, at a third of the work.
+vi.mock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
+    ...await importOriginal<typeof TInputLimits>(),
+    SCAN_CLEANUP_STREAMING_BATCH_PAGES: 320,
+}));
 
 
 
@@ -1084,9 +1095,9 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
         dir,
         deps,
     } = await previewDependencies();
-    const totalPages = 1_025;
+    const totalPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
     // The raster bytes are identical. Reuse immutable fixtures rather than
-    // rewriting 1,025 PNGs on NTFS; multiple seeds leave room for retention links.
+    // rewriting a PNG per page on NTFS; multiple seeds leave room for retention links.
     const rasterFixtures = [
         0,
         1,
@@ -1109,14 +1120,14 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
             (_unused, index) => pageSize(firstPageNumber + index),
         )),
         forEachChunk: vi.fn(async onChunk => {
-            for (let firstPageNumber = 1; firstPageNumber <= totalPages; firstPageNumber += 1_024) {
+            for (let firstPageNumber = 1; firstPageNumber <= totalPages; firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                 const pages = await store.readRange(
                     firstPageNumber,
-                    Math.min(totalPages + 1, firstPageNumber + 1_024),
+                    Math.min(totalPages + 1, firstPageNumber + SCAN_CLEANUP_STREAMING_BATCH_PAGES),
                 );
                 await onChunk({
                     pageCount: totalPages,
-                    chunkIndex: Math.floor((firstPageNumber - 1) / 1_024),
+                    chunkIndex: Math.floor((firstPageNumber - 1) / SCAN_CLEANUP_STREAMING_BATCH_PAGES),
                     firstPageNumber,
                     offset: 0,
                     byteLength: 0,
@@ -1147,7 +1158,7 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
                 confidence: 0.9,
             });
         }
-        if (manifest.pages.length === 1_024) {
+        if (manifest.pages.length === SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
             firstBatchPublished.resolve(undefined);
             await releaseFirstBatch.promise;
         }

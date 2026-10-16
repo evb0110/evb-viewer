@@ -1652,11 +1652,11 @@ describe('PdfDocumentSession range loading', () => {
         pdfjsState.getDocument
             .mockReturnValueOnce({
                 promise: staleLoad.promise,
-                destroy: vi.fn(() => Promise.resolve()),
+                ...staleDocument.loadingTask,
             })
             .mockReturnValueOnce({
                 promise: Promise.resolve(currentDocument),
-                destroy: vi.fn(() => Promise.resolve()),
+                ...currentDocument.loadingTask,
             });
 
         const documentState = createPdfDocumentSession();
@@ -1696,6 +1696,44 @@ describe('PdfDocumentSession range loading', () => {
 
         expect(documentState.acceptedSource.value).toBeNull();
         expect(documentState.pdfDocument.value).toBeNull();
+    });
+
+    it('keeps a replacement behind the previous view cancellation', async () => {
+        const cancellation = Promise.withResolvers<undefined>();
+        const cancelling = Promise.withResolvers<undefined>();
+        const replacing = Promise.withResolvers<undefined>();
+        const source = shallowRef(new Blob([Uint8Array.of(1)]));
+        const active = ref(true);
+        const documentState = createPdfDocumentSession({src: source});
+        const view = documentState.attachView({isActive: computed(() => active.value)});
+        view.subscribe(transition => {
+            if (transition.reason === 'deactivated') {
+                cancelling.resolve(undefined);
+                return cancellation.promise;
+            }
+            if (transition.reason === 'source-replaced') replacing.resolve(undefined);
+            return undefined;
+        });
+        try {
+            view.present();
+            await view.waitForLoadSettled();
+            const firstDocument = documentState.pdfDocument.value;
+            expect(firstDocument).not.toBeNull();
+            active.value = false;
+            await cancelling.promise;
+            source.value = new Blob([Uint8Array.of(2)]);
+            await replacing.promise;
+            // Let the replacement finish if it has bypassed cancellation.
+            for (let turn = 0; turn < 100; turn += 1) await Promise.resolve();
+            expect(documentState.acceptedSource.value).not.toBe(source.value);
+            expect(firstDocument!.loadingTask.destroy).not.toHaveBeenCalled();
+            cancellation.resolve(undefined);
+            await view.waitForLoadSettled();
+            expect(documentState.acceptedSource.value).toBe(source.value);
+        } finally {
+            cancellation.resolve(undefined);
+            await documentState.dispose();
+        }
     });
 
     it('reclaims inactive document caches only after deferred render cancellation settles', async () => {

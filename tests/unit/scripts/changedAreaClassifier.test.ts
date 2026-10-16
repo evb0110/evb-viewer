@@ -100,7 +100,10 @@ function runClassifierForRange(root: string, base: string, head: string, include
 }
 
 function runPushDiffBase(root: string, before: string, head: string) {
-    const result = spawnSync('bash', [
+    const bash = process.platform === 'win32'
+        ? resolve(runGit(root, ['--exec-path']), '../../../bin/bash.exe')
+        : 'bash';
+    const result = spawnSync(bash, [
         pushDiffBasePath,
         before,
         head,
@@ -177,6 +180,17 @@ describe('changed-area classifier', () => {
             rust: {matched: true},
             desktop_build: {matched: true},
         });
+        for (const font of [
+            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+        ]) {
+            expect(classifyChangedFiles([font])).toMatchObject({
+                electron_smoke: {matched: true},
+                rust: {matched: true},
+                desktop_build: {matched: true},
+            });
+        }
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             rust: {matched: false},
             desktop_build: {matched: false},

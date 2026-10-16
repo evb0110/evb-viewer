@@ -19,6 +19,12 @@ import {
 import type { IPageMoveRangeSegment } from '@pdf-core/pdfPageSelection';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
+    PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA,
+    type IPdfBookmarkEntry,
+} from '@contracts/pdfBookmarkEntry';
+import * as v from 'valibot';
+import { readBrowserPdfCatalogPart } from '@contracts/browserPdfCatalog';
+import {
     createRequestId,
     type IPageGeometry,
     type TRequestId,
@@ -830,6 +836,20 @@ export function createBrowserPageOpsCapability(
                     return getPageGeometryFromPdfBytes(data, pageNumber);
                 },
             });
+        },
+        async readOutline(workingCopyPath): Promise<IPdfBookmarkEntry[]> {
+            const catalog = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Reading bookmarks',
+                maxBytes: BROWSER_PAGE_OP_PDF_MAX_BYTES,
+                type: 'readCatalog',
+                createPayload: (data) => ({data}),
+                runDirect: async (data) => {
+                    const { readPdfCatalog } = await loadBrowserPageOpsCore();
+                    return readPdfCatalog(data);
+                },
+            });
+            return v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), readBrowserPdfCatalogPart(catalog, 'bookmarks'));
         },
     } satisfies TFeatureBrowserBindings<typeof PAGE_OPS_PLATFORM_FEATURE>;
 

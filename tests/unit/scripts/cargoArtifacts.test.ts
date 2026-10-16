@@ -20,6 +20,10 @@ import {
     getCargoFingerprintEnvironment,
     parseNativeToolBuildRequest,
 } from '@scripts/build-native-tool.mjs';
+import {
+    computeNativeBuildId,
+    getNativeExternalBuildInputs,
+} from '@scripts/native-build-id.mjs';
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
 import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
 import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
@@ -97,6 +101,40 @@ const {
 ) as ICargoArtifactsModule;
 
 describe('Cargo artifact staging', () => {
+    it.each(getNativeExternalBuildInputs('pdf-page-ops'))('invalidates the native build ID and cache when %s changes', async (fontPath) => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-font-build-id-'));
+        const fontPaths = getNativeExternalBuildInputs('pdf-page-ops');
+        try {
+            for (const relativePath of [
+                'native/Cargo.toml',
+                'native/Cargo.lock',
+                'native/rust-toolchain.toml',
+                'native/pdf-page-ops/Cargo.toml',
+                'native/pdf-page-ops/src/lib.rs',
+                ...fontPaths,
+            ]) {
+                await mkdir(path.dirname(path.join(root, relativePath)), {recursive: true});
+                await writeFile(path.join(root, relativePath), 'original');
+            }
+            const beforeId = computeNativeBuildId(root, 'pdf-page-ops');
+            const options = {
+                cargoArgs: ['build'],
+                projectRoot: root,
+                sourcePaths: getNativeExternalBuildInputs('pdf-page-ops').map(input => path.join(root, input)),
+                toolchain: {rustc: 'fixture'},
+            };
+            const beforeCache = await computeCargoInputFingerprint(options);
+            await writeFile(path.join(root, fontPath), 'changed font bytes');
+            expect(computeNativeBuildId(root, 'pdf-page-ops')).not.toBe(beforeId);
+            expect((await computeCargoInputFingerprint(options)).fingerprint).not.toBe(beforeCache.fingerprint);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('shares strict CLI parsing across native and WASM tool builders', () => {
         expect(parseCargoToolBuildRequest(['pdf-search'], 'usage')).toEqual({
             dryRun: false,
@@ -160,13 +198,69 @@ describe('Cargo artifact staging', () => {
         ])).toThrow('Usage:');
     });
 
+    it('remaps the build folder, cargo home and rustup home out of native and WASM builds', () => {
+        // Toolchain homes are absolute paths on the host, so a Windows host gives them a drive letter.
+        const cargoHome = path.resolve('/home/dev/cargo home');
+        const rustupHome = path.resolve('/opt/rustup');
+        const env = {
+            CARGO_HOME: cargoHome,
+            RUSTFLAGS: '--cfg inherited',
+            RUSTUP_HOME: rustupHome,
+        };
+        const remaps = [
+            `--remap-path-prefix=${cargoHome}=/cargo-home`,
+            `--remap-path-prefix=${rustupHome}=/rustup-home`,
+            '--remap-path-prefix=/work/evb viewer=/evb-viewer',
+        ];
+        const native = getCargoBuildEnvironment({
+            env,
+            platform: 'linux',
+            projectRoot: '/work/evb viewer',
+            runCommand: vi.fn(),
+        });
+        expect(native.env.CARGO_ENCODED_RUSTFLAGS.split('\u001f')).toEqual([
+            '--cfg',
+            'inherited',
+            ...remaps,
+        ]);
+        const apple = getCargoBuildEnvironment({
+            env,
+            platform: 'darwin',
+            projectRoot: '/work/evb viewer',
+            runCommand: vi.fn(),
+        });
+        expect(apple.env.CARGO_ENCODED_RUSTFLAGS.split('\u001f')).toEqual([
+            '--cfg',
+            'inherited',
+            ...remaps,
+            '-C',
+            'link-arg=-Wl,-oso_prefix,/work/evb viewer',
+        ]);
+        const plan = createWasmToolBuildPlan({
+            artifact: getWasmArtifactByCrateName('pdf-page-ops'),
+            env,
+            projectRoot: '/work/evb viewer',
+        });
+        expect(plan.rustflags).toEqual([
+            '--cfg',
+            'inherited',
+            ...remaps,
+            '--cfg',
+            'getrandom_backend="custom"',
+        ]);
+    });
+
     it('uses an existing Rust wrapper, probes sccache, and safely degrades when unavailable', () => {
         const existing = {RUSTC_WRAPPER: '/custom/wrapper'};
         expect(getCargoBuildEnvironment({
             env: existing,
+            projectRoot: '/repo',
             runCommand: vi.fn(),
         })).toEqual({
-            env: existing,
+            env: {
+                ...existing,
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
+            },
             sccache: 'configured (/custom/wrapper)',
         });
         expect(getCargoBuildEnvironment({
@@ -174,6 +268,7 @@ describe('Cargo artifact staging', () => {
                 CARGO_HOME: '/cargo',
                 EVB_RUST_SCCACHE: '1',
             },
+            projectRoot: '/repo',
             runCommand: vi.fn(() => ({
                 status: 0,
                 stdout: 'sccache 0.10.0\n',
@@ -181,6 +276,7 @@ describe('Cargo artifact staging', () => {
         })).toEqual({
             env: {
                 CARGO_HOME: '/cargo',
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
                 EVB_RUST_SCCACHE: '1',
                 RUSTC_WRAPPER: 'sccache',
             },
@@ -191,6 +287,7 @@ describe('Cargo artifact staging', () => {
                 CARGO_HOME: '/cargo',
                 EVB_RUST_SCCACHE: '1',
             },
+            projectRoot: '/repo',
             runCommand: vi.fn(() => ({
                 status: null,
                 stdout: '',
@@ -198,15 +295,20 @@ describe('Cargo artifact staging', () => {
         })).toEqual({
             env: {
                 CARGO_HOME: '/cargo',
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
                 EVB_RUST_SCCACHE: '1',
             },
             sccache: 'unavailable',
         });
         expect(getCargoBuildEnvironment({
             env: {CARGO_HOME: '/cargo'},
+            projectRoot: '/repo',
             runCommand: vi.fn(),
         })).toEqual({
-            env: {CARGO_HOME: '/cargo'},
+            env: {
+                CARGO_HOME: '/cargo',
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
+            },
             sccache: 'disabled',
         });
         expect(getCargoFingerprintEnvironment({
@@ -466,7 +568,10 @@ describe('Cargo artifact staging', () => {
             expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
             expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
             expect(plan.requiredExports).toBe(artifact.requiredExports);
-            expect(plan.rustflags).toContain('--cfg existing');
+            expect(plan.rustflags.slice(0, 2)).toEqual([
+                '--cfg',
+                'existing',
+            ]);
         }
         expect(() => getWasmArtifactByCrateName('pdf-search')).toThrow(
             'Unknown WASM artifact crate: pdf-search',

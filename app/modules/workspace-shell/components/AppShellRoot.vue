@@ -47,7 +47,6 @@
                 @update:overflow-menu-open="shellToolbarOverflowMenuOpen = $event"
                 @update:app-menu-open="shellToolbarAppMenuOpen = $event"
                 @update:zoom="shellToolbarZoom = $event"
-                @update:effective-zoom="shellToolbarEffectiveZoom = $event"
                 @update:zoom-mode="shellToolbarZoomMode = $event"
                 @update:fit-mode="shellToolbarFitMode = $event"
                 @update:view-mode="shellToolbarViewMode = $event"
@@ -544,7 +543,6 @@ onUnmounted(() => {
 
 const {
     shellToolbarAppMenuOpen,
-    shellToolbarEffectiveZoom,
     shellToolbarFitMode,
     shellToolbarHasPdf,
     isActiveTabOpening,
@@ -693,11 +691,11 @@ watchEffect(() => {
     assistantPanel.hasActiveDocument.value = assistantHasActiveDocument.value;
 });
 function findEmptyTab() {
-    if (activeTabId.value && isTabEmpty(activeTabId.value)) {
-        return getTabById(activeTabId.value);
-    }
-
-    return tabs.value.find(tab => isTabEmpty(tab.id)) ?? null;
+    return [
+        getTabById(activeTabId.value),
+        ...tabs.value,
+    ]
+        .find(tab => tab && !workspaceRestoreTracker.has(tab.id) && isTabEmpty(tab.id)) ?? null;
 }
 function activateTabById(tabId: string) {
     const pane = getPaneByTabId(tabId);
@@ -730,11 +728,10 @@ useAgentWorkspaceSnapshot({
 });
 
 const {persistCheckpointNow} = useAppShellResilience({
-    enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
-    browserEnabled: computed(() => isBrowserRuntime.value && !isStartupOpenClaimPending.value),
+    enabled: isDesktopRuntime,
     editorPanesManager,
     documentSessionsByTabId,
-});
+}, isStartupOpenClaimPending);
 useScanCleanupRunCoordinator(
     activeWorkspace,
     handleOpenInNewTab,

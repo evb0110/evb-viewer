@@ -29,6 +29,7 @@ import type {
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { readDocumentBytes } from '@app/utils/documentBytes';
@@ -121,6 +122,7 @@ export function createDocumentOpenFlow(
         cancelPasswordPrompt,
         closePasswordPrompt,
     } = useDocumentPasswordPrompt();
+    const { presentNoticeToast } = useFailureToast();
     function assertPdfHasBytes(size: number) {
         if (!(size > 0)) {
             throw new DocumentOpenRefusalError('empty-pdf', 'The PDF file is empty (0 bytes)');
@@ -330,6 +332,19 @@ export function createDocumentOpenFlow(
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
+        if (result.keptOriginalPath) {
+            // A save kept a file beside the PDF; every open says so until the person dismisses it, as one notice per PDF.
+            const originalPath = result.originalPath;
+            presentNoticeToast({
+                id: `kept-original:${originalPath}`,
+                tone: 'warning',
+                title: deps.t('errors.file.recoveryKeptOriginalTitle'),
+                description: deps.t('errors.file.recoveryKeptOriginal', {path: result.keptOriginalPath}),
+                duration: Number.POSITIVE_INFINITY,
+                progress: false,
+                onDismiss: () => void getDocumentOpenCapability().forgetKeptOriginal?.(originalPath).catch(() => undefined),
+            });
+        }
         if (result.recoveryDirtyBaseline === true) {
             // A failed first read must leave the checkpoint-owned bytes for a
             // later retry. The main cleanup boundary also enforces this, but
@@ -753,32 +768,18 @@ export function createDocumentOpenFlow(
             return false;
         }
 
-        const revision = await resolveDocumentRevision(path, isCurrent);
-        if (isCurrent?.() === false) {
-            return false;
-        }
-        state.documentRevisionInfo.value = revision;
-        state.documentRevisionToken.value = revision?.token ?? null;
-        return true;
-    }
-
-    async function resolveDocumentRevision(
-        path: TDocumentRef,
-        isCurrent?: (() => boolean) | undefined,
-    ) {
-        try {
-            const revision = await getDocumentFilesCapability().getDocumentRevision(path);
-            return isCurrent?.() === false ? null : revision;
-        } catch (error) {
-            if (isCurrent?.() === false) {
-                return null;
-            }
+        const revision = await getDocumentFilesCapability().getDocumentRevision(path).catch((error: unknown) => {
+            if (isCurrent?.() === false) return null;
             BrowserLogger.warn('pdf-file', 'Failed to resolve document revision', {
                 path,
                 error,
             });
             return null;
-        }
+        });
+        if (isCurrent?.() === false) return false;
+        state.documentRevisionInfo.value = revision;
+        state.documentRevisionToken.value = revision?.token ?? null;
+        return true;
     }
 
     async function readPdfStateFromPath(
@@ -1058,6 +1059,7 @@ export function createDocumentOpenFlow(
         openFileDirectBatch,
         pickFileToOpen,
         readPdfStateFromPath,
+        refreshDocumentRevisionToken,
         toPdfBlob,
     };
 }

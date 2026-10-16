@@ -1,0 +1,6 @@
+Noto Sans Syriac Regular, Copyright 2018 Google Inc. All Rights Reserved.
+Licensed under the SIL Open Font License 1.1 (NotoSansSyriac-OFL.txt).
+Reused without modification from scripts/fixtures/ocr-language-fonts.
+Source: https://github.com/notofonts/noto-fonts/blob/main/hinted/ttf/NotoSansSyriac/NotoSansSyriac-Regular.ttf
+SHA-256: 7e05622602dd5333006807f61b30452a94cca0a0791047a120edff00cf189082
+DejaVu Sans already covers Hebrew and Arabic. This fallback adds Syriac.

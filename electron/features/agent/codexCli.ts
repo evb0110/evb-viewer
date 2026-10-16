@@ -109,6 +109,9 @@ function buildCodexPathCandidates() {
             ? getWindowsCodexExecutableNames().map(name => join(pathEntry, name))
             : [join(pathEntry, getCodexExecutableName())]);
 
+    // Fixed system directories are not searched: they reach a Codex the launch
+    // environment never named. GUI launches lack the shell PATH, so the login-shell
+    // lookup below covers them; Homebrew needs its shellenv in the login profile.
     const candidates = [
         process.env.CODEX_CLI_PATH,
         ...getManagedCodexPathCandidates(),
@@ -117,9 +120,6 @@ function buildCodexPathCandidates() {
             : undefined,
         ...pathCandidates,
         join(homedir(), '.local', 'bin', getCodexExecutableName()),
-        '/opt/homebrew/bin/codex',
-        '/usr/local/bin/codex',
-        '/usr/bin/codex',
     ];
     return uniqueStrings(candidates.flatMap(candidate => typeof candidate === 'string' ? [candidate] : []));
 }

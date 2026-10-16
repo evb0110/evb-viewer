@@ -1,4 +1,5 @@
 import {existsSync} from 'fs';
+import {te} from '@electron/te';
 import {
     copyFile,
     mkdtemp,
@@ -13,10 +14,10 @@ import {
 } from 'fs/promises';
 import {
     basename,
-    dirname as dirnameFromPath,
     dirname,
     extname,
     join,
+    resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { ResourceLimits } from 'worker_threads';
@@ -62,11 +63,25 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
+import {isAbortError} from '@electron/utils/abort';
+import {
+    aggregateErrorsKeepingUnprovenTermination,
+    getUnprovenNativeTerminationDetail,
+} from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
+    recordManagedScratchBackup,
+    recordManagedScratchComplete,
+    recordManagedScratchPaths,
+    recordManagedScratchPublish,
+    settlePublishedTarget,
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
+import {
+    readFileIdentity,
+    type IFileIdentity,
+} from '@electron/utils/fileIdentity';
 import {
     addStagedImageFileBytes,
     assertImageExportFreeSpace,
@@ -78,19 +93,23 @@ import {
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
-    buildOutputPathWithSuffix,
     buildMultiPageTiffOutputPaths,
     resolveOutputPathConflicts,
     resolveSuffixedOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
-import {addPngPhysicalResolution} from '@electron/features/image-export/main/addPngPhysicalResolution';
+import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
 import {TiffCombineWorkerStartupError} from '@electron/features/image-export/main/tiffCombineWorkerStartupError';
 import {
     createPdfInfoPageSizeStreamScanner,
     parsePdfInfoPageSizeLine,
 } from '@electron/features/image-export/main/parsePdfInfoPageSizes';
-export type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
+import {
+    IMAGE_EXPORT_FORMATS,
+    resolveImageExportFormat,
+    type TImageExportFormat,
+} from '@pdf-core/imageExportFileName';
+export type {TImageExportFormat} from '@pdf-core/imageExportFileName';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
 interface IRenderedPageFile {
     page: number;
@@ -122,7 +141,7 @@ function logImageExportMessage(level: 'debug' | 'error' | 'info' | 'warn', messa
     }
     logger[level](message);
 }
-const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -140,49 +159,12 @@ const TIFF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
 };
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = 2;
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
-function resolveFormatExtension(format: TImageExportFormat) {
-    if (format === 'jpeg') {
-        return '.jpg';
+export function validateImageExportPath(filePath: string, format = resolveImageExportFormat(filePath)) {
+    const extensions = IMAGE_EXPORT_FORMATS[format].extensions;
+    if (!extensions.some(extension => filePath.toLowerCase().endsWith(extension))) {
+        throw new Error(te('errors.browser.imageExtensionMismatch', {extensions: extensions.join(', ')}));
     }
-    if (format === 'tiff') {
-        return '.tif';
-    }
-    return '.png';
-}
-
-function parseImageExportFormat(filePath: string): TImageExportFormat {
-    const extension = extname(filePath).toLowerCase();
-
-    if (extension === '.jpg' || extension === '.jpeg') {
-        return 'jpeg';
-    }
-    if (extension === '.tif' || extension === '.tiff') {
-        return 'tiff';
-    }
-
-    return 'png';
-}
-
-export function normalizeImageExportPath(filePath: string, fallbackFormat: TImageExportFormat = 'png'): {
-    normalizedPath: string;
-    format: TImageExportFormat;
-} {
-    const extension = extname(filePath).toLowerCase();
-
-    if (extension === '.png' || extension === '.jpg' || extension === '.jpeg' || extension === '.tif' || extension === '.tiff') {
-        const format = parseImageExportFormat(filePath);
-        return {
-            normalizedPath: buildOutputPathWithSuffix(filePath, ''),
-            format,
-        };
-    }
-
-    const format = fallbackFormat;
-    const pathWithExtension = `${filePath}${resolveFormatExtension(format)}`;
-    return {
-        normalizedPath: buildOutputPathWithSuffix(pathWithExtension, ''),
-        format,
-    };
+    return filePath;
 }
 
 function toPdftoppmFormatArgs(format: TPageRenderFormat) {
@@ -317,14 +299,8 @@ async function tryConvertRenderedPpmToPngNative(
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
 ) {
-    if (isNativePdfImageCombineDisabled()) {
-        return false;
-    }
-
-    const binaryPath = resolveNativePdfImageCombinePath();
-    if (!binaryPath) {
-        return false;
-    }
+    const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
+    if (!binaryPath) return false;
 
     try {
         await runNativeToolCommand(binaryPath, [
@@ -345,6 +321,11 @@ async function tryConvertRenderedPpmToPngNative(
         await unlink(sourcePath).catch(() => undefined);
         return true;
     } catch (error) {
+        // A child not proven dead may still write pngPath or read sourcePath, so
+        // the fallback must not start beside it. The scratch owner keeps both.
+        if (signal?.aborted || isAbortError(error)
+            || (error instanceof Error && error.name === 'NativeToolBuildMismatchError')
+            || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         logger.debug(`Native PPM-to-PNG conversion failed, falling back to JS encoder: ${getErrorMessage(error)}`);
         await rm(pngPath, {force: true}).catch(() => undefined);
         return false;
@@ -424,6 +405,7 @@ export async function convertRenderedPpmToImage(
     return outputPath;
 }
 
+// The target is a recorded stage, which promotion flushes before it replaces anything.
 async function moveFile(sourcePath: string, targetPath: string) {
     try {
         await rename(sourcePath, targetPath);
@@ -431,206 +413,151 @@ async function moveFile(sourcePath: string, targetPath: string) {
         if (!isErrnoException(error) || error.code !== 'EXDEV') {
             throw error;
         }
-
-        const tempPath = makeSiblingTempPath(targetPath);
-        let replaced = false;
-        try {
-            await copyFile(sourcePath, tempPath);
-            await atomicReplace(tempPath, targetPath);
-            replaced = true;
-            await unlink(sourcePath);
-        } finally {
-            if (!replaced) {
-                await rm(tempPath, { force: true }).catch(() => undefined);
-            }
-        }
+        await copyFile(sourcePath, targetPath);
+        await unlink(sourcePath);
     }
 }
 
+export interface IStagedImageFile {
+    stagedPath: string;
+    targetPath: string;
+}
+
+// One publication, as the scratch record names it, so the rollback and the
+// startup recovery settle it the same way.
 interface IStagedFilePublication {
     targetPath: string;
     backupPath: string | null;
-    targetIdentity: {
-        dev: number;
-        ino: number;
-        size: number;
-        mtimeMs: number;
-    } | null;
+    original: IFileIdentity | null;
+    published: IFileIdentity | null;
 }
 
 export interface IStagedFilePublicationLedger {
     promotedFiles: IStagedFilePublication[];
-    backupPaths: string[];
+    // Where backups and publications are recorded, so a crash can roll them back.
+    scratchPath: string | null;
 }
 
-export function createStagedFilePublicationLedger(): IStagedFilePublicationLedger {
+export function createStagedFilePublicationLedger(scratchPath: string | null = null): IStagedFilePublicationLedger {
     return {
         promotedFiles: [],
-        backupPaths: [],
+        scratchPath,
     };
 }
 
+// A settled publication leaves the ledger; one that fails stays in it and in
+// the scratch record, which the managed scratch owner then keeps for the next start.
+// An incomplete rollback's error: its message tells a person what became of the replaced files.
+export const IMAGE_EXPORT_ROLLBACK_ERROR_NAME = 'ImageExportRollbackError';
+
 export async function rollbackStagedFilePublications(ledger: IStagedFilePublicationLedger) {
     const rollbackFailures: Error[] = [];
-    const restoredBackups = new Set<string>();
+    const outcomes = new Set<string>();
     for (const promotedFile of [...ledger.promotedFiles].reverse()) {
-        const currentTargetIdentity = await stat(promotedFile.targetPath).then(target => ({
-            dev: target.dev,
-            ino: target.ino,
-            size: target.size,
-            mtimeMs: target.mtimeMs,
-        })).catch(() => null);
-        const targetStillOwned = promotedFile.targetIdentity === null
-            ? currentTargetIdentity !== null
-            : currentTargetIdentity !== null
-                && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
-                && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
-                && promotedFile.targetIdentity.size === currentTargetIdentity.size
-                && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
-        if (promotedFile.backupPath) {
-            if (!targetStillOwned) {
-                rollbackFailures.push(new Error(`Refusing to restore ${promotedFile.targetPath} after external modification`));
-                continue;
+        const {
+            targetPath, backupPath,
+        } = promotedFile;
+        try {
+            const keptPath = await settlePublishedTarget(targetPath, backupPath, promotedFile.original, promotedFile.published);
+            ledger.promotedFiles.splice(ledger.promotedFiles.indexOf(promotedFile), 1);
+            if (keptPath) {
+                rollbackFailures.push(new Error(`${targetPath} changed during the export`));
+                outcomes.add(te('errors.export.originalKept', {
+                    file: basename(targetPath),
+                    kept: basename(keptPath),
+                }));
             }
-            try {
-                await atomicReplace(promotedFile.backupPath, promotedFile.targetPath);
-                restoredBackups.add(promotedFile.backupPath);
-            } catch (restoreError) {
-                rollbackFailures.push(new Error(
-                    `Failed to restore ${promotedFile.targetPath} from ${promotedFile.backupPath}`,
-                    {cause: restoreError},
-                ));
-            }
-            continue;
+        } catch (error) {
+            rollbackFailures.push(new Error(backupPath
+                ? `Failed to restore ${targetPath} from ${backupPath}`
+                : `Failed to remove partially promoted ${targetPath}`, {cause: error}));
+            outcomes.add(te('errors.export.restoredOnNextStart'));
         }
-
-        if (promotedFile.targetIdentity !== null && currentTargetIdentity === null) {
-            continue;
-        }
-        if (!targetStillOwned) {
-            rollbackFailures.push(new Error(`Refusing to remove ${promotedFile.targetPath} after external modification`));
-            continue;
-        }
-        await rm(promotedFile.targetPath, {force: true}).catch((removeError: unknown) => {
-            rollbackFailures.push(new Error(`Failed to remove partially promoted ${promotedFile.targetPath}`, {cause: removeError}));
-        });
     }
-    const retainedBackups = ledger.backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
-    if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
-        const backupMessage = retainedBackups.length > 0
-            ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
-            : '';
-        throw new AggregateError(rollbackFailures, `Image export rollback failed.${backupMessage}`);
+    if (rollbackFailures.length > 0) {
+        throw Object.assign(aggregateErrorsKeepingUnprovenTermination(rollbackFailures, [...outcomes].join(' ')), {name: IMAGE_EXPORT_ROLLBACK_ERROR_NAME});
     }
-    ledger.promotedFiles.length = 0;
-    ledger.backupPaths.length = 0;
 }
 
 export async function commitStagedFilePublications(ledger: IStagedFilePublicationLedger) {
-    await Promise.all(ledger.backupPaths.map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
+    // Written after the last publication and before any backup is removed.
+    await recordManagedScratchComplete(ledger.scratchPath);
+    await Promise.all(ledger.promotedFiles.flatMap(file => file.backupPath ?? [])
+        .map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
     ledger.promotedFiles.length = 0;
-    ledger.backupPaths.length = 0;
 }
 
+// A shared ledger collects this batch for its owner to commit or roll back. A
+// scratch path, or none, commits the batch here, inside its rollback boundary.
 export async function promoteStagedFiles(
-    stagedFiles: Array<{
-        stagedPath: string;
-        targetPath: string;
-        targetExisted: boolean;
-    }>,
+    stagedFiles: IStagedImageFile[],
     signal?: AbortSignal,
-    ledger?: IStagedFilePublicationLedger,
+    publication: IStagedFilePublicationLedger | string | null = null,
 ) {
-    const promotedFiles: IStagedFilePublication[] = [];
-    const backupPaths: string[] = [];
-    let pendingBackupPath: string | null = null;
-    let pendingReplacementAttempted = false;
+    const sharedLedger = typeof publication === 'string' ? null : publication;
+    const batchLedger = createStagedFilePublicationLedger(typeof publication === 'string' ? publication : publication?.scratchPath);
+    const {scratchPath} = batchLedger;
     try {
-        const targetPaths = new Set(ledger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
+        const targetPaths = new Set(sharedLedger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
+        const backupTemporaryPaths: string[] = [];
         for (const file of stagedFiles) {
             const targetPath = normalizePathForLookup(file.targetPath);
             if (targetPaths.has(targetPath)) {
                 throw new Error(`Duplicate image export target: ${file.targetPath}`);
             }
+            if (resolve(dirname(file.stagedPath)) !== resolve(dirname(file.targetPath))) {
+                throw new Error(`Image export staged output is not beside its target: ${file.targetPath}`);
+            }
             targetPaths.add(targetPath);
+            const original = await readFileIdentity(file.targetPath);
+            const published = await readFileIdentity(file.stagedPath);
+            if (!published) throw new Error(`Image export staged output is missing for ${file.targetPath}`);
+            const backupPath = original ? makeSiblingTempPath(file.targetPath) : null;
+            batchLedger.promotedFiles.push({
+                targetPath: file.targetPath,
+                backupPath,
+                original,
+                published,
+            });
+            if (backupPath && original) {
+                backupTemporaryPaths.push(makeSiblingTempPath(backupPath));
+                await recordManagedScratchBackup(scratchPath, backupPath, file.targetPath, original);
+            }
+            await recordManagedScratchPublish(scratchPath, file.targetPath, published);
         }
-        for (const stagedFile of stagedFiles) {
+        // One fsync makes the whole batch's record durable before any file of it
+        // is copied or replaced; recovery settles a recorded file that was not replaced yet.
+        await recordManagedScratchPaths(scratchPath, backupTemporaryPaths);
+        for (const [
+            index,
+            promotedFile,
+        ] of batchLedger.promotedFiles.entries()) {
             throwIfAborted(signal);
-            const targetExistsAtPromotion = existsSync(stagedFile.targetPath);
-            const backupPath = targetExistsAtPromotion
-                ? makeSiblingTempPath(stagedFile.targetPath)
-                : null;
-            pendingBackupPath = backupPath;
-            pendingReplacementAttempted = false;
-            if (backupPath) {
-                await copyFileAtomic(stagedFile.targetPath, backupPath, {durable: true});
-                backupPaths.push(backupPath);
+            if (promotedFile.backupPath) {
+                await copyFileAtomic(promotedFile.targetPath, promotedFile.backupPath, {
+                    durable: true,
+                    temporaryPath: backupTemporaryPaths.shift()!,
+                });
             }
             throwIfAborted(signal);
-            pendingReplacementAttempted = true;
-            await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
-            promotedFiles.push({
-                targetPath: stagedFile.targetPath,
-                backupPath,
-                targetIdentity: null,
-            });
-            const promotedFile = promotedFiles.at(-1);
-            if (!promotedFile) throw new Error('Image export publication record is missing');
-            const targetIdentity = await stat(stagedFile.targetPath);
-            promotedFile.targetIdentity = {
-                dev: targetIdentity.dev,
-                ino: targetIdentity.ino,
-                size: targetIdentity.size,
-                mtimeMs: targetIdentity.mtimeMs,
-            };
-            pendingBackupPath = null;
-            pendingReplacementAttempted = false;
+            await atomicReplace(stagedFiles[index]!.stagedPath, promotedFile.targetPath);
+            promotedFile.published = await readFileIdentity(promotedFile.targetPath);
         }
         throwIfAborted(signal);
+        if (!sharedLedger) {
+            await commitStagedFilePublications(batchLedger);
+        }
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-        if (pendingBackupPath && !pendingReplacementAttempted) {
-            await rm(pendingBackupPath, {force: true}).catch(() => undefined);
-            const pendingBackupIndex = backupPaths.indexOf(pendingBackupPath);
-            if (pendingBackupIndex >= 0) backupPaths.splice(pendingBackupIndex, 1);
-        }
-        const batchLedger = {
-            promotedFiles,
-            backupPaths,
-        };
-        const rollbackFailures: Error[] = [];
-        try {
-            await rollbackStagedFilePublications(batchLedger);
-        } catch (rollbackError) {
-            if (rollbackError instanceof AggregateError) {
-                rollbackFailures.push(...rollbackError.errors.filter((entry): entry is Error => entry instanceof Error));
-            } else {
-                rollbackFailures.push(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
-            }
-        }
-        const retainedBackups = backupPaths;
-        if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
-            const primaryMessage = getErrorMessage(error);
-            const backupMessage = retainedBackups.length > 0
-                ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
-                : '';
-            throw new AggregateError([
+        await rollbackStagedFilePublications(batchLedger).catch((rollbackError: unknown) => {
+            throw aggregateErrorsKeepingUnprovenTermination([
                 error,
-                ...rollbackFailures,
-            ], `Image export promotion failed: ${primaryMessage}.${backupMessage}`);
-        }
+                rollbackError,
+            ], getErrorMessage(error));
+        });
         throw error;
     }
-
-    if (ledger) {
-        ledger.promotedFiles.push(...promotedFiles);
-        ledger.backupPaths.push(...backupPaths);
-        return;
-    }
-    await commitStagedFilePublications({
-        promotedFiles,
-        backupPaths,
-    });
+    sharedLedger?.promotedFiles.push(...batchLedger.promotedFiles);
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -723,7 +650,7 @@ async function detectExportRenderDpi(
 ) {
     const [
         pageSizes,
-        detection,
+        sourceDpi,
     ] = await Promise.all([
         readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup),
         detectSourceDpiDetails(
@@ -733,11 +660,15 @@ async function detectExportRenderDpi(
             buildPopplerEnv(popplerRuntimePaths),
             signal,
             selectDpiProbePages(pageCount),
-        ),
+        ).then(result => result.documentDpi).catch(error => {
+            throwIfAborted(signal);
+            logger.debug(`pdfimages export resolution probe failed: ${getErrorMessage(error)}`);
+            return null;
+        }),
     ]);
 
     return {
-        renderDpi: resolveExportRenderDpi(detection.documentDpi, pageSizes),
+        renderDpi: resolveExportRenderDpi(sourceDpi, pageSizes),
         pageSizes,
     };
 }
@@ -763,12 +694,6 @@ export async function getPdfPageCount(
         throw new Error('Failed to read PDF page count');
     }
     return pageCount;
-}
-
-function assertExportPageCount(pageCount: number) {
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
-        throw new Error('PDF export source has no pages');
-    }
 }
 
 function emitExportProgress(options: IExportPdfOptions, progress: IImageExportProgressUpdate) {
@@ -800,12 +725,6 @@ async function renderPdfToTempPages(
     renderDpi: number,
     signal?: AbortSignal,
     cancelGroup?: string,
-    crop?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number
-    },
 ): Promise<IRenderedPageFile[]> {
     const prefix = join(tempDir, 'page');
     const paths = getPdfNativeToolPaths();
@@ -825,16 +744,6 @@ async function renderPdfToTempPages(
 
     await runNativeToolCommand(paths.pdftoppm, [
         '-cropbox',
-        ...(crop ? [
-            '-x',
-            String(crop.x),
-            '-y',
-            String(crop.y),
-            '-W',
-            String(crop.width),
-            '-H',
-            String(crop.height),
-        ] : []),
         ...toPdftoppmFormatArgs(renderFormat),
         '-r',
         String(renderDpi),
@@ -878,70 +787,6 @@ async function renderPdfToTempPages(
     await validateRenderedImagePageFiles(pageFiles);
 
     return pageFiles;
-}
-
-export async function rasterizePdfRegionAsPngBytes(
-    pdfPath: string,
-    pageNumber: number,
-    region: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        outputWidth: number;
-        outputHeight: number
-    },
-    options: Pick<IExportPdfOptions, 'signal' | 'cancelGroup' | 'scratch'> = {},
-) {
-    const paths = getPdfNativeToolPaths();
-    const popplerEnv = buildPopplerEnv(paths);
-    const infoOptions: Parameters<typeof runNativeToolCommand>[2] = {
-        timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
-        commandLabel: 'pdfinfo(export-region-page-size)',
-        ...(options.signal ? {signal: options.signal} : {}),
-        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
-    };
-    if (popplerEnv !== undefined) infoOptions.env = popplerEnv;
-    const info = await runNativeToolCommand(paths.pdfinfo, [
-        '-f',
-        String(pageNumber),
-        '-l',
-        String(pageNumber),
-        pdfPath,
-    ], infoOptions);
-    const pageSize = info.stdout.split(/\r?\n/u).map(parsePdfInfoPageSizeLine).find(value => value !== null);
-    if (!pageSize) throw new Error(`Failed to read PDF page ${pageNumber} size`);
-
-    const dpi = Math.max(1, Math.min(2400, Math.floor(Math.min(
-        region.outputWidth / (pageSize.widthPts * region.width),
-        region.outputHeight / (pageSize.heightPts * region.height),
-    ) * 72)));
-    const pixelsPerPoint = dpi / 72;
-    const crop = {
-        x: Math.floor(region.x * pageSize.widthPts * pixelsPerPoint),
-        y: Math.floor(region.y * pageSize.heightPts * pixelsPerPoint),
-        width: Math.max(1, Math.ceil(region.width * pageSize.widthPts * pixelsPerPoint)),
-        height: Math.max(1, Math.ceil(region.height * pageSize.heightPts * pixelsPerPoint)),
-    };
-    return usingExportScratch(options, 'pdfExport-', async tempDir => {
-        const [renderedPage] = await renderPdfToTempPages(
-            pdfPath,
-            'png',
-            {
-                firstPage: pageNumber,
-                lastPage: pageNumber,
-            },
-            tempDir,
-            dpi,
-            options.signal,
-            options.cancelGroup,
-            crop,
-        );
-        if (!renderedPage) throw new Error('PDF region rasterizer did not produce an image');
-        const bytes = await readFile(renderedPage.path);
-        if (bytes.byteLength > 16 * 1024 * 1024) throw new RangeError('PDF region image exceeds the 16 MiB limit');
-        return new Uint8Array(bytes);
-    });
 }
 
 function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | null {
@@ -1037,7 +882,6 @@ async function planExportRender(preparedSourcePdf: string, options: IExportPdfOp
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
-    assertExportPageCount(pageCount);
 
     return {
         pageCount,
@@ -1078,14 +922,10 @@ export async function exportPdfPagesAsImages(
     outputTemplatePath: string,
     options: IExportPdfOptions = {},
 ): Promise<string[]> {
-    const {
-        normalizedPath,
-        format,
-    } = normalizeImageExportPath(outputTemplatePath);
+    const format = resolveImageExportFormat(outputTemplatePath);
+    const normalizedPath = validateImageExportPath(outputTemplatePath, format);
 
     const outputDirectory = dirname(normalizedPath);
-    const outputStem = basename(normalizedPath, extname(normalizedPath));
-    const outputExtension = resolveFormatExtension(format);
 
     await mkdir(outputDirectory, { recursive: true });
 
@@ -1101,84 +941,79 @@ export async function exportPdfPagesAsImages(
             estimateImageExportStagedBytes(pageCount, renderDpi, pageSizes),
         );
         const exportedPaths = resolveSuffixedOutputPathConflicts(Array.from({length: pageCount}, (_, index) => ({
-            path: pageCount === 1 ? normalizedPath : join(outputDirectory, `${outputStem}${outputExtension}`),
+            path: normalizedPath,
             suffix: pageCount === 1 ? '' : `-${String(index + 1).padStart(3, '0')}`,
         })));
 
-        const stagedFiles: Array<{
-            stagedPath: string;
-            targetPath: string;
-            targetExisted: boolean;
-        }> = [];
-        let processedPages = 0;
-        emitExportProgress(options, {
-            phase: 'rendering',
-            processed: 0,
-            total: pageCount,
-        });
+        return usingExportScratch(options, 'pdfExport-', async stageDir => {
+            const stagedPaths = exportedPaths.map(path => makeSiblingTempPath(path));
+            await recordManagedScratchPaths(stageDir, stagedPaths);
+            const stagedFiles: IStagedImageFile[] = [];
+            let processedPages = 0;
+            emitExportProgress(options, {
+                phase: 'rendering',
+                processed: 0,
+                total: pageCount,
+            });
 
-        try {
-            for (const pageRange of createPageRanges(
-                pageCount,
-                format === 'png' ? PDF_EXPORT_PNG_RENDER_CHUNK_PAGES : PDF_EXPORT_RENDER_CHUNK_PAGES,
-            )) {
-                throwIfAborted(options.signal);
-                await usingExportScratch(options, 'pdfExport-', async tempDir => {
-                    let stagedBytes = 0;
-                    const pageFiles = await renderPdfToTempPages(
-                        preparedSourcePdf,
-                        format,
-                        pageRange,
-                        tempDir,
-                        renderDpi,
-                        options.signal,
-                        options.cancelGroup,
-                    );
-                    for (const source of pageFiles) {
-                        const targetPath = exportedPaths[processedPages];
-                        if (!targetPath) {
-                            throw new Error('Image export target path is missing');
+            try {
+                for (const pageRange of createPageRanges(
+                    pageCount,
+                    format === 'png' ? PDF_EXPORT_PNG_RENDER_CHUNK_PAGES : PDF_EXPORT_RENDER_CHUNK_PAGES,
+                )) {
+                    throwIfAborted(options.signal);
+                    await usingExportScratch(options, 'pdfExport-', async tempDir => {
+                        let stagedBytes = 0;
+                        const pageFiles = await renderPdfToTempPages(
+                            preparedSourcePdf,
+                            format,
+                            pageRange,
+                            tempDir,
+                            renderDpi,
+                            options.signal,
+                            options.cancelGroup,
+                        );
+                        for (const source of pageFiles) {
+                            const targetPath = exportedPaths[processedPages];
+                            const stagedPath = stagedPaths[processedPages];
+                            if (!targetPath || !stagedPath) {
+                                throw new Error('Image export target path is missing');
+                            }
+
+                            throwIfAborted(options.signal);
+                            await moveFile(source.path, stagedPath);
+                            stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
+                                'Image export exceeds the 2 GiB staged-output limit for one render window');
+                            stagedFiles.push({
+                                stagedPath,
+                                targetPath,
+                            });
+                            processedPages += 1;
+                            emitExportProgress(options, {
+                                phase: 'rendering',
+                                processed: processedPages,
+                                total: pageCount,
+                            });
                         }
-                        const stagedPath = makeSiblingTempPath(targetPath);
-
-                        throwIfAborted(options.signal);
-                        await moveFile(source.path, stagedPath);
-                        stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
-                            'Image export exceeds the 2 GiB staged-output limit for one render window');
-                        stagedFiles.push({
-                            stagedPath,
-                            targetPath,
-                            targetExisted: existsSync(targetPath),
-                        });
-                        processedPages += 1;
-                        emitExportProgress(options, {
-                            phase: 'rendering',
-                            processed: processedPages,
-                            total: pageCount,
-                        });
-                    }
-                });
+                    });
+                }
+                throwIfAborted(options.signal);
+                if (processedPages !== pageCount) {
+                    throw new Error('PDF image export did not render every planned page');
+                }
+                await options.beforePublish?.();
+                await promoteStagedFiles(stagedFiles, options.signal, stageDir);
+            } catch (error) {
+                await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
+                throw error;
             }
-            throwIfAborted(options.signal);
-            if (processedPages !== pageCount) {
-                throw new Error('PDF image export did not render every planned page');
-            }
-            await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal);
-        } catch (error) {
-            await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-            throw error;
-        }
-        return exportedPaths;
+            return exportedPaths;
+        });
     });
 }
 
 function resolveTiffCombineWorkerPath() {
     return resolveUnpackedWorkerPath(__dirname, TIFF_COMBINE_WORKER_FILENAME);
-}
-
-function decodeUndefinedWorkerResult(data: unknown): undefined | null {
-    return data === undefined ? undefined : null;
 }
 
 function getTiffCombineFallbackDisabledError() {
@@ -1191,6 +1026,7 @@ function getTiffCombineFallbackDisabledError() {
 async function runLocalTiffCombine(
     pagePaths: string[],
     outputPath: string,
+    tempPath: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
@@ -1199,6 +1035,7 @@ async function runLocalTiffCombine(
     await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, {
         deleteSourcePages,
         defaultDpi,
+        tempPath,
         ...(signal ? { signal } : {}),
     }), {
         thresholdMs: 25,
@@ -1213,95 +1050,82 @@ async function runLocalTiffCombine(
 async function combinePagesIntoMultiPageTiff(
     pagePaths: string[],
     outputPath: string,
+    tempPath: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
 ) {
-    throwIfAborted(signal);
-    const tempOutputPath = makeSiblingTempPath(outputPath);
-    let replacedOutput = false;
-
     const workerPath = resolveTiffCombineWorkerPath();
 
-    try {
-        if (!existsSync(workerPath)) {
-            if (!(await canUseLocalTiffCombineFallback(
-                pagePaths,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
-            ))) {
-                logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
-                throw getTiffCombineFallbackDisabledError();
-            }
-
-            logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages, defaultDpi);
-            throwIfAborted(signal);
-            await atomicReplace(tempOutputPath, outputPath);
-            replacedOutput = true;
-            return;
+    if (!existsSync(workerPath)) {
+        if (!(await canUseLocalTiffCombineFallback(
+            pagePaths,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
+        ))) {
+            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
+            throw getTiffCombineFallbackDisabledError();
         }
 
-        try {
-            await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
-                workerPath,
-                workerData: {
-                    deleteSourcePages,
-                    defaultDpi,
-                    pagePaths,
-                    outputPath: tempOutputPath,
-                },
-                invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
-                createStartError: message => new TiffCombineWorkerStartupError(
-                    `TIFF combine worker failed to start: ${message}`,
-                ),
-                createStartupError: message => new TiffCombineWorkerStartupError(
-                    `TIFF combine worker failed before becoming ready: ${message}`,
-                ),
-                createStartupExitError: code => new TiffCombineWorkerStartupError(
-                    `TIFF combine worker exited during startup with code ${code}`,
-                ),
-                createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
-                decodeResult: decodeUndefinedWorkerResult,
-                invalidResultMessage: 'TIFF combine worker returned an invalid result',
-                resourceLimits: TIFF_COMBINE_WORKER_RESOURCE_LIMITS,
-                ...(signal ? { signal } : {}),
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 1_500,
-                timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
-            }), {
-                thresholdMs: 25,
-                details: {
-                    pageCount: pagePaths.length,
-                    outputPath,
-                },
-            });
-        } catch (error) {
-            if (!(error instanceof TiffCombineWorkerStartupError)) {
-                throw error;
-            }
-
-            if (!(await canUseLocalTiffCombineFallback(
-                pagePaths,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
-            ))) {
-                logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
-                throw getTiffCombineFallbackDisabledError();
-            }
-
-            logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages, defaultDpi);
-        }
-
-        throwIfAborted(signal);
-        await atomicReplace(tempOutputPath, outputPath);
-        replacedOutput = true;
-    } finally {
-        if (!replacedOutput) {
-            await rm(tempOutputPath, { force: true }).catch(() => undefined);
-        }
+        logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
+        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi);
+        return;
     }
+
+    try {
+        await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
+            workerPath,
+            workerData: {
+                deleteSourcePages,
+                defaultDpi,
+                pagePaths,
+                outputPath,
+                tempPath,
+            },
+            invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
+            createStartError: message => new TiffCombineWorkerStartupError(
+                `TIFF combine worker failed to start: ${message}`,
+            ),
+            createStartupError: message => new TiffCombineWorkerStartupError(
+                `TIFF combine worker failed before becoming ready: ${message}`,
+            ),
+            createStartupExitError: code => new TiffCombineWorkerStartupError(
+                `TIFF combine worker exited during startup with code ${code}`,
+            ),
+            createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
+            decodeResult: (data: unknown) => (data === undefined ? undefined : null),
+            invalidResultMessage: 'TIFF combine worker returned an invalid result',
+            resourceLimits: TIFF_COMBINE_WORKER_RESOURCE_LIMITS,
+            ...(signal ? { signal } : {}),
+            createCancelMessage: () => ({type: 'cancel'}),
+            cooperativeCancelDelayMs: 1_500,
+            timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
+        }), {
+            thresholdMs: 25,
+            details: {
+                pageCount: pagePaths.length,
+                outputPath,
+            },
+        });
+    } catch (error) {
+        if (!(error instanceof TiffCombineWorkerStartupError)) {
+            throw error;
+        }
+
+        if (!(await canUseLocalTiffCombineFallback(
+            pagePaths,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
+        ))) {
+            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
+            throw getTiffCombineFallbackDisabledError();
+        }
+
+        logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
+        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi);
+    }
+
+    throwIfAborted(signal);
 }
 
 export async function exportPdfAsMultiPageTiff(
@@ -1309,9 +1133,7 @@ export async function exportPdfAsMultiPageTiff(
     outputPath: string,
     options: IExportPdfOptions = {},
 ) {
-    const targetPath = outputPath.toLowerCase().endsWith('.tif') || outputPath.toLowerCase().endsWith('.tiff')
-        ? outputPath
-        : `${outputPath}.tiff`;
+    const targetPath = validateImageExportPath(outputPath, 'tiff');
 
     const outputDirectory = dirname(targetPath);
     await mkdir(outputDirectory, { recursive: true });
@@ -1337,91 +1159,96 @@ export async function exportPdfAsMultiPageTiff(
                 percent: 0,
             });
             const stagedGroupPaths: string[] = [];
-            let combinedGroupCount = 0;
             const expectedRenderWindowCount = Math.max(1, Math.ceil(pageCount / PDF_EXPORT_RENDER_CHUNK_PAGES));
-            for (const pageRange of createPageRanges(pageCount)) {
-                throwIfAborted(options.signal);
-                const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
-                try {
-                    const renderedPageFiles = await renderPdfToTempPages(
-                        preparedSourcePdf,
-                        'tiff',
-                        pageRange,
-                        renderDir,
-                        renderDpi,
-                        options.signal,
-                        options.cancelGroup,
-                    );
-                    let stagedPageBytes = 0;
-                    for (const renderedPageFile of renderedPageFiles) {
-                        stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
-                            'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
-                    }
-                    renderedPageCount += renderedPageFiles.length;
-                    emitExportProgress(options, {
-                        phase: 'rendering',
-                        processed: renderedPageCount,
-                        total: pageCount,
-                        percent: (renderedPageCount / pageCount) * 90,
-                    });
-
-                    const tiffPageDescriptors = await readTiffPageDescriptors(
-                        renderedPageFiles.map(pageFile => pageFile.path),
-                        options.signal,
-                        renderDpi,
-                    );
-                    const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
-                    for (const tiffPageGroup of tiffPageGroups) {
-                        throwIfAborted(options.signal);
-                        const stagedPath = join(
-                            tempDir,
-                            `tiff-group-${String(combinedGroupCount + 1).padStart(6, '0')}.tiff`,
-                        );
-                        await combinePagesIntoMultiPageTiff(
-                            tiffPageGroup.map(page => page.path),
-                            stagedPath,
+            try {
+                for (const pageRange of createPageRanges(pageCount)) {
+                    throwIfAborted(options.signal);
+                    const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
+                    try {
+                        const renderedPageFiles = await renderPdfToTempPages(
+                            preparedSourcePdf,
+                            'tiff',
+                            pageRange,
+                            renderDir,
+                            renderDpi,
                             options.signal,
-                            true,
+                            options.cancelGroup,
+                        );
+                        let stagedPageBytes = 0;
+                        for (const renderedPageFile of renderedPageFiles) {
+                            stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
+                                'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
+                        }
+                        renderedPageCount += renderedPageFiles.length;
+                        emitExportProgress(options, {
+                            phase: 'rendering',
+                            processed: renderedPageCount,
+                            total: pageCount,
+                            percent: (renderedPageCount / pageCount) * 90,
+                        });
+
+                        const tiffPageDescriptors = await readTiffPageDescriptors(
+                            renderedPageFiles.map(pageFile => pageFile.path),
+                            options.signal,
                             renderDpi,
                         );
-                        stagedGroupPaths.push(stagedPath);
-                        combinedGroupCount += 1;
-                        emitExportProgress(options, {
-                            phase: 'combining',
-                            processed: combinedGroupCount,
-                            total: Math.max(expectedRenderWindowCount, combinedGroupCount),
-                            percent: 90 + ((combinedGroupCount / Math.max(expectedRenderWindowCount, combinedGroupCount)) * 10),
-                        });
+                        const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
+                        for (const tiffPageGroup of tiffPageGroups) {
+                            throwIfAborted(options.signal);
+                            const stagedPath = makeSiblingTempPath(targetPath);
+                            const writerPath = makeSiblingTempPath(stagedPath);
+                            await recordManagedScratchPaths(tempDir, [
+                                stagedPath,
+                                writerPath,
+                            ]);
+                            stagedGroupPaths.push(stagedPath);
+                            await combinePagesIntoMultiPageTiff(
+                                tiffPageGroup.map(page => page.path),
+                                stagedPath,
+                                writerPath,
+                                options.signal,
+                                true,
+                                renderDpi,
+                            );
+                            emitExportProgress(options, {
+                                phase: 'combining',
+                                processed: stagedGroupPaths.length,
+                                total: Math.max(expectedRenderWindowCount, stagedGroupPaths.length),
+                                percent: 90 + ((stagedGroupPaths.length / Math.max(expectedRenderWindowCount, stagedGroupPaths.length)) * 10),
+                            });
+                        }
+                    } finally {
+                        await rm(renderDir, {
+                            recursive: true,
+                            force: true,
+                        }).catch(() => undefined);
                     }
-                } finally {
-                    await rm(renderDir, {
-                        recursive: true,
-                        force: true,
-                    }).catch(() => undefined);
                 }
-            }
-            const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
-            const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {
-                const targetOutputPath = outputPaths[index];
-                if (!targetOutputPath) {
-                    throw new Error('Multi-page TIFF export target path is missing');
+                const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
+                const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {
+                    const targetOutputPath = outputPaths[index];
+                    if (!targetOutputPath) {
+                        throw new Error('Multi-page TIFF export target path is missing');
+                    }
+                    return {
+                        stagedPath,
+                        targetPath: targetOutputPath,
+                    };
+                });
+                throwIfAborted(options.signal);
+                await options.beforePublish?.();
+                await promoteStagedFiles(stagedFiles, options.signal, tempDir);
+                for (const outputPath of outputPaths) {
+                    if (!existsSync(outputPath)) {
+                        throw new Error('Multi-page TIFF export did not produce an output file');
+                    }
                 }
-                return {
-                    stagedPath,
-                    targetPath: targetOutputPath,
-                    targetExisted: existsSync(targetOutputPath),
-                };
-            });
-            throwIfAborted(options.signal);
-            await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal);
-            for (const outputPath of outputPaths) {
-                if (!existsSync(outputPath)) {
-                    throw new Error('Multi-page TIFF export did not produce an output file');
-                }
-            }
 
-            return outputPaths;
+                return outputPaths;
+            } catch (error) {
+                await Promise.all(stagedGroupPaths.map(stagedPath => rm(stagedPath, {force: true}).catch(() => undefined)));
+                throw error;
+            }
         },
     ));
 }

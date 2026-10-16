@@ -1,3 +1,6 @@
+import {
+    findPdfSearchMatches, normalizeSearchText,
+} from '@pdf-core';
 import type {
     IPdfTextContent,
     IPdfTextItem,
@@ -116,6 +119,138 @@ describe('extractBrowserSearchPageText', () => {
         const page = { getTextContent: vi.fn(async () => textContent) };
 
         await expect(extractBrowserSearchPageText(page)).resolves.toBe(repeatedText);
+    });
+
+    it.each([
+        [
+            'שלום',
+            'םולש',
+        ],
+        [
+            'السلام',
+            'مالسلا',
+        ],
+        [
+            'ܫܠܡܐ',
+            'ܐܡܠܫ',
+        ],
+        [
+            'שָׁל֑וֹם',
+            'םֹו֑לָׁש',
+        ],
+        [
+            'السَّلَام',
+            'ماَلَّسلا',
+        ],
+        [
+            'ܫܠܵܡܵܐ',
+            'ܐܵܡܵܠܫ',
+        ],
+        [
+            'abc עולם 123',
+            'abc םלוע 123',
+        ],
+        [
+            'עולם123עולם',
+            'םלוע123םלוע',
+        ],
+    ])('indexes logical %s with rendered-text offsets', async (logical, painted) => {
+        const page = {
+            view: [
+                0,
+                0,
+                612,
+                792,
+            ],
+            getOperatorList: async () => ({
+                fnArray: [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                ],
+                argsArray: [
+                    [],
+                    [
+                        'f1',
+                        24,
+                    ],
+                    [
+                        1,
+                        0,
+                        0,
+                        1,
+                        72,
+                        700,
+                    ],
+                    [[...painted].map(unicode => ({
+                        unicode,
+                        width: 600,
+                    }))],
+                    [],
+                ],
+            }),
+            getTextContent: async (): Promise<IPdfTextContent> => ({
+                items: [{
+                    str: logical,
+                    dir: 'rtl',
+                    transform: [
+                        24,
+                        0,
+                        0,
+                        24,
+                        72,
+                        700,
+                    ],
+                    width: 200,
+                    height: 24,
+                    fontName: 'f1',
+                    hasEOL: false,
+                }],
+                styles: {},
+                lang: null,
+            }),
+        };
+        const data = await extractBrowserSearchPageData(page, {
+            beginText: 1,
+            setFont: 2,
+            setTextMatrix: 3,
+            showText: 4,
+            endText: 5,
+        });
+        expect(data.text).toBe(logical);
+        // Reuse the logical text layer's ranges rather than visual-order boxes.
+        expect(data.words).toBeUndefined();
+    });
+
+    it('keeps accents, vowel points and cantillation in search normalization', () => {
+        for (const [
+            pointed,
+            unpointed,
+        ] of [
+                [
+                    'Cafe\u0301',
+                    'Cafe',
+                ],
+                [
+                    'שָׁל֑וֹם',
+                    'שלום',
+                ],
+                [
+                    'السَّلَام',
+                    'السلام',
+                ],
+                [
+                    'ܫܠܵܡܵܐ',
+                    'ܫܠܡܐ',
+                ],
+            ]) {
+            expect(normalizeSearchText(pointed!)).toBe(pointed!.normalize('NFC'));
+            expect(findPdfSearchMatches(pointed!, unpointed!)).toEqual([]);
+            expect(findPdfSearchMatches(pointed!, pointed!)).toHaveLength(1);
+        }
+        expect(normalizeSearchText('oﬃce')).toBe('office');
     });
 
     it('does not start text-content fallback when cancellation arrives after operator-list extraction', async () => {

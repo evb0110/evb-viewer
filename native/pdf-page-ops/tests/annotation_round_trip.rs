@@ -1,3 +1,6 @@
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1464,4 +1467,1145 @@ fn canonical_annotation_comparator_has_independent_negative_oracles() {
         canonical_entry(&opacity_base),
         "a 0.01 opacity change must fail the comparator"
     );
+}
+
+fn write_single_square_pdf(path: &Path, border: &str) {
+    write_single_annotation_pdf(
+        path,
+        &format!("/Subtype /Square /Rect [100 500 300 700] /C [1 0 0] {border}"),
+    );
+}
+
+fn write_single_annotation_pdf(path: &Path, annotation: &str) {
+    write_pdf_objects(
+        path,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << >> /Annots [4 0 R] >>".to_string(),
+            format!("<< /Type /Annot {annotation} /F 4 >>"),
+        ],
+    );
+}
+
+fn write_pdf_objects(path: &Path, objects: &[String]) {
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
+    }
+    let xref = bytes.len();
+    bytes.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for offset in offsets {
+        bytes.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend(
+        format!(
+            "trailer\n<< /Root 1 0 R /Size {} >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    fs::write(path, bytes).unwrap();
+}
+
+/// Ink pixels (any channel below 220) of the first page, rendered by Poppler.
+fn poppler_pixels(pdf: &Path) -> Vec<u8> {
+    let rendered = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args(["-r", "72", "-singlefile"])
+    .arg(pdf)
+    .output()
+    .unwrap();
+    assert!(rendered.status.success());
+    let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+    assert_eq!(header.next().unwrap(), b"P6");
+    header.next().unwrap();
+    assert_eq!(header.next().unwrap(), b"255");
+    header.next().unwrap().to_vec()
+}
+
+#[test]
+fn print_draws_square_borders_with_the_width_and_dash_poppler_draws() {
+    let temp = TempPaths::new("print-square-border");
+    let cases = [
+        ("width-four", "/BS << /W 4 >>", 3136),
+        ("zero-width", "/BS << /W 0 >>", 0),
+        ("dashed", "/BS << /W 4 /S /D /D [8 8] >>", 1568),
+        ("empty-bs-dash", "/BS << /W 4 /S /D /D [] >>", 3136),
+        ("empty-border-dash", "/Border [0 0 4 []]", 3136),
+        ("unknown", "/BS << /W 4 /S /Mystery >>", 3136),
+        ("beveled", "/BS << /W 4 /S /B >>", 3136),
+        ("inset", "/BS << /W 4 /S /I >>", 3136),
+        ("cloud-zero", "/BS << /W 4 >> /BE << /S /C /I 0 >>", 3136),
+    ];
+    for (label, border, expected_ink) in cases {
+        let source = temp.root.join(format!("{label}.pdf"));
+        let printed = temp.root.join(format!("{label}-print.pdf"));
+        write_single_square_pdf(&source, border);
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["print-layout", "--input"])
+            .arg(&source)
+            .arg("--output")
+            .arg(&printed)
+            .args(["--view-mode", "single", "--orientation", "portrait"])
+            .output()
+            .unwrap();
+        assert_success(output, "print-layout");
+        let poppler = poppler_ink_pixels(&source);
+        assert_eq!(poppler, expected_ink, "{label} as Poppler draws it");
+        assert_eq!(poppler_ink_pixels(&printed), poppler, "{label} as printed");
+    }
+}
+
+#[test]
+fn print_falls_back_to_solid_for_invalid_dashes_and_cloud_borders() {
+    let temp = TempPaths::new("print-border-fallback");
+    for border in [
+        "/BS << /W 4 /S /D /D [-1 2] >>",
+        "/BS << /W 4 /S /D /D [0 0] >>",
+        "/BS << /W 4 >> /BE << /S /C /I 2 >>",
+    ] {
+        write_single_square_pdf(&temp.pdf, border);
+        print_annotation_pdf(&temp.pdf, &temp.root.join("printed.pdf"));
+        assert_eq!(poppler_ink_pixels(&temp.root.join("printed.pdf")), 3136);
+    }
+}
+
+fn print_annotation_pdf(source: &Path, printed: &Path) {
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["print-layout", "--input"])
+        .arg(source)
+        .arg("--output")
+        .arg(printed)
+        .args(["--view-mode", "single", "--orientation", "auto"])
+        .output()
+        .unwrap();
+    assert_success(output, "print-layout");
+}
+
+#[test]
+fn auto_print_keeps_every_page_and_appends_only_the_missing_appearance() {
+    let temp = TempPaths::new("auto-print-mixed-geometry");
+    let printed = temp.root.join("printed.pdf");
+    let pages = [
+        ("306 396", 0),
+        ("1000 250", 90),
+        ("500 700", 180),
+        ("612 792", 270),
+    ];
+    let drawing = "q 1 0 0 RG 2 w 1 1 118 58 re S Q";
+    // Page n, its Square and that Square's stored appearance are objects
+    // 3n, 3n + 1 and 3n + 2; `missing` leaves one Square without /AP.
+    let write = |missing: Option<usize>| {
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R 6 0 R 9 0 R 12 0 R] /Count 4 >>".to_string(),
+        ];
+        for (index, (size, rotation)) in pages.iter().enumerate() {
+            let page = 3 * (index + 1);
+            let appearance = if missing == Some(index) {
+                String::new()
+            } else {
+                format!("/AP << /N {} 0 R >>", page + 2)
+            };
+            objects.extend([
+                format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {size}] /Rotate {rotation} /Resources << >> /Annots [{} 0 R] >>", page + 1),
+                format!("<< /Type /Annot /Subtype /Square /Rect [30 120 150 180] /C [1 0 0] /BS << /W 2 >> /F 4 {appearance} >>"),
+                format!("<< /Type /XObject /Subtype /Form /BBox [0 0 120 60] /Length {} >>\nstream\n{drawing}\nendstream", drawing.len()),
+            ]);
+        }
+        write_pdf_objects(&temp.pdf, &objects);
+    };
+    let geometry = |document: &Document| {
+        document
+            .get_pages()
+            .values()
+            .map(|id| {
+                let page = document.get_dictionary(*id).unwrap();
+                (
+                    page.get(b"MediaBox").unwrap().clone(),
+                    page.get(b"Rotate").unwrap().clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    write(Some(1));
+    print_annotation_pdf(&temp.pdf, &printed);
+    let source = fs::read(&temp.pdf).unwrap();
+    let output = fs::read(&printed).unwrap();
+    assert!(
+        output.starts_with(&source),
+        "Auto print appends to the source bytes"
+    );
+    let (before, after) = (
+        Document::load_mem(&source).unwrap(),
+        Document::load_mem(&output).unwrap(),
+    );
+    assert_eq!(geometry(&after), geometry(&before));
+    for square in [4, 10, 13] {
+        assert_eq!(
+            after.get_dictionary((square, 0)).unwrap(),
+            before.get_dictionary((square, 0)).unwrap()
+        );
+    }
+    let normal = after
+        .get_dictionary((7, 0))
+        .and_then(|square| square.get(b"AP"))
+        .and_then(Object::as_dict)
+        .and_then(|appearance| appearance.get(b"N"))
+        .and_then(Object::as_reference)
+        .unwrap();
+    let stream = after.get_object(normal).unwrap().as_stream().unwrap();
+    assert!(!stream.content.is_empty());
+
+    // With every appearance stored, the source prints as it is.
+    fs::remove_file(&printed).unwrap();
+    write(None);
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert!(!printed.exists());
+}
+
+#[test]
+fn auto_print_leaves_form_fields_to_the_printer() {
+    let temp = TempPaths::new("auto-print-form-field");
+    let printed = temp.root.join("printed.pdf");
+    write_pdf_objects(
+        &temp.pdf,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /NeedAppearances true /DR << /Font << /Helv 6 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R 5 0 R] >>".to_string(),
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Field value) /DA (/Helv 12 Tf 0 g) /Rect [72 600 300 630] /F 4 /P 3 0 R >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [72 400 300 460] /Contents (Printed note) /DA (/Helv 14 Tf 0 0 1 rg) /F 4 /P 3 0 R >>".to_string(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ],
+    );
+
+    print_annotation_pdf(&temp.pdf, &printed);
+    let source = fs::read(&temp.pdf).unwrap();
+    let output = fs::read(&printed).unwrap();
+    assert!(
+        output.starts_with(&source),
+        "Auto print appends to the source bytes"
+    );
+    let (before, after) = (
+        Document::load_mem(&source).unwrap(),
+        Document::load_mem(&output).unwrap(),
+    );
+    // The field keeps its value-only dictionary, so the printer draws it as on base.
+    assert_eq!(
+        after.get_dictionary((4, 0)).unwrap(),
+        before.get_dictionary((4, 0)).unwrap()
+    );
+    assert!(after.get_dictionary((5, 0)).unwrap().has(b"AP"));
+}
+
+#[test]
+fn auto_print_draws_free_text_text_on_a_page_without_a_media_box() {
+    let temp = TempPaths::new("auto-print-no-media-box");
+    let printed = temp.root.join("printed.pdf");
+    // Readers take such a page as Letter; its FreeText names a standard font.
+    write_pdf_objects(
+        &temp.pdf,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /Annots [4 0 R] >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [60 600 400 700] /F 4 /Contents (Margin note) /DA (/Helv 18 Tf 0 0 1 rg) >>".to_string(),
+        ],
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["print-layout", "--input"])
+        .arg(&temp.pdf)
+        .arg("--output")
+        .arg(&printed)
+        .args(["--view-mode", "single", "--orientation", "auto", "--qpdf"])
+        .arg(external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf"))
+        .output()
+        .unwrap();
+    assert_success(output, "print-layout");
+    let document = Document::load(&printed).unwrap();
+    let normal = document
+        .get_dictionary((4, 0))
+        .and_then(|note| note.get(b"AP"))
+        .and_then(Object::as_dict)
+        .and_then(|appearance| appearance.get(b"N"))
+        .and_then(Object::as_reference)
+        .unwrap();
+    let content = &document
+        .get_object(normal)
+        .unwrap()
+        .as_stream()
+        .unwrap()
+        .content;
+    assert!(
+        String::from_utf8_lossy(content).matches("> Tj").count() >= "Margin note".len() - 1,
+        "the note prints its text"
+    );
+}
+
+#[test]
+fn print_underlines_only_the_bottom_edge() {
+    let temp = TempPaths::new("print-underline");
+    write_single_square_pdf(&temp.pdf, "/BS << /W 4 /S /U >>");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let ink = poppler_ink_pixels(&printed);
+    assert!((780..=800).contains(&ink), "one bottom edge, got {ink}");
+}
+
+fn poppler_ink_pixels(pdf: &Path) -> usize {
+    poppler_pixels(pdf)
+        .chunks_exact(3)
+        .filter(|rgb| rgb.iter().any(|c| *c < 220))
+        .count()
+}
+
+#[test]
+fn print_draws_all_standard_endings_and_adjacent_polyline_directions() {
+    let temp = TempPaths::new("print-endings");
+    let printed = temp.root.join("printed.pdf");
+    for ending in [
+        "Square",
+        "Circle",
+        "Diamond",
+        "Butt",
+        "ROpenArrow",
+        "RClosedArrow",
+        "Slash",
+    ] {
+        write_single_annotation_pdf(&temp.pdf, &format!("/Subtype /Line /Rect [80 470 420 550] /C [0 0 0] /BS << /W 4 /S /D /D [8 8] >> /L [100 510 400 510] /LE [/{ending} /{ending}]"));
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(poppler_ink_pixels(&printed) > 608, "missing {ending}");
+    }
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /PolyLine /Rect [80 480 420 720] /C [0 0 0] /BS << /W 4 >> /Vertices [100 500 100 700 400 700] /LE [/OpenArrow /OpenArrow]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let pixels = poppler_pixels(&printed);
+    let ink = |x1: usize, x2: usize, y1: usize, y2: usize| {
+        (y1..y2)
+            .flat_map(|y| (x1..x2).map(move |x| (y * 596 + x) * 3))
+            .filter(|i| pixels[*i..*i + 3].iter().any(|c| *c < 220))
+            .count()
+    };
+    // Start arrow has an arm to its right and above; end arrow points right.
+    assert!(
+        ink(106, 125, 308, 329) > 0,
+        "start must point down along first segment"
+    );
+    assert!(
+        ink(380, 390, 128, 137) > 0,
+        "end must point right along last segment"
+    );
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Polygon /Rect [90 490 310 710] /C [1 0 0] /BS << /W 4 >> /Vertices [100 500 200 700 300 500]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let polygon = poppler_pixels(&printed);
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Polygon /Rect [90 490 310 710] /C [1 0 0] /BS << /W 4 >> /Vertices [100 500 200 700 300 500] /LE [/Square /Square]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(
+        poppler_pixels(&printed),
+        polygon,
+        "LE is not a Polygon field"
+    );
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Line /Rect [190 590 210 610] /C [1 0 0] /BS << /W 4 >> /L [200 600 200 600] /LE [/OpenArrow /OpenArrow]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert!(
+        poppler_ink_pixels(&printed) > 0,
+        "keep the zero-length round stroke"
+    );
+}
+
+#[test]
+fn print_closed_endings_stroke_red_independently_of_the_interior() {
+    let temp = TempPaths::new("print-ending-fill");
+    let printed = temp.root.join("printed.pdf");
+    for interior in ["", "/IC []", "/IC [0 0 1]"] {
+        write_single_annotation_pdf(&temp.pdf, &format!("/Subtype /Line /Rect [80 470 420 550] /C [1 0 0] /BS << /W 4 >> /L [100 510 400 510] /LE [/ClosedArrow /ClosedArrow] {interior}"));
+        print_annotation_pdf(&temp.pdf, &printed);
+        let pixels = poppler_pixels(&printed);
+        let at = |x: usize, y: usize| &pixels[(y * 596 + x) * 3..(y * 596 + x) * 3 + 3];
+        let center = at(115, 335);
+        if interior.contains("0 0 1") {
+            assert!(
+                center[2] > 220 && center[0] < 30,
+                "blue interior {center:?}"
+            );
+        } else {
+            assert!(
+                center.iter().all(|c| *c > 220),
+                "transparent interior {center:?}"
+            );
+        }
+        assert!(
+            at(110, 337)[0] > 220 && at(110, 337)[1] < 100,
+            "red outline"
+        );
+    }
+}
+
+#[test]
+fn print_applies_rectangle_differences_before_stroking() {
+    let temp = TempPaths::new("print-rd");
+    write_single_square_pdf(&temp.pdf, "/BS << /W 4 >> /RD [30 30 30 30]");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(poppler_ink_pixels(&printed), 2176);
+}
+
+#[test]
+fn print_draws_ink_paths_without_an_appearance() {
+    let temp = TempPaths::new("print-ink");
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Ink /Rect [90 490 310 710] /C [1 0 0] /BS << /W 4 >> /InkList [[100 500 200 700 300 500]]");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let stock = poppler_ink_pixels(&temp.pdf);
+    assert!(stock > 1000);
+    let pixels = poppler_pixels(&printed);
+    let tip = &pixels[(343 * 596 + 100) * 3..(343 * 596 + 100) * 3 + 3];
+    assert!(tip[0] > 220 && tip[1] < 220, "round endpoint {tip:?}");
+    assert!(poppler_ink_pixels(&printed) > 1000);
+}
+
+#[test]
+fn print_preserves_freetext_background_border_and_text() {
+    let temp = TempPaths::new("print-freetext-fields");
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /FreeText /Rect [100 500 300 700] /C [1 0 0] /BS << /W 4 >> /Contents (Printable text) /DA (/Helv 12 Tf 0 g)");
+    let mut doc = Document::load(&temp.pdf).unwrap();
+    let font = doc.add_object(
+        lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"Type1", "BaseFont"=>"Helvetica"},
+    );
+    doc.get_dictionary_mut((3, 0)).unwrap().set(
+        "Resources",
+        lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>font}},
+    );
+    doc.save(&temp.pdf).unwrap();
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(poppler_ink_pixels(&printed), 40_000);
+    let pixels = poppler_pixels(&printed);
+    let at = |x: usize, y: usize| &pixels[(y * 596 + x) * 3..(y * 596 + x) * 3 + 3];
+    assert!(
+        at(200, 200)[0] > 220 && at(200, 200)[1] < 30,
+        "red background"
+    );
+    assert!(at(101, 200).iter().all(|c| *c < 30), "black border");
+    let black_text = (145..160)
+        .flat_map(|y| (106..180).map(move |x| (y * 596 + x) * 3))
+        .filter(|i| pixels[*i..*i + 3].iter().all(|c| *c < 100))
+        .count();
+    assert!(black_text > 50, "DA black text, got {black_text}");
+}
+
+fn write_print_text_pdf(
+    path: &Path,
+    text: &str,
+    font: Option<&str>,
+    page: i64,
+    own: i64,
+    rect: [i64; 4],
+    size: i64,
+) {
+    let contents = std::iter::once(0xfeff)
+        .chain(text.encode_utf16())
+        .map(|unit| format!("{unit:04X}"))
+        .collect::<String>();
+    write_single_annotation_pdf(path, &format!("/Subtype /FreeText /Rect [{} {} {} {}] /BS << /W 0 >> /Rotate {own} /Contents <{contents}> /DA (/Helv {size} Tf 0 g)", rect[0], rect[1], rect[2], rect[3]));
+    let mut document = Document::load(path).unwrap();
+    let page_id = document.get_pages()[&1];
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Rotate", page);
+    if let Some(name) = font {
+        let font = document
+            .add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"Type1", "BaseFont"=> name});
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Resources",
+            lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>font}},
+        );
+    }
+    document.save(path).unwrap();
+}
+
+#[test]
+fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
+    let temp = TempPaths::new("print-text-runs");
+    let printed = temp.root.join("printed.pdf");
+    for text in [
+        "Latin abc ܐ xyz",
+        "ܫܠܡܐ ܥܠܝܟܘܢ",
+        "שלום עולם\nשורה שנייה",
+        "السلام عليكم\nمرحبا بالعالم",
+        "שלום abc 123\nمرحبا xyz",
+        "Latin abc 日本語 xyz",
+    ] {
+        write_print_text_pdf(&temp.pdf, text, None, 0, 0, [100, 450, 400, 700], 20);
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(
+            poppler_ink_pixels(&printed) > 300,
+            "lost supported text: {text}"
+        );
+    }
+    // A DA size its box cannot hold prints at the size a Save of that box
+    // fits, with every mark inside the box. With an appearance, as printed
+    // once, it prints as it is.
+    let mut rows = Vec::new();
+    for (text, font) in [
+        ("بَسْمِ لَا بــِسْمِ", None),
+        ("ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ", None),
+        ("הַקְּדֻשָּׁה וְהַטָּהֳרָה", None),
+        ("Latin label, pp. 12-15", None),
+        ("Latin label, pp. 12-15", Some("Helvetica")),
+        ("مرحبا Latin 12 بالعالم", None),
+    ] {
+        write_print_text_pdf(&temp.pdf, text, font, 0, 0, [100, 450, 400, 480], 28);
+        print_annotation_pdf(&temp.pdf, &printed);
+        let hidden = clipped_ink(&printed);
+        // The first annotation's appearance content.
+        let appearance = |pdf: &Path| {
+            let document = Document::load(pdf).unwrap();
+            let page = document.get_dictionary(document.get_pages()[&1]).unwrap();
+            let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0].as_reference();
+            let annotation = document.get_dictionary(annotation.unwrap()).unwrap();
+            let normal = annotation
+                .get(b"AP")
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"N")
+                .unwrap();
+            let normal = document.get_object(normal.as_reference().unwrap()).unwrap();
+            let mut stream = normal.as_stream().unwrap().clone();
+            stream.decompress().unwrap();
+            String::from_utf8(stream.content).unwrap()
+        };
+        // The size its Tf records and where it places each glyph.
+        let drawn = |content: String| {
+            let (before, _) = content.split_once(" Tf").unwrap();
+            let size = before.rsplit(' ').next().unwrap().parse::<f64>().unwrap();
+            let glyphs = content
+                .lines()
+                .filter(|op| op.ends_with("> Tj"))
+                .map(str::to_string);
+            (size, glyphs.collect::<Vec<_>>())
+        };
+        let saved = TempPaths::new("print-text-fit-save");
+        let blank = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/semtext/blank.pdf");
+        fs::copy(blank, &saved.pdf).unwrap();
+        write_mutations(
+            &saved,
+            &json!({"textBoxes": [{
+                "pageIndex": 0, "stableKey": "fit", "text": text, "rect": [100, 450, 400, 480],
+                "rotation": 0, "fontSize": 28, "color": [0, 0, 0],
+            }]}),
+        );
+        run_save(&saved);
+        let (printed_size, printed_glyphs) = drawn(appearance(&printed));
+        let (saved_size, saved_glyphs) = drawn(appearance(&saved.pdf));
+        // Glyph placements, RTL right alignment included; a simple Latin font
+        // prints its text as strings.
+        let placed_alike = font.is_some() || printed_glyphs == saved_glyphs;
+        let again = temp.root.join("again.pdf");
+        print_annotation_pdf(&printed, &again);
+        rows.push((
+            text,
+            font,
+            hidden,
+            printed_size,
+            saved_size,
+            placed_alike,
+            again.exists(),
+        ));
+    }
+    // Whole, at the size and glyph positions Save gives it, and unchanged once
+    // it has an appearance.
+    let whole = |row: &&(_, _, usize, f64, f64, bool, bool)| {
+        row.2 == 0 && row.3 == row.4 && row.5 && !row.6
+    };
+    assert!(rows.iter().all(|row| whole(&row)), "{rows:#?}");
+    // review-b7s: a compact label in the document's Helvetica, too narrow for
+    // its W at the DA size, prints whole: its measured advance fits the box.
+    write_print_text_pdf(
+        &temp.pdf,
+        "W",
+        Some("Helvetica"),
+        0,
+        0,
+        [100, 600, 125, 650],
+        22,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(
+        clipped_ink(&printed),
+        0,
+        "the compact Helvetica W prints whole"
+    );
+    // Covered characters must paint their own glyphs, not replacement boxes.
+    // The directional mark preserves the RTL paragraph for the comparison.
+    for text in ["Latin abc xyz", "אבג", "مرحبا", "ܫܠܡܐ"] {
+        write_print_text_pdf(&temp.pdf, text, None, 0, 0, [100, 450, 400, 700], 20);
+        print_annotation_pdf(&temp.pdf, &printed);
+        let supported = poppler_pixels(&printed);
+        let replacement = format!(
+            "{}{}",
+            if text.is_ascii() { "" } else { "\u{200f}" },
+            "�".repeat(text.chars().count())
+        );
+        write_print_text_pdf(
+            &temp.pdf,
+            &replacement,
+            None,
+            0,
+            0,
+            [100, 450, 400, 700],
+            20,
+        );
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert_ne!(
+            supported,
+            poppler_pixels(&printed),
+            "covered glyphs: {text}"
+        );
+    }
+    // Each paragraph takes the direction of its first strong character, as
+    // the editor shows it and Save lays it out. An explicit RTL mark must
+    // produce the same visible ordering.
+    let mixed = "שלום abc 123\nمرحبا xyz";
+    write_print_text_pdf(&temp.pdf, mixed, None, 0, 0, [100, 450, 400, 700], 20);
+    print_annotation_pdf(&temp.pdf, &printed);
+    let automatic = poppler_pixels(&printed);
+    let marked = mixed
+        .split('\n')
+        .map(|line| format!("\u{200f}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    write_print_text_pdf(&temp.pdf, &marked, None, 0, 0, [100, 450, 400, 700], 20);
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(automatic, poppler_pixels(&printed), "viewer bidi ordering");
+    // A document-provided bold Syriac program must win over the regular
+    // bundled fallback, while Latin still comes from a supporting font.
+    write_print_text_pdf(
+        &temp.pdf,
+        "Latin ܫܠܡܐ xyz",
+        None,
+        0,
+        0,
+        [100, 450, 400, 700],
+        20,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    let regular = poppler_pixels(&printed);
+    let mut document = Document::load(&temp.pdf).unwrap();
+    let program = document.add_object(lopdf::Stream::new(
+        lopdf::dictionary! {},
+        include_bytes!("../../../scripts/fixtures/ocr-language-fonts/NotoSansSyriac-Black.ttf")
+            .to_vec(),
+    ));
+    let descriptor = document.add_object(lopdf::dictionary! {"Type"=>"FontDescriptor", "FontName"=>"NotoSansSyriacBlack", "FontFile2"=>program, "Flags"=>32, "FontBBox"=>vec![0.into(),(-300).into(),1500.into(),1500.into()], "ItalicAngle"=>0, "Ascent"=>1000, "Descent"=>-300, "CapHeight"=>1000, "StemV"=>80});
+    let source_font = document.add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"TrueType", "BaseFont"=>"NotoSansSyriacBlack", "FontDescriptor"=>descriptor, "FirstChar"=>0, "LastChar"=>0, "Widths"=>vec![0.into()]});
+    let page_id = document.get_pages()[&1];
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Resources",
+        lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>source_font}},
+    );
+    document.save(&temp.pdf).unwrap();
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_ne!(
+        poppler_pixels(&printed),
+        regular,
+        "paint with the glyph-capable source program"
+    );
+    write_print_text_pdf(
+        &temp.pdf,
+        "Latin abc \u{10FFFF} xyz",
+        None,
+        0,
+        0,
+        [100, 450, 400, 700],
+        20,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    let unknown = poppler_pixels(&printed);
+    write_print_text_pdf(
+        &temp.pdf,
+        "Latin abc � xyz",
+        None,
+        0,
+        0,
+        [100, 450, 400, 700],
+        20,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(
+        unknown,
+        poppler_pixels(&printed),
+        "one visible replacement, keeping surrounding text"
+    );
+}
+// Limit the document font's Unicode cmap to one letter while retaining its
+// original glyph outlines and shaping tables, just like a retained-GID subset.
+fn partial_print_font(program: &[u8], character: char) -> Vec<u8> {
+    use skrifa::MetadataProvider;
+    let face = skrifa::FontRef::from_index(program, 0).unwrap();
+    let glyph = face.charmap().map(character).unwrap().to_u32();
+    let mut bytes = program.to_vec();
+    let count = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+    let record = (0..count)
+        .map(|i| 12 + i * 16)
+        .find(|i| &bytes[*i..*i + 4] == b"cmap")
+        .unwrap();
+    let mut cmap = vec![0, 0, 0, 1, 0, 3, 0, 10, 0, 0, 0, 12, 0, 12, 0, 0];
+    for value in [28, 0, 1, character as u32, character as u32, glyph] {
+        cmap.extend(value.to_be_bytes());
+    }
+    let checksum = cmap.chunks_exact(4).fold(0u32, |sum, word| {
+        sum.wrapping_add(u32::from_be_bytes(word.try_into().unwrap()))
+    });
+    while !bytes.len().is_multiple_of(4) {
+        bytes.push(0);
+    }
+    let offset = bytes.len() as u32;
+    bytes[record + 4..record + 8].copy_from_slice(&checksum.to_be_bytes());
+    bytes[record + 8..record + 12].copy_from_slice(&offset.to_be_bytes());
+    bytes[record + 12..record + 16].copy_from_slice(&(cmap.len() as u32).to_be_bytes());
+    bytes.extend(cmap);
+    let head = (0..count)
+        .map(|i| 12 + i * 16)
+        .find(|i| &bytes[*i..*i + 4] == b"head")
+        .unwrap();
+    let head = u32::from_be_bytes(bytes[head + 8..head + 12].try_into().unwrap()) as usize;
+    bytes[head + 8..head + 12].fill(0);
+    let checksum = bytes.chunks_exact(4).fold(0u32, |sum, word| {
+        sum.wrapping_add(u32::from_be_bytes(word.try_into().unwrap()))
+    });
+    bytes[head + 8..head + 12].copy_from_slice(&0xb1b0afbau32.wrapping_sub(checksum).to_be_bytes());
+    bytes
+}
+
+#[test]
+fn print_freetext_partial_fonts_preserve_joining_and_pointed_words() {
+    let temp = TempPaths::new("print-partial-font-joining");
+    let printed = temp.root.join("printed.pdf");
+    let dejavu = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf").as_slice();
+    let syriac =
+        include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf").as_slice();
+    for (text, character, program) in [
+        ("بسم", 'ب', dejavu),
+        ("ܒܫܒ", 'ܒ', syriac),
+        ("שָׁלוֹם", 'ש', dejavu),
+    ] {
+        write_print_text_pdf(&temp.pdf, text, None, 0, 0, [70, 430, 540, 760], 32);
+        print_annotation_pdf(&temp.pdf, &printed);
+        let complete = poppler_pixels(&printed);
+        assert!(poppler_ink_pixels(&printed) > 300);
+        let mut document = Document::load(&temp.pdf).unwrap();
+        let program = document.add_object(lopdf::Stream::new(
+            lopdf::dictionary! {},
+            partial_print_font(program, character),
+        ));
+        let descriptor = document.add_object(lopdf::dictionary! {"Type"=>"FontDescriptor", "FontName"=>"Partial", "FontFile2"=>program});
+        let descendant = document.add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"CIDFontType2", "BaseFont"=>"Partial", "CIDSystemInfo"=>lopdf::dictionary! {"Registry"=>Object::string_literal("Adobe"), "Ordering"=>Object::string_literal("Identity"), "Supplement"=>0}, "FontDescriptor"=>descriptor, "CIDToGIDMap"=>"Identity"});
+        let font = document.add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"Type0", "BaseFont"=>"Partial", "Encoding"=>"Identity-H", "DescendantFonts"=>vec![Object::Reference(descendant)]});
+        let page = document.get_pages()[&1];
+        document.get_dictionary_mut(page).unwrap().set(
+            "Resources",
+            lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>font}},
+        );
+        document.save(&temp.pdf).unwrap();
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(
+            poppler_pixels(&printed) == complete,
+            "partial document font must not split {text}"
+        );
+    }
+}
+
+#[test]
+fn print_freetext_syriac_punctuation_keeps_the_joining_word() {
+    print_freetext_punctuation_matches_harfbuzz("syriac");
+}
+
+#[test]
+fn print_freetext_hebrew_punctuation_keeps_cantillation_with_its_base() {
+    print_freetext_punctuation_matches_harfbuzz("hebrew");
+}
+
+fn print_freetext_punctuation_matches_harfbuzz(script: &str) {
+    let temp = TempPaths::new("print-punctuation-fonts");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/interop/print-semitic");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&fixture.join(format!("{script}-punctuation.pdf")), &printed);
+    assert!(
+        poppler_pixels(&printed)
+            == poppler_pixels(&fixture.join(format!("{script}-punctuation-reference.pdf"))),
+        "punctuation must preserve HarfBuzz joining and base/mark positions: {script}"
+    );
+}
+
+#[test]
+fn print_freetext_collapsed_text_keeps_background_and_border_colors() {
+    let temp = TempPaths::new("print-collapsed-freetext-colors");
+    let printed = temp.root.join("printed.pdf");
+    for font in [None, Some("Courier")] {
+        for width in [30, 60] {
+            write_print_text_pdf(&temp.pdf, "ABC", font, 0, 0, [100, 500, 300, 620], 20);
+            let mut document = Document::load(&temp.pdf).unwrap();
+            let annotation = document.get_dictionary_mut((4, 0)).unwrap();
+            annotation.set("C", vec![0.into(), 1.into(), 0.into()]);
+            annotation.set("DA", Object::string_literal("/Helv 20 Tf 1 0 0 rg"));
+            annotation.set("BS", lopdf::dictionary! {"W"=>width});
+            document.save(&temp.pdf).unwrap();
+            print_annotation_pdf(&temp.pdf, &printed);
+            let pixels = poppler_pixels(&printed);
+            let red = pixels
+                .chunks_exact(3)
+                .filter(|p| p[0] > 200 && p[1] < 100 && p[2] < 100)
+                .count();
+            let green = pixels
+                .chunks_exact(3)
+                .filter(|p| p[1] > 200 && p[0] < 100 && p[2] < 100)
+                .count();
+            assert!(
+                red > 15_000,
+                "red DA border, font={font:?}, width={width}, red={red}"
+            );
+            if width == 30 {
+                assert!(
+                    green > 8_000,
+                    "green interior, font={font:?}, green={green}"
+                );
+                let center = &pixels[(282 * 596 + 200) * 3..(282 * 596 + 200) * 3 + 3];
+                assert!(
+                    center[1] > 200 && center[0] < 100 && center[2] < 100,
+                    "center stays green: {center:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn print_freetext_tabs_use_the_painted_font_units() {
+    let temp = TempPaths::new("print-tab-font-units");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/interop/print-semitic");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&fixture.join("semitic.pdf"), &printed);
+    let actual = poppler_pixels(&printed);
+    let reference = poppler_pixels(&fixture.join("reference.pdf"));
+    let band = 230 * 596 * 3..290 * 596 * 3;
+    assert!(
+        actual[band.clone()] == reference[band],
+        "tab stops use the same font units as the painted Latin glyphs"
+    );
+    // The whole page: the bordered label's mitred frame and the text inside it too.
+    assert!(
+        actual == reference,
+        "the printed page matches its reference"
+    );
+}
+
+#[test]
+fn print_freetext_cantillation_matches_independent_harfbuzz_marks() {
+    let temp = TempPaths::new("print-hebrew-cantillation");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/interop/print-semitic");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&fixture.join("hebrew.pdf"), &printed);
+    let actual = poppler_pixels(&printed);
+    let reference = poppler_pixels(&fixture.join("hebrew-reference.pdf"));
+    assert!(
+        actual == reference,
+        "Hebrew letters, points and cantillation must paint the HarfBuzz positions"
+    );
+}
+
+#[test]
+fn authored_semitic_text_boxes_save_harfbuzz_appearances() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/semtext");
+    for (script, text) in [
+        ("arabic", "بَسْمِ لَا بــِسْمِ"),
+        ("syriac", "ܫܠܵܡܵܐ"),
+        ("hebrew", "בְּרֵאשִׁ֖ית"),
+    ] {
+        let temp = TempPaths::new("authored-semitic-fonts");
+        fs::copy(fixture.join("blank.pdf"), &temp.pdf).unwrap();
+        write_mutations(
+            &temp,
+            &json!({"textBoxes": [{
+                "pageIndex": 0, "stableKey": script, "text": text,
+                "rect": [70, 200, 540, 760], "rotation": 0, "fontSize": 32,
+                "color": [17, 24, 39],
+            }]}),
+        );
+        run_save(&temp);
+        let saved = Document::load(&temp.pdf).unwrap();
+        let page = saved.get_dictionary(saved.get_pages()[&1]).unwrap();
+        let annotation = saved
+            .get_dictionary(
+                page.get(b"Annots").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(
+            annotation.has(b"AP"),
+            "saved {script} FreeText has an appearance"
+        );
+        assert!(
+            poppler_pixels(&temp.pdf)
+                == poppler_pixels(&fixture.join(format!("{script}-reference.pdf"))),
+            "saved {script} glyphs and mark positions match independent HarfBuzz content"
+        );
+        // Its appearance is complete, so Auto prints the saved file as it is.
+        let printed = temp.root.join("printed.pdf");
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(
+            !printed.exists(),
+            "printing keeps the authored {script} appearance"
+        );
+    }
+    // review-b7f: a 150 x 20 pt box at 13.33 pt hid two kasra strokes below
+    // its nominal line. Vowel points below and above the line stay in the box.
+    for text in ["بَسْمِ لَا بــِسْمِ", "ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ", "הַקְּדֻשָּׁה וְהַטָּהֳרָה"]
+    {
+        let temp = TempPaths::new("short-semitic-marks");
+        fs::copy(fixture.join("blank.pdf"), &temp.pdf).unwrap();
+        write_mutations(
+            &temp,
+            &json!({"textBoxes": [{
+                "pageIndex": 0, "stableKey": "short", "text": text,
+                "rect": [70, 250, 220, 270], "rotation": 0, "fontSize": 13.33,
+                "color": [17, 24, 39],
+            }]}),
+        );
+        run_save(&temp);
+        assert_eq!(
+            clipped_ink(&temp.pdf),
+            0,
+            "{text} keeps every mark inside its box"
+        );
+    }
+}
+
+/// Pixels at 4x that the first annotation's box clip hides: the page around
+/// the box, rendered as saved and again unclipped with room around the box.
+fn clipped_ink(pdf: &Path) -> usize {
+    let mut document = Document::load(pdf).unwrap();
+    let page = document.get_dictionary(document.get_pages()[&1]).unwrap();
+    let numbers = |object: &Object| -> Vec<f32> {
+        let values = object.as_array().unwrap().iter();
+        values.map(|value| value.as_float().unwrap()).collect()
+    };
+    let height = numbers(page.get(b"MediaBox").unwrap())[3];
+    let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let annotation_dict = document.get_dictionary(annotation).unwrap();
+    let rect = numbers(annotation_dict.get(b"Rect").unwrap());
+    let appearance = annotation_dict.get(b"AP").unwrap().as_dict().unwrap();
+    let normal = appearance.get(b"N").unwrap().as_reference().unwrap();
+    let grow = |dict: &mut Dictionary, key: &[u8]| {
+        let grown = numbers(dict.get(key).unwrap()).into_iter();
+        let grown = grown
+            .zip([-100.0, -100.0, 100.0, 100.0])
+            .map(|(v, d)| Object::Real(v + d));
+        dict.set(key, grown.collect::<Vec<_>>());
+    };
+    grow(document.get_dictionary_mut(annotation).unwrap(), b"Rect");
+    let stream = document
+        .get_object_mut(normal)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap();
+    stream.decompress().unwrap();
+    let content = String::from_utf8(stream.content.clone()).unwrap();
+    assert!(
+        content.contains(" re W n"),
+        "the appearance clips to its box"
+    );
+    stream.set_content(content.replace(" re W n", " re n").into_bytes());
+    grow(&mut stream.dict, b"BBox");
+    let unclipped = pdf.with_extension("unclipped.pdf");
+    document.save(&unclipped).unwrap();
+    let [x1, y1, x2, y2] = [rect[0], rect[1], rect[2], rect[3]].map(|v| (v * 4.0) as i64);
+    let top = (height * 4.0) as i64 - y2;
+    let crop = [x1 - 120, top - 120, x2 - x1 + 240, y2 - y1 + 240].map(|v| v.to_string());
+    let render = |pdf: &Path| {
+        let tool = external_tool::tool_path("PDFTOPPM_PATH", "poppler", "pdftoppm");
+        let mut command = Command::new(tool);
+        command.args(["-r", "288", "-singlefile", "-x", &crop[0], "-y", &crop[1]]);
+        command.args(["-W", &crop[2], "-H", &crop[3]]).arg(pdf);
+        let ppm = command.output().unwrap().stdout;
+        ppm.splitn(4, |byte| *byte == b'\n')
+            .nth(3)
+            .unwrap()
+            .to_vec()
+    };
+    let (clipped, unclipped) = (render(pdf), render(&unclipped));
+    assert!(
+        clipped.iter().any(|channel| *channel < 128),
+        "the crop shows the box"
+    );
+    let pixels = clipped.chunks(3).zip(unclipped.chunks(3));
+    pixels.filter(|(a, b)| a != b).count()
+}
+
+#[test]
+fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
+    let temp = TempPaths::new("print-text-pdf-rotation");
+    let printed = temp.root.join("printed.pdf");
+    for page in [0, 90, 180, 270] {
+        for own in [0, 90, 180, 270] {
+            write_print_text_pdf(
+                &temp.pdf,
+                "Rotate ABC",
+                None,
+                page,
+                own,
+                [100, 500, 300, 620],
+                20,
+            );
+            print_annotation_pdf(&temp.pdf, &printed);
+            assert!(
+                poppler_ink_pixels(&printed) > 500,
+                "missing font page={page} annotation={own}"
+            );
+        }
+    }
+}
+#[test]
+fn print_freetext_retained_fonts_follow_annotation_rotation() {
+    let temp = TempPaths::new("print-text-retained-rotation");
+    let printed = temp.root.join("printed.pdf");
+    for page in [0, 90, 180, 270] {
+        for own in [0, 90, 180, 270] {
+            write_print_text_pdf(
+                &temp.pdf,
+                "Rotate ABC",
+                Some("Helvetica"),
+                page,
+                own,
+                [100, 500, 300, 620],
+                20,
+            );
+            print_annotation_pdf(&temp.pdf, &printed);
+            let row_width = if page % 180 == 0 { 596 } else { 842 };
+            let ink: Vec<_> = poppler_pixels(&printed)
+                .chunks_exact(3)
+                .enumerate()
+                .filter(|(_, rgb)| rgb.iter().any(|c| *c < 220))
+                .map(|(i, _)| (i % row_width, i / row_width))
+                .collect();
+            assert!(ink.len() > 500);
+            let width =
+                ink.iter().map(|p| p.0).max().unwrap() - ink.iter().map(|p| p.0).min().unwrap();
+            let height =
+                ink.iter().map(|p| p.1).max().unwrap() - ink.iter().map(|p| p.1).min().unwrap();
+            assert_eq!(
+                height > width,
+                (own + page) % 180 != 0,
+                "page rotation {page}, annotation rotation {own}"
+            );
+        }
+    }
+}
+#[test]
+fn print_freetext_courier_wraps_all_sixty_glyphs_in_six_lines() {
+    let temp = TempPaths::new("print-text-courier-metrics");
+    let printed = temp.root.join("printed.pdf");
+    write_print_text_pdf(
+        &temp.pdf,
+        &"i".repeat(60),
+        Some("Courier"),
+        0,
+        0,
+        [100, 450, 220, 700],
+        18,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    let pixels = poppler_pixels(&printed);
+    // Printing lays text out as a saved text box does: 0.3 em side padding,
+    // 1.35 em lines and the DejaVu Sans line box. The 109.2 pt content width
+    // holds ten 10.8 pt glyphs. The dot and stem of i can occupy separate
+    // horizontal bands, but belong to one glyph.
+    let mut columns = [[false; 596]; 6];
+    for (index, rgb) in pixels.chunks_exact(3).enumerate() {
+        if rgb.iter().all(|c| *c < 100) {
+            let y = index / 596;
+            assert!(y >= 142, "text stays inside its rectangle");
+            let line = ((y - 142) as f64 / 24.3) as usize;
+            columns.get_mut(line).expect("six visible lines")[index % 596] = true;
+        }
+    }
+    let glyph_counts: Vec<_> = columns
+        .iter()
+        .map(|line| {
+            line.iter()
+                .zip(std::iter::once(&false).chain(line.iter()))
+                .filter(|(column, prior)| **column && !**prior)
+                .count()
+        })
+        .collect();
+    assert_eq!(glyph_counts, vec![10; 6]);
+    // Render an independent, ordinary page-content Courier reference with
+    // this run's reader. Host font substitutions must not change the verdict.
+    use skrifa::MetadataProvider;
+    let dejavu = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf");
+    let metrics = skrifa::FontRef::new(dejavu).unwrap().metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    let line_box = f64::from(metrics.ascent + metrics.descent) / f64::from(metrics.units_per_em);
+    let first_baseline = (0.15 + 1.35 / 2.0 + line_box / 2.0) * 18.0;
+    let reference = temp.root.join("courier-reference.pdf");
+    let mut document = Document::load(&temp.pdf).unwrap();
+    let mut content = String::from("q 1 0 0 1 100 450 cm BT /Helv 18 Tf 0 g\n");
+    for index in 0..6 {
+        let baseline = 250.0 - first_baseline - index as f64 * 1.35 * 18.0;
+        content.push_str(&format!(
+            "1 0 0 1 {} {baseline} Tm ({}) Tj\n",
+            0.3 * 18.0,
+            "i".repeat(10)
+        ));
+    }
+    content.push_str("ET Q\n");
+    let content = document.add_object(lopdf::Stream::new(
+        lopdf::dictionary! {},
+        content.into_bytes(),
+    ));
+    let page = document.get_pages()[&1];
+    let page = document.get_dictionary_mut(page).unwrap();
+    page.remove(b"Annots");
+    page.set("Contents", content);
+    document.save(&reference).unwrap();
+    assert!(
+        poppler_pixels(&printed) == poppler_pixels(&reference),
+        "all Courier pixels match the same-reader reference"
+    );
+}
+#[test]
+fn print_collapsed_lines_keep_geometric_endings() {
+    let temp = TempPaths::new("print-collapsed-endings");
+    let printed = temp.root.join("printed.pdf");
+    for ending in ["Circle", "Square", "Diamond"] {
+        write_single_annotation_pdf(&temp.pdf, &format!("/Subtype /Line /Rect [170 570 230 630] /C [1 0 0] /IC [0 0 1] /BS << /W 4 >> /L [200 600 200 600] /LE [/{ending} /{ending}]"));
+        print_annotation_pdf(&temp.pdf, &printed);
+        let blue = poppler_pixels(&printed)
+            .chunks_exact(3)
+            .filter(|rgb| rgb[2] > 220 && rgb[0] < 100 && rgb[1] < 100)
+            .count();
+        // MuPDF retains geometric decoration here; Poppler drops it. These
+        // endings have no directional requirement in ISO 32000 table 176.
+        assert!(
+            blue > 100,
+            "collapsed {ending} must retain its filled interior, got {blue}"
+        );
+    }
 }

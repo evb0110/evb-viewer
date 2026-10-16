@@ -44,7 +44,11 @@ function createSurfaceHarness(options: {
     const emitAnnotationModified = vi.fn();
     const emitShapeContextMenu = vi.fn();
     const onCreationCompleted = vi.fn();
-    const onTextBoxDraftChanged = vi.fn();
+    const draftTexts = new Map<string, string>();
+    const onTextBoxDraftChanged = (id: string, text: string | null) => {
+        if (text === null) draftTexts.delete(id);
+        else draftTexts.set(id, text);
+    };
     const scope = effectScope();
     activeScopes.add(scope);
     const history = options.withHistory ? scope.run(() => usePdfAppAnnotationHistory({
@@ -69,12 +73,14 @@ function createSurfaceHarness(options: {
         emitShapeContextMenu,
         onCreationCompleted,
         onTextBoxDraftChanged,
+        getTextBoxDraftText: id => draftTexts.get(id) ?? null,
         ...(options.getPageGeometry ? {getPageGeometry: options.getPageGeometry} : {}),
         ...(history ? {runHistoryTransaction: history.runTransaction} : {}),
     }))!;
     return {
         annotationApplication,
         emitAnnotationModified,
+        history,
         surface,
     };
 }
@@ -181,53 +187,88 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
     it.each([
         false,
         true,
-    ])('checks pending text read-only and commits before rotation with geometry preparation %s', (hasGeometryPreparation) => {
+    ])('checks pending text read-only and commits before rotation with geometry preparation %s', async (hasGeometryPreparation) => {
         const {
             surface,
             annotationApplication,
-        } = createSurfaceHarness({getPageGeometry: () => portraitGeometry});
-        const box = surface.createTextBoxAt(0, rect);
+            history,
+        } = createSurfaceHarness({
+            getPageGeometry: () => portraitGeometry,
+            withHistory: true,
+        });
+        const box = surface.createTextBoxAt(0, rect, {text: 'Existing text'});
         const draftRect = shallowRef({
             left: 0.01,
             top: 0.01,
             width: 0.3,
             height: 0.9,
         });
-        const commitDraft = () => {
+        const completion = Promise.withResolvers<undefined>();
+        let refuseCompletion = true;
+        const commitDraft = async () => {
+            await completion.promise;
+            if (refuseCompletion) throw new DOMException('Draft protection was refused', 'AbortError');
             surface.commitGesture(box.identity.id, {
                 text: 'Pending text',
                 rect: draftRect.value,
             });
             surface.endTextEditing(box.identity.id, {restoreFocus: false});
         };
-        const commitTextDraft = vi.fn(commitDraft);
-        const prepareGeometryChange = vi.fn(commitDraft);
         surface.registerPageInteraction(0, {
-            commitTextDraft,
-            ...(hasGeometryPreparation ? {prepareGeometryChange} : {}),
+            commitTextDraft: commitDraft,
+            ...(hasGeometryPreparation ? {prepareGeometryChange: commitDraft} : {}),
             cancelTextDraft: vi.fn(),
             cancelPointerGesture: vi.fn(),
             focus: vi.fn(),
             getTextBoxDraftRect: id => id === box.identity.id ? draftRect.value : null,
         });
-        surface.beginTextEditing(box.identity.id);
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Pending text');
+        const original = annotationApplication.value.store.list();
+        const selection = [...surface.selectedIds.value];
+        const historyBefore = [
+            history!.canUndo.value,
+            history!.canRedo.value,
+        ];
         expect(surface.canRotateSelectedAnnotations(90)).toBe(false);
         draftRect.value = {
             ...draftRect.value,
             height: 0.15,
         };
+        expect(surface.canRotateSelectedAnnotations(90)).toBe(false);
+        expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(false);
+        completion.resolve(undefined);
+        await Promise.resolve();
+        expect(annotationApplication.value.store.list()).toEqual(original);
+        expect([...surface.selectedIds.value]).toEqual(selection);
+        expect([
+            history!.canUndo.value,
+            history!.canRedo.value,
+        ]).toEqual(historyBefore);
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.getTextBoxDraftText(box.identity.id)).toBe('Pending text');
+        expect(surface.getTextBoxDraftRect(box.identity.id)).toEqual(draftRect.value);
+        await expect(surface.commitPendingTextBoxDraftsForSave()).rejects.toThrow('Draft protection was refused');
+        expect(annotationApplication.value.store.list()).toEqual(original);
+        expect(surface.canRotateSelectedAnnotations(90)).toBe(false);
+        expect(surface.editingId.value).toBe(box.identity.id);
+
+        // Unchanged text with a measured nonempty rectangle is still unaccepted geometry.
+        surface.setTextBoxDraftPending(box.identity.id, box.text);
+        expect(surface.canRotateSelectedAnnotations(90)).toBe(false);
+        expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(false);
+        expect(annotationApplication.value.store.list()).toEqual(original);
+        surface.setTextBoxDraftPending(box.identity.id, 'Pending text');
+        refuseCompletion = false;
+        await surface.commitPendingTextBoxDraftsForSave();
+        const accepted = annotationApplication.value.store.get(box.identity.id);
+        expect(accepted).toMatchObject({
+            text: 'Pending text',
+            rect: draftRect.value,
+            rotation: 0,
+        });
         expect(surface.canRotateSelectedAnnotations(90)).toBe(true);
-        expect(commitTextDraft).not.toHaveBeenCalled();
-        expect(prepareGeometryChange).not.toHaveBeenCalled();
-        expect(annotationApplication.value.store.get(box.identity.id)).toEqual(box);
         expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(true);
-        if (hasGeometryPreparation) {
-            expect(prepareGeometryChange).toHaveBeenCalledOnce();
-            expect(commitTextDraft).not.toHaveBeenCalled();
-        } else {
-            expect(commitTextDraft).toHaveBeenCalledOnce();
-            expect(prepareGeometryChange).not.toHaveBeenCalled();
-        }
         const updated = annotationApplication.value.store.get(box.identity.id);
         expect(updated).toMatchObject({
             text: 'Pending text',
@@ -240,9 +281,21 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         if (updated?.kind !== 'text-box') throw new Error('Text box missing');
         expect(updated.rect.top).toBeCloseTo(0.015, 12);
         expect(surface.editingId.value).toBeNull();
+        expect(await surface.undo()).toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Pending text',
+            rect: draftRect.value,
+            rotation: 0,
+        });
+        expect(await surface.undo()).toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: box.text,
+            rect: box.rect,
+            rotation: 0,
+        });
     });
 
-    it('preserves an empty editing session and rotates its pending rectangle after geometry preparation', () => {
+    it('preserves an empty editing session and rotates its pending rectangle after geometry preparation', async () => {
         const {
             surface,
             annotationApplication,
@@ -254,24 +307,20 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
             width: 0.3,
             height: 0.15,
         };
-        const prepareGeometryChange = vi.fn();
-        const commitTextDraft = vi.fn();
+
         surface.registerPageInteraction(0, {
-            commitTextDraft,
-            prepareGeometryChange,
+            commitTextDraft: () => { throw new Error('Empty editor must remain open'); },
+            prepareGeometryChange: () => { throw new Error('Rotation must not request completion'); },
             cancelTextDraft: vi.fn(),
             cancelPointerGesture: vi.fn(),
             focus: vi.fn(),
             getTextBoxDraftRect: () => draftRect,
         });
-        surface.beginTextEditing(box.identity.id);
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, '');
         expect(surface.canRotateSelectedAnnotations(90)).toBe(true);
-        expect(prepareGeometryChange).not.toHaveBeenCalled();
-        expect(commitTextDraft).not.toHaveBeenCalled();
         expect(annotationApplication.value.store.get(box.identity.id)).toEqual(box);
         expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(true);
-        expect(prepareGeometryChange).toHaveBeenCalledOnce();
-        expect(commitTextDraft).not.toHaveBeenCalled();
         expect(surface.editingId.value).toBe(box.identity.id);
         const updated = annotationApplication.value.store.get(box.identity.id);
         expect(updated).toMatchObject({
@@ -286,9 +335,11 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         expect(updated.rect.top).toBeCloseTo(0.015, 12);
     });
 
-    it('does not read draft geometry outside an active text editing session', () => {
-        const {surface} = createSurfaceHarness({getPageGeometry: () => portraitGeometry});
-        const box = surface.createTextBoxAt(0, rect);
+    it('does not read draft geometry outside an active text editing session', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({getPageGeometry: () => portraitGeometry});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Unchanged text'});
         const getTextBoxDraftRect = vi.fn(() => ({
             left: 0,
             top: 0,
@@ -305,6 +356,24 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         surface.select([box.identity.id]);
         expect(surface.canRotateSelectedAnnotations(90)).toBe(true);
         expect(getTextBoxDraftRect).not.toHaveBeenCalled();
+        await surface.beginTextEditing(box.identity.id);
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => { throw new Error('No-op entry must not complete'); },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+            getTextBoxDraftRect: () => box.rect,
+        });
+        surface.setTextBoxDraftPending(box.identity.id, box.text);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+        expect(surface.canRotateSelectedAnnotations(90)).toBe(true);
+        expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: box.text,
+            rect: box.rect,
+            rotation: 90,
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
     });
 
     it('fits an arbitrary-angle image against the bottom edge without changing its size', () => {

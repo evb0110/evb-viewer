@@ -25,7 +25,6 @@ export interface ITabViewSessionState {
     /** Optional for checkpoints written before page continuity was persisted. */
     currentPage?: number;
     zoom: number;
-    effectiveZoom: number;
     zoomMode: TZoomMode;
     fitMode: TFitMode;
     viewMode: TPdfViewMode;

@@ -1,3 +1,5 @@
+import {tryOnScopeDispose} from '@vueuse/core';
+import {registerBrowserDocumentDependencyReader} from '@app/platform/browserWindowTabs';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -57,14 +59,6 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         notifyPdfInitialVisualReady,
         shouldForceSaveAsForWorkingCopy,
     } = createDocumentConformance(sessionState);
-    const documentOpenFlowRef: { current: ReturnType<typeof createDocumentOpenFlow> | null } = {current: null};
-    function getDocumentOpenFlow() {
-        if (!documentOpenFlowRef.current) {
-            throw new Error('Document open flow is not initialized');
-        }
-        return documentOpenFlowRef.current;
-    }
-
     const {
         canRedo,
         canUndo,
@@ -74,6 +68,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         getHistoryDebugState,
+        readDocumentDependencies,
         incrementSessionVersion,
         markCurrentHistoryEntryClean,
         pushHistorySnapshot,
@@ -84,7 +79,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         syncDirtyFromHistory,
         undo,
     } = createDocumentHistory(sessionState, {
-        applyLoadedPdfState: (...args) => getDocumentOpenFlow().applyLoadedPdfState(...args),
+        applyLoadedPdfState: (...args) => documentOpenFlow.applyLoadedPdfState(...args),
         clearPdfConformanceProfile,
         clearOcrCache,
         deferPdfConformanceProfile,
@@ -92,10 +87,18 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         documentWorkingCopy: getDocumentWorkingCopyCapability,
         getOpenEpoch: () => openEpoch.current(),
         isCurrentOpenEpoch: token => openEpoch.isCurrent(token),
-        readPdfStateFromPath: (...args) => getDocumentOpenFlow().readPdfStateFromPath(...args),
-        toPdfBlob: (...args) => getDocumentOpenFlow().toPdfBlob(...args),
+        readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
+        toPdfBlob: (...args) => documentOpenFlow.toPdfBlob(...args),
     });
-    const documentOpenFlow = createDocumentOpenFlow(sessionState, {
+    if (!isElectron.value) {
+        const readDependencies = () => [
+            workingCopyPath.value,
+            originalPath.value,
+            ...readDocumentDependencies(),
+        ].flatMap(ref => ref ? [ref] : []);
+        tryOnScopeDispose(registerBrowserDocumentDependencyReader(readDependencies));
+    }
+    const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy,
@@ -110,7 +113,6 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         t,
         ...options,
     });
-    documentOpenFlowRef.current = documentOpenFlow;
     const {
         loadPdfFromData,
         loadPdfFromPath,
@@ -132,6 +134,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         trySaveEmbeddedNoteTextUpdates,
         trySavePdfNativeMutations,
     } = createDocumentPersistence(sessionState, {
+        refreshDocumentRevisionToken: documentOpenFlow.refreshDocumentRevisionToken,
         deferPdfConformanceProfile,
         ensureHistoryBaselineForMutation,
         getHistoryDebugState,
@@ -143,32 +146,33 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         toPdfBlob,
     });
 
-    function closeFile() {
+    async function closeFile() {
         openEpoch.invalidate();
         loadEpoch.invalidate();
-        const pathToCleanup = workingCopyPath.value;
+        const pathsToCleanup = [...new Set([
+            workingCopyPath.value,
+            openedWorkingCopyPath.value,
+        ].flatMap(path => path ? [path] : []))];
 
         // M4.3: Clear OCR cache for the current file before closing
-        if (pathToCleanup) {
-            clearOcrCache(pathToCleanup);
-        }
+        pathsToCleanup.forEach(path => clearOcrCache(path));
 
         resetForClose();
         clearPdfConformanceProfile();
         incrementSessionVersion();
         clearHistory();
-        if (pathToCleanup) {
-            getDocumentWorkingCopyCapability().cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
+        await Promise.all(pathsToCleanup.map(path =>
+            getDocumentWorkingCopyCapability().cleanupFile(path).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup closed working copy',
                     {
-                        path: pathToCleanup,
+                        path,
                         error: cleanupError,
                     },
                 );
-            });
-        }
+            }),
+        ));
     }
 
     function markDirty() {

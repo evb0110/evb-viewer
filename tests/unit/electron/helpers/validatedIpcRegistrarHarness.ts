@@ -140,6 +140,7 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
     'dialog:openPdfDirect': ['/tmp/fixture.pdf'],
     'dialog:openPdfDirectBatch': [['/tmp/fixture.pdf']],
     'dialog:openPdfDirectBatch:cancel': ['open-request-1'],
+    'dialog:keptOriginal:forget': ['/tmp/fixture.pdf'],
     'working-copy:createFromData': [
         'fixture.pdf',
         new Uint8Array([1]),
@@ -343,6 +344,7 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         1,
     ],
+    'page-ops:read-outline': ['/tmp/fixture.pdf'],
     'pdf:search': [{
         pdfPath: '/tmp/search.pdf',
         query: 'needle',
@@ -359,18 +361,15 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         'image-export-fixture',
         'pdf',
     ],
-    'pdfExport:region': [
-        '/tmp/fixture.pdf',
-        1,
-        {
-            x: 0,
-            y: 0,
-            width: 1,
-            height: 1,
-            outputWidth: 8,
-            outputHeight: 8,
-        },
-    ],
+    'pdfExport:region': [{
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 8,
+        viewportWidth: 100,
+        viewportHeight: 100,
+        pixelRatio: 1,
+    }],
     'pdf:search:warmIndex': [{pdfPath: '/tmp/search.pdf'}],
     'pdf:search:cancel': ['search-fixture'],
     'tabs:transfer': [{

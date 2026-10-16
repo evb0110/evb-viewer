@@ -1,5 +1,10 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 import type * as TPdfCore from '@pdf-core';
+import {
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
+import {createWorkerTaskErrorFrame} from '@electron/utils/workerTask';
 
 import {
     beforeEach,
@@ -10,7 +15,10 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const workerState: { mode: 'malformed-result' | 'runtime-error' | 'startup-error' | 'success' } = {mode: 'startup-error'};
+    const workerState: {
+        mode: 'error-frame' | 'malformed-result' | 'runtime-error' | 'startup-error' | 'success';
+        errorFrame?: unknown
+    } = {mode: 'startup-error'};
     const workerCtor = vi.fn();
     const loggerWarn = vi.fn();
     const runNativeToolCommand = vi.fn();
@@ -123,6 +131,14 @@ vi.mock('worker_threads', () => ({Worker: class {
         mocks.workerCtor(script, options);
         queueMicrotask(() => {
             switch (mocks.workerState.mode) {
+                case 'error-frame':
+                    this.emit('online', undefined);
+                    this.emit('message', {
+                        type: 'result',
+                        ok: false,
+                        errorFrame: mocks.workerState.errorFrame,
+                    });
+                    return;
                 case 'startup-error':
                     this.emit('error', new Error('PDF worker missing'));
                     return;
@@ -766,5 +782,70 @@ describe('validatePdfFileForSave', () => {
             expect.arrayContaining(['--check']),
             expect.anything(),
         );
+    });
+});
+
+describe('native reader termination refusal', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.workerState.mode = 'startup-error';
+    });
+
+    it.each([
+        validatePdfFileForOpening,
+        validatePdfFileForSave,
+        validatePdfFile,
+    ])('preserves a marked validation failure before an aborted signal can replace it', async validate => {
+        const failure = markUnprovenNativeTermination(new Error('Native read is not settled'), 'native reader still owns its input');
+        const controller = new AbortController();
+        controller.abort(new Error('Caller closed the document'));
+        mocks.runNativeToolCommand.mockRejectedValueOnce(failure);
+        await expect(validate('/tmp/input.pdf', {signal: controller.signal})).rejects.toBe(failure);
+        expect(getUnprovenNativeTerminationDetail(failure)).toBe('native reader still owns its input');
+    });
+
+    it('refuses fallback after a marked primary timeout', async () => {
+        const failure = markUnprovenNativeTermination(new Error('qpdf(validate-pdf) timed out after 30000ms'), 'primary qpdf tree remains alive');
+        mocks.runNativeToolCommand.mockRejectedValueOnce(failure);
+        await expect(validatePdfFile('/tmp/input.pdf')).rejects.toBe(failure);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        validatePdfFileForOpening,
+        validatePdfFileForSave,
+        validatePdfFile,
+    ])('keeps completed validation failures invalid and current cancellation a refusal', async validate => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('damaged xref table'));
+        await expect(validate('/tmp/input.pdf')).resolves.toMatchObject({
+            isValid: false,
+            errors: ['damaged xref table'],
+        });
+        const controller = new AbortController();
+        const closed = new Error('Caller closed the document');
+        controller.abort(closed);
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('damaged xref table'));
+        await expect(validate('/tmp/input.pdf', {signal: controller.signal})).rejects.toBe(closed);
+    });
+
+    it('preserves marked fallback failure instead of fulfilling an invalid result', async () => {
+        const failure = markUnprovenNativeTermination(new Error('Native structure read did not settle'), 'structural child tree remains alive');
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
+        mocks.runNativeToolCommand.mockRejectedValueOnce(failure);
+        await expect(validatePdfFile('/tmp/input.pdf')).rejects.toBe(failure);
+        expect(getUnprovenNativeTerminationDetail(failure)).toBe('structural child tree remains alive');
+    });
+
+    it('carries an actual structural callee failure through a cloned worker frame and the main decoder', async () => {
+        const failure = markUnprovenNativeTermination(new Error('Native conformance read did not settle'), 'native descendant may still hold PDF bytes');
+        mocks.runNativeToolCommand.mockRejectedValueOnce(failure);
+        const observed = await analyzePdfConformanceFileDirect('/tmp/input.pdf').catch((error: unknown) => error);
+        expect(observed).toBe(failure);
+        mocks.workerState.mode = 'error-frame';
+        mocks.workerState.errorFrame = structuredClone(createWorkerTaskErrorFrame(observed));
+        const decoded = await analyzePdfConformanceFile('/tmp/input.pdf').catch((error: unknown) => error);
+        expect(decoded).toBeInstanceOf(Error);
+        expect(getUnprovenNativeTerminationDetail(decoded)).toBe('native descendant may still hold PDF bytes');
+        expect(decoded).toMatchObject({message: 'Native conformance read did not settle'});
     });
 });

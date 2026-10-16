@@ -145,6 +145,17 @@ export const AGENT_PLATFORM_FEATURE = definePlatformFeature({
         }),
     },
     events: {
+        onMcpIntegrationChanged: {
+            kind: 'event',
+            channel: 'agent:mcpIntegrationChanged',
+            payload: AGENT_MCP_INTEGRATION_STATUS_SCHEMA,
+            browser: {
+                unsupported: 'omitted',
+                reason: 'requires-native-backend',
+            },
+            optionalWhenImplemented: true,
+            lazy: 'forwarded',
+        },
         onAssistantEvent: {
             kind: 'event',
             channel: 'agent:assistantEvent',

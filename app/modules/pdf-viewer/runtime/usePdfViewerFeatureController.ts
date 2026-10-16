@@ -84,10 +84,6 @@ export const usePdfViewerFeatureController = (
     const performancePolicy = resolvePdfRenderPerformancePolicy(performanceProfile);
     const outputScale = usePdfViewerOutputScale(performancePolicy);
     const viewportWritePort = chassisAuthority.viewportWritePort;
-    const regionSnip = usePdfRegionSnip({
-        viewerContainer,
-        workingCopyPath,
-    });
     const cropSelection = usePdfCropSelection({ viewerContainer });
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);
@@ -208,7 +204,6 @@ export const usePdfViewerFeatureController = (
         emitCurrentPage: page => emit('update:currentPage', page),
         emitNavigationFeedbackPage: page => emit('update:navigationFeedbackPage', page),
         emitZoomState: state => emit('update:zoomState', state),
-        emitEffectiveZoom: value => emit('update:effectiveZoom', value),
         summarizeViewerStateForLog,
     });
     viewportSessionRef.value = viewportSession;
@@ -264,7 +259,7 @@ export const usePdfViewerFeatureController = (
         workingCopyPath,
         documentRevisionToken,
         isAnySaving,
-        isActive,
+        isActive: computed(() => props.isInteractionActive ?? props.isActive ?? true),
         bufferPages,
         annotationTool,
         annotationCursorMode,
@@ -289,22 +284,23 @@ export const usePdfViewerFeatureController = (
         linkAnnotations,
     });
     annotationSessionRef.value = annotationSession;
+    const regionSnip = usePdfRegionSnip({
+        viewerContainer,
+        document: documentSession,
+        prepare: annotationSession.commitPdfEditorsForSave,
+        viewState: props,
+    });
 
-    const getLivePageCount = () => documentSession.numPages.value;
     const isPageBuffered = createPdfRenderPagePredicate(
-        getLivePageCount,
+        () => documentSession.numPages.value,
         pageNumber => viewportSession.viewModel.isPageBuffered(pageNumber),
     );
     const isPageRenderedForClass = createPdfRenderPagePredicate(
-        getLivePageCount,
+        () => documentSession.numPages.value,
         pageNumber => renderingSession.isPageRenderedForClass(pageNumber),
     );
-    const isPageRendering = createPdfRenderPagePredicate(
-        getLivePageCount,
-        pageNumber => renderingSession.isPageRendering(pageNumber),
-    );
     const isPageRenderFailed = createPdfRenderPagePredicate(
-        getLivePageCount,
+        () => documentSession.numPages.value,
         pageNumber => renderingSession.isPageRenderFailed(pageNumber),
     );
 
@@ -318,10 +314,8 @@ export const usePdfViewerFeatureController = (
         openSurface: chassisAuthority.openSurface,
         isVisualReloadTransitionActive: viewportSession.reloadTransition.isVisualReloadTransitionActive,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
-        pagesToRender: viewportSession.viewModel.pagesToRender,
         isPageBuffered,
         isPageRenderedForClass,
-        isPageRendering,
         isPageRenderFailed,
         shouldShowSkeleton: pageNumber => {
             const totalPages = documentSession.numPages.value;
@@ -340,7 +334,7 @@ export const usePdfViewerFeatureController = (
                 navigationAnchorPage,
                 totalPages,
                 viewMode: viewMode.value,
-                isPageRendered: renderingSession.isPageVisualReady,
+                isPageRendered: isPageRenderedForClass,
                 shouldShowSkeleton: isPageNearVisibleAndUnrendered,
             });
         },
@@ -361,7 +355,7 @@ export const usePdfViewerFeatureController = (
         const end = Math.min(documentSession.numPages.value, viewportSession.visibleRange.value.end + SKELETON_BUFFER);
         return pageNumber >= start
             && pageNumber <= end
-            && !renderingSession.isPageRendered(pageNumber);
+            && !isPageRenderedForClass(pageNumber);
     }
 
     const {
@@ -429,7 +423,6 @@ export const usePdfViewerFeatureController = (
             if (zoomMode.value === 'fit-width') {
                 viewportSession.scale.invalidateScaleCache();
                 viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
-                viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.effectiveScale.value);
             }
         }, getRequestAnchor(undefined, page));
     }
@@ -489,8 +482,6 @@ export const usePdfViewerFeatureController = (
             }
             return true;
         },
-        captureRegionToClipboard: regionSnip.startCaptureSession,
-        isCapturingRegion: regionSnip.isActive,
         startCropSelection: cropSelection.startCropSelection,
         cancelCropSelection: cropSelection.cancelSelection,
         isCropSelecting: cropSelection.isSelecting,
@@ -551,6 +542,6 @@ export const usePdfViewerFeatureController = (
         isViewerLoadingOverlayVisible: renderViewModel.isViewerLoadingOverlayVisible,
         handleLinkDestination: viewportSession.handleLinkDestination,
         handleViewerContainerRef: viewportSession.handleViewerContainerRef,
-        pdfViewerPublicApi,
+        pdfViewerPublicApi: Object.assign(pdfViewerPublicApi, regionSnip.captureApi),
     };
 };

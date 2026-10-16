@@ -21,7 +21,11 @@ import path, {
 import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 import {setTimeout as delay} from 'node:timers/promises';
-import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
+import {
+    preparePackagedAutomationLaunch,
+    removeMacOSAutomationCopyRecords,
+    unregisterMacOSAutomationCopy,
+} from '@scripts/release/preparePackagedAutomationLaunch';
 import {
     isProcessAlive,
     killProcessTree,
@@ -169,7 +173,7 @@ export interface IOwnedPackagedProcess {
     /** Path the payload was launched from; on macOS a per-run LSUIElement copy. */
     launchExecutablePath: string;
     exited: Promise<number>;
-    /** Idempotent. Stops every owned process, then removes the launch copy. */
+    /** Idempotent. Stops every owned process, then unregisters and removes the launch copy and the records it wrote under ~/Library. */
     stop(options?: {force?: boolean}): Promise<TOwnedHelperCleanup>;
 }
 
@@ -201,6 +205,8 @@ export async function startOwnedPackagedProcess(options: {
             EVB_AUTOMATION_SESSION_NAME: options.sessionName ?? `packaged-automation-${process.pid}`,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
+            // Working copies and recovery records stay under the task root.
+            EVB_APP_STATE_DIR: join(workDirectory, 'app-state'),
             EVB_FILE_LOG_DIR: logDirectory,
         },
     });
@@ -242,11 +248,17 @@ export async function startOwnedPackagedProcess(options: {
         stop(stopOptions = {}) {
             finalStop ??= (async () => {
                 const cleanup = await stopOwnedProcesses(child, stopOptions.force === true);
+                if (launch.appPath) {
+                    unregisterMacOSAutomationCopy(launch.appPath);
+                }
                 if (launch.bundleDirectory) {
                     await rm(launch.bundleDirectory, {
                         recursive: true,
                         force: true,
                     });
+                }
+                if (launch.bundleIdentifier) {
+                    removeMacOSAutomationCopyRecords(launch.bundleIdentifier);
                 }
                 return cleanup;
             })();

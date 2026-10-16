@@ -124,17 +124,6 @@ const TEXT_EDITING_FOCUS_SCRIPT = `
         || element instanceof HTMLTextAreaElement;
 })()
 `;
-const ANNOTATION_SELECTION_FOCUS_SCRIPT = `
-(() => {
-    const element = document.activeElement;
-    return element instanceof HTMLElement
-        && !element.isContentEditable
-        && !(element instanceof HTMLInputElement)
-        && !(element instanceof HTMLTextAreaElement)
-        && !(element instanceof HTMLSelectElement)
-        && Boolean(element.closest('.pdf-annotation-editor-layer'));
-})()
-`;
 const OPEN_ACKNOWLEDGEMENTS_PAGE_SCRIPT = `
 (() => {
     window.history.pushState({}, '', '/about');
@@ -340,33 +329,6 @@ function createTextAwareWindowMenuAction<TChannel extends TNativeMenuChannel>(
     };
 }
 
-function createSelectAllMenuAction(): MenuItemConstructorOptions {
-    return {
-        label: te('menu.selectAll'),
-        accelerator: 'CmdOrCtrl+A',
-        click: (_item, window) => {
-            void (async () => {
-                const targetWindow = resolveWindowFromMenuContext(window);
-                if (!targetWindow) {
-                    return;
-                }
-                const annotationFocused: unknown = await targetWindow.webContents.executeJavaScript(
-                    ANNOTATION_SELECTION_FOCUS_SCRIPT,
-                    true,
-                );
-                if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
-                    return;
-                }
-                if (annotationFocused === true) {
-                    sendToWindow(targetWindow, DOCUMENTS_EVENT_CHANNELS.onMenuSelectAll);
-                } else {
-                    targetWindow.webContents.selectAll();
-                }
-            })().catch(error => logger.warn(`Failed to handle Select All: ${getErrorMessage(error)}`));
-        },
-    };
-}
-
 function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const recentFiles = getRecentFilesSync();
 
@@ -540,7 +502,27 @@ function getEditMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
             { role: 'cut' },
             { role: 'copy' },
             { role: 'paste' },
-            createSelectAllMenuAction(),
+            {
+                label: te('menu.selectAll'),
+                accelerator: 'CmdOrCtrl+A',
+                click: (_item, window) => {
+                    const targetWindow = resolveWindowFromMenuContext(window);
+                    if (!targetWindow || targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
+                        return;
+                    }
+                    try {
+                        // Keyboard events share the following typing's input queue.
+                        // A renderer IPC message can be overtaken by that queue.
+                        targetWindow.webContents.sendInputEvent({
+                            type: 'keyDown',
+                            keyCode: 'A',
+                            modifiers: [config.isMac ? 'meta' : 'control'],
+                        });
+                    } catch (error) {
+                        logger.warn(`Failed to handle Select All: ${getErrorMessage(error)}`);
+                    }
+                },
+            },
         ],
     };
 }
@@ -900,7 +882,7 @@ function trackWindowForMenu(window: BrowserWindow) {
         trackedWindowIds.delete(window.id);
         menuDocumentStateByWindow.delete(window.id);
         menuTabCountByWindow.delete(window.id);
-        rebuildMenu();
+        rebuildMenu(true);
     });
 }
 

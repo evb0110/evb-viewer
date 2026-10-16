@@ -1,5 +1,11 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 import type * as TViMockOriginalModule2 from '@electron/file-access/originalPathSaveWitness';
+import type * as NodeFs from 'node:fs';
+import type * as NodeFsPromises from 'node:fs/promises';
+import type * as TPdfConformance from '@electron/features/documents/main/pdfConformance';
+import type * as TChildProcess from 'node:child_process';
+import type * as TNativeChildProcess from '@electron/utils/nativeChildProcess';
+import type * as TNativeToolPaths from '@electron/pdf/nativeToolPaths';
 
 import {
     afterEach,
@@ -16,7 +22,14 @@ import {
     sep,
 } from 'node:path';
 import {escapeRegExp} from 'es-toolkit/string';
-import {Readable} from 'node:stream';
+import {
+    Readable,PassThrough,
+} from 'node:stream';
+import {EventEmitter} from 'node:events';
+import {tmpdir} from 'node:os';
+import {
+    markUnprovenNativeTermination, getUnprovenNativeTerminationDetail,
+} from '@electron/utils/nativeTerminationProof';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
@@ -46,9 +59,12 @@ const mocks = vi.hoisted(() => ({
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
     analyzePdfConformanceFile: vi.fn(),
     validatePdfFile: vi.fn(),
+    nativeSpawn: vi.fn(),
+    nativeTermination: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
     getWorkingCopyBackingEntry: vi.fn(),
+    admittedWorkingCopyBackingEntry: null as typeof TViMockOriginalModule.getWorkingCopyBackingEntry | null,
     getWorkingCopyOriginalPath: vi.fn(),
     captureWorkingCopyAdmissionSnapshot: vi.fn(),
     transitionWorkingCopyBackingState: vi.fn(),
@@ -105,33 +121,51 @@ vi.mock('@electron/utils/pathValidator', () => ({
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
 
-vi.mock('@electron/features/documents/main/pdfConformance', () => ({
+vi.mock('@electron/features/documents/main/pdfConformance', async (importOriginal) => ({
+    ...(await importOriginal<typeof TPdfConformance>()),
     analyzePdfConformanceFile: mocks.analyzePdfConformanceFile,
     validatePdfFile: mocks.validatePdfFile,
 }));
+vi.mock('child_process', async importOriginal => ({
+    ...(await importOriginal<typeof TChildProcess>()),
+    spawn: mocks.nativeSpawn,
+}));
+vi.mock('@electron/utils/nativeChildProcess', async importOriginal => ({
+    ...(await importOriginal<typeof TNativeChildProcess>()),
+    terminateDetachedChildProcess: mocks.nativeTermination,
+}));
+vi.mock('@electron/pdf/nativeToolPaths', async importOriginal => ({
+    ...(await importOriginal<typeof TNativeToolPaths>()),
+    getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
+}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
-vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    captureWorkingCopyAdmissionSnapshot: mocks.captureWorkingCopyAdmissionSnapshot,
-    getWorkingCopyOwnerWebContentsId: () => undefined,
-    findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
-    getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
-    getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
-    normalizePathForLookup: (path: string) => path.trim().replace(/^\/var(?=\/)/u, '/private/var'),
-    refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
-    transitionWorkingCopyBackingState: mocks.transitionWorkingCopyBackingState,
-    workingCopyAdmissionSnapshotsMatch: (
-        left: {
-            size: bigint;
-            mtimeNs: bigint;
-        },
-        right: {
-            size: bigint;
-            mtimeNs: bigint;
-        },
-    ) => left.size === right.size && left.mtimeNs === right.mtimeNs,
-}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => {
+    const actual = await importOriginal<typeof TViMockOriginalModule>();
+    mocks.admittedWorkingCopyBackingEntry = actual.getWorkingCopyBackingEntry;
+    return {
+        ...actual,
+        captureWorkingCopyAdmissionSnapshot: mocks.captureWorkingCopyAdmissionSnapshot,
+        getWorkingCopyOwnerWebContentsId: () => undefined,
+        findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+        getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
+        getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
+        normalizePathForLookup: (path: string) => path.trim().replace(/^\/var(?=\/)/u, '/private/var'),
+        refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
+        transitionWorkingCopyBackingState: mocks.transitionWorkingCopyBackingState,
+        workingCopyAdmissionSnapshotsMatch: (
+            left: {
+                size: bigint;
+                mtimeNs: bigint;
+            },
+            right: {
+                size: bigint;
+                mtimeNs: bigint;
+            },
+        ) => left.size === right.size && left.mtimeNs === right.mtimeNs,
+    };
+});
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
     ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args),
     onWorkingCopyBackingSwapCacheInvalidation: (
@@ -153,6 +187,9 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
     },
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    clearWorkingCopyRevisionInitializations: vi.fn(),
+    forgetWorkingCopyRevisionInitialization: vi.fn(),
+    hasWorkingCopySyncRequired: () => false,
     markWorkingCopyContentChanged: mocks.markWorkingCopyContentChanged,
     transitionWorkingCopyContentRevision: mocks.transitionWorkingCopyContentRevision,
 }));
@@ -1108,16 +1145,32 @@ describe('fileOps path security', () => {
         }
         // Both original reads wait in the eviction loop for the busy oldest handle.
         const firstOriginalRead = handleFileReadRange(readContext, logicalPath, 0, 2);
-        await vi.waitFor(() => expect(getRangeReadCacheStatsForTests().handles).toBe(5));
-        await handleFileReadRange(readContext, logicalPath, 32, 2);
-        releaseOldest.resolve(undefined);
-        await Promise.all([
-            oldestRead,
-            firstOriginalRead,
-        ]);
-
-        expect(countOpenHandles(originalPath)).toBe(1);
-        await clearCachedRangeReadHandlesForTests();
+        const secondOriginalRead = handleFileReadRange(readContext, logicalPath, 32, 2);
+        try {
+            await waitForSettledQueueTurn();
+            expect(countOpenHandles(oldestPath)).toBe(1);
+            expect(countOpenHandles(originalPath)).toBe(0);
+            releaseOldest.resolve(undefined);
+            const bytes = await Promise.all([
+                oldestRead,
+                firstOriginalRead,
+                secondOriginalRead,
+            ]);
+            expect(bytes.map(value => value.byteLength)).toEqual([
+                2,
+                2,
+                2,
+            ]);
+            expect(countOpenHandles(originalPath)).toBe(1);
+        } finally {
+            releaseOldest.resolve(undefined);
+            await Promise.allSettled([
+                oldestRead,
+                firstOriginalRead,
+                secondOriginalRead,
+            ]);
+            await clearCachedRangeReadHandlesForTests();
+        }
         expect(openFileHandles.size).toBe(0);
     });
 
@@ -1268,17 +1321,40 @@ describe('fileOps path security', () => {
         await firstReadEntered.promise;
         mtimeMs = 2;
         const staleRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
-        for (let turn = 0; turn < 50 && getRangeReadCacheStatsForTests().handles > 0; turn += 1) {
-            await new Promise(resolve => setImmediate(resolve));
+        const concurrentRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 4, 2);
+        try {
+            await waitForSettledQueueTurn();
+            expect(closes).toHaveLength(1);
+            expect(closes[0]).not.toHaveBeenCalled();
+            firstRead.resolve(undefined);
+            const bytes = await Promise.all([
+                blockedRead,
+                staleRead,
+                concurrentRead,
+            ]);
+            expect(bytes.map(value => [...value])).toEqual([
+                [
+                    1,
+                    1,
+                ],
+                [
+                    1,
+                    1,
+                ],
+                [
+                    1,
+                    1,
+                ],
+            ]);
+        } finally {
+            firstRead.resolve(undefined);
+            await Promise.allSettled([
+                blockedRead,
+                staleRead,
+                concurrentRead,
+            ]);
+            await clearCachedRangeReadHandlesForTests();
         }
-        expect(getRangeReadCacheStatsForTests().handles).toBe(0);
-        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 4, 2);
-        firstRead.resolve(undefined);
-        await Promise.all([
-            blockedRead,
-            staleRead,
-        ]);
-        await clearCachedRangeReadHandlesForTests();
 
         expect(closes).toHaveLength(2);
         expect(closes.every(close => close.mock.calls.length === 1)).toBe(true);
@@ -1536,6 +1612,104 @@ describe('fileOps path security', () => {
             4,
         ]));
         await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    });
+
+    it('retains native read bytes across timeout and a successor write until actual settlement', async () => {
+        const fixture = await createContentFixture();
+        const entered = deferred<undefined>();
+        const readGate = deferred<undefined>();
+        const writing = deferred<undefined>();
+        const writeGate = deferred<undefined>();
+        let first: Promise<void> | undefined;
+        let second: Promise<void> | undefined;
+        mocks.analyzePdfConformanceFile.mockImplementation(async () => {
+            const bytes = await fixture.fs.readFile(fixture.path, 'utf8');
+            entered.resolve(undefined);
+            await readGate.promise;
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe(bytes);
+            return {saveRestrictions: [bytes]};
+        });
+        const analysis = handleAnalyzePdfConformance(readContext, fixture.path);
+        await entered.promise;
+        vi.useFakeTimers();
+        try {
+            first = enqueueWorkingCopyMutation(fixture.path, () => fixture.fs.writeFile(fixture.path, 'forbidden'));
+            const refused = expect(first).rejects.toThrow('Mutation-start preparation timed out after 30000ms');
+            await waitForSettledQueueTurn();
+            await vi.advanceTimersByTimeAsync(30_000);
+            await refused;
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+
+            second = enqueueWorkingCopyMutation(fixture.path, async () => {
+                await fixture.fs.writeFile(fixture.path, 'partial');
+                writing.resolve(undefined);
+                await writeGate.promise;
+                await fixture.fs.writeFile(fixture.path, 'after');
+            });
+            await waitForSettledQueueTurn();
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+            readGate.resolve(undefined);
+            await expect(analysis).resolves.toMatchObject({saveRestrictions: ['before']});
+            await writing.promise;
+            let nextReadSettled = false;
+            const nextRead = handleAnalyzePdfConformance(readContext, fixture.path).then((result) => {
+                nextReadSettled = true;
+                return result;
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(nextReadSettled).toBe(false);
+            writeGate.resolve(undefined);
+            await second;
+            await expect(nextRead).resolves.toMatchObject({saveRestrictions: ['after']});
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('after');
+        } finally {
+            readGate.resolve(undefined);
+            writeGate.resolve(undefined);
+            vi.useRealTimers();
+            await Promise.allSettled([
+                analysis,
+                first,
+                second,
+            ]);
+            await clearCachedRangeReadHandlesForTests();
+            await fixture.dispose();
+        }
+    });
+
+    it('waits for acknowledged native cancellation before releasing content to a write', async () => {
+        const fixture = await createContentFixture();
+        const entered = deferred<undefined>();
+        const actualSettlement = deferred<undefined>();
+        let signal: AbortSignal | undefined;
+        mocks.analyzePdfConformanceFile.mockImplementation(async (_path, options: {signal: AbortSignal}) => {
+            signal = options.signal;
+            entered.resolve(undefined);
+            await actualSettlement.promise;
+            throw signal.reason;
+        });
+        const analysis = handleAnalyzePdfConformance(readContext, fixture.path);
+        const analysisRefused = expect(analysis).rejects.toThrow('Working copy is closing');
+        await entered.promise;
+        try {
+            cancelMainOperationsForClosingWorkingCopy(fixture.path, 'Working copy is closing',
+                {isRegistrationCurrent: () => true});
+            expect(signal?.aborted).toBe(true);
+            const mutation = enqueueWorkingCopyMutation(fixture.path, () => fixture.fs.writeFile(fixture.path, 'after'));
+            await waitForSettledQueueTurn();
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+            actualSettlement.resolve(undefined);
+            await analysisRefused;
+            await mutation;
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('after');
+        } finally {
+            actualSettlement.resolve(undefined);
+            await Promise.allSettled([
+                analysis,
+                analysisRefused,
+            ]);
+            await clearCachedRangeReadHandlesForTests();
+            await fixture.dispose();
+        }
     });
 
     it('awaits active handle closure before completing backing-swap invalidation', async () => {
@@ -1842,6 +2016,326 @@ describe('fileOps path security', () => {
         expect(getRangeReadCacheStatsForTests()).toMatchObject({pendingReads: 0});
     });
 });
+
+describe('content settlement refusal', () => {
+    it.each([
+        'close',
+        'unproven',
+    ])('reads a seventh healthy file while an older %s failure retains one of six real handles', async failureKind => {
+        await clearCachedRangeReadHandlesForTests();
+        vi.resetModules();
+        const readers = await import('@electron/features/documents/main/documentFileReadHandlers');
+        const queue = await import('@electron/file-access/workingCopyMutationQueue');
+        const quarantine = await import('@electron/file-access/workingCopyQuarantine');
+        const fixture = await createContentFixture();
+        const failure = failureKind === 'unproven'
+            ? markUnprovenNativeTermination(new Error('Old reader is still alive'), 'old native tree is unproven')
+            : new Error('Old real handle failed to close');
+        if (failureKind === 'close') mocks.open.mockImplementation(async (path: string) => {
+            const handle = await fixture.fs.open(path, 'r');
+            fixture.handles.push(handle);
+            return path === fixture.path ? {
+                read: handle.read.bind(handle),
+                close: async () => { throw failure; },
+            } : handle;
+        });
+        try {
+            if (failureKind === 'unproven') {
+                await expect(readers.withContentReadLease(fixture.path, async () => { throw failure; })).rejects.toBe(failure);
+            } else {
+                await readers.withContentReadLease(fixture.path, handle => handle.read(Buffer.alloc(6), 0, 6, 0));
+                await expect(queue.enqueueWorkingCopyMutation(fixture.path, async () => undefined)).rejects.toBe(failure);
+            }
+            for (let index = 0; index < 6; index += 1) {
+                const path = join(dirname(fixture.path), `healthy-${index}.pdf`);
+                const expected = `complete healthy bytes ${index}`;
+                await fixture.fs.writeFile(path, expected);
+                expect(await readers.withContentReadLease(path, async handle => {
+                    const bytes = Buffer.alloc(expected.length);
+                    const {bytesRead} = await handle.read(bytes, 0, bytes.length, 0);
+                    expect(bytesRead).toBe(bytes.length);
+                    return bytes.toString('utf8');
+                })).toBe(expected);
+                expect(fixture.handles.filter(handle => handle.fd >= 0).length).toBeLessThanOrEqual(6);
+                expect(quarantine.isWorkingCopyQuarantined(path)).toBe(false);
+            }
+            expect(fixture.handles[0]?.fd).toBeGreaterThanOrEqual(0);
+            await expect(readers.withContentReadLease(fixture.path, async () => 'forbidden read')).rejects.toBe(failure);
+            await expect(queue.enqueueWorkingCopyMutation(fixture.path,
+                () => fixture.fs.writeFile(fixture.path, 'forbidden write'))).rejects.toBe(failure);
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+            expect(quarantine.isWorkingCopyQuarantined(fixture.path)).toBe(failureKind === 'unproven');
+        } finally {
+            await readers.closeCachedRangeReadHandles().catch(() => undefined);
+            await fixture.dispose();
+            quarantine.clearWorkingCopyQuarantinesForTests();
+            vi.resetModules();
+        }
+    });
+
+    it.each([
+        'opening',
+        'save',
+        'full',
+        'fallback',
+        'worker-frame',
+    ] as const)('retains admitted bytes after actual native adapter termination is unproven during %s validation', async purpose => {
+        await clearCachedRangeReadHandlesForTests();
+        vi.resetModules();
+        const readers = await import('@electron/features/documents/main/documentFileReadHandlers');
+        const validation = await import('@electron/features/documents/main/documentPdfValidationHandlers');
+        const actualValidation = await vi.importActual<typeof TPdfConformance>('@electron/features/documents/main/pdfConformance');
+        const pathAnalysis = await import('@electron/features/documents/main/pdfConformancePathAnalysis');
+        const wire = await import('@electron/utils/workerTask');
+        const queue = await import('@electron/file-access/workingCopyMutationQueue');
+        const quarantine = await import('@electron/file-access/workingCopyQuarantine');
+        const store = await import('@electron/file-access/workingCopyStore');
+        const fixture = await createContentFixture();
+        await store.setWorkingCopyOriginalPath(fixture.path, join(dirname(fixture.path), 'source.pdf'), 42,
+            {
+                backingState: 'materialized',
+                deferOriginalFileExpectation: true,
+            });
+        if (!mocks.admittedWorkingCopyBackingEntry) throw new Error('Missing actual working-copy admission');
+        mocks.getWorkingCopyBackingEntry.mockImplementation(mocks.admittedWorkingCopyBackingEntry);
+        const children: Array<EventEmitter & {
+            stdout: PassThrough;
+            stderr: PassThrough
+        }> = [];
+        const entered = deferred<undefined>();
+        const termination = vi.fn(async () => false);
+        if (purpose === 'fallback') termination.mockResolvedValueOnce(true);
+        mocks.nativeTermination.mockImplementation(termination);
+        mocks.nativeSpawn.mockImplementation(() => {
+            const child = Object.assign(new EventEmitter(), {
+                pid: 987654,
+                exitCode: null,
+                signalCode: null,
+                stdout: new PassThrough(),
+                stderr: new PassThrough(),
+            });
+            children.push(child);
+            entered.resolve(undefined);
+            return child;
+        });
+        mocks.validatePdfFile.mockImplementation(actualValidation.validatePdfFile);
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', '');
+        vi.useFakeTimers();
+        try {
+            const read = purpose === 'worker-frame'
+                ? readers.withContentReadLease(fixture.path, async () => {
+                    try {
+                        await pathAnalysis.validatePdfStructureFromPath(fixture.path);
+                    } catch (error) {
+                        throw new wire.WorkerTaskError(structuredClone(wire.createWorkerTaskErrorFrame(error)));
+                    }
+                })
+                : validation.handleValidatePdfPath({senderId: 42}, fixture.path,
+                    purpose === 'full' || purpose === 'fallback' ? undefined : {purpose});
+            const observed = read.catch((error: unknown) => error);
+            await entered.promise;
+            await vi.advanceTimersByTimeAsync(purpose === 'opening' || purpose === 'save' ? 10_000
+                : purpose === 'worker-frame' ? 600_000 : purpose === 'fallback' ? 630_000 : 30_000);
+            const failure: unknown = await observed;
+            expect(failure).toBeInstanceOf(Error);
+            const detail = getUnprovenNativeTerminationDetail(failure);
+            expect(detail).toContain('process tree (pid=987654) was not proven dead');
+            expect(detail).toContain(purpose === 'fallback' || purpose === 'worker-frame'
+                ? 'evb-pdf-page-ops(pdf-conformance)' : 'qpdf(validate-pdf');
+            expect(children).toHaveLength(purpose === 'fallback' ? 2 : 1);
+            expect(quarantine.isWorkingCopyQuarantined(fixture.path)).toBe(true);
+            expect(quarantine.isWorkingCopyQuarantined(join(dirname(fixture.path), 'source.pdf'))).toBe(false);
+            const refusingWrite = queue.enqueueWorkingCopyMutation(fixture.path,
+                () => fixture.fs.writeFile(fixture.path, 'forbidden'));
+            await expect(refusingWrite).rejects.toBe(failure);
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+            expect(fixture.handles.every(handle => handle.fd >= 0)).toBe(true);
+            await expect(readers.withContentReadLease(fixture.path, async () => undefined)).rejects.toBe(failure);
+        } finally {
+            vi.useRealTimers();
+            vi.unstubAllEnvs();
+            for (const child of children) {
+                child.stdout.destroy();
+                child.stderr.destroy();
+                child.removeAllListeners();
+            }
+            await fixture.dispose();
+            quarantine.clearWorkingCopyQuarantinesForTests();
+            vi.resetModules();
+        }
+    });
+
+    it.each([
+        'close',
+        'unproven',
+    ])('retains content when %s settlement cannot be proven', async (failureKind) => {
+        await clearCachedRangeReadHandlesForTests();
+        vi.resetModules();
+        const readers = await import('@electron/features/documents/main/documentFileReadHandlers');
+        const validation = await import('@electron/features/documents/main/documentPdfValidationHandlers');
+        const queue = await import('@electron/file-access/workingCopyMutationQueue');
+        const fixture = await createContentFixture();
+        const store = await import('@electron/file-access/workingCopyStore');
+        const quarantine = await import('@electron/file-access/workingCopyQuarantine');
+        await store.setWorkingCopyOriginalPath(fixture.path, join(dirname(fixture.path), 'source.pdf'), 42,
+            {
+                backingState: 'materialized',
+                deferOriginalFileExpectation: true,
+            });
+        if (!mocks.admittedWorkingCopyBackingEntry) throw new Error('Missing actual working-copy admission');
+        mocks.getWorkingCopyBackingEntry.mockImplementation(mocks.admittedWorkingCopyBackingEntry);
+        const failure = failureKind === 'unproven'
+            ? markUnprovenNativeTermination(new Error('Native tree termination is unproven'), 'test child is not confirmed gone')
+            : new Error('Actual handle close failed');
+        if (failureKind === 'unproven') {
+            mocks.analyzePdfConformanceFile.mockRejectedValueOnce(failure);
+            await expect(validation.handleAnalyzePdfConformance({senderId: 42}, fixture.path)).rejects.toBe(failure);
+        } else {
+            mocks.analyzePdfConformanceFile.mockResolvedValue({saveRestrictions: []});
+            mocks.open.mockImplementation(async (...args: Parameters<typeof fixture.fs.open>) => {
+                const handle = await fixture.fs.open(...args);
+                fixture.handles.push(handle);
+                return {
+                    read: handle.read.bind(handle),
+                    close: async () => { throw failure; },
+                };
+            });
+            await validation.handleAnalyzePdfConformance({senderId: 42}, fixture.path);
+        }
+        try {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                await expect(queue.enqueueWorkingCopyMutation(fixture.path,
+                    () => fixture.fs.writeFile(fixture.path, 'forbidden'))).rejects.toBe(failure);
+                expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+            }
+            await expect(validation.handleAnalyzePdfConformance({senderId: 42}, fixture.path)).rejects.toBe(failure);
+            await expect(readers.closeCachedRangeReadHandles()).rejects.toBe(failure);
+            expect(fixture.handles.every(handle => handle.fd >= 0)).toBe(true);
+            if (failureKind === 'unproven') {
+                expect(getUnprovenNativeTerminationDetail(failure)).toBe('test child is not confirmed gone');
+                expect(quarantine.isWorkingCopyQuarantined(fixture.path)).toBe(true);
+                const lifecycle = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+                expect(lifecycle.snapshotMainOperations().filter(operation => operation.workingCopyPath === fixture.path)).toEqual([]);
+                const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+                await expect(cleanupWorkingCopy(fixture.path, 42)).resolves.toBe(false);
+                expect(store.workingCopyMap.has(fixture.path)).toBe(false);
+                expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+                await store.setWorkingCopyOriginalPath(fixture.path, join(dirname(fixture.path), 'new-source.pdf'), 42,
+                    {
+                        backingState: 'materialized',
+                        deferOriginalFileExpectation: true,
+                    });
+                await expect(queue.enqueueWorkingCopyMutation(fixture.path,
+                    () => fixture.fs.writeFile(fixture.path, 'forbidden'))).rejects.toBe(failure);
+                expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+                expect(quarantine.isWorkingCopyQuarantined(join(dirname(fixture.path), '.', 'document.pdf'))).toBe(true);
+                if (process.platform === 'win32') expect(quarantine.isWorkingCopyQuarantined(fixture.path.toUpperCase())).toBe(true);
+            }
+        } finally {
+            // This unit has no native child; its real Node handles are disposed
+            // by the fixture owner. The production entry still refuses reuse.
+            await fixture.dispose();
+            quarantine.clearWorkingCopyQuarantinesForTests();
+            vi.resetModules();
+        }
+    });
+
+    it('quarantines the admitted lazy logical copy while retaining its original and other logical copies', async () => {
+        vi.resetModules();
+        const validation = await import('@electron/features/documents/main/documentPdfValidationHandlers');
+        const readers = await import('@electron/features/documents/main/documentFileReadHandlers');
+        const store = await import('@electron/file-access/workingCopyStore');
+        const quarantine = await import('@electron/file-access/workingCopyQuarantine');
+        const fixture = await createContentFixture();
+        const logicalPath = join(dirname(fixture.path), 'logical.pdf');
+        const otherLogicalPath = join(dirname(fixture.path), 'other.pdf');
+        await fixture.fs.writeFile(logicalPath, 'logical bytes');
+        const originalStat = await fixture.fs.stat(fixture.path, {bigint: true});
+        const admissionSnapshot = {
+            size: originalStat.size,
+            mtimeNs: originalStat.mtimeNs,
+        };
+        for (const [
+            path,
+            senderId,
+        ] of [
+                [
+                    logicalPath,
+                    42,
+                ],
+                [
+                    otherLogicalPath,
+                    43,
+                ],
+            ] as const) {
+            await store.setWorkingCopyOriginalPath(path, fixture.path, senderId,
+                {
+                    backingState: 'lazy-original',
+                    deferOriginalFileExpectation: true,
+                    admissionSnapshot,
+                });
+        }
+        if (!mocks.admittedWorkingCopyBackingEntry) throw new Error('Missing actual working-copy admission');
+        mocks.getWorkingCopyBackingEntry.mockImplementation(mocks.admittedWorkingCopyBackingEntry);
+        mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue(admissionSnapshot);
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        const failure = markUnprovenNativeTermination(new Error('Lazy native reader did not terminate'), 'lazy child termination unproven');
+        mocks.analyzePdfConformanceFile.mockRejectedValueOnce(failure);
+        try {
+            const alias = `${dirname(fixture.path)}/unused/../logical.pdf`;
+            await expect(validation.handleAnalyzePdfConformance({senderId: 42}, alias)).rejects.toBe(failure);
+            expect(quarantine.isWorkingCopyQuarantined(logicalPath)).toBe(true);
+            expect(quarantine.isWorkingCopyQuarantined(alias)).toBe(true);
+            expect(quarantine.isWorkingCopyQuarantined(fixture.path)).toBe(false);
+            expect(quarantine.isWorkingCopyQuarantined(otherLogicalPath)).toBe(false);
+            const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+            await expect(cleanupWorkingCopy(logicalPath, 42)).resolves.toBe(false);
+            expect(store.workingCopyMap.has(logicalPath)).toBe(false);
+            expect(store.workingCopyMap.has(otherLogicalPath)).toBe(true);
+            expect(await fixture.fs.readFile(logicalPath, 'utf8')).toBe('logical bytes');
+            expect(await fixture.fs.readFile(fixture.path, 'utf8')).toBe('before');
+            await expect(Promise.resolve(mocks.backingSwapCacheInvalidator?.(logicalPath, fixture.path))).rejects.toBe(failure);
+            await expect(readers.closeCachedRangeReadHandles()).rejects.toBe(failure);
+            expect(fixture.handles.every(handle => handle.fd >= 0)).toBe(true);
+        } finally {
+            await fixture.dispose();
+            quarantine.clearWorkingCopyQuarantinesForTests();
+            vi.resetModules();
+        }
+    });
+});
+
+async function createContentFixture() {
+    const fs = await vi.importActual<typeof NodeFsPromises>('node:fs/promises');
+    const syncFs = await vi.importActual<typeof NodeFs>('node:fs');
+    const directory = await fs.mkdtemp(join(tmpdir(), 'native-content-'));
+    const path = join(directory, 'document.pdf');
+    await fs.writeFile(path, 'before');
+    const handles: Array<Awaited<ReturnType<typeof fs.open>>> = [];
+    mocks.existsSync.mockReturnValue(true);
+    mocks.realpathSync.mockImplementation(value => value);
+    mocks.isAllowedReadPath.mockReturnValue(true);
+    mocks.resolveAllowedReadPath.mockResolvedValue(path);
+    mocks.getWorkingCopyBackingEntry.mockReturnValue({backingState: 'materialized'});
+    mocks.statSync.mockImplementation(value => syncFs.statSync(value));
+    mocks.open.mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+        const handle = await fs.open(...args);
+        handles.push(handle);
+        return handle;
+    });
+    return {
+        fs,
+        path,
+        handles,
+        async dispose() {
+            await Promise.all(handles.filter(handle => handle.fd >= 0).map(handle => handle.close()));
+            await fs.rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        },
+    };
+}
 
 // Live handles from the mocked `open`, removed again when the handle closes.
 const openFileHandles = new Set<{path: string}>();

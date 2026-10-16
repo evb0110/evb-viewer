@@ -97,6 +97,18 @@ describe('seeding a normal open from its reading view', () => {
         recent.readingView.mockResolvedValue(remembered);
     });
 
+    it('starts at defaults when Recent admits no opening seed', async () => {
+        recent.readingView.mockResolvedValue(null);
+        const opening = createOpeningView();
+        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        expect(opening.readTarget()).toEqual(openingPageOne);
+        expect(opening.view).toMatchObject({
+            zoom: 1,
+            zoomMode: 'fit-width',
+            viewMode: 'facing',
+        });
+    });
+
     it('seeds the remembered place into the view its open began in', async () => {
         const opening = createOpeningView();
 

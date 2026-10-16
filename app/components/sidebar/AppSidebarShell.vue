@@ -24,7 +24,7 @@
             </span>
         </div>
         <div
-            class="app-sidebar-shell__content app-scrollbar app-panel-scroll"
+            class="app-sidebar-shell__content app-scrollbar app-scroll-region--balanced app-panel-scroll"
             :class="{'app-sidebar-shell__content--no-outer-scroll': !outerScroll}"
         >
             <slot />
@@ -65,7 +65,7 @@ const tabsUi = computed(() => ({
     root: 'gap-0',
     list: 'gap-1 px-[var(--app-sidebar-content-padding)] py-[var(--app-sidebar-row-padding-block)] mb-0 rounded-none bg-transparent border-b border-[var(--app-sidebar-border)]',
     indicator: 'hidden',
-    trigger: `${isCompact.value ? 'flex-1 min-w-0' : 'app-sidebar-tab-trigger-fluid min-w-fit'} justify-center gap-[var(--app-sidebar-row-gap)] h-[var(--app-sidebar-action-size)] px-[var(--app-sidebar-row-padding-inline)] py-0 rounded-md border border-transparent text-[var(--app-sidebar-tab-font-size)] font-semibold whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default`,
+    trigger: `${isCompact.value ? 'flex-1 min-w-0' : 'flex-initial min-w-fit'} justify-center gap-[var(--app-sidebar-row-gap)] h-[var(--app-sidebar-action-size)] px-[var(--app-sidebar-row-padding-inline)] py-0 rounded-md border border-transparent text-[var(--app-sidebar-tab-font-size)] font-semibold whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default`,
     label: isCompact.value ? 'sr-only' : 'overflow-visible whitespace-nowrap',
     leadingIcon: 'size-[var(--app-icon-size-xs)] shrink-0',
 }));

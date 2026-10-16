@@ -7,13 +7,30 @@ import {
     onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
+    createMultiPageTextFixturePdf,
+    readPdfPageSnapshots,
+} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
+import {
+    getToolbarCurrentPage,
+    goToPageViaToolbar,
+    openDocumentSidebarTab,
     openPdfInApp,
     setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    waitForToolbarCurrentPage,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
+
+import {
+    readViewportPageObservation,
+    waitForViewportQuiet,
+} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
 type THistoryMutation = 'clear' | 'remove';
 
@@ -213,6 +230,137 @@ async function runResumeAfterHistoryMutation(mutation: THistoryMutation) {
 }
 
 describe('recent history and retained PDF tabs', () => {
+    it('preserves the reading page after Save changes and close', async () => {
+        const session = sessionFixture.getSession();
+        await setRememberPlaceAsUser(session, true);
+        const path = await createMultiPageTextFixturePdf(`recent-dirty-save-close-${Date.now()}.pdf`, 40);
+        onTestFinished(() => rmSync(path, {force: true}));
+        await openPdfInApp(session.page, path);
+        await waitForPdfLoaded(session.page);
+        await waitForViewerInteractive(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await clickAsUser(session.page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find(item => item.textContent?.toLowerCase().includes('rotate counterclockwise') && item.checkVisibility()),
+        null, {description: 'rotate page 1 counterclockwise'});
+        await session.page.waitForSelector('.tab.is-active.is-dirty', {visible: true});
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 27);
+        await waitForToolbarCurrentPage(session.page, 27);
+        await waitForViewerInteractive(session.page);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).find(button => button.textContent?.trim() === 'Save changes'),
+        null, {description: 'save changes and close'});
+        await session.page.waitForSelector('.recent-row--data .recent-open', {visible: true});
+        expect((await readPdfPageSnapshots(path))[0]?.rotation).toBe(270);
+        await clickAsUser(session.page, '.recent-row--data .recent-open');
+        await waitForPdfLoaded(session.page);
+        await waitForViewerInteractive(session.page);
+        // A page is marked rendered when its canvas commits, and its text layer is filled in right after.
+        // A person sees page 27 with its text, so wait for that state rather than read the moment between.
+        const page27Shown = await session.page.waitForFunction(() => (
+            Array.from(document.querySelectorAll('.workspace-host[data-workspace-active="true"] .page_container--rendered')).some(page => (
+                page.getAttribute('data-page') === '27' && page.textContent?.includes('27/40')
+            ))
+        )).then(() => true).catch(() => false);
+        const observation = {
+            currentPage: await getToolbarCurrentPage(session.page),
+            renderedPage27: page27Shown,
+        };
+        expect(observation).toEqual({
+            currentPage: 27,
+            renderedPage27: true,
+        });
+    }, 180_000);
+
+    it('preserves the other tab reading position through clean close and Save-and-close', async () => {
+        const session = sessionFixture.getSession();
+        const activate = async (path: string) => {
+            await clickFoundAsUser(session.page, (name: string) => Array.from(
+                document.querySelectorAll<HTMLElement>('.tab[data-tab-id]'),
+            ).find(tab => tab.textContent?.includes(name)), basename(path), {description: basename(path)});
+            await waitForPdfLoaded(session.page);
+            await waitForViewerInteractive(session.page);
+        };
+        for (const dirty of [
+            false,
+            true,
+        ]) {
+            const a = await createMultiPageTextFixturePdf(`other-close-a-${dirty}-${Date.now()}.pdf`, 40);
+            const b = await createMultiPageTextFixturePdf(`other-close-b-${dirty}-${Date.now()}.pdf`, 40);
+            onTestFinished(() => {
+                rmSync(a, {force: true});
+                rmSync(b, {force: true});
+            });
+            await openPdfInApp(session.page, a);
+            await waitForPdfLoaded(session.page);
+            await openPdfInApp(session.page, b);
+            await waitForPdfLoaded(session.page);
+            await goToPageViaToolbar(session.page, 31);
+            await waitForToolbarCurrentPage(session.page, 31);
+            await waitForViewportQuiet(session.page);
+            await activate(a);
+            if (dirty) {
+                await openDocumentSidebarTab(session.page, 'Pages');
+                await clickAsUser(session.page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+                await clickFoundAsUser(session.page, () => Array.from(
+                    document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+                ).find(item => item.textContent?.toLowerCase().includes('rotate counterclockwise') && item.checkVisibility()),
+                null, {description: 'rotate page 1 counterclockwise'});
+                await session.page.waitForSelector('.tab.is-active.is-dirty', {visible: true});
+                await waitForPdfLoaded(session.page);
+            }
+            await goToPageViaToolbar(session.page, 27);
+            await waitForToolbarCurrentPage(session.page, 27);
+            await waitForViewportQuiet(session.page);
+            await activate(b);
+            await waitForToolbarCurrentPage(session.page, 31);
+            await waitForViewportQuiet(session.page);
+            const before = await readViewportPageObservation(session.page);
+            await activate(a);
+            await waitForToolbarCurrentPage(session.page, 27);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            if (dirty) {
+                await clickFoundAsUser(session.page, () => Array.from(
+                    document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+                ).find(button => button.textContent?.trim() === 'Save changes'),
+                null, {description: 'save changes and close'});
+            }
+            await expect.poll(() => session.page.$$eval('.tab[data-tab-id]', tabs => tabs.map(tab => tab.textContent)))
+                .toEqual([basename(b)]);
+            await waitForPdfLoaded(session.page);
+            await waitForViewerInteractive(session.page);
+            await waitForViewportQuiet(session.page);
+            const observation = {
+                currentPage: await getToolbarCurrentPage(session.page),
+                renderedPage31: await session.page.$eval('.workspace-host[data-workspace-active="true"]', host => (
+                    Array.from(host.querySelectorAll('.page_container--rendered')).some(page => (
+                        page.getAttribute('data-page') === '31' && page.textContent?.includes('31/40')
+                    ))
+                )),
+                rotation: (await readPdfPageSnapshots(a))[0]?.rotation,
+            };
+            const after = await readViewportPageObservation(session.page);
+            console.log('OTHER_TAB_CLOSE', JSON.stringify({
+                dirty,
+                ...observation,
+                before,
+                after,
+            }));
+            expect.soft(observation).toEqual({
+                currentPage: 31,
+                renderedPage31: true,
+                rotation: dirty ? 270 : 0,
+            });
+            expect.soft(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            await session.page.waitForSelector('.recent-row--data .recent-open', {visible: true});
+        }
+    }, 240_000);
+
     it('keeps an Aggressive cold tab resumable after Clear History', async () => {
         const result = await runResumeAfterHistoryMutation('clear');
         expect(result.rendered, JSON.stringify(result)).toBe(true);

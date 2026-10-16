@@ -270,6 +270,28 @@ describe('Electron E2E - dialog layout stability', () => {
         }
     });
 
+    it('starts without claiming an update or opening an update dialog', async () => {
+        const {page} = sessionFixture.getSession();
+        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-startup-'));
+        console.log(`Update startup artifacts: ${evidenceDirectory}`);
+        await readUpdateDialogAfterStart(page, LOCALE_MESSAGES.en.updates.unsupportedDescription);
+        await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+        const dialogOpen = await readUpdateDialogAfterStart(page, LOCALE_MESSAGES.en.updates.unsupportedDescription);
+        const status = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
+        const dialogs = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .filter(dialog => dialog.getClientRects().length > 0).map(dialog => dialog.innerText));
+        await page.screenshot({path: join(evidenceDirectory, 'fresh-start.png')});
+        writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify({
+            status,
+            dialogOpen,
+            dialogs,
+        }, null, 2));
+        expect(status).toBeDefined();
+        expect(status?.requestedHere).not.toBe(true);
+        expect(dialogOpen).toBe(false);
+        expect(dialogs).toEqual([]);
+    }, DIALOG_TIMEOUT_MS * 2);
+
     it('keeps its controls in place when the page range is chosen and rejected', async () => {
         const session: IElectronE2ESession = sessionFixture.getSession();
         const {page} = session;

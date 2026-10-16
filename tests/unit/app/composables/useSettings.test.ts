@@ -1,4 +1,6 @@
+// @vitest-environment happy-dom
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -7,24 +9,42 @@ import {
 } from 'vitest';
 import type { Ref } from 'vue';
 import type { ISettingsData } from '@contracts/shared';
-import type { TSettingsSavePatch } from '@contracts/settings';
+import {
+    DEFAULT_SETTINGS,
+    type TSettingsSavePatch,
+} from '@contracts/settings';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: TSettingsSavePatch) => Promise<void>>();
+const settingsChangeListeners = new Set<(settings: ISettingsData) => void>();
+const mockOnChanged = vi.fn((listener: (settings: ISettingsData) => void) => {
+    settingsChangeListeners.add(listener);
+    return () => settingsChangeListeners.delete(listener);
+});
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();
 const mockPlatformApi = createElectronPlatformApiFixture({settings: {
     get: mockGet,
+    onChanged: mockOnChanged,
     save: mockSave,
 }});
+
+// The owner sends each committed write to every window, this one included, before the save replies.
+function emitSettingsChange(settings: ISettingsData) {
+    for (const listener of settingsChangeListeners) {
+        listener(settings);
+    }
+}
+const colorMode = {preference: 'light'};
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
 function installNuxtStateStubs() {
     installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('toRaw', <T>(value: T) => value);
+    vi.stubGlobal('useColorMode', () => colorMode);
 }
 
 function createDeferred() {
@@ -47,10 +67,15 @@ describe('useSettings', () => {
         vi.clearAllMocks();
         mockGet.mockReset();
         mockSave.mockReset();
+        settingsChangeListeners.clear();
         vi.useRealTimers();
         cookieStore.clear();
         stateStore.clear();
         installNuxtStateStubs();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('preserves supported locale values on save', async () => {
@@ -94,6 +119,7 @@ describe('useSettings', () => {
             defaultZoomPreset: 'fit-width',
             defaultViewMode: 'single',
             defaultContinuousScroll: true,
+            rememberDocumentView: false,
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
@@ -124,6 +150,7 @@ describe('useSettings', () => {
             defaultZoomPreset: 'fit-width',
             defaultViewMode: 'single',
             defaultContinuousScroll: true,
+            rememberDocumentView: false,
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
@@ -185,6 +212,7 @@ describe('useSettings', () => {
             defaultZoomPreset: '150',
             defaultViewMode: 'facing',
             defaultContinuousScroll: false,
+            rememberDocumentView: false,
             defaultAnnotationColor: '#00ff00',
             uiScale: 'comfortable',
             tabMemoryPolicy: 'aggressive',
@@ -224,6 +252,30 @@ describe('useSettings', () => {
         expect(settings.value.locale).toBe('fr');
         expect(settings.value.theme).toBe('dark');
         expect(settings.value.defaultZoomPreset).toBe('150');
+    });
+
+    it('adopts a later commit after a pre-hydration edit was saved during load', async () => {
+        vi.stubGlobal('window', {addEventListener: vi.fn()});
+        mockGet.mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Stored author',
+        });
+        mockSave.mockImplementation(async patch => {
+            emitSettingsChange({
+                ...DEFAULT_SETTINGS,
+                ...patch,
+            });
+        });
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        instance.updateSetting('authorName', 'Before hydration');
+        await instance.load();
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledOnce());
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved in another window',
+        });
+        expect(instance.settings.value.authorName).toBe('Saved in another window');
     });
 
     it('reports a failed settings save and saves the latest payload on the next change', async () => {
@@ -316,7 +368,13 @@ describe('useSettings', () => {
     it('shares one in-flight save queue across settings composable callers', async () => {
         const firstSave = createDeferred();
         mockSave
-            .mockImplementationOnce(() => firstSave.promise)
+            .mockImplementationOnce(async (patch) => {
+                await firstSave.promise;
+                emitSettingsChange({
+                    ...DEFAULT_SETTINGS,
+                    ...patch,
+                });
+            })
             .mockResolvedValue(undefined);
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -346,7 +404,13 @@ describe('useSettings', () => {
     it('drains a setting edit admitted while the close flush is in flight', async () => {
         const firstSave = createDeferred();
         mockSave
-            .mockImplementationOnce(() => firstSave.promise)
+            .mockImplementationOnce(async (patch) => {
+                await firstSave.promise;
+                emitSettingsChange({
+                    ...DEFAULT_SETTINGS,
+                    ...patch,
+                });
+            })
             .mockResolvedValue(undefined);
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -364,5 +428,305 @@ describe('useSettings', () => {
 
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenLastCalledWith({theme: 'dark'});
+    });
+
+    it('preserves an edit-back when the invoke reply is delivered before its own committed event', async () => {
+        const baseline = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied' as const,
+        };
+        mockGet.mockResolvedValue(baseline);
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        const pending = createDeferred();
+        mockSave.mockReturnValueOnce(pending.promise);
+        instance.updateSetting('authorName', 'First edit');
+        const saving = instance.save();
+        instance.updateSetting('authorName', 'Saved author');
+        pending.resolve();
+        await saving;
+        mockSave.mockImplementationOnce(async patch => { emitSettingsChange({
+            ...baseline,
+            ...patch,
+        }); });
+        emitSettingsChange({
+            ...baseline,
+            authorName: 'First edit',
+        });
+        expect(instance.settings.value.authorName).toBe('Saved author');
+        await vi.waitFor(() => expect(instance.settingsSaveStatus.value).toBe('idle'));
+        expect(mockSave).toHaveBeenLastCalledWith({authorName: 'Saved author'});
+        emitSettingsChange({
+            ...baseline,
+            authorName: 'Other window',
+        });
+        expect(instance.settings.value.authorName).toBe('Other window');
+    });
+
+    it('keeps a failed edit failed when another window saves, until the person retries', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        let stored: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied',
+        };
+        mockGet.mockResolvedValue(stored);
+        mockSave.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        instance.updateSetting('authorName', 'Chosen author');
+        await expect(instance.save()).resolves.toBe(false);
+        expect(instance.settingsSaveStatus.value).toBe('failed');
+        mockSave.mockImplementation(async patch => {
+            stored = {
+                ...stored,
+                ...patch,
+            };
+            emitSettingsChange(stored);
+        });
+        stored = {
+            ...stored,
+            authorName: 'Other window',
+        };
+        emitSettingsChange(stored);
+        await vi.advanceTimersByTimeAsync(550);
+        expect(instance.settings.value.authorName).toBe('Chosen author');
+        expect(instance.settingsSaveStatus.value).toBe('failed');
+        expect(instance.settingsSaveError.value).toContain('ENOSPC');
+        expect(instance.settingsSaveFailure.value).not.toBeNull();
+        expect(stored.authorName).toBe('Other window');
+
+        await expect(instance.save()).resolves.toBe(true);
+        expect(stored.authorName).toBe('Chosen author');
+        expect(instance.settingsSaveStatus.value).toBe('idle');
+        expect(instance.settingsSaveError.value).toBeNull();
+        expect(instance.settingsSaveFailure.value).toBeNull();
+    });
+
+    it('settles an undo to the saved value after a failed write and adopts another window', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const baseline = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied' as const,
+        };
+        mockGet.mockResolvedValue(baseline);
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        mockSave.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+        instance.updateSetting('authorName', 'Failed edit');
+        await expect(instance.save()).resolves.toBe(false);
+        expect(instance.settingsSaveStatus.value).toBe('failed');
+        instance.updateSetting('authorName', 'Saved author');
+        await expect(instance.save()).resolves.toBe(true);
+        emitSettingsChange({
+            ...baseline,
+            authorName: 'Other window',
+        });
+        expect(instance.settings.value.authorName).toBe('Other window');
+        expect(instance.settingsSaveStatus.value).toBe('idle');
+    });
+
+    it('releases an edit that returned to the committed value before any save started', async () => {
+        mockGet.mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            theme: 'light',
+        });
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        instance.updateSetting('theme', 'dark');
+        instance.updateSetting('theme', 'light');
+        await instance.save();
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            theme: 'dark',
+        });
+        expect(instance.settings.value.theme).toBe('dark');
+    });
+
+    it.each([
+        [
+            'authorName',
+            'Saved author',
+            'First edit',
+        ],
+        [
+            'theme',
+            'light',
+            'dark',
+        ],
+        [
+            'clientDiagnosticsPreference',
+            'denied',
+            'granted',
+        ],
+    ] as const)('preserves a later %s edit returning to its saved value', async (key, savedValue, firstValue) => {
+        const baseline = {
+            ...DEFAULT_SETTINGS,
+            [key]: savedValue,
+        };
+        mockGet.mockResolvedValue(baseline);
+        const pending = createDeferred();
+        mockSave.mockReturnValueOnce(pending.promise).mockImplementationOnce(async (patch) => {
+            emitSettingsChange({
+                ...baseline,
+                ...patch,
+            });
+        });
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+
+        instance.updateSetting(key, firstValue);
+        const saving = instance.save();
+        instance.updateSetting(key, savedValue);
+        emitSettingsChange({
+            ...baseline,
+            [key]: firstValue,
+        });
+        pending.resolve();
+        await saving;
+
+        expect(instance.settings.value[key]).toBe(savedValue);
+        expect(mockSave).toHaveBeenLastCalledWith({[key]: savedValue});
+        if (key === 'clientDiagnosticsPreference') {
+            const {getRendererDiagnosticsPreference} = await import('@app/utils/failureReporter');
+            expect(getRendererDiagnosticsPreference()).toBe('denied');
+        }
+        emitSettingsChange({
+            ...baseline,
+            [key]: firstValue,
+        });
+        expect(instance.settings.value[key]).toBe(firstValue);
+    });
+
+    it('keeps the committed value of a key another window saved while this save was in flight', async () => {
+        const firstSave = createDeferred();
+        mockGet.mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            locale: 'en',
+            theme: 'light',
+        });
+        mockSave.mockImplementationOnce(() => firstSave.promise);
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const {
+            load,
+            save,
+            settings,
+        } = useSettings();
+        await load();
+
+        settings.value.theme = 'dark';
+        const savePromise = save();
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+        // Another window changes the locale while this save is in flight, then the owner commits this save.
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            theme: 'light',
+        });
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            theme: 'dark',
+        });
+        firstSave.resolve();
+        await savePromise;
+
+        expect(settings.value.locale).toBe('ru');
+        // Nothing is pending in this window for the locale, so another window's next change is adopted.
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            locale: 'en',
+            theme: 'dark',
+        });
+        expect(settings.value.locale).toBe('en');
+    });
+});
+
+describe('selectAdoptedSettings', () => {
+    it('adopts the committed values of keys the window has no unsaved edit in', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const saved: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            locale: 'en',
+            theme: 'light',
+        };
+        const current: ISettingsData = {
+            ...saved,
+            authorName: 'Unsaved here',
+        };
+        const committed: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved elsewhere',
+            locale: 'ru',
+            theme: 'dark',
+        };
+
+        const adopted = selectAdoptedSettings(current, saved, committed);
+
+        expect(adopted).toMatchObject({
+            locale: 'ru',
+            theme: 'dark',
+        });
+        expect(adopted).not.toHaveProperty('authorName');
+    });
+
+    it('lets a withdrawal saved elsewhere replace a local unsaved grant', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const saved: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'denied',
+        };
+        const current: ISettingsData = {
+            ...saved,
+            clientDiagnosticsPreference: 'granted',
+        };
+
+        const adopted = selectAdoptedSettings(current, saved, saved);
+
+        expect(adopted).toMatchObject({clientDiagnosticsPreference: 'denied'});
+    });
+
+    it('does not let a grant saved elsewhere reopen reporting over a local unsaved withdrawal', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const saved: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        };
+        const current: ISettingsData = {
+            ...saved,
+            clientDiagnosticsPreference: 'denied',
+        };
+        const committed: ISettingsData = {
+            ...saved,
+            clientDiagnosticsPreference: 'granted',
+        };
+
+        const adopted = selectAdoptedSettings(current, saved, committed);
+
+        expect(adopted).not.toHaveProperty('clientDiagnosticsPreference');
+    });
+
+    it('adopts only a withdrawal before the window has a saved value to compare with', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const current: ISettingsData = {...DEFAULT_SETTINGS};
+
+        expect(selectAdoptedSettings(current, null, {
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            clientDiagnosticsPreference: 'granted',
+        })).toEqual({});
+        expect(selectAdoptedSettings(current, null, {
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'denied',
+        })).toEqual({clientDiagnosticsPreference: 'denied'});
     });
 });

@@ -155,11 +155,6 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
     };
 }
 
-export interface ICloseFileFromUiOptions {
-    persist?: boolean;
-    onCloseCommit?: () => void;
-}
-
 /** Why the last open failed, while the workspace still holds that failure. */
 export interface IWorkspaceOpenFailure {
     message: string;
@@ -250,7 +245,10 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleOpenFileDirectWithPersist: (path: TDocumentRef, pageShape?: IPdfPageShapeRead | null) => Promise<boolean>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
-    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<boolean>;
+    handleCloseFileFromUi: (options?: {
+        persist?: boolean;
+        onCloseCommit?: () => Promise<void> | void;
+    }) => Promise<boolean>;
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;
     handleExportMultiPageTiff: () => Promise<void>;
@@ -292,15 +290,12 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
     /** Captures the document at `page`, by default the page this view reads. */
-    captureSplitPayload: (page?: number) => Promise<TSplitPayload>;
+    captureSplitPayload: (page?: number, ownership?: () => void) => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload, transactionId?: string, captureOpenedTarget?: () => () => boolean) => Promise<TDocumentOpenOutcome>;
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
     getOpenFailure: () => IWorkspaceOpenFailure | null;
-    waitForDocumentOpenSettled: (options?: {
-        acceptDocumentWithoutVisual?: boolean;
-        signal?: AbortSignal;
-    }) => Promise<void>;
+    waitForDocumentOpenSettled: () => Promise<void>;
     runAgentAction: (
         actionId: string,
         input?: Record<string, unknown>,

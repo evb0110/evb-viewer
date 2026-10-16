@@ -45,6 +45,7 @@ import {
     isScanCleanupGeneratedOutputPath,
     touchScanCleanupGeneratedOutput,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
+import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 
 const PDF_OPEN_ADMISSION_TIMEOUT_MS = 15_000;
 
@@ -270,12 +271,14 @@ export async function openInputPaths(
                     recentPersistence: 'background',
                     totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
                 });
+                const keptOriginalPath = isGenerated ? undefined : await findKeptOriginal(originalPath);
                 const result: TOpenFileResult = {
                     kind: 'pdf',
                     workingPath: requireDocumentRef(unownedWorkingPath),
                     originalPath: requireDocumentRef(originalPath),
                     ...(isGenerated ? {isGenerated: true} : {}),
                     ...(workingCopy.wasEncrypted ? {wasEncrypted: true as const} : {}),
+                    ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
                 };
                 unownedWorkingPath = null;
                 return result;

@@ -1,6 +1,7 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
 // @vitest-environment happy-dom
 
 import {
@@ -37,6 +38,8 @@ function stub(marker: string) {
     })};
 }
 
+let readOutline: (documentRef: string) => Promise<IPdfBookmarkEntry[]> = async () => [];
+vi.mock('@app/utils/platformDocuments', () => ({getPageOpsCapability: () => ({readOutline: (documentRef: string) => readOutline(documentRef)})}));
 vi.mock('@app/components/AppSpinner.vue', () => stub('data-spinner-stub'));
 vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stub('data-bookmark-toolbar-stub'));
 vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => ({default: defineComponent({
@@ -52,11 +55,6 @@ vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => ({defa
 })}));
 vi.mock('@app/components/document-viewer/DocumentPanelEmptyState.vue', () => stub('data-empty-state-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue', () => stub('data-context-menu-stub'));
-vi.mock('@app/modules/pdf-viewer/components/PdfOutlineItem.vue', () => ({default: defineComponent({
-    inheritAttrs: false,
-    setup: () => () => null,
-})}));
-
 const activeUnmounts = new Set<() => void>();
 
 afterEach(() => {
@@ -65,21 +63,18 @@ afterEach(() => {
     }
 });
 
-function createPdfDocument(
-    getOutline: () => Promise<unknown[] | null>,
-    getDestination: () => Promise<unknown[] | null> = async () => null,
-) {
+function createPdfDocument(getDestination: () => Promise<unknown[] | null> = async () => null) {
     return cast<PDFDocumentProxy>({
         _transport: {},
-        getOutline,
         getDestination,
     });
 }
 
 async function mountOutline(
-    getOutline: () => Promise<unknown[] | null>,
+    readDocumentOutline: () => Promise<IPdfBookmarkEntry[]>,
     getDestination?: () => Promise<unknown[] | null>,
 ) {
+    readOutline = readDocumentOutline;
     const host = document.createElement('div');
     document.body.append(host);
     const editModeUpdates: boolean[] = [];
@@ -89,7 +84,8 @@ async function mountOutline(
         bookmarksDirty: false,
         currentPage: 1,
         isEditMode: false,
-        pdfDocument: createPdfDocument(getOutline, getDestination),
+        pdfDocument: createPdfDocument(getDestination),
+        documentRef: requireDocumentRef('/working/outline.pdf'),
     });
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         ...viewProps,
@@ -213,7 +209,12 @@ describe('PdfOutline bookmark toolbar state', () => {
             const getDestination = vi.fn(() => new Promise<unknown[]>(() => undefined));
             const outline = await mountOutline(() => Promise.resolve([{
                 title: 'Chapter 1',
-                dest: 'chapter-1',
+                pageIndex: null,
+                namedDest: 'chapter-1',
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
             }]), getDestination);
 
             // Rows wait for the selection that decides their first layout.

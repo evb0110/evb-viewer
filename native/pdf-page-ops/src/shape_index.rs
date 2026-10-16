@@ -1,5 +1,8 @@
 use super::*;
 use evb_native_support::output::AtomicOutput;
+
+#[path = "free_text_frame.rs"]
+pub(crate) mod free_text_frame;
 use serde::Serialize;
 use std::{collections::HashSet, fs, io::Write, path::Path};
 
@@ -395,31 +398,8 @@ pub(crate) fn parse_shape_index_entry(
     page_view: PdfRect,
     page_rotation: i64,
 ) -> std::result::Result<EmbeddedShapeIndexEntry, String> {
-    if let Ok(style) = dict.get(b"BS") {
-        let style = document
-            .resolved(style)
-            .map_err(|error| error.to_string())?
-            .as_dict()
-            .map_err(|error| error.to_string())?;
-        if style.get(b"S").ok().is_some_and(|value| {
-            document
-                .resolved(value)
-                .ok()
-                .and_then(|value| value.as_name().ok())
-                != Some(b"S")
-        }) {
-            return Err("Shape border style is not representable by the editor".to_string());
-        }
-    } else if resolved_array_for_key(document, dict, b"Border").is_some_and(|values| {
-        values.get(3).is_some_and(|value| {
-            document
-                .resolved(value)
-                .ok()
-                .and_then(|value| value.as_array().ok())
-                .is_none_or(|dash| !dash.is_empty())
-        })
-    }) {
-        return Err("Dashed shape borders are not representable by the editor".to_string());
+    if !crate::free_text_frame::border_is_editable(document, dict) {
+        return Err("Shape border style is not representable by the editor".to_string());
     }
     if matches!(subtype, "Line" | "PolyLine") {
         if let Some(endings) = resolved_array_for_key(document, dict, b"LE") {

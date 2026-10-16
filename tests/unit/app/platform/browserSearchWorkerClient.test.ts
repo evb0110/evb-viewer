@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -18,6 +19,7 @@ vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureRep
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
+    public static instances: FakeWorker[] = [];
     public static responder: ((worker: FakeWorker, request: {
         id: number;
         type: string;
@@ -35,6 +37,7 @@ class FakeWorker {
         _options?: WorkerOptions,
     ) {
         FakeWorker.lastInstance = this;
+        FakeWorker.instances.push(this);
     }
 
     public addEventListener(
@@ -125,11 +128,17 @@ describe('browserSearchWorkerClient', () => {
         vi.resetModules();
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
+        FakeWorker.instances = [];
         FakeWorker.responder = null;
         failureReporter.capture.mockClear();
         vi.unstubAllGlobals();
         vi.stubGlobal('window', {});
+        vi.stubGlobal('navigator', {hardwareConcurrency: 4});
         vi.stubGlobal('Worker', FakeWorker);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     function pageMatchRequest(text: string, query = 'alpha') {
@@ -267,7 +276,7 @@ describe('browserSearchWorkerClient', () => {
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
-    it('bounds a match from the worker start signal and then terminates the shared worker', async () => {
+    it('bounds a match from its start signal without losing another document hits', async () => {
         vi.useFakeTimers();
         FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
@@ -283,7 +292,9 @@ describe('browserSearchWorkerClient', () => {
             },
             maxMatches: 2,
         }, {matchTimeoutMs: 25});
+        const matchWorker = FakeWorker.lastInstance!;
         const siblingRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('sibling'));
+        const siblingWorker = FakeWorker.lastInstance!;
         let matchSettled = false;
         void matchRequest.promise.catch(() => undefined).finally(() => {
             matchSettled = true;
@@ -295,23 +306,36 @@ describe('browserSearchWorkerClient', () => {
         expect(matchSettled).toBe(false);
         expect(terminateSpy).not.toHaveBeenCalled();
 
-        FakeWorker.lastInstance?.dispatchMessage({
+        matchWorker.dispatchMessage({
             id: matchRequest.requestId,
             started: true,
         });
         const matchFailure = expect(matchRequest.promise)
             .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
-        const siblingFailure = expect(siblingRequest.promise)
-            .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
+        const siblingResult = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 7,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
         await vi.advanceTimersByTimeAsync(25);
 
         await matchFailure;
-        await siblingFailure;
-        expect(terminateSpy).toHaveBeenCalledOnce();
+        siblingWorker.dispatchMessage({
+            id: siblingRequest.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data: siblingResult,
+        });
+        await expect(siblingRequest.promise).resolves.toEqual(siblingResult);
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
-    it('rejects a cancelled job and keeps the worker without messaging it', async () => {
+    it('rejects a cancelled job and stops its engine before releasing admission', async () => {
         FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const {
@@ -326,7 +350,7 @@ describe('browserSearchWorkerClient', () => {
         await rejection;
         expect(failureReporter.capture).not.toHaveBeenCalled();
         expect(FakeWorker.lastInstance?.postMessageCalls).toHaveLength(1);
-        expect(terminateSpy).not.toHaveBeenCalled();
+        expect(terminateSpy).toHaveBeenCalledOnce();
     });
 
     it('terminates the worker when a cancel asks to reset it', async () => {
@@ -423,9 +447,8 @@ describe('browserSearchWorkerClient', () => {
         });
     });
 
-    it('keeps other in-flight jobs alive when canceling one shared-worker request', async () => {
+    it('keeps other in-flight jobs alive when canceling one request', async () => {
         FakeWorker.responder = () => {};
-        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const {
             createBrowserSearchWorkerRequest,
             cancelBrowserSearchWorkerRequest,
@@ -455,7 +478,67 @@ describe('browserSearchWorkerClient', () => {
             matchCount: 0,
             matchingMs: 0,
         });
-        expect(terminateSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns known hits after another document terminates its running regex', async () => {
+        FakeWorker.responder = () => {};
+        const {
+            createBrowserSearchWorkerRequest, cancelBrowserSearchWorkerRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const first = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first'));
+        const firstOutcome = first.promise.catch(error => error as Error);
+        const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
+        const secondOutcome = second.promise.catch(error => error as Error);
+        const worker = FakeWorker.lastInstance!;
+        cancelBrowserSearchWorkerRequest(first.requestId, {resetWorker: true});
+        const data = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
+        worker.dispatchMessage({
+            id: second.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data,
+        });
+        expect(await firstOutcome).toMatchObject({message: 'ERR_BROWSER_SEARCH_CANCELED'});
+        expect(await secondOutcome).toEqual(data);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('rejects a failed concurrent submission without losing the other search', async () => {
+        let firstWorker: FakeWorker | undefined;
+        FakeWorker.responder = worker => {
+            if (!firstWorker) firstWorker = worker;
+            else throw new Error('Second search could not be posted');
+        };
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const first = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first'));
+        const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
+        await expect(second.promise).rejects.toThrow('Second search could not be posted');
+        const data = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
+        firstWorker!.dispatchMessage({
+            id: first.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data,
+        });
+        await expect(first.promise).resolves.toEqual(data);
     });
 
     it('does not create a worker when canceling an unknown request', async () => {
@@ -481,4 +564,142 @@ describe('browserSearchWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeIdleTtl + 1);
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
+    it('bounds 48 independent searches and still returns every known hit', async () => {
+        vi.useFakeTimers();
+        FakeWorker.responder = () => {};
+        const terminate = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const requests = Array.from({length: 48}, (_, index) => createBrowserSearchWorkerRequest(
+            'matchPageText', pageMatchRequest(`document-${index}`),
+        ));
+        const peak = FakeWorker.instances.length;
+        const data = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
+        for (const request of requests) {
+            for (const worker of FakeWorker.instances) {
+                worker.dispatchMessage({
+                    id: request.requestId,
+                    type: 'matchPageText',
+                    ok: true,
+                    data,
+                });
+            }
+            await request.promise;
+        }
+        expect((await Promise.all(requests.map(request => request.promise))).every(result => result.matchCount === 1)).toBe(true);
+        expect(peak).toBeLessThanOrEqual(2);
+        const reused = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('reused'));
+        for (const worker of FakeWorker.instances) {
+            worker.dispatchMessage({
+                id: reused.requestId,
+                type: 'matchPageText',
+                ok: true,
+                data,
+            });
+        }
+        await reused.promise;
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(terminate.mock.calls.length).toBe(FakeWorker.instances.length);
+    });
+
+    it('cancels a queued search before it reaches a worker and keeps admitted hits', async () => {
+        FakeWorker.responder = () => {};
+        const {
+            createBrowserSearchWorkerRequest, cancelBrowserSearchWorkerRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const admitted = [
+            createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first')),
+            createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('second')),
+        ];
+        const queued = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('queued'));
+        const rejected = expect(queued.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        cancelBrowserSearchWorkerRequest(queued.requestId, {resetWorker: true});
+        await rejected;
+        const data = {
+            matches: [],
+            truncated: false,
+            matchCount: 0,
+            matchingMs: 0,
+        };
+        for (const request of admitted) {
+            for (const worker of FakeWorker.instances) {
+                worker.dispatchMessage({
+                    id: request.requestId,
+                    type: 'matchPageText',
+                    ok: true,
+                    data,
+                });
+            }
+        }
+        await Promise.all(admitted.map(request => request.promise));
+        expect(FakeWorker.instances).toHaveLength(2);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('rejects admitted and waiting requests on a page reset and admits a later search', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        FakeWorker.responder = () => {};
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const requests = Array.from({length: 4}, () => createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('waiting')));
+        const outcomes = requests.map(request => request.promise.catch(error => error));
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        for (const outcome of outcomes) {
+            expect(await outcome).toMatchObject({
+                name: 'AbortError',
+                code: 'BROWSER_WORKER_RESET',
+            });
+        }
+        expect(FakeWorker.instances).toHaveLength(2);
+        const later = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('later'));
+        FakeWorker.lastInstance?.dispatchMessage({
+            id: later.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data: {
+                matches: [],
+                truncated: false,
+                matchCount: 0,
+                matchingMs: 0,
+            },
+        });
+        await expect(later.promise).resolves.toMatchObject({matchCount: 0});
+    });
+
+    it('uses one admission on a two-core browser without losing a waiting result', async () => {
+        vi.stubGlobal('navigator', {hardwareConcurrency: 2});
+        FakeWorker.responder = () => {};
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const first = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first'));
+        const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('second'));
+        expect(FakeWorker.instances).toHaveLength(1);
+        const data = {
+            matches: [],
+            truncated: false,
+            matchCount: 0,
+            matchingMs: 0,
+        };
+        for (const request of [
+            first,
+            second,
+        ]) {
+            FakeWorker.lastInstance?.dispatchMessage({
+                id: request.requestId,
+                type: 'matchPageText',
+                ok: true,
+                data,
+            });
+            await expect(request.promise).resolves.toEqual(data);
+        }
+        expect(FakeWorker.instances).toHaveLength(1);
+    });
+
 });

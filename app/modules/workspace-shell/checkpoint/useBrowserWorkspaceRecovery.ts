@@ -1,3 +1,8 @@
+import {
+    publishBrowserDocumentLiveLeases,
+    rekeyCurrentWindow,
+    registerBrowserDocumentDependencyReader,
+} from '@app/platform/browserWindowTabs';
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type {
@@ -46,7 +51,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         snapshot.value.identity.originalPath,
         snapshot.value.identity.workingCopyPath,
     ].flatMap(ref => ref ? [ref] : []));
-    let fenced = false;
+    const unregisterDependencies = registerBrowserDocumentDependencyReader(liveDocumentRefs);
+    const stopDependencies = watch(liveDocumentRefs, () => {
+        void publishBrowserDocumentLiveLeases(recovery.getOwnerId()).catch(error => {
+            BrowserLogger.warn('workspace-recovery', 'Failed to publish open document dependencies', error);
+        });
+    }, {
+        immediate: true,
+        flush: 'sync',
+    });
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
@@ -72,16 +85,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         if (
             heartbeatTimer
             || disposed
-            || fenced
             || !options.enabled.value
             || !activeOwnerId
-            || generation === null
+            || !generation
         ) {
             return;
         }
         heartbeatTimer = setTimeout(() => {
             heartbeatTimer = null;
-            void heartbeatRecoveryLease();
+            drain(heartbeatRecoveryLease);
         }, delay);
     }
 
@@ -93,51 +105,31 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             !ownerId
             || !expectedGeneration
             || disposed
-            || fenced
             || !options.enabled.value
         ) {
             return;
         }
 
-        try {
-            const outcome = await recovery.touch(ownerId, expectedGeneration, liveDocumentRefs());
-            if (outcome.saved) {
-                generation = outcome.generation;
-            } else if (activeOwnerId === ownerId && generation === expectedGeneration) {
-                fenced = true;
-                stopHeartbeat();
-                BrowserLogger.warn(
-                    'workspace-recovery',
-                    `Recovery lease disappeared or changed while heartbeating owner ${ownerId} at generation ${String(expectedGeneration)}; fencing stale writer`,
-                );
-                return;
-            }
-        } catch (error) {
-            // A temporary IndexedDB failure should not make this context discard
-            // its only recovery copy. Retry the heartbeat and let the owner
-            // claim CAS decide whether the lease was actually lost.
-            BrowserLogger.warn('workspace-recovery', 'Failed to heartbeat browser recovery snapshot', error);
-        } finally {
-            if (activeOwnerId === ownerId && generation === expectedGeneration) {
-                scheduleHeartbeat();
-            }
+        const outcome = await recovery.touch(ownerId, expectedGeneration, liveDocumentRefs());
+        if (outcome.saved) {
+            generation = outcome.generation;
+        } else {
+            if (ownerId === recovery.getOwnerId()) rekeyCurrentWindow();
+            await publishBrowserDocumentLiveLeases();
         }
     }
 
     async function cleanupSnapshots(refs: Iterable<TDocumentRef>, retainedRefs = new Set<TDocumentRef>()) {
         liveDocumentRefs().forEach(ref => retainedRefs.add(ref));
-        await Promise.allSettled(Array.from(refs, async (ref) => {
-            if (!retainedRefs.has(ref)) {
-                await snapshots.cleanupSnapshot(ref);
-            }
-        }));
+        await Promise.allSettled([...refs].filter(ref => !retainedRefs.has(ref))
+            .map(ref => snapshots.cleanupSnapshot(ref)));
     }
 
     function dirtyTabIds() {
-        return new Set(Object.entries(options.documentSessionsByTabId.value).flatMap(([
-            tabId,
-            session,
-        ]) => session.snapshot.value.dirty ? [tabId] : []));
+        return new Set(Object.entries(options.documentSessionsByTabId.value)
+            .filter(([
+                , session,
+            ]) => session.snapshot.value.dirty).map(([tabId]) => tabId));
     }
 
     function markMutation(tabIds: Iterable<string>) {
@@ -178,6 +170,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function hasPendingWork(now = Date.now()) {
+        if (recovery.getOwnerId() !== activeOwnerId) return true;
         if (
             checkpointRevision > persistedCheckpointRevision
             && (
@@ -197,20 +190,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         });
     }
 
-    function hasUnpersistedWork() {
-        if (checkpointRevision > persistedCheckpointRevision) {
-            return true;
-        }
-        return Array.from(dirtyTabIds()).some(tabId => (
-            (tabMutationRevisions.get(tabId) ?? 0)
-            > (persistedTabMutationRevisions.get(tabId) ?? -1)
-        ));
-    }
-
-    async function persistCurrentRecovery(
-        capturedCheckpointRevision: number,
-        capturedTabMutationRevisions: ReadonlyMap<string, number>,
-    ) {
+    async function persistCurrentRecovery() {
+        const capturedCheckpointRevision = checkpointRevision;
+        const capturedTabMutationRevisions = new Map(tabMutationRevisions);
+        attemptedCheckpointRevision = capturedCheckpointRevision;
         const ownerId = recovery.getOwnerId();
         if (!ownerId) {
             retryNotBefore = Date.now() + RECOVERY_RETRY_MS;
@@ -220,7 +203,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             stopHeartbeat();
             activeOwnerId = ownerId;
             generation = null;
-            fenced = false;
             persistedCheckpointRevision = -1;
             persistedTabMutationRevisions.clear();
             attemptedTabMutationRevisions.clear();
@@ -235,12 +217,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             if (previous) {
                 generation = outcome.generation;
                 if (!outcome.saved) {
-                    BrowserLogger.warn(
-                        'workspace-recovery',
-                        `Recovery lease changed while clearing owner ${ownerId} at generation ${String(expectedGeneration)}; fencing stale writer`,
-                    );
-                    fenced = true;
-                    stopHeartbeat();
+                    if (ownerId === recovery.getOwnerId()) rekeyCurrentWindow();
+                    await publishBrowserDocumentLiveLeases();
                     return;
                 }
                 await cleanupSnapshots(previous.snapshotRefs);
@@ -415,8 +393,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 return [{
                     ...tab,
                     // Clean documents reopen from their durable source;
-                    // their ordinary transient working copies are not
-                    // part of the recovery lease.
+                    // their ordinary transient working copies are absent from
+                    // this checkpoint, but remain protected by the live owner.
                     workingCopyRef: null,
                 }];
             });
@@ -452,16 +430,11 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             );
             generation = outcome.generation;
             if (!outcome.saved) {
-                BrowserLogger.warn(
-                    'workspace-recovery',
-                    `Recovery lease changed while saving owner ${ownerId} at generation ${String(expectedGeneration)}; fencing stale writer`,
-                );
-                fenced = true;
-                stopHeartbeat();
+                if (ownerId === recovery.getOwnerId()) rekeyCurrentWindow();
+                await publishBrowserDocumentLiveLeases();
                 await cleanupSnapshots(createdRefs);
                 return;
             }
-            scheduleHeartbeat();
             persistedCheckpointRevision = Math.max(
                 persistedCheckpointRevision,
                 capturedCheckpointRevision,
@@ -488,27 +461,21 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         }
     }
 
-    function drain() {
-        if (disposed || fenced || !options.enabled.value) {
-            return;
-        }
-        if (!hasPendingWork()) {
-            return;
-        }
-        if (inFlight) {
-            return;
-        }
-        const capturedCheckpointRevision = checkpointRevision;
-        const capturedTabRevisions = new Map(tabMutationRevisions);
-        attemptedCheckpointRevision = capturedCheckpointRevision;
-        inFlight = persistCurrentRecovery(capturedCheckpointRevision, capturedTabRevisions)
+    // Every recovery mutation owns the same awaited operation. A heartbeat cannot
+    // return an old generation after a newer checkpoint has saved or cleared.
+    function drain(operation = persistCurrentRecovery) {
+        if (disposed || !options.enabled.value || inFlight
+            || (operation === persistCurrentRecovery && !hasPendingWork())) return;
+        inFlight = operation()
             .catch((error) => {
-                BrowserLogger.warn('workspace-recovery', 'Failed to persist browser recovery snapshot', error);
+                BrowserLogger.warn('workspace-recovery', 'Failed to publish browser recovery state', error);
                 retryNotBefore = Date.now() + RECOVERY_RETRY_MS;
             })
             .finally(() => {
                 inFlight = null;
-                if (!disposed && options.enabled.value && hasUnpersistedWork()) {
+                scheduleHeartbeat();
+                // Scheduling includes pending work deferred until the retry deadline.
+                if (!disposed && options.enabled.value && hasPendingWork(retryNotBefore)) {
                     schedule(retryNotBefore > Date.now()
                         ? retryNotBefore - Date.now()
                         : 0);
@@ -555,18 +522,20 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
 
     const targetWindow = typeof window === 'undefined' ? undefined : window;
     const targetDocument = typeof document === 'undefined' ? undefined : document;
-    useEventListener(targetWindow, 'pagehide', drain);
+    useEventListener(targetWindow, 'pagehide', () => drain());
     useEventListener(targetDocument, 'visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             drain();
             return;
         }
-        void heartbeatRecoveryLease();
+        drain(heartbeatRecoveryLease);
     });
 
     onBeforeUnmount(() => {
         disposed = true;
         stop();
+        stopDependencies();
+        unregisterDependencies();
         stopHeartbeat();
         if (timer) clearTimeout(timer);
     });

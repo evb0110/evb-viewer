@@ -1,14 +1,25 @@
 import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+import type * as TImageExportModule from '@electron/features/image-export/main/export';
+import type * as FsPromises from 'fs/promises';
 
 import {
     mkdtemp,
     readdir,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
+import {
+    createStopPoint,
+    listStagedNames,
+    refuseCompletionAppend,
+    restartAfterCrash,
+} from '@tests/unit/electron/helpers/crashedExportRestart';
 import {
     afterEach,
     beforeEach,
@@ -26,16 +37,33 @@ const mocks = vi.hoisted(() => ({
     combineTiff: vi.fn(),
     acquire: vi.fn(),
     promoteStagedFiles: vi.fn(),
-    createStagedFilePublicationLedger: vi.fn(() => ({
-        promotedFiles: [],
-        backupPaths: [],
-    })),
+    createStagedFilePublicationLedger: vi.fn<(scratchPath?: string | null) => {promotedFiles: unknown[]}>(() => ({promotedFiles: []})),
     commitStagedFilePublications: vi.fn(),
     rollbackStagedFilePublications: vi.fn(),
     estimateTask: vi.fn(),
     appTempDir: '',
+    beforeAppend: null as ((path: string, data: string) => Promise<void>) | null,
 }));
 
+vi.mock('fs/promises', async importOriginal => {
+    const actual = await importOriginal<typeof FsPromises>();
+    return {
+        ...actual,
+        appendFile: async (path: Parameters<typeof actual.appendFile>[0], data: string, options?: Parameters<typeof actual.appendFile>[2]) => {
+            await mocks.beforeAppend?.(String(path), data);
+            return actual.appendFile(path, data, options);
+        },
+    };
+});
+
+// A flush matters only across a power cut, which no unit test can make. On a
+// busy disk each one waits for the disk's whole journal, seconds at a time.
+vi.mock('@electron/utils/fsyncPath', () => ({
+    fsyncDirectory: async () => undefined,
+    fsyncDirectorySync: () => undefined,
+    fsyncFile: async () => undefined,
+    fsyncFileSync: () => undefined,
+}));
 vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getPageCount,
     getDjvuResolution: async () => 300,
@@ -53,7 +81,8 @@ vi.mock('@electron/features/djvu/public', () => ({
     getDjvuPageSizeWindowsForViewing: mocks.getPageSizeWindows,
 }));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.appTempDir}));
-vi.mock('@electron/features/image-export/main/export', () => ({
+vi.mock('@electron/features/image-export/main/export', async () => ({
+    validateImageExportPath: (await vi.importActual<typeof TImageExportModule>('@electron/features/image-export/main/export')).validateImageExportPath,
     convertRenderedPpmToImage: mocks.convertPpmToImage,
     promoteStagedFiles: mocks.promoteStagedFiles,
     createStagedFilePublicationLedger: mocks.createStagedFilePublicationLedger,
@@ -75,6 +104,7 @@ describe('DjVu image export limits', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.beforeAppend = null;
         mocks.getPageCount.mockResolvedValue(1);
         mocks.getPageSizeWindows.mockImplementation(async function* () {
             yield {
@@ -107,6 +137,19 @@ describe('DjVu image export limits', () => {
             .rejects.toThrow('exceeds the image export raster limit');
         expect(mocks.convertPage).not.toHaveBeenCalled();
         expect(mocks.acquire).not.toHaveBeenCalled();
+    });
+
+    it('refuses a non-TIFF accepted destination without replacing either file', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-destination-'));
+        const chosen = join(tempDir, 'doc.png');
+        const unchosen = join(tempDir, 'doc.tif');
+        await writeFile(chosen, 'chosen original');
+        await writeFile(unchosen, 'unchosen original');
+        const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
+        await expect(exportDjvuAsMultiPageTiff('/books/source.djvu', chosen))
+            .rejects.toThrow('Choose a file name ending in .tif, .tiff');
+        expect(await readFile(chosen, 'utf8')).toBe('chosen original');
+        expect(await readFile(unchosen, 'utf8')).toBe('unchosen original');
     });
 
     it('allows multiple pages beyond the former aggregate raster budget', async () => {
@@ -274,6 +317,56 @@ describe('DjVu image export limits', () => {
         expect(mocks.commitStagedFilePublications).not.toHaveBeenCalled();
     });
 
+    it('keeps the files of an unproven PNG writer when the earlier batch rollback also fails', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-unproven-rollback-test-'));
+        mocks.appTempDir = tempDir;
+        mocks.getPageCount.mockResolvedValue(2);
+        mocks.getPageSizeWindows.mockImplementation(async function* () {
+            yield {
+                firstPage: 1,
+                sizes: Array.from({length: 2}, () => ({
+                    width: 1_000,
+                    height: 1_000,
+                    dpi: 300,
+                })),
+            };
+        });
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 1.5 * 1024 * 1024 * 1024,
+            };
+        });
+        let unresolvedInput = '';
+        let unresolvedOutput = '';
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
+            const pngPath = `${ppmPath}.png`;
+            if (!ppmPath.includes('page-2.ppm')) {
+                await writeFile(pngPath, 'png');
+                return pngPath;
+            }
+            // The encoder's tree was not proven dead, so it may still read the
+            // input or write the output: the export must keep both files.
+            unresolvedInput = ppmPath;
+            unresolvedOutput = pngPath;
+            await writeFile(pngPath, 'native partial output');
+            throw markUnprovenNativeTermination(new Error('encoder not proven dead'), 'encoder owns both page files');
+        });
+        mocks.rollbackStagedFilePublications.mockRejectedValue(new Error('previous batch backup cannot be restored'));
+        const {exportDjvuPagesAsPng} = await import(
+            '@electron/features/image-export/main/djvuImageExport'
+        );
+
+        await expect(exportDjvuPagesAsPng('/books/failure.djvu', join(tempDir, 'page.png')))
+            .rejects.toThrow('rollback was incomplete');
+
+        expect(await readFile(unresolvedInput, 'utf8')).toBe('ppm');
+        expect(await readFile(unresolvedOutput, 'utf8')).toBe('native partial output');
+    });
+
     it('resets PNG staged-byte accounting after each promoted batch', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-batch-test-'));
         mocks.getPageCount.mockResolvedValue(2);
@@ -414,6 +507,136 @@ describe('DjVu image export limits', () => {
             {signal: controller.signal},
         )).rejects.toThrow('aborted');
         expect(mocks.convertPage).not.toHaveBeenCalled();
+    });
+
+    it('removes the staged PNG of a DjVu export stopped before publishing, on the next start', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-crash-test-'));
+        const appTempRoot = join(tempDir, 'app-temp');
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 3,
+            };
+        });
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
+            const pngPath = `${ppmPath}.png`;
+            await writeFile(pngPath, 'png');
+            return pngPath;
+        });
+        const outputPath = join(tempDir, 'crash.png');
+        await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
+        await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
+        const publish = createStopPoint();
+        const {exportDjvuPagesAsPng} = await import('@electron/features/image-export/main/djvuImageExport');
+        // The hook never settles, so the export stops there as a killed process would.
+        void exportDjvuPagesAsPng('/books/crash.djvu', outputPath, {
+            scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
+            beforePublish: publish.stop,
+        });
+        await publish.reached;
+        expect(listStagedNames(tempDir)).toHaveLength(2);
+
+        await restartAfterCrash(appTempRoot);
+
+        expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
+        await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    it('removes the staged TIFF of a DjVu export stopped before publishing, on the next start', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-crash-test-'));
+        const appTempRoot = join(tempDir, 'app-temp');
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 3,
+            };
+        });
+        mocks.combineTiff.mockImplementation(async (_pagePaths: string[], outputPath: string) => {
+            await writeFile(outputPath, 'tiff');
+            return true;
+        });
+        const outputPath = join(tempDir, 'crash.tif');
+        await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
+        await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
+        const publish = createStopPoint();
+        const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
+        void exportDjvuAsMultiPageTiff('/books/crash.djvu', outputPath, {
+            scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
+            beforePublish: publish.stop,
+        });
+        await publish.reached;
+        expect(listStagedNames(tempDir)).toHaveLength(2);
+
+        await restartAfterCrash(appTempRoot);
+
+        expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
+        await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    // A read-only record is refused by the filesystem, except on Windows or as root.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('restores the originals a split DjVu TIFF export replaced when recording its completion fails', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-completion-test-'));
+        const appTempRoot = join(tempDir, 'app-temp');
+        const actualExport = await vi.importActual<typeof TImageExportModule>('@electron/features/image-export/main/export');
+        mocks.promoteStagedFiles.mockImplementation(actualExport.promoteStagedFiles);
+        mocks.createStagedFilePublicationLedger.mockImplementation(actualExport.createStagedFilePublicationLedger);
+        mocks.commitStagedFilePublications.mockImplementation(actualExport.commitStagedFilePublications);
+        mocks.getPageCount.mockResolvedValue(9);
+        mocks.getPageSizeWindows.mockImplementation(async function* () {
+            yield {
+                firstPage: 1,
+                sizes: Array.from({length: 9}, () => ({
+                    width: 1_000,
+                    height: 1_000,
+                    dpi: 300,
+                })),
+            };
+        });
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 3,
+            };
+        });
+        mocks.combineTiff.mockImplementation(async (_pagePaths: string[], outputPath: string) => {
+            await writeFile(outputPath, 'new-tiff');
+            return true;
+        });
+        const targets = [
+            join(tempDir, 'book-part-001.tif'),
+            join(tempDir, 'book-part-002.tif'),
+        ];
+        mocks.beforeAppend = refuseCompletionAppend;
+        const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
+        try {
+            await expect(exportDjvuAsMultiPageTiff('/books/book.djvu', join(tempDir, 'book.tif'), {
+                scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
+                beforePublish: async () => {
+                    await writeFile(targets[0]!, 'old-1');
+                    await writeFile(targets[1]!, 'old-2');
+                },
+            })).rejects.toThrow('EACCES');
+        } finally {
+            mocks.promoteStagedFiles.mockReset();
+            mocks.commitStagedFilePublications.mockReset();
+            mocks.createStagedFilePublicationLedger.mockImplementation(() => ({promotedFiles: []}));
+        }
+
+        await expect(readFile(targets[0]!, 'utf8')).resolves.toBe('old-1');
+        await expect(readFile(targets[1]!, 'utf8')).resolves.toBe('old-2');
+        expect(listStagedNames(tempDir)).toEqual([]);
+        await expect(readdir(appTempRoot)).resolves.toEqual([]);
     });
 });
 

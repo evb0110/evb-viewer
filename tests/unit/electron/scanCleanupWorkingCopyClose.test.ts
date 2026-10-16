@@ -182,6 +182,10 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({
 vi.mock('@electron/utils/appTempDir', () => ({
     getAppTempDir: () => state.tempRoot,
     getLegacyAppTempDirPath: () => join(dirname(state.tempRoot), 'evb-viewer-legacy'),
+    getManagedAppTempRoots: () => [
+        state.tempRoot,
+        join(dirname(state.tempRoot), 'evb-viewer-retired'),
+    ],
 }));
 vi.mock('@electron/file-access/workingCopyMutationQueue', () => ({drainWorkingCopyMutations: vi.fn(async () => undefined)}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({

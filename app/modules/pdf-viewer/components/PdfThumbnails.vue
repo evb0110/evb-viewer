@@ -175,6 +175,7 @@ const {
     handleExternalDrop,
 } = usePageDragDrop({
     containerRef,
+    getDocumentSource: () => source,
     totalPages: computed(() => totalPages),
     selectedPages: computed(() => selectedPages ?? []),
     selectedPageSelection: computed(() => selectedPageSelection ?? null),

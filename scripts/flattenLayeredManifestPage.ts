@@ -54,12 +54,20 @@ export async function flattenLayeredManifestPage(
             '-resize',
             size,
         ];
+    // A hard stencil is a PBM whose black pixels are ink, and CopyOpacity reads
+    // black as transparent, so it is inverted to opacity. Soft alpha is already
+    // white-opaque. An affine mask is inverted only when its decode says so.
+    const invertsMask = kind === 'layered-jpeg' || kind === 'layered-color-jpeg' || decode === 'inverted';
+    // ImageMagick operators apply to every image on the stack, so the mask is a
+    // parenthesised sub-stack: negating it must not invert the foreground layer.
     const maskInputs = [
+        '(',
         maskPath,
         '-resize',
         size,
+        ...(invertsMask ? ['-negate'] : []),
+        ')',
     ];
-    if (decode === 'inverted') maskInputs.push('-negate');
     await runCliNativeToolCommand(magickBinary, [
         ...layerInputs,
         ...maskInputs,

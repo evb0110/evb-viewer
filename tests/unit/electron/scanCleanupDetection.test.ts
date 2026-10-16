@@ -94,7 +94,7 @@ function runScanCleanupDetection<TDocument>(
         args[2],
         {
             ...args[3],
-            fileSystem,
+            fileSystem: args[3].fileSystem ?? fileSystem,
             getAvailableScratchBytes: args[3].getAvailableScratchBytes
                 ?? (async () => null),
         },
@@ -792,6 +792,17 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         });
         const pageSizeSource = createLazyPageSizeStore(pageCount);
         const renderPage = vi.fn();
+        // The classifier fixture reports identical metadata for every page.
+        // Keep its 2,048 progress events without 1,024 synthetic file writes.
+        const pageMetadata = JSON.stringify({
+            layoutClassification: 'single-uncut-page',
+            cutterXPx: null,
+            rotationDegrees: 0,
+            canvasScope: 'page',
+            excluded: false,
+            blankOutputsSkipped: 0,
+            outputCount: 0,
+        });
         const renderPageBatch = vi.fn(async (input: {targets: ReadonlyArray<{
             outputPath: string;
             pageNumber: number
@@ -843,7 +854,12 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 controller.signal,
                 retention,
                 {
-                    fileSystem,
+                    fileSystem: {
+                        ...fileSystem,
+                        readFile: (path, encoding) => /[/\\]page-\d+\.json$/u.test(path)
+                            ? Promise.resolve(pageMetadata)
+                            : fileSystem.readFile(path, encoding),
+                    },
                     getAvailableScratchBytes: vi.fn(async () => null),
                     getTempDir: () => tempDir,
                     getPdftoppmBinary: () => 'pdftoppm',
@@ -855,15 +871,6 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
                         manifests.push(manifest.pages.length);
                         if (manifests.length === 1) {
-                            await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({
-                                layoutClassification: 'single-uncut-page',
-                                cutterXPx: null,
-                                rotationDegrees: 0,
-                                canvasScope: 'page',
-                                excluded: false,
-                                blankOutputsSkipped: 0,
-                                outputCount: 0,
-                            }))));
                             for (const [index] of manifest.pages.entries()) {
                                 await onProgress({
                                     stage: 'page-complete',

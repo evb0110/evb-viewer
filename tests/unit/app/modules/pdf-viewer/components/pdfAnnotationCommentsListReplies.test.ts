@@ -54,7 +54,9 @@ function createForeignNote(): IAnnotationCommentSummary {
             },
             {
                 author: null,
-                contents: 'Second reply remains readable and has no editing control.',
+                contents: '',
+                state: 'Accepted',
+                stateModel: 'Review',
                 createdAt: null,
                 generationNumber: 0,
                 modifiedAt: null,
@@ -70,8 +72,48 @@ function createForeignNote(): IAnnotationCommentSummary {
 }
 
 describe('PdfAnnotationCommentsList foreign note replies', () => {
-    it('renders replies as read-only children and deletes them with their parent', async () => {
+    it.each([
+        [
+            'Accepted',
+            'Review',
+            'accepted',
+        ],
+        [
+            'Rejected',
+            'Review',
+            'rejected',
+        ],
+        [
+            'Cancelled',
+            'Review',
+            'cancelled',
+        ],
+        [
+            'Completed',
+            'Review',
+            'completed',
+        ],
+        [
+            'None',
+            'Review',
+            'none',
+        ],
+        [
+            'Marked',
+            'Marked',
+            'marked',
+        ],
+        [
+            'Unmarked',
+            'Marked',
+            'unmarked',
+        ],
+    ])('renders %s replies as read-only children and deletes them with their parent', async (state, stateModel, label) => {
         const comment = createForeignNote();
+        Object.assign(comment.replies![1]!, {
+            state,
+            stateModel,
+        });
         const {
             events,
             host,
@@ -84,7 +126,7 @@ describe('PdfAnnotationCommentsList foreign note replies', () => {
         expect(row?.querySelector('.note-item-replies')?.textContent)
             .toContain('Please check the cited paragraph.');
         expect(row?.querySelector('.note-item-replies')?.textContent)
-            .toContain('Second reply remains readable and has no editing control.');
+            .toContain(`annotations.replyStatus.${label}`);
         expect(row?.querySelectorAll('.note-item-reply')).toHaveLength(2);
         expect(row?.querySelector('.note-item-replies button')).toBeNull();
 

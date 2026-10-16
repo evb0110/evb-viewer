@@ -5,7 +5,7 @@ import {
     readFile,
     stat,
 } from 'fs/promises';
-import { tmpdir } from 'os';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { join } from 'path';
 import type {
     IDjvuPagePreview,
@@ -509,7 +509,7 @@ export async function renderDjvuPagePreview(
     }
     const renderPlan = await resolvePreviewRenderPlan(djvuPath, pageNumber, options, lifecycleOptions);
 
-    return usingManagedScratchScope('djvu-image-export-', tmpdir(), async (tempDir) => {
+    return usingManagedScratchScope('djvu-image-export-', getAppTempDir(), async (tempDir) => {
         const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
         const pngPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.png`);
 

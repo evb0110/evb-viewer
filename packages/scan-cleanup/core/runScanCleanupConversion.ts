@@ -62,7 +62,6 @@ import {
     type IScanCleanupPageRasterSource,
     type IPdfPageSizeChunk,
     type TScanCleanupLog,
-    isScanCleanupCompactLayeredRaster,
 } from '@evb/scan-cleanup/core/types';
 import {
     mapScanCleanupPageScope,
@@ -166,6 +165,7 @@ import {
     resolveScanCleanupAnalysisDpi,
 } from '@evb/scan-cleanup/core/detection';
 import {SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/rasterValidation';
+import {createScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/sourceDpiDetection';
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {
     describePageNumbers,
@@ -887,122 +887,6 @@ export async function validateScanCleanupStreamingReport(
     }
 }
 
-/** Pages one source-raster probe of a large conversion covers. */
-const RASTER_PROBE_WINDOW_PAGES = 256;
-
-function createLazyPageRasterSource({
-    pdfPath,
-    pdfimagesBinary,
-    dependencies,
-    log,
-    signal,
-    documentPageCount,
-}: {
-    pdfPath: string;
-    pdfimagesBinary: string | undefined;
-    dependencies: IRunScanCleanupPipelineDependencies;
-    log: TScanCleanupLog;
-    signal: AbortSignal;
-    documentPageCount: number;
-}): IScanCleanupPageRasterSource {
-    const cache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
-    let compactLayeredPageCount = 0;
-    let nextExpectedPageNumber = 1;
-    let rasterProbeFailed = false;
-    let documentDpi: number | null = null;
-    const recordPageRaster = (pageNumber: number, raster: IDetectedPageRaster | undefined) => {
-        // Full conversion probes pages in document order. A later child repeats
-        // the same pages after the parent's canvas pass, so a scalar high-water
-        // mark counts each page once without a document-sized Set or Map. Any
-        // other order is refused rather than turning the budget into an
-        // unverified partial count.
-        if (pageNumber < nextExpectedPageNumber) return raster;
-        if (pageNumber !== nextExpectedPageNumber) {
-            rasterProbeFailed = true;
-            return raster;
-        }
-        nextExpectedPageNumber += 1;
-        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
-        return raster;
-    };
-    // A miss probes the window of pages that follows it in one process:
-    // conversion visits pages in document order, often twice, and one
-    // pdfimages run per page made that two process launches per page.
-    const probeFrom = (firstPageNumber: number) => {
-        const pageNumbers = [firstPageNumber];
-        for (
-            let pageNumber = firstPageNumber + 1;
-            pageNumber <= documentPageCount && pageNumbers.length < RASTER_PROBE_WINDOW_PAGES;
-            pageNumber += 1
-        ) {
-            pageNumbers.push(pageNumber);
-        }
-        const probed = (async () => {
-            signal.throwIfAborted();
-            const rasters = new Map<number, IDetectedPageRaster | undefined>();
-            if (pdfimagesBinary === undefined) {
-                rasterProbeFailed = true;
-            } else {
-                try {
-                    const result = await dependencies.detectSourceDpi(
-                        pdfPath,
-                        pdfimagesBinary,
-                        log,
-                        undefined,
-                        signal,
-                        pageNumbers,
-                    );
-                    documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
-                    for (const pageNumber of pageNumbers) {
-                        rasters.set(pageNumber, await result.getPageRaster(pageNumber));
-                    }
-                } catch (error) {
-                    signal.throwIfAborted();
-                    rasterProbeFailed = true;
-                    rasters.clear();
-                    log('debug', `Scan cleanup could not detect source rasters for pages ${String(firstPageNumber)}-${String(pageNumbers.at(-1))}: ${getErrorMessage(error)}`);
-                }
-            }
-            for (const pageNumber of pageNumbers) recordPageRaster(pageNumber, rasters.get(pageNumber));
-            return rasters;
-        })();
-        // Re-inserting moves the window to the recent end, so the bound evicts
-        // pages the traversal has passed rather than the ones it reads next.
-        for (const pageNumber of pageNumbers) {
-            cache.delete(pageNumber);
-            const pageRaster = probed.then(rasters => rasters.get(pageNumber));
-            // A cancel rejects every page of the window; callers await only
-            // the pages they read, so the rest must not go unhandled.
-            pageRaster.catch(() => undefined);
-            cache.set(pageNumber, pageRaster);
-        }
-        while (cache.size > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
-            cache.delete(cache.keys().next().value!);
-        }
-    };
-    const getPageRaster = (pageNumber: number) => {
-        if (!cache.has(pageNumber)) probeFrom(pageNumber);
-        return cache.get(pageNumber)!;
-    };
-    return {
-        get detected() {
-            return pdfimagesBinary !== undefined;
-        },
-        get documentDpi() {
-            return documentDpi;
-        },
-        get compactLayeredPageCount() {
-            return compactLayeredPageCount;
-        },
-        get compactLayeredPageCountComplete() {
-            return !rasterProbeFailed
-                && nextExpectedPageNumber > documentPageCount;
-        },
-        recordPageRaster,
-        getPageRaster,
-    };
-}
-
 type TScanCleanupBoundedDetectionRequestFields = Pick<IRunScanCleanupPipelineRequest,
     | 'documentPriorByPage'
     | 'layoutByPage'
@@ -1633,10 +1517,10 @@ export async function runScanCleanupConversion(
         // genuinely antialiased low-resolution text, so retain the pdfimages
         // structure probe whenever it is available.
         const structuralDpiDetails: TScanCleanupDpiDetails = largeStreamingRun
-            ? createLazyPageRasterSource({
+            ? createScanCleanupPageRasterSource({
                 pdfPath: prepared.pdfPath,
                 pdfimagesBinary: paths.pdfimagesBinary,
-                dependencies,
+                detectSourceDpi: dependencies.detectSourceDpi,
                 log,
                 signal,
                 documentPageCount,

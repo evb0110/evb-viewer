@@ -9,7 +9,8 @@ import {
 // is enabled while the window holds a second tab, so the moved tab is the
 // document and the source keeps the other one. The source is the tab whose
 // title contains `tabTitle`; an empty title selects the first tab. Resolves with
-// the new window once its document has rendered.
+// the new window once its document has rendered and the source has removed the
+// moved tab, so the next input reaches the source's settled toolbar.
 export async function moveTabToNewWindow(page: Page, {
     tabTitle = '',
     menuLabel = LOCALE_MESSAGES.en.menu.moveTabToNewWindow,
@@ -25,6 +26,7 @@ export async function moveTabToNewWindow(page: Page, {
     await clickAsUser(page, '.tab-new');
     await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
         .find(tab => tab.textContent?.includes(title)), tabTitle, {description: `${tabTitle || 'first'} tab`});
+    const sourceTabCount = await page.$$eval('.tab-list [role="tab"]', tabs => tabs.length);
     await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"].is-active'))
         .find(tab => tab.textContent?.includes(title)), tabTitle, {
         button: 'right',
@@ -40,5 +42,7 @@ export async function moveTabToNewWindow(page: Page, {
     }
     if (!destination) throw new Error('Move Tab to New Window did not create a window');
     await destination.waitForSelector('.page_container--rendered', {timeout: timeoutMs});
+    await page.waitForFunction((count: number) => document.querySelectorAll('.tab-list [role="tab"]').length === count - 1,
+        {timeout: Math.max(1, deadline - Date.now())}, sourceTabCount);
     return destination;
 }

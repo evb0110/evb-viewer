@@ -62,10 +62,16 @@ page point can be captured, clamp to the nearest document boundary. A fit
 mode re-fits and keeps the same page and center-relative point where the geometry
 permits.
 
-**R4. Reopening restores the place.** When restoration is enabled and the
-document identity is unchanged, reopening a document or restoring a workspace
-returns to the same page, zoom mode and view mode. An explicit reset is not a
-restore.
+**R4. The reader chooses whether closed documents remember their place.**
+“Reopen documents where I left off” is off by default. Opening a document that
+is no longer open starts at page 1 with the configured default zoom and view
+mode, through every opening entry point. When the reader enables the setting,
+an unchanged document reopens at its remembered page, zoom mode and view mode.
+Reading state is recorded on close in either setting, so enabling it also works
+for documents closed earlier. Restoring an open workspace after a relaunch or
+crash, moving a tab between windows, and reopening the same tab's document after
+a save always keep their place, regardless of this setting. Those documents were
+never closed. An explicit reset is not a restore.
 
 ## Layout
 
@@ -166,10 +172,44 @@ Added 2026-09-23 on the owner's request (#834).
 the page, zoom, annotations, or responsiveness of another.
 
 **T2. Unsaved work is protected.** Closing a tab, a window or the app with
-unsaved changes asks first, and a crash or forced quit leaves recoverable work.
+unsaved changes asks first, and a crash or forced quit leaves recoverable work,
+also when the computer restarts before EVB does.
 
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
+
+On ext4, NTFS or APFS paths where hard links are unsupported, save and recovery
+use rename after displacement or a missing-path check. Another program can
+recreate that pathname before installation or restoration, and Node's rename
+can overwrite that new revision. The person keeps EVB's complete saved or
+working revision; displaced external bytes are restored or retained on a
+baseline mismatch, but the recreated revision can be lost. Closing this window
+requires an OS-level no-replace rename that Node does not expose.
+
+After a crash or forced quit during a save, recovery puts the PDF back as it was
+before that save, or keeps the save if it had finished. EVB's own bytes count as
+unchanged when a sync client only touched their metadata or rewrote them
+identically, so they never become a kept copy. The next Save compares the PDF
+on disk with the last revision EVB read or wrote: identical bytes and a touch
+that only changes the modification time are admitted, and every byte change,
+including one made while EVB was stopped, is refused with an offer to Save As.
+Recovery leaves no file of its own beside the PDF. When a save, or recovery
+after a crash, finds the PDF changed elsewhere after the save displaced it, the
+version that was on disk just before that save stays beside the PDF as
+"<name> (original).pdf", then "<name> (original 2).pdf" and on, never replacing
+an existing file. A live save's refusal names that file, and every later open
+of that PDF names it again and says to compare the two and keep one, until the
+person dismisses that notice. While another program holds the PDF after a
+crash, the document still opens with its last saved revision, and Save is
+refused, saying another program is using the file, until it lets go. If the
+person closes that document, reopens the PDF and saves it, that save stands and
+nothing more is kept beside it. While another program holds open a file a
+finished save left beside the PDF, reading and editing continue; Save is
+refused the same way until it lets go, and the next save then removes the file.
+When the document was closed first, the next start after the program lets go
+removes it; EVB never deletes its own record of an unfinished save before that
+save is finished. A save refused because the PDF is read-only or locked, or
+because its folder cannot be written, says which, with an offer to Save As.
 
 **T4. A split shows one document in two views.** Applies to a PDF split from
 its tab with Split Right or Split Down; New Pane and a separately opened copy

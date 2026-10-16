@@ -1,3 +1,4 @@
+import {loadSettings} from '@electron/settings';
 import {isEqual} from 'es-toolkit/predicate';
 import type {IRecentReadingView} from '@contracts/recentReadingView';
 import {parseDocumentRef} from '@contracts/documentRef';
@@ -71,7 +72,7 @@ export async function getRecentReadingView(documentPath: string, senderWebConten
 }
 
 /**
- * The view stored for a source with the size and modification time main
+ * The opted-in opening seed for a source with the size and modification time main
  * itself read from it: the working copy's admission, a DjVu grant, or an
  * opening preflight's stat of the Recent original.
  */
@@ -80,6 +81,9 @@ export async function readRecentReadingViewOf(source: {
     sourceSize: number;
     sourceModifiedAtMs: number;
 }): Promise<IRecentReadingView | null> {
+    if (!(await loadSettings()).rememberDocumentView) {
+        return null;
+    }
     const stored = (await readRecentFilesData()).files.find(file => file.originalPath === source.originalPath)?.readingView;
     if (stored?.sourceSize !== source.sourceSize || stored.sourceModifiedAtMs !== source.sourceModifiedAtMs) {
         return null;

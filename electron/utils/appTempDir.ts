@@ -1,5 +1,6 @@
 import type { App } from 'electron';
 import {createRequire} from 'node:module';
+import {execFile} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {
     chmodSync,
@@ -12,12 +13,7 @@ import {
     writeSync,
 } from 'fs';
 import {
-    lstat,
-    readFile,
-    readdir,
-    rm,
-} from 'fs/promises';
-import {
+    dirname,
     join,
     win32,
 } from 'path';
@@ -25,21 +21,18 @@ import { tmpdir } from 'os';
 import {
     APP_TEMP_DIR_NAME,
     createAppTempNamespace as createAppTempNamespaceForProfile,
-    getAppTempNamespaceDirectoryName,
+    getAppStateDir,
     getAppTempNamespacePath,
     getAppTempNamespacePathForNamespace,
     getAppTempUserId,
 } from '@node-runtime/appTempNamespace';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {fsyncDirectorySync} from '@electron/utils/fsyncPath';
+import {getOwnStartTime} from '@electron/utils/processIdentity';
 
-const APP_TEMP_NAMESPACE_OWNER_FILE = '.evb-app-temp-owner.json';
-const APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const APP_TEMP_NAMESPACE_SCAN_LIMIT = 512;
-const SAFE_NAMESPACE_PATTERN = /^[a-z\d][a-z\d-]{0,63}$/u;
+export const APP_TEMP_NAMESPACE_OWNER_FILE = '.evb-app-temp-owner.json';
+export const SAFE_NAMESPACE_PATTERN = /^[a-z\d][a-z\d-]{0,63}$/u;
 const electronRequire = createRequire(import.meta.url);
 
 let initializedAppTempNamespace: string | null = null;
@@ -62,6 +55,7 @@ export function initializeAppTempNamespace(userDataPath: string) {
     initializedAppTempUserDataPath = userDataPath;
     initializedAppTempNamespaceStartedAt = Date.now();
     ownerMarkerWritten = false;
+    void getOwnStartTime();
     return namespace;
 }
 
@@ -79,9 +73,8 @@ function getAppTempNamespace() {
     return `${getAppTempUserId()}-fallback`;
 }
 
-// os.tmpdir(), not app.getPath('temp'): worker threads and the native
-// command runner resolve the same base, and on macOS Electron's temp path
-// ignores TMPDIR while os.tmpdir() honors it.
+// os.tmpdir(), not app.getPath('temp'): on macOS Electron's temp path ignores
+// TMPDIR while os.tmpdir() honors it. Only earlier releases' roots live here.
 function getOperatingSystemTempDir() {
     return tmpdir();
 }
@@ -101,21 +94,39 @@ export function getLegacyAppTempDirPath() {
     return joinTempDirectory(getOperatingSystemTempDir(), APP_TEMP_DIR_NAME);
 }
 
-export function getAppTempDirPathForUserData(userDataPath: string, tempDir = tmpdir()) {
+export function getAppTempDirPathForUserData(userDataPath: string, baseDir = getAppStateDir()) {
     return getAppTempNamespacePath(
         userDataPath,
-        tempDir,
+        baseDir,
         getAppTempUserId(),
         process.platform === 'win32',
     );
 }
 
+/** This profile's namespace in the persistent per-user folder getAppStateDir() names. */
 export function getAppTempDirPath() {
-    const tempDir = getOperatingSystemTempDir();
-    return getAppTempNamespacePathForNamespace(tempDir, getAppTempNamespace());
+    return getAppTempNamespacePathForNamespace(getAppTempNamespace());
 }
 
-function writeAppTempNamespaceOwner(tempDir: string) {
+/**
+ * This profile's namespace in the OS temp folder, where releases before
+ * 2026-10 kept it. Its working copies stay readable and its records are
+ * settled at startup, then the namespace cleanup removes it; nothing new is
+ * written there. Remove once no supported release upgrades from one of those.
+ */
+export function getRetiredAppTempDirPath() {
+    return getAppTempNamespacePathForNamespace(getAppTempNamespace(), getOperatingSystemTempDir());
+}
+
+/** Where this profile's working copies can be: its namespace and the retired one. Every check of that reads this. */
+export function getManagedAppTempRoots() {
+    return [
+        getAppTempDirPath(),
+        getRetiredAppTempDirPath(),
+    ];
+}
+
+function writeAppTempNamespaceOwner(tempDir: string, startTime: string | null) {
     const namespace = initializedAppTempNamespace;
     const userDataPath = initializedAppTempUserDataPath;
     if (!namespace || !userDataPath || ownerMarkerWritten || namespace !== getAppTempNamespace()) {
@@ -127,6 +138,7 @@ function writeAppTempNamespaceOwner(tempDir: string) {
         namespace,
         userDataPath,
         pid: process.pid,
+        startTime,
         startedAt: initializedAppTempNamespaceStartedAt,
     })}\n`;
     let markerFd: number | null = null;
@@ -163,160 +175,30 @@ export function getAppTempDir() {
             throw error;
         }
     }
-    mkdirSync(tempDir, { recursive: true });
+    const created = mkdirSync(tempDir, { recursive: true });
+    // A power cut must not lose the folder that holds the durable journals:
+    // every folder this call made gets its entry on disk.
+    for (let directory = tempDir; created !== undefined; directory = dirname(directory)) {
+        fsyncDirectorySync(dirname(directory));
+        if (directory === created || dirname(directory) === directory) break;
+    }
+    if (created !== undefined && created !== tempDir && process.platform === 'darwin') {
+        // Working copies need no Time Machine copy. The sticky exclusion is an
+        // attribute on the folder, set once where the folder is made; a failure
+        // costs only backup space.
+        execFile('/usr/bin/tmutil', [
+            'addexclusion',
+            getAppStateDir(),
+        ], () => undefined);
+    }
     if (lstatSync(tempDir).isSymbolicLink()) {
         throw new Error(`App temp directory must not be a symbolic link: ${tempDir}`);
     }
     chmodSync(tempDir, 0o700);
-    writeAppTempNamespaceOwner(tempDir);
+    // Until this process's start time is read, the namespace has no owner, and
+    // other profiles' starts leave it alone.
+    if (initializedAppTempNamespace) {
+        void getOwnStartTime().then(startTime => writeAppTempNamespaceOwner(tempDir, startTime)).catch(() => undefined);
+    }
     return tempDir;
-}
-
-interface IAppTempNamespaceOwner {
-    namespace: string;
-    userDataPath: string;
-    pid: number;
-    startedAt: number;
-}
-
-function parseAppTempNamespaceOwner(value: unknown): IAppTempNamespaceOwner | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        typeof value.namespace !== 'string'
-        || !SAFE_NAMESPACE_PATTERN.test(value.namespace)
-        || typeof value.userDataPath !== 'string'
-        || value.userDataPath.trim().length === 0
-        || typeof value.pid !== 'number'
-        || !Number.isInteger(value.pid)
-        || value.pid <= 0
-        || typeof value.startedAt !== 'number'
-        || !Number.isFinite(value.startedAt)
-        || value.startedAt < 0
-    ) {
-        return null;
-    }
-    return {
-        namespace: value.namespace,
-        userDataPath: value.userDataPath,
-        pid: value.pid,
-        startedAt: value.startedAt,
-    };
-}
-
-async function hasWorkspaceRecoveryCheckpoint(owner: IAppTempNamespaceOwner) {
-    const records = await readdir(joinTempDirectory(owner.userDataPath, 'workspace-recovery')).catch(() => []);
-    return records.some(name => name.endsWith('.json'))
-        || (await lstat(joinTempDirectory(owner.userDataPath, 'workspace-checkpoint.json'))).isFile();
-}
-
-async function readAppTempNamespaceOwner(namespacePath: string) {
-    try {
-        const markerPath = joinTempDirectory(namespacePath, APP_TEMP_NAMESPACE_OWNER_FILE);
-        const markerStat = await lstat(markerPath);
-        if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
-            return null;
-        }
-        return parseAppTempNamespaceOwner(JSON.parse(await readFile(markerPath, 'utf8')));
-    } catch {
-        return null;
-    }
-}
-
-function isAppTempNamespaceOwnerAlive(pid: number) {
-    if (pid === process.pid) {
-        return true;
-    }
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return isErrnoException(error) && error.code === 'EPERM';
-    }
-}
-
-export interface ICleanupStaleAppTempNamespacesOptions {
-    maxAgeMs?: number;
-    maxEntries?: number;
-}
-
-export async function cleanupStaleAppTempNamespaces(
-    options: ICleanupStaleAppTempNamespacesOptions = {},
-) {
-    const requestedMaxAgeMs = options.maxAgeMs;
-    const maxAgeMs = typeof requestedMaxAgeMs === 'number'
-        && Number.isFinite(requestedMaxAgeMs)
-        && requestedMaxAgeMs >= 0
-        ? requestedMaxAgeMs
-        : APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS;
-    const requestedMaxEntries = options.maxEntries;
-    const maxEntries = typeof requestedMaxEntries === 'number'
-        && Number.isInteger(requestedMaxEntries)
-        && requestedMaxEntries > 0
-        ? requestedMaxEntries
-        : APP_TEMP_NAMESPACE_SCAN_LIMIT;
-    const tempDir = getOperatingSystemTempDir();
-    const currentNamespacePath = getAppTempDirPath();
-    let entries;
-    try {
-        entries = await readdir(tempDir, {withFileTypes: true});
-    } catch {
-        return 0;
-    }
-
-    const namespacePrefix = `${APP_TEMP_DIR_NAME}-${getAppTempUserId()}-`;
-    let removedCount = 0;
-    const now = Date.now();
-    for (const entry of entries
-        .filter(candidate => candidate.isDirectory() && candidate.name.startsWith(namespacePrefix))
-        .slice(0, maxEntries)) {
-        const namespacePath = joinTempDirectory(tempDir, entry.name);
-        if (namespacePath === currentNamespacePath) {
-            continue;
-        }
-
-        try {
-            const namespaceStat = await lstat(namespacePath);
-            if (!namespaceStat.isDirectory() || namespaceStat.isSymbolicLink()) {
-                continue;
-            }
-            const owner = await readAppTempNamespaceOwner(namespacePath);
-            // A marker is the ownership proof. Root mtime cannot tell us that
-            // nested working-copy data is unused, so legacy or malformed roots
-            // stay in place until an explicit profile-owned stop can verify and
-            // reclaim them.
-            if (!owner || getAppTempNamespaceDirectoryName(owner.namespace) !== entry.name) {
-                continue;
-            }
-            if (isAppTempNamespaceOwnerAlive(owner.pid)) {
-                continue;
-            }
-            try {
-                if (await hasWorkspaceRecoveryCheckpoint(owner)) {
-                    continue;
-                }
-            } catch (error) {
-                if (!isErrnoException(error) || error.code !== 'ENOENT') {
-                    continue;
-                }
-            }
-            const lastTouchedAt = Math.floor(Math.max(
-                namespaceStat.mtimeMs,
-                owner.startedAt,
-            ));
-            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
-                continue;
-            }
-            await rm(namespacePath, {
-                force: true,
-                recursive: true,
-            });
-            removedCount += 1;
-        } catch {
-            // Another session may finish removing the namespace between the
-            // directory scan and this cleanup attempt.
-        }
-    }
-    return removedCount;
 }

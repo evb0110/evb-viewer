@@ -30,7 +30,7 @@ export interface IAnnotationIdentity {
     readonly pdfRef?: string;
 }
 
-/** A reply read from a foreign note. Replies are derived and never authored here. */
+/** A reply read from a foreign annotation. Replies are derived and never authored here. */
 export type IAnnotationReply = IPdfAnnotationNoteReply;
 
 /** The image object reference returned by the writer for a stamp. */
@@ -58,6 +58,17 @@ interface IAnnotationEntityBase {
     readonly createdAt: TEpochMs | null;
     readonly modifiedAt: TEpochMs | null;
     readonly author: string | null;
+    /** Derived from the document on open. Replies are excluded from equality. */
+    readonly replies?: readonly IAnnotationReply[];
+}
+
+/** A foreign label's border and background, as its producer drew them. */
+export interface ITextBoxFrame {
+    /** /RD's insets on the page's upright top, right, bottom and left, in PDF points. */
+    readonly insets: readonly [number, number, number, number];
+    readonly borderWidth: number;
+    readonly borderColor: string | null;
+    readonly background: string | null;
 }
 
 export interface ITextBoxEntity extends IAnnotationEntityBase {
@@ -67,6 +78,9 @@ export interface ITextBoxEntity extends IAnnotationEntityBase {
     readonly rotation: TAnnotationRotation;
     readonly fontSize: number;
     readonly color: string | null;
+    readonly frame?: ITextBoxFrame;
+    /** A label whose border style the editor cannot draw: selectable, never changed (ADR 0002). */
+    readonly readOnly?: true;
 }
 
 export interface INoteEntity extends IAnnotationEntityBase {
@@ -75,8 +89,6 @@ export interface INoteEntity extends IAnnotationEntityBase {
     readonly position: IAnnotationMarkerRect;
     readonly color: string | null;
     readonly open: boolean;
-    /** Derived from the document on open. Replies are excluded from equality. */
-    readonly replies?: readonly IAnnotationReply[];
     /** Bounded native recovery graph, retained for undo after a saved deletion. */
     readonly recoveryData?: string;
 }
@@ -250,6 +262,11 @@ export function mintAnnotationId(randomUuid = globalThis.crypto?.randomUUID?.bin
  * Removes editor-only placeholder characters and puts authored text in Unicode
  * NFC. The fingerprint applies the same normalization to every text field.
  */
+/** A label the person can select and copy but never change: pdf.js, not the editor, draws it. */
+export function isReadOnlyAnnotation(entity: AnnotationEntity) {
+    return entity.kind === 'text-box' && entity.readOnly === true;
+}
+
 export function normalizeAnnotationText(text: string) {
     return text.normalize('NFC').replace(/[\u200B\uFEFF]/gu, '');
 }
@@ -281,14 +298,6 @@ function quantizePoint(point: IShapePoint) {
         x: quantizeGeometry(point.x),
         y: quantizeGeometry(point.y),
     };
-}
-
-function quantizePoints(points: readonly IShapePoint[] | undefined) {
-    return points === undefined ? null : points.map(quantizePoint);
-}
-
-function quantizeStrokes(strokes: ReadonlyArray<readonly IShapePoint[]> | undefined) {
-    return strokes === undefined ? null : strokes.map(stroke => stroke.map(quantizePoint));
 }
 
 function normalizeOpacity(opacity: number | null) {
@@ -443,8 +452,8 @@ function canonicalSemanticEntity(entity: AnnotationEntity) {
                 lineStartStyle: entity.lineStartStyle ?? 'none',
                 lineEndStyle: entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none'),
                 rect: quantizeRect(entity.rect),
-                points: quantizePoints(entity.points),
-                strokes: quantizeStrokes(entity.strokes),
+                points: entity.points?.map(quantizePoint) ?? null,
+                strokes: entity.strokes?.map(stroke => stroke.map(quantizePoint)) ?? null,
                 strokeColor: normalizeColor(entity.strokeColor),
                 strokeWidth: entity.strokeWidth,
                 fill: normalizeColor(entity.fill),

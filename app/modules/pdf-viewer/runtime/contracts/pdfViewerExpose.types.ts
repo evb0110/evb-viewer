@@ -1,3 +1,4 @@
+import type { IPdfViewerRegionCaptureExpose } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
@@ -34,6 +35,7 @@ import type {
     ICanonicalAnnotationRecovery,
     TAnnotationRecoveryDraftInput,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+export type { IPdfViewerRegionCaptureExpose } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -99,6 +101,7 @@ export interface ICreateShapeAnnotationResult {
 export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     getCurrentPage?: () => number;
+    readonly getEffectiveZoom?: () => number;
     getPendingNavigationTargetPage?: () => number | null;
     waitForViewerLoadSettled?: () => Promise<void>;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
@@ -134,18 +137,6 @@ export interface IDocumentViewerExpose {
     requestScrollToCurrentResult?: () => void;
 }
 
-export interface IPdfViewerLoadExpose {
-    waitForViewerLoadSettled?: () => Promise<void>;
-    ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
-    getPageMetricsSnapshot?: () => IPdfPageMetric[];
-    pageMetrics?: readonly IPdfPageMetric[];
-    pageMetricsVersion?: number;
-}
-
-export interface IPdfViewerRegionCaptureExpose {
-    captureRegionToClipboard: () => Promise<boolean>;
-    isCapturingRegion: boolean;
-}
 
 export interface IPdfViewerCropExpose {
     startCropSelection: () => Promise<ICropSelectionResult | null>;
@@ -200,7 +191,7 @@ export interface IPdfViewerAnnotationCommandExpose {
     editAnnotationTextBox?: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateSelectedAnnotationProperties?: (updates: IAnnotationPropertyUpdate) => boolean;
     canRotateSelectedAnnotations?: (delta: -90 | 90) => boolean;
-    prepareAnnotationToolChange?: () => void;
+    prepareAnnotationToolChange?: () => void | Promise<void>;
     handleAnnotationEscape?: () => boolean;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     getSelectedTextBox?: () => ITextBoxEntity | null;
@@ -273,7 +264,6 @@ export interface IPdfViewerImagePlacementExpose {
 
 export interface IPdfViewerExpose extends
     IDocumentViewerExpose,
-    IPdfViewerLoadExpose,
     IPdfViewerRegionCaptureExpose,
     IPdfViewerCropExpose,
     IPdfViewerSaveExpose,
@@ -282,6 +272,10 @@ export interface IPdfViewerExpose extends
     IPdfViewerAnnotationCommentExpose,
     IPdfViewerShapeExpose,
     IPdfViewerImagePlacementExpose {
+    ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
+    getPageMetricsSnapshot?: () => IPdfPageMetric[];
+    pageMetrics?: readonly IPdfPageMetric[];
+    pageMetricsVersion?: number;
     invalidatePages: (pages: number[]) => void;
     requestScrollToCurrentResult: () => void;
 }

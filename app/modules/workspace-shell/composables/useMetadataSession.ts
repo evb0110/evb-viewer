@@ -1,12 +1,15 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
-import type { Ref } from 'vue';
 import {
+    type IPdfDocument,
     useBookmarkState,
     usePageLabelState,
+    type createPdfReloadWaiter,
 } from '@app/modules/pdf-viewer/public';
+import type { Ref } from 'vue';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
-import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
+import type {
+    IWorkspaceCommandRegistration, IWorkspaceCommandSink,
+} from '@app/types/workspaceCommand';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
@@ -19,10 +22,6 @@ interface IMetadataSessionOptions {
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     markDirty: () => void;
-    fileHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
-    fileHistorySessionVersion?: Readonly<Ref<number>> | undefined;
-    undoFile?: (() => Promise<boolean>) | undefined;
-    redoFile?: (() => Promise<boolean>) | undefined;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
 }
 
@@ -38,8 +37,51 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
     const workspaceUndoTimeline = useWorkspaceCommandLedger();
+    // This reload scope holds the existing owner, never a second metadata copy.
+    let preservedReload: {
+        prepareReload: () => ReturnType<typeof createPdfReloadWaiter>;
+        restoreCleanState: (() => void) | undefined;
+    } | null = null;
+    const preservesSourceReload = () => preservedReload !== null;
+    async function runWithPreservedMetadataReload<T>(
+        operation: () => Promise<T>,
+        prepareReload: () => ReturnType<typeof createPdfReloadWaiter>,
+    ) {
+        const previous = preservedReload;
+        preservedReload = {
+            prepareReload,
+            restoreCleanState: metadataHistory?.captureCleanState(),
+        };
+        try { return await operation(); } finally { preservedReload = previous; }
+    }
+    function registerCommand(command: IWorkspaceCommandRegistration) {
+        const scope = preservedReload;
+        if (command.source !== 'file' || !scope) {
+            workspaceUndoTimeline.registerCommand(command);
+            return;
+        }
+        let restoreCleanState = scope.restoreCleanState;
+        const run = (operation: IWorkspaceCommandRegistration['undo']) => runWithPreservedMetadataReload(async () => {
+            const inverse = metadataHistory?.captureCleanState();
+            const reload = scope.prepareReload();
+            try {
+                const changed = await operation();
+                if (changed) {
+                    await reload.promise;
+                    restoreCleanState?.();
+                    restoreCleanState = inverse;
+                }
+                return changed;
+            } finally { reload.cancel(); }
+        }, scope.prepareReload);
+        workspaceUndoTimeline.registerCommand({
+            ...command,
+            undo: () => run(command.undo),
+            cmd: () => run(command.cmd),
+        });
+    }
     const commandSink: IWorkspaceCommandSink = {
-        register: workspaceUndoTimeline.registerCommand,
+        register: registerCommand,
         reset: workspaceUndoTimeline.resetSource,
         forget: workspaceUndoTimeline.forgetSourceEntries,
         undo: workspaceUndoTimeline.undoTimeline,
@@ -49,7 +91,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
 
     const bookmarkState = useBookmarkState({
         markDirty,
-        onBookmarksSynchronized: () => metadataHistory?.resetToCurrentState(),
+        preservesSourceReload,
+        onBookmarksSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.resetToCurrentState(); },
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
         onBookmarksSaved: () => metadataHistory?.markCurrentStateClean(),
     });
@@ -72,7 +115,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
             }
             return getDocumentFilesCapability().readPdfPageLabelRanges(path);
         },
-        onPageLabelsSynchronized: () => metadataHistory?.resetToCurrentState(),
+        preservesSourceReload,
+        onPageLabelsSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.resetToCurrentState(); },
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
         onPageLabelsSaved: () => metadataHistory?.markCurrentStateClean(),
         // The outline is re-read from new bytes, not from another view's copy of the same.
@@ -104,9 +148,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         pageLabelState,
         bookmarkState,
         metadataHistory,
-        clearPreservedSourceReloadMetadata: () => metadataHistory?.clearPreservedSourceReloadState(),
-        consumePreservedSourceReloadMetadata: () => metadataHistory.consumePreservedSourceReloadState(),
-        preserveMetadataForNextSourceReload: () => metadataHistory?.preserveCurrentStateForNextSourceReload(),
+        consumePreservedSourceReloadMetadata: preservesSourceReload,
+        runWithPreservedMetadataReload,
         workspaceUndoTimeline,
         workspaceCommandSink: commandSink,
         captureRecovery: (): IWorkspaceMetadataRecovery => {

@@ -133,12 +133,11 @@ struct FullPageImage {
     height_points: f64,
 }
 
-fn resolved_dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Dictionary> {
-    match object {
-        Object::Dictionary(dictionary) => Some(dictionary),
-        Object::Reference(id) => document.get_dictionary(*id).ok(),
-        _ => None,
-    }
+pub(crate) fn resolved_dictionary<'a>(
+    document: &'a Document,
+    object: &'a Object,
+) -> Option<&'a Dictionary> {
+    document.resolved(object).ok()?.as_dict().ok()
 }
 
 fn collect_image_dimensions(
@@ -481,7 +480,7 @@ fn write_page_sizes_from_resolver<F>(
 where
     F: FnMut(u32, ObjectId) -> Result<PageSizeEntry>,
 {
-    let declared_page_count = u64::from(page_resolver.declared_page_count());
+    let declared_page_count = u64::from(page_resolver.page_count());
     if declared_page_count == 0 {
         return Err(domain_error(
             NativeErrorCode::CorruptXref,

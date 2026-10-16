@@ -12,7 +12,7 @@ import {
 } from '@pdf-core/pdfSearchCore';
 
 // The worker only matches page text. Page text comes from the renderer's own
-// PDF.js document, so a long regular expression can be stopped by
+// PDF.js or DjVu.js document, so a long regular expression can be stopped by
 // terminating this worker without touching a document.
 function handleMatchPageTextRequest(
     request: IBrowserSearchWorkerRequest,
@@ -22,13 +22,19 @@ function handleMatchPageTextRequest(
     } = request.payload;
     validateSearchQuery(query, options);
 
-    const startedAtMs = Date.now();
+    let startedAtMs = 0;
 
     return {
         ...matchPdfSearchPageWindow(text, query, {
             ...options,
-            ...(budgetMs === undefined ? {} : {deadlineAtMs: startedAtMs + budgetMs}),
-        }, maxMatches, resultOffset),
+            ...(budgetMs === undefined ? {} : {regexBudgetMs: budgetMs}),
+        }, maxMatches, resultOffset, () => {
+            startedAtMs = Date.now();
+            self.postMessage({
+                id: request.id,
+                started: true,
+            } satisfies TBrowserSearchWorkerResponse);
+        }),
         matchingMs: Date.now() - startedAtMs,
     };
 }
@@ -48,10 +54,6 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
     }
 
     try {
-        self.postMessage({
-            id: request.id,
-            started: true,
-        } satisfies TBrowserSearchWorkerResponse);
         const data = handleMatchPageTextRequest(request);
         const response = {
             id: request.id,

@@ -3,6 +3,7 @@ import type {
     Page,
 } from 'puppeteer-core';
 import {resolve} from 'node:path';
+import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { delay } from 'es-toolkit/promise';
@@ -430,14 +431,6 @@ async function openPathInApp(
     let openTriggered = false;
     let openBaselineEventId = 0;
 
-    try {
-        await waitForActiveDocumentSource(page, sourcePath, 300);
-        await waitForLoaded(page, timeoutMs);
-        return;
-    } catch {
-        // The requested document is not already active; proceed with a new open transaction.
-    }
-
     while (Date.now() - startedAt < timeoutMs) {
         const remainingMs = Math.max(1_000, timeoutMs - (Date.now() - startedAt));
 
@@ -448,10 +441,29 @@ async function openPathInApp(
                 await waitForFunctionInPage(page, () => {
                     const api = (window as IE2EWindow).__evbTestApi;
                     const activeTabId = api?.getActiveTabId?.();
+                    const transitioningChassis = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-chassis-resizing="true"]');
                     return api?.isStartupOpenClaimPending?.() === false
+                        && !transitioningChassis
                         && typeof activeTabId === 'string'
                         && activeTabId.length > 0;
                 }, {timeout: remainingMs});
+                // The app keys native documents by their canonical file lookup,
+                // while a closing workspace can outlive its tab in the renderer.
+                const activeSource = await evaluateInPage(page, () => {
+                    const api = (window as IE2EWindow).__evbTestApi;
+                    const tabId = api?.getActiveTabId();
+                    const tab = document.querySelector<HTMLElement>('.editor-pane.is-active .tab.is-active[data-tab-id]');
+                    const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                    if (!tabId || tab?.dataset.tabId !== tabId || host?.dataset.workspaceTabId !== tabId
+                        || api?.getActiveToolbarSnapshot()?.viewerCapabilities.closeableDocument !== true) {
+                        return null;
+                    }
+                    return api.readActiveWorkspaceStateValues<{originalPath: string | null}>(['originalPath']).originalPath;
+                });
+                if (activeSource && normalizePathForLookup(activeSource) === normalizePathForLookup(sourcePath)) {
+                    await waitForLoaded(page, remainingMs);
+                    return;
+                }
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await dispatchDocumentOpenOnce(async () => {
                     return evaluateInPage(page, async (path: string) => {
@@ -575,6 +587,22 @@ export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFA
 
 export async function openDjvuInApp(page: Page, djvuPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await openPathInApp(page, djvuPath, waitForDjvuLoaded, timeoutMs);
+}
+
+export async function setRememberPlaceAsUser(session: IElectronE2ESession, enabled: boolean) {
+    const previousTabId = await session.page.$eval('.editor-pane.is-active .tab.is-active', element => (element as HTMLElement).dataset.tabId!);
+    await clickAsUser(session.page, 'button[aria-label="Settings"]');
+    await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
+    const checked = await session.page.$eval('#settings-remember-document-view', element => element.getAttribute('aria-checked') === 'true');
+    if (checked !== enabled) {
+        await clickAsUser(session.page, '#settings-remember-document-view');
+    }
+    await waitForFunctionInPage(session.page, async (expected: boolean) => {
+        const api = (window as IE2EWindow).electronAPI;
+        return (await api?.settings.get())?.rememberDocumentView === expected;
+    }, {timeout: 15_000}, enabled);
+    await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
+    await clickAsUser(session.page, `.tab[data-tab-id="${previousTabId}"]`);
 }
 
 export async function setTabMemoryPolicyForE2E(

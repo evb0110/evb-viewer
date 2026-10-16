@@ -109,6 +109,10 @@ async function mountTree(state: IBookmarkTreeHarnessState) {
         }),
     })}));
     app.component('UIcon', IconStub);
+    app.component('AppTooltip', defineComponent({
+        inheritAttrs: false,
+        setup: (_props, {slots}) => () => slots.default?.(),
+    }));
     app.mount(host);
     // useVirtualList fills its rendered window from a pre-flush watch that
     // fires after the container ref binds, so rows exist only after a tick.

@@ -57,6 +57,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                         .ok_or("Missing --identity-bindings-file value")?,
                 ))
             }
+            "--password-file" if command != "decrypt" => {
+                return Err("--password-file is only valid for decrypt".into());
+            }
             "--password-file" => {
                 password_file = Some(PathBuf::from(
                     args.next().ok_or("Missing --password-file value")?,
@@ -135,19 +138,12 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         return Err("--metadata-only is only valid for page-sizes".into());
     }
 
-    if append_in_place && !append {
-        return Err("--append-in-place requires --append".into());
-    }
-    if append_in_place && command != "save-mutations" {
-        return Err("--append-in-place is only valid for native mutation saves".into());
+    if append_in_place && (!append || command != "save-mutations") {
+        return Err("--append-in-place requires --append on save-mutations".into());
     }
 
     if identity_bindings_file.is_some() && command != "save-mutations" {
         return Err("--identity-bindings-file is only valid for save-mutations".into());
-    }
-
-    if password_file.is_some() && command != "decrypt" {
-        return Err("--password-file is only valid for decrypt".into());
     }
 
     let operation = match command.as_str() {
@@ -197,8 +193,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
         "read-catalog" => Operation::ReadCatalog,
+        "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
+        "print-layout" if pages_file.is_some() => {
+            return Err("--pages-file is not valid for print-layout".into());
+        }
         "print-layout" => Operation::PrintLayout {
-            pages_file,
             view_mode: view_mode.ok_or("Missing --view-mode value")?,
             orientation: orientation.ok_or("Missing --orientation value")?,
         },
@@ -212,6 +211,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             | Operation::PdfConformance
             | Operation::AppendAdmission
             | Operation::ReadCatalog
+            | Operation::ReadDocumentCatalog(..)
     );
     if prints_result && output_path.is_some() {
         return Err(format!("{command} prints its result on stdout and takes no --output").into());

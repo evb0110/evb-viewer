@@ -41,7 +41,7 @@ async function applySettingsSavePatch(
     diagnosticsConsentRevision: number | undefined,
 ) {
     let shouldShutdownAssistant = false as boolean;
-    const savedSettings = await updateSettings((currentSettings: ISettingsData) => {
+    await updateSettings((currentSettings: ISettingsData) => {
         const incoming = sanitizeSettings({
             ...currentSettings,
             ...settingsPayload,
@@ -54,7 +54,7 @@ async function applySettingsSavePatch(
     if (shouldShutdownAssistant) {
         await shutdownAssistant();
     }
-    await setElectronLocale(savedSettings.locale);
+    await setElectronLocale((await loadSettings()).locale);
     updateRecentFilesMenu();
 }
 

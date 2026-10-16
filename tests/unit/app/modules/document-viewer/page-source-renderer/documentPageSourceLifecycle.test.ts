@@ -13,8 +13,18 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     createDocumentPageSourceLifecycle,
+    openDocumentPageSource,
     type IDocumentPageSourceTransition,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
+import type {
+    IDocumentPageSource,
+    IDocumentSourceCapabilities,
+} from '@app/modules/document-viewer/source/documentPageSource';
+import { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
+import { cast } from '@tests/helpers/cast';
+
+const createPreview = vi.hoisted(() => vi.fn());
+vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath: createPreview}));
 
 const documentRef = '/documents/scan.djvu' as TDocumentRef;
 const revision = (value: string) => value as TDocumentRevisionToken;
@@ -45,6 +55,52 @@ function createHarness() {
 }
 
 describe('document page-source lifecycle', () => {
+    it.each([
+        false,
+        true,
+    ])('advertises only executable search with indexed provider=%s', async (indexed) => {
+        createPreview.mockResolvedValue({
+            getPageSizes: async () => [{
+                width: 600,
+                height: 800,
+            }],
+            getPageText: async () => 'Searchable text',
+            ...(indexed ? {searchText: vi.fn()} : {}),
+            terminate: vi.fn(),
+        });
+        let current = true;
+        let source: IDocumentPageSource | null = null;
+        let capabilities: IDocumentSourceCapabilities | null = null;
+        await openDocumentPageSource({
+            kind: 'open',
+            fence: {
+                src: documentRef,
+                loadGeneration: 1,
+                openSurfaceGeneration: null,
+                documentRevision: 'revision-a',
+            },
+            isCurrent: () => current,
+        }, cast<Parameters<typeof openDocumentPageSource>[1]>({
+            chassisAuthority: null,
+            readCurrentPage: () => 1,
+            setSource: (next: IDocumentPageSource) => {source = next;},
+            emit: (event: string, value: IDocumentSourceCapabilities) => {
+                if (event === 'update:sourceCapabilities') {
+                    capabilities = value;
+                    current = false;
+                }
+            },
+            surfaceBudget: {releaseScope: vi.fn()},
+            loadController: new AbortController(),
+        }));
+        expect(capabilities).toMatchObject({
+            text: true,
+            search: indexed,
+        });
+        expect(Boolean(createDocumentPageSourceSearchBackend(source))).toBe(indexed);
+        cast<IDocumentPageSource | null>(source)?.dispose();
+    });
+
     it('reloads a same-src revision with a new immutable four-coordinate fence', async () => {
         const harness = createHarness();
         const transitions: IDocumentPageSourceTransition[] = [];

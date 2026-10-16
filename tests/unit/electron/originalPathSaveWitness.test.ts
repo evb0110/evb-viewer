@@ -1,7 +1,11 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 
 import {
+    chmod,
+    link,
     mkdtemp,
+    open,
+    readFile,
     rm,
     stat,
     symlink,
@@ -25,8 +29,12 @@ import type * as ReadFileChunk from '@electron/file-access/readFileChunk';
 
 const mocks = vi.hoisted(() => ({
     getWorkingCopyOriginalFileExpectation: vi.fn(),
+    identityChurnPath: '',
+    identityStats: 0,
     mutateDuringWitnessPath: '',
     mutateDuringWitnessReplacementPath: '',
+    mutateDuringWitnessByte: -1,
+    mutateDuringWitnessCtime: null as bigint | null,
     mutatePostHashStatPath: '',
     postHashStatCalls: 0,
     witnessReads: 0,
@@ -36,8 +44,31 @@ vi.mock('node:fs/promises', async importOriginal => {
     const original = await importOriginal<typeof FsPromises>();
     return {
         ...original,
+        stat: async (...args: Parameters<typeof original.stat>) => {
+            const fileStat = await original.stat(...args);
+            if (String(args[0]) !== mocks.identityChurnPath) return fileStat;
+            const bigintStat = fileStat as BigIntStats;
+            const sequence = BigInt(++mocks.identityStats);
+            return {
+                ...bigintStat,
+                isFile: () => bigintStat.isFile(),
+                dev: bigintStat.dev + sequence,
+                ino: bigintStat.ino + sequence,
+            };
+        },
         lstat: async (...args: Parameters<typeof original.lstat>) => {
             const fileStat = await original.lstat(...args);
+            if (String(args[0]) === mocks.identityChurnPath) {
+                const bigintStat = fileStat as BigIntStats;
+                const sequence = BigInt(++mocks.identityStats);
+                return {
+                    ...bigintStat,
+                    isFile: () => bigintStat.isFile(),
+                    dev: bigintStat.dev + sequence,
+                    ino: bigintStat.ino + sequence,
+                };
+            }
+
             if (String(args[0]) === mocks.mutatePostHashStatPath && ++mocks.postHashStatCalls === 2) {
                 const bigintStat = fileStat as BigIntStats;
                 return {
@@ -46,6 +77,10 @@ vi.mock('node:fs/promises', async importOriginal => {
                     ctimeNs: bigintStat.ctimeNs + 1n,
                     mtimeNs: bigintStat.mtimeNs + 1n,
                 };
+            }
+            if (String(args[0]) === mocks.mutateDuringWitnessPath && mocks.mutateDuringWitnessCtime !== null) {
+                const bigintStat = fileStat as BigIntStats;
+                return Object.assign(Object.create(Object.getPrototypeOf(bigintStat)), bigintStat, {ctimeNs: mocks.mutateDuringWitnessCtime});
             }
             return fileStat;
         },
@@ -58,7 +93,11 @@ vi.mock('@electron/file-access/readFileChunk', async importOriginal => {
     return {readFileChunk: async (...args: Parameters<typeof original.readFileChunk>) => {
         const bytesRead = await original.readFileChunk(...args);
         if (args[0] === mocks.mutateDuringWitnessPath && ++mocks.witnessReads === 2) {
-            await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+            const fileStat = await fs.stat(args[0]);
+            const bytes = await fs.readFile(args[0]);
+            if (mocks.mutateDuringWitnessByte >= 0) bytes[mocks.mutateDuringWitnessByte] = 8;
+            await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, bytes);
+            await fs.utimes(mocks.mutateDuringWitnessReplacementPath, fileStat.atime, fileStat.mtime);
             await fs.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
         }
         return bytesRead;
@@ -73,13 +112,17 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
 const {
     captureOpenSourceWitness,
     captureOriginalPathSaveWitness,
-    OriginalPathSaveConflictError,
     originalPathSaveBaseMatches,
 } = await import('@electron/file-access/originalPathSaveWitness');
+const {
+    hashContentFingerprintFilePath,
+    OriginalPathSaveConflictError,
+} = await import('@electron/file-access/originalPathSnapshot');
 
-async function captureExpectation(path: string) {
+async function captureExpectation(path: string, fullProof = process.platform === 'win32') {
     const fileStat = await stat(path, {bigint: true});
     return {
+        ...(fullProof ? {contentFingerprint: await hashContentFingerprintFilePath(path, fileStat.size)} : {}),
         ctimeNs: fileStat.ctimeNs.toString(),
         deviceId: fileStat.dev.toString(),
         inode: fileStat.ino.toString(),
@@ -94,7 +137,11 @@ describe('originalPathSaveBaseMatches', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        mocks.identityChurnPath = '';
+        mocks.identityStats = 0;
         mocks.mutateDuringWitnessPath = '';
+        mocks.mutateDuringWitnessByte = -1;
+        mocks.mutateDuringWitnessCtime = null;
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
         mocks.postHashStatCalls = 0;
@@ -109,12 +156,47 @@ describe('originalPathSaveBaseMatches', () => {
         });
     });
 
-    it('matches an unchanged original from its stat witness', async () => {
+    it('matches an unchanged original from its platform admission witness', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         await writeFile(originalPath, Buffer.from('base'));
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
 
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+    });
+
+    it.each([
+        'unchanged',
+        'changed',
+        'missing-baseline',
+    ])('requires admitted content proof for identity-only churn: %s', async (scenario) => {
+        const originalPath = join(tempDir, 'network-original.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
+        const expected = await captureExpectation(originalPath, false);
+        const contentFingerprint = await hashContentFingerprintFilePath(originalPath, BigInt(expected.size));
+        if (scenario === 'changed') {
+            const handle = await open(originalPath, 'r+');
+            await handle.write('EXTERNAL-EDIT', 262144);
+            await handle.close();
+        }
+        // A remote filesystem can return stale content timestamps and changing
+        // client-generated inode numbers. The admitted full bytes remain the oracle.
+        const current = await captureExpectation(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            ctimeNs: current.ctimeNs,
+            mtimeNs: current.mtimeNs,
+            mtimeMs: current.mtimeMs,
+            ...(scenario === 'missing-baseline' ? {} : {contentFingerprint}),
+        });
+        mocks.identityChurnPath = originalPath;
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        // Windows requires stable identity throughout its fresh capture.
+        expect(witness !== null).toBe(scenario === 'unchanged' && process.platform !== 'win32');
+        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12))
+            .resolves.toBe(scenario === 'unchanged');
+        if (witness) {
+            await expect(witness.assertCurrent()).resolves.toBeUndefined();
+        }
     });
 
     it('rejects a same-size edit even when its mtime is restored', async () => {
@@ -180,29 +262,41 @@ describe('originalPathSaveBaseMatches', () => {
             .resolves.toBeNull();
     });
 
-    it('rejects an identical replacement when it changes during the save comparison', async () => {
+    it.each([
+        false,
+        true,
+    ])(`checks replacements during ${process.platform === 'win32' ? 'fresh capture' : 'admitted comparison'}, edited=%s`, async edited => {
         const originalPath = join(tempDir, 'original.pdf');
-        const bytes = Buffer.from('base');
+        const bytes = Buffer.alloc(256 * 1024, 7);
         await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
         const expected = await captureExpectation(originalPath);
-        const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
-        hash.update(bytes);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
             ...expected,
-            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+            // Force the full read deterministically, independent of the clock tick.
+            ctimeNs: (BigInt(expected.ctimeNs) - 1n).toString(),
+            contentFingerprint: await hashContentFingerprintFilePath(originalPath, BigInt(bytes.length)),
         });
         mocks.mutateDuringWitnessPath = originalPath;
         mocks.mutateDuringWitnessReplacementPath = join(tempDir, 'during-comparison.pdf');
+        mocks.mutateDuringWitnessByte = edited ? 70_000 : -1;
+        mocks.mutateDuringWitnessCtime = process.platform === 'win32' ? null : BigInt(expected.ctimeNs);
 
-        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
-            .resolves.toBeNull();
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect((await stat(originalPath, {bigint: true})).ino).not.toBe(BigInt(expected.inode));
+        if (edited || process.platform === 'win32') expect(witness).toBeNull();
+        else {
+            expect(witness).not.toBeNull();
+            await expect(witness!.assertCurrent()).resolves.toBeUndefined();
+            expect((await readFile(originalPath)).equals(bytes)).toBe(true);
+        }
     });
 
     it('rejects an identical replacement when the full baseline is not available', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         const replacementPath = join(tempDir, 'replacement.pdf');
         await writeFile(originalPath, Buffer.from('base'));
-        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath, false));
         await writeFile(replacementPath, Buffer.from('base'));
         await rm(originalPath);
         const {rename} = await import('fs/promises');
@@ -265,7 +359,7 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('rejects a Windows content change before admitting a transaction witness', async () => {
+    it('admits a complete Windows identity without reading and keeps an edit it hides', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
@@ -280,20 +374,57 @@ describe('originalPathSaveBaseMatches', () => {
 
             const changedBytes = Buffer.from(originalBytes);
             changedBytes[70_000] = 8;
+            // An edit in the registration's NTFS clock tick leaves file ID, size, mtime and ctime as registered.
             await writeFile(originalPath, changedBytes);
-            const changedStat = await stat(originalPath, {bigint: true});
-            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            const registeredStat = await stat(originalPath, {bigint: true});
+            const expected = {
                 contentFingerprint: originalFingerprint,
-                ctimeNs: changedStat.ctimeNs.toString(),
-                deviceId: changedStat.dev.toString(),
-                inode: changedStat.ino.toString(),
-                mtimeMs: Number(changedStat.mtimeNs) / 1_000_000,
-                mtimeNs: changedStat.mtimeNs.toString(),
-                size: Number(changedStat.size),
+                ctimeNs: registeredStat.ctimeNs.toString(),
+                deviceId: registeredStat.dev.toString(),
+                inode: registeredStat.ino.toString(),
+                mtimeMs: Number(registeredStat.mtimeNs) / 1_000_000,
+                mtimeNs: registeredStat.mtimeNs.toString(),
+                size: Number(registeredStat.size),
+            };
+            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(expected);
+            const workingPath = join(tempDir, 'working.pdf');
+            const stagedPath = join(tempDir, 'staged.pdf');
+            await writeFile(workingPath, 'ACCEPTED');
+            await writeFile(stagedPath, 'EVB-PUBLISHED');
+            const {
+                setWorkingCopyOriginalPath, clearWorkingCopyOriginalPaths,
+            } = await import('@electron/file-access/workingCopyStore');
+            const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSnapshot');
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 12, {
+                backingState: 'eager',
+                deferOriginalFileExpectation: true,
+                originalFileExpectation: expected,
             });
-
-            await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
-                .resolves.toBeNull();
+            await ensureWorkingCopyRevision(workingPath, 12);
+            try {
+                const outcome: unknown = await transitionOriginalAndWorkingCopyRevision({
+                    workingCopyPath: workingPath,
+                    originalPath,
+                    stagePublication: () => Promise.resolve({path: stagedPath}),
+                    senderId: 12,
+                    reason: 'save-sync',
+                    captureOriginalWitness: () => captureOriginalPathSaveWitness(workingPath, originalPath, 12),
+                    publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(stagedPath, originalPath, {
+                        assertDestinationCurrent,
+                        destinationBackupPath,
+                    }),
+                }).catch((error: unknown) => error);
+                expect(outcome).toBeInstanceOf(OriginalPathSaveConflictError);
+                if (!(outcome instanceof OriginalPathSaveConflictError) || !outcome.keptFilePath) throw new Error('Save did not report the kept external version');
+                await expect(readFile(outcome.keptFilePath)).resolves.toEqual(changedBytes);
+                await expect(readFile(originalPath, 'utf8')).resolves.toBe('EVB-PUBLISHED');
+                await expect(readFile(workingPath, 'utf8')).resolves.toBe('ACCEPTED');
+            } finally {
+                clearWorkingCopyOriginalPaths();
+            }
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,
@@ -367,22 +498,29 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('keeps legacy size and mtime expectations compatible on Windows without reading bytes', async () => {
+    it('refuses a legacy Windows baseline that cannot distinguish an interior edit', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
             value: 'win32',
         });
         const originalPath = join(tempDir, 'original.pdf');
-        await writeFile(originalPath, Buffer.from('base'));
+        const bytes = Buffer.alloc(256 * 1024, 7);
+        await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
         const fileStat = await stat(originalPath);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
             mtimeMs: fileStat.mtimeMs,
             size: fileStat.size,
         });
 
+        bytes[70_000] = 8;
+        await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
         try {
-            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+            await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12)).resolves.toBeNull();
+            expect((await readFile(originalPath)).equals(bytes)).toBe(true);
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,
@@ -416,7 +554,7 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('accepts sub-millisecond rounding in a legacy mtime witness', async () => {
+    it('refuses a rounded legacy Windows timestamp without historical content proof', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
@@ -431,7 +569,7 @@ describe('originalPathSaveBaseMatches', () => {
         });
 
         try {
-            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,
@@ -459,11 +597,110 @@ describe('originalPathSaveBaseMatches', () => {
     });
 });
 
+describe('captureOriginalPathSaveWitness rebase', () => {
+    let tempDir = '';
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        tempDir = await mkdtemp(join(tmpdir(), 'save-witness-rebase-test-'));
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('refuses an unsampled in-place edit whose mtime was restored when the saved original is rebased', async () => {
+        const originalPath = join(tempDir, 'unsampled-edit.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
+        const wholeSecond = Math.floor(Number((await stat(originalPath, {bigint: true})).mtimeNs) / 1e9);
+        await utimes(originalPath, wholeSecond, wholeSecond);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+
+        // Offset 262144 lies outside the head, middle and tail samples.
+        const handle = await open(originalPath, 'r+');
+        await handle.write('EXTERNAL-EDIT', 262144);
+        await handle.close();
+        await utimes(originalPath, wholeSecond, wholeSecond);
+
+        await expect(witness!.assertCurrent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+        await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it.each([
+        'before-link',
+        'after-link',
+    ])('refuses an unsampled external edit %s with restored mtime', async (changeAt) => {
+        const originalPath = join(tempDir, `unsampled-${changeAt}.pdf`);
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
+        await utimes(originalPath, 1700000000, 1700000000);
+        const expected = await captureExpectation(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            contentFingerprint: await hashContentFingerprintFilePath(originalPath, BigInt(expected.size)),
+        });
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+        await witness!.assertCurrent();
+        const edit = async () => {
+            const handle = await open(originalPath, 'r+');
+            await handle.write('EXTERNAL-EDIT', 262144);
+            await handle.close();
+            await utimes(originalPath, 1700000000, 1700000000);
+        };
+        if (changeAt === 'before-link') {
+            await edit();
+        }
+        await link(originalPath, join(tempDir, 'backup.pdf'));
+        if (changeAt === 'after-link') {
+            await edit();
+        }
+
+        await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+        const {readFile} = await import('fs/promises');
+        expect((await readFile(originalPath)).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
+    });
+
+    it('rebases over the save\'s own backup link when the admitted content still matches', async () => {
+        const originalPath = join(tempDir, 'metadata-only.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 66));
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+
+        await link(originalPath, join(tempDir, 'backup.pdf'));
+        await chmod(originalPath, 0o600);
+
+        await expect(witness!.rebaseOnUnchangedContent()).resolves.toBeUndefined();
+        await expect(witness!.assertCurrent()).resolves.toBeUndefined();
+    });
+
+    it('refuses a metadata-only change that is not the backup link', async () => {
+        const originalPath = join(tempDir, 'metadata-only-no-link.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 67));
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+
+        await utimes(originalPath, 1700000000, 1700000000);
+
+        await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+});
+
 describe('captureOpenSourceWitness', () => {
     let tempDir = '';
 
     beforeEach(async () => {
+        mocks.identityChurnPath = '';
+        mocks.identityStats = 0;
         mocks.mutateDuringWitnessPath = '';
+        mocks.mutateDuringWitnessByte = -1;
+        mocks.mutateDuringWitnessCtime = null;
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
         mocks.postHashStatCalls = 0;
@@ -483,6 +720,51 @@ describe('captureOpenSourceWitness', () => {
 
         expect(error).toMatchObject({code: 'ENOENT'});
         expect(error).not.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it('refuses an unsampled in-place edit whose mtime was restored when an open has no copy proof', async () => {
+        const originalPath = join(tempDir, 'open-unsampled-edit.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 68));
+        const wholeSecond = Math.floor(Number((await stat(originalPath, {bigint: true})).mtimeNs) / 1e9);
+        await utimes(originalPath, wholeSecond, wholeSecond);
+        const witness = await captureOpenSourceWitness(originalPath);
+        // NTFS can report a change in the same ctime tick as the capture; edit only once the folder's clock moved past it.
+        const capturedCtimeNs = (await stat(originalPath, {bigint: true})).ctimeNs;
+        const scratchPath = join(tempDir, 'ctime-scratch');
+        do {
+            await writeFile(scratchPath, 'tick');
+        } while ((await stat(scratchPath, {bigint: true})).ctimeNs <= capturedCtimeNs);
+
+        // Offset 262144 lies outside the head, middle and tail samples.
+        const handle = await open(originalPath, 'r+');
+        await handle.write('EXTERNAL-EDIT', 262144);
+        await handle.close();
+        await utimes(originalPath, wholeSecond, wholeSecond);
+
+        await expect(witness.rebaseOnUnchangedContent({
+            kind: 'open-copy',
+            source: null,
+        }))
+            .rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it('accepts a metadata-only move of an open when the copy hashed the same bytes', async () => {
+        const originalPath = join(tempDir, 'open-metadata-only.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 69));
+        const witness = await captureOpenSourceWitness(originalPath);
+        const contentFingerprint = await hashContentFingerprintFilePath(originalPath, BigInt(1024 * 1024));
+
+        await chmod(originalPath, 0o600);
+
+        await expect(witness.rebaseOnUnchangedContent({
+            kind: 'open-copy',
+            source: {contentFingerprint},
+        }))
+            .resolves.toBeUndefined();
+        await expect(witness.rebaseOnUnchangedContent({
+            kind: 'open-copy',
+            source: null,
+        })).resolves.toBeUndefined();
     });
 
     it('reports a source swapped while witnessing as a conflict', async () => {

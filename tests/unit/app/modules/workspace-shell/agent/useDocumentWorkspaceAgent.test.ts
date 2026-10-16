@@ -348,6 +348,45 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(handleQuickNoteAction).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+        {
+            style: 'A',
+            startNumber: 1_000_000_000,
+            admitted: 104,
+        },
+        {
+            style: 'r',
+            startNumber: 10_000,
+            admitted: 3999,
+        },
+        {
+            style: 'D',
+            startNumber: 7.8,
+            admitted: 7,
+        },
+        {
+            style: 'D',
+            startNumber: 1e21,
+            admitted: Number.MAX_SAFE_INTEGER,
+        },
+    ])('admits the same numbering through apply_range and apply_plan: $style $startNumber', async ({
+        style, startNumber, admitted,
+    }) => {
+        const options = createAgentOptions();
+        const agent = createDocumentWorkspaceAgent(options);
+        const input = {
+            startPage: 1,
+            endPage: 1,
+            style,
+            startNumber,
+        };
+        await agent.runAgentAction('page_labels.apply_range', input);
+        const applied = options.pageLabelRanges.value.map(range => ({...range}));
+        expect(applied[0]?.startNumber).toBe(admitted);
+        await agent.runAgentAction('page_labels.apply_plan', {segments: [input]});
+        expect(options.pageLabelRanges.value).toEqual(applied);
+    });
+
     it('keeps primary renderer action handlers aligned with advertised capabilities', () => {
         const advertisedRendererActionIds = AGENT_CAPABILITY_TEMPLATES
             .map(template => template.id)
@@ -702,6 +741,111 @@ describe('createDocumentWorkspaceAgent', () => {
             dirty: true,
             history: 'record',
         }));
+    });
+
+    it('keeps the source destination through rename and clears it for a complete explicit page target', async () => {
+        const originalDestination = {
+            kind: 'FitH' as const,
+            sourceTarget: {
+                num: 17,
+                gen: 0,
+            },
+            coordinates: [null],
+        };
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            title: 'Original',
+            pageIndex: null,
+            namedDest: null,
+            originalDestination,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            title: 'Renamed',
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toEqual(originalDestination);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            pageYRatio: 0.25,
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toEqual(originalDestination);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            page: 2,
+            pageYRatio: 0.25,
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            title: 'Renamed',
+            pageIndex: 1,
+            pageYRatio: 0.25,
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toBeUndefined();
+    });
+
+    it('replaces a resolved named target with an explicitly accepted page position', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Named'),
+            pageIndex: requirePageIndex(0),
+            pageYRatio: 0.25,
+            namedDest: 'chapter-two',
+        }]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            pageYRatio: 0.5,
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            namedDest: null,
+            pageIndex: 0,
+            pageYRatio: 0.5,
+        });
+    });
+
+    it.each([
+        'namedDest',
+        'dest',
+    ])('replaces a resolved imported target with %s and removes its page projection', async (key) => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Imported'),
+            pageIndex: requirePageIndex(0),
+            pageYRatio: 0.25,
+            originalDestination: {
+                kind: 'FitH',
+                sourceTarget: 0,
+                coordinates: [null],
+            },
+        }]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            [key]: 'chapter-two',
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            namedDest: 'chapter-two',
+            pageIndex: null,
+            pageYRatio: null,
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toBeUndefined();
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            page: 2,
+            pageYRatio: 0.5,
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            namedDest: null,
+            pageIndex: 1,
+            pageYRatio: 0.5,
+        });
     });
 
     it('adds nested bookmarks with children aliases and pageYRatio anchors', async () => {

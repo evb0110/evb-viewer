@@ -741,10 +741,10 @@ describe('main process termination signals', () => {
             setMainDiagnosticsPreference: vi.fn(),
         }));
         vi.doMock('@electron/utils/appTempDir', () => ({
-            cleanupStaleAppTempNamespaces: vi.fn(),
             getAppTempDir: vi.fn(),
             initializeAppTempNamespace: vi.fn(),
         }));
+        vi.doMock('@electron/utils/cleanupStaleAppTempNamespaces', () => ({cleanupStaleAppTempNamespaces: vi.fn()}));
         vi.doMock('@electron/updates', () => ({
             configureUpdateInstallShutdown: vi.fn(),
             initializeUpdates: vi.fn(),
@@ -797,6 +797,7 @@ describe('main process termination signals', () => {
                 '@electron/utils/createLogger',
                 '@electron/features/diagnostics/public',
                 '@electron/utils/appTempDir',
+                '@electron/utils/cleanupStaleAppTempNamespaces',
                 '@electron/updates',
                 '@electron/platform-ipc/registerIpcHandlers',
                 '@electron/bootstrap/requestShutdownSaveFlush',

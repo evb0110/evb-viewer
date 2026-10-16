@@ -1,30 +1,168 @@
 import {
-    describe, it,
+    readFile, writeFile,
+} from 'node:fs/promises';
+import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    describe, expect, it,
 } from 'vitest';
-import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {readFileSync} from 'node:fs';
+import {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFName,
+    PDFNumber,
+    PDFRef,
+    PDFString,
+} from 'pdf-lib';
+import {
+    createMultiPageTextFixturePdf,
+    createPageLabelRangesFixturePdf,
+    readPdfCatalogWithPdfjs,
+} from '@tests/e2e/electron/helpers/fixtures';
+import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
+    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, waitForPdfLoaded,
+    waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {getPageLabelStartNumberMax} from '@app/modules/document-viewer/pageLabels';
+import type {Page} from 'puppeteer-core';
 
 const PAGES_PANEL = '.workspace-host[data-workspace-active="true"]';
 
 describe('Electron E2E - page numbering start limit', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-page-start-limit-${Date.now()}`});
 
+    it('deletes pages with recoverable page-label trees and preserves the labels PDF.js displays', async () => {
+        const {page} = sessions.getSession();
+        for (const variant of [
+            'duplicates',
+            'dangling-kids',
+            'empty',
+        ] as const) {
+            const fixture = await createMultiPageTextFixturePdf(`label-tree-${variant}-${Date.now()}.pdf`, 3);
+            const pdf = await PDFDocument.load(await readFile(fixture));
+            const {context} = pdf;
+            const label = context.obj({
+                S: 'r',
+                P: PDFString.of('x-'),
+            });
+            const deep = context.register(context.obj({Nums: [
+                0,
+                label,
+            ]}));
+            const tree = variant === 'duplicates'
+                ? context.obj({Nums: [
+                    0,
+                    {S: 'D'},
+                    0,
+                    5,
+                    0,
+                    label,
+                ]})
+                : variant === 'empty'
+                    ? context.obj({Nums: []})
+                    : context.obj({Kids: [
+                        context.register(context.obj({
+                            Kids: [deep],
+                            Nums: [
+                                0,
+                                5,
+                            ],
+                        })),
+                        context.register(context.obj({Nums: [
+                            0,
+                            {S: 'D'},
+                        ]})),
+                        PDFRef.of(999_999),
+                        context.register(PDFNumber.of(5)),
+                        context.register(context.obj({Nums: []})),
+                    ]});
+            pdf.catalog.set(PDFName.of('PageLabels'), tree);
+            await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+            const before = (await readPdfCatalogWithPdfjs(fixture)).pageLabels;
+            expect(before).toEqual(variant === 'empty' ? [
+                '',
+                '',
+                '',
+            ] : [
+                'x-i',
+                'x-ii',
+                'x-iii',
+            ]);
+            await openPdfInApp(page, fixture);
+            await waitForPdfLoaded(page);
+            await openDocumentSidebarTab(page, 'Pages');
+            const renderedLabels = () => page.$$eval('.editor-pane.is-active [data-document-thumbnail-label]',
+                nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            // The native read finishes before page operations can proceed. The
+            // action below must still succeed when that read sees a broken tree.
+            await goToPageViaToolbar(page, 3);
+            await waitForToolbarCurrentPage(page, 3);
+            const labelsBefore = await renderedLabels();
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(element => element.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
+            await expect.poll(() => page.$eval('.page-controls-total', node => node.textContent?.trim()),
+                {timeout: 15_000}).toBe('2');
+            expect(labelsBefore).toEqual(before?.map((label, index) => label ? `${label} (${index + 1})` : String(index + 1)));
+            const workingCopy = await getActiveWorkspaceWorkingCopyPath(page);
+            const after = (await readPdfCatalogWithPdfjs(workingCopy)).pageLabels;
+            const retainedLabels = variant === 'empty' ? [
+                '1',
+                '3',
+            ] : [
+                'x-i',
+                'x-iii',
+            ];
+            expect(after).toEqual(retainedLabels);
+            await expect.poll(renderedLabels, {timeout: 15_000})
+                .toEqual(variant === 'empty' ? [
+                    '1',
+                    '3 (2)',
+                ] : [
+                    'x-i (1)',
+                    'x-iii (2)',
+                ]);
+            await saveViaVisibleToolbar(page, 30_000, fixture);
+            expect((await readPdfCatalogWithPdfjs(fixture)).pageLabels).toEqual(retainedLabels);
+        }
+    }, 180_000);
+
+    it('opens huge imported alphabetic labels without formatting the dense PDF.js label', async () => {
+        const {page} = sessions.getSession();
+        const fixture = await createMultiPageTextFixturePdf(`imported-label-${Date.now()}.pdf`, 1);
+        const document = await PDFDocument.load(await readFile(fixture));
+        document.catalog.set(PDFName.of('PageLabels'), document.context.obj({Nums: [
+            0,
+            {
+                S: PDFName.of('A'),
+                P: PDFString.of('Imported-'),
+                St: 1_000_000_000,
+            },
+        ]}));
+        await writeFile(fixture, await document.save());
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await expect.poll(async () => (await readWorkspaceStateValues<{pageLabelsResolved: boolean}>(page, ['pageLabelsResolved'])).pageLabelsResolved,
+            {timeout: 15_000}).toBe(true);
+        expect((await readToolbarPageIndicator(page)).primaryText?.startsWith('Imported-')).toBe(true);
+        await openDocumentSidebarTab(page, 'Pages');
+        await goToPageViaToolbar(page, 1);
+        await waitForToolbarCurrentPage(page, 1);
+    }, 90_000);
+
     it('corrects a letter-style start value too large to print and keeps the document usable', async () => {
         const {page} = sessions.getSession();
         const fixture = await createMultiPageTextFixturePdf(`page-start-limit-${Date.now()}.pdf`, 3);
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
-        await openDocumentSidebarTab(page, 'Pages');
-        const disclosure = `${PAGES_PANEL} .pdf-sidebar-pages-disclosure`;
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
-            await clickAsUser(page, disclosure);
-        }
+        await openPagesPanel(page);
         await clickAsUser(page, '#page-label-style-input');
         await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
             .find(option => option.textContent?.trim() === label), 'Letters (A, B)', {description: 'Letters numbering style'});
@@ -32,13 +170,92 @@ describe('Electron E2E - page numbering start limit', () => {
         await page.keyboard.type('20000000000');
         await page.keyboard.press('Tab');
         await clickAsUser(page, `${PAGES_PANEL} .pdf-sidebar-pages-primary-button`);
-        // The field shows the bounded start, grouped by the locale's separators.
-        await page.waitForFunction(() => {
+        // The field settles on the largest start the page-numbering contract admits for letter style.
+        const bound = String(getPageLabelStartNumberMax('A'));
+        await page.waitForFunction((expected: string) => {
             const field = document.querySelector('#page-label-start-input');
-            const value = (field instanceof HTMLInputElement ? field : field?.querySelector('input'))?.value ?? '';
-            return value.replace(/\D/g, '') === '104';
-        }, {timeout: 15_000});
+            const input = field instanceof HTMLInputElement ? field : field?.querySelector('input');
+            return (input?.value ?? '').replace(/\D/g, '') === expected;
+        }, {timeout: 15_000}, bound);
         await goToPageViaToolbar(page, 2);
         await waitForToolbarCurrentPage(page, 2);
     }, 90_000);
+
+    it('keeps the label of a page the edit did not touch when one page is renumbered and saved', async () => {
+        const {page} = sessions.getSession();
+        const fixture = await createPageLabelRangesFixturePdf(`page-label-untouched-${Date.now()}.pdf`, 150, [{
+            startPage: 1,
+            style: 'A',
+            startNumber: 1,
+        }]);
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openPagesPanel(page);
+        // Page 110 is "FFFFF" and page 111 "GGGGG" before the edit; only page 110 gets a decimal label.
+        await clickAsUser(page, '#page-label-style-input');
+        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+            .find(option => option.textContent?.trim() === label), 'Decimal', {description: 'Decimal numbering style'});
+        await clickAsUser(page, '#page-label-range-input');
+        await page.keyboard.type('110');
+        await expect.poll(() => page.$eval(`${PAGES_PANEL} .pdf-sidebar-pages-primary-button`, button => (button as HTMLButtonElement).disabled), {timeout: 15_000}).toBe(false);
+        // Setup only: the typed range can push Apply below the sidebar's fold; the click itself is still a trusted click.
+        await page.$eval(`${PAGES_PANEL} .pdf-sidebar-pages-primary-button`, button => button.scrollIntoView({block: 'center'}));
+        await clickAsUser(page, `${PAGES_PANEL} .pdf-sidebar-pages-primary-button`);
+        await goToPageViaToolbar(page, 111);
+        await waitForToolbarCurrentPage(page, 111);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000}).toBe('GGGGG');
+        const saved = await saveViaVisibleToolbar(page, 30_000, fixture);
+        expect(saved.detail.path).toBeTruthy();
+        const ranges = await readSavedPageLabelRanges(fixture);
+        expect(ranges.find(range => range.startPage === 111)).toEqual({
+            startPage: 111,
+            style: '/A',
+            startNumber: 111,
+        });
+    }, 90_000);
+
+    it('opens a document whose imported letter start is too large to print and keeps its labels readable', async () => {
+        const {page} = sessions.getSession();
+        const fixture = await createPageLabelRangesFixturePdf(`page-label-huge-import-${Date.now()}.pdf`, 3, [{
+            startPage: 1,
+            style: 'A',
+            startNumber: 1_000_000_000,
+        }]);
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        // 1,000,000,000 is "L" repeated 38,461,539 times; the toolbar shows its bounded head with a visible ellipsis.
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000}).toMatch(/^L+…$/u);
+        await goToPageViaToolbar(page, 2);
+        await waitForToolbarCurrentPage(page, 2);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000}).toMatch(/^M+…$/u);
+    }, 90_000);
 });
+
+async function openPagesPanel(page: Page) {
+    await openDocumentSidebarTab(page, 'Pages');
+    const disclosure = `${PAGES_PANEL} .pdf-sidebar-pages-disclosure`;
+    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        await clickAsUser(page, disclosure);
+    }
+}
+
+/** The saved /PageLabels number tree as (page, style, start) ranges, read back from the written file. */
+async function readSavedPageLabelRanges(filePath: string) {
+    const doc = await PDFDocument.load(readFileSync(filePath));
+    const pageLabels = doc.catalog.lookup(PDFName.of('PageLabels'), PDFDict);
+    const nums = pageLabels.lookup(PDFName.of('Nums'), PDFArray);
+    const ranges: Array<{
+        startPage: number;
+        style: string | null;
+        startNumber: number;
+    }> = [];
+    for (let index = 0; index + 1 < nums.size(); index += 2) {
+        const range = nums.lookup(index + 1, PDFDict);
+        ranges.push({
+            startPage: nums.lookup(index, PDFNumber).asNumber() + 1,
+            style: range.lookupMaybe(PDFName.of('S'), PDFName)?.toString() ?? null,
+            startNumber: range.lookupMaybe(PDFName.of('St'), PDFNumber)?.asNumber() ?? 1,
+        });
+    }
+    return ranges;
+}

@@ -139,7 +139,6 @@ describe('createPdfAnnotationStampImageResolver document ownership', () => {
             numPages: 1,
             getPage: vi.fn(async () => page),
             getPageLabels: vi.fn(),
-            getOutline: vi.fn(),
             getDestination: vi.fn(),
             getPageIndex: vi.fn(),
             cleanup: vi.fn(),

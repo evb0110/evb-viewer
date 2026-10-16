@@ -114,14 +114,12 @@ interface IContextMenuAction {
     command: TTabContextCommand;
 }
 
-interface IContextMenuSection {
-    key: string;
-    actions: IContextMenuAction[];
-}
+interface IContextMenuSection {actions: IContextMenuAction[];}
 
 type TTabContextMenuItem =
     | { type: 'separator' }
     | {
+        'data-tab-command': string;
         label: string;
         icon: string;
         onSelect: () => void;
@@ -386,28 +384,16 @@ const splitActions = computed(() => buildDirectionalActions('split', {
 const menuSections = computed(() => {
     const sections: IContextMenuSection[] = [];
     if (primaryActions.value.length > 0) {
-        sections.push({
-            key: 'primary',
-            actions: primaryActions.value,
-        });
+        sections.push({actions: primaryActions.value});
     }
     if (splitActions.value.length > 0) {
-        sections.push({
-            key: 'split',
-            actions: splitActions.value,
-        });
+        sections.push({actions: splitActions.value});
     }
     if (fileActions.value.length > 0) {
-        sections.push({
-            key: 'file',
-            actions: fileActions.value,
-        });
+        sections.push({actions: fileActions.value});
     }
     if (windowActions.value.length > 0) {
-        sections.push({
-            key: 'window',
-            actions: windowActions.value,
-        });
+        sections.push({actions: windowActions.value});
     }
     return sections;
 });
@@ -420,6 +406,7 @@ const contextMenuItems = computed(() => {
         }
 
         items.push(...section.actions.map(action => ({
+            'data-tab-command': action.key,
             label: action.label,
             icon: action.icon,
             onSelect: () => runContextCommand(action.command),

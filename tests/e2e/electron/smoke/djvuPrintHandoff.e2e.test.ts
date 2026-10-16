@@ -25,7 +25,10 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import { openDjvuInApp } from '@tests/e2e/electron/helpers/viewerCore';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickToolbarButtonWhenEnabled, openDjvuInApp,
+} from '@tests/e2e/electron/helpers/viewerCore';
 
 const execFileAsync = promisify(execFile);
 const PRINT_HANDOFF_TIMEOUT_MS = 240_000;
@@ -166,4 +169,43 @@ runDjvuPrintHandoffOrSkip('Electron E2E - DjVu Print Handoff', () => {
         await renderFirstPdfPage(capturedPdfPath);
         expect(countNonWhitePixels(renderedFirstPagePath)).toBeGreaterThan(500);
     }, PRINT_HANDOFF_TIMEOUT_MS);
+    it('never hands off a native print dialog after Cancel during DjVu preparation', async () => {
+        const session = sessionFixture.getSession();
+        rmSync(capturedPdfPath, {force: true});
+        mkdirSync(smokeDir, {recursive: true});
+        const source = resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu');
+        await openDjvuInApp(session.page, source, DJVU_OPEN_TIMEOUT_MS);
+        await session.page.evaluate(() => {
+            const api = (window as IE2EWindow).electronAPI?.djvu;
+            if (!api) throw new Error('DjVu capability is unavailable');
+            Reflect.set(window, '__core4PrintProgress', null);
+            const stop = api.onProgress(progress => {
+                if (progress.jobId.startsWith('djvu-print-')) Reflect.set(window, '__core4PrintProgress', progress);
+            });
+            Reflect.set(window, '__core4StopPrintProgress', stop);
+        });
+        try {
+            await clickToolbarButtonWhenEnabled(session.page, 'Print');
+            await session.page.waitForSelector('[role="dialog"] input');
+            await clickFoundAsUser(session.page, () => document.querySelector<HTMLInputElement>('[role="dialog"] input[type="text"]'), undefined, {description: 'Print page range'});
+            await session.page.keyboard.type('1-40');
+            await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(button => button.textContent?.trim() === 'Print...') ?? null, undefined, {description: 'Prepare DjVu print'});
+            await session.page.waitForFunction(() => Reflect.get(window, '__core4PrintProgress')?.phase === 'converting', {timeout: 30_000});
+            await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(button => button.textContent?.trim() === 'Cancel') ?? null, undefined, {description: 'Cancel DjVu print preparation'});
+            await session.page.waitForFunction(async () => {
+                const progress = Reflect.get(window, '__core4PrintProgress');
+                const state = await (window as IE2EWindow).electronAPI!.djvu.getJobState(progress.jobId);
+                return state?.status === 'canceled' || state?.status === 'completed' || state?.status === 'failed';
+            }, {timeout: PRINT_HANDOFF_TIMEOUT_MS});
+            const state = await session.page.evaluate(async () => {
+                const progress = Reflect.get(window, '__core4PrintProgress');
+                return (window as IE2EWindow).electronAPI!.djvu.getJobState(progress.jobId);
+            });
+            expect(state?.status).toBe('canceled');
+            expect(existsSync(capturedPdfPath)).toBe(false);
+        } finally {
+            await session.page.evaluate(() => Reflect.get(window, '__core4StopPrintProgress')?.()).catch(() => undefined);
+        }
+    }, PRINT_HANDOFF_TIMEOUT_MS);
+
 });

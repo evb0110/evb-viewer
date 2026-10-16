@@ -10,6 +10,8 @@ import {
     copyFile,
     readdir,
     open,
+    rename,
+    rm,
     stat,
     unlink,
     writeFile,
@@ -769,6 +771,17 @@ function schedulePrintWindowClose(printWindow: BrowserWindow, delayMs = PRINT_JO
     timer.unref();
 }
 
+/** The test output path appears only complete, so a reader never sees a partial PDF. */
+async function publishPrintSmokeOutput(outputPath: string, write: (path: string) => Promise<void>) {
+    const tempPath = `${outputPath}.part`;
+    try {
+        await write(tempPath);
+        await rename(tempPath, outputPath);
+    } finally {
+        await rm(tempPath, {force: true});
+    }
+}
+
 function shouldRunPrintToPdfSmoke() {
     return runtimeConfig.test.printDialogMode?.trim() === PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF;
 }
@@ -779,7 +792,7 @@ async function runPrintToPdfSmoke(printWindow: BrowserWindow): Promise<IPrintPdf
         validatePdfBytesForHandoff(data, 'print smoke');
         const outputPath = runtimeConfig.test.printDialogOutputPath?.trim();
         if (outputPath) {
-            await writeFile(outputPath, data);
+            await publishPrintSmokeOutput(outputPath, path => writeFile(path, data));
         }
         return { success: true };
     } catch (error) {
@@ -795,7 +808,7 @@ async function runPrintPathSmoke(path: string): Promise<IPrintPdfResult> {
         await assertPdfPathWithinSizeLimit(path);
         const outputPath = runtimeConfig.test.printDialogOutputPath?.trim();
         if (outputPath) {
-            await copyFile(path, outputPath);
+            await publishPrintSmokeOutput(outputPath, tempPath => copyFile(path, tempPath));
         }
         return {success: true};
     } catch (error) {

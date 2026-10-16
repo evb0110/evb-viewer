@@ -62,36 +62,6 @@ export const EMPTY_STATE_READER_COMMAND_SURFACE = createSurface({
     },
 });
 
-export const MOBILE_READER_COMMAND_SURFACE = createSurface({
-    inline: {
-        'app-menu': true,
-        'open-file': true,
-        'overflow-menu': true,
-        'page-navigation': true,
-        zoom: true,
-    },
-    menu: {
-        'capture-region': true,
-        'continuous-scroll': true,
-        crop: true,
-        'drag-mode': true,
-        'export-docx': true,
-        'fit-height': true,
-        'fit-width': true,
-        fullscreen: true,
-        ocr: true,
-        'open-file': true,
-        print: true,
-        'print-current-page': true,
-        'quick-note': true,
-        'save-as': true,
-        settings: true,
-        'text-select': true,
-        'toggle-sidebar': true,
-        'view-mode': true,
-    },
-});
-
 export function isReaderCommandInline(
     surface: IReaderCommandSurface | null | undefined,
     command: TReaderCommandId,
@@ -104,13 +74,4 @@ export function isReaderCommandInMenu(
     command: TReaderCommandId,
 ) {
     return (surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE).menu[command];
-}
-
-export function listReaderCommandsForPlacement(
-    surface: IReaderCommandSurface | null | undefined,
-    placement: keyof IReaderCommandSurface,
-) {
-    const resolvedSurface = surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE;
-
-    return READER_COMMANDS.filter(command => resolvedSurface[placement][command]);
 }

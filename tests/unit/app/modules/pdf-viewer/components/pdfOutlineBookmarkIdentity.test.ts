@@ -21,13 +21,13 @@ import {
     nextTick,
     reactive,
 } from 'vue';
-import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -80,53 +80,24 @@ vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', async () => 
         emits: [
             'activate',
             'toggle-expand',
+            'save-edit',
         ],
         setup: (props, {emit}) => {
             vue.watchEffect(() => {
                 treeStub.items = props.items;
+                outlineItemRenames.clear();
+                for (const item of props.items) {
+                    outlineItemRenames.set(item.id, (title: string) => emit('save-edit', {
+                        id: item.id,
+                        title,
+                    }));
+                }
                 treeStub.activeId = props.activeId;
                 treeStub.expandedIds = props.expandedIds;
             });
             treeStub.toggleExpand = (id: string) => emit('toggle-expand', id);
             treeStub.activate = (id: string) => emit('activate', id);
             return () => vue.h('div', {'data-tree-stub': ''});
-        },
-    })};
-});
-
-vi.mock('@app/modules/pdf-viewer/components/PdfOutlineItem.vue', async () => {
-    const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            item: {
-                type: Object as PropType<IBookmarkItem>,
-                required: true,
-            },
-            pdfDocument: {
-                type: Object,
-                default: null,
-            },
-        },
-        emits: [
-            'go-to-page',
-            'activate',
-            'toggle-expand',
-            'open-actions',
-            'save-edit',
-            'cancel-edit',
-            'drag-start',
-            'drag-hover',
-            'drop-bookmark',
-            'drag-end',
-        ],
-        setup: (props, {emit}) => {
-            vue.watchEffect(() => {
-                outlineItemRenames.set(props.item.id, (title: string) => emit('save-edit', {
-                    id: props.item.id,
-                    title,
-                }));
-            });
-            return () => vue.h('div', {'data-outline-item': props.item.id});
         },
     })};
 });
@@ -139,6 +110,8 @@ function stubComponent(marker: string) {
     return {default: component};
 }
 
+let documentOutline: IPdfBookmarkEntry[] = [];
+vi.mock('@app/utils/platformDocuments', () => ({getPageOpsCapability: () => ({readOutline: async () => documentOutline})}));
 vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stubComponent('data-toolbar-stub'));
 vi.mock('@app/components/document-viewer/DocumentPanelEmptyState.vue', () => stubComponent('data-empty-stub'));
 vi.mock('@app/components/AppSpinner.vue', () => stubComponent('data-spinner-stub'));
@@ -172,10 +145,11 @@ function createEntry(
     };
 }
 
-function createPdfDocumentStub(outline: unknown[]) {
+/** A document whose native outline read returns `outline`. */
+function createPdfDocumentStub(outline: IPdfBookmarkEntry[]) {
+    documentOutline = outline;
     return cast<IPdfDocument>({
         numPages: 10,
-        getOutline: vi.fn(async () => outline),
         getDestination: vi.fn(async (_name: string) => [
             {
                 num: 12,
@@ -213,6 +187,7 @@ async function mountOutline(options: {
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         pdfDocument: options.pdfDocument ?? null,
+        documentRef: options.pdfDocument ? requireDocumentRef('/working/outline.pdf') : null,
         currentPage: state.currentPage,
         isEditMode: state.isEditMode,
         bookmarkItems: state.bookmarkItems,
@@ -271,14 +246,14 @@ function createBaseOutline() {
 describe('PdfOutline bookmark identity and dirty comparison', () => {
     it('keeps the clicked identity across lazy page lookup without changing persisted bookmarks', async () => {
         const document = createPdfDocumentStub([
-            {
-                title: 'First on page',
-                dest: 'first',
-            },
-            {
-                title: 'Last on page',
-                dest: 'last',
-            },
+            createEntry('First on page', {
+                pageIndex: null,
+                namedDest: 'first',
+            }),
+            createEntry('Last on page', {
+                pageIndex: null,
+                namedDest: 'last',
+            }),
         ]);
         const outline = await mountOutline({
             bookmarkItems: undefined,
@@ -298,14 +273,11 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
     it('does not let an older page lookup replace a newer explicit selection', async () => {
         const destination = Promise.withResolvers<unknown[] | null>();
         const document = createPdfDocumentStub([
-            {
-                title: 'Pending',
-                dest: 'pending',
-            },
-            {
-                title: 'Selected',
-                dest: [3],
-            },
+            createEntry('Pending', {
+                pageIndex: null,
+                namedDest: 'pending',
+            }),
+            createEntry('Selected', {pageIndex: requirePageIndex(3)}),
         ]);
         document.getDestination = vi.fn(() => destination.promise);
         const outline = await mountOutline({
@@ -404,18 +376,12 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         const outline = await mountOutline({
             bookmarkItems: undefined,
             pdfDocument: createPdfDocumentStub([
-                {
-                    title: '',
-                    dest: 'sec-a',
-                    items: [{
-                        title: 'Child',
-                        dest: null,
-                    }],
-                },
-                {
-                    title: 'Named',
-                    dest: null,
-                },
+                createEntry('', {
+                    pageIndex: null,
+                    namedDest: 'sec-a',
+                    items: [createEntry('Child', {pageIndex: null})],
+                }),
+                createEntry('Named', {pageIndex: null}),
             ]),
         });
         await vi.waitFor(() => {

@@ -6,15 +6,13 @@ import type {
 
 interface ICreatePdfAnnotationEditorCompatibilityOptions {
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
-    commitPendingFreeTextDraftsForSave?: () => void;
+    commitPendingFreeTextDraftsForSave?: () => void | Promise<void>;
 }
 
 export function createPdfAnnotationEditorCompatibility(
     options: ICreatePdfAnnotationEditorCompatibilityOptions,
 ) {
-    const editor = {commitPendingFreeTextDraftsForSave: () => {
-        options.commitPendingFreeTextDraftsForSave?.();
-    }};
+    const editor = {commitPendingFreeTextDraftsForSave: () => options.commitPendingFreeTextDraftsForSave?.()};
 
     function selectionMarkupStyle(subtype: TMarkupSubtype) {
         const settings = options.annotationSettings.value;

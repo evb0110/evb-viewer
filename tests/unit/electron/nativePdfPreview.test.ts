@@ -13,6 +13,7 @@ import {
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
 import { NativeProcessError } from '@electron/native-tools/processResult';
+import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readNativePdfCatalog';
 
 const mocks = vi.hoisted(() => ({
     resolveExistingReadablePdfPath: vi.fn(),
@@ -24,11 +25,14 @@ vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
 vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: mocks.resolveOriginalBackedReadTransport}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({pdfinfo: '/tools/pdfinfo'})}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
+    pdfinfo: '/tools/pdfinfo',
+    qpdf: '/tools/qpdf',
+})}));
 
 describe('native PDF metadata parsing', () => {
     it('converts bounded native catalog page-label ranges to renderer ranges', () => {
-        expect(parseNativePdfPageLabelRanges({pageLabels: [
+        expect(parseNativePdfPageLabelRanges([
             {
                 pageIndex: 0,
                 style: 'r',
@@ -38,7 +42,7 @@ describe('native PDF metadata parsing', () => {
                 prefix: 'Appendix ',
                 start: 4,
             },
-        ]})).toEqual([
+        ])).toEqual([
             {
                 startPage: 1,
                 style: 'r',
@@ -52,6 +56,33 @@ describe('native PDF metadata parsing', () => {
                 startNumber: 4,
             },
         ]);
+    });
+
+    it('reads one catalog part whatever happened to the other, and reports its own failure', async () => {
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stderr: '{"level":"warning","event":"outline_action_not_kept"}\n',
+            stdout: JSON.stringify({
+                bookmarksError: 'PDF catalog /Outlines must be a dictionary',
+                pageLabels: [{
+                    pageIndex: 0,
+                    style: 'r',
+                }],
+            }),
+        });
+        await expect(readNativePdfCatalogPart('/tools/evb-pdf-page-ops', '/tmp/a.pdf', 'pageLabels', {commandLabel: 'test'}))
+            .resolves.toEqual([{
+                pageIndex: 0,
+                style: 'r',
+            }]);
+        await expect(readNativePdfCatalogPart('/tools/evb-pdf-page-ops', '/tmp/a.pdf', 'bookmarks', {commandLabel: 'test'}))
+            .rejects.toThrow('PDF catalog /Outlines must be a dictionary');
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/tools/evb-pdf-page-ops', [
+            'read-document-catalog',
+            '--input',
+            '/tmp/a.pdf',
+            '--qpdf',
+            '/tools/qpdf',
+        ], expect.anything());
     });
 
     it('parses normalized first-page geometry', () => {

@@ -47,7 +47,6 @@ export const FORBIDDEN_EXACT_ENTRIES = [
 export const FORBIDDEN_PREFIXES = [
     '/node_modules',
     '/vendor',
-    '/nuxt-output/public/mobile-reader-proof',
 ];
 
 export const EXPECTED_UNPACKED_DIST_ELECTRON = [

@@ -3,6 +3,7 @@ import {
     createPageNumbersForWindow,
     EMPTY_DOCUMENT_VIEWER_PAGE_RANGE,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
+import type { IDocumentZoomPageLayout } from '@app/modules/document-viewer/zoomAnchor';
 import { normalizeDocumentPageNumber } from '@app/modules/document-viewer/documentPageRange';
 
 interface IDocumentContinuousScrollWindow {
@@ -47,10 +48,12 @@ interface IResolveDocumentViewportPageNumbersOptions {
 
 interface IResolveVisibleIndicatorPageOptions {
     currentPage: number;
-    geometry: IDocumentContinuousScrollGeometry;
+    pageLayouts: readonly IDocumentZoomPageLayout[];
+    scrollLeft: number;
     scrollTop: number;
     totalPages: number;
     viewportHeight: number;
+    viewportWidth: number;
 }
 
 interface IContinuousScrollBoundsState {
@@ -173,63 +176,67 @@ function getGeometryPageTop(
 
 /**
  * The page the indicator names: the current page while it stays fully
- * visible, otherwise the qualifying page with the greatest visible fraction.
+ * visible, otherwise the qualifying page with the greatest visible-area fraction.
  * A page qualifies when at least a quarter of the smaller of its height and the
  * viewport height intersects the viewport, so a page whose centre is nearer
  * but which lies wholly offscreen is never named. Ties keep the lower page.
+ * If no intersecting page qualifies, name the most visible intersecting page.
  */
 export function resolveDocumentVisiblePageForIndicator(
     options: IResolveVisibleIndicatorPageOptions,
 ) {
-    if (options.totalPages <= 0 || options.viewportHeight <= 0) {
+    const pageCount = Math.min(options.totalPages, options.pageLayouts.length);
+    if (pageCount <= 0 || options.viewportHeight <= 0 || options.viewportWidth <= 0) {
         return null;
     }
     const viewportTop = Math.max(0, options.scrollTop);
     const viewportBottom = viewportTop + options.viewportHeight;
-    const pageTop = (pageNumber: number) => options.geometry.pageTops[pageNumber - 1] ?? 0;
-    const pageHeight = (pageNumber: number) => options.geometry.pageHeights[pageNumber - 1] ?? 0;
-
-    const currentPage = normalizeDocumentPageNumber(options.currentPage, options.totalPages);
-    const currentTop = pageTop(currentPage);
-    const currentBottom = currentTop + pageHeight(currentPage);
-    if (
-        pageHeight(currentPage) > 0
-        && currentTop >= viewportTop
-        && currentBottom <= viewportBottom
-    ) {
+    const viewportLeft = Math.max(0, options.scrollLeft);
+    const viewportRight = viewportLeft + options.viewportWidth;
+    const currentPage = normalizeDocumentPageNumber(options.currentPage, pageCount);
+    const current = options.pageLayouts[currentPage - 1]!;
+    const currentLeft = current.left ?? 0;
+    if (current.height > 0 && current.width > 0
+        && current.top >= viewportTop && current.top + current.height <= viewportBottom
+        && currentLeft >= viewportLeft && currentLeft + current.width <= viewportRight) {
         return currentPage;
     }
 
-    let low = 1;
-    let high = options.totalPages + 1;
+    // Rows are ordered by top, but facing pages can have different bottoms.
+    // Start with the row at the viewport top, including both facing pages.
+    let low = 0;
+    let high = pageCount;
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
-        if (pageTop(middle) + pageHeight(middle) > viewportTop) {
-            high = middle;
-        } else {
-            low = middle + 1;
-        }
+        if (options.pageLayouts[middle]!.top > viewportTop) high = middle;
+        else low = middle + 1;
     }
+    let first = Math.max(0, low - 1);
+    while (first > 0 && options.pageLayouts[first - 1]!.top === options.pageLayouts[first]!.top) first -= 1;
 
     let visiblePage: number | null = null;
     let greatestFraction = 0;
-    for (let pageNumber = low; pageNumber <= options.totalPages; pageNumber += 1) {
-        const top = pageTop(pageNumber);
-        if (top >= viewportBottom) {
-            break;
-        }
-        const height = pageHeight(pageNumber);
+    let fallbackPage: number | null = null;
+    let fallbackFraction = 0;
+    for (let index = first; index < pageCount; index += 1) {
+        const {
+            top, height, width, left = 0,
+        } = options.pageLayouts[index]!;
+        if (top >= viewportBottom) break;
+        if (height <= 0 || width <= 0) continue;
         const visibleHeight = measureIntersectionHeight(top, top + height, viewportTop, viewportBottom);
-        if (height <= 0 || visibleHeight < Math.min(height, options.viewportHeight) / 4) {
-            continue;
+        const visibleWidth = measureIntersectionHeight(left, left + width, viewportLeft, viewportRight);
+        const fraction = visibleHeight * visibleWidth / (height * width);
+        if (fraction > fallbackFraction) {
+            fallbackPage = index + 1;
+            fallbackFraction = fraction;
         }
-        const fraction = visibleHeight / height;
-        if (fraction > greatestFraction) {
-            visiblePage = pageNumber;
+        if (visibleHeight >= Math.min(height, options.viewportHeight) / 4 && fraction > greatestFraction) {
+            visiblePage = index + 1;
             greatestFraction = fraction;
         }
     }
-    return visiblePage;
+    return visiblePage ?? fallbackPage;
 }
 
 function normalizeGapPx(value: number) {

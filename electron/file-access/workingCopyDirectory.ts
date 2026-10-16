@@ -20,7 +20,10 @@ import {
     sep,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    getAppTempDir,
+    getManagedAppTempRoots,
+} from '@electron/utils/appTempDir';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     normalizePathForLookup,
@@ -28,6 +31,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {createLogger} from '@electron/utils/createLogger';
+import {fsyncDirectorySync} from '@electron/utils/fsyncPath';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'ENOTSUP',
@@ -136,6 +140,8 @@ export function createWorkingDirectory() {
     const tempDir = getAppTempDir();
     const workDir = join(tempDir, `pdf-work-${randomUUID()}`);
     mkdirSync(workDir, { recursive: true });
+    // Its journal is durable only if the folder that holds it is.
+    fsyncDirectorySync(tempDir);
     return workDir;
 }
 
@@ -147,16 +153,12 @@ export function isWorkingCopyDocumentPath(path: string) {
     return isWorkingCopyDirectoryName(basename(dirname(path)));
 }
 
-/** A working-copy document inside this profile's app temp namespace. */
+/** A working-copy document in this profile's app namespace, or in the one an earlier release left in temp. */
 export function isManagedWorkingCopyPath(path: string) {
-    const relativePath = relative(
-        normalizePathForLookup(getAppTempDir()),
-        normalizePathForLookup(dirname(path)),
-    );
-    return relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath)
-        && isWorkingCopyDocumentPath(path);
+    return isWorkingCopyDocumentPath(path) && getManagedAppTempRoots().some((root) => {
+        const relativePath = relative(normalizePathForLookup(root), normalizePathForLookup(dirname(path)));
+        return relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
+    });
 }
 
 /**
@@ -248,15 +250,19 @@ export async function attemptWorkingCopyClone(
     return 'unknown-error-eager-fallback';
 }
 
-export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
+export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string, options: ICopyFromStableSourceOptions = {}) {
     const outcome = await attemptWorkingCopyClone(sourcePath, targetPath);
-    if (outcome === 'known-unsupported') {
-        await copyFileFromStableSource(sourcePath, targetPath);
-    }
+    options.signal?.throwIfAborted();
+    return outcome === 'known-unsupported'
+        ? copyFileFromStableSource(sourcePath, targetPath, options)
+        : null;
 }
 
 /** `fingerprintSource` hashes the source bytes as they are read, for a registration of that source. */
-interface ICopyFromStableSourceOptions {fingerprintSource?: boolean;}
+interface ICopyFromStableSourceOptions {
+    fingerprintSource?: boolean;
+    signal?: AbortSignal;
+}
 
 /**
  * Copies one source revision into a new target. The source handle prevents a
@@ -264,7 +270,9 @@ interface ICopyFromStableSourceOptions {fingerprintSource?: boolean;}
  * reject publishing an older handle after the source path was replaced.
  *
  * With `fingerprintSource`, returns the content fingerprint of the bytes read
- * when the source's identity, ctime included, held from open to the end.
+ * when the source's identity held from open to the end, with the stat taken at
+ * open. A ctime move during the copy is reported through that stat, so only a
+ * caller whose baseline still has that ctime may use the fingerprint.
  */
 export async function copyFileFromStableSource(
     sourcePath: string,
@@ -286,6 +294,7 @@ export async function copyFileFromStableSource(
         const buffer = Buffer.allocUnsafe(1024 * 1024);
         let offset = 0n;
         while (offset < sourceStat.size) {
+            options.signal?.throwIfAborted();
             const length = Number(
                 sourceStat.size - offset > BigInt(buffer.byteLength)
                     ? BigInt(buffer.byteLength)
@@ -295,6 +304,7 @@ export async function copyFileFromStableSource(
             if (result.bytesRead !== length) {
                 throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
             }
+            options.signal?.throwIfAborted();
             hash?.update(buffer.subarray(0, length));
             await targetHandle.write(buffer, 0, length, Number(offset));
             offset += BigInt(length);
@@ -318,11 +328,9 @@ export async function copyFileFromStableSource(
         }
         copied = true;
         return hash
-            && currentHandleStat.ctimeNs === sourceStat.ctimeNs
-            && currentPathStat.ctimeNs === sourceStat.ctimeNs
             ? {
                 contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
-                sourceStat: currentHandleStat,
+                sourceStat,
             }
             : null;
     } finally {

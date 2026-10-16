@@ -1,14 +1,18 @@
+import {existsSync} from 'node:fs';
 import {
-    link,
-    stat,
+    rename, stat,
 } from 'node:fs/promises';
-import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import {
+    atomicReplace, moveFileToMissingPath, recoverWindowsAtomicReplace,
+} from '@electron/utils/atomicReplace';
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
+} from '@electron/file-access/originalPathSaveWitness';
+import {
     hashContentFingerprintFilePath,
     OriginalPathSaveConflictError,
-} from '@electron/file-access/originalPathSaveWitness';
+} from '@electron/file-access/originalPathSnapshot';
 import {originalSaveSnapshotSchema} from '@electron/file-access/workingCopyManifest';
 import * as v from 'valibot';
 
@@ -20,6 +24,7 @@ export const originalSchema = v.object({
         'prepared',
         'published',
         'restored',
+        'conflicted',
     ]),
     preparedSnapshot: v.optional(originalSaveSnapshotSchema),
     publishedSnapshot: v.optional(originalSaveSnapshotSchema),
@@ -41,43 +46,29 @@ export async function captureIntendedContentFingerprint(sourcePath: string, sign
  * guard the rollback: a replacement made while hashing is never overwritten.
  */
 async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
-    if (original.intendedFingerprint === undefined) {
-        return null;
-    }
-    try {
-        const witness = await capturePathSaveWitness(original.path);
-        if (!witness || await captureIntendedContentFingerprint(original.path) !== original.intendedFingerprint) {
-            return null;
-        }
-        await witness.assertCurrent();
-        return witness;
-    } catch {
-        return null;
-    }
+    const witness = original.intendedFingerprint === undefined ? null : await capturePathSaveWitness(original.path);
+    const fingerprint = witness && await captureIntendedContentFingerprint(original.path).catch(() => null);
+    return witness && fingerprint === original.intendedFingerprint ? witness.assertCurrent().then(() => witness, () => null) : null;
 }
 
 /**
- * Puts back the original of an interrupted transition. A crash can leave the
- * original as it was before publication, published, or (on the Windows
- * fallback) moved aside. Only an original that still matches the journaled
- * snapshot is overwritten, so a third-party replacement always wins.
+ * Restores an interrupted publication by moving the displaced backup back; without one, the original was never
+ * displaced or is already restored and is not EVB's to restore, and an original that already holds its pre-save bytes
+ * keeps them. A present destination must match a full fingerprint first: sampled bytes alone prove nothing, so a
+ * journal without one keeps the displaced file beside the PDF, as for any other change.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
-    if (original.state === 'restored') {
-        return;
-    }
-    if (original.preparedSnapshot !== undefined) {
-        try {
-            await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true});
-            return;
-        } catch {
-            // The original still contains the published bytes.
-        }
-    }
-    const intendedWitness = original.state === 'prepared' ? await witnessIntendedContent(original) : null;
-    const expectedSnapshot = original.state === 'prepared' && !intendedWitness
-        ? original.preparedSnapshot
-        : original.publishedSnapshot;
+    if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)) return;
+    // Each decision below reads the whole PDF afresh. A PDF or displaced backup another program holds refuses the restore,
+    // and renaming each onto itself, which changes nothing, says so first, so neither is read in full at every read.
+    const assertMovable = (path: string) => rename(path, path).catch((error: unknown) => existsSync(path) ? Promise.reject(error) : undefined);
+    await assertMovable(original.path).then(() => assertMovable(original.backupPath));
+    if (original.preparedSnapshot !== undefined && await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true}).then(() => true, () => false)) return;
+    // A replace journal left by EVB's Windows fallback is applied only for an original EVB is about to restore.
+    if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
+    // EVB's own bytes, recorded as published or not yet, are rolled back even when only their metadata changed.
+    const intendedWitness = await witnessIntendedContent(original);
+    const expectedSnapshot = intendedWitness ? undefined : original[original.state === 'prepared' ? 'preparedSnapshot' : 'publishedSnapshot'];
     if (expectedSnapshot !== undefined) {
         try {
             await assertPathMatchesSaveWitnessSnapshot(original.path, expectedSnapshot);
@@ -85,19 +76,13 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
             if (await capturePathSaveWitness(original.path) !== null) {
                 throw error;
             }
-            await assertPathMatchesSaveWitnessSnapshot(
-                original.backupPath,
-                original.preparedSnapshot ?? expectedSnapshot,
-                {contentOnly: true},
-            );
-            // The link creates the destination only while it is still absent.
-            await link(original.backupPath, original.path);
+            // Restore the displaced bytes exclusively, including external edits.
+            await moveFileToMissingPath(original.backupPath, original.path);
+            await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot ?? expectedSnapshot, {contentOnly: true});
             return;
         }
     }
-    const witness = intendedWitness ?? await capturePathSaveWitness(original.path);
-    if (!witness) {
-        throw new OriginalPathSaveConflictError();
-    }
-    await copyFileAtomic(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
+    const witness = intendedWitness ?? (expectedSnapshot?.contentFingerprint === undefined ? null : await capturePathSaveWitness(original.path));
+    if (!witness) throw new OriginalPathSaveConflictError();
+    await atomicReplace(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
 }

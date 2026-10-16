@@ -12,6 +12,9 @@ import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMut
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
+import coverage from '@contracts/annotationFontCoverage.json';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 
 const textBox: IPdfNativeTextBoxMutation = {
     pageIndex: requirePageIndex(0),
@@ -36,6 +39,12 @@ const textBox: IPdfNativeTextBoxMutation = {
 };
 
 describe('native PDF text-box mutation contracts', () => {
+    it('binds generated coverage to the shipped font programs', () => {
+        for (const font of coverage.fonts) {
+            const bytes = readFileSync(new URL(`../../../public/fonts/annotation/${font.file}`, import.meta.url));
+            expect(createHash('sha256').update(bytes).digest('hex')).toBe(font.sha256);
+        }
+    });
     it('normalizes canonical and legacy keys to textBoxes without emitting the alias', () => {
         const canonical = normalizePdfNativeMutationSet({textBoxes: [textBox]}, 'mutations');
         expect(canonical.textBoxes).toEqual([textBox]);
@@ -53,6 +62,9 @@ describe('native PDF text-box mutation contracts', () => {
         'Cafe\u0301 naïve Ελληνικά',
         'שָׁלוֹם',
         'العَرَبِيَّة',
+        'ܫܠܵܡܵܐ',
+        'בְּרֵאשִׁ֖ית',
+        'بَسْمِ لَا بــِسْمِ',
         'Latin שלום العربية 123\nSecond line\tПривет',
     ])('preserves portable Unicode text unchanged: %s', (text) => {
         const normalized = normalizePdfNativeMutationSet({textBoxes: [{
@@ -96,6 +108,27 @@ describe('native PDF text-box mutation contracts', () => {
         }]}, 'mutations'))
             .toThrow('64 KiB UTF-8');
     });
+
+    it.each([
+        'א'.repeat(256),
+        'ع'.repeat(256),
+        `${'界'.repeat(170)}ab`,
+    ])(
+        'budgets Unicode text-box identities at 512 UTF-8 bytes',
+        (stableKey) => {
+            expect(new TextEncoder().encode(stableKey)).toHaveLength(512);
+            expect(normalizePdfNativeMutationSet({textBoxes: [{
+                ...textBox,
+                stableKey,
+            }]}, 'mutations')
+                .textBoxes?.[0]?.stableKey).toBe(stableKey);
+            expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+                ...textBox,
+                stableKey: `${stableKey}a`,
+            }]}, 'mutations'))
+                .toThrow('512 UTF-8 bytes');
+        },
+    );
 
     it('rejects a payload that supplies both text-box keys', () => {
         expect(() => normalizePdfNativeMutationSet({
@@ -145,7 +178,7 @@ describe('native PDF text-box mutation contracts', () => {
         expect(chunks.every(chunk => chunk.freeTextEditors === undefined)).toBe(true);
     });
 
-    it('rejects duplicate aliases before splitting and preserves the legacy family when used alone', () => {
+    it('rejects duplicate aliases before splitting and accepts legacy text boxes', () => {
         expect(() => splitPdfNativeMutationSetIntoBoundedChunks({
             textBoxes: [textBox],
             freeTextEditors: [{
@@ -157,6 +190,6 @@ describe('native PDF text-box mutation contracts', () => {
         const chunks = splitPdfNativeMutationSetIntoBoundedChunks({freeTextEditors: [textBox]});
         expect(chunks).toHaveLength(1);
         expect(chunks[0]?.textBoxes).toEqual([textBox]);
-        expect(chunks[0]?.freeTextEditors).toEqual([textBox]);
+        expect(normalizePdfNativeMutationSet(chunks[0], 'mutations').textBoxes).toEqual([textBox]);
     });
 });

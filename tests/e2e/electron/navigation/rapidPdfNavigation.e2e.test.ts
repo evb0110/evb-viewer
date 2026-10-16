@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeAll,
     beforeEach,
@@ -21,6 +22,7 @@ import {
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createLargeScannedFixturePdf,
+    createMultiPageTextFixturePdf,
     resolvePathFixtureAvailability,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -53,6 +55,7 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     clickAsUser,
     clickFoundAsUser,
@@ -1320,6 +1323,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const postFastFirstCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
         const postFastFirstState = await collectPagedState();
 
+        expect(postFastFirstCanvasReady).toBe(true);
+        expectPagedStateConverged(postFastFirstState);
         const removedCurrentCanvas = await session.page.evaluate(() => {
             const canvas = document.querySelector<HTMLCanvasElement>(
                 '#pdf-viewer .page_container[data-page="1"] .page_canvas canvas',
@@ -1390,8 +1395,6 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(fastPage).toBeGreaterThanOrEqual(4);
         expect(fastCanvasReady).toBe(true);
         expectPagedStateConverged(fastState);
-        expect(postFastFirstCanvasReady).toBe(true);
-        expectPagedStateConverged(postFastFirstState);
         expect(samePageRecoveryCanvasReady).toBe(true);
         expectPagedStateConverged(samePageRecoveryState);
     }, 90_000);
@@ -3494,6 +3497,65 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         timeoutMs: 180_000,
     });
 
+    it('explains a permanently invalid page once and offers a working Retry', async () => {
+        const session = sessionFixture.getSession();
+        const warnings: string[] = [];
+        const collectWarning = (message: {text(): string}) => {
+            if (/Skipping page 2 render due to invalid/.test(message.text())) warnings.push(message.text());
+        };
+        session.page.on('console', collectWarning);
+        try {
+            await openPdfInApp(session.page, resolve('tests/fixtures/public-malformed-viewport.pdf'), 45_000);
+            await clickVisibleToolbarButton(session.page, 'Next Page');
+            const shown = await waitForVisiblePageOutcome(session, 2, 30_000, true);
+            const outcome = {
+                shown,
+                warnings: warnings.length,
+                ...await readViewerPageOutcome(session, 2),
+            };
+            mkdirSync(resolve('.devkit/rasterstall-r2'), {recursive: true});
+            writeFileSync(resolve('.devkit/rasterstall-r2/malformed-outcome.json'), JSON.stringify(outcome, null, 2));
+            await session.page.screenshot({path: resolve('.devkit/rasterstall-r2/malformed-outcome.png')});
+            expect(shown, JSON.stringify(outcome)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            const retry = () => session.page.evaluate(() => Array.from(
+                document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
+            ).filter(button => button.textContent?.trim() === 'Retry').length);
+            await expect.poll(retry, {timeout: 10_000}).toBe(1);
+            const settledWarnings = warnings.length;
+            await delay(2_000);
+            expect(warnings).toHaveLength(settledWarnings);
+            expect(warnings).toHaveLength(0);
+            await clickFoundAsUser(session.page, () => Array.from(
+                document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
+            ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'invalid page 2 Retry'});
+            expect(await waitForVisiblePageOutcome(session, 2, 10_000, true)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            await expect.poll(retry, {timeout: 10_000}).toBe(1);
+            const retriedWarnings = warnings.length;
+            await delay(2_000);
+            expect(warnings).toHaveLength(retriedWarnings);
+            expect(await waitForVisiblePageOutcome(session, 2, 10_000, true)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            await session.page.screenshot({path: resolve('.devkit/rasterstall-r2/malformed-outcome.png')});
+            writeFileSync(resolve('.devkit/rasterstall-r2/malformed-outcome.json'), JSON.stringify({
+                ...outcome,
+                retryButtons: await retry(),
+                settledWarnings,
+                retriedWarnings,
+                finalWarnings: warnings.length,
+            }, null, 2));
+        } finally {
+            session.page.off('console', collectWarning);
+        }
+    }, 90_000);
+
     it('renders a failed buffer raster after deliberate navigation', async () => {
         const session = sessionFixture.getSession();
         const pdfPath = await createLargeScannedFixturePdf(`failed-buffer-raster-${Date.now()}.pdf`, 4, 0);
@@ -3582,7 +3644,16 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         }
     }, 150_000);
 
-    it('ends an open whose first page keeps failing, and redraws that page on Retry', async () => {
+    it.each([
+        {
+            name: 'Retry',
+            relayout: false,
+        },
+        {
+            name: 'Retry after relayout',
+            relayout: true,
+        },
+    ])('redraws a failed first page on $name', async ({relayout}) => {
         const session = sessionFixture.getSession();
         const pdfPath = await createLargeScannedFixturePdf(`failed-first-page-${Date.now()}.pdf`, 4, 0);
         await enableBufferedPdfTrace(session);
@@ -3624,6 +3695,16 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
                 text: 'Unable to render this page',
             });
             expect(toasts.filter(toast => toast.buttons.includes('Retry')), JSON.stringify(outcome)).toHaveLength(1);
+            if (relayout) {
+                await session.command('windowResize', [
+                    960,
+                    672,
+                ]);
+                await waitForViewportQuiet(session.page);
+                await session.page.waitForFunction(() => (
+                    ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.pending ?? 0) > 0
+                ), {timeout: 10_000});
+            }
         } finally {
             await openPdfPageRenderGate(session);
         }
@@ -3631,8 +3712,20 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         await clickFoundAsUser(session.page, () => Array.from(
             document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
         ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'page 1 Retry'});
-        const painted = await waitForVisiblePageCanvas(session, 1, 15_000);
-        expect(painted, JSON.stringify(await readViewerPageOutcome(session, 1))).toBe(true);
+        const retryAt = Date.now();
+        const painted = await waitForVisiblePageCanvas(session, 1, relayout ? 10_000 : 15_000);
+        const retryOutcome = {
+            relayout,
+            elapsedMs: Date.now() - retryAt,
+            painted,
+            gate: await readPdfPageRenderGate(session),
+            ...await readViewerPageOutcome(session, 1),
+        };
+        const evidence = resolve(process.cwd(), '.devkit/rasterstall-r3');
+        mkdirSync(evidence, {recursive: true});
+        writeFileSync(resolve(evidence, `retry-${relayout}-${process.pid}.json`), JSON.stringify(retryOutcome, null, 2));
+        await session.page.screenshot({path: resolve(evidence, `retry-${relayout}-${process.pid}.png`)});
+        expect(painted, JSON.stringify(retryOutcome)).toBe(true);
         await waitForScannedFixturePageIdentity(session.page, 1, 5_000);
         // The open itself recovers: its viewport reaches ready on the page.
         await session.page.waitForFunction(() => document.querySelector<HTMLElement>(
@@ -3645,4 +3738,92 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         });
         expect(recovered.visualPresentation, JSON.stringify(recovered)).not.toBe('error');
     }, 180_000);
+});
+
+
+describe('Electron E2E - failed prefetch feedback', () => {
+    const fixture = createElectronE2ESessionFixture({
+        clean: true,
+        restartBeforeEach: true,
+        sessionName: () => `e2e-failed-prefetch-${Date.now()}`,
+        extraEnv: {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'},
+    });
+
+    it('offers Retry when ordinary scrolling reveals a failed buffered page', async () => {
+        const session = fixture.getSession();
+        const pdfPath = await createMultiPageTextFixturePdf(`failed-prefetch-${Date.now()}.pdf`, 40);
+        await session.page.waitForFunction(() => (
+            typeof (window as IPageRenderGateWindow).pdfjsLib?.getDocument === 'function'
+        ));
+        await session.page.evaluate(async () => {
+            const pdfjs = (window as IPageRenderGateWindow).pdfjsLib;
+            if (!pdfjs) throw new Error('PDF.js is not loaded');
+            if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+                pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
+            }
+            const task = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+            const probe = await (await task.promise).getPage(1);
+            const prototype: Pick<IPdfPage, 'getViewport'> = Object.getPrototypeOf(probe);
+            await task.destroy();
+            const original = prototype.getViewport;
+            prototype.getViewport = function (this: IPdfPage, options) {
+                const viewport = original.call(this, options);
+                return this.pageNumber === 2 && options.scale !== 1
+                    ? Object.assign(viewport, {
+                        width: Infinity,
+                        height: Infinity,
+                    })
+                    : viewport;
+            };
+            Reflect.set(window, '__restorePrefetchViewport', () => {prototype.getViewport = original;});
+        });
+        try {
+            await openPdfInApp(session.page, pdfPath, 45_000);
+            expect(await waitForVisiblePageCanvas(session, 1, 10_000)).toBe(true);
+            await session.page.waitForFunction(() => document.querySelector('.page_container[data-page="2"] .pdf-page-render-error')?.textContent?.includes('Unable to render this page'), {timeout: 10_000});
+            expect(await session.page.evaluate(() => Array.from(document.querySelectorAll('.app-toast-failure button')).filter(button => button.textContent?.trim() === 'Retry').length)).toBe(0);
+        } finally {
+            await session.page.evaluate(() => {
+                const restore = Reflect.get(window, '__restorePrefetchViewport');
+                if (typeof restore === 'function') restore();
+            });
+        }
+        const delta = await session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="2"]');
+            if (!viewport || !page) throw new Error('Expected the buffered page near the viewport');
+            return page.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 10;
+        });
+        await wheelPdfViewportAndWaitForSettlement(session.page, delta);
+        await session.page.waitForFunction(() => (
+            Array.from(document.querySelectorAll('.app-toast-failure button')).filter(button => button.textContent?.trim() === 'Retry').length === 1
+        ), {timeout: 10_000});
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
+        ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'revealed page Retry'});
+        expect(await waitForVisiblePageCanvas(session, 2, 10_000)).toBe(true);
+        await session.page.waitForFunction(() => document.querySelector('.page_container[data-page="2"] .text-layer')?.textContent?.includes('E2E Multi Page Fixture 2/40'), {timeout: 10_000});
+        const pixels = await session.page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="2"] .page_canvas canvas');
+            const context = canvas?.getContext('2d');
+            if (!canvas || !context) throw new Error('Expected the recovered page canvas');
+            const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            let ink = 0;
+            for (let index = 0; index < data.length; index += 128) {
+                if (data[index + 3]! > 0 && Math.min(data[index]!, data[index + 1]!, data[index + 2]!) < 220) ink += 1;
+            }
+            return {
+                width: canvas.width,
+                height: canvas.height,
+                ink,
+                dpr: devicePixelRatio,
+            };
+        });
+        expect(pixels.dpr).toBe(2);
+        expect(pixels.ink).toBeGreaterThan(16);
+        const evidence = resolve(process.cwd(), '.devkit/rasterstall-r3');
+        mkdirSync(evidence, {recursive: true});
+        writeFileSync(resolve(evidence, `prefetch-${process.pid}.json`), JSON.stringify(pixels, null, 2));
+        await session.page.screenshot({path: resolve(evidence, `prefetch-${process.pid}.png`)});
+    }, 90_000);
 });

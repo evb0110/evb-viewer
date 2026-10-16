@@ -2,12 +2,15 @@ import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {
+    chmodSync,
     copyFileSync,
     existsSync,
     mkdirSync,
+    mkdtempSync,
     readdirSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -25,6 +28,11 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import * as UTIF from 'utif';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {createRequestId} from '@contracts/shared';
+import type {IDjvuOpenResult} from '@contracts/electronApiDjvu';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 import {buildDjvuRuntimeEnv} from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
@@ -34,6 +42,7 @@ import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotat
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
@@ -56,7 +65,7 @@ const sha256 = (path: string) => createHash('sha256').update(readFileSync(path))
 const sourceSha = sha256(sourcePath);
 
 // The export replaces the chosen PDF inside the job's `djvu-export-` scratch,
-// so the scratch leaving the app's temp root marks the job's end.
+// so the scratch leaving the app's state root marks the job's end.
 function listExportScratch(tempRoot: string) {
     return readdirSync(tempRoot, {
         recursive: true,
@@ -93,7 +102,7 @@ async function startConversion(session: IElectronE2ESession, tempRoot: string) {
 }
 
 describe('DjVu conversion lifecycle', () => {
-    // Each test's app gets its own temp root and save path.
+    // Each test's app gets its own temp and state root and save path.
     const suiteRoot = join(tmpdir(), `evb-e2e-djvu-lifecycle-${Date.now()}`);
     const switchRoot = join(suiteRoot, 'switch');
     const closeRoot = join(suiteRoot, 'close');
@@ -101,6 +110,7 @@ describe('DjVu conversion lifecycle', () => {
         TMPDIR: tempRoot,
         TMP: tempRoot,
         TEMP: tempRoot,
+        EVB_APP_STATE_DIR: tempRoot,
         EVB_E2E_SAVE_DIALOG_PATH: join(tempRoot, 'converted.pdf'),
         EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
     });
@@ -122,9 +132,68 @@ describe('DjVu conversion lifecycle', () => {
         });
     });
 
+    it('refuses image export after the same DjVu is reopened and its tab closes', async () => {
+        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+        const savePath = join(closeRoot, 'closed-source.png');
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-reopen-close-${Date.now()}`,
+            extraEnv: {
+                ...conversionEnv(closeRoot),
+                EVB_E2E_OPEN_DIALOG_PATH: fixture,
+                EVB_E2E_SAVE_DIALOG_PATH: savePath,
+                EVB_PDF_IMAGE_COMBINE_ENABLE: '0',
+            },
+        });
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+O'});
+        await waitForDjvuLoaded(session.page, 120_000);
+        const tabId = await readActiveTabId(session.page);
+        const accepted = session.page.evaluate(() => new Promise<IDjvuOpenResult>((resolveOpen) => {
+            const stop = window.electronAPI!.djvu.onOpenComplete((result) => {
+                stop();
+                resolveOpen(result);
+            });
+        }));
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+O'});
+        expect(await accepted).toMatchObject({success: true});
+        // The reported same-path reopen can retain the opening skeleton, a
+        // separate viewer defect. Observe readiness without requiring that
+        // defect to be fixed before checking the accepted source's lifetime.
+        await waitForDjvuLoaded(session.page, 10_000).catch(() => undefined);
+        expect(await readActiveTabId(session.page)).toBe(tabId);
+        expect(await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length)).toBe(1);
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
+        await waitForFunctionInPage(session.page, () => (
+            document.body.innerText.includes('No file open')
+            && !document.querySelector('[data-testid="document-page-source-viewer"]')
+        ), {timeout: 15_000});
+        // A boundary request after the real UI close must be refused, even
+        // though an empty workspace no longer offers an Export menu action.
+        const request = await session.page.evaluate(async (path, pageNumber) => {
+            try {
+                await window.electronAPI!.imageExport.exportPdfToImages(
+                    path, [pageNumber], undefined, 'djvu',
+                );
+                return {refused: false};
+            } catch (error) {
+                return {
+                    refused: true,
+                    error: String(error),
+                };
+            }
+        }, requireDocumentRef(fixture), requirePageNumber(1));
+        expect(request).toMatchObject({refused: true});
+        expect(existsSync(savePath), 'a closed source must leave no saved image').toBe(false);
+    }, 180_000);
+
     // Issue 979: a New Tab that makes the converting tab cold must not discard its conversion.
     it('saves the conversion of a tab made cold by New Tab and shows it when the tab returns', async () => {
-        const session = sessions.getSession();
+        // Its own app: an earlier test's session may run with the image combiner off.
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-lifecycle-switch-${Date.now()}`,
+            extraEnv: conversionEnv(switchRoot),
+        });
         const savePath = join(switchRoot, 'converted.pdf');
         // Warm cap 0: the inactive DjVu tab's viewer unmounts.
         await setTabMemoryPolicyForE2E(session.page, 'aggressive');
@@ -360,5 +429,81 @@ describe('DjVu conversion lifecycle', () => {
         await session.page.screenshot({path: join(artifactRoot, 'source-text-read-failure.png')});
         copyFileSync(textSource, join(artifactRoot, 'source.djvu'));
         copyFileSync(savePath, join(artifactRoot, 'destination.pdf'));
+    });
+
+    // The app's temp folder is tmpfs and the destination is on another device, as
+    // with a tmpfs /tmp or a USB volume. The multi-page TIFF must still publish.
+    it.skipIf(process.platform !== 'linux')('publishes a two-page DjVu as multi-page TIFF across devices', async () => {
+        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+        const tempRoot = mkdtempSync(join('/dev/shm', 'evb-tiff-'));
+        const destinationRoot = join(suiteRoot, 'cross-device-destination');
+        const savePath = join(destinationRoot, 'pencil-export.tif');
+        mkdirSync(destinationRoot, {recursive: true});
+        try {
+            expect(statSync(destinationRoot).dev, 'the destination must be on another device than the app temp folder')
+                .not.toBe(statSync(tempRoot).dev);
+            const session = await sessions.start({
+                clean: true,
+                sessionName: () => `e2e-djvu-tiff-cross-device-${Date.now()}`,
+                extraEnv: {
+                    ...conversionEnv(tempRoot),
+                    EVB_E2E_SAVE_DIALOG_PATH: savePath,
+                    EVB_TIFF_COMBINE_NATIVE_ENABLE: '1',
+                },
+            });
+            await openDjvuInApp(session.page, fixture, 120_000);
+            await waitForDjvuLoaded(session.page, 120_000);
+            const result = await session.page.evaluate(
+                (path, requestId) => window.electronAPI!.imageExport.exportPdfToMultiPageTiff(path, undefined, requestId, 'djvu'),
+                requireDocumentRef(fixture),
+                createRequestId('djvu-tiff-cross-device'),
+            );
+            expect(result).toMatchObject({
+                success: true,
+                outputPaths: [savePath],
+            });
+            expect(UTIF.decode(new Uint8Array(readFileSync(savePath)))).toHaveLength(2);
+            expect(readdirSync(destinationRoot)).toEqual(['pencil-export.tif']);
+        } finally {
+            rmSync(tempRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 180_000);
+
+    // A read-only destination: the failure says why in the person's words,
+    // never the hidden temporary file a raw filesystem message names.
+    it.skipIf(process.platform !== 'linux' || process.getuid?.() === 0)('explains an image export refused by a read-only folder without naming hidden files', async () => {
+        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+        const destinationRoot = join(suiteRoot, 'read-only-destination');
+        const savePath = join(destinationRoot, 'pencil.png');
+        mkdirSync(destinationRoot, {recursive: true});
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-png-read-only-${Date.now()}`,
+            extraEnv: {
+                ...conversionEnv(closeRoot),
+                EVB_E2E_SAVE_DIALOG_PATH: savePath,
+            },
+        });
+        await openDjvuInApp(session.page, fixture, 120_000);
+        await waitForDjvuLoaded(session.page, 120_000);
+        chmodSync(destinationRoot, 0o555);
+        try {
+            const message = await session.page.evaluate(async (path, requestId) => {
+                try {
+                    await window.electronAPI!.imageExport.exportPdfToImages(path, undefined, requestId, 'djvu');
+                    return 'exported';
+                } catch (error) {
+                    return error instanceof Error ? error.message : String(error);
+                }
+            }, requireDocumentRef(fixture), createRequestId('djvu-png-read-only'));
+            expect(message).toContain('EVB Viewer was not allowed to write in that folder.');
+            expect(message).not.toMatch(/EACCES|copyfile|\.tmp\b/u);
+        } finally {
+            chmodSync(destinationRoot, 0o755);
+        }
+        expect(readdirSync(destinationRoot)).toEqual([]);
     });
 });

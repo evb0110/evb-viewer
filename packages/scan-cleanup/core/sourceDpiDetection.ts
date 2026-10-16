@@ -1,10 +1,13 @@
-import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {
     IDetectedPageRaster,
     ISourceDpiDetectionResult,
+    IScanCleanupPageRasterSource,
+    TScanCleanupDetectSourceDpi,
+    TScanCleanupLog,
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
 
 export type TSourceDpiLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
@@ -26,8 +29,6 @@ const PDFIMAGES_PROBE_CONCURRENCY = 4;
 interface IPdfImagesProbe {
     args: string[];
     timeoutMs: number;
-    label: string;
-    contributesDocumentDpi: boolean;
     pageUnits: number;
 }
 
@@ -101,8 +102,6 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
                 pdfPath,
             ],
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
-            label: 'full-document',
-            contributesDocumentDpi: true,
             pageUnits: 1,
         }];
     }
@@ -110,18 +109,8 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
     return getBoundedPageProbeRanges(validPages).map(probeRange => ({
         args: buildPdfImagesListArgs(pdfPath, probeRange.firstPage, probeRange.lastPage),
         timeoutMs: resolvePdfImagesProbeTimeout(probeRange.lastPage - probeRange.firstPage + 1),
-        label: probeRange.firstPage === probeRange.lastPage
-            ? String(probeRange.firstPage)
-            : `${probeRange.firstPage}-${probeRange.lastPage}`,
-        contributesDocumentDpi: true,
         pageUnits: probeRange.lastPage - probeRange.firstPage + 1,
     }));
-}
-
-function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
-    return (level, message) => {
-        log(level === 'error' ? 'debug' : level, message);
-    };
 }
 
 function parsePdfImagesListOutput(output: string): IPageRasterDetectionResult {
@@ -338,6 +327,113 @@ function toPageRasterSource(
     };
 }
 
+/** Shared bounded raster facts for detection and conversion. */
+export function createScanCleanupPageRasterSource({
+    pdfPath,
+    pdfimagesBinary,
+    detectSourceDpi,
+    log,
+    signal,
+    documentPageCount,
+}: {
+    pdfPath: string;
+    pdfimagesBinary: string | undefined;
+    detectSourceDpi: TScanCleanupDetectSourceDpi;
+    log: TScanCleanupLog;
+    signal: AbortSignal;
+    documentPageCount: number;
+}): IScanCleanupPageRasterSource {
+    const cache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
+    let compactLayeredPageCount = 0;
+    let nextExpectedPageNumber = 1;
+    let rasterProbeFailed = false;
+    let documentDpi: number | null = null;
+    const recordPageRaster = (pageNumber: number, raster: IDetectedPageRaster | undefined) => {
+        // Full conversion probes pages in document order. A later child repeats
+        // the same pages after the parent's canvas pass, so a scalar high-water
+        // mark counts each page once without a document-sized Set or Map. Any
+        // other order is refused rather than turning the budget into an
+        // unverified partial count.
+        if (pageNumber < nextExpectedPageNumber) return raster;
+        if (pageNumber !== nextExpectedPageNumber) {
+            rasterProbeFailed = true;
+            return raster;
+        }
+        nextExpectedPageNumber += 1;
+        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+        return raster;
+    };
+    // A miss probes the window of pages that follows it in one process:
+    // conversion visits pages in document order, often twice, and one
+    // pdfimages run per page made that two process launches per page.
+    const probeFrom = (firstPageNumber: number) => {
+        const pageNumbers = [firstPageNumber];
+        for (
+            let pageNumber = firstPageNumber + 1;
+            pageNumber <= documentPageCount && pageNumbers.length < SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+            pageNumber += 1
+        ) {
+            pageNumbers.push(pageNumber);
+        }
+        const probed = (async () => {
+            signal.throwIfAborted();
+            const rasters = new Map<number, IDetectedPageRaster | undefined>();
+            if (pdfimagesBinary === undefined) {
+                rasterProbeFailed = true;
+            } else {
+                const result = await detectSourceDpi(
+                    pdfPath,
+                    pdfimagesBinary,
+                    log,
+                    undefined,
+                    signal,
+                    pageNumbers,
+                );
+                documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
+                for (const pageNumber of pageNumbers) {
+                    rasters.set(pageNumber, await result.getPageRaster(pageNumber));
+                }
+            }
+            for (const pageNumber of pageNumbers) recordPageRaster(pageNumber, rasters.get(pageNumber));
+            return rasters;
+        })();
+        // Re-inserting moves the window to the recent end, so the bound evicts
+        // pages the traversal has passed rather than the ones it reads next.
+        for (const pageNumber of pageNumbers) {
+            cache.delete(pageNumber);
+            const pageRaster = probed.then(rasters => rasters.get(pageNumber));
+            // A cancel rejects every page of the window; callers await only
+            // the pages they read, so the rest must not go unhandled.
+            pageRaster.catch(() => undefined);
+            cache.set(pageNumber, pageRaster);
+        }
+        while (cache.size > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
+            cache.delete(cache.keys().next().value!);
+        }
+    };
+    const getPageRaster = (pageNumber: number) => {
+        if (!cache.has(pageNumber)) probeFrom(pageNumber);
+        return cache.get(pageNumber)!;
+    };
+    return {
+        get detected() {
+            return pdfimagesBinary !== undefined;
+        },
+        get documentDpi() {
+            return documentDpi;
+        },
+        get compactLayeredPageCount() {
+            return compactLayeredPageCount;
+        },
+        get compactLayeredPageCountComplete() {
+            return !rasterProbeFailed
+                && nextExpectedPageNumber > documentPageCount;
+        },
+        recordPageRaster,
+        getPageRaster,
+    };
+}
+
 export async function detectSourceDpiDetails(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
@@ -359,73 +455,54 @@ export async function detectSourceDpiDetails(
     }
     if (runCommand === undefined) throw new Error('PDF DPI detection requires a command runner');
 
-    try {
-        const combinedResult: IPageRasterDetectionResult = {
-            documentDpi: null,
-            rasterByPage: new Map(),
-        };
-        const probes = buildPdfImagesProbes(pdfPath, pages);
-        const totalPages = probes.reduce((total, probe) => total + probe.pageUnits, 0);
-        let nextProbeIndex = 0;
-        let completedPages = 0;
-        let probeFailed = false;
-        const runProbe = async (probe: IPdfImagesProbe) => {
-            const commandOptions: IScanCleanupRunCommandOptions = {
-                commandLabel: 'pdfimages(-list)',
-                timeoutMs: probe.timeoutMs,
-                log: createRecoverablePdfImagesLog(log),
-            };
-            if (commandEnv !== undefined) {
-                commandOptions.env = commandEnv;
-            }
-            if (signal !== undefined) {
-                commandOptions.signal = signal;
-            }
-
-            try {
-                const result = await runCommand(
-                    pdfimagesBinary,
-                    probe.args,
-                    commandOptions,
-                );
-                const probeResult = parsePdfImagesListOutput(result.stdout);
-                if (!probe.contributesDocumentDpi) {
-                    probeResult.documentDpi = null;
-                }
-                mergeDpiDetectionResults(combinedResult, probeResult);
-            } catch (err) {
-                if (signal?.aborted) {
-                    throw signal.reason instanceof Error ? signal.reason : err;
-                }
-                probeFailed = true;
-                log('debug', `pdfimages detection failed for pages ${probe.label}: ${getErrorMessage(err)}`);
-            } finally {
-                completedPages += probe.pageUnits;
-                onProgress?.(completedPages, totalPages);
-            }
-        };
-        await Promise.all(Array.from(
-            {length: Math.min(PDFIMAGES_PROBE_CONCURRENCY, probes.length)},
-            async () => {
-                while (nextProbeIndex < probes.length) {
-                    const probeIndex = nextProbeIndex;
-                    nextProbeIndex += 1;
-                    await runProbe(probes[probeIndex]!);
-                }
-            },
-        ));
-        return toPageRasterSource(combinedResult, pages === undefined && !probeFailed);
-    } catch (err) {
-        if (signal?.aborted) {
-            throw signal.reason instanceof Error ? signal.reason : err;
-        }
-        log('debug', `pdfimages detection failed: ${getErrorMessage(err)}`);
-    }
-
-    return toPageRasterSource({
+    const combinedResult: IPageRasterDetectionResult = {
         documentDpi: null,
         rasterByPage: new Map(),
-    }, false);
+    };
+    const probes = buildPdfImagesProbes(pdfPath, pages);
+    const totalPages = probes.reduce((total, probe) => total + probe.pageUnits, 0);
+    let nextProbeIndex = 0;
+    let completedPages = 0;
+    const runProbe = async (probe: IPdfImagesProbe) => {
+        const commandOptions: IScanCleanupRunCommandOptions = {
+            commandLabel: 'pdfimages(-list)',
+            timeoutMs: probe.timeoutMs,
+            log,
+        };
+        if (commandEnv !== undefined) {
+            commandOptions.env = commandEnv;
+        }
+        if (signal !== undefined) {
+            commandOptions.signal = signal;
+        }
+
+        try {
+            const result = await runCommand(
+                pdfimagesBinary,
+                probe.args,
+                commandOptions,
+            );
+            const probeResult = parsePdfImagesListOutput(result.stdout);
+            mergeDpiDetectionResults(combinedResult, probeResult);
+        } finally {
+            completedPages += probe.pageUnits;
+            onProgress?.(completedPages, totalPages);
+        }
+    };
+    const outcomes = await Promise.allSettled(Array.from(
+        {length: Math.min(PDFIMAGES_PROBE_CONCURRENCY, probes.length)},
+        async () => {
+            while (nextProbeIndex < probes.length) {
+                const probeIndex = nextProbeIndex;
+                nextProbeIndex += 1;
+                await runProbe(probes[probeIndex]!);
+            }
+        },
+    ));
+    for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') throw outcome.reason;
+    }
+    return toPageRasterSource(combinedResult, pages === undefined);
 }
 
 export async function detectSourceDpi(

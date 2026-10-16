@@ -9,24 +9,26 @@ import { useViewAnnotationTool } from '@app/modules/workspace-shell/composables/
 
 function createHarness() {
     const viewer = {
-        clearSelectedShape: vi.fn(),
-        prepareAnnotationToolChange: vi.fn(),
-        selectedShapeId: null as string | null,
+        clearSelectedShape: () => {viewer.selectedShapeId = null;},
+        prepareAnnotationToolChange: vi.fn<() => void | Promise<void>>(),
+        selectedShapeId: 'selected-shape' as string | null,
         getSelectedShape: vi.fn(() => null),
         updateShape: vi.fn(),
     };
     const keepActive = ref(true);
+    const menuOpen = ref(true);
     const deps = {
         pdfViewerRef: ref(viewer),
         dragMode: ref(true),
         annotationKeepActive: keepActive,
-        closeAnnotationContextMenu: vi.fn(),
+        closeAnnotationContextMenu: () => {menuOpen.value = false;},
     };
 
     return {
         viewer,
         deps,
         keepActive,
+        menuOpen,
         tools: useViewAnnotationTool(deps),
     };
 }
@@ -63,20 +65,14 @@ describe('useViewAnnotationTool', () => {
         false,
     ])('exits note placement after creation with Keep active=%s', (setting) => {
         const {
-            deps,
             keepActive,
             tools,
-            viewer,
         } = createHarness();
         keepActive.value = setting;
         tools.handleAnnotationToolChange('note');
-        viewer.prepareAnnotationToolChange.mockClear();
-        deps.closeAnnotationContextMenu.mockClear();
         tools.handleAnnotationToolAutoReset();
         expect(tools.annotationTool.value).toBe('select');
         expect(keepActive.value).toBe(setting);
-        expect(viewer.prepareAnnotationToolChange).not.toHaveBeenCalled();
-        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
     it('switches tools and clears context state', () => {
         const {
@@ -85,13 +81,11 @@ describe('useViewAnnotationTool', () => {
             tools,
         } = createHarness();
 
-        tools.handleAnnotationToolChange('highlight');
-        expect(viewer.prepareAnnotationToolChange).toHaveBeenCalledOnce();
+        expect(tools.handleAnnotationToolChange('highlight')).toBe(true);
 
         expect(tools.annotationTool.value).toBe('highlight');
         expect(deps.dragMode.value).toBe(false);
-        expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
-        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+        expect(viewer.selectedShapeId).toBeNull();
     });
 
     it.each([
@@ -107,6 +101,30 @@ describe('useViewAnnotationTool', () => {
         },
     );
 
+    it.each([
+        true,
+        false,
+    ])('waits for text protection before changing the tool (accepted: %s)', async accepted => {
+        const {
+            viewer, deps, menuOpen, tools,
+        } = createHarness();
+        const protection = Promise.withResolvers<undefined>();
+        viewer.prepareAnnotationToolChange.mockReturnValue(protection.promise);
+        tools.annotationTool.value = 'text';
+        const changing = tools.handleAnnotationToolChange('rectangle');
+        expect.soft(tools.annotationTool.value).toBe('text');
+        expect.soft(deps.dragMode.value).toBe(true);
+        expect.soft(viewer.selectedShapeId).toBe('selected-shape');
+        expect.soft(menuOpen.value).toBe(true);
+        if (accepted) protection.resolve(undefined);
+        else protection.reject(new Error('ENOSPC'));
+        expect(await changing).toBe(accepted);
+        expect(tools.annotationTool.value).toBe(accepted ? 'rectangle' : 'text');
+        expect(deps.dragMode.value).toBe(!accepted);
+        expect(viewer.selectedShapeId).toBe(accepted ? null : 'selected-shape');
+        expect(menuOpen.value).toBe(!accepted);
+    });
+
     it('keeps shape selection when select mode is activated', () => {
         const {
             viewer,
@@ -115,18 +133,14 @@ describe('useViewAnnotationTool', () => {
 
         tools.handleAnnotationToolChange('select');
 
-        expect(viewer.clearSelectedShape).not.toHaveBeenCalled();
+        expect(viewer.selectedShapeId).toBe('selected-shape');
     });
 
     it('ends the active interaction when annotation tool is cancelled', () => {
-        const {
-            viewer,
-            tools,
-        } = createHarness();
+        const {tools} = createHarness();
 
         tools.handleAnnotationToolCancel();
 
-        expect(viewer.prepareAnnotationToolChange).toHaveBeenCalledOnce();
         expect(tools.annotationTool.value).toBe('select');
     });
 
@@ -143,6 +157,6 @@ describe('useViewAnnotationTool', () => {
         tools.handleAnnotationToolAutoReset();
 
         expect(tools.annotationTool.value).toBe('select');
-        expect(viewer.clearSelectedShape).not.toHaveBeenCalled();
+        expect(viewer.selectedShapeId).toBe('selected-shape');
     });
 });

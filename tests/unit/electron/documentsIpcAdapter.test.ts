@@ -360,3 +360,27 @@ describe('documents direct ipc', () => {
         fallbackOperation.complete();
     });
 });
+
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => null}));
+
+describe('path printing without native layout', () => {
+    it('keeps single Auto PDFs printable when no native layout tool is installed', async () => {
+        const {buildPrintablePdfPath} = await import('@electron/features/documents/main/buildPrintablePdfPath');
+        await expect(buildPrintablePdfPath({
+            inputPath: '/source.pdf',
+            outputPath: '/staged.pdf',
+            printOptions: {
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        })).resolves.toBeUndefined();
+        await expect(buildPrintablePdfPath({
+            inputPath: '/source.pdf',
+            outputPath: '/staged.pdf',
+            printOptions: {
+                viewMode: 'facing',
+                orientation: 'auto',
+            },
+        })).rejects.toThrow('Native print layout is unavailable');
+    });
+});

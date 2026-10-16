@@ -188,3 +188,165 @@ fn parse_annotations_decodes_pdfdocencoding_text_strings() {
     fs::remove_file(input).unwrap();
     fs::remove_file(output).unwrap();
 }
+
+#[test]
+fn parse_annotations_cli_attaches_reader_replies_to_supported_parents() {
+    // PyMuPDF 1.28.2 wrote a highlight and square, each with a /Text /IRT child.
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/reader-highlight-replies.pdf");
+    let fixture = input;
+    let input = temporary_path("reader-replies", "pdf");
+    let mut document = Document::load(fixture).unwrap();
+    for object in document.objects.values_mut() {
+        if let Ok(dict) = object.as_dict_mut() {
+            if dict.has(b"IRT") {
+                dict.set("State", Object::string_literal("Accepted"));
+                dict.set("StateModel", Object::string_literal("Review"));
+            }
+        }
+    }
+    document.save(&input).unwrap();
+    let original = fs::read(&input).unwrap();
+    let output = temporary_path("reader-replies", "jsonl");
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let sidecar = fs::read_to_string(&output).unwrap();
+    fs::remove_file(output).unwrap();
+    let entries: Vec<serde_json::Value> = sidecar
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    assert_eq!(entries.len(), 2, "Replies must not become top-level notes");
+    for (kind, contents, author) in [
+        ("highlight", "Reader reply on highlight", "Reply author"),
+        ("shape", "Reader reply on square", "Square reply author"),
+    ] {
+        let parent = entries.iter().find(|entry| entry["kind"] == kind).unwrap();
+        assert_eq!(parent["replies"].as_array().map(Vec::len), Some(1));
+        assert_eq!(parent["replies"][0]["contents"], contents);
+        assert_eq!(parent["replies"][0]["author"], author);
+        assert_eq!(parent["replies"][0]["state"], "Accepted");
+        assert_eq!(parent["replies"][0]["stateModel"], "Review");
+    }
+    assert_eq!(fs::read(&input).unwrap(), original);
+    fs::remove_file(input).unwrap();
+}
+
+#[test]
+fn malformed_reply_preserves_its_square_and_readable_thread() {
+    let input = temporary_path("malformed-reply", "pdf");
+    let output = temporary_path("malformed-reply", "jsonl");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/reader-highlight-replies.pdf");
+    let mut document = Document::load(fixture).unwrap();
+    let page_id = *document.get_pages().values().next().unwrap();
+    let square_id = document
+        .objects
+        .iter()
+        .find_map(|(id, object)| {
+            let dict = object.as_dict().ok()?;
+            (dict.get(b"Subtype").ok()?.as_name().ok()? == b"Square").then_some(*id)
+        })
+        .unwrap();
+    let malformed_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "IRT" => square_id,
+        "NM" => Object::string_literal("unreadable-reply"), "Contents" => 123,
+    });
+    let nested_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "IRT" => malformed_id,
+        "Contents" => Object::string_literal("Readable descendant"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .get_mut(b"Annots")
+        .unwrap()
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            Object::Reference(malformed_id),
+            Object::Reference(nested_id),
+        ]);
+    document.save(&input).unwrap();
+    let original = fs::read(&input).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let entries: Vec<serde_json::Value> = fs::read_to_string(&output)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    let square = entries
+        .iter()
+        .find(|entry| entry["objectNumber"] == square_id.0)
+        .unwrap();
+    assert_eq!(
+        square["kind"], "shape",
+        "Unreadable child must not demote its parent"
+    );
+    assert_eq!(
+        square["replies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|reply| reply["contents"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["Reader reply on square", "Readable descendant"]
+    );
+    let unreadable = entries
+        .iter()
+        .find(|entry| entry["objectNumber"] == malformed_id.0)
+        .unwrap();
+    assert_eq!(unreadable["kind"], "foreign");
+    assert_eq!(unreadable["reason"], "/Contents must be a PDF string");
+    assert_eq!(entries.len(), 3);
+    assert_eq!(
+        fs::read(&input).unwrap(),
+        original,
+        "Import must leave PDF bytes intact"
+    );
+    fs::remove_file(input).unwrap();
+    fs::remove_file(output).unwrap();
+}

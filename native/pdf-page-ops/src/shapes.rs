@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "ink_appearance.rs"]
+mod ink_appearance;
+pub(crate) use ink_appearance::*;
+
 pub(crate) fn normalize_managed_shape_stable_key(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
     (!trimmed.is_empty()).then_some(trimmed.to_string())
@@ -49,41 +53,6 @@ pub(crate) fn write_managed_shape_stable_key(
         modified = true;
     }
     modified
-}
-
-pub(crate) fn format_pdfjs_annotation_ref(object_id: ObjectId) -> String {
-    if object_id.1 == 0 {
-        format!("{}R", object_id.0)
-    } else {
-        format!("{}R{}", object_id.0, object_id.1)
-    }
-}
-
-pub(crate) fn normalize_pdfjs_annotation_id(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    let (object, generation) = trimmed.split_once('R')?;
-    if object.is_empty() || !object.chars().all(|character| character.is_ascii_digit()) {
-        return None;
-    }
-    let object_number = object.parse::<u32>().ok()?;
-    if object_number == 0 {
-        return None;
-    }
-    if generation.is_empty() {
-        return Some(format!("{object_number}R"));
-    }
-    if !generation
-        .chars()
-        .all(|character| character.is_ascii_digit())
-    {
-        return None;
-    }
-    let generation_number = generation.parse::<u16>().ok()?;
-    if generation_number == 0 {
-        Some(format!("{object_number}R"))
-    } else {
-        Some(format!("{object_number}R{generation_number}"))
-    }
 }
 
 pub(crate) fn shape_annotation_subtype_for_create(shape: &ShapeAnnotation) -> Option<&'static str> {
@@ -557,144 +526,45 @@ fn line_ending_points(points: &[(f64, f64)], shape: &ShapeAnnotation) -> Vec<Vec
     .into_iter()
     .filter(|(style, _, _)| *style == Some("closedArrow"))
     .filter_map(|(_, tip, other)| {
-        let dx = tip.0 - other.0;
-        let dy = tip.1 - other.1;
-        let length = dx.hypot(dy);
-        if length == 0.0 {
-            return None;
-        }
-        let head_length = (shape.stroke_width * 10.0).max(6.0).min(length * 0.4);
-        let half_width = head_length * 0.35;
-        let ux = dx / length;
-        let uy = dy / length;
-        Some(vec![
-            (
-                tip.0 - ux * head_length - uy * half_width,
-                tip.1 - uy * head_length + ux * half_width,
-            ),
-            tip,
-            (
-                tip.0 - ux * head_length + uy * half_width,
-                tip.1 - uy * head_length - ux * half_width,
-            ),
-        ])
+        let [left, right] = arrow_head_arms(tip, other, shape.stroke_width)?;
+        Some(vec![left, tip, right])
     })
     .collect()
+}
+
+/// The two arms of an arrowhead pointing at `tip`, drawn back along the line
+/// from `other`. `None` when the line has no length to point along.
+pub(crate) fn arrow_head_arms(
+    tip: (f64, f64),
+    other: (f64, f64),
+    stroke_width: f64,
+) -> Option<[(f64, f64); 2]> {
+    let dx = tip.0 - other.0;
+    let dy = tip.1 - other.1;
+    let length = dx.hypot(dy);
+    if length == 0.0 {
+        return None;
+    }
+    let head_length = (stroke_width * 10.0).max(6.0).min(length * 0.4);
+    let half_width = head_length * 0.35;
+    let ux = dx / length;
+    let uy = dy / length;
+    Some([
+        (
+            tip.0 - ux * head_length - uy * half_width,
+            tip.1 - uy * head_length + ux * half_width,
+        ),
+        (
+            tip.0 - ux * head_length + uy * half_width,
+            tip.1 - uy * head_length - ux * half_width,
+        ),
+    ])
 }
 
 fn line_shape_bounds(points: &[(f64, f64)], shape: &ShapeAnnotation) -> Result<PdfRect> {
     let mut bounds_points = points.to_vec();
     bounds_points.extend(line_ending_points(points, shape).into_iter().flatten());
     pdf_points_bounds(&bounds_points, shape.stroke_width)
-}
-
-pub(crate) fn shape_ink_strokes(shape: &ShapeAnnotation) -> Vec<&[ShapePoint]> {
-    if shape.strokes.is_empty() {
-        vec![shape.points.as_slice()]
-    } else {
-        shape.strokes.iter().map(Vec::as_slice).collect()
-    }
-}
-
-pub(crate) fn set_ink_shape_fields(
-    dict: &mut Dictionary,
-    shape: &ShapeAnnotation,
-    page_view: PdfRect,
-    page_rotation: i64,
-) -> Result<()> {
-    let mut all_points = Vec::new();
-    let mut ink_list = Vec::new();
-    for stroke in shape_ink_strokes(shape) {
-        let pdf_points = shape_points_to_pdf_points(stroke, page_view, page_rotation);
-        all_points.extend(pdf_points.iter().copied());
-        ink_list.push(flat_pdf_points_object(&pdf_points));
-    }
-    let rect = pdf_points_bounds(&all_points, shape.stroke_width)?;
-    dict.set("Rect", rect_object(rect));
-    dict.set("InkList", Object::Array(ink_list));
-    set_shape_style(dict, shape);
-    dict.remove(b"LE");
-    dict.remove(b"IC");
-    Ok(())
-}
-
-pub(crate) fn build_ink_shape_appearance_stream(
-    shape: &ShapeAnnotation,
-    page_view: PdfRect,
-    page_rotation: i64,
-) -> Result<Stream> {
-    let color = parse_pdf_color(Some(&shape.color)).ok_or("Invalid Ink appearance color")?;
-    let mut all_points = Vec::new();
-    let mut stroke_points = Vec::new();
-    for stroke in shape_ink_strokes(shape) {
-        let points = shape_points_to_pdf_points(stroke, page_view, page_rotation);
-        all_points.extend(points.iter().copied());
-        stroke_points.push(points);
-    }
-    let rect = pdf_points_bounds(&all_points, shape.stroke_width)?;
-
-    let mut content = String::new();
-    content.push_str("q\n/GS0 gs\n");
-    content.push_str(&format!(
-        "{} {} {} RG\n{} w\n1 J\n1 j\n",
-        number_to_content(color[0]),
-        number_to_content(color[1]),
-        number_to_content(color[2]),
-        number_to_content(shape.stroke_width),
-    ));
-    let mut has_path = false;
-    for points in stroke_points {
-        let Some(first) = points.first() else {
-            continue;
-        };
-        if points.len() < 2 {
-            continue;
-        }
-        content.push_str(&format!(
-            "{} {} m\n",
-            number_to_content(first.0),
-            number_to_content(first.1),
-        ));
-        for point in points.iter().skip(1) {
-            content.push_str(&format!(
-                "{} {} l\n",
-                number_to_content(point.0),
-                number_to_content(point.1),
-            ));
-        }
-        has_path = true;
-    }
-    if !has_path {
-        return Err("Ink appearance has no drawable path".into());
-    }
-    content.push_str("S\nQ\n");
-
-    let mut graphics_state = Dictionary::new();
-    graphics_state.set("Type", Object::Name(b"ExtGState".to_vec()));
-    graphics_state.set("CA", number_object(shape.opacity.clamp(0.0, 1.0)));
-    graphics_state.set("ca", number_object(shape.opacity.clamp(0.0, 1.0)));
-    let mut graphics_states = Dictionary::new();
-    graphics_states.set("GS0", Object::Dictionary(graphics_state));
-    let mut resources = Dictionary::new();
-    resources.set("ExtGState", Object::Dictionary(graphics_states));
-
-    let mut dict = Dictionary::new();
-    dict.set("Type", Object::Name(b"XObject".to_vec()));
-    dict.set("Subtype", Object::Name(b"Form".to_vec()));
-    dict.set("BBox", rect_object(rect));
-    dict.set(
-        "Matrix",
-        Object::Array(vec![
-            Object::Integer(1),
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(1),
-            Object::Integer(0),
-            Object::Integer(0),
-        ]),
-    );
-    dict.set("Resources", Object::Dictionary(resources));
-    Ok(Stream::new(dict, content.into_bytes()))
 }
 
 pub(crate) fn build_closed_line_shape_appearance_stream(
@@ -795,12 +665,40 @@ pub(crate) fn attach_shape_appearance(dict: &mut Dictionary, appearance_ref: Obj
     let mut appearance = Dictionary::new();
     appearance.set("N", Object::Reference(appearance_ref));
     dict.set("AP", Object::Dictionary(appearance));
-    let flags = dict
+}
+
+/// The /F flags of an annotation, read through the document so an indirect
+/// reference resolves. A missing or unreadable /F reads as 0.
+fn annotation_flags(document: &impl PdfObjectSource, annotation: &Dictionary) -> i64 {
+    annotation
         .get(b"F")
         .ok()
-        .and_then(|value| value.as_i64().ok())
-        .unwrap_or(0);
-    dict.set("F", Object::Integer(flags | 4));
+        .and_then(|flags| document.resolved(flags).ok())
+        .and_then(|flags| flags.as_i64().ok())
+        .unwrap_or(0)
+}
+
+/// The flags advanced print reads. An EVB-owned shape saved before the Print
+/// flag was written has no /F at all; it reads as printable, as the next save
+/// of it would write the flag. Any other annotation without /F keeps the 0 it
+/// always had.
+pub(crate) fn annotation_print_flags(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> i64 {
+    if annotation.has(b"F") {
+        annotation_flags(document, annotation)
+    } else if read_managed_shape_stable_key(annotation).is_some() {
+        ANNOTATION_FLAG_PRINT
+    } else {
+        0
+    }
+}
+
+/// Sets the Print flag on top of `flags`, the annotation's existing flags as
+/// `annotation_print_flags` read them, so its other bits survive.
+pub(crate) fn set_print_flag(dict: &mut Dictionary, flags: i64) {
+    dict.set("F", Object::Integer(flags | ANNOTATION_FLAG_PRINT));
 }
 
 /// `existing_rect` is the annotation's own `/Rect`, resolved through the
@@ -814,6 +712,7 @@ pub(crate) fn update_shape_annotation_dict(
     modified_at: &str,
     existing_rect: Option<PdfRect>,
     remove_appearance: bool,
+    print_flags: i64,
 ) -> Result<bool> {
     let subtype = annotation_subtype(dict);
     if !is_supported_shape_subtype(&subtype) {
@@ -837,6 +736,11 @@ pub(crate) fn update_shape_annotation_dict(
     }
     set_shape_dates(dict, shape, modified_at);
     write_managed_shape_stable_key(dict, shape.stable_key.as_deref());
+    // EVB-owned shapes print, including ones saved before the flag was written.
+    // Imported shapes keep their own flags.
+    if read_managed_shape_stable_key(dict).is_some() {
+        set_print_flag(dict, print_flags);
+    }
     Ok(true)
 }
 
@@ -850,6 +754,7 @@ pub(crate) fn create_shape_annotation_dict(
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"Annot".to_vec()));
     dict.set("Subtype", Object::Name(subtype.as_bytes().to_vec()));
+    dict.set("F", Object::Integer(ANNOTATION_FLAG_PRINT));
     match subtype {
         "Square" | "Circle" => {
             set_rect_shape_fields(&mut dict, shape, page_view, page_rotation, None)?
@@ -1004,51 +909,15 @@ pub(crate) fn apply_shape_annotation_decision(
     }
     if let Some(stable_key) = annotation_stable_key.as_deref() {
         if let Some(index) = state.find_by_stable_key(stable_key) {
-            let shape = state.shapes[index].clone();
-            let appearance_ref = if subtype == "ink" {
-                let appearance =
-                    build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
-                Some(document.add_object(appearance))
-            } else if uses_closed_line_appearance(&subtype, &shape) {
-                let appearance = build_closed_line_shape_appearance_stream(
-                    &shape,
-                    page.page_view,
-                    page.page_rotation,
-                )?;
-                Some(document.add_object(appearance))
-            } else {
-                None
-            };
-            let existing_rect = document
-                .get_dictionary(object_id)
-                .ok()
-                .and_then(|dict| read_shape_annotation_rect(&*document, dict));
-            let remove_appearance = subtype != "ink"
-                && shape_semantic_change(
-                    &*document,
-                    document.get_dictionary(object_id)?,
-                    &shape,
-                    page.page_view,
-                    page.page_rotation,
-                    existing_rect,
-                )?;
-            let dict = document.get_dictionary_mut(object_id)?;
-            let mut modified = update_shape_annotation_dict(
-                dict,
-                &shape,
-                page.page_view,
-                page.page_rotation,
+            return update_shape_in_document(
+                document,
+                state,
+                index,
+                object_id,
+                &subtype,
+                page,
                 modified_at,
-                existing_rect,
-                remove_appearance,
-            )?;
-            dict.set("P", Object::Reference(page.page_id));
-            if let Some(appearance_ref) = appearance_ref {
-                attach_shape_appearance(dict, appearance_ref);
-                modified = true;
-            }
-            state.consume(index);
-            return Ok(modified);
+            );
         }
         if rewrite_shape_state {
             collect_shape_annotation_refs_to_delete(
@@ -1062,53 +931,89 @@ pub(crate) fn apply_shape_annotation_decision(
         return Ok(false);
     }
     if let Some(index) = state.find_by_annotation_id(&annotation_id) {
-        let shape = state.shapes[index].clone();
-        let appearance_ref = if subtype == "ink" {
-            let appearance =
-                build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
-            Some(document.add_object(appearance))
-        } else if uses_closed_line_appearance(&subtype, &shape) {
-            let appearance = build_closed_line_shape_appearance_stream(
-                &shape,
-                page.page_view,
-                page.page_rotation,
-            )?;
-            Some(document.add_object(appearance))
-        } else {
-            None
-        };
-        let existing_rect = document
-            .get_dictionary(object_id)
-            .ok()
-            .and_then(|dict| read_shape_annotation_rect(&*document, dict));
-        let remove_appearance = subtype != "ink"
-            && shape_semantic_change(
-                &*document,
-                document.get_dictionary(object_id)?,
-                &shape,
-                page.page_view,
-                page.page_rotation,
-                existing_rect,
-            )?;
-        let dict = document.get_dictionary_mut(object_id)?;
-        let mut modified = update_shape_annotation_dict(
-            dict,
+        return update_shape_in_document(
+            document,
+            state,
+            index,
+            object_id,
+            &subtype,
+            page,
+            modified_at,
+        );
+    }
+    Ok(false)
+}
+
+/// Rewrites a matched shape annotation in place from its state entry.
+fn update_shape_in_document(
+    document: &mut Document,
+    state: &mut ShapeConsumptionState,
+    index: usize,
+    object_id: ObjectId,
+    subtype: &str,
+    page: ShapePageContext,
+    modified_at: &str,
+) -> Result<bool> {
+    let shape = state.shapes[index].clone();
+    let appearance_ref = shape_appearance_stream(subtype, &shape, page)?
+        .map(|appearance| document.add_object(appearance));
+    let existing_rect = document
+        .get_dictionary(object_id)
+        .ok()
+        .and_then(|dict| read_shape_annotation_rect(&*document, dict));
+    let remove_appearance = subtype != "ink"
+        && shape_semantic_change(
+            &*document,
+            document.get_dictionary(object_id)?,
             &shape,
             page.page_view,
             page.page_rotation,
-            modified_at,
             existing_rect,
-            remove_appearance,
         )?;
-        dict.set("P", Object::Reference(page.page_id));
-        if let Some(appearance_ref) = appearance_ref {
-            attach_shape_appearance(dict, appearance_ref);
-            modified = true;
-        }
-        state.consume(index);
-        return Ok(modified);
+    let print_flags = annotation_print_flags(&*document, document.get_dictionary(object_id)?);
+    let dict = document.get_dictionary_mut(object_id)?;
+    let mut modified = update_shape_annotation_dict(
+        dict,
+        &shape,
+        page.page_view,
+        page.page_rotation,
+        modified_at,
+        existing_rect,
+        remove_appearance,
+        print_flags,
+    )?;
+    dict.set("P", Object::Reference(page.page_id));
+    if let Some(appearance_ref) = appearance_ref {
+        attach_shape_appearance(dict, appearance_ref);
+        set_print_flag(dict, print_flags);
+        modified = true;
     }
-    Ok(false)
+    state.consume(index);
+    Ok(modified)
+}
+
+/// The appearance stream an ink or closed-arrow line needs. The other
+/// supported subtypes are drawn from their fields and need none.
+fn shape_appearance_stream(
+    subtype: &str,
+    shape: &ShapeAnnotation,
+    page: ShapePageContext,
+) -> Result<Option<Stream>> {
+    if subtype == "ink" {
+        Ok(Some(build_ink_shape_appearance_stream(
+            shape,
+            page.page_view,
+            page.page_rotation,
+        )?))
+    } else if uses_closed_line_appearance(subtype, shape) {
+        Ok(Some(build_closed_line_shape_appearance_stream(
+            shape,
+            page.page_view,
+            page.page_rotation,
+        )?))
+    } else {
+        Ok(None)
+    }
 }
 
 pub(crate) fn apply_shape_annotation_decision_incremental(
@@ -1156,42 +1061,25 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     if let Some(index) = shape_index {
         let shape = state.shapes[index].clone();
         incremental.opt_clone_object_to_new_document(object_id)?;
-        let appearance_ref = if subtype == "ink" {
-            let appearance =
-                build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
-            Some(incremental.new_document.add_object(appearance))
-        } else if uses_closed_line_appearance(&subtype, &shape) {
-            let appearance = build_closed_line_shape_appearance_stream(
-                &shape,
-                page.page_view,
-                page.page_rotation,
-            )?;
-            Some(incremental.new_document.add_object(appearance))
-        } else {
-            None
-        };
-        let existing_rect = {
-            // The appended revision over the base: a `/Rect` reference the
-            // clone did not copy still resolves against the loaded original.
-            let source = AppendedRevision::new(incremental);
-            source
-                .dictionary(object_id)
-                .ok()
-                .and_then(|dict| read_shape_annotation_rect(&source, dict))
-        };
-        let remove_appearance = if subtype == "ink" {
-            false
-        } else {
-            let source = AppendedRevision::new(incremental);
-            shape_semantic_change(
+        let appearance_ref = shape_appearance_stream(&subtype, &shape, page)?
+            .map(|appearance| incremental.new_document.add_object(appearance));
+        let source = AppendedRevision::new(incremental);
+        // The appended revision over the base: a `/Rect` or `/F` reference the
+        // clone did not copy still resolves against the loaded original.
+        let existing_rect = source
+            .dictionary(object_id)
+            .ok()
+            .and_then(|dict| read_shape_annotation_rect(&source, dict));
+        let print_flags = annotation_print_flags(&source, source.dictionary(object_id)?);
+        let remove_appearance = subtype != "ink"
+            && shape_semantic_change(
                 &source,
                 source.dictionary(object_id)?,
                 &shape,
                 page.page_view,
                 page.page_rotation,
                 existing_rect,
-            )?
-        };
+            )?;
         let dict = incremental.new_document.get_dictionary_mut(object_id)?;
         let mut modified = update_shape_annotation_dict(
             dict,
@@ -1201,10 +1089,12 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             modified_at,
             existing_rect,
             remove_appearance,
+            print_flags,
         )?;
         dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
             attach_shape_appearance(dict, appearance_ref);
+            set_print_flag(dict, print_flags);
             modified = true;
         }
         state.consume(index);
@@ -1624,6 +1514,24 @@ pub(crate) fn apply_shape_annotations_incremental(
             || !shapes.deleted_stable_keys.is_empty())
     {
         return Err("Shape mutation did not modify the document".into());
+    }
+    Ok(())
+}
+
+/// Style checks for a saved shape, shared by the shape postconditions: the
+/// stroke width matches the request, and an EVB-owned shape carries the Print
+/// flag. Imported shapes keep whatever flag they were saved with.
+pub(crate) fn validate_saved_shape_style(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+    shape: &ShapeAnnotation,
+) -> Result<()> {
+    if (shape_stroke_width(document, dict).unwrap_or(1.0) - shape.stroke_width).abs() > 0.0001 {
+        return Err("Saved shape stroke width differs from the request".into());
+    }
+    let flags = annotation_flags(document, dict);
+    if read_managed_shape_stable_key(dict).is_some() && flags & ANNOTATION_FLAG_PRINT == 0 {
+        return Err("Saved EVB shape is not printable".into());
     }
     Ok(())
 }

@@ -17,3 +17,4 @@ export {
 } from '@electron/features/page-ops/main/pageOpsErrors';
 export type { TPdfPageOpsCapabilityErrorCode } from '@electron/features/page-ops/main/pageOpsErrors';
 export { pageOpsMainBindings } from '@electron/features/page-ops/main/pageOpsMainBindings';
+export {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';

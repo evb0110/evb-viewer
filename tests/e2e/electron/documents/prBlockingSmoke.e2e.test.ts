@@ -2110,6 +2110,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             );
             await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            const defaultView = await getWorkspaceToolbarSnapshot(session.page);
             await requireWorkspaceCommand(session.page, 'handleFitHeight');
             await waitForFunctionInPage(session.page, () => (
                 (window as IE2EWindow).__evbTestApi
@@ -2121,7 +2122,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 {showSidebar: true},
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
-            const closedView = await getWorkspaceToolbarSnapshot(session.page);
             await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
             await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
                 Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
@@ -2144,12 +2144,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 {showSidebar: false},
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
-            // Recent restores the reading view the document was closed with
-            // (#963); the sidebar is not part of it and starts closed.
+            // Restoration is off by default; reopening starts at page 1 with
+            // the default zoom and a closed sidebar.
             const reopenedView = await getWorkspaceToolbarSnapshot(session.page);
-            expect(reopenedView?.zoomMode).toBe('fit-height');
-            expect(reopenedView?.currentPage).toBe(closedView?.currentPage);
-            expect(reopenedView?.effectiveZoom).toBe(closedView?.effectiveZoom);
+            expect(reopenedView?.zoomMode).toBe('fit-width');
+            expect(reopenedView?.currentPage).toBe(1);
+            expect(reopenedView?.effectiveZoom).toBe(defaultView?.effectiveZoom);
             expect(rendererExceptions).toEqual([]);
         } catch (error) {
             throw new Error(`${String(error)}; rendererExceptions=${JSON.stringify(rendererExceptions)}`);

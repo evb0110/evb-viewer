@@ -16,6 +16,7 @@ import type {
 
 import {
     asAnnotationId,
+    isReadOnlyAnnotation,
     mintAnnotationId,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -247,12 +248,13 @@ export class AnnotationApplication {
                 } : {}),
                 ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
                 ...(entity.kind === 'note' ? {open: entity.open} : {}),
+                ...(isReadOnlyAnnotation(entity) ? {readOnly: true} : {}),
                 uid: null,
                 annotationId: entity.identity.pdfRef ?? null,
                 annotationName: null,
                 hasNote: entity.kind === 'note' || entity.kind === 'text-markup' && text.length > 0,
                 markerRect,
-                ...(entity.kind === 'note' && entity.replies
+                ...(entity.replies
                     ? {replies: entity.replies.map(reply => ({...reply}))}
                     : {}),
                 ...(entity.kind === 'text-markup'

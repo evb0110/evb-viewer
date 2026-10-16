@@ -31,3 +31,16 @@ export function getUnprovenNativeTerminationDetail(error: unknown) {
     const detail = (error as IUnprovenNativeTerminationCarrier)[UNPROVEN_NATIVE_TERMINATION];
     return typeof detail === 'string' ? detail : undefined;
 }
+
+// A wrapper that drops the mark would let a cleanup owner delete files a native writer still uses,
+// so every AggregateError built around failures goes through here and keeps the first mark among them.
+export function aggregateErrorsKeepingUnprovenTermination(errors: readonly unknown[], message: string) {
+    const aggregate = new AggregateError(errors, message);
+    for (const error of errors) {
+        const detail = getUnprovenNativeTerminationDetail(error);
+        if (detail !== undefined) {
+            return markUnprovenNativeTermination(aggregate, detail);
+        }
+    }
+    return aggregate;
+}

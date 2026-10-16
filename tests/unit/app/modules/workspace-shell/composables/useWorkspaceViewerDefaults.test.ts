@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    computed,
     effectScope,
     nextTick,
     ref,
@@ -49,7 +50,8 @@ function createDefaultsSetup(
     const continuousScroll = ref(false);
     const fitMode = ref<TFitMode>('height');
     const zoom = ref(2);
-    const effectiveZoom = ref(2);
+    const runtimeZoom = ref(2);
+    const effectiveZoom = computed(() => runtimeZoom.value);
     const zoomMode = ref<TZoomMode>('custom');
     const pdfSrc = ref<TPdfSource | null>(null);
     const documentSourceKey = ref<unknown>(options.initialDocumentSourceKey ?? null);
@@ -82,6 +84,7 @@ function createDefaultsSetup(
         fitMode,
         zoom,
         effectiveZoom,
+        runtimeZoom,
         zoomMode,
         pdfSrc,
         documentSourceKey,
@@ -107,7 +110,7 @@ describe('useWorkspaceViewerDefaults', () => {
             expect(setup.documentSourceKey.value).toBeNull();
             expect(setup.fitMode.value).toBe('width');
             expect(setup.zoom.value).toBe(1);
-            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
             expect(setup.viewMode.value).toBe('single');
             expect(setup.continuousScroll.value).toBe(true);
@@ -122,7 +125,7 @@ describe('useWorkspaceViewerDefaults', () => {
         try {
             expect(setup.documentSourceKey.value).toBeNull();
             expect(setup.zoom.value).toBe(1.5);
-            expect(setup.effectiveZoom.value).toBe(1.5);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('custom');
         } finally {
             setup.stop();
@@ -283,12 +286,11 @@ describe('useWorkspaceViewerDefaults', () => {
         }
     });
 
-    it('zooms from the neutral scale after a fit mode replaces a custom one, before the viewer measures the fit', () => {
+    it('zooms from the renderer scale after requesting a fit mode', () => {
         const setup = createDefaultsSetup({defaultZoomPreset: '150'});
 
         try {
             setup.defaults.handleZoomIn();
-            const customScale = setup.zoom.value;
             setup.defaults.applyView({
                 zoom: null,
                 zoomMode: 'fit-width',
@@ -297,7 +299,7 @@ describe('useWorkspaceViewerDefaults', () => {
                 viewRotation: null,
             });
             setup.defaults.handleZoomIn();
-            expect(setup.zoom.value).toBeLessThan(customScale);
+            expect(setup.zoom.value).toBeCloseTo(setup.runtimeZoom.value + 0.25);
         } finally {
             setup.stop();
         }
@@ -307,7 +309,7 @@ describe('useWorkspaceViewerDefaults', () => {
         const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
 
         try {
-            setup.effectiveZoom.value = 1.37;
+            setup.runtimeZoom.value = 1.37;
             setup.defaults.applyView({
                 zoom: null,
                 zoomMode: 'custom',
@@ -344,7 +346,7 @@ describe('useWorkspaceViewerDefaults', () => {
 
             expect(setup.fitMode.value).toBe('width');
             expect(setup.zoom.value).toBe(1);
-            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
         } finally {
             setup.stop();
@@ -364,7 +366,7 @@ describe('useWorkspaceViewerDefaults', () => {
 
             expect(setup.fitMode.value).toBe('width');
             expect(setup.zoom.value).toBe(1);
-            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
             expect(setup.viewMode.value).toBe('single');
             expect(setup.continuousScroll.value).toBe(true);
@@ -389,7 +391,7 @@ describe('useWorkspaceViewerDefaults', () => {
 
             expect(setup.fitMode.value).toBe('height');
             expect(setup.zoom.value).toBe(1);
-            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-height');
         } finally {
             setup.stop();
@@ -416,7 +418,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await openPdf(setup.pdfSrc);
 
             expect(setup.zoom.value).toBe(expectedZoom);
-            expect(setup.effectiveZoom.value).toBe(expectedZoom);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('custom');
         } finally {
             setup.stop();
@@ -451,7 +453,7 @@ describe('useWorkspaceViewerDefaults', () => {
             expect(setup.viewMode.value).toBe('facing');
             expect(setup.continuousScroll.value).toBe(true);
             expect(setup.zoom.value).toBe(1.25);
-            expect(setup.effectiveZoom.value).toBe(1.25);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('custom');
         } finally {
             setup.stop();
@@ -468,7 +470,7 @@ describe('useWorkspaceViewerDefaults', () => {
         try {
             await openPdf(setup.pdfSrc);
             setup.zoom.value = 1.44;
-            setup.effectiveZoom.value = 1.44;
+            setup.runtimeZoom.value = 1.44;
             setup.zoomMode.value = 'fit-height';
             setup.viewMode.value = 'facing';
             setup.continuousScroll.value = false;
@@ -477,7 +479,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await nextTick();
 
             expect(setup.zoom.value).toBe(1.25);
-            expect(setup.effectiveZoom.value).toBe(1.25);
+            expect(setup.effectiveZoom.value).toBe(1.44);
             expect(setup.zoomMode.value).toBe('custom');
             expect(setup.viewMode.value).toBe('single');
             expect(setup.continuousScroll.value).toBe(true);
@@ -497,7 +499,7 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.documentSourceKey.value = 'pdf:/docs/a.pdf';
             await nextTick();
             setup.zoom.value = 5.33;
-            setup.effectiveZoom.value = 5.33;
+            setup.runtimeZoom.value = 5.33;
             setup.zoomMode.value = 'custom';
             setup.viewMode.value = 'facing';
             setup.continuousScroll.value = false;
@@ -506,7 +508,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await nextTick();
 
             expect(setup.zoom.value).toBe(1.25);
-            expect(setup.effectiveZoom.value).toBe(1.25);
+            expect(setup.effectiveZoom.value).toBe(5.33);
             expect(setup.zoomMode.value).toBe('custom');
             expect(setup.viewMode.value).toBe('single');
             expect(setup.continuousScroll.value).toBe(true);
@@ -522,7 +524,7 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.documentSourceKey.value = 'pdf:/docs/a.pdf';
             await nextTick();
             setup.zoom.value = 1.44;
-            setup.effectiveZoom.value = 1.44;
+            setup.runtimeZoom.value = 1.44;
             setup.pdfSrc.value = new Blob(['refreshed'], {type: 'application/pdf'});
             await nextTick();
 
@@ -561,7 +563,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await nextTick();
 
             expect(setup.zoom.value).toBe(1);
-            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('fit-width');
         } finally {
             setup.stop();

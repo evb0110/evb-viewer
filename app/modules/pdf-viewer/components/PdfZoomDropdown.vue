@@ -163,7 +163,6 @@ const {
 
 const emit = defineEmits<{
     'update:zoom': [level: number];
-    'update:effectiveZoom': [level: number];
     'update:zoomMode': [mode: TZoomMode];
     'update:fitMode': [mode: TFitMode];
     'update:viewMode': [mode: TPdfViewMode];
@@ -263,7 +262,6 @@ function isFitModeActive(mode: TFitMode) {
 function setCustomZoomFromDisplay(displayZoom: number) {
     const nextDisplayZoom = normalizeZoomLevel(displayZoom);
     emit('update:zoom', nextDisplayZoom);
-    emit('update:effectiveZoom', nextDisplayZoom);
     emit('update:zoomMode', 'custom');
 }
 

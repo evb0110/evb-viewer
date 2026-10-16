@@ -2,17 +2,24 @@
 
 import {
     PDFDocument,
+    PDFDict,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFString,
 } from 'pdf-lib';
 import type {
     PDFArray,
-    PDFDict,
     PDFRef,
 } from 'pdf-lib';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {
+    tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
+import * as v from 'valibot';
 
 interface IBrowserPageOpsAcceptanceResult {
     operation: 'delete' | 'reorder' | 'insert';
@@ -197,4 +204,169 @@ async function runBrowserPageOpsAcceptance() {
     ]);
 }
 
+// One catalog part that cannot be read must not hide the other: broken page
+// labels keep the outline readable, and a broken outline keeps the labels.
+async function createCatalogPartsFixture(broken: 'page labels' | 'outline') {
+    const document = await PDFDocument.create();
+    const pages = [
+        document.addPage([
+            200,
+            100,
+        ]),
+        document.addPage([
+            200,
+            100,
+        ]),
+    ];
+    const outlineItem = document.context.register(document.context.obj({
+        Title: PDFString.of('Chapter'),
+        Dest: [
+            pages[1]!.ref,
+            PDFName.of('Fit'),
+        ],
+    }));
+    const outlines = document.context.register(document.context.obj({
+        Type: PDFName.of('Outlines'),
+        First: outlineItem,
+        Last: outlineItem,
+        Count: PDFNumber.of(1),
+    }));
+    (document.context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
+    document.catalog.set(PDFName.of('Outlines'), broken === 'outline' ? PDFNumber.of(5) : outlines);
+    document.catalog.set(PDFName.of('PageLabels'), document.context.obj(broken === 'page labels'
+        // An empty number tree is recoverable; a visible scalar label is not.
+        ? {Nums: [
+            0,
+            PDFNumber.of(5),
+        ]}
+        : {Nums: [
+            0,
+            {S: PDFName.of('r')},
+        ]}));
+    return new Uint8Array(await document.save());
+}
+
+async function settleCatalogPart<T>(read: () => Promise<T>) {
+    try {
+        return await read();
+    } catch {
+        return 'unreadable' as const;
+    }
+}
+
+async function runBrowserCatalogPartsAcceptance() {
+    return Promise.all(([
+        'page labels',
+        'outline',
+    ] as const).map(async (broken) => {
+        const bytes = await createCatalogPartsFixture(broken);
+        const workingPath = await browserDocumentStore.createStoredDocument(`catalog-${broken}.pdf`, bytes, {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        });
+        try {
+            const pageOps = createBrowserPageOpsCapability({
+                clearSearchCaches: async () => undefined,
+                openInputAccept: 'application/pdf',
+                pickFiles: async () => [],
+                buildOpenPdfPickerTypes: () => [],
+                createCombinedPdfFromPaths: async () => new Uint8Array(),
+                pickSaveTarget: async () => ({
+                    canceled: true,
+                    fileName: '',
+                }),
+                saveBytesToPickerOrDownload: async () => ({
+                    canceled: true,
+                    fileName: '',
+                }),
+                writeBytesToHandle: async () => undefined,
+            });
+            return {
+                broken,
+                bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map(entry => entry.title)),
+                pageLabels: await settleCatalogPart(async () => {
+                    const catalog = await readPdfCatalog(bytes);
+                    if (!catalog.pageLabels) throw new Error(catalog.pageLabelsError);
+                    return catalog.pageLabels.map(range => range.style ?? null);
+                }),
+            };
+        } finally {
+            await browserDocumentStore.cleanupDetachedDocument(workingPath);
+        }
+    }));
+}
+
 Reflect.set(globalThis, '__evbRunBrowserPageOpsAcceptance', runBrowserPageOpsAcceptance);
+Reflect.set(globalThis, '__evbRunBrowserCatalogPartsAcceptance', runBrowserCatalogPartsAcceptance);
+
+// Read the writer's saved bytes independently, including every unchanged title.
+async function runBrowserBookmarkSaveAcceptance() {
+    const results = [];
+    for (const count of [
+        3,
+        10_000,
+    ]) {
+        const source = await PDFDocument.create();
+        const page = source.addPage([
+            200,
+            100,
+        ]);
+        const outline = source.context.nextRef();
+        const entries = Array.from({length: count}, (_, index) => source.context.obj({
+            Title: PDFString.of(`Section${index + 1}`),
+            Parent: outline,
+            Dest: [
+                page.ref,
+                PDFName.of('Fit'),
+            ],
+        }));
+        const refs = entries.map(entry => source.context.register(entry));
+        entries.forEach((entry, index) => {
+            if (index > 0) entry.set(PDFName.of('Prev'), refs[index - 1]!);
+            if (index + 1 < count) entry.set(PDFName.of('Next'), refs[index + 1]!);
+        });
+        source.context.assign(outline, source.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: refs[0],
+            Last: refs.at(-1),
+            Count: count,
+        }));
+        source.catalog.set(PDFName.of('Outlines'), outline);
+        const input = new Uint8Array(await source.save());
+        const catalog = await readPdfCatalog(input);
+        const items = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
+        items[items.length - 1] = {
+            ...items.at(-1)!,
+            title: 'Large web saved',
+        };
+        const saved = await tryRunBrowserPageOpsWithWasm('saveMutations', {
+            data: input,
+            mutations: {bookmarks: {
+                items,
+                totalPages: 1,
+                untitledLabel: 'Untitled',
+            }},
+            modifiedAt: 'D:20261013000000Z',
+        });
+        if (saved === null || isBrowserPageOpsWasmFailure(saved)) {
+            throw new Error(`Bookmark save failed: ${JSON.stringify(saved)}`);
+        }
+        const reopened = await PDFDocument.load(saved.data);
+        let row = reopened.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookupMaybe(PDFName.of('First'), PDFDict);
+        const titles: string[] = [];
+        while (row) {
+            titles.push(row.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText());
+            row = row.lookupMaybe(PDFName.of('Next'), PDFDict);
+        }
+        results.push({
+            count,
+            reopenedCount: titles.length,
+            renamedTitle: titles.at(-1),
+            unchangedTitles: titles.slice(0, -1).every((title, index) => title === `Section${index + 1}`),
+        });
+    }
+    return results;
+}
+Reflect.set(globalThis, '__evbRunBrowserBookmarkSaveAcceptance', runBrowserBookmarkSaveAcceptance);

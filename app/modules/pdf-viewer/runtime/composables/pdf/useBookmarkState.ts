@@ -4,6 +4,7 @@ import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 
 export const useBookmarkState = (deps: {
     markDirty: () => void;
+    preservesSourceReload?: () => boolean;
     onBookmarksSynchronized?: () => void;
     onBookmarksDirty?: () => void;
     onBookmarksSaved?: () => void;
@@ -29,10 +30,11 @@ export const useBookmarkState = (deps: {
     }
 
     function handleBookmarksChange(payload: IPdfBookmarkChangePayload) {
+        const historyMode = payload.history ?? (payload.dirty ? 'record' : 'reset');
+        if (historyMode === 'reset' && bookmarksResolved.value && deps.preservesSourceReload?.()) return;
         bookmarksResolved.value = true;
         bookmarkItems.value = payload.bookmarks;
         bookmarkRevision += 1;
-        const historyMode = payload.history ?? (payload.dirty ? 'record' : 'reset');
 
         if (historyMode === 'record') {
             bookmarksDirty.value = payload.dirty;

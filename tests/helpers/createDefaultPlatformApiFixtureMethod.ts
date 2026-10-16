@@ -150,7 +150,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     'windowTabs.closeCurrentWindow': false,
     'windowTabs.claimPendingExternalOpenPaths': [],
     'windowTabs.acknowledgePendingExternalOpenPaths': undefined,
-    'windowTabs.saveWorkspaceCheckpoint': undefined,
+    'windowTabs.saveWorkspaceCheckpoint': true,
     'windowTabs.discardWorkspaceCheckpoint': '1',
     'windowTabs.resumeWorkspaceCheckpoint': undefined,
     'windowTabs.claimWorkspaceCheckpoint': null,

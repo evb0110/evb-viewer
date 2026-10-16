@@ -1,6 +1,8 @@
 import {
     existsSync,
     mkdirSync,
+    mkdtempSync,
+    renameSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -125,7 +127,10 @@ function cleanupSessionArtifacts(sessionName: string) {
     rmSync(sessionDir(sessionName), sessionRemoveOptions);
 }
 
-export function prunePreservedSessionArtifacts(sessionName: string) {
+export function prunePreservedSessionArtifacts(
+    sessionName: string,
+    options: {archiveForRestart?: boolean} = {},
+) {
     assertE2ESessionName(sessionName);
     cleanupSessionFixtures(sessionName);
     for (const directoryName of [
@@ -134,6 +139,24 @@ export function prunePreservedSessionArtifacts(sessionName: string) {
         'electron-user-data',
     ]) {
         rmSync(join(sessionDir(sessionName), directoryName), sessionRemoveOptions);
+    }
+    if (options.archiveForRestart) {
+        const evidenceNames = [
+            'recordings',
+            'screenshots',
+            'electron-logs',
+            'session.log',
+            'logs.json',
+        ].filter(name => existsSync(join(sessionDir(sessionName), name)));
+        if (evidenceNames.length > 0) {
+            const outputDir = join(FAILURE_ARTIFACTS_BASE_DIR, sessionName);
+            mkdirSync(outputDir, {recursive: true});
+            const archiveDir = mkdtempSync(join(outputDir, 'restart-'));
+            for (const name of evidenceNames) {
+                renameSync(join(sessionDir(sessionName), name), join(archiveDir, name));
+            }
+            console.log(`[E2E artifacts] Retained stopped session evidence: ${archiveDir}`);
+        }
     }
 }
 
@@ -388,6 +411,9 @@ async function startElectronE2ESessionWithAutomationEnv(
         ),
     );
     if (clean) {
+        if (shouldPreserveE2EArtifacts()) {
+            prunePreservedSessionArtifacts(scopedSessionName, {archiveForRestart: true});
+        }
         cleanupSessionArtifacts(scopedSessionName);
     }
 

@@ -1,10 +1,19 @@
+import {
+    decodeBookmarkSourceIntent,
+    type IPdfBookmarkAction,
+    type TPdfBookmarkActionValue,
+    type TPdfBookmarkOriginalDestination,
+} from '@contracts/pdfBookmarkEntry';
 import {isRecord} from '@contracts/runtimeGuards';
 
 export interface IBrowserPdfCatalogBookmark {
     title: string;
     pageIndex: number | null;
     pageYRatio?: number | null;
+    originalDestination?: TPdfBookmarkOriginalDestination;
+    originalAction?: IPdfBookmarkAction;
     namedDest: string | null;
+    originalNamedDest?: TPdfBookmarkActionValue;
     bold: boolean;
     italic: boolean;
     color: string | null;
@@ -18,9 +27,33 @@ export interface IBrowserPdfCatalogPageLabelRange {
     start?: number;
 }
 
+/**
+ * The outline and the page labels are read on their own: a part that could
+ * not be read carries its reason instead, and fails only the reader that asks
+ * for it.
+ */
 export interface IBrowserPdfCatalog {
-    bookmarks: IBrowserPdfCatalogBookmark[];
-    pageLabels: IBrowserPdfCatalogPageLabelRange[];
+    bookmarks?: IBrowserPdfCatalogBookmark[];
+    bookmarksError?: string;
+    pageLabels?: IBrowserPdfCatalogPageLabelRange[];
+    pageLabelsError?: string;
+}
+
+export function readBrowserPdfCatalogPart<K extends 'bookmarks' | 'pageLabels'>(
+    catalog: IBrowserPdfCatalog,
+    part: K,
+): NonNullable<IBrowserPdfCatalog[K]> {
+    const value = catalog[part];
+    if (value === undefined) {
+        throw new Error(catalog[`${part}Error`] ?? `PDF ${part} could not be read`);
+    }
+    return value;
+}
+
+function isCatalogPart(part: unknown, error: unknown, maxItems: number) {
+    return Array.isArray(part)
+        ? part.length <= maxItems && error === undefined
+        : part === undefined && typeof error === 'string';
 }
 
 export interface IBrowserPdfCatalogDecodeOptions {
@@ -60,6 +93,10 @@ function decodeBookmark(
     ) {
         return null;
     }
+    let sourceIntent: ReturnType<typeof decodeBookmarkSourceIntent>;
+    try {
+        sourceIntent = decodeBookmarkSourceIntent(value);
+    } catch { return null; }
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
     for (const item of value.items) {
@@ -73,6 +110,7 @@ function decodeBookmark(
         title: value.title,
         pageIndex: value.pageIndex,
         ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio}),
+        ...sourceIntent,
         namedDest: value.namedDest,
         bold: value.bold,
         italic: value.italic,
@@ -92,16 +130,14 @@ export function decodeBrowserPdfCatalog(
     };
     if (
         !isRecord(value)
-        || !Array.isArray(value.bookmarks)
-        || !Array.isArray(value.pageLabels)
-        || value.bookmarks.length > limits.maxBookmarkItems
-        || value.pageLabels.length > limits.maxPageLabels
+        || !isCatalogPart(value.bookmarks, value.bookmarksError, limits.maxBookmarkItems)
+        || !isCatalogPart(value.pageLabels, value.pageLabelsError, limits.maxPageLabels)
     ) {
         return null;
     }
     const state = {count: 0};
     const bookmarks: IBrowserPdfCatalogBookmark[] = [];
-    for (const bookmark of value.bookmarks) {
+    for (const bookmark of Array.isArray(value.bookmarks) ? value.bookmarks : []) {
         const decoded = decodeBookmark(bookmark, 0, state, limits);
         if (decoded === null) {
             return null;
@@ -109,7 +145,7 @@ export function decodeBrowserPdfCatalog(
         bookmarks.push(decoded);
     }
     const pageLabels: IBrowserPdfCatalogPageLabelRange[] = [];
-    for (const range of value.pageLabels) {
+    for (const range of Array.isArray(value.pageLabels) ? value.pageLabels : []) {
         if (
             !isRecord(range)
             || !isNonNegativeInteger(range.pageIndex)
@@ -127,7 +163,7 @@ export function decodeBrowserPdfCatalog(
         });
     }
     return {
-        bookmarks,
-        pageLabels,
+        ...(typeof value.bookmarksError === 'string' ? {bookmarksError: value.bookmarksError} : {bookmarks}),
+        ...(typeof value.pageLabelsError === 'string' ? {pageLabelsError: value.pageLabelsError} : {pageLabels}),
     };
 }

@@ -17,6 +17,7 @@ import {
     join,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 import { createLogger } from '@electron/utils/createLogger';
@@ -25,8 +26,8 @@ import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-acces
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
-    type IOriginalPathSaveJournalSnapshot,
 } from '@electron/file-access/originalPathSaveWitness';
+import type {IOriginalPathSaveJournalSnapshot} from '@electron/file-access/originalPathSnapshot';
 import { fsyncFile as fsyncPath } from '@electron/utils/fsyncPath';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
@@ -40,10 +41,6 @@ const WINDOWS_FALLBACK_CODES = new Set([
     'EPERM',
     'ENOTEMPTY',
 ]);
-
-function isPdfDestination(destinationPath: string) {
-    return /\.pdf$/iu.test(destinationPath);
-}
 
 interface IWindowsAtomicReplaceJournal {
     version: typeof ATOMIC_REPLACE_JOURNAL_VERSION;
@@ -163,7 +160,7 @@ async function readWindowsAtomicReplaceJournal(destinationPath: string) {
     return value as IWindowsAtomicReplaceJournal;
 }
 
-async function recoverWindowsAtomicReplace(destinationPath: string) {
+export async function recoverWindowsAtomicReplace(destinationPath: string) {
     const journal = await readWindowsAtomicReplaceJournal(destinationPath);
     if (!journal) {
         return;
@@ -198,13 +195,8 @@ async function recoverWindowsAtomicReplace(destinationPath: string) {
     if (!backupExists) {
         throw new Error(`Windows atomic replace recovery is missing its owned backup for "${destinationPath}"`);
     }
-    await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
-
-    // A hard link is deliberately used for the missing-path case. It creates
-    // the destination only if it is still absent, so a third-party replacement
-    // cannot be overwritten between the witness and recovery.
-    await link(journal.backupPath, destinationPath);
-    await unlink(journal.backupPath);
+    await moveFileToMissingPath(journal.backupPath, destinationPath);
+    await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot, {contentOnly: true});
     await unlink(atomicReplaceJournalPath(destinationPath));
 }
 
@@ -360,26 +352,33 @@ export async function cleanupStaleAtomicReplaceBackups(
     return result;
 }
 
+/** Moves a complete file into an absent path; no-link volumes use rename. */
+export async function moveFileToMissingPath(sourcePath: string, destinationPath: string) {
+    try {
+        await link(sourcePath, destinationPath);
+    } catch (error) {
+        if (!isNoHardLinkError(error)) throw error;
+        await rename(sourcePath, destinationPath);
+        return;
+    }
+    await unlink(sourcePath);
+}
+
 export async function atomicReplace(
     srcTemp: string,
     dst: string,
     options: {
-        /**
-         * Whether the replacement has to survive a crash. A within-run cache
-         * publishes into a scratch directory that is discarded when the process
-         * exits, so it takes the same replace semantics — a reader of the
-         * destination keeps reading a complete file, and Windows never fails
-         * the rename against an open handle — without paying for two fsyncs it
-         * has nothing to recover.
-         */
+        /** Within-run caches can skip durability fsyncs. */
         durable?: boolean;
         assertDestinationCurrent?: () => Promise<void>;
+        /** Save-owned path that retains the exact revision displaced at publication. */
+        destinationBackupPath?: string;
         markMutationCommitStarted?: boolean;
     } = {},
 ) {
     assertNoSymlinkPathSegments(srcTemp);
     assertNoSymlinkPathSegments(dst);
-    if (process.platform === 'win32' && isPdfDestination(dst)) {
+    if (process.platform === 'win32') {
         await recoverWindowsAtomicReplace(dst);
     }
     const durable = options.durable !== false;
@@ -393,21 +392,24 @@ export async function atomicReplace(
         markActiveWorkingCopyMutationCommitStarted();
     }
 
+    await options.assertDestinationCurrent?.();
+    if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
+    if (options.destinationBackupPath !== undefined) {
+        const backupPath = options.destinationBackupPath;
+        assertNoSymlinkPathSegments(backupPath);
+        await rename(dst, backupPath);
+        await fsyncPath(backupPath);
+        await moveFileToMissingPath(srcTemp, dst);
+        await fsyncParentDirectory(dst);
+        return;
+    }
+
     if (process.platform !== 'win32') {
-        await options.assertDestinationCurrent?.();
-        if (shouldDeferMutationCommitStarted) {
-            markActiveWorkingCopyMutationCommitStarted();
-        }
         await rename(srcTemp, dst);
         if (durable) {
             await fsyncParentDirectory(dst);
         }
         return;
-    }
-
-    await options.assertDestinationCurrent?.();
-    if (shouldDeferMutationCommitStarted) {
-        markActiveWorkingCopyMutationCommitStarted();
     }
 
     // Node's Windows rename uses the same-name replacement primitive. Keep
@@ -419,25 +421,6 @@ export async function atomicReplace(
         const code = isErrnoException(error) ? error.code : undefined;
         if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await fileExists(dst))) {
             throw error;
-        }
-
-        if (!isPdfDestination(dst)) {
-            const backupPath = `${dst}.bak-${randomSuffix()}`;
-            let hasBackup = false;
-            try {
-                await rename(dst, backupPath);
-                hasBackup = true;
-                await rename(srcTemp, dst);
-            } catch (promotionError) {
-                if (hasBackup) {
-                    await rename(backupPath, dst).catch(() => undefined);
-                }
-                throw promotionError;
-            }
-            await assertFileExists(dst, 'Atomic replace completed');
-            await fsyncParentDirectory(dst);
-            await unlink(backupPath).catch(() => undefined);
-            return;
         }
 
         // A reader that denies delete sharing can reject the one-call
@@ -459,16 +442,16 @@ export async function atomicReplace(
             sourceSnapshot: sourceWitness.getSnapshotForJournal(),
         } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
 
-        let hasBackup = false;
         try {
+            // The witnesses above describe the bytes present now. The admitted
+            // original is checked again right before it is moved aside.
+            await options.assertDestinationCurrent?.();
             await rename(dst, backupPath);
-            hasBackup = true;
             await rename(srcTemp, dst);
         } catch (promotionError) {
-            if (!hasBackup) {
+            if (!(await fileExists(backupPath))) {
                 await unlink(atomicReplaceJournalPath(dst)).catch(() => undefined);
-            }
-            if (hasBackup) {
+            } else {
                 try {
                     await recoverWindowsAtomicReplace(dst);
                 } catch (restoreError) {

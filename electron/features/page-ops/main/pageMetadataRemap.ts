@@ -13,6 +13,7 @@ import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
+    requirePageIndex,
     pageIndexToPageNumber,
     pageNumberToPageIndex,
 } from '@contracts/pageNumbers';
@@ -20,6 +21,8 @@ import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
+import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
@@ -30,7 +33,9 @@ function remapBookmarkItems(
 ): IPdfBookmarkEntry[] {
     return items.flatMap(item => {
         const children = remapBookmarkItems(item.items, delta);
-        if (item.pageIndex === null) {
+        const sourceIndex = item.pageIndex ?? (typeof item.originalDestination?.sourceTarget === 'number'
+            ? requirePageIndex(item.originalDestination.sourceTarget) : null);
+        if (sourceIndex === null) {
             return [{
                 ...item,
                 items: children,
@@ -38,7 +43,7 @@ function remapBookmarkItems(
         }
         const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
             delta,
-            pageIndexToPageNumber(item.pageIndex),
+            pageIndexToPageNumber(sourceIndex),
         );
         if (mappedPageNumber === null) {
             return children;
@@ -46,9 +51,67 @@ function remapBookmarkItems(
         return [{
             ...item,
             pageIndex: pageNumberToPageIndex(mappedPageNumber),
-            namedDest: null,
+            ...(item.originalDestination ? {originalDestination: {
+                ...item.originalDestination,
+                sourceTarget: pageNumberToPageIndex(mappedPageNumber),
+            }} : {}),
             items: children,
         }];
+    });
+}
+
+/** Resolve accepted names and pending references before qpdf rewrites identities. */
+export async function resolvePageMetadataSourceTargets(
+    metadata: IPageOpsMetadataSnapshot | undefined,
+    sourcePath: string,
+    options: {
+        signal: AbortSignal;
+        cancelGroup: string
+    },
+): Promise<IPageOpsMetadataSnapshot | undefined> {
+    const needsResolution = (items: readonly IPdfBookmarkEntry[]): boolean => items.some(item => (
+        item.namedDest !== null
+        || (item.pageIndex === null && typeof item.originalDestination?.sourceTarget === 'object')
+        || needsResolution(item.items)
+    ));
+    if (!metadata || !needsResolution(metadata.bookmarks ?? [])) return metadata;
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) throw new Error('Native bookmark target resolution is unavailable');
+    return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+        const mutationsPath = join(tempDir, 'targets.json');
+        const bookmarks: IPdfBookmarkEntry[] = [];
+        for (const chunk of splitPdfNativeMutationSetIntoBoundedChunks({bookmarks: {
+            totalPages: await getPdfPageCount(sourcePath, options),
+            untitledLabel: metadata.untitledBookmarkLabel,
+            items: metadata.bookmarks?.slice() ?? [],
+        }})) {
+            await writeFile(mutationsPath, JSON.stringify(chunk), 'utf8');
+            const result = await runNativeToolCommand(binaryPath, [
+                'read-document-catalog',
+                '--input',
+                sourcePath,
+                '--mutations-file',
+                mutationsPath,
+                '--qpdf',
+                getPdfNativeToolPaths().qpdf,
+            ], {
+                ...options,
+                timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
+                maxStdoutBytes: 64 * 1024 * 1024,
+                rejectOnStdoutTruncation: true,
+                commandLabel: 'evb-pdf-page-ops(source-bookmark-targets)',
+            });
+            const resolved = decodeMetadataSnapshot({
+                ...JSON.parse(result.stdout),
+                untitledBookmarkLabel: metadata.untitledBookmarkLabel,
+            });
+            if (!resolved.bookmarks) throw new Error('Native bookmark target resolution returned no bookmarks');
+            const level = (chunk.continuation?.bookmarkPath ?? [])
+                .reduce<readonly IPdfBookmarkEntry[]>((items, index) => items[index]!.items, bookmarks);
+            // Decoding owns these arrays; the contract exposes readonly views.
+            (level as IPdfBookmarkEntry[]).push(...resolved.bookmarks);
+        }
+        return Object.assign({}, metadata, {bookmarks});
     });
 }
 

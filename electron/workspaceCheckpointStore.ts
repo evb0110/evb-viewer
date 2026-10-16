@@ -11,7 +11,10 @@ import {
     rm,
     mkdir,
 } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -21,6 +24,7 @@ import {
 } from '@contracts/workspaceCheckpoint';
 import {
     parseDocumentRef,
+    requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {isErrnoException} from '@contracts/runtimeGuards';
@@ -28,6 +32,7 @@ import { writeJsonAtomic } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
+    captureWorkingCopyAdmissionSnapshot,
     claimWorkingCopyOwnership,
     claimWorkingCopyRecovery,
     getWorkingCopyBackingEntry,
@@ -40,6 +45,12 @@ import {
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
+import {
+    isWorkingCopyMaterializationWithheld,
+    withholdWorkingCopyMaterialization,
+} from '@electron/file-access/withheldWorkingCopies';
+import {repairEndedTransition} from '@electron/file-access/documentRevisionStore';
+import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {
     isOpenPathAccessible,
     requireOpenPath,
@@ -187,7 +198,7 @@ interface IPendingSave {
     stored: IStoredWorkspaceCheckpoint;
     artifacts: IAnnotationRecoveryArtifact[];
     waiters: Array<{
-        resolve(): void;
+        resolve(committed: boolean): void;
         reject(error: unknown): void;
     }>;
     timer: NodeJS.Timeout;
@@ -294,90 +305,52 @@ function decodeStoredJournal(value: unknown): IStoredWorkspaceJournal | null {
     return result.success ? result.output : null;
 }
 
-function collectLazyWorkingCopies(
+// The registrations behind a checkpoint's tabs: a lazy one names the original it still reads, any other its copy.
+function collectWorkingCopies(
     checkpoint: IWorkspaceCheckpoint,
     ownerWebContentsId: number,
 ) {
     const lazyWorkingCopies = new Map<string, IStoredLazyWorkingCopy>();
-    for (const tab of checkpoint.tabs) {
-        if (!tab.workingCopyRef || lazyWorkingCopies.has(tab.workingCopyRef)) {
-            continue;
-        }
-        const entry = getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId);
-        if (
-            !entry
-            || (
-                entry.backingState !== 'lazy-original'
-                && entry.backingState !== 'materializing'
-            )
-        ) {
-            continue;
-        }
-        if (checkpoint.tabs.some(candidate => (
-            candidate.workingCopyRef === tab.workingCopyRef
-            && candidate.isDirty
-        ))) {
-            throw new Error('Workspace checkpoint cannot persist a dirty lazy working copy');
-        }
-        if (!entry.admissionSnapshot) {
-            throw new Error('Workspace checkpoint lazy working copy has no admission snapshot');
-        }
-        lazyWorkingCopies.set(tab.workingCopyRef, {
-            admissionSnapshot: {
-                mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
-                size: entry.admissionSnapshot.size.toString(),
-            },
-            ...(entry.originalFileExpectation
-                ? {originalFileExpectation: entry.originalFileExpectation}
-                : {}),
-            originalPath: entry.originalPath,
-            registrationId: entry.registrationId,
-            role: entry.role,
-            ...(entry.sourceBackingErrorCode
-                ? {sourceBackingErrorCode: entry.sourceBackingErrorCode}
-                : {}),
-            workingCopyRef: tab.workingCopyRef,
-        });
-    }
-    return Array.from(lazyWorkingCopies.values());
-}
-
-function collectMaterializedWorkingCopies(
-    checkpoint: IWorkspaceCheckpoint,
-    ownerWebContentsId: number,
-) {
     const workingCopies = new Map<string, IStoredWorkingCopy>();
-    for (const tab of checkpoint.tabs) {
-        if (!tab.workingCopyRef || workingCopies.has(tab.workingCopyRef)) {
+    for (const {workingCopyRef} of checkpoint.tabs) {
+        const entry = workingCopyRef && getWorkingCopyBackingEntry(workingCopyRef, ownerWebContentsId);
+        if (!workingCopyRef || !entry || lazyWorkingCopies.has(workingCopyRef) || workingCopies.has(workingCopyRef)) {
             continue;
         }
-        const entry = getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId);
-        if (
-            !entry
-            || entry.backingState === 'lazy-original'
-            || entry.backingState === 'materializing'
-        ) {
-            continue;
-        }
-        workingCopies.set(tab.workingCopyRef, {
-            ...(entry.admissionSnapshot ? {admissionSnapshot: {
+        // A withheld stand-in is recorded as the missing copy it stands for, so a start that finds the copy recovers it.
+        const missing = isWorkingCopyMaterializationWithheld(workingCopyRef, ownerWebContentsId);
+        const recorded = {
+            ...(entry.admissionSnapshot && !missing ? {admissionSnapshot: {
                 mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
                 size: entry.admissionSnapshot.size.toString(),
             }} : {}),
-            backingState: entry.backingState,
-            ...(entry.originalFileExpectation
-                ? {originalFileExpectation: entry.originalFileExpectation}
-                : {}),
+            ...(entry.originalFileExpectation ? {originalFileExpectation: entry.originalFileExpectation} : {}),
             originalPath: entry.originalPath,
             registrationId: entry.registrationId,
             role: entry.role,
-            ...(entry.sourceBackingErrorCode
-                ? {sourceBackingErrorCode: entry.sourceBackingErrorCode}
-                : {}),
-            workingCopyRef: tab.workingCopyRef,
-        });
+            ...(entry.sourceBackingErrorCode ? {sourceBackingErrorCode: entry.sourceBackingErrorCode} : {}),
+            workingCopyRef,
+        };
+        if (missing || (entry.backingState !== 'lazy-original' && entry.backingState !== 'materializing')) {
+            workingCopies.set(workingCopyRef, {
+                ...recorded,
+                backingState: missing ? 'materialized' : entry.backingState,
+            });
+        } else if (checkpoint.tabs.some(tab => tab.workingCopyRef === workingCopyRef && tab.isDirty)) {
+            throw new Error('Workspace checkpoint cannot persist a dirty lazy working copy');
+        } else if (!recorded.admissionSnapshot) {
+            throw new Error('Workspace checkpoint lazy working copy has no admission snapshot');
+        } else {
+            lazyWorkingCopies.set(workingCopyRef, {
+                ...recorded,
+                admissionSnapshot: recorded.admissionSnapshot,
+            });
+        }
     }
-    return Array.from(workingCopies.values());
+    return {
+        lazyWorkingCopies: Array.from(lazyWorkingCopies.values()),
+        workingCopies: Array.from(workingCopies.values()),
+    };
 }
 
 function assertNoDirtyLazyRecovery(stored: IStoredWorkspaceCheckpoint) {
@@ -816,7 +789,7 @@ function readDurableRecordForSave(recoveryId: string) {
     return record;
 }
 
-async function commitSave(save: IPendingSave) {
+async function commitSave(save: Omit<IPendingSave, 'timer'>) {
     try {
         if (!discardedOwners.has(save.stored.ownerRecoveryId)) {
             const previous = durableRecords.get(save.stored.ownerRecoveryId);
@@ -838,7 +811,7 @@ async function commitSave(save: IPendingSave) {
                 .map(ref => rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})));
         }
         for (const waiter of save.waiters) {
-            waiter.resolve();
+            waiter.resolve(!discardedOwners.has(save.stored.ownerRecoveryId));
         }
     } catch (error) {
         for (const waiter of save.waiters) {
@@ -866,7 +839,7 @@ function scheduleSave(
     artifacts: IAnnotationRecoveryArtifact[],
 ) {
     const recoveryId = stored.ownerRecoveryId;
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
         const waiter = {
             resolve,
             reject,
@@ -941,19 +914,14 @@ function retainUnresolvedCheckpointTabs(
     checkpoint: IWorkspaceCheckpoint,
     durable: IStoredWorkspaceCheckpoint | null,
 ) {
-    if (!durable) {
-        return checkpoint;
-    }
     return {
         ...checkpoint,
         tabs: checkpoint.tabs.map((tab) => {
-            const previous = durable.checkpoint.tabs.find(candidate => candidate.tabId === tab.tabId);
+            const previous = durable?.checkpoint.tabs.find(candidate => candidate.tabId === tab.tabId);
             if (!tab.isDirty || !previous?.workingCopyRef
                 || (tab.workingCopyRef && tab.workingCopyRef !== previous.workingCopyRef)) {
                 return tab;
             }
-            const annotationRecovery = !tab.annotationRecovery && previous.isDirty ? previous.annotationRecovery : undefined;
-            if (tab.workingCopyRef && !annotationRecovery) {return tab;}
             return {
                 ...tab,
                 ...(!tab.workingCopyRef ? {
@@ -963,7 +931,10 @@ function retainUnresolvedCheckpointTabs(
                         ? {requiresSaveAsOnFirstSave: true}
                         : {}),
                 } : {}),
-                ...(annotationRecovery ? {annotationRecovery} : {}),
+                ...(!tab.annotationRecovery && previous.isDirty ? {
+                    annotationRecovery: previous.annotationRecovery,
+                    annotationRecoveryFailure: tab.annotationRecoveryFailure ?? previous.annotationRecoveryFailure,
+                } : {}),
             };
         }),
     } satisfies IWorkspaceCheckpoint;
@@ -1048,9 +1019,8 @@ export async function saveWorkspaceCheckpoint(
     // An unmigrated journal still holds the durable evidence this save protects.
     await serialize(migrateLegacyJournal);
     if (discardedOwners.has(ownerRecoveryId)) {
-        return;
+        return false;
     }
-    restoresInFlight.delete(ownerRecoveryId);
     for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
@@ -1061,17 +1031,12 @@ export async function saveWorkspaceCheckpoint(
     // A generated cleanup output can be the source of a restored tab. Refresh
     // its retention stamp after unresolved tabs have been restored, so the
     // startup sweep cannot expire a retained output before recovery reopens
-    // it. The helper is deliberately best effort: non-cleanup paths are
-    // ignored and a stamp failure must not discard the checkpoint itself.
-    const generatedOutputCandidates = checkpointWithRetainedTabs.tabs.flatMap(tab => [
+    // it. The stamp is best effort and not awaited: a save that waited on its
+    // I/O let a newer save reach the debounce first and then replaced it.
+    void Promise.allSettled(checkpointWithRetainedTabs.tabs.flatMap(tab => [
         tab.sourceRef,
         tab.workingCopyRef,
-    ].filter((path): path is TDocumentRef => path !== null));
-    if (generatedOutputCandidates.length > 0) {
-        await Promise.allSettled(generatedOutputCandidates.map(path => (
-            touchScanCleanupGeneratedOutput(path)
-        )));
-    }
+    ].filter((path): path is TDocumentRef => path !== null)).map(path => touchScanCleanupGeneratedOutput(path)));
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
     const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
     const canonicalCheckpoint = detachUnreachableSources(
@@ -1089,8 +1054,9 @@ export async function saveWorkspaceCheckpoint(
         sourceAuthorizationOwner,
         durable,
     );
-    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
-    const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const {
+        lazyWorkingCopies, workingCopies,
+    } = collectWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerRecoveryId,
@@ -1103,7 +1069,7 @@ export async function saveWorkspaceCheckpoint(
     const elapsedMs = Date.now() - (lastSaveStartedAtMs.get(ownerRecoveryId) ?? 0);
     if (!pendingSaves.has(ownerRecoveryId) && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
         lastSaveStartedAtMs.set(ownerRecoveryId, Date.now());
-        await serialize(() => new Promise<void>((resolve, reject) => {
+        return serialize(() => new Promise<boolean>((resolve, reject) => {
             void commitSave({
                 stored,
                 artifacts: admittedAnnotationRecovery.artifacts,
@@ -1111,12 +1077,10 @@ export async function saveWorkspaceCheckpoint(
                     resolve,
                     reject,
                 }],
-                timer: setTimeout(() => undefined, 0),
-            }).then(undefined, reject);
+            });
         }));
-        return;
     }
-    await scheduleSave(stored, admittedAnnotationRecovery.artifacts);
+    return scheduleSave(stored, admittedAnnotationRecovery.artifacts);
 }
 
 function isClaimable(record: IStoredWorkspaceCheckpoint, claimantRecoveryId: string) {
@@ -1230,65 +1194,34 @@ export async function claimWorkspaceCheckpoint(
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                if (!transferred && lazyWorkingCopy) {
-                    await setWorkingCopyOriginalPath(
-                        tab.workingCopyRef,
-                        lazyWorkingCopy.originalPath,
-                        newOwnerWebContentsId,
-                        {
-                            admissionSnapshot: toAdmissionSnapshot(lazyWorkingCopy.admissionSnapshot),
-                            backingState: 'lazy-original',
-                            deferOriginalFileExpectation: true,
-                            ...(lazyWorkingCopy.originalFileExpectation
-                                ? {originalFileExpectation: lazyWorkingCopy.originalFileExpectation}
-                                : {}),
-                            role: lazyWorkingCopy.role,
-                        },
-                    );
-                    if (lazyWorkingCopy.sourceBackingErrorCode) {
-                        const restoredEntry = getWorkingCopyBackingEntry(
-                            tab.workingCopyRef,
-                            newOwnerWebContentsId,
-                        );
-                        if (restoredEntry) {
-                            transitionWorkingCopyBackingState(
-                                tab.workingCopyRef,
-                                restoredEntry.registrationId,
-                                'lazy-original',
-                                {sourceBackingErrorCode: lazyWorkingCopy.sourceBackingErrorCode},
-                            );
-                        }
-                    }
-                } else if (!transferred && storedWorkingCopy) {
-                    await setWorkingCopyOriginalPath(
-                        tab.workingCopyRef,
-                        storedWorkingCopy.originalPath,
-                        newOwnerWebContentsId,
-                        {
-                            ...(storedWorkingCopy.admissionSnapshot
-                                ? {admissionSnapshot: toAdmissionSnapshot(storedWorkingCopy.admissionSnapshot)}
-                                : {}),
-                            backingState: storedWorkingCopy.backingState,
-                            deferOriginalFileExpectation: true,
-                            ...(storedWorkingCopy.originalFileExpectation
-                                ? {originalFileExpectation: storedWorkingCopy.originalFileExpectation}
-                                : {}),
-                            role: storedWorkingCopy.role,
-                        },
-                    );
-                    if (storedWorkingCopy.sourceBackingErrorCode) {
-                        const restoredEntry = getWorkingCopyBackingEntry(
-                            tab.workingCopyRef,
-                            newOwnerWebContentsId,
-                        );
-                        if (restoredEntry) {
-                            transitionWorkingCopyBackingState(
-                                tab.workingCopyRef,
-                                restoredEntry.registrationId,
-                                storedWorkingCopy.backingState,
-                                {sourceBackingErrorCode: storedWorkingCopy.sourceBackingErrorCode},
-                            );
-                        }
+                // A dirty tab's unsaved bytes live only in its working copy, which is missing when, for example, a
+                // roaming profile came without it. The tab reads its original in the copy's place, withheld.
+                const standIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty && !existsSync(tab.workingCopyRef)
+                    ? await captureWorkingCopyAdmissionSnapshot(storedWorkingCopy.originalPath).catch(() => null)
+                    : null;
+                const lazyOriginal = lazyWorkingCopy ?? (standIn ? {
+                    ...storedWorkingCopy!,
+                    admissionSnapshot: {
+                        mtimeNs: standIn.mtimeNs.toString(),
+                        size: standIn.size.toString(),
+                    },
+                } : undefined);
+                const registered = lazyOriginal ? {
+                    ...lazyOriginal,
+                    backingState: 'lazy-original' as const,
+                } : storedWorkingCopy;
+                if (!transferred && registered) {
+                    await setWorkingCopyOriginalPath(tab.workingCopyRef, registered.originalPath, newOwnerWebContentsId, {
+                        ...(registered.admissionSnapshot ? {admissionSnapshot: toAdmissionSnapshot(registered.admissionSnapshot)} : {}),
+                        backingState: registered.backingState,
+                        deferOriginalFileExpectation: true,
+                        ...(registered.originalFileExpectation ? {originalFileExpectation: registered.originalFileExpectation} : {}),
+                        role: registered.role,
+                    });
+                    const restoredEntry = getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId);
+                    if (standIn && restoredEntry) withholdWorkingCopyMaterialization(tab.workingCopyRef, restoredEntry.registrationId);
+                    if (registered.sourceBackingErrorCode && restoredEntry) {
+                        transitionWorkingCopyBackingState(tab.workingCopyRef, restoredEntry.registrationId, registered.backingState, {sourceBackingErrorCode: registered.sourceBackingErrorCode});
                     }
                 } else if (!transferred && tab.sourceRef) {
                     await setWorkingCopyOriginalPath(
@@ -1300,6 +1233,20 @@ export async function claimWorkspaceCheckpoint(
                 }
             }
         }
+        // A save the crash cut short ends before any tab reopens: a clean tab reopens the PDF itself, and the file a
+        // rolled-back save kept beside the PDF is named to a tab that reopens its working copy.
+        const claimedTabs = await Promise.all(checkpointWithAnnotationRecovery.tabs.map(async (tab) => {
+            await (tab.workingCopyRef && repairEndedTransition(tab.workingCopyRef, newOwnerWebContentsId).catch((error: unknown) => {
+                log.warn(`Could not finish an interrupted save of a restored document: ${getErrorMessage(error)}`);
+            }));
+            const keptOriginalPath = tab.sourceRef && await findKeptOriginal(tab.sourceRef);
+            const workingCopyLost = tab.workingCopyRef !== null && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, newOwnerWebContentsId);
+            return {
+                ...tab,
+                ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
+                ...(workingCopyLost ? {workingCopyLost: true as const} : {}),
+            };
+        }));
         // The claimant keeps the record until it has reopened every tab and
         // acknowledges; renaming the file hands it over atomically.
         const claimedStored: IStoredWorkspaceCheckpoint = {
@@ -1327,7 +1274,10 @@ export async function claimWorkspaceCheckpoint(
         recoveryClaimGenerationsByOwner.set(newOwnerRecoveryId, generations);
         claimedInCurrentLoad.add(newOwnerRecoveryId);
         restoresInFlight.set(newOwnerRecoveryId, getRestoreOpenedDocuments(canonicalCheckpoint));
-        return checkpointWithAnnotationRecovery;
+        return {
+            ...checkpointWithAnnotationRecovery,
+            tabs: claimedTabs,
+        };
     });
 }
 
@@ -1359,11 +1309,10 @@ export function acknowledgeWorkspaceCheckpoint(
         }
         restoresInFlight.delete(ownerRecoveryId);
         const record = await readRecordFile(ownerRecoveryId);
-        if (!record) {
-            return false;
+        if (record && !record.checkpoint.tabs.some(tab => tab.workingCopyRef && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, ownerWebContentsId))) {
+            await removeRecordAndArtifacts(ownerRecoveryId, record);
         }
-        await removeRecordAndArtifacts(ownerRecoveryId, record);
-        return true;
+        return record !== null;
     });
 }
 
@@ -1372,7 +1321,7 @@ export function clearWorkspaceCheckpoint() {
         for (const save of pendingSaves.values()) {
             clearTimeout(save.timer);
             for (const waiter of save.waiters) {
-                waiter.resolve();
+                waiter.resolve(false);
             }
         }
         pendingSaves.clear();
@@ -1402,7 +1351,7 @@ export async function discardWorkspaceCheckpoint(
                 clearTimeout(pending.timer);
                 pendingSaves.delete(ownerRecoveryId);
                 for (const waiter of pending.waiters) {
-                    waiter.resolve();
+                    waiter.resolve(false);
                 }
             }
             await removeRecordAndArtifacts(ownerRecoveryId, await readRecordFile(ownerRecoveryId));

@@ -17,8 +17,10 @@ import {
     mkdir,
     readFile,
     readdir,
+    rename,
     writeFile,
 } from 'fs/promises';
+import { spawn } from 'child_process';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -34,10 +36,13 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 
 const {
     createManagedScratchTempDir,
+    recordManagedScratchBackup,
+    recordManagedScratchPublish,
     removeManagedScratchTempDir,
     sweepStaleManagedScratchTempDirs,
     usingManagedScratchScope,
 } = await import('@electron/utils/managedScratchTemp');
+const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 
 describe('managed scratch temp cleanup', () => {
     beforeEach(() => {
@@ -90,6 +95,49 @@ describe('managed scratch temp cleanup', () => {
         expect(existsSync(unmarkedManagedPath)).toBe(true);
         expect(existsSync(unrelatedPath)).toBe(true);
         expect(mocks.logger.info).toHaveBeenCalledWith('Cleaned up 1 stale managed scratch directory');
+    });
+
+    it('puts back an original whose record names a pid an unrelated live process now holds', async () => {
+        // Records survive a reboot, and a pid is reused: a live process with
+        // the recorded pid but another start time is not the export that wrote the record.
+        const unrelated = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000);',
+        ], {stdio: 'ignore'});
+        try {
+            const target = join(mocks.appTempDir, 'page.png');
+            const backup = join(mocks.appTempDir, '.0000000000000001.tmp');
+            await writeFile(target, 'original');
+            await writeFile(backup, 'original');
+            const scratchPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+            await recordManagedScratchBackup(scratchPath, backup, target, (await readFileIdentity(target))!);
+            await writeFile(join(mocks.appTempDir, 'staged'), 'exported');
+            await recordManagedScratchPublish(scratchPath, target, (await readFileIdentity(join(mocks.appTempDir, 'staged')))!);
+            await rename(join(mocks.appTempDir, 'staged'), target);
+            await writeFile(join(scratchPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+                pid: unrelated.pid,
+                startTime: 'an earlier run',
+                prefix: 'pdfExport-',
+            })}\n`, 'utf8');
+            const previousRun = await createManagedScratchTempDir('qpdfOutput-', mocks.appTempDir);
+            await writeFile(join(previousRun, '.evb-managed-scratch.json'), `${JSON.stringify({
+                pid: process.pid,
+                startTime: 'an earlier run',
+                prefix: 'qpdfOutput-',
+            })}\n`, 'utf8');
+            const thisRun = await createManagedScratchTempDir('pdf-page-ops-', mocks.appTempDir);
+
+            await expect(sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0)).resolves.toBe(2);
+
+            expect(unrelated.exitCode).toBeNull();
+            await expect(readFile(target, 'utf8')).resolves.toBe('original');
+            expect(existsSync(backup)).toBe(false);
+            expect(existsSync(scratchPath)).toBe(false);
+            expect(existsSync(previousRun), 'this pid with another start time is another run').toBe(false);
+            expect(existsSync(thisRun)).toBe(true);
+        } finally {
+            unrelated.kill('SIGKILL');
+        }
     });
 
     it('leaves fresh marked scratch dirs inside the TTL window', async () => {
@@ -197,5 +245,97 @@ describe('managed scratch temp cleanup', () => {
         await expect(runLocked(() => {
             throw new Error('conversion failed');
         })).rejects.toThrow('conversion failed');
+    });
+
+    it('removes exactly the complete temporary names a dead owner recorded, whatever the age of its scratch', async () => {
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        await writeFile(join(ownerPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: Date.now(),
+            pid: 2_147_483_647,
+            prefix: 'pdfExport-',
+        })}\n`, 'utf8');
+        const folder = join(mocks.appTempDir, 'destination');
+        await mkdir(folder);
+        const stagePath = join(folder, '.0123456789abcdef.tmp');
+        const reportPath = join(folder, 'report.pdf');
+        const unrecordedPath = join(folder, '.fedcba9876543210.tmp');
+        const truncatedPath = join(folder, '.1111111111111111.tmp');
+        // An earlier version named a writer's temporary file this way.
+        const writerPath = join(folder, '.2222222222222222.tmp');
+        for (const path of [
+            stagePath,
+            writerPath,
+            reportPath,
+            unrecordedPath,
+            truncatedPath,
+        ]) {
+            await writeFile(path, 'x', 'utf8');
+        }
+        // The last append was cut short: its line has no newline, so it names nothing.
+        const entry = (kind: string, path: string) => JSON.stringify({
+            kind,
+            path,
+        });
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `${entry('stage', stagePath)}\n${entry('writer', writerPath)}\n${entry('stage', truncatedPath)}`, 'utf8');
+
+        await sweepStaleManagedScratchTempDirs(mocks.appTempDir);
+
+        expect(existsSync(stagePath)).toBe(false);
+        expect(existsSync(writerPath)).toBe(false);
+        expect(existsSync(reportPath)).toBe(true);
+        expect(existsSync(unrecordedPath)).toBe(true);
+        expect(existsSync(truncatedPath)).toBe(true);
+    });
+
+    it.each([
+        [
+            'a name that is not a stage',
+            (path: string) => JSON.stringify({
+                kind: 'stage',
+                path: join(path, 'report.pdf'),
+            }),
+        ],
+        [
+            'a corrupt line',
+            () => '{"kind":"stage","path":',
+        ],
+    ])('keeps a dead owner\'s whole record and everything it names when a complete line holds %s', async (_label, unreadableLine) => {
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        await writeFile(join(ownerPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: 0,
+            pid: 2_147_483_647,
+            prefix: 'pdfExport-',
+        })}\n`, 'utf8');
+        const folder = join(mocks.appTempDir, 'destination');
+        await mkdir(folder);
+        const stagePath = join(folder, '.0123456789abcdef.tmp');
+        await writeFile(stagePath, 'x', 'utf8');
+        await writeFile(join(folder, 'report.pdf'), 'report', 'utf8');
+        const recordPath = join(ownerPath, '.evb-scratch-record');
+        await writeFile(recordPath, `${JSON.stringify({
+            kind: 'stage',
+            path: stagePath,
+        })}\n${unreadableLine(folder)}\n`, 'utf8');
+
+        await expect(sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0)).resolves.toBe(0);
+
+        expect(existsSync(stagePath)).toBe(true);
+        await expect(readFile(join(folder, 'report.pdf'), 'utf8')).resolves.toBe('report');
+        expect(existsSync(recordPath)).toBe(true);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining(recordPath));
+    });
+
+    it('leaves the stages recorded by a live owner alone', async () => {
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        const stagePath = join(mocks.appTempDir, '.0123456789abcdef.tmp');
+        await writeFile(stagePath, 'x', 'utf8');
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `${JSON.stringify({
+            kind: 'stage',
+            path: stagePath,
+        })}\n`, 'utf8');
+
+        await sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0);
+
+        expect(existsSync(stagePath)).toBe(true);
     });
 });

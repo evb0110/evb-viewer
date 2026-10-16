@@ -42,6 +42,7 @@ import {
     readHeldShell,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     evaluateInPage,
@@ -65,6 +66,7 @@ const sha256 = (path: string) => createHash('sha256').update(readFileSync(path))
 // page shell on the rect the drawn page takes. Fit Width fits the widest
 // turned page, 900 wide, not the current page's 820.
 async function expectQuarterTurnedFitWidthReopenOnDrawnRect(session: IElectronE2ESession, label: string) {
+    await setRememberPlaceAsUser(session, true);
     const fixturePath = await createMixedPageSizeTextFixturePdf(`recent-fallback-${label}-${Date.now()}.pdf`);
     const fixtureDocumentRef = requireDocumentRef(fixturePath);
     const sourceHash = sha256(fixturePath);

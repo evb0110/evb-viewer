@@ -7,16 +7,16 @@ use std::{cell::RefCell, slice};
 use crate::pdf_conformance_facts;
 use crate::{
     add_implicit_default_page_label_range, build_browser_page_subset_pdf, build_print_layout,
-    read_pdf_combine_catalog, save_document_to_bytes, set_bookmarks, set_page_labels,
-    BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange, PageLabelsMutation,
-    PrintOrientation, PrintViewMode,
+    read_pdf_combine_catalog, read_pdf_document_catalog, save_document_to_bytes, set_bookmarks,
+    set_page_labels, BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange,
+    PageLabelsMutation, PrintOrientation, PrintViewMode,
 };
 use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
     delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
-    insert_browser_pdf_pages, load_browser_pdf, read_native_mutations_bytes,
-    remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages, rotate_browser_pdf_bytes,
-    serialize_annotation_parse, CropMargins, NativeMutationBytesResult, PageGeometry,
+    insert_browser_pdf_pages, load_browser_pdf, remove_crop_browser_pdf_bytes,
+    reorder_browser_pdf_pages, rotate_browser_pdf_bytes, serialize_annotation_parse,
+    validate_native_mutations, CropMargins, NativeMutationBytesResult, PageGeometry,
     PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
@@ -258,9 +258,9 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         return Err("Trailing bytes in page-op WASM document-list request".into());
     }
     match operation {
-        OP_READ_CATALOG => encode_json_bytes(serde_json::to_vec(&read_pdf_combine_catalog(
+        OP_READ_CATALOG => encode_json_bytes(serde_json::to_vec(&read_pdf_document_catalog(
             &documents[0],
-        )?)?),
+        ))?),
         OP_CONFORMANCE => {
             encode_json_bytes(serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?)
         }
@@ -330,26 +330,24 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
-fn offset_wasm_bookmark(
-    bookmark: crate::PdfCombineBookmarkEntry,
-    page_offset: u32,
-) -> BookmarkEntry {
-    BookmarkEntry {
-        title: bookmark.title,
-        page_index: bookmark
-            .page_index
-            .map(|page| page.saturating_add(page_offset)),
-        page_y_ratio: None,
-        named_dest: bookmark.named_dest,
-        bold: bookmark.bold,
-        italic: bookmark.italic,
-        color: bookmark.color,
-        items: bookmark
-            .items
-            .into_iter()
-            .map(|item| offset_wasm_bookmark(item, page_offset))
-            .collect(),
+fn offset_wasm_bookmark(mut bookmark: BookmarkEntry, page_offset: u32) -> BookmarkEntry {
+    use evb_native_support::pdf_catalog::BookmarkSourceTarget::PageIndex;
+    if let Some(index) = &mut bookmark.page_index {
+        *index = index.saturating_add(page_offset);
     }
+    if let Some(PageIndex(index)) = bookmark
+        .original_destination
+        .as_mut()
+        .map(|destination| &mut destination.source_target)
+    {
+        *index = index.saturating_add(page_offset);
+    }
+    bookmark.items = bookmark
+        .items
+        .into_iter()
+        .map(|item| offset_wasm_bookmark(item, page_offset))
+        .collect();
+    bookmark
 }
 
 fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {
@@ -371,56 +369,122 @@ fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+// Stream flat and enveloped requests into the same typed mutation decoder.
+// In particular, never buffer recursive bookmarks in serde Value/Content.
+struct WasmMutationPayload(crate::NativeMutationsFile, Option<String>);
+
+impl<'de> serde::Deserialize<'de> for WasmMutationPayload {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::{
+            de::{Error, MapAccess, Visitor},
+            Deserialize,
+        };
+        struct PayloadVisitor;
+        impl<'de> Visitor<'de> for PayloadVisitor {
+            type Value = WasmMutationPayload;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a native mutation object or typed envelope")
+            }
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> std::result::Result<Self::Value, A::Error> {
+                let mut fields = MutationFields {
+                    map,
+                    pending: None,
+                    date: None,
+                };
+                let first = fields.next_field()?;
+                let mutations = if first.as_deref() == Some("mutations") {
+                    let mutations: crate::NativeMutationsFile = fields.map.next_value()?;
+                    if fields.next_field()?.is_some() {
+                        return Err(A::Error::custom(
+                            "WASM native mutation envelope contains an unknown field",
+                        ));
+                    }
+                    mutations
+                } else {
+                    fields.pending = first;
+                    crate::NativeMutationsFile::deserialize(
+                        serde::de::value::MapAccessDeserializer::new(&mut fields),
+                    )?
+                };
+                Ok(WasmMutationPayload(
+                    mutations,
+                    fields.date.map(|(_, value)| value),
+                ))
+            }
+        }
+        deserializer.deserialize_map(PayloadVisitor)
+    }
+}
+
+struct MutationFields<A> {
+    map: A,
+    pending: Option<String>,
+    date: Option<(String, String)>,
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> MutationFields<A> {
+    fn next_field(&mut self) -> std::result::Result<Option<String>, A::Error> {
+        use serde::de::Error;
+        while let Some(key) = self.map.next_key::<String>()? {
+            if key != "modifiedAt" && key != "modified_at" {
+                return Ok(Some(key));
+            }
+            if self
+                .date
+                .as_ref()
+                .is_some_and(|(previous, _)| previous != &key)
+            {
+                return Err(A::Error::custom(
+                    "WASM native mutation payload contains duplicate modified-at keys",
+                ));
+            }
+            self.date = Some((key, self.map.next_value::<String>()?));
+        }
+        Ok(None)
+    }
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for &mut MutationFields<A> {
+    type Error = A::Error;
+    fn next_key_seed<K: serde::de::DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> std::result::Result<Option<K::Value>, Self::Error> {
+        let key = match self.pending.take() {
+            Some(key) => Some(key),
+            None => self.next_field()?,
+        };
+        key.map(|key| seed.deserialize(serde::de::value::StringDeserializer::<A::Error>::new(key)))
+            .transpose()
+    }
+    fn next_value_seed<V: serde::de::DeserializeSeed<'de>>(
+        &mut self,
+        seed: V,
+    ) -> std::result::Result<V::Value, Self::Error> {
+        self.map.next_value_seed(seed)
+    }
+}
+
 fn parse_wasm_mutation_payload(payload: &[u8]) -> Result<(crate::NativeMutationsFile, String)> {
     if payload.len() > crate::MAX_SIDECAR_BYTES {
-        return Err(format!(
-            "WASM native mutation payload exceeds the {}-byte admission ceiling",
-            crate::MAX_SIDECAR_BYTES
-        )
-        .into());
+        return Err(crate::domain_error(
+            NativeErrorCode::TooLarge,
+            "WASM native mutation payload exceeds the byte admission ceiling",
+        ));
     }
-    let mut value: serde_json::Value = serde_json::from_slice(payload)
-        .map_err(|error| format!("Invalid WASM native mutation payload: {error}"))?;
-    let is_envelope = value
-        .as_object()
-        .is_some_and(|object| object.contains_key("mutations"));
-    let (mutation_value, modified_at_value) = if is_envelope {
-        let object = value
-            .as_object_mut()
-            .ok_or("WASM native mutation envelope must be an object")?;
-        let modified_at = object.remove("modifiedAt");
-        let snake_modified_at = object.remove("modified_at");
-        if modified_at.is_some() && snake_modified_at.is_some() {
-            return Err("WASM native mutation envelope contains duplicate modified-at keys".into());
-        }
-        if object.keys().any(|key| key != "mutations") {
-            return Err("WASM native mutation envelope contains an unknown field".into());
-        }
-        let mutations = object
-            .remove("mutations")
-            .ok_or("WASM native mutation envelope is missing mutations")?;
-        (mutations, modified_at.or(snake_modified_at))
-    } else {
-        let object = value
-            .as_object_mut()
-            .ok_or("WASM native mutation payload must be an object")?;
-        let modified_at = object.remove("modifiedAt");
-        let snake_modified_at = object.remove("modified_at");
-        if modified_at.is_some() && snake_modified_at.is_some() {
-            return Err("WASM native mutation payload contains duplicate modified-at keys".into());
-        }
-        (value, modified_at.or(snake_modified_at))
-    };
-    let modified_at = match modified_at_value {
-        Some(serde_json::Value::String(value)) => {
-            validate_wasm_pdf_date(&value)?;
-            value
-        }
-        Some(_) => return Err("WASM native mutation modifiedAt must be a PDF date string".into()),
-        None => DEFAULT_WASM_MUTATION_MODIFIED_AT.to_string(),
-    };
-    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&mutation_value)?)?;
-    Ok((mutations, modified_at))
+    let WasmMutationPayload(mutations, modified_at) =
+        evb_native_support::bounded_io::deserialize_json_slice(
+            payload,
+            "WASM native mutation payload",
+        )?;
+    let modified_at = modified_at.unwrap_or_else(|| DEFAULT_WASM_MUTATION_MODIFIED_AT.to_string());
+    validate_wasm_pdf_date(&modified_at)?;
+    Ok((validate_native_mutations(mutations)?, modified_at))
 }
 
 fn validate_wasm_pdf_date(value: &str) -> Result<()> {
@@ -810,6 +874,62 @@ mod tests {
         bytes
     }
 
+    #[test]
+    fn merge_keeps_imported_mid_page_bookmark_positions() {
+        let mut document = Document::load_mem(&test_pdf_bytes()).unwrap();
+        let page_id = *document.get_pages().get(&1).unwrap();
+        let outlines_id = document.new_object_id();
+        let bookmark_id = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Section"),
+            "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page_id), Object::Name(b"FitH".to_vec()), 75.into()],
+        });
+        document.set_object(
+            outlines_id,
+            dictionary! {
+                "Type" => "Outlines", "First" => bookmark_id, "Last" => bookmark_id, "Count" => 1,
+            },
+        );
+        document.catalog_mut().unwrap().set("Outlines", outlines_id);
+        let mut source = Vec::new();
+        document.save_to(&mut source).unwrap();
+        let mut request = REQUEST_MAGIC.to_vec();
+        for value in [REQUEST_VERSION_DOCUMENT_LIST, OP_MERGE_PAGES, 2] {
+            write_u32_le(&mut request, value);
+        }
+        for _ in 0..2 {
+            write_u32_le(&mut request, source.len() as u32);
+            request.extend_from_slice(&source);
+        }
+        let output = run_request(&request).unwrap();
+        let saved = Document::load_mem(&output[MUTATION_HEADER.bytes..]).unwrap();
+        let outlines = saved
+            .get_dictionary(
+                saved
+                    .catalog()
+                    .unwrap()
+                    .get(b"Outlines")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let first_id = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let first = saved.get_dictionary(first_id).unwrap();
+        let second = saved
+            .get_dictionary(first.get(b"Next").unwrap().as_reference().unwrap())
+            .unwrap();
+        for (bookmark, page_number) in [(first, 1), (second, 2)] {
+            let dest = bookmark.get(b"Dest").unwrap().as_array().unwrap();
+            assert_eq!(
+                dest[0].as_reference().unwrap(),
+                *saved.get_pages().get(&page_number).unwrap()
+            );
+            assert_eq!(dest[1].as_name().unwrap(), b"FitH");
+            assert_eq!(f64::from(dest[2].as_float().unwrap()), 75.0);
+        }
+    }
+
     fn crop_request(data: &[u8], top: f64) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
@@ -1075,6 +1195,35 @@ mod tests {
         assert_eq!(stamp.image.sha256, sha256_hex(png));
         assert_eq!(stamp.image.byte_length, png.len() as u64);
         validate_recovery_image(&document, &stamp.image).unwrap();
+    }
+
+    #[test]
+    fn wasm_bookmark_depth_is_admitted_before_materialization() {
+        let node = r#"{"title":"Nested","pageIndex":null,"originalDestination":{"sourceTarget":{"num":3,"gen":0},"kind":"Fit","coordinates":[]},"items":["#;
+        for depth in [100_000, 64] {
+            let flat = format!(
+                r#"{{"bookmarks":{{"totalPages":1,"untitledLabel":"Untitled","items":[{}{}]}}}}"#,
+                node.repeat(depth),
+                "]}".repeat(depth)
+            );
+            for payload in [
+                flat.clone(),
+                format!(r#"{{"modifiedAt":"D:20260908120000Z","mutations":{flat}}}"#),
+                format!(r#"{{"mutations":{flat},"modified_at":"D:20260908120000Z"}}"#),
+            ] {
+                let result = parse_wasm_mutation_payload(payload.as_bytes());
+                if depth == 64 {
+                    assert!(result.is_ok(), "{}", result.err().unwrap());
+                } else {
+                    let error = result.err().unwrap();
+                    let native = error
+                        .downcast_ref::<evb_native_support::NativeError>()
+                        .unwrap();
+                    assert_eq!(native.code, NativeErrorCode::TooLarge);
+                    assert!(native.message.contains("64-level admission ceiling"));
+                }
+            }
+        }
     }
 
     #[test]

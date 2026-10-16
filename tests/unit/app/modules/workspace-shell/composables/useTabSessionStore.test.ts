@@ -105,7 +105,6 @@ describe('tab session memory policy', () => {
             surfaceMode: 'scan-cleanup',
             currentPage: 23,
             zoom: 1.8,
-            effectiveZoom: 1.8,
             zoomMode: 'custom',
             scanCleanup: {
                 ownerId: 'cleanup-owner',
@@ -114,6 +113,8 @@ describe('tab session memory policy', () => {
             },
         });
         expect(readerState.surfaceMode).toBe('reader');
+        expect(readerState).not.toHaveProperty('effectiveZoom');
+        expect(cleanupState).not.toHaveProperty('effectiveZoom');
     });
 
     it.each([

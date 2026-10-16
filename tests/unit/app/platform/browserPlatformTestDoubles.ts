@@ -558,16 +558,28 @@ export class FakeIndexedDbFactory {
 }
 
 /** One origin's Web Locks; `holdElsewhere` stands for a lock another browser context holds until `releaseElsewhere`. */
-export class FakeLockManager {
-    private readonly heldNames = new Set<string>();
-    private readonly waiting = new Map<string, Array<() => void>>();
+interface IFakeLock {
+    name: string;
+    mode: LockMode;
+}
 
-    public holdElsewhere(name: string) {
-        this.heldNames.add(name);
+export class FakeLockManager {
+    private readonly held = new Map<string, Set<IFakeLock>>();
+    private readonly waiting = new Map<string, Array<{
+        lock: IFakeLock;
+        grant: () => void
+    }>>();
+
+    public holdElsewhere(name: string, mode: LockMode = 'exclusive') {
+        this.add({
+            name,
+            mode,
+        });
     }
 
     public releaseElsewhere(name: string) {
-        this.release(name);
+        const lock = this.held.get(name)?.values().next().value;
+        if (lock) this.release(lock);
     }
 
     // Required by the LockManager-shaped object consumed structurally by the browser lease store.
@@ -575,51 +587,74 @@ export class FakeLockManager {
     public async request<T>(
         name: string,
         options: {
+            mode?: LockMode;
             ifAvailable?: boolean;
             signal?: AbortSignal
         },
-        callback: (lock: {name: string} | null) => Promise<T>,
+        callback: (lock: IFakeLock | null) => Promise<T>,
     ): Promise<T> {
-        if (this.heldNames.has(name)) {
-            if (options.ifAvailable) {
-                return callback(null);
-            }
-            // A waiting request is granted when the lock is released, or
-            // withdrawn when its signal aborts first.
+        const lock: IFakeLock = {
+            name,
+            mode: options.mode ?? 'exclusive',
+        };
+        if (options.signal?.aborted) throw new DOMException('The lock request was aborted.', 'AbortError');
+        if (!this.canGrant(lock) || this.waiting.get(name)?.length) {
+            if (options.ifAvailable) return callback(null);
             await new Promise<void>((granted, withdrawn) => {
                 const queue = this.waiting.get(name) ?? [];
-                const grant = () => {
-                    options.signal?.removeEventListener('abort', withdraw);
-                    granted();
+                const waiter = {
+                    lock,
+                    grant: () => {
+                        options.signal?.removeEventListener('abort', withdraw);
+                        this.add(lock);
+                        granted();
+                    },
                 };
                 const withdraw = () => {
-                    queue.splice(queue.indexOf(grant), 1);
+                    queue.splice(queue.indexOf(waiter), 1);
                     withdrawn(new DOMException('The lock request was aborted.', 'AbortError'));
+                    this.pump(name);
                 };
                 options.signal?.addEventListener('abort', withdraw, {once: true});
-                queue.push(grant);
+                queue.push(waiter);
                 this.waiting.set(name, queue);
             });
+        } else {
+            this.add(lock);
         }
-        this.heldNames.add(name);
         try {
-            return await callback({name});
+            return await callback(lock);
         } finally {
-            this.release(name);
+            this.release(lock);
         }
     }
 
     // fallow-ignore-next-line unused-class-member
     public async query() {
-        return {held: Array.from(this.heldNames, name => ({name}))};
+        return {held: Array.from(this.held.values()).flatMap(locks => [...locks])};
     }
 
-    private release(name: string) {
-        const next = this.waiting.get(name)?.shift();
-        if (next) {
-            next();
-            return;
-        }
-        this.heldNames.delete(name);
+    private canGrant(lock: IFakeLock) {
+        const held = this.held.get(lock.name);
+        return !held?.size || lock.mode === 'shared' && Array.from(held).every(current => current.mode === 'shared');
+    }
+
+    private add(lock: IFakeLock) {
+        const held = this.held.get(lock.name) ?? new Set<IFakeLock>();
+        held.add(lock);
+        this.held.set(lock.name, held);
+    }
+
+    private release(lock: IFakeLock) {
+        const held = this.held.get(lock.name);
+        held?.delete(lock);
+        if (!held?.size) this.held.delete(lock.name);
+        this.pump(lock.name);
+    }
+
+    private pump(name: string) {
+        const queue = this.waiting.get(name);
+        while (queue?.[0] && this.canGrant(queue[0].lock)) queue.shift()!.grant();
+        if (!queue?.length) this.waiting.delete(name);
     }
 }

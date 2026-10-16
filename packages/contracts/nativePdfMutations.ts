@@ -1,3 +1,4 @@
+import {decodeBookmarkSourceIntent} from '@contracts/pdfBookmarkEntry';
 import { firstUnsupportedAnnotationCharacter } from '@contracts/firstUnsupportedAnnotationCharacter';
 import type {
     Merge,
@@ -25,6 +26,7 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import {MANAGED_TEMP_FILE_HANDLE_SCHEMA} from '@contracts/electronApiDocuments';
+import {PDF_NATIVE_IDENTITY_BINDING_LIMITS} from '@contracts/nativePdfIdentityBindings';
 import {isPdfDateString} from '@contracts/pdfDateString';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
@@ -190,12 +192,11 @@ function normalizePlacedImageGeometryUpdates(
         if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
-        const annotationId = item.annotationId;
-        if (annotationId !== undefined && annotationId !== null && typeof annotationId !== 'string') {
-            fail(`${label}[${index}].annotationId must be a string or null`, options);
-        }
-        const stableKey = item.stableKey;
-        if (stableKey !== undefined && (typeof stableKey !== 'string' || stableKey.trim().length === 0)) {
+        const annotationId = item.annotationId === undefined ? undefined
+            : normalizeOptionalString(item.annotationId, `${label}[${index}].annotationId`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes);
+        const stableKey = item.stableKey === undefined ? undefined
+            : normalizeOptionalString(item.stableKey, `${label}[${index}].stableKey`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes);
+        if (stableKey !== undefined && (stableKey === null || stableKey.trim().length === 0)) {
             fail(`${label}[${index}].stableKey must be a non-empty string`, options);
         }
         const {
@@ -310,12 +311,20 @@ function normalizeOptionalFiniteUnitNumber(value: unknown, label: string, option
     return normalizeFiniteUnitNumber(value, label, options);
 }
 
-function normalizeOptionalString(value: unknown, label: string, options: IPdfNativeValidationOptions) {
+function normalizeOptionalString(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+    maxUtf8Bytes?: number,
+) {
     if (value === undefined || value === null) {
         return null;
     }
     if (typeof value !== 'string') {
         fail(`${label} must be a string or null`, options);
+    }
+    if (maxUtf8Bytes !== undefined && new TextEncoder().encode(value).byteLength > maxUtf8Bytes) {
+        fail(`${label} must contain at most ${maxUtf8Bytes} UTF-8 bytes`, options);
     }
     return value;
 }
@@ -433,7 +442,7 @@ function normalizeFreeTextNotes(
         ) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
-        const stableKey = typeof note.stableKey === 'string' ? note.stableKey.trim() : '';
+        const stableKey = normalizeOptionalString(note.stableKey, `${label}[${index}].stableKey`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes)?.trim() ?? '';
         if (!stableKey) {
             fail(`${label}[${index}].stableKey must be a non-empty string`, options);
         }
@@ -492,9 +501,9 @@ function normalizeTextBoxes(
         ) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
-        const stableKey = typeof editor.stableKey === 'string' ? editor.stableKey.trim() : '';
-        if (!stableKey || stableKey.length > 512) {
-            fail(`${label}[${index}].stableKey must be a non-empty string with at most 512 characters`, options);
+        const stableKey = normalizeOptionalString(editor.stableKey, `${label}[${index}].stableKey`, options, 512)?.trim() ?? '';
+        if (!stableKey) {
+            fail(`${label}[${index}].stableKey must be a non-empty string with at most 512 UTF-8 bytes`, options);
         }
         const annotationId = normalizeOptionalString(
             editor.annotationId,
@@ -510,7 +519,7 @@ function normalizeTextBoxes(
         const unsupportedCharacter = firstUnsupportedAnnotationCharacter(editor.text);
         if (unsupportedCharacter !== undefined) {
             const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
-            fail(`${label}[${index}].text uses U+${codepoint}, which the text box font DejaVu Sans does not support`, options);
+            fail(`${label}[${index}].text uses U+${codepoint}, which the text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support`, options);
         }
         if (!Array.isArray(editor.rect) || editor.rect.length !== 4) {
             fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
@@ -769,14 +778,7 @@ function normalizeBookmarkItems(
             fail(`${label}[${index}].title must be a string`, options);
         }
         const pageIndex = item.pageIndex;
-        if (
-            pageIndex !== null
-            && (
-                typeof pageIndex !== 'number'
-                || !Number.isSafeInteger(pageIndex)
-                || pageIndex < 0
-            )
-        ) {
+        if (pageIndex !== null && (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0)) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer or null`, options);
         }
         const namedDest = item.namedDest;
@@ -804,13 +806,17 @@ function normalizeBookmarkItems(
         } finally {
             state.depth = previousDepth;
         }
-        if (state.count > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
-            fail(`bookmark mutations must include at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} items`, options);
+        let sourceIntent: ReturnType<typeof decodeBookmarkSourceIntent>;
+        try {
+            sourceIntent = decodeBookmarkSourceIntent(item);
+        } catch {
+            fail(`${label}[${index}] has an invalid source destination, action or name`, options);
         }
         return {
             title,
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             pageYRatio: typeof pageYRatio === 'number' ? pageYRatio : null,
+            ...sourceIntent,
             namedDest: namedDest,
             bold: item.bold === true,
             italic: item.italic === true,
@@ -959,7 +965,7 @@ function normalizeShapeAnnotation(
     if (typeof opacity !== 'number' || !isNativeF32(opacity) || opacity < 0 || opacity > 1) {
         fail(`${label}.opacity must be a finite number from 0 to 1`, options);
     }
-    const id = normalizeNativeShapeOptionalString(value.id, `${label}.id`, options);
+    const id = normalizeOptionalString(value.id, `${label}.id`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes);
     const shapeState = {count: 0};
     const points = normalizeShapePoints(value.points, `${label}.points`, state, options, shapeState);
     const strokes = normalizeShapeStrokes(value.strokes, `${label}.strokes`, state, options, shapeState);
@@ -977,8 +983,8 @@ function normalizeShapeAnnotation(
         fillColor: normalizeNativeShapeOptionalString(value.fillColor, `${label}.fillColor`, options),
         opacity,
         strokeWidth: normalizeFiniteNonNegativeNumber(value.strokeWidth, `${label}.strokeWidth`, options),
-        annotationId: normalizeNativeShapeOptionalString(value.annotationId, `${label}.annotationId`, options),
-        stableKey: normalizeNativeShapeOptionalString(value.stableKey, `${label}.stableKey`, options),
+        annotationId: normalizeOptionalString(value.annotationId, `${label}.annotationId`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes),
+        stableKey: normalizeOptionalString(value.stableKey, `${label}.stableKey`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes),
         pdfSubtype: normalizeShapeEnum(
             value.pdfSubtype,
             `${label}.pdfSubtype`,
@@ -1032,8 +1038,8 @@ function normalizeStringArray(
         fail(`${label} must be an array with at most ${maxItems} items`, options);
     }
     return Array.from(value, (item, index) => {
-        if (typeof item !== 'string' || item.length > maxTextLength) {
-            fail(`${label}[${index}] must be a string`, options);
+        if (typeof item !== 'string' || new TextEncoder().encode(item).byteLength > maxTextLength) {
+            fail(`${label}[${index}] must be a string with at most ${maxTextLength} UTF-8 bytes`, options);
         }
         return item.trim();
     }).filter(item => item.length > 0);
@@ -1081,10 +1087,11 @@ function normalizeMarkupHint(
     if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
         fail(`${label}.pageIndex must be a non-negative safe integer`, options);
     }
-    const appAnnotationId = normalizeMarkupOptionalString(
+    const appAnnotationId = normalizeOptionalString(
         value.appAnnotationId,
         `${label}.appAnnotationId`,
         options,
+        PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes,
     );
     const canonicalAppAnnotationId = appAnnotationId?.trim() ?? null;
     if (canonicalAppAnnotationId !== null && canonicalAppAnnotationId.length === 0) {
@@ -1096,7 +1103,7 @@ function normalizeMarkupHint(
         markerRect: normalizeMarkupMarkerRect(value.markerRect, `${label}.markerRect`, options),
         markupGeometry: normalizeMarkupGeometry(value.markupGeometry, `${label}.markupGeometry`, options),
         ...(value.appAnnotationId === undefined ? {} : {appAnnotationId: canonicalAppAnnotationId}),
-        annotationId: normalizeMarkupOptionalString(value.annotationId, `${label}.annotationId`, options),
+        annotationId: normalizeOptionalString(value.annotationId, `${label}.annotationId`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes),
         ...(value.author === undefined
             ? {}
             : {author: normalizeMarkupOptionalString(value.author, `${label}.author`, options)}),
@@ -1104,7 +1111,7 @@ function normalizeMarkupHint(
         ...(value.contents === undefined
             ? {}
             : {contents: normalizeMarkupOptionalString(value.contents, `${label}.contents`, options)}),
-        id: normalizeMarkupOptionalString(value.id, `${label}.id`, options),
+        id: normalizeOptionalString(value.id, `${label}.id`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes),
         pageMarkupIndex: normalizeMarkupOptionalIndex(value.pageMarkupIndex, `${label}.pageMarkupIndex`, options),
         source: normalizeMarkupOptionalString(value.source, `${label}.source`, options),
     };
@@ -1196,7 +1203,7 @@ function normalizePlacedImage(
     }
     const stableKey = value.stableKey === undefined
         ? undefined
-        : normalizeOptionalString(value.stableKey, `${label}.stableKey`, options);
+        : normalizeOptionalString(value.stableKey, `${label}.stableKey`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes);
     if (
         value.stableKey !== undefined
         && (stableKey === undefined || stableKey === null || stableKey.trim().length === 0)
@@ -1204,7 +1211,7 @@ function normalizePlacedImage(
         fail(`${label}.stableKey must be a non-empty string`, options);
     }
     const normalizedStableKey = stableKey === null ? undefined : stableKey?.trim();
-    const annotationId = normalizeOptionalString(value.annotationId, `${label}.annotationId`, options);
+    const annotationId = normalizeOptionalString(value.annotationId, `${label}.annotationId`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes);
     const normalized: SetRequired<IPdfNativePlacedImage, 'rotationDegrees'> = {
         ...(value.author === undefined ? {} : {author: normalizeOptionalString(value.author, `${label}.author`, options)}),
         pageIndex: requirePageIndex(pageIndex),
@@ -1292,14 +1299,14 @@ function normalizeShapesMutation(
             value.deletedAnnotationIds,
             `${label}.deletedAnnotationIds`,
             PDF_NATIVE_MUTATION_LIMITS.collectionItems,
-            PDF_NATIVE_MUTATION_LIMITS.shapeTextLength,
+            PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes,
             options,
         ),
         deletedStableKeys: normalizeStringArray(
             value.deletedStableKeys,
             `${label}.deletedStableKeys`,
             PDF_NATIVE_MUTATION_LIMITS.collectionItems,
-            PDF_NATIVE_MUTATION_LIMITS.shapeTextLength,
+            PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes,
             options,
         ),
     };

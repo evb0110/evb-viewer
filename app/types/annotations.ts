@@ -209,6 +209,8 @@ interface IAnnotationCommentSummaryFields {
     annotationName?: string | null | undefined;
     hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
+    /** A label the person can select and copy but never change or delete. */
+    readOnly?: boolean;
     /** Replies derived from a foreign PDF note. The editor never authors them. */
     replies?: readonly IPdfAnnotationNoteReply[] | undefined;
     /**

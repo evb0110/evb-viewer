@@ -60,6 +60,10 @@ describe('browser staged artifact commit', () => {
             PDF_OPTIONS,
         );
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const lease = await store.createLiveLease('window:staged-reader', [
+            {ref: sourceRef},
+            {ref: workingRef},
+        ]);
         const stagedRef = await store.createStoredDocument(
             'staged.pdf',
             stagedBytes,
@@ -121,6 +125,7 @@ describe('browser staged artifact commit', () => {
             reason: 'write',
             token: committedRevision.token,
         });
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
     });
 
     it('rejects a browser staged self-commit without consuming the staged record', async () => {

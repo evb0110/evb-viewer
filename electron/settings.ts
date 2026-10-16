@@ -26,6 +26,12 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
+import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
+import { getAllRegisteredAppWindows } from '@electron/window/registry';
+import {
+    SETTINGS_PLATFORM_FEATURE,
+    type ISettingsEventMap,
+} from '@contracts/settingsPlatformFeature';
 import {setMainDiagnosticsPreference} from '@electron/features/diagnostics/public';
 import {
     parseClientDiagnosticsPreference,
@@ -253,6 +259,20 @@ export function resetSettingsCacheAfterUserDataPathChange() {
     settingsRecoveryNotice = null;
 }
 
+// Every window that shows the app gets each committed write, the saving one
+// included, in commit order: a renderer adopts a key only where it has no unsaved
+// edit, and the owner is the only place that writes settings.json.
+function broadcastCommittedSettings(settings: ISettingsData) {
+    for (const window of getAllRegisteredAppWindows()) {
+        sendPlatformEvent<ISettingsEventMap, typeof SETTINGS_PLATFORM_FEATURE.eventChannels.onChanged>(
+            window,
+            SETTINGS_PLATFORM_FEATURE.eventChannels.onChanged,
+            settings,
+            error => logger.debug(`Failed to send settings change: ${getErrorMessage(error)}`),
+        );
+    }
+}
+
 export async function updateSettings(
     mutate: TSettingsUpdater,
     options: {diagnosticsConsentRevision?: number} = {},
@@ -299,6 +319,7 @@ export async function updateSettings(
         setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
         if (generation === settingsCacheGeneration) {
             settingsCache = next;
+            broadcastCommittedSettings(next);
         }
         return cloneSettings(next);
     });

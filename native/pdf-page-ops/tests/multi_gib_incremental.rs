@@ -962,7 +962,7 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
 }
 
 #[test]
-fn text_box_saves_through_the_structural_loader_share_one_embedded_font() {
+fn text_box_saves_through_the_structural_loader_embed_glyph_subsets() {
     let pdf = temp_path("structural-text-box-font", "pdf");
     let mutations = temp_path("structural-text-box-font-mutations", "json");
     let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
@@ -984,13 +984,9 @@ fn text_box_saves_through_the_structural_loader_share_one_embedded_font() {
         );
     }
 
-    // The second save must read the first save's font streams to reuse them.
-    assert_eq!(
-        qpdf_objects_json(&pdf)
-            .matches("\"/EVBTextFontVersion\"")
-            .count(),
-        1
-    );
+    // Each edited glyph set owns its subset; structural saves need no full
+    // font from the prior revision, and both annotations remain readable.
+    assert!(qpdf_contains_pdf_text(&pdf, "text box 0"));
     assert!(qpdf_contains_pdf_text(&pdf, "text box 1"));
     assert_qpdf_check(&pdf);
 }
@@ -1573,4 +1569,199 @@ fn free_text_with_indirect_default_appearance_stays_editable_after_structural_ap
     );
     free_text(&large, "edited réal");
     assert_qpdf_check(&large);
+}
+
+#[test]
+fn auto_print_appends_a_missing_appearance_to_a_book_above_the_layout_ceiling() {
+    let source = temp_path("auto-print-book", "pdf");
+    let printed = temp_path("auto-print-book-printed", "pdf");
+    let _cleanup = TempFiles(vec![source.clone(), printed.clone()]);
+    write_scanned_annotation_pdf(
+        &source,
+        769 * 1024 * 1024,
+        &[b"<</Type/Annot/Subtype/Square/Rect[20 20 80 60]/C[1 0 0]/BS<</W 2>>/F 4/P 3 0 R>>"],
+        &[5],
+    );
+    let print = |view_mode: &str| {
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["print-layout", "--input"])
+            .arg(&source)
+            .arg("--output")
+            .arg(&printed)
+            .args(["--view-mode", view_mode, "--orientation", "auto", "--qpdf"])
+            .arg(qpdf_path())
+            .output()
+            .unwrap()
+    };
+
+    // Sheet composition keeps its eager-load ceiling.
+    let refused = print("facing");
+    assert!(!refused.status.success());
+    let envelope: Value = serde_json::from_slice(&refused.stderr).unwrap();
+    assert_eq!(envelope["code"], "too-large");
+    assert!(!printed.exists());
+
+    let output = print("single");
+    assert!(
+        output.status.success(),
+        "Auto print failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let source_len = fs::metadata(&source).unwrap().len();
+    assert!(fs::metadata(&printed).unwrap().len() > source_len);
+    assert_eq!(
+        sha256_prefix(&printed, source_len),
+        sha256_prefix(&source, source_len)
+    );
+    assert_qpdf_check(&printed);
+    assert_qpdf_page_count(&printed, "1");
+    let objects: Value = serde_json::from_str(&qpdf_objects_json(&printed)).unwrap();
+    let objects = &objects["objects"];
+    let numbers = |value: &Value| {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|number| number.as_f64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        numbers(&objects["3 0 R"]["/MediaBox"]),
+        [0.0, 0.0, 200.0, 100.0]
+    );
+    let appearance = objects["5 0 R"]["/AP"]["/N"].as_str().unwrap();
+    assert_eq!(
+        numbers(&objects[appearance]["/BBox"]),
+        [20.0, 20.0, 80.0, 60.0]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let cases = [
+        (
+            "electron/interop/print-devanagari/NotoSansDevanagari-subset.ttf",
+            "हिन्दी नमस्ते",
+        ),
+        (
+            "../../scripts/fixtures/ocr-language-fonts/NotoNaskhArabic-Regular.ttf",
+            "سلام عليكم",
+        ),
+        (
+            "../../scripts/fixtures/ocr-language-fonts/NotoSerifHebrew-Regular.ttf",
+            "שלום עולם",
+        ),
+    ];
+    // FreeText n, its Type0 font, descendant, descriptor and program are
+    // objects 5n + 5 to 5n + 9; each names only its own font in its /DR.
+    let mut objects = Vec::new();
+    for (index, (font, text)) in cases.iter().enumerate() {
+        let first = 5 + 5 * index;
+        let contents = text.encode_utf16().fold(String::from("FEFF"), |hex, unit| {
+            hex + &format!("{unit:04X}")
+        });
+        let font = fs::read(root.join(font)).unwrap();
+        let mut program = format!("<</Length {0}/Length1 {0}>>\nstream\n", font.len()).into_bytes();
+        program.extend_from_slice(&font);
+        program.extend_from_slice(b"\nendstream");
+        objects.extend([
+            format!("<</Type/Annot/Subtype/FreeText/Rect[10 {} 190 {}]/F 4/Contents<{contents}>/DA(/DocFont 12 Tf 0 g)/DR<</Font<</DocFont {} 0 R>>>>/BS<</W 0>>/P 3 0 R>>", 5 + 30 * index, 30 + 30 * index, first + 1).into_bytes(),
+            format!("<</Type/Font/Subtype/Type0/BaseFont/Doc{index}/Encoding/Identity-H/DescendantFonts[{} 0 R]>>", first + 2).into_bytes(),
+            format!("<</Type/Font/Subtype/CIDFontType2/BaseFont/Doc{index}/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor {} 0 R/CIDToGIDMap/Identity>>", first + 3).into_bytes(),
+            format!("<</Type/FontDescriptor/FontName/Doc{index}/FontFile2 {} 0 R/Flags 32/FontBBox[-1000 -1000 2000 2000]/ItalicAngle 0/Ascent 1000/Descent -500/CapHeight 900/StemV 80>>", first + 4).into_bytes(),
+            program,
+        ]);
+    }
+    let objects: Vec<&[u8]> = objects.iter().map(Vec::as_slice).collect();
+    let wrapper = temp_path("auto-print-font-qpdf", "sh");
+    let log = temp_path("auto-print-font-qpdf", "log");
+    let _wrapper = TempFiles(vec![wrapper.clone(), log.clone()]);
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
+            log.display(),
+            qpdf_path().display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    // The fonts and glyphs each FreeText's synthesized appearance draws.
+    let drawing = |image_bytes: u64| {
+        let source = temp_path("auto-print-font", "pdf");
+        let printed = temp_path("auto-print-font-printed", "pdf");
+        let _cleanup = TempFiles(vec![source.clone(), printed.clone()]);
+        write_scanned_annotation_pdf(&source, image_bytes, &objects, &[5, 10, 15]);
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["print-layout", "--input"])
+            .arg(&source)
+            .arg("--output")
+            .arg(&printed)
+            .args(["--view-mode", "single", "--orientation", "auto", "--qpdf"])
+            .arg(&wrapper)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let document = Document::load(&printed).unwrap();
+        [5, 10, 15].map(|annotation| {
+            let annotation = document.get_dictionary((annotation, 0)).unwrap();
+            let normal = annotation.get(b"AP").and_then(Object::as_dict).unwrap();
+            let stream = document
+                .get_object(normal.get(b"N").and_then(Object::as_reference).unwrap())
+                .and_then(Object::as_stream)
+                .unwrap();
+            let fonts = stream
+                .dict
+                .get(b"Resources")
+                .and_then(Object::as_dict)
+                .and_then(|resources| resources.get(b"Font"))
+                .and_then(Object::as_dict)
+                .unwrap()
+                .iter()
+                .map(|(_, font)| {
+                    let font = document
+                        .get_dictionary(font.as_reference().unwrap())
+                        .unwrap();
+                    String::from_utf8_lossy(
+                        font.get(b"BaseFont").and_then(Object::as_name).unwrap(),
+                    )
+                    .into_owned()
+                })
+                .collect::<Vec<_>>();
+            let content = String::from_utf8_lossy(&stream.content).into_owned();
+            let glyphs = content
+                .split("> Tj")
+                .filter_map(|part| part.rsplit_once('<').map(|(_, glyph)| glyph.to_string()))
+                .collect::<Vec<_>>();
+            (fonts, glyphs)
+        })
+    };
+
+    let eager = drawing(1);
+    fs::write(&log, "").unwrap();
+    // 18 MiB of image data makes the dictionary load structural.
+    let structural = drawing(18 * 1024 * 1024);
+    for (fonts, glyphs) in &eager {
+        assert!(!glyphs.is_empty());
+        assert!(
+            matches!(&fonts[..], [font] if font.ends_with("+TextFont0")),
+            "{eager:?}"
+        );
+    }
+    assert_eq!(structural, eager);
+    // Every program arrives in one qpdf read of the source.
+    let calls = fs::read_to_string(&log).unwrap();
+    let font_reads = calls
+        .lines()
+        .filter(|call| call.contains("--json-stream-data=inline") || call.contains("--show-object"))
+        .count();
+    assert_eq!(font_reads, 1, "{calls}");
 }

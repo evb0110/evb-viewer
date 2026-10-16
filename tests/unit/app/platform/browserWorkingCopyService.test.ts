@@ -1,3 +1,4 @@
+import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {
     afterEach,
     beforeEach,
@@ -18,6 +19,15 @@ import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
 import * as workingCopyService from '@app/platform/browser-api/browserWorkingCopyService';
 
 const serviceState = vi.hoisted(() => ({store: null as BrowserDocumentStore | null}));
+
+vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserWindowTabs>(),
+    reserveBrowserDocumentWorkingCopy: async (fileName: string) => {
+        const {createBrowserDocumentRef} = await import('@app/platform/browser/browserDocumentRefs');
+        return createBrowserDocumentRef(fileName);
+    },
+    retireBrowserDocumentWorkingCopy: async () => {},
+}));
 
 vi.mock('@app/platform/browserDocumentStore', async importOriginal => ({
     ...await importOriginal<typeof TBrowserDocumentStore>(),

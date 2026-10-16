@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import { delay } from 'es-toolkit/promise';
 import {
-    capturePdfRegionAsPngBlob,
     findPdfPageContainer,
     pdfViewerDomSelectors, 
 } from '@app/modules/pdf-viewer/public';
@@ -130,7 +129,7 @@ function findAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: 
     return pageElement;
 }
 
-async function waitForAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: TPageNumber) {
+async function waitForAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: TPageNumber, assertCurrent: () => void) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < AGENT_PAGE_IMAGE_RENDER_TIMEOUT_MS) {
         const pageElement = findAgentRenderedPageElement(viewerContainer, pageNumber);
@@ -138,7 +137,9 @@ async function waitForAgentRenderedPageElement(viewerContainer: HTMLElement, pag
             return pageElement;
         }
         await delay(AGENT_PAGE_IMAGE_RENDER_POLL_MS);
+        assertCurrent();
         await nextTick();
+        assertCurrent();
     }
 
     throw new Error(`document.capture_page_image could not find a rendered canvas for page ${pageNumber}.`);
@@ -153,8 +154,10 @@ function bytesToBase64(bytes: Uint8Array) {
     return btoa(binary);
 }
 
-async function blobToBase64(blob: Blob) {
-    return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
+async function blobToBase64(blob: Blob, assertCurrent: () => void) {
+    const bytes = await blob.arrayBuffer();
+    assertCurrent();
+    return bytesToBase64(new Uint8Array(bytes));
 }
 
 function createAgentCaptureRectMetadata(rect: IClientRect, pageRect: IClientRect) {
@@ -176,7 +179,7 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
         totalPages,
     } = options;
 
-    async function captureAgentPageImage(input: Record<string, unknown>, actionId: string) {
+    async function captureAgentPageImage(input: Record<string, unknown>, actionId: string, assertRequestCurrent: () => void = () => {}) {
         const pageNumber = requirePageNumber(getAgentOptionalPageNumberInput(
             input,
             totalPages.value,
@@ -189,26 +192,39 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
             throw new Error('document.capture_page_image requires a rendered PDF viewer.');
         }
 
+        const assertCurrent = () => {
+            assertRequestCurrent();
+            if (pdfViewerRef.value !== viewer || viewer.getViewerContainer() !== viewerContainer || !viewerContainer.isConnected) throw new DOMException('The initiating capture view changed', 'AbortError');
+        };
+        assertCurrent();
         handleGoToPage(pageNumber);
+        assertCurrent();
         viewer.scrollToPage(pageNumber);
+        assertCurrent();
         await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
+        assertCurrent();
         await nextTick();
-
-        const pageElement = await waitForAgentRenderedPageElement(viewerContainer, pageNumber);
+        assertCurrent();
+        const pageElement = await waitForAgentRenderedPageElement(viewerContainer, pageNumber, assertCurrent);
+        assertCurrent();
         const pageRect = toClientRect(pageElement.getBoundingClientRect());
         const selectionRect = getAgentPageImageSelection(input, pageRect);
-        const capture = await capturePdfRegionAsPngBlob(viewerContainer, selectionRect);
+        if (!viewer.captureVisibleRegionAsPng) throw new Error('Current-view composed capture is unavailable');
+        const capture = await viewer.captureVisibleRegionAsPng(selectionRect, assertCurrent);
+        assertCurrent();
         if (!capture) {
             throw new Error(`document.capture_page_image could not capture page ${pageNumber}.`);
         }
 
+        const data = await blobToBase64(capture.blob, assertCurrent);
+        assertCurrent();
         return {
             pageNumber,
             crop: createAgentCaptureRectMetadata(capture.outputRect, pageRect),
             image: {
                 mimeType: 'image/png',
                 sizeBytes: capture.blob.size,
-                data: await blobToBase64(capture.blob),
+                data,
             },
         };
     }

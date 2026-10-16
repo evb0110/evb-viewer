@@ -40,6 +40,11 @@ class MockProcess extends EventEmitter {
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => '/tmp'}));
+// The native child is mocked; its feature tests do not inspect the host process.
+vi.mock(import('@electron/utils/processIdentity'), async importOriginal => ({
+    ...await importOriginal(),
+    getOwnStartTime: async () => null,
+}));
 
 vi.mock('fs/promises', () => ({
     mkdir: async () => undefined,

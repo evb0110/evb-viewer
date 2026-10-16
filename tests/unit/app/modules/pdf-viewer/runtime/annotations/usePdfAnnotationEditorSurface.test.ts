@@ -21,6 +21,8 @@ import type {
     IAnnotationMarkerRect,
     TAnnotationTool,
 } from '@app/types/annotations';
+import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const rect: IAnnotationMarkerRect = {
@@ -636,7 +638,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         });
         // The inspector reads the reactive selection; it must follow the edit.
         expect(harness.surface.selectedTextBox.value?.fontSize).toBe(DEFAULT_ANNOTATION_SETTINGS.textSize);
-        expect(harness.surface.updateSelectedTextBoxProperties({
+        expect(harness.surface.updateSelectedAnnotationProperties({
             fontSize: 22,
             color: '#ef4444',
         })).toBe(true);
@@ -650,7 +652,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             color: '#ef4444',
         }]);
         expect(harness.surface.selectedTextBox.value?.fontSize).toBe(22);
-        expect(harness.surface.updateSelectedTextBoxProperties({fontSize: 22})).toBe(false);
+        expect(harness.surface.updateSelectedAnnotationProperties({fontSize: 22})).toBe(false);
         expect(harness.surface.deleteAnnotation(created.identity.id)).toBe(true);
         expect(harness.surface.getSelectedTextBox()).toBeNull();
         expect(harness.surface.selectedTextBox.value).toBeNull();
@@ -659,22 +661,32 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.stop();
     });
 
-    it('commits registered text box drafts before save and unregisters disposed editors', () => {
+    it('keeps the editor and its draft pending until the owning page completes protection', async () => {
         const harness = createSurfaceHarness();
-        const firstCommitter = vi.fn();
-        const secondCommitter = vi.fn();
-        const unregisterFirst = harness.surface.registerTextBoxDraftCommitter(firstCommitter);
-        harness.surface.registerTextBoxDraftCommitter(secondCommitter);
-
-        harness.surface.commitPendingTextBoxDraftsForSave();
-        expect(firstCommitter).toHaveBeenCalledOnce();
-        expect(secondCommitter).toHaveBeenCalledOnce();
-
-        unregisterFirst();
-        harness.surface.commitPendingTextBoxDraftsForSave();
-        expect(firstCommitter).toHaveBeenCalledOnce();
-        expect(secondCommitter).toHaveBeenCalledTimes(2);
-
+        const box = harness.surface.createTextBoxAt(0, rect, {text: 'Before'});
+        harness.surface.beginTextEditing(box.identity.id);
+        harness.surface.setTextBoxDraftPending(box.identity.id, 'Accepted after protection');
+        const protection = Promise.withResolvers<undefined>();
+        const unregister = harness.surface.registerPageInteraction(0, {
+            commitTextDraft: async () => {
+                await protection.promise;
+                harness.surface.commitGesture(box.identity.id, {text: 'Accepted after protection'});
+                harness.surface.endTextEditing(box.identity.id);
+            },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const saving = harness.surface.commitPendingTextBoxDraftsForSave();
+        expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Before'});
+        expect(harness.surface.editingId.value).toBe(box.identity.id);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        protection.resolve(undefined);
+        await saving;
+        expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Accepted after protection'});
+        expect(harness.surface.editingId.value).toBeNull();
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        unregister();
         harness.stop();
     });
 
@@ -707,6 +719,74 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.surface.endTextEditing(entity.identity.id, {cancelled: true});
         expect(harness.onTextBoxDraftChanged).toHaveBeenLastCalledWith(entity.identity.id, null);
         expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+    });
+
+    it.each([
+        true,
+        false,
+    ])('keeps document work when the whole editor scope closes during protection (accepted: %s)', async accepted => {
+        const document = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/shared.pdf')),
+            source: computed(() => null),
+            documentRevisionToken: computed(() => null),
+        });
+        const scope = effectScope();
+        activeScopes.add(scope);
+        const protection = Promise.withResolvers<undefined>();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: document.application,
+            activeTool: computed(() => 'text'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            onTextBoxDraftChanged: document.setTextBoxDraft,
+            textBoxDraftRects: document.textBoxDraftRects,
+            getTextBoxDraftText: id => document.textBoxDrafts.get(id) ?? null,
+            getTextBoxDraftGeneration: id => document.textBoxDraftGenerations.get(id),
+            protectTextBoxDraft: () => protection.promise,
+        }))!;
+        const box = surface.createTextBoxAt(0, rect, {text: 'Before'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Retained after viewer disposal');
+        const draftRect = {
+            ...rect,
+            width: 0.5,
+        };
+        surface.registerPageInteraction(0, {
+            commitTextDraft: async () => {
+                await surface.protectTextBoxDraft(box.identity.id);
+                surface.commitGesture(box.identity.id, {
+                    text: 'Retained after viewer disposal',
+                    rect: draftRect,
+                });
+                surface.endTextEditing(box.identity.id);
+            },
+            cancelTextDraft: () => {},
+            cancelPointerGesture: () => {},
+            focus: () => {},
+            getTextBoxDraftRect: () => draftRect,
+        });
+        const saving = surface.commitPendingTextBoxDraftsForSave();
+        const rejected = accepted ? null : expect(saving).rejects.toThrow('ENOSPC');
+        scope.stop();
+        expect.soft(document.textBoxDrafts.get(box.identity.id)).toBe('Retained after viewer disposal');
+        expect(document.getTextBoxDraftRect(box.identity.id)).toEqual(draftRect);
+        if (accepted) {
+            protection.resolve(undefined);
+            await saving;
+            expect(document.application.value.store.get(box.identity.id)).toMatchObject({
+                text: 'Retained after viewer disposal',
+                rect: draftRect,
+            });
+            expect(document.textBoxDrafts.size).toBe(0);
+        } else {
+            protection.reject(new Error('ENOSPC'));
+            await rejected;
+            expect(document.application.value.store.get(box.identity.id)).toMatchObject({
+                text: 'Before',
+                rect,
+            });
+            expect(document.textBoxDrafts.get(box.identity.id)).toBe('Retained after viewer disposal');
+            await expect(document.commitPendingDraftsForSave()).rejects.toThrow('Missing required text draft editor');
+        }
     });
 
     it('reports pending text box drafts until the editor commits or cancels them', () => {

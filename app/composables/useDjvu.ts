@@ -542,9 +542,6 @@ export const useDjvu = (config: {
 
             BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });
             resetViewingProgressState();
-            if (previousDjvuPath && previousDjvuPath !== djvuPath) {
-                await releaseViewingPath(previousDjvuPath);
-            }
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
                 BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
                     reason: 'stale-before-source-activation',
@@ -574,6 +571,7 @@ export const useDjvu = (config: {
                 sourcePath: djvuSourcePath.value,
                 activationGeneration: activation.generation,
             });
+            await releaseViewingPath(previousDjvuPath);
             return true;
         } catch (e) {
             // A cancelled open that is still the current one ends its loading

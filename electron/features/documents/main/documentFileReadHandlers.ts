@@ -9,6 +9,7 @@ import { MAX_CHUNK } from '@electron/config/constants';
 import type {IFileStatResult} from '@contracts/electronApiDocuments';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
+    isWorkingCopyMutationActive,
     onWorkingCopyMutationSettled,
     onWorkingCopyMutationStarting,
 } from '@electron/file-access/workingCopyMutationQueue';
@@ -34,6 +35,11 @@ import {
     resolveReadablePathSync,
 } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
+import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
+import {
+    aggregateErrorsKeepingUnprovenTermination,
+    getUnprovenNativeTerminationDetail,
+} from '@electron/utils/nativeTerminationProof';
 
 const ALLOWED_READ_EXTENSIONS = new Set([
     '.json',
@@ -46,7 +52,6 @@ const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
 const RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES = 8 * 1024 * 1024;
 const RANGE_READ_MAX_WAITERS = 256;
 const RANGE_READ_WAITER_TIMEOUT_MS = 30_000;
-const RANGE_READ_MUTATION_CLOSE_TIMEOUT_MS = 30_000;
 
 interface IRangeReadHandleCacheEntry {
     handle: FileHandle;
@@ -54,16 +59,14 @@ interface IRangeReadHandleCacheEntry {
     size: number;
     epoch: number;
     activeReads: number;
-    closeRequested: boolean;
-    closed: boolean;
     closePromise: Promise<void> | null;
-    closeResolve: (() => void) | null;
+    closeResolve: ((error?: unknown) => void) | null;
     idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
 interface IRangeReadHandleLease {
     handle: FileHandle;
-    release(retain?: boolean): Promise<void>;
+    release(retain?: boolean, failure?: unknown): Promise<void>;
 }
 
 interface IOriginalBackedRead {
@@ -188,57 +191,26 @@ function pruneRangeReadPathEpochIfUnused(resolvedPath: string) {
     }
 }
 
-function getOrCreateRangeReadHandleClosePromise(entry: IRangeReadHandleCacheEntry) {
-    if (entry.closePromise) {
-        return entry.closePromise;
-    }
-    let resolve!: () => void;
-    entry.closePromise = new Promise<void>(promiseResolve => {
-        resolve = promiseResolve;
-    });
-    entry.closeResolve = resolve;
-    return entry.closePromise;
-}
-
-function closeRangeReadHandleEntryWhenUnused(entry: IRangeReadHandleCacheEntry) {
-    const closePromise = getOrCreateRangeReadHandleClosePromise(entry);
-    if (entry.closed) {
-        return closePromise;
-    }
-    if (entry.activeReads > 0) {
-        return closePromise;
-    }
-    entry.closed = true;
-    let closeOperation: Promise<unknown>;
-    try {
-        closeOperation = Promise.resolve(entry.handle.close());
-    } catch {
-        closeOperation = Promise.resolve();
-    }
-    void closeOperation
-        .catch(() => undefined)
-        .finally(() => {
-            const resolve = entry.closeResolve;
-            entry.closeResolve = null;
-            resolve?.();
-        });
-    return closePromise;
-}
-
 function requestRangeReadHandleClose(
     resolvedPath: string,
     entry: IRangeReadHandleCacheEntry,
 ) {
     const cacheKey = getRangeReadCacheKey(resolvedPath);
-    if (rangeReadHandles.get(cacheKey) === entry) {
-        rangeReadHandles.delete(cacheKey);
-    }
     if (entry.idleTimer) {
         clearTimeout(entry.idleTimer);
         entry.idleTimer = null;
     }
-    entry.closeRequested = true;
-    return closeRangeReadHandleEntryWhenUnused(entry);
+    entry.closePromise ??= new Promise<void>((resolve, reject) => {
+        entry.closeResolve = error => error === undefined ? resolve() : reject(error);
+    }).then(() => entry.handle.close()).then(() => {
+        if (rangeReadHandles.get(cacheKey) === entry) rangeReadHandles.delete(cacheKey);
+        pruneRangeReadPathEpochIfUnused(cacheKey);
+    });
+    if (entry.activeReads === 0) {
+        entry.closeResolve?.();
+        entry.closeResolve = null;
+    }
+    return entry.closePromise;
 }
 
 function scheduleRangeReadHandleIdleClose(
@@ -246,7 +218,7 @@ function scheduleRangeReadHandleIdleClose(
     entry: IRangeReadHandleCacheEntry,
 ) {
     const cacheKey = getRangeReadCacheKey(resolvedPath);
-    if (entry.activeReads > 0 || entry.closeRequested || entry.closed) {
+    if (entry.activeReads > 0 || entry.closePromise) {
         return;
     }
     if (entry.idleTimer) {
@@ -258,7 +230,7 @@ function scheduleRangeReadHandleIdleClose(
             return;
         }
         void requestRangeReadHandleClose(resolvedPath, entry)
-            .finally(() => pruneRangeReadPathEpochIfUnused(resolvedPath));
+            .then(() => pruneRangeReadPathEpochIfUnused(resolvedPath), () => undefined);
     }, RANGE_READ_HANDLE_IDLE_MS);
     entry.idleTimer = idleTimer;
     idleTimer.unref();
@@ -270,7 +242,6 @@ function closeCachedRangeReadHandle(resolvedPath: string) {
     if (pendingOpen) {
         return pendingOpen
             .then(entry => requestRangeReadHandleClose(resolvedPath, entry))
-            .catch(() => undefined)
             .then(() => {
                 const entry = rangeReadHandles.get(cacheKey);
                 if (!entry) {
@@ -288,6 +259,15 @@ function closeCachedRangeReadHandle(resolvedPath: string) {
 }
 
 async function closeLeastRecentlyUsedRangeReadHandle() {
+    for (const [
+        path,
+        entry,
+    ] of rangeReadHandles) {
+        if (!entry.closePromise) {
+            await requestRangeReadHandleClose(path, entry);
+            return;
+        }
+    }
     const oldest = rangeReadHandles.entries().next();
     if (oldest.done) {
         return;
@@ -315,6 +295,7 @@ function createRangeReadMutationBarrier(resolvedPath: string) {
 }
 
 function finishRangeReadMutation(resolvedPath: string) {
+    if (isWorkingCopyMutationActive(resolvedPath)) return;
     const cacheKey = getRangeReadCacheKey(resolvedPath);
     const barrier = rangeReadMutationBarriers.get(cacheKey);
     if (!barrier) {
@@ -323,41 +304,6 @@ function finishRangeReadMutation(resolvedPath: string) {
     rangeReadMutationBarriers.delete(cacheKey);
     barrier.resolve();
     pruneRangeReadPathEpochIfUnused(resolvedPath);
-}
-
-function waitForRangeReadHandleCloseBeforeMutation(
-    closePromise: Promise<void>,
-    signal: AbortSignal,
-) {
-    if (signal.aborted) {
-        return Promise.resolve();
-    }
-    return new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const handleAbort = () => finish(resolve);
-        const timeout = setTimeout(() => {
-            finish(() => reject(new Error('Timed out closing PDF range reads before document mutation')));
-        }, RANGE_READ_MUTATION_CLOSE_TIMEOUT_MS);
-        function finish(settle: () => void) {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            clearTimeout(timeout);
-            signal.removeEventListener('abort', handleAbort);
-            settle();
-        }
-        timeout.unref();
-        signal.addEventListener('abort', handleAbort, {once: true});
-        if (signal.aborted) {
-            handleAbort();
-            return;
-        }
-        void closePromise.then(
-            () => finish(resolve),
-            error => finish(() => reject(error)),
-        );
-    });
 }
 
 async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadHandleLease> {
@@ -378,8 +324,7 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
                 cachedEntry.size === size
                 && cachedEntry.mtimeMs === mtimeMs
                 && cachedEntry.epoch === epoch
-                && !cachedEntry.closeRequested
-                && !cachedEntry.closed
+                && !cachedEntry.closePromise
             ) {
                 return acquireRangeReadHandleEntry(cacheKey, cachedEntry);
             }
@@ -396,8 +341,7 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
                 && pendingEntry.size === size
                 && pendingEntry.mtimeMs === mtimeMs
                 && pendingEntry.epoch === getRangeReadPathEpoch(cacheKey)
-                && !pendingEntry.closeRequested
-                && !pendingEntry.closed
+                && !pendingEntry.closePromise
             ) {
                 return acquireRangeReadHandleEntry(cacheKey, pendingEntry);
             }
@@ -420,18 +364,16 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
                 size,
                 epoch,
                 activeReads: 0,
-                closeRequested: false,
-                closed: false,
                 closePromise: null,
                 closeResolve: null,
                 idleTimer: null,
             };
+            rangeReadHandles.set(cacheKey, entry);
             if (epoch !== getRangeReadPathEpoch(cacheKey)) {
                 await requestRangeReadHandleClose(resolvedPath, entry);
                 return entry;
             }
 
-            rangeReadHandles.set(cacheKey, entry);
             return entry;
         })();
         rangeReadHandleOpens.set(cacheKey, openPromise);
@@ -443,8 +385,7 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
         if (
             rangeReadHandles.get(cacheKey) === entry
             && entry.epoch === getRangeReadPathEpoch(cacheKey)
-            && !entry.closeRequested
-            && !entry.closed
+            && !entry.closePromise
         ) {
             return acquireRangeReadHandleEntry(cacheKey, entry);
         }
@@ -467,22 +408,55 @@ function acquireRangeReadHandleEntry(
     let released = false;
     return {
         handle: entry.handle,
-        async release(retain = true) {
+        async release(retain = true, failure?: unknown) {
             if (released) {
                 return;
             }
             released = true;
+            if (getUnprovenNativeTerminationDetail(failure) !== undefined) {
+                const closePromise = requestRangeReadHandleClose(cacheKey, entry);
+                entry.closeResolve?.(failure);
+                entry.closeResolve = null;
+                return closePromise;
+            }
             entry.activeReads -= 1;
-            if (!retain) {
+            if (!retain || entry.closePromise) {
                 await requestRangeReadHandleClose(cacheKey, entry);
                 pruneRangeReadPathEpochIfUnused(cacheKey);
-            } else if (entry.closeRequested) {
-                await closeRangeReadHandleEntryWhenUnused(entry);
             } else {
                 scheduleRangeReadHandleIdleClose(cacheKey, entry);
             }
         },
     };
+}
+
+export async function withContentReadLease<T>(
+    resolvedPath: string,
+    reader: (handle: FileHandle) => Promise<T>,
+    retain: () => boolean = () => true,
+    logicalRef: string = resolvedPath,
+) {
+    const lease = await acquireRangeReadHandle(resolvedPath);
+    let result: T;
+    try {
+        result = await reader(lease.handle);
+    } catch (error) {
+        const unprovenTermination = getUnprovenNativeTerminationDetail(error);
+        if (unprovenTermination !== undefined) quarantineWorkingCopy(logicalRef, unprovenTermination);
+        try {
+            await lease.release(retain(), error);
+        } catch (closeError) {
+            if (closeError !== error) throw aggregateErrorsKeepingUnprovenTermination(
+                [
+                    error,
+                    closeError,
+                ], 'PDF read and reader settlement failed',
+            );
+        }
+        throw error;
+    }
+    await lease.release(retain());
+    return result;
 }
 
 function createSourceBackingError(
@@ -527,13 +501,10 @@ function readsThroughOriginal(backingState: string | undefined) {
 
 // A read routed before the copy published can finish after it; EVB must not keep
 // a published copy's original open, so only a still-lazy backing retains the handle.
-async function releaseOriginalBackedLease(
-    lease: IRangeReadHandleLease | null,
-    backing: IOriginalBackedRead,
-) {
-    await lease?.release(readsThroughOriginal(
+function retainOriginalBackedLease(backing: IOriginalBackedRead) {
+    return readsThroughOriginal(
         getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.backingState,
-    ));
+    );
 }
 
 function resolveOriginalBackedRead(
@@ -558,7 +529,7 @@ function resolveOriginalBackedRead(
     }
     return {
         admissionSnapshot: entry.admissionSnapshot,
-        logicalRef,
+        logicalRef: entry.logicalPath || logicalRef,
         originalPath: entry.originalPath,
         registrationId: entry.registrationId,
         ...(senderId === undefined ? {} : {senderId}),
@@ -580,11 +551,27 @@ export function resolveOriginalBackedReadTransport(
         },
         read: async <T>(reader: (physicalPath: string) => Promise<T>) => {
             await assertOriginalBackingSnapshot(backing);
-            try {
-                return await reader(backing.originalPath);
-            } finally {
+            return withContentReadLease(backing.originalPath, async () => {
+                let result: T;
+                try {
+                    result = await reader(backing.originalPath);
+                } catch (error) {
+                    try {
+                        await assertOriginalBackingSnapshot(backing);
+                    } catch (snapshotError) {
+                        if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
+                        throw aggregateErrorsKeepingUnprovenTermination(
+                            [
+                                error,
+                                snapshotError,
+                            ], 'PDF read and source backing validation failed',
+                        );
+                    }
+                    throw error;
+                }
                 await assertOriginalBackingSnapshot(backing);
-            }
+                return result;
+            }, () => retainOriginalBackedLease(backing), backing.logicalRef);
         },
     };
 }
@@ -596,7 +583,8 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     }
-    if (!workingCopyAdmissionSnapshotsMatch(snapshot, backing.admissionSnapshot)) {
+    if (!await workingCopyAdmissionSnapshotsMatch(snapshot, backing.admissionSnapshot, backing.originalPath,
+        getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.originalFileExpectation)) {
         failOriginalBacking(backing, 'SOURCE_BACKING_CHANGED');
     }
     const currentEntry = getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId);
@@ -606,11 +594,9 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
             'Working-copy registration changed during the read',
         );
     }
-    if (
-        currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-        || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-    ) {
-        throw createSourceBackingError(currentEntry.sourceBackingErrorCode);
+    const sourceError = currentEntry.sourceBackingErrorCode;
+    if (sourceError === 'SOURCE_BACKING_CHANGED' || sourceError === 'SOURCE_BACKING_UNAVAILABLE') {
+        throw createSourceBackingError(sourceError);
     }
     return snapshot;
 }
@@ -630,25 +616,21 @@ async function readOriginalBacking(
     assertWithinIpcReadBudget(backing.logicalRef, size);
     const buffer = Buffer.allocUnsafe(size);
     let totalBytesRead = 0;
-    let lease: IRangeReadHandleLease | null = null;
     try {
-        lease = await acquireRangeReadHandle(backing.originalPath);
-        while (totalBytesRead < size) {
-            const {bytesRead} = await lease.handle.read(
-                buffer,
-                totalBytesRead,
-                size - totalBytesRead,
-                totalBytesRead,
-            );
-            if (bytesRead <= 0) {
-                break;
+        await withContentReadLease(backing.originalPath, async (handle) => {
+            while (totalBytesRead < size) {
+                const {bytesRead} = await handle.read(
+                    buffer,
+                    totalBytesRead,
+                    size - totalBytesRead,
+                    totalBytesRead,
+                );
+                if (bytesRead <= 0) break;
+                totalBytesRead += bytesRead;
             }
-            totalBytesRead += bytesRead;
-        }
+        }, () => retainOriginalBackedLease(backing), backing.logicalRef);
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
-    } finally {
-        await releaseOriginalBackedLease(lease, backing);
     }
     await assertOriginalBackingSnapshot(backing);
     if (totalBytesRead !== size) {
@@ -673,14 +655,11 @@ async function readOriginalBackingRange(
     await assertOriginalBackingSnapshot(backing);
     const buffer = Buffer.allocUnsafe(length);
     let bytesRead = 0;
-    let lease: IRangeReadHandleLease | null = null;
     try {
-        lease = await acquireRangeReadHandle(backing.originalPath);
-        ({bytesRead} = await lease.handle.read(buffer, 0, length, offset));
+        ({bytesRead} = await withContentReadLease(backing.originalPath,
+            handle => handle.read(buffer, 0, length, offset), () => retainOriginalBackedLease(backing), backing.logicalRef));
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
-    } finally {
-        await releaseOriginalBackedLease(lease, backing);
     }
     await assertOriginalBackingSnapshot(backing);
     return new Uint8Array(buffer.subarray(0, bytesRead));
@@ -695,26 +674,16 @@ async function invalidateCachedRangeReadPath(resolvedPath: string) {
 // Keep range readers out of the replacement window. The barrier is installed
 // before closing the current handle, so a reader that arrives while an active
 // read drains cannot reopen the path before the mutation has settled.
-onWorkingCopyMutationStarting((workingCopyPath, signal) => {
+onWorkingCopyMutationStarting((workingCopyPath) => {
     createRangeReadMutationBarrier(workingCopyPath);
     advanceRangeReadPathEpoch(workingCopyPath);
-    const closePromise = closeCachedRangeReadHandle(workingCopyPath);
-    if (!closePromise) {
-        return;
-    }
-    return waitForRangeReadHandleCloseBeforeMutation(closePromise, signal).catch(error => {
-        finishRangeReadMutation(workingCopyPath);
-        throw error;
-    });
+    return closeCachedRangeReadHandle(workingCopyPath);
 });
 
 onWorkingCopyMutationSettled((workingCopyPath) => {
     advanceRangeReadPathEpoch(workingCopyPath);
-    void Promise.resolve(closeCachedRangeReadHandle(workingCopyPath))
-        .finally(() => {
-            finishRangeReadMutation(workingCopyPath);
-            pruneRangeReadPathEpochIfUnused(workingCopyPath);
-        });
+    const finish = () => finishRangeReadMutation(workingCopyPath);
+    void Promise.resolve(closeCachedRangeReadHandle(workingCopyPath)).then(finish, finish);
 });
 
 onWorkingCopyBackingSwapCacheInvalidation(async (logicalRef, previousPhysicalPath) => {
@@ -733,9 +702,7 @@ export async function closeCachedRangeReadHandles() {
             pendingEntry,
         ]) => {
             advanceRangeReadPathEpoch(resolvedPath);
-            return pendingEntry
-                .then(entry => requestRangeReadHandleClose(resolvedPath, entry))
-                .catch(() => undefined);
+            return pendingEntry.then(entry => requestRangeReadHandleClose(resolvedPath, entry));
         }),
     );
     await Promise.all(
@@ -836,18 +803,17 @@ export async function handleFileReadRange(
 
     const readPromise = (async () => {
         const releaseBudget = await acquireRangeReadBudget(resolvedPath, want);
-        let lease: IRangeReadHandleLease | null = null;
         try {
             if (originalBacking) {
                 return await readOriginalBackingRange(originalBacking, off, want);
             }
-            lease = await acquireRangeReadHandle(resolvedPath);
-            const buf = Buffer.allocUnsafe(want);
-            const { bytesRead } = await lease.handle.read(buf, 0, want, off);
-            return new Uint8Array(buf.subarray(0, bytesRead));
+            return await withContentReadLease(resolvedPath, async (handle) => {
+                const buf = Buffer.allocUnsafe(want);
+                const { bytesRead } = await handle.read(buf, 0, want, off);
+                return new Uint8Array(buf.subarray(0, bytesRead));
+            }, () => !findWorkingCopyPathByOriginalPath(resolvedPath, context.senderId));
         } finally {
             // The renderer may still name an original whose copy is published.
-            await lease?.release(!findWorkingCopyPathByOriginalPath(resolvedPath, context.senderId));
             releaseBudget();
         }
     })();

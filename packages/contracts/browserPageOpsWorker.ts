@@ -25,6 +25,30 @@ const nonNegativeIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(
 const finiteNonNegativeSchema = v.pipe(v.number(), v.finite(), v.minValue(0));
 const pdfBytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
 
+interface IBrowserWorkerSuccessEnvelope {
+    id: number;
+    ok: true;
+    type: string;
+    data: unknown;
+}
+
+interface IBrowserWorkerFailureEnvelope {
+    id: number;
+    ok: false;
+    error: string;
+    errorEnvelope?: unknown;
+}
+
+type TBrowserWorkerResponseEnvelope = IBrowserWorkerSuccessEnvelope | IBrowserWorkerFailureEnvelope;
+
+// The worker message is already a structured clone. Validate its envelope
+// without building another representation; the owner decodes data/errors.
+export function isBrowserWorkerResponseEnvelope(value: unknown): value is TBrowserWorkerResponseEnvelope {
+    return isRecord(value) && isSafeWorkerRequestId(value.id)
+        && ((value.ok === true && typeof value.type === 'string' && 'data' in value)
+            || (value.ok === false && typeof value.error === 'string'));
+}
+
 const cropMarginsSchema = v.object({
     top: finiteNonNegativeSchema,
     bottom: finiteNonNegativeSchema,
@@ -205,7 +229,8 @@ export const BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA = v.object({
 });
 export type IBrowserPageOpsWasmFailure = v.InferOutput<typeof BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA>;
 export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPageOpsWasmFailure {
-    return v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success;
+    return isRecord(value) && value.status === 'failed'
+        && v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success;
 }
 export const BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA = v.object({
     ...pageMutationResultSchema.entries,

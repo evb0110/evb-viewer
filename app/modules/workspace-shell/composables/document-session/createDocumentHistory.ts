@@ -809,6 +809,9 @@ export function createDocumentHistory(
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         getHistoryDebugState,
+        readDocumentDependencies: () => history.value.flatMap(entry => entry.kind === 'path'
+            ? [entry.path]
+            : entry.kind === 'lazy' ? [entry.workingPath] : []),
         incrementSessionVersion,
         markCurrentHistoryEntryClean,
         pushHistoryEntry,

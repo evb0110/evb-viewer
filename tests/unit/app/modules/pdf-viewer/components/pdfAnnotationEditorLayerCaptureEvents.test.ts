@@ -28,11 +28,14 @@ import type {
     INoteEntity,
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import type {IAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import {
     annotationId,
     createApp,
-    createCreationSurface,
     createdTextBox,
 } from '@tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures';
 
@@ -239,7 +242,8 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     ] as const)('commits %s preview when released mouse loses capture before pointerup exactly once', async (kind) => {
         const gesture = await startCapturedGesture(kind, kind === 'grip');
         gesture.layer.dispatchEvent(gesture.pointer('lostpointercapture'));
-        await nextTick();
+        if (kind === 'grip') await vi.waitFor(() => expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])?.left).toBeCloseTo(gesture.preview.left, 12));
+        else await nextTick();
         const completed = gesture.surface.getEntitiesForPage(0)[0]!;
         const completedRect = entityRect(completed);
         for (const key of [
@@ -251,13 +255,21 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             expect(completedRect?.[key]).toBeCloseTo(gesture.preview[key], 12);
         }
         const revision = completed.revision;
-        if (kind !== 'create' && kind !== 'draw') expect(gesture.commitGesture).toHaveBeenCalledOnce();
+        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') expect(gesture.commitGesture).toHaveBeenCalledOnce();
         await gesture.finishAfterCaptureLoss();
         expect(gesture.surface.getEntitiesForPage(0)).toHaveLength(1);
         expect(gesture.surface.getEntitiesForPage(0)[0]?.revision).toBe(revision);
         expect(gesture.rect()).toEqual(gesture.preview);
-        if (kind !== 'create' && kind !== 'draw') expect(gesture.commitGesture).toHaveBeenCalledOnce();
-        if (kind === 'grip' && completed.kind === 'text-box') expect(completed.text).toBe('Текст после правки');
+        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') expect(gesture.commitGesture).toHaveBeenCalledOnce();
+        if (kind === 'grip' && completed.kind === 'text-box') {
+            expect(completed.text).toBe('Текст после правки');
+            await gesture.surface.undo();
+            const undone = gesture.surface.getEntitiesForPage(0)[0]!;
+            expect(entityRect(undone)).toEqual(gesture.originalRect);
+            expect(undone.kind === 'text-box' ? undone.text : null).toBe('Текст после правки');
+            await gesture.surface.redo();
+            expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])).toEqual(gesture.preview);
+        }
     });
 
     it.each([
@@ -294,14 +306,29 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     });
 
     it('commits an existing inline text draft with measured height and its manual width through the viewer save hook', async () => {
-        const harness = createCreationSurface();
-        harness.activeToolValue.value = 'select';
-        harness.entities.value = [createdTextBox];
-        harness.selectedIds.value = new Set([createdTextBox.identity.id]);
+        const application = shallowRef(new AnnotationApplication('save-hook-text'));
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: application,
+            activeTool: computed(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            getPageGeometry: () => ({
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+                rotation: 0,
+            }),
+        }))!;
+        onTestFinished(() => scope.stop());
+        application.value.store.createTextBox(createdTextBox);
+        surface.select([createdTextBox.identity.id]);
         const host = document.createElement('div');
         document.body.append(host);
         const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, harness.surface);
+            provide(annotationEditorSurfaceKey, surface);
             return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
         }});
         app.mount(host);
@@ -343,32 +370,330 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             inputType: 'insertText',
             data: 'draft through save hook',
         }));
-        expect(harness.setTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id, 'draft through save hook');
-        expect(harness.hasPendingTextBoxDrafts()).toBe(true);
-        expect(harness.registerTextBoxDraftCommitter).toHaveBeenCalledOnce();
-
-        harness.commitPendingTextBoxDraftsForSave();
-
-        expect(harness.commitGesture).toHaveBeenCalledWith(
-            createdTextBox.identity.id,
-            {
-                text: 'draft through save hook',
-                rect: {
-                    ...createdTextBox.rect,
-                    height: 0.4,
-                },
-            },
-        );
-        expect(harness.clearTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id);
-        expect(harness.hasPendingTextBoxDrafts()).toBe(false);
+        await nextTick();
+        expect(textBox!.style.height).toBe('40%');
+        Object.defineProperty(editor!, 'scrollHeight', {
+            configurable: true,
+            value: 20,
+        });
+        editor!.textContent = 'short';
+        editor!.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        await nextTick();
+        expect(textBox!.style.height).toBe('20%');
+        Object.defineProperty(editor!, 'scrollHeight', {
+            configurable: true,
+            value: 40,
+        });
+        editor!.textContent = 'draft through save hook';
+        editor!.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        expect(surface.hasPendingTextBoxDrafts()).toBe(true);
+        await surface.commitPendingTextBoxDraftsForSave();
+        await nextTick();
+        expect(textBox!.textContent).toBe('draft through save hook');
+        expect(textBox!.style.height).toBe('40%');
+        expect(textBox!.style.width).toBe('30%');
+        expect(host.querySelector('[contenteditable="true"]')).toBeNull();
+        expect(surface.hasPendingTextBoxDrafts()).toBe(false);
     });
 
-    it('grows a click-created text box without moving its insertion edge', async () => {
-        const harness = createCreationSurface();
+    it.each([
+        false,
+        true,
+    ])('restores both text drafts as savable geometry without editor handoffs, persisted=%s', async (persisted) => {
+        const application = shallowRef(new AnnotationApplication('recovered-text-drafts'));
+        const boxes: ITextBoxEntity[] = [
+            'X',
+            'Y',
+        ].map((label, index) => ({
+            ...createdTextBox,
+            identity: {id: asAnnotationId(`recovered-${label}`)},
+            pageIndex: requirePageIndex(0),
+            revision: 3,
+            persistedRevision: persisted ? 3 : -1,
+            text: `Previous ${label}`,
+            rect: {
+                ...createdTextBox.rect,
+                top: 0.2 + index * 0.3,
+            },
+        }));
+        application.value.store.replaceFromDocument(boxes, []);
+        const texts = [
+            'Recovered accepted X',
+            'Recovered accepted Y',
+        ];
+        const drafts = new Map(boxes.map((box, index) => [
+            box.identity.id,
+            texts[index]!,
+        ]));
+        const rectangles = boxes.map(box => ({
+            ...box.rect,
+            width: 0.5,
+            height: 0.2,
+        }));
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: application,
+            activeTool: computed(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            getTextBoxDraftText: id => drafts.get(id) ?? null,
+            onTextBoxDraftChanged: (id, text) => {
+                if (text === null) drafts.delete(id);
+                else drafts.set(id, text);
+            },
+        }))!;
         const host = document.createElement('div');
         document.body.append(host);
         const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, harness.surface);
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+        await nextTick();
+        boxes.forEach((box, index) => surface.restoreTextBoxDraftPending(box.identity.id, rectangles[index]));
+        await nextTick();
+        await nextTick();
+        boxes.forEach((box, index) => {
+            const node = host.querySelector<HTMLElement>(`[data-annotation-id="${box.identity.id}"]`)!;
+            expect(node.textContent).toBe(texts[index]);
+            expect(node.style.width).toBe('50%');
+            expect(node.style.height).toBe('20%');
+        });
+        expect(host.querySelector('[contenteditable="true"]')).toBeNull();
+        expect(application.value.store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(application.value.store.canUndo).toBe(false);
+        await surface.commitPendingTextBoxDraftsForSave();
+        expect(application.value.beginSave().plan.expected).toEqual(boxes.map((box, index) => expect.objectContaining({
+            identity: box.identity,
+            text: texts[index],
+            rect: rectangles[index],
+        })));
+    });
+
+    it.each([
+        'write rejection',
+        'newer typing',
+    ] as const)('retains editable text and geometry while protection faces %s', async (reason) => {
+        const application = shallowRef(new AnnotationApplication('protected-text'));
+        const scope = effectScope();
+        let protection = Promise.withResolvers<undefined>();
+        const drafts = new Map<string, string>();
+        const generations = new Map<string, number>();
+        const draftRectangles = new Map<string, ITextBoxEntity['rect']>();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: application,
+            activeTool: computed(() => 'text'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            onTextBoxDraftChanged: (id, text) => {
+                if (text === null) drafts.delete(id);
+                else { drafts.set(id, text); generations.set(id, (generations.get(id) ?? 0) + 1); }
+            },
+            getTextBoxDraftText: id => drafts.get(id) ?? null,
+            getTextBoxDraftGeneration: id => generations.get(id),
+            textBoxDraftRects: draftRectangles,
+            protectTextBoxDraft: () => protection.promise,
+        }))!;
+        const box = surface.createTextBoxAt(0, {
+            left: 0.2,
+            top: 0.2,
+            width: 0.3,
+            height: 0.1,
+        });
+        await surface.beginTextEditing(box.identity.id);
+        draftRectangles.set(box.identity.id, {
+            ...box.rect,
+            width: 0.5,
+        });
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+        await nextTick();
+        await nextTick();
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        Object.defineProperties(editor, {
+            scrollWidth: {
+                configurable: true,
+                value: 30,
+            },
+            scrollHeight: {
+                configurable: true,
+                value: 40,
+            },
+        });
+        const type = (text: string) => {
+            editor.textContent = text;
+            editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        };
+        const accept = () => editor.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'Enter',
+            ctrlKey: true,
+        }));
+        type('First text');
+        accept();
+        await nextTick();
+        expect(host.querySelector('.is-editing')).not.toBeNull();
+        expect(application.value.store.get(box.identity.id)).toMatchObject({text: ''});
+        expect(surface.getTextBoxDraftRect(box.identity.id)).toMatchObject({height: 0.4});
+        const refused = expect(surface.commitPendingTextBoxDraftsForSave()).rejects.toThrow(reason === 'newer typing' ? 'changed' : 'ENOSPC');
+        if (reason === 'newer typing') {type('Newer text'); protection.resolve(undefined);}
+        else protection.reject(new Error('ENOSPC'));
+        await refused;
+        await vi.waitFor(() => expect(document.activeElement).toBe(editor));
+        expect(editor.textContent).toBe(reason === 'newer typing' ? 'Newer text' : 'First text');
+        expect(host.querySelector('.is-editing')).not.toBeNull();
+        expect(surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(application.value.store.get(box.identity.id)).toMatchObject({text: ''});
+        protection = Promise.withResolvers<undefined>();
+        accept();
+        protection.resolve(undefined);
+        await vi.waitFor(() => expect(host.querySelector('.is-editing')).toBeNull());
+        expect(application.value.store.get(box.identity.id)).toMatchObject({
+            text: reason === 'newer typing' ? 'Newer text' : 'First text',
+            rect: {
+                left: 0.2,
+                top: 0.2,
+                width: 0.5,
+                height: 0.4,
+            },
+        });
+        expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+    });
+
+    it('keeps the rejected draft geometry when its disposed viewer is replaced by the surviving editor', async () => {
+        const protection = Promise.withResolvers<undefined>();
+        const owner = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/shared-text.pdf')),
+            source: computed(() => null),
+            documentRevisionToken: computed(() => null),
+        });
+        const mount = () => {
+            const host = document.createElement('div');
+            document.body.append(host);
+            let surface: IAnnotationEditorSurface;
+            const app = createApp({setup() {
+                surface = usePdfAnnotationEditorSurface({
+                    annotationApplication: owner.application,
+                    activeTool: computed(() => 'text'),
+                    getPageGeometry: () => ({
+                        pageView: [
+                            0,
+                            0,
+                            100,
+                            100,
+                        ],
+                        rotation: 0,
+                    }),
+                    settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+                    onTextBoxDraftChanged: owner.setTextBoxDraft,
+                    getTextBoxDraftText: id => owner.textBoxDrafts.get(id) ?? null,
+                    getTextBoxDraftGeneration: id => owner.textBoxDraftGenerations.get(id),
+                    textBoxDraftRects: owner.textBoxDraftRects,
+                    protectTextBoxDraft: () => protection.promise,
+                });
+                provide(annotationEditorSurfaceKey, surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+            }});
+            app.mount(host);
+            return {
+                host,
+                app,
+                surface: surface!,
+            };
+        };
+        const source = mount();
+        const surviving = mount();
+        const contentHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(40);
+        onTestFinished(() => contentHeight.mockRestore());
+        onTestFinished(() => {surviving.app.unmount(); surviving.host.remove(); source.host.remove();});
+        await nextTick();
+        const sourceLayer = source.host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        const survivingLayer = surviving.host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        vi.spyOn(sourceLayer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        vi.spyOn(survivingLayer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+        const background = source.host.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background')!;
+        background.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 22,
+        }));
+        sourceLayer.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 22,
+        }));
+        const id = owner.application.value.store.list()[0]!.identity.id;
+        await nextTick();
+        await nextTick();
+        const editor = source.host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        Object.defineProperties(editor, {
+            scrollWidth: {
+                configurable: true,
+                value: 90,
+            },
+            scrollHeight: {
+                configurable: true,
+                value: 40,
+            },
+        });
+        editor.textContent = 'Retained linked draft';
+        editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        editor.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'Enter',
+            ctrlKey: true,
+        }));
+        const refused = expect(source.surface.commitPendingTextBoxDraftsForSave()).rejects.toThrow('ENOSPC');
+        await nextTick();
+        expect(source.host.querySelector<HTMLElement>('[data-annotation-kind="text-box"]')!.style.height).toBe('40%');
+        source.app.unmount();
+        protection.reject(new Error('ENOSPC'));
+        await refused;
+        expect(structuredClone(owner.getTextBoxDraftRect(id))?.height).toBe(0.4);
+        vi.mocked(survivingLayer.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 138, 138));
+        contentHeight.mockReturnValue(56);
+        await surviving.surface.beginTextEditing(id);
+        await nextTick();
+        await nextTick();
+        expect(surviving.host.querySelector('[contenteditable="true"]')?.textContent).toBe('Retained linked draft');
+        const retainedBox = surviving.host.querySelector<HTMLElement>('[data-annotation-kind="text-box"]')!;
+        expect(retainedBox.style.height).toBe('40%');
+        expect(retainedBox.style.width).toBe('80%');
+    });
+
+    it('grows a click-created text box without moving its insertion edge', async () => {
+        const application = shallowRef(new AnnotationApplication('save-hook-text'));
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication: application,
+            activeTool: computed(() => 'text'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            getPageGeometry: () => ({
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+                rotation: 0,
+            }),
+        }))!;
+        onTestFinished(() => scope.stop());
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
             return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
         }});
         app.mount(host);
@@ -427,19 +752,14 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             inputType: 'insertText',
             data: 'a long click-created draft',
         }));
-        harness.commitPendingTextBoxDraftsForSave();
+        await surface.commitPendingTextBoxDraftsForSave();
 
-        expect(harness.commitGesture).toHaveBeenCalledWith(
-            createdTextBox.identity.id,
-            expect.objectContaining({
-                text: 'a long click-created draft',
-                rect: expect.objectContaining({
-                    left: 0.2,
-                    width: 0.8,
-                }),
-            }),
-        );
-        const patch = harness.commitGesture.mock.calls.at(-1)?.[1] as {rect?: {height?: number}} | undefined;
-        expect(patch?.rect?.height).toBeGreaterThan(0.1);
+        await nextTick();
+        const box = host.querySelector<HTMLElement>('[data-annotation-kind="text-box"]')!;
+        expect(box.textContent).toBe('a long click-created draft');
+        expect(box.style.left).toBe('20.000000000000004%');
+        expect(box.style.width).toBe('80%');
+        expect(Number.parseFloat(box.style.height)).toBeGreaterThan(10);
+        expect(host.querySelector('[contenteditable="true"]')).toBeNull();
     });
 });

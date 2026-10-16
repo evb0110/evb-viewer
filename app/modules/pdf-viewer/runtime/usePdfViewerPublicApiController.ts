@@ -24,7 +24,6 @@ const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note 
 type TPdfViewerPublicApiRefBackedKeys =
     | 'annotationHistoryResetVersion'
     | 'hasShapes'
-    | 'isCapturingRegion'
     | 'isCropSelecting'
     | 'pageMetrics'
     | 'pageMetricsVersion'
@@ -37,7 +36,7 @@ type TPdfViewerRefBackedSource = {
 };
 
 type TPdfViewerPublicApiSource = Merge<
-    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys>,
+    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys | 'captureRegionToClipboard' | 'captureVisibleRegionAsPng' | 'isCapturingRegion'>,
     TPdfViewerRefBackedSource
 >;
 
@@ -67,8 +66,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
     preparePageMutationRevisionSwap?: IPdfViewerExpose['preparePageMutationRevisionSwap'];
     beginPageRotationPreview?: IPdfViewerExpose['beginPageRotationPreview'];
     cancelPageRotationPreview?: IPdfViewerExpose['cancelPageRotationPreview'];
-    captureRegionToClipboard: IPdfViewerExpose['captureRegionToClipboard'];
-    isCapturingRegion: TPdfViewerPublicApiSource['isCapturingRegion'];
     startCropSelection: IPdfViewerExpose['startCropSelection'];
     cancelCropSelection: IPdfViewerExpose['cancelCropSelection'];
     isCropSelecting: TPdfViewerPublicApiSource['isCropSelecting'];
@@ -120,20 +117,22 @@ export const usePdfViewerPublicApiController = (
             : normalizedPage;
     }
 
-    async function renderAnnotationPage(pageNumber: TPageNumber) {
-        if (!Number.isFinite(pageNumber)) {
+    async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
+        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
-        const normalizedPageNumber = normalizePublicPageNumber(pageNumber);
-        if (documentSession.numPages.value > 0 && normalizedPageNumber > documentSession.numPages.value) {
+        options.cancelPendingSearchScroll();
+        viewportSession.singlePageScroll.scrollToPage(pageNumber);
+        await nextTick();
+        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
         await options.waitForViewerLoadSettled();
-        await documentSession.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
+        await documentSession.ensurePageMetricsInRange(pageNumber, pageNumber);
         await options.renderVisiblePages(
             {
-                start: normalizedPageNumber,
-                end: normalizedPageNumber,
+                start: pageNumber,
+                end: pageNumber,
             },
             {
                 preserveRenderedPages: true,
@@ -142,21 +141,12 @@ export const usePdfViewerPublicApiController = (
         );
         await nextTick();
         const container = options.viewerContainer.value;
-        return Boolean(container && getPageContainerByNumber(container, normalizedPageNumber));
-    }
-
-    async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
-        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
-            return false;
-        }
-        options.cancelPendingSearchScroll();
-        viewportSession.singlePageScroll.scrollToPage(pageNumber);
-        await nextTick();
-        return renderAnnotationPage(pageNumber);
+        return Boolean(container && getPageContainerByNumber(container, pageNumber));
     }
 
     return {
         getViewerContainer: () => options.viewerContainer.value,
+        getEffectiveZoom: () => viewportSession.scale.effectiveScale.value,
         getCurrentPage: () => currentPage.value,
         getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
@@ -197,12 +187,12 @@ export const usePdfViewerPublicApiController = (
         // same question as `createPointNoteAnnotation`, so it derives its
         // answer from the same rule rather than testing the status by hand.
         commentAtPoint: async (pageNumber, pageX, pageY, pointOptions) => projectAnnotationCreationOutcome(
-            await annotationRuntime.highlightComposable.commentAtPoint(
+            await Promise.resolve(annotationRuntime.highlightComposable.commentAtPoint(
                 pageNumber,
                 pageX,
                 pageY,
                 pointOptions ?? {},
-            ),
+            )),
             POINT_NOTE_CANCELLED_REASON,
         ).created,
         createPointNoteAnnotation: async (target) => {
@@ -235,7 +225,7 @@ export const usePdfViewerPublicApiController = (
             const pointOptions = target.preferTextAnchor === undefined
                 ? {}
                 : {preferTextAnchor: target.preferTextAnchor};
-            const outcome = await annotationRuntime.highlightComposable.commentAtPoint(
+            const outcome = annotationRuntime.highlightComposable.commentAtPoint(
                 pageNumber,
                 pageX,
                 pageY,
@@ -317,7 +307,7 @@ export const usePdfViewerPublicApiController = (
                 return;
             }
             await focusAnnotationComment(comment);
-            annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
+            await annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
         },
         selectedAnnotations: annotationRuntime.annotationEditorSurface.selectedAnnotations,
         updateSelectedAnnotationProperties: annotationRuntime.annotationEditorSurface.updateSelectedAnnotationProperties,
@@ -406,8 +396,6 @@ export const usePdfViewerPublicApiController = (
             stableKey,
             { source: 'user' },
         ),
-        captureRegionToClipboard: options.captureRegionToClipboard,
-        isCapturingRegion: options.isCapturingRegion,
         startCropSelection: options.startCropSelection,
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,

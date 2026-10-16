@@ -3,6 +3,10 @@ import { tryOnScopeDispose } from '@vueuse/core';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
+import type {
+    createPdfReloadWaiter,TPdfDocumentAnnotations,
+} from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -17,7 +21,6 @@ import { useOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/public';
 import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import { prepareDocumentViewsForRevisionSwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 
@@ -31,8 +34,10 @@ interface IOcrApplyReloadResult {
     getRestoreError: () => unknown;
 }
 
-interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps, 'pdfViewerRef'> {
+interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps,
+    'pdfViewerRef' | 'bookmarkItems' | 'bookmarksDirty' | 'bookmarkEditMode' | 'pageLabels' | 'pageLabelRanges' | 'pageLabelsDirty' | 'consumePreservedSourceReloadMetadata'> {
     documentAnnotations: TPdfDocumentAnnotations;
+    metadata: ReturnType<typeof useMetadataSession>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     /** OCR rewrites the document under every view of it. */
@@ -42,7 +47,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransi
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
-    waitForPdfReload: (page: number) => Promise<void>;
+    preparePdfReloadWaiter: (page: number) => ReturnType<typeof createPdfReloadWaiter>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -71,12 +76,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
-        bookmarkItems,
-        bookmarksDirty,
-        bookmarkEditMode,
-        pageLabels,
-        pageLabelRanges,
-        pageLabelsDirty,
+        metadata,
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
@@ -84,14 +84,23 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closePageContextMenu,
         closeAllAnnotationNotes,
         loadRecentFiles,
-        consumePreservedSourceReloadMetadata,
         navigationTicket,
         clearOcrCache,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
-        waitForPdfReload,
+        preparePdfReloadWaiter,
         runWithDocumentOperationLease,
     } = options;
+
+    const {
+        bookmarkState: {
+            bookmarkItems, bookmarksDirty, bookmarkEditMode,
+        },
+        pageLabelState: {
+            pageLabels, pageLabelRanges, pageLabelsDirty,
+        },
+        consumePreservedSourceReloadMetadata,
+    } = metadata;
 
     const pdfViewerRef = views.commandViewRef(port => port.view.pdfViewerRef, null);
     const documentFiles = getDocumentFilesCapability();
@@ -228,23 +237,16 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         payload: IOcrCompletePayload,
         pageToRestore: number,
     ): Promise<IOcrApplyReloadResult | null> {
-        if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
-            await acknowledgeOcrResultFile(payload);
-            return null;
-        }
-
         let restoreError: unknown = null;
         let restorePromise: Promise<void> | null = null;
-        let didReplaceWorkingCopy = false;
-        clearOcrCache(payload.sourceWorkingCopyPath);
-        resetSearchCache();
         try {
+            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) return null;
+            clearOcrCache(payload.sourceWorkingCopyPath);
+            resetSearchCache();
             if (!await ensureHistoryBaselineForMutation()) {
-                await acknowledgeOcrResultFile(payload);
                 throw new Error('Failed to prime OCR history before applying searchable PDF result');
             }
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
-                await acknowledgeOcrResultFile(payload);
                 return null;
             }
             await documentFiles.replaceWorkingCopyFromPath(
@@ -252,7 +254,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 payload.pdfPath,
                 {expectedDocumentRevisionToken: payload.sourceDocumentRevisionToken},
             );
-            didReplaceWorkingCopy = true;
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
                 return null;
             }
@@ -272,7 +273,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 });
             }
 
-            restorePromise = waitForPdfReload(pageToRestore).catch((error: unknown) => {
+            restorePromise = preparePdfReloadWaiter(pageToRestore).promise.catch((error: unknown) => {
                 restoreError = error;
             });
             if (!await reloadWorkingCopyIntoHistory({markDirty: true})) {
@@ -283,9 +284,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             void restorePromise;
             throw error;
         } finally {
-            if (didReplaceWorkingCopy) {
-                await acknowledgeOcrResultFile(payload);
-            }
+            await acknowledgeOcrResultFile(payload);
         }
         return {
             restorePromise,
@@ -298,7 +297,11 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         const warmupPageCountHint = totalPages.value > 0
             ? totalPages.value
             : undefined;
-        const applyReload = () => replaceOcrWorkingCopy(payload, pageToRestore);
+        const applyReload = () => metadata.runWithPreservedMetadataReload(async () => {
+            const applied = await replaceOcrWorkingCopy(payload, pageToRestore);
+            if (applied) await applied.restorePromise;
+            return applied;
+        }, () => preparePdfReloadWaiter(currentPage.value));
         const result = runWithDocumentOperationLease
             ? await runWithDocumentOperationLease('ocr-apply', applyReload)
             : await applyReload();
@@ -306,7 +309,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             return;
         }
 
-        await result.restorePromise;
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
             return;
         }

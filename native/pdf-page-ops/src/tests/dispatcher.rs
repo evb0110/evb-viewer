@@ -24,3 +24,49 @@ fn save_mutations_preserves_geometry_updates_in_both_dispatch_modes() {
         assert_eq!(mutations.geometry_updates.len(), 1);
     }
 }
+
+#[test]
+fn rejects_page_selection_for_print_layout() {
+    let result = crate::cli::parse_args(
+        [
+            "print-layout",
+            "--input",
+            "input.pdf",
+            "--output",
+            "print.pdf",
+            "--view-mode",
+            "single",
+            "--orientation",
+            "auto",
+            "--pages-file",
+            "pages.txt",
+        ]
+        .into_iter()
+        .map(String::from),
+    );
+    assert!(result
+        .err()
+        .expect("selection must not be ignored")
+        .to_string()
+        .contains("--pages-file"));
+}
+
+#[test]
+fn deepest_bookmark_keeps_a_nested_action_through_byte_and_file_admission() {
+    let mut action = serde_json::json!({"name": "URI"});
+    for _ in 0..16 {
+        action = serde_json::json!({"dict": [["K", action]]});
+    }
+    let mut item = serde_json::json!({"title":"Leaf", "pageIndex":null, "originalAction":action, "items":[]});
+    for _ in 1..64 {
+        item = serde_json::json!({"title":"Parent", "pageIndex":null, "items":[item]});
+    }
+    let source = serde_json::to_vec(&serde_json::json!({"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":[item]}})).unwrap();
+    let path = temp_pdf_path("action-depth");
+    fs::write(&path, &source).unwrap();
+    let bytes = read_native_mutations_bytes(&source);
+    let file = read_native_mutations(&path);
+    fs::remove_file(path).unwrap();
+    assert!(bytes.is_ok(), "{}", bytes.err().unwrap());
+    assert!(file.is_ok(), "{}", file.err().unwrap());
+}

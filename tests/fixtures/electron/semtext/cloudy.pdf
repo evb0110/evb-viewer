@@ -1,0 +1,36 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /Helv 4 0 R >> >> /Annots [5 0 R] >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Annot /Subtype /FreeText /F 4 /NM (foreign-cloudy) /Rect [100 600 400 640] /Contents (Foreign cloudy label) /DA (/Helv 18 Tf 0 g) /C [0.9 0.95 1] /BS << /W 2 /S /S /D [3 2] >> /BE << /S /C /I 1 >> /AP << /N 6 0 R >> >>
+endobj
+6 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 300 40] /Resources << /Font << /Helv 4 0 R >> >> /Length 122 >>
+stream
+q 0.9 0.95 1 rg 0 0 300 40 re f 0 G 2 w  1 1 298 38 re S BT /Helv 18 Tf 0 g 1 0 0 1 6 12 Tm (Foreign cloudy label) Tj ET Q
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000249 00000 n 
+0000000319 00000 n 
+0000000563 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+826
+%%EOF

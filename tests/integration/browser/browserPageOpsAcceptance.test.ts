@@ -135,6 +135,50 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     outlineDestinationWasDeleted: true,
                 },
             ]);
+            const bookmarks = await page.evaluate(async () => {
+                const run = Reflect.get(globalThis, '__evbRunBrowserBookmarkSaveAcceptance');
+                if (typeof run !== 'function') throw new Error('Browser bookmark save entry point was not installed');
+                return run();
+            });
+            expect(bookmarks).toEqual([
+                3,
+                10_000,
+            ].map(count => ({
+                count,
+                reopenedCount: count,
+                renamedTitle: 'Large web saved',
+                unchangedTitles: true,
+            })));
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
+    it('reads the outline and the page labels each on its own', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({path: bundlePath});
+            const results = await page.evaluate(async () => {
+                const run = Reflect.get(globalThis, '__evbRunBrowserCatalogPartsAcceptance');
+                if (typeof run !== 'function') {
+                    throw new Error('Browser catalog-parts acceptance entry point was not installed');
+                }
+                return run();
+            });
+            expect(results).toEqual([
+                {
+                    broken: 'page labels',
+                    bookmarks: ['Chapter'],
+                    pageLabels: 'unreadable',
+                },
+                {
+                    broken: 'outline',
+                    bookmarks: 'unreadable',
+                    pageLabels: ['r'],
+                },
+            ]);
         } finally {
             await browser.close();
         }

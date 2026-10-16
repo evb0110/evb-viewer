@@ -60,11 +60,9 @@ describe('scan cleanup sidecar abort window', () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         let childAlive = true;
-        let killedAfterMs: number | undefined;
         // Model a busy native stage that needs force termination. The shared
         // process-tree owner polls at 100 ms intervals after the grace period.
         mocks.terminateDetachedChildProcess.mockImplementation((_proc, graceMs) => new Promise(resolve => {
-            killedAfterMs = graceMs + 100;
             setTimeout(() => {
                 childAlive = false;
                 child.emit('close', null, 'SIGKILL');
@@ -109,25 +107,24 @@ describe('scan cleanup sidecar abort window', () => {
             preserveRecoveryState: false,
         };
         await phases.runPreservationSteps(context);
+        const cleanupStartedAt = Date.now();
         const cleanup = phases.runBestEffortCleanupSteps(context);
-        await vi.advanceTimersByTimeAsync(0);
-        if (killedAfterMs === undefined) throw new Error('shutdown never terminated the sidecar');
-        // After the kill the run replays its publication journal from disk.
-        // Let that real read finish while fake time stands at the kill, so a
-        // slow host cannot push the clock past the step deadline first.
-        await vi.advanceTimersByTimeAsync(killedAfterMs);
+        // After the child closes, the run reads its publication journal from
+        // disk. Advancing the fake clock across the whole budget raced that
+        // read: under load it finished after the clock had passed the deadline.
+        // Move the clock one timer at a time until the child is dead, then let
+        // the run settle before any more time passes.
+        while (childAlive && Date.now() - cleanupStartedAt <= 10_000) {
+            await vi.advanceTimersToNextTimerAsync();
+        }
         await run;
-        await vi.advanceTimersByTimeAsync(Math.max(0, 1_538 - killedAfterMs));
+        const settledAfterMs = Date.now() - cleanupStartedAt;
         await cleanup;
-        const aliveAtCleanup = childAlive;
-        // Finish the simulated child even on the red baseline.
-        await vi.runAllTimersAsync();
-        await run;
 
         expect(logger.error.mock.calls.filter(([
             , diagnostic,
         ]) => diagnostic?.code === 'MAIN_SHUTDOWN_FAILED')).toEqual([]);
-        expect(aliveAtCleanup).toBe(false);
+        expect(settledAfterMs).toBeLessThanOrEqual(1_538);
     });
 
     it('settles an aborted run after bounded termination when the child never closes', async () => {

@@ -281,14 +281,14 @@ export interface ISearchMatchOptions {
     matchCase?: boolean;
     wholeWord?: boolean;
     useRegex?: boolean;
-    deadlineAtMs?: number;
+    regexBudgetMs?: number;
 }
 
 export interface IResolvedSearchMatchOptions {
     matchCase: boolean;
     wholeWord: boolean;
     useRegex: boolean;
-    deadlineAtMs?: number;
+    regexBudgetMs?: number;
 }
 
 /** Exhaustive option semantics; consumers must not invent additional combinations. */

@@ -236,3 +236,98 @@ export class BrowserWorkerClient<
         request.timeoutTimer = null;
     }
 }
+
+/** Admission and cancellation for synchronous engines, one request per worker. */
+export class BrowserWorkerRequestOwner<TPendingRequest extends {
+    reject: (error: Error) => void;
+    timeoutTimer?: ReturnType<typeof setTimeout> | null;
+}> {
+    private readonly primary: BrowserWorkerClient<TPendingRequest>;
+    private readonly lifecycle = new BrowserWorkerClientLifecycle();
+    private readonly requests = new Map<number, {
+        client: BrowserWorkerClient<TPendingRequest> | null;
+        start: (client: BrowserWorkerClient<TPendingRequest>) => void;
+        reject: (error: Error) => void;
+    }>();
+    private readonly concurrency = Math.min(2, Math.max(1, Math.floor(
+        (typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2,
+    )));
+
+    public constructor(private readonly createClient: () => BrowserWorkerClient<TPendingRequest>) {
+        this.primary = createClient();
+    }
+
+    public createRequestId() {
+        return this.primary.createRequestId();
+    }
+
+    public run<TResult>(
+        requestId: number,
+        run: (client: BrowserWorkerClient<TPendingRequest>) => Promise<TResult>,
+    ): Promise<TResult> {
+        const request: {
+            client: BrowserWorkerClient<TPendingRequest> | null;
+            start: (client: BrowserWorkerClient<TPendingRequest>) => void;
+            reject: (error: Error) => void;
+        } = {
+            client: null,
+            start: () => {},
+            reject: () => {},
+        };
+        const promise = new Promise<TResult>((resolve, reject) => {
+            request.reject = reject;
+            request.start = client => {
+                request.client = client;
+                try {
+                    void run(client).then(resolve, reject);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            this.requests.set(requestId, request);
+            this.lifecycle.register(() => this.reset());
+            this.admitWaitingRequests();
+        });
+        return promise.finally(() => {
+            if (request.client && request.client !== this.primary) request.client.resetWorker();
+            this.requests.delete(requestId);
+            if (this.requests.size === 0) this.lifecycle.clear();
+            this.admitWaitingRequests();
+        });
+    }
+
+    public cancel(requestId: number, error: Error) {
+        const request = this.requests.get(requestId);
+        if (!request) return;
+        if (request.client) {
+            // Releasing admission also stops the engine. A canceled request
+            // cannot keep consuming CPU while a waiting request starts.
+            request.client.cancelPendingRequest(requestId, error, {resetWorker: true});
+        } else {
+            this.requests.delete(requestId);
+            request.reject(error);
+        }
+    }
+
+    private reset() {
+        const requests = [...this.requests.values()];
+        this.requests.clear();
+        this.lifecycle.clear();
+        const error = new BrowserWorkerResetError();
+        for (const request of requests) {
+            request.client?.resetWorker(error);
+            request.reject(error);
+        }
+    }
+
+    private admitWaitingRequests() {
+        const admitted = [...this.requests.values()].flatMap(entry => entry.client ? [entry.client] : []);
+        for (const request of this.requests.values()) {
+            if (request.client) continue;
+            if (admitted.length >= this.concurrency) return;
+            const client = admitted.includes(this.primary) ? this.createClient() : this.primary;
+            request.start(client);
+            admitted.push(client);
+        }
+    }
+}

@@ -1,9 +1,8 @@
 import {
-    copyFileSync, mkdtempSync, rmSync, writeFileSync,
+    copyFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {deflateSync} from 'node:zlib';
 import type {Page} from 'puppeteer-core';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {
@@ -18,61 +17,6 @@ import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWor
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 
 const SLOW_FILE_NAME = 'slow-opening.pdf';
-
-// One page in sixteen fonts whose ToUnicode CMaps decode to 128 MiB each.
-// PDF.js reads them one after another, so the document stays opening for
-// seconds while the renderer holds only one of them.
-function writeSlowOpeningPdf(path: string) {
-    const cmap = '/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n'
-        + '1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend\n';
-    const decoded = Buffer.alloc(128 * 1024 * 1024, 0x20);
-    decoded.write(cmap, 'latin1');
-    const stream = deflateSync(decoded);
-    const objects = new Map<number, Buffer>();
-    const text = (value: string) => Buffer.from(value, 'latin1');
-    objects.set(1, text('<< /Type /Catalog /Pages 2 0 R >>'));
-    objects.set(2, text('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'));
-    objects.set(5, text('<< /Type /Font /Subtype /CIDFontType2 /BaseFont /GlyphLessFont /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 500 /CIDToGIDMap /Identity >>'));
-    const fonts: string[] = [];
-    const shows: string[] = [];
-    for (let index = 0; index < 16; index += 1) {
-        const fontId = 6 + index * 2;
-        objects.set(fontId + 1, Buffer.concat([
-            text(`<< /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`),
-            stream,
-            text('\nendstream'),
-        ]));
-        objects.set(fontId, text(`<< /Type /Font /Subtype /Type0 /BaseFont /GlyphLessFont /Encoding /Identity-H /DescendantFonts [5 0 R] /ToUnicode ${fontId + 1} 0 R >>`));
-        fonts.push(`/F${index} ${fontId} 0 R`);
-        const label = Array.from(`Font ${index}`, character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
-        shows.push(`BT /F${index} 18 Tf 72 ${760 - index * 24} Td <${label}> Tj ET`);
-    }
-    const content = shows.join('\n');
-    objects.set(4, text(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
-    objects.set(3, text(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << ${fonts.join(' ')} >> >> /Contents 4 0 R >>`));
-    const parts: Buffer[] = [text('%PDF-1.7\n')];
-    const offsets: number[] = [];
-    let length = parts[0]!.length;
-    const ids = [...objects.keys()].sort((left, right) => left - right);
-    for (const id of ids) {
-        const body = Buffer.concat([
-            text(`${id} 0 obj\n`),
-            objects.get(id)!,
-            text('\nendobj\n'),
-        ]);
-        offsets[id] = length;
-        parts.push(body);
-        length += body.length;
-    }
-    const size = ids.at(-1)! + 1;
-    const xref = [`xref\n0 ${size}\n0000000000 65535 f \n`];
-    for (let id = 1; id < size; id += 1) {
-        xref.push(`${String(offsets[id]).padStart(10, '0')} 00000 n \n`);
-    }
-    xref.push(`trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF\n`);
-    parts.push(text(xref.join('')));
-    writeFileSync(path, Buffer.concat(parts));
-}
 
 function readTabTitles(page: Page) {
     return page.evaluate(() => Array.from(document.querySelectorAll('.tab'), tab => tab.textContent?.trim() ?? ''));
@@ -100,7 +44,7 @@ it('does not reopen a document whose restore ended the renderer, says so, and ke
     const goodPath = join(directory, 'good.pdf');
     const slowPath = join(directory, SLOW_FILE_NAME);
     copyFileSync(join(process.cwd(), 'tests/fixtures/release/packaged-core-smoke.pdf'), goodPath);
-    writeSlowOpeningPdf(slowPath);
+    copyFileSync(goodPath, slowPath);
     const sessionName = `e2e-renderer-crash-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
         clean: true,
@@ -122,11 +66,39 @@ it('does not reopen a document whose restore ended the renderer, says so, and ke
         await expect.poll(() => JSON.stringify(readWorkspaceRecoveryRecords(session.name))
             .includes(SLOW_FILE_NAME), {timeout: 60_000}).toBe(true);
         const client = await session.page.createCDPSession();
-        void client.send('Page.crash').catch(() => undefined);
-
-        // Recovery now reopens the checkpointed document. Crash its restore
-        // before it paints; the next recovery must leave that document closed.
-        await crashWhileSlowDocumentOpens(session.page, session.name);
+        // Hold the restored PDF.js worker before it executes. Unlike the
+        // direct-open preload hold, this covers handleOpenFileWithResult too.
+        // The fixture becomes a slow open at the actual rendering boundary,
+        // independent of decompression speed or the host's performance tier.
+        await client.send('Target.setAutoAttach', {
+            autoAttach: true,
+            waitForDebuggerOnStart: true,
+            flatten: true,
+            filter: [
+                {type: 'worker'},
+                {exclude: true},
+            ],
+        });
+        let restoredWorkerHeld: boolean | null = null;
+        client.on('Target.attachedToTarget', (target) => {
+            if (target.targetInfo.type === 'worker') {
+                restoredWorkerHeld = target.waitingForDebugger;
+            }
+        });
+        try {
+            void client.send('Page.crash').catch(() => undefined);
+            await expect.poll(() => restoredWorkerHeld, {timeout: 60_000}).toBe(true);
+            // Recovery really is opening this tab, without a painted page,
+            // while its durable recovery record names the same document.
+            await crashWhileSlowDocumentOpens(session.page, session.name);
+        } finally {
+            await client.send('Target.setAutoAttach', {
+                autoAttach: false,
+                waitForDebuggerOnStart: false,
+                flatten: true,
+            }).catch(() => undefined);
+            await client.detach().catch(() => undefined);
+        }
 
         // The next recovery keeps the workspace, leaves that document closed
         // and says so.

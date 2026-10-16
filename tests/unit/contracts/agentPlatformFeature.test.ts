@@ -122,7 +122,7 @@ const assistantMessageResult = AGENT_PLATFORM_FEATURE.methods.sendAssistantMessa
 const assistantEvent = AGENT_PLATFORM_FEATURE.events.onAssistantEvent.payload;
 
 describe('Agent platform feature', () => {
-    it('preserves invoke channels, four event channels, and descriptor metadata', () => {
+    it('preserves invoke channels, lifecycle event channels, and descriptor metadata', () => {
         expect(channels).toEqual({
             getMcpIntegrationStatus: 'agent:getMcpIntegrationStatus',
             setMcpIntegrationEnabled: 'agent:setMcpIntegrationEnabled',
@@ -137,6 +137,7 @@ describe('Agent platform feature', () => {
             submitCommandResponse: 'agent:submitCommandResponse',
         });
         expect(eventChannels).toEqual({
+            onMcpIntegrationChanged: 'agent:mcpIntegrationChanged',
             onAssistantEvent: 'agent:assistantEvent',
             onWorkspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
             onCommandCancelRequest: 'agent:commandCancelRequest',
@@ -150,7 +151,7 @@ describe('Agent platform feature', () => {
             },
             manifestPath: ['agent'],
         }]);
-        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(15);
+        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(16);
     });
 
     it('exhaustively reconstructs assistant state and nested provider data', () => {

@@ -1,26 +1,42 @@
 //! Portable text-box layout and PDF fonts. The renderer loads these exact font
 //! bytes. Shaping never depends on fonts installed on the host.
 use super::*;
-use harfrust::{Direction, ShapeOptions, Shaper, ShaperData, UnicodeBuffer};
 use lopdf::dictionary;
 use skrifa::{
     instance::{LocationRef, Size},
     FontRef, GlyphId, MetadataProvider,
 };
-use std::ops::Range;
-use unicode_bidi::{BidiInfo, ParagraphInfo};
 use unicode_normalization::UnicodeNormalization;
-use unicode_script::{Script, UnicodeScript};
-use unicode_segmentation::UnicodeSegmentation;
 
-const FONT: &[u8] = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf");
-pub(crate) const FONT_VERSION: &str = "DejaVuSans-2.37-7da195a74c55bef9-v1";
+/// Text-box programs in layout order, as the generated face table lists them:
+/// script faces claim their own ranges, then DejaVu Sans claims the rest.
+pub(crate) static FONTS: [&[u8]; 3] = [
+    include_bytes!("../../../public/fonts/annotation/NotoSansHebrew-Regular.ttf"),
+    include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf"),
+    include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf"),
+];
 pub(crate) const LINE_HEIGHT: f64 = 1.35;
 pub(crate) const PADDING_X: f64 = 0.3;
 pub(crate) const PADDING_Y: f64 = 0.15;
 
+// The generated face table that also declares the on-screen @font-face ranges.
+// DejaVu Sans claims every character it maps; None marks a document program.
+fn face_range(program: &[u8]) -> Option<&'static [[u32; 2]]> {
+    static RANGES: std::sync::OnceLock<Vec<Option<Vec<[u32; 2]>>>> = std::sync::OnceLock::new();
+    let index = FONTS.iter().position(|font| std::ptr::eq(*font, program))?;
+    let ranges = RANGES.get_or_init(|| {
+        let table = include_str!("../../../packages/contracts/annotationFontCoverage.json");
+        let table: serde_json::Value = serde_json::from_str(table).expect("generated face table");
+        let fonts = table["fonts"].as_array().into_iter().flatten();
+        fonts
+            .map(|font| serde_json::from_value(font["unicodeRange"].clone()).ok())
+            .collect()
+    });
+    ranges[index].as_deref().or(Some(&[[0, 0x10ffff]]))
+}
+
 fn face() -> FontRef<'static> {
-    FontRef::from_index(FONT, 0).expect("the bundled DejaVu Sans font is valid")
+    FontRef::from_index(FONTS[2], 0).expect("the bundled DejaVu Sans font is valid")
 }
 
 fn invisible(character: char) -> bool {
@@ -28,15 +44,14 @@ fn invisible(character: char) -> bool {
 }
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
-    let font = face();
-    let charmap = font.charmap();
-    for character in text.chars() {
-        if invisible(character) {
-            continue;
-        }
-        if character.is_control() || charmap.map(character).is_none() {
+    let fonts = FONTS.map(|bytes| FontRef::from_index(bytes, 0).expect("bundled font"));
+    for character in text.chars().filter(|c| !invisible(*c)) {
+        let covered = fonts
+            .iter()
+            .any(|font| font.charmap().map(character).is_some());
+        if character.is_control() || !covered {
             return Err(format!(
-                "Text box font DejaVu Sans does not support U+{:04X}",
+                "Text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support U+{:04X}",
                 u32::from(character)
             )
             .into());
@@ -53,506 +68,70 @@ pub(crate) fn baseline_from_top(font_size: f64) -> f64 {
         * font_size
 }
 
-#[derive(Debug)]
-pub(crate) struct Glyph {
-    pub id: u16,
-    pub x: f64,
-    pub y: f64,
-}
+#[path = "text_layout.rs"]
+mod text_layout;
+pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts, Line};
 
-#[derive(Debug)]
-pub(crate) struct Line {
-    pub text: String,
-    pub glyphs: Vec<Glyph>,
-    pub width: f64,
-    pub rtl: bool,
-}
+#[path = "text_font_program.rs"]
+mod text_font_program;
+pub(crate) use text_font_program::simple_font_advances;
 
-// Bidi runs may contain several scripts. HarfBuzz requires one script per run;
-// Common/Inherited characters retain their surrounding script.
-fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
-    let mut ranges = Vec::new();
-    let mut start = range.start;
-    let mut script = Script::Common;
-    for (offset, character) in text[range.clone()].char_indices() {
-        let next = character.script();
-        if matches!(next, Script::Common | Script::Inherited) {
-            continue;
-        }
-        if script != Script::Common && script != next {
-            ranges.push(start..range.start + offset);
-            start = range.start + offset;
-        }
-        script = next;
-    }
-    if start < range.end {
-        ranges.push(start..range.end);
-    }
-    ranges
-}
+/// Fonts shared by the text boxes of one save. Each appearance names the
+/// subsets it draws with; `embed` then writes one subset per program with the
+/// glyphs of every appearance, and widths and Unicode mappings for those only.
+#[derive(Default)]
+pub(crate) struct SharedFonts(BTreeMap<usize, (ObjectId, std::collections::BTreeSet<u16>)>);
 
-fn shape_line(
-    font: &Shaper<'_>,
-    space_advance: f64,
-    text: &str,
-    bidi: &BidiInfo<'_>,
-    paragraph: &ParagraphInfo,
-    range: Range<usize>,
-    font_size: f64,
-) -> Line {
-    if range.is_empty() {
-        return Line {
-            text: String::new(),
-            glyphs: Vec::new(),
-            width: 0.0,
-            rtl: paragraph.level.is_rtl(),
-        };
-    }
-    let logical_text = &text[range.clone()];
-    let show_hyphen = range.end < text.len() && logical_text.ends_with('\u{00ad}');
-    let rendered_text = if show_hyphen {
-        format!("{}-", logical_text.trim_end_matches('\u{00ad}'))
-    } else {
-        logical_text.to_string()
-    };
-    let text = rendered_text.as_str();
-    // Preserve paragraph-resolved levels across wraps, but only copy the line
-    // being measured. visual_runs otherwise copies the entire paragraph for
-    // every width probe, which becomes quadratic in narrow text boxes.
-    let line_paragraph = ParagraphInfo {
-        range: 0..text.len(),
-        level: paragraph.level,
-    };
-    let line_bidi = BidiInfo {
-        text,
-        original_classes: bidi.original_classes[range.start..range.start + text.len()].to_vec(),
-        levels: bidi.levels[range.start..range.start + text.len()].to_vec(),
-        paragraphs: vec![line_paragraph.clone()],
-    };
-    let scale = font_size / f64::from(font.units_per_em());
-    let mut glyphs = Vec::new();
-    let mut advance = 0.0;
-    let (levels, runs) = line_bidi.visual_runs(&line_paragraph, 0..text.len());
-    for run in runs {
-        let rtl = levels[run.start].is_rtl();
-        let mut scripts = script_runs(text, run);
-        if rtl {
-            scripts.reverse();
+impl SharedFonts {
+    pub(crate) fn resources(&mut self, document: &mut Document, lines: &[Line]) -> Dictionary {
+        let mut fonts = Dictionary::new();
+        for glyph in lines.iter().flat_map(|line| &line.glyphs) {
+            let (id, glyphs) = self
+                .0
+                .entry(glyph.font)
+                .or_insert_with(|| (document.new_object_id(), Default::default()));
+            glyphs.insert(glyph.id);
+            fonts.set(format!("TextFont{}", glyph.font), *id);
         }
-        for script in scripts {
-            let mut buffer = UnicodeBuffer::new();
-            let segment = &text[script];
-            buffer.push_str(segment);
-            buffer.guess_segment_properties();
-            buffer.set_direction(if rtl {
-                Direction::RightToLeft
-            } else {
-                Direction::LeftToRight
-            });
-            let shaped = font.shape(buffer, ShapeOptions::default());
-            for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
-                if segment.as_bytes().get(info.cluster as usize) == Some(&b'\t') {
-                    let tab_stop = 4.0 * space_advance * scale;
-                    if tab_stop > 0.0 {
-                        advance = ((advance / tab_stop).floor() + 1.0) * tab_stop;
-                    }
-                    continue;
-                }
-                glyphs.push(Glyph {
-                    id: info.glyph_id as u16,
-                    x: advance + f64::from(position.x_offset) * scale,
-                    y: f64::from(position.y_offset) * scale,
-                });
-                advance += f64::from(position.x_advance) * scale;
+        fonts
+    }
+
+    pub(crate) fn embed(self, document: &mut Document, programs: &[&[u8]]) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        for (index, (id, glyphs)) in self.0 {
+            let mut digest = Sha256::new();
+            digest.update(programs[index]);
+            for glyph in &glyphs {
+                digest.update(glyph.to_be_bytes());
             }
-        }
-    }
-    Line {
-        text: logical_text.to_string(),
-        glyphs,
-        width: advance,
-        rtl: paragraph.level.is_rtl(),
-    }
-}
-
-pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
-    let font = face();
-    static SHAPER_DATA: std::sync::OnceLock<ShaperData> = std::sync::OnceLock::new();
-    let shaper = SHAPER_DATA
-        .get_or_init(|| ShaperData::new(&font))
-        .shaper(&font)
-        .build();
-    let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
-    let space_advance = f64::from(
-        font.charmap()
-            .map(' ')
-            .and_then(|id| glyph_metrics.advance_width(id))
-            .unwrap_or(0.0),
-    );
-    // Match CSS segment-break normalization. Contents retains the original text.
-    let normalized = text
-        .replace("\r\n", "\n")
-        .replace(['\r', '\u{2028}', '\u{2029}'], "\n");
-    let mut result = Vec::new();
-    for paragraph_text in normalized.split('\n') {
-        if paragraph_text.is_empty() {
-            result.push(Line {
-                text: String::new(),
-                glyphs: Vec::new(),
-                width: 0.0,
-                rtl: false,
-            });
-            continue;
-        }
-        let bidi = BidiInfo::new(paragraph_text, None);
-        let paragraph = &bidi.paragraphs[0];
-        let boundaries: Vec<usize> = paragraph_text
-            .grapheme_indices(true)
-            .map(|(offset, _)| offset)
-            .chain(std::iter::once(paragraph_text.len()))
-            .collect();
-        let breaks: HashSet<usize> = unicode_linebreak::linebreaks(paragraph_text)
-            .map(|(offset, _)| offset)
-            .collect();
-        let mut start = 0;
-        while start + 1 < boundaries.len() {
-            let fits = |end: usize| {
-                let trimmed = paragraph_text[boundaries[start]..boundaries[end]]
-                    .trim_end_matches([' ', '\t']);
-                shape_line(
-                    &shaper,
-                    space_advance,
-                    paragraph_text,
-                    &bidi,
-                    paragraph,
-                    boundaries[start]..boundaries[start] + trimmed.len(),
-                    font_size,
-                )
-                .width
-                    <= width
-            };
-            // Exponential search keeps a 64 KiB paragraph in a narrow box linear
-            // in paragraph size, rather than reshaping its entire tail per line.
-            let mut fit = start + 1;
-            let mut probe = fit;
-            let last = boundaries.len() - 1;
-            while probe < last && fits(probe) {
-                fit = probe;
-                probe = (start + 2 * (probe - start)).min(last);
-            }
-            if fits(probe) {
-                fit = probe;
-            } else {
-                let mut upper = probe;
-                while fit + 1 < upper {
-                    let middle = fit + (upper - fit) / 2;
-                    if fits(middle) {
-                        fit = middle;
-                    } else {
-                        upper = middle;
-                    }
-                }
-            }
-            let end = if fit == last {
-                last
-            } else {
-                (start + 1..=fit)
-                    .rev()
-                    .find(|index| breaks.contains(&boundaries[*index]))
-                    .unwrap_or(fit)
-            };
-            result.push(shape_line(
-                &shaper,
-                space_advance,
-                paragraph_text,
-                &bidi,
-                paragraph,
-                boundaries[start]..boundaries[end],
-                font_size,
-            ));
-            start = end;
-        }
-    }
-    result
-}
-
-fn trusted_font() -> &'static (Document, ObjectId) {
-    static TRUSTED: std::sync::OnceLock<(Document, ObjectId)> = std::sync::OnceLock::new();
-    TRUSTED.get_or_init(|| {
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        (document, id)
-    })
-}
-
-fn font_objects_match(
-    actual_document: &impl PdfObjectSource,
-    actual: &Object,
-    expected_document: &Document,
-    expected: &Object,
-    depth: usize,
-) -> bool {
-    if depth > 12 {
-        return false;
-    }
-    let (Ok(actual), Ok(expected)) = (
-        actual_document.resolved(actual),
-        expected_document.resolved(expected),
-    ) else {
-        return false;
-    };
-    match (actual, expected) {
-        (Object::Dictionary(actual), Object::Dictionary(expected)) => {
-            actual.len() == expected.len()
-                && expected.iter().all(|(key, value)| {
-                    actual.get(key).is_ok_and(|actual| {
-                        font_objects_match(
-                            actual_document,
-                            actual,
-                            expected_document,
-                            value,
-                            depth + 1,
-                        )
-                    })
-                })
-        }
-        (Object::Array(actual), Object::Array(expected)) => {
-            actual.len() == expected.len()
-                && actual.iter().zip(expected).all(|(actual, expected)| {
-                    font_objects_match(
-                        actual_document,
-                        actual,
-                        expected_document,
-                        expected,
-                        depth + 1,
-                    )
-                })
-        }
-        (Object::Stream(actual), Object::Stream(expected)) => {
-            // Recompression by another PDF editor is harmless. Missing stream
-            // bytes, a changed cmap, or a replaced program are never trusted.
-            if actual.content.is_empty() {
-                return false;
-            }
-            let bytes_match = match (
-                crate::decompressed_stream_with_limit(actual, 1024 * 1024),
-                crate::decompressed_stream_with_limit(expected, 1024 * 1024),
-            ) {
-                (Ok(actual), Ok(expected)) => actual == expected,
-                _ => false,
-            };
-            let semantic_key = |key: &[u8]| !matches!(key, b"Length" | b"Filter" | b"DecodeParms");
-            let same_keys = actual
-                .dict
+            let tag: String = digest.finalize()[..6]
                 .iter()
-                .filter(|(key, _)| semantic_key(key))
-                .count()
-                == expected
-                    .dict
-                    .iter()
-                    .filter(|(key, _)| semantic_key(key))
-                    .count();
-            bytes_match
-                && same_keys
-                && expected
-                    .dict
-                    .iter()
-                    .filter(|(key, _)| {
-                        !matches!(key.as_slice(), b"Length" | b"Filter" | b"DecodeParms")
-                    })
-                    .all(|(key, value)| {
-                        actual.dict.get(key).is_ok_and(|actual| {
-                            font_objects_match(
-                                actual_document,
-                                actual,
-                                expected_document,
-                                value,
-                                depth + 1,
-                            )
-                        })
-                    })
+                .map(|byte| char::from(b'A' + byte % 26))
+                .collect();
+            let name = format!("{tag}+TextFont{index}");
+            let font =
+                text_font_program::embed_font_program(document, programs[index], &name, &glyphs)?;
+            document.set_object(id, font);
         }
-        (Object::String(_, _), Object::String(_, _)) => {
-            pdf_string_to_text(actual) == pdf_string_to_text(expected)
-        }
-        (Object::Integer(actual), Object::Real(expected)) => *actual as f64 == f64::from(*expected),
-        (Object::Real(actual), Object::Integer(expected)) => f64::from(*actual) == *expected as f64,
-        _ => actual == expected,
+        Ok(())
     }
 }
 
-pub(crate) fn font_candidates(document: &Document) -> impl Iterator<Item = ObjectId> + '_ {
-    document
-        .objects
-        .iter()
-        .filter_map(|(id, object)| {
-            object
-                .as_dict()
-                .ok()
-                .and_then(|dict| dict.get(b"EVBTextFontVersion").ok())
-                .and_then(pdf_string_to_text)
-                .filter(|version| version == FONT_VERSION)
-                .map(|_| *id)
-        })
-        .take(4)
-}
-
-pub(crate) fn candidate_streams(document: &Document) -> Vec<ObjectId> {
-    let mut streams = Vec::new();
-    for id in font_candidates(document) {
-        let Ok(font) = document.get_dictionary(id) else {
-            continue;
-        };
-        let collect = || -> Result<[ObjectId; 2]> {
-            let cmap = font.get(b"ToUnicode")?.as_reference()?;
-            let descendant = document
-                .resolved(
-                    font.get(b"DescendantFonts")?
-                        .as_array()?
-                        .first()
-                        .ok_or("Missing font descendant")?,
-                )?
-                .as_dict()?;
-            let descriptor = document
-                .resolved(descendant.get(b"FontDescriptor")?)?
-                .as_dict()?;
-            Ok([cmap, descriptor.get(b"FontFile2")?.as_reference()?])
-        };
-        if let Ok(resources) = collect() {
-            streams.extend(resources);
-        }
-    }
-    streams.sort_unstable();
-    streams.dedup();
-    streams
-}
-
-pub(crate) fn existing_font(document: &Document) -> Option<ObjectId> {
-    let (expected, id) = trusted_font();
-    font_candidates(document).find(|candidate| {
-        font_objects_match(
-            document,
-            &Object::Reference(*candidate),
-            expected,
-            &Object::Reference(*id),
-            0,
-        )
-    })
-}
-
-fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec<u8>) -> ObjectId {
-    let mut stream = Stream::new(dictionary, bytes);
-    // Compression failure does not affect semantics or permit font substitution.
-    let _ = stream.compress();
-    document.add_object(stream)
-}
-
-pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
-    let font = face();
-    let metrics = font.metrics(Size::unscaled(), LocationRef::default());
-    let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
-    let units = f64::from(metrics.units_per_em);
-    let metric = |value: f32| number_object(f64::from(value) * 1000.0 / units);
-    let program = compressed_stream(
-        document,
-        lopdf::dictionary! { "Length1" => FONT.len() as i64 },
-        FONT.to_vec(),
-    );
-    let bounds = metrics.bounds.expect("the bundled font has global bounds");
-    let descriptor = document.add_object(lopdf::dictionary! {
-        "Type" => "FontDescriptor", "FontName" => "DejaVuSans", "Flags" => 32,
-        "FontBBox" => vec![metric(bounds.x_min), metric(bounds.y_min), metric(bounds.x_max), metric(bounds.y_max)],
-        "ItalicAngle" => 0, "Ascent" => metric(metrics.ascent), "Descent" => metric(metrics.descent),
-        "CapHeight" => metric(metrics.cap_height.unwrap_or(metrics.ascent)), "StemV" => 80,
-        "FontFile2" => program,
-    });
-    let widths: Vec<Object> = (0..metrics.glyph_count)
-        .map(|id| {
-            number_object(
-                f64::from(
-                    glyph_metrics
-                        .advance_width(GlyphId::new(u32::from(id)))
-                        .unwrap_or(0.0),
-                ) * 1000.0
-                    / units,
-            )
-        })
-        .collect();
-    let descendant = document.add_object(lopdf::dictionary! {
-        "Type" => "Font", "Subtype" => "CIDFontType2", "BaseFont" => "DejaVuSans",
-        "CIDSystemInfo" => lopdf::dictionary! { "Registry" => Object::string_literal("Adobe"), "Ordering" => Object::string_literal("Identity"), "Supplement" => 0 },
-        "FontDescriptor" => descriptor, "CIDToGIDMap" => "Identity",
-        "W" => vec![Object::Integer(0), Object::Array(widths)],
-    });
-    // The bundled font's format-4 cmap maps U+0000 to glyph 0. Preserve the
-    // previous writer's entry so existing embedded font graphs remain reusable;
-    // skrifa intentionally omits .notdef from its public mapping iterator.
-    let mut mapping = BTreeMap::<u16, String>::from([(0, "\0".to_string())]);
-    for (codepoint, glyph) in font.charmap().mappings() {
-        if let Some(character) = char::from_u32(codepoint) {
-            // Presentation forms and standard ligatures extract as
-            // their logical Unicode sequence even without ActualText.
-            let text = if matches!(codepoint, 0xfb00..=0xfdff | 0xfe70..=0xfeff) {
-                character.to_string().nfkc().collect()
-            } else {
-                character.to_string()
-            };
-            mapping.entry(glyph.to_u32() as u16).or_insert(text);
-        }
-    }
-    let mut cmap = String::from("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /EVBDejaVuSans def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
-    let entries: Vec<_> = mapping.into_iter().collect();
-    for chunk in entries.chunks(100) {
-        cmap.push_str(&format!("{} beginbfchar\n", chunk.len()));
-        for (glyph, text) in chunk {
-            cmap.push_str(&format!("<{glyph:04X}> <{}>\n", unicode_hex(text, false)));
-        }
-        cmap.push_str("endbfchar\n");
-    }
-    cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
-    let to_unicode = compressed_stream(document, Dictionary::new(), cmap.into_bytes());
-    document.add_object(lopdf::dictionary! {
-        "Type" => "Font", "Subtype" => "Type0", "BaseFont" => "DejaVuSans",
-        "Encoding" => "Identity-H", "DescendantFonts" => vec![Object::Reference(descendant)],
-        "ToUnicode" => to_unicode,
-        "EVBTextFontVersion" => Object::string_literal(FONT_VERSION),
-    })
+pub(crate) fn embed_fonts(
+    document: &mut Document,
+    lines: &[Line],
+    programs: &[&[u8]],
+) -> Result<Dictionary> {
+    let mut fonts = SharedFonts::default();
+    let resources = fonts.resources(document, lines);
+    fonts.embed(document, programs)?;
+    Ok(resources)
 }
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
-    let mut result = if bom {
-        String::from("FEFF")
-    } else {
-        String::new()
-    };
-    for unit in text.encode_utf16() {
-        result.push_str(&format!("{unit:04X}"));
-    }
-    result
-}
-
-pub(crate) fn validate_appearance_font(
-    document: &impl PdfObjectSource,
-    annotation: &Dictionary,
-) -> Result<()> {
-    let appearance = document.resolved(annotation.get(b"AP")?)?.as_dict()?;
-    let normal = document.resolved(appearance.get(b"N")?)?.as_stream()?;
-    let resources = document
-        .resolved(normal.dict.get(b"Resources")?)?
-        .as_dict()?;
-    let fonts = document.resolved(resources.get(b"Font")?)?.as_dict()?;
-    let font = document.resolved(fonts.get(b"Helv")?)?.as_dict()?;
-    let (expected, id) = trusted_font();
-    if !font_objects_match(
-        document,
-        &Object::Dictionary(font.clone()),
-        expected,
-        &Object::Reference(*id),
-        0,
-    ) {
-        return Err("Text box appearance does not use the verified portable font graph".into());
-    }
-    Ok(())
+    let prefix = if bom { "FEFF" } else { "" };
+    let units = text.encode_utf16().map(|unit| format!("{unit:04X}"));
+    std::iter::once(prefix.to_string()).chain(units).collect()
 }
 
 pub(crate) struct Geometry {
@@ -596,13 +175,15 @@ pub(crate) fn geometry(source: PdfRect, rotation: i64, page_rotation: i64) -> Re
         center_x - a * width / 2.0 - c * height / 2.0,
         center_y - b * width / 2.0 - d * height / 2.0,
     ];
+    // A quarter turn about the centre swaps the bounds' sides.
+    let turned = if b == 0.0 {
+        (width, height)
+    } else {
+        (height, width)
+    };
+    let bounds = centred(center_x, center_y, turned.0, turned.1);
     Ok(Geometry {
-        bounds: crate::split_pages::PdfMatrix::from_values(matrix).bounds(PdfRect {
-            x1: 0.0,
-            y1: 0.0,
-            x2: width,
-            y2: height,
-        }),
+        bounds,
         width,
         height,
         matrix,
@@ -618,15 +199,51 @@ pub(crate) fn write_editor_geometry(
     page_rotation: i64,
     bounds: PdfRect,
 ) {
+    let [x1, y1, x2, y2] = rect;
+    let stored = rect_object(settled(annotation, PdfRect { x1, y1, x2, y2 }));
     annotation.set("Rect", rect_object(bounds));
     annotation.set("Rotate", rotation);
     annotation.set(
         "EVBTextGeometry",
         dictionary! {
-            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation,
-            "Rect" => Object::Array(rect.into_iter().map(number_object).collect()),
+            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation, "Rect" => stored,
         },
     );
+}
+
+/// The rectangle of `width` by `height` centred on (`x`, `y`).
+fn centred(x: f64, y: f64, width: f64, height: f64) -> PdfRect {
+    let (x1, y1, x2, y2) = (
+        x - width / 2.0,
+        y - height / 2.0,
+        x + width / 2.0,
+        y + height / 2.0,
+    );
+    PdfRect { x1, y1, x2, y2 }
+}
+
+/// The layout rectangle `annotation` was written with, EVB's or else its
+/// /Rect, when `rect` lies within a thousandth of a point of it, so a box or
+/// note that did not move keeps its numbers and never drifts.
+pub(crate) fn settled(annotation: &Dictionary, rect: PdfRect) -> PdfRect {
+    let stored = editor_geometry(annotation).and_then(|g| g.as_dict().ok()?.get(b"Rect").ok());
+    let written = stored.or(annotation.get(b"Rect").ok());
+    written
+        .and_then(|written| parse_rect(written).ok())
+        .filter(|written| near(*written, rect, 1e-3))
+        .unwrap_or(rect)
+}
+
+/// Whether two rectangles agree within `tolerance` points on every side.
+fn near(a: PdfRect, b: PdfRect, tolerance: f64) -> bool {
+    [a.x1 - b.x1, a.y1 - b.y1, a.x2 - b.x2, a.y2 - b.y2]
+        .iter()
+        .all(|d| d.abs() <= tolerance)
+}
+
+/// EVB's private layout geometry. PDF reads a key whose value is null as absent.
+pub(crate) fn editor_geometry(annotation: &Dictionary) -> Option<&Object> {
+    (annotation.get(b"EVBTextGeometry").ok()).filter(|value| !matches!(value, Object::Null))
 }
 
 pub(crate) fn transform_editor_geometry(
@@ -636,7 +253,7 @@ pub(crate) fn transform_editor_geometry(
     matrix: [f64; 6],
     page_rotation: i64,
 ) -> Result<()> {
-    if annotation.get(b"EVBTextGeometry").is_err() {
+    if editor_geometry(annotation).is_none() {
         return Ok(());
     }
     let rotation = document
@@ -686,17 +303,14 @@ pub(crate) fn transform_editor_geometry(
         }
         annotation.set("DA", Object::string_literal(bytes));
     }
+    let PdfRect { x1, y1, x2, y2 } = centred(x, y, width, height);
+    let bounds = transform.bounds(visible);
     write_editor_geometry(
         annotation,
-        [
-            x - width / 2.0,
-            y - height / 2.0,
-            x + width / 2.0,
-            y + height / 2.0,
-        ],
+        [x1, y1, x2, y2],
         rotation,
         page_rotation,
-        transform.bounds(visible),
+        bounds,
     );
     Ok(())
 }
@@ -708,7 +322,7 @@ pub(crate) fn stored_editor_geometry(
     rotation: i64,
     page_rotation: i64,
 ) -> Result<(PdfRect, i64)> {
-    let Ok(metadata) = dictionary.get(b"EVBTextGeometry") else {
+    let Some(metadata) = editor_geometry(dictionary) else {
         if rotation != 0 || page_rotation.rem_euclid(360) != 0 {
             return Err("Imported rotated FreeText has no recoverable canonical geometry".into());
         }
@@ -728,29 +342,16 @@ pub(crate) fn stored_editor_geometry(
     let metadata_page_rotation = metadata.get(b"PageRotation")?.as_i64()?.rem_euclid(360);
     let source = parse_rect(document.resolved(metadata.get(b"Rect")?)?)?;
     let expected = geometry(source, rotation, metadata_page_rotation)?.bounds;
-    if [
-        expected.x1 - visible_rect.x1,
-        expected.y1 - visible_rect.y1,
-        expected.x2 - visible_rect.x2,
-        expected.y2 - visible_rect.y2,
-    ]
-    .iter()
-    .any(|delta| delta.abs() > 0.01)
-    {
+    if !near(expected, visible_rect, 0.01) {
         return Err("Text box geometry metadata does not match the visible rectangle".into());
     }
     // The source rectangle describes unrotated text layout in its authored
     // page frame. Keep those layout dimensions when the page's axes swap;
     // rotating only its bounding rectangle would rewrap upright text.
-    let source = if metadata_page_rotation % 180 != page_rotation % 180 {
-        let center_x = (source.x1 + source.x2) / 2.0;
-        let center_y = (source.y1 + source.y2) / 2.0;
-        PdfRect {
-            x1: center_x - source.height() / 2.0,
-            y1: center_y - source.width() / 2.0,
-            x2: center_x + source.height() / 2.0,
-            y2: center_y + source.width() / 2.0,
-        }
+    let (x, y) = ((source.x1 + source.x2) / 2.0, (source.y1 + source.y2) / 2.0);
+    let swapped = metadata_page_rotation % 180 != page_rotation % 180;
+    let source = if swapped {
+        centred(x, y, source.height(), source.width())
     } else {
         source
     };
@@ -781,36 +382,15 @@ mod tests {
                         document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
                     document.trailer.set("Root", catalog_id);
                     let page = document.get_dictionary_mut(page_id).unwrap();
-                    page.set(
-                        "MediaBox",
-                        rect_object(PdfRect {
-                            x1: 0.0,
-                            y1: 0.0,
-                            x2: 620.0,
-                            y2: 840.0,
-                        }),
-                    );
-                    page.set(
-                        "CropBox",
-                        rect_object(PdfRect {
-                            x1: 10.0,
-                            y1: 20.0,
-                            x2: 610.0,
-                            y2: 820.0,
-                        }),
-                    );
+                    page.set("MediaBox", rect_object(centred(310.0, 420.0, 620.0, 840.0)));
+                    page.set("CropBox", rect_object(centred(310.0, 420.0, 600.0, 800.0)));
                     page.set("Rotate", authored_page_rotation);
                     let (width, height) = if authored_page_rotation % 180 == 0 {
                         (360.0, 36.0)
                     } else {
                         (36.0, 360.0)
                     };
-                    let source = PdfRect {
-                        x1: 340.0 - width / 2.0,
-                        y1: 440.0 - height / 2.0,
-                        x2: 340.0 + width / 2.0,
-                        y2: 440.0 + height / 2.0,
-                    };
+                    let source = centred(340.0, 440.0, width, height);
                     let mut editor = TextBoxMutation {
                         page_index: 0,
                         stable_key: "page-rotated-text".to_string(),
@@ -884,12 +464,8 @@ mod tests {
                     for (actual, expected) in rewritten.matrix.iter().zip(original.matrix) {
                         assert!((actual - expected).abs() < 1e-9);
                     }
-                    editor.rect = [
-                        rewritten_source.x1,
-                        rewritten_source.y1,
-                        rewritten_source.x2,
-                        rewritten_source.y2,
-                    ];
+                    let PdfRect { x1, y1, x2, y2 } = rewritten_source;
+                    editor.rect = [x1, y1, x2, y2];
                     editor.rotation = u16::try_from(parsed.rotation).unwrap();
                     editor.text.push_str(" edited");
                     let mutations = NativeMutationsFile {
@@ -935,116 +511,29 @@ mod tests {
     }
 
     #[test]
-    fn portable_font_preserves_shaping_and_embedding_contract() {
-        use sha2::{Digest, Sha256};
-        // Captured with rustybuzz 0.20.1 and ttf-parser 0.25.1 before migration.
-        // Match glyph placement and the complete width/CMap tables exactly so
-        // dependency updates cannot silently change existing PDF appearances.
-        let samples = [
-            ("AV office ffi", 500.0),
-            ("Привет мир", 500.0),
-            ("Cafe\u{301} naïve Ελληνικά", 500.0),
-            ("שָׁלוֹם", 500.0),
-            ("العَرَبِيَّة سلام", 500.0),
-            ("Latin שלום العربية 123", 500.0),
-            ("a\tb\t c", 500.0),
-            ("Cafe\u{301}  Привет мир\nשלום abc 123\nالعربية", 60.0),
-        ];
-        let layouts: Vec<_> = samples.into_iter().map(|(text, width)| {
-            let lines: Vec<_> = layout(text, width, 16.0).into_iter().map(|line| {
-                let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
-                    serde_json::json!([glyph.id, glyph.x, glyph.y])
-                }).collect();
-                serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
-            }).collect();
-            serde_json::json!({"input": text, "width": width, "lines": lines})
-        }).collect();
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        let font = document.get_dictionary(id).unwrap();
-        let cmap = document
-            .get_object(font.get(b"ToUnicode").unwrap().as_reference().unwrap())
-            .unwrap()
-            .as_stream()
-            .unwrap()
-            .decompressed_content()
-            .unwrap();
-        let descendant = document
-            .get_dictionary(
-                font.get(b"DescendantFonts").unwrap().as_array().unwrap()[0]
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap();
-        let widths: Vec<_> = descendant.get(b"W").unwrap().as_array().unwrap()[1]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_float().unwrap())
-            .collect();
-        let descriptor = document
-            .get_dictionary(
-                descendant
-                    .get(b"FontDescriptor")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap();
-        let bounds: Vec<_> = descriptor
-            .get(b"FontBBox")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_float().unwrap())
-            .collect();
-        let contract = serde_json::json!({
-            "baseline16": baseline_from_top(16.0),
-            "bounds": bounds,
-            "ascent": descriptor.get(b"Ascent").unwrap().as_float().unwrap(),
-            "descent": descriptor.get(b"Descent").unwrap().as_float().unwrap(),
-            "capHeight": descriptor.get(b"CapHeight").unwrap().as_float().unwrap(),
-            "widthsSha256": Sha256::digest(serde_json::to_vec(&widths).unwrap()).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
-            "cmapSha256": Sha256::digest(cmap).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
-            "layouts": layouts,
-        });
+    fn portable_font_preserves_covered_script_shaping_contract() {
         let expected: serde_json::Value = serde_json::from_str(include_str!(
             "../tests/fixtures/portable-text-font-contract.json"
         ))
         .unwrap();
-        for (key, value) in contract.as_object().unwrap() {
-            assert_eq!(value, &expected[key], "font contract field {key}");
-        }
-    }
-
-    #[test]
-    fn shapes_cyrillic_diacritics_hebrew_arabic_and_mixed_runs() {
-        for text in [
-            "Привет мир",
-            "Cafe\u{301} naïve Ελληνικά",
-            "שָׁלוֹם",
-            "العَرَبِيَّة",
-            "Latin שלום العربية 123",
-        ] {
-            validate_text(text).unwrap();
-            let lines = layout(text, 500.0, 16.0);
-            assert_eq!(lines.len(), 1, "{text}");
-            assert!(lines[0].width > 0.0);
-            assert!(lines[0].glyphs.iter().all(|glyph| glyph.id != 0), "{text}");
-        }
-        let arabic = layout("سلام", 500.0, 16.0);
-        assert!(arabic[0].rtl);
-        assert!(
-            arabic[0].glyphs.len() < "سلام".chars().count(),
-            "lam-alef must form its ligature"
+        assert_eq!(
+            baseline_from_top(16.0),
+            expected["baseline16"].as_f64().unwrap()
         );
-        let font = face();
-        assert_ne!(
-            arabic[0].glyphs.last().unwrap().id,
-            font.charmap().map('س').unwrap().to_u32() as u16,
-            "Arabic initial letter must use its contextual form"
-        );
+        for sample in expected["layouts"].as_array().unwrap() {
+            let text = sample["input"].as_str().unwrap();
+            let lines: Vec<_> = layout(text, sample["width"].as_f64().unwrap(), 16.0)
+                .into_iter().map(|line| {
+                    let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
+                        serde_json::json!([glyph.font, glyph.id, glyph.x, glyph.y])
+                    }).collect();
+                    serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
+                }).collect();
+            // Parse both sides alike: serde_json's default float parsing is not exact.
+            let lines: serde_json::Value =
+                serde_json::from_str(&serde_json::json!(lines).to_string()).unwrap();
+            assert_eq!(lines, sample["lines"], "{text}");
+        }
     }
 
     #[test]
@@ -1080,43 +569,46 @@ mod tests {
     }
 
     #[test]
-    fn reembeds_after_an_external_editor_replaces_the_font_mapping() {
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        assert_eq!(existing_font(&document), Some(id));
-        let descendant = document
-            .get_dictionary(id)
-            .unwrap()
-            .get(b"DescendantFonts")
-            .unwrap()
-            .as_array()
-            .unwrap()[0]
-            .as_reference()
-            .unwrap();
-        document
-            .get_dictionary_mut(descendant)
-            .unwrap()
-            .set("CIDToGIDMap", "ExternalMapping");
-        assert_eq!(existing_font(&document), None);
-    }
-
-    #[test]
     fn rejects_missing_glyphs_and_controls_before_writing() {
         assert!(validate_text("中文")
             .unwrap_err()
             .to_string()
             .contains("U+4E2D"));
         assert!(validate_text("a\0b").is_err());
-        validate_text("a\r\nb\t\u{200f}שלום").unwrap();
+        validate_text("a\r\nb\t\u{200f}שלום\nܫܠܵܡܵܐ\nבְּרֵאשִׁ֖ית\nبَسْمِ لَا بــِسْمِ").unwrap();
     }
-
     #[test]
-    fn font_is_reused_by_object_identity_across_revisions() {
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        assert_eq!(existing_font(&document), Some(id));
-        let incremental = IncrementalDocument::from_document(document, 0, None);
-        assert_eq!(existing_font(incremental.get_prev_documents()), Some(id));
-        assert!(existing_font(&incremental.new_document).is_none());
+    fn contract_coverage_equals_the_bundled_programs() {
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../packages/contracts/annotationFontCoverage.json"
+        ))
+        .unwrap();
+        let expected: std::collections::BTreeSet<_> = contract["ranges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|range| range[0].as_u64().unwrap() as u32..=range[1].as_u64().unwrap() as u32)
+            .collect();
+        let actual: std::collections::BTreeSet<_> = FONTS
+            .into_iter()
+            .flat_map(|program| {
+                FontRef::from_index(program, 0)
+                    .unwrap()
+                    .charmap()
+                    .mappings()
+                    .map(|(codepoint, _)| codepoint)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            actual, expected,
+            "regenerate coverage from the shipped font programs"
+        );
+        use sha2::Digest;
+        for (font, program) in contract["fonts"].as_array().unwrap().iter().zip(FONTS) {
+            let digest = sha2::Sha256::digest(program);
+            let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+            assert_eq!(font["sha256"], digest, "FONTS follows the face table order");
+        }
     }
 }

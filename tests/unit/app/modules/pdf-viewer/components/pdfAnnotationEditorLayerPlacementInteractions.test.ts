@@ -304,7 +304,15 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             'rectangle',
             'note',
         ],
-    ] as const)('moves with armed %s over an existing %s without creating', async (armedTool, targetKind) => {
+        [
+            'rectangle',
+            'shape',
+        ],
+        [
+            'draw',
+            'shape',
+        ],
+    ] as const)('creates across kinds and preserves same-kind moves with armed %s over an existing %s', async (armedTool, targetKind) => {
         const application = shallowRef(new AnnotationApplication('overlapping-placement'));
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
@@ -321,19 +329,41 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
                 rotation: 0,
             }),
         }))!;
-        const existing = targetKind === 'text-box'
-            ? surface.createTextBoxAt(0, {
-                left: 0.2,
-                top: 0.2,
-                width: 0.3,
-                height: 0.2,
-            })
-            : surface.createNoteAt(0, {
-                left: 0.2,
-                top: 0.2,
-                width: 0.3,
-                height: 0.2,
-            });
+        const initialRect = {
+            left: 0.2,
+            top: 0.2,
+            width: 0.3,
+            height: 0.2,
+        };
+        const existing = targetKind === 'text-box' ? surface.createTextBoxAt(0, initialRect)
+            : targetKind === 'note' ? surface.createNoteAt(0, initialRect)
+                : surface.createShape({
+                    kind: 'shape',
+                    identity: {id: createdTextBox.identity.id},
+                    pageIndex: requirePageIndex(0),
+                    revision: 0,
+                    persistedRevision: -1,
+                    deleted: false,
+                    createdAt: null,
+                    modifiedAt: null,
+                    author: null,
+                    tool: armedTool === 'draw' ? 'draw' : 'rectangle',
+                    rect: initialRect,
+                    points: [
+                        {
+                            x: 0.2,
+                            y: 0.2,
+                        },
+                        {
+                            x: 0.5,
+                            y: 0.4,
+                        },
+                    ],
+                    strokeColor: '#111827',
+                    strokeWidth: 2,
+                    fill: null,
+                    opacity: 1,
+                });
         const host = document.createElement('div');
         document.body.append(host);
         const app = createApp({setup() {
@@ -361,12 +391,15 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             pointerId: 41,
         }));
         await nextTick();
-        expect(surface.getEntitiesForPage(0)).toHaveLength(1);
-        expect(surface.selectedIds.value).toEqual(new Set([existing.identity.id]));
-        const moved = surface.getEntitiesForPage(0)[0]!;
-        const rect = moved.kind === 'text-box' ? moved.rect : moved.kind === 'note' ? moved.position : null;
-        expect(rect?.left).toBeCloseTo(0.3);
-        expect(rect?.top).toBeCloseTo(0.3);
+        const sameKind = (armedTool === 'note' && targetKind === 'note')
+            || (armedTool === 'text' && targetKind === 'text-box')
+            || targetKind === 'shape';
+        expect(host.querySelectorAll('[data-annotation-kind]')).toHaveLength(sameKind ? 1 : 2);
+        if (sameKind) expect(target.classList.contains('is-selected')).toBe(true);
+        const original = surface.getEntitiesForPage(0).find(entity => entity.identity.id === existing.identity.id)!;
+        const rect = original.kind === 'note' ? original.position : 'rect' in original ? original.rect : null;
+        expect(rect?.left).toBeCloseTo(sameKind ? 0.3 : 0.2);
+        expect(rect?.top).toBeCloseTo(sameKind ? 0.3 : 0.2);
     });
 
     it('consumes a stationary placement click after focus without hit-testing the new empty draft', async () => {

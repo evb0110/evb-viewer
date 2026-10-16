@@ -21,7 +21,6 @@
         @update:overflow-menu-open="emit('update:overflowMenuOpen', $event)"
         @update:app-menu-open="emit('update:appMenuOpen', $event)"
         @update:zoom="emit('update:zoom', $event)"
-        @update:effective-zoom="emit('update:effectiveZoom', $event)"
         @update:zoom-mode="emit('update:zoomMode', $event)"
         @update:fit-mode="emit('update:fitMode', $event)"
         @update:view-mode="emit('update:viewMode', $event)"
@@ -109,7 +108,6 @@ const emit = defineEmits<{
     'update:overflowMenuOpen': [open: boolean];
     'update:appMenuOpen': [open: boolean];
     'update:zoom': [zoom: number];
-    'update:effectiveZoom': [zoom: number];
     'update:zoomMode': [mode: IWorkspaceToolbarSnapshot['zoomMode']];
     'update:fitMode': [mode: IWorkspaceToolbarSnapshot['fitMode']];
     'update:viewMode': [mode: IWorkspaceToolbarSnapshot['viewMode']];

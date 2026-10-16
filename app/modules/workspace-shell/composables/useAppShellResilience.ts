@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -12,23 +12,22 @@ interface IAppShellResilienceOptions {
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     editorPanesManager: ReturnType<typeof useEditorPanesManager>;
     enabled: Ref<boolean>;
-    browserEnabled: Ref<boolean>;
 }
 
 // The renderer's shutdown flush shares a 2.5 s budget with the other save-flush
 // handlers, so this write must return well inside it.
 const SHUTDOWN_CHECKPOINT_WRITE_TIMEOUT_MS = 1_000;
 
-export const useAppShellResilience = (options: IAppShellResilienceOptions) => {
+export const useAppShellResilience = (options: IAppShellResilienceOptions, isStartupOpenClaimPending: Ref<boolean>) => {
     const crashCheckpoint = useWorkspaceCrashCheckpoint({
         ...options.editorPanesManager,
-        enabled: options.enabled,
-        documentSessionsByTabId: options.documentSessionsByTabId,
+        ...options,
+        isStartupOpenClaimPending,
     });
     useBrowserWorkspaceRecovery({
         ...options.editorPanesManager,
-        enabled: options.browserEnabled,
-        documentSessionsByTabId: options.documentSessionsByTabId,
+        ...options,
+        enabled: computed(() => !options.enabled.value && !isStartupOpenClaimPending.value),
     });
     // A termination signal can arrive inside the checkpoint debounce window, when
     // the newest edit exists only in the renderer. Write it before the process

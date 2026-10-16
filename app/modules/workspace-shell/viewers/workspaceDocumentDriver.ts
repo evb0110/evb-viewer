@@ -21,7 +21,7 @@ import type {
     TPrintOrientation,
 } from '@contracts/shared';
 import {
-    createJobId,
+    requireJobId,
     createRequestId,
 } from '@contracts/shared';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
@@ -386,10 +386,8 @@ async function prepareDjvuPrint(
         };
     }
     const requestId = createDriverPrintRequestId();
-    const jobId = createJobId('djvu-print');
-    let cancelRequested = false;
+    const jobId = requireJobId(`djvu-print-${requestId}`);
     const cancelPrint = () => {
-        cancelRequested = true;
         void getDjvuCapability().cancel(jobId).catch(() => undefined);
     };
     throwIfDriverPrintAborted(command.signal);
@@ -415,7 +413,7 @@ async function prepareDjvuPrint(
                 pdfStrategy: 'compact-djvu-aware',
                 ...(command.fileName ? { fileName: command.fileName } : {}),
             });
-            if (command.signal?.aborted || cancelRequested || result.canceled) {
+            if (command.signal?.aborted || result.canceled) {
                 throw createDriverPrintAbortError();
             }
             if (!result.success) {
@@ -624,7 +622,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationToolCancel: () => void;
     onCurrentPageUpdate: (value: number) => void;
     onDocumentUpdate: (value: unknown) => void;
-    onEffectiveZoomUpdate: (value: number) => void;
 
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
@@ -645,7 +642,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         }
     }
 
-    function createNativeViewerProps(source: TDocumentRef | null) {
+    function createViewerProps(source: TPdfSource | TDocumentRef | null) {
         return {
             src: source,
             zoomState: options.zoomState.value,
@@ -668,22 +665,13 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             return {
                 sourceKind: 'pdf',
                 rendererKind: 'pdfjs',
-                src: options.pdfSrc.value,
+                ...createViewerProps(options.pdfSrc.value),
                 rasterDisplayProfile: options.pdfRasterDisplayProfile.value,
                 sourcePdfData: options.sourcePdfData.value,
                 isAnySaving: options.isAnySaving.value,
-                zoomState: options.zoomState.value,
-                viewMode: resolveWorkspaceViewerViewMode(
-                    driver.capabilities,
-                    options.viewMode.value,
-                ),
                 viewRotation: options.viewRotation.value,
                 currentPage: options.currentPage.value,
-                dragMode: options.dragMode.value,
-                continuousScroll: options.continuousScroll.value,
                 isResizing: options.isWorkspaceLayoutResizing.value,
-                isActive: options.isRenderActive.value,
-                mountPresentation: options.mountPresentation.value,
                 annotationTool: options.annotationTool.value,
                 annotationCursorMode: options.annotationCursorMode.value,
                 annotationKeepActive: options.annotationKeepActive.value,
@@ -693,7 +681,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 currentSearchMatchNavigationId: options.currentResultNavigationId.value,
                 workingCopyPath: options.workingCopyPath.value,
                 originalPath: options.originalPath.value ?? options.pendingDocumentPath?.value ?? null,
-                documentRevisionToken: options.documentRevisionToken.value,
                 authorName: options.authorName.value,
                 // Temporary direct command seam. #193 removes the legacy
                 // workspace stamp persistence route after writer ownership is
@@ -701,7 +688,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             };
         }
 
-        const nativeProps = createNativeViewerProps(driver.view.sourcePath);
+        const nativeProps = createViewerProps(driver.view.sourcePath);
         return {
             ...nativeProps,
             sourceKind: driver.view.sourceKind,
@@ -720,7 +707,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
     const nativeViewerListeners = {
         'update:zoomState': options.onZoomStateUpdate,
-        'update:effectiveZoom': options.onEffectiveZoomUpdate,
         'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,

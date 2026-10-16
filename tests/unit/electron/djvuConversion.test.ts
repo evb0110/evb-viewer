@@ -9,7 +9,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {toNamespacedPath} from 'node:path';
 
 type TMockListener = (...args: unknown[]) => void;
 
@@ -189,7 +188,10 @@ vi.mock('fs/promises', () => ({
     unlink: mocks.unlink,
     writeFile: mocks.writeFile,
 }));
-vi.mock('os', () => ({tmpdir: () => '/tmp'}));
+vi.mock('os', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    tmpdir: () => '/tmp',
+}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
     logicalCpus: 5,
     totalRamBytes: 16 * 1024 * 1024 * 1024,
@@ -428,7 +430,7 @@ describe('convertDjvuToPdfFile', () => {
                 '-page=7',
                 '-mode=mask',
                 '/input.djvu',
-                toNamespacedPath('/mask.pbm'),
+                '/mask.pbm',
             ],
         });
     });

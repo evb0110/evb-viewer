@@ -1,4 +1,7 @@
 import {
+    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
+} from '@app/platform/browserWindowTabs';
+import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
@@ -138,22 +141,19 @@ export async function createBrowserWorkingCopyFromBytes(options: {
     sourceRef?: TDocumentRef;
     password?: string;
 }) {
-    const workingPath = await browserDocumentStore.createStoredDocument(
-        options.fileName,
-        options.data,
-        {
+    const workingPath = await reserveBrowserDocumentWorkingCopy(options.fileName, options.sourceRef);
+    try {
+        await browserDocumentStore.createStoredDocument(options.fileName, options.data, {
+            ref: workingPath,
             mimeType: options.mimeType ?? 'application/pdf',
             saveKind: 'pdf',
             kind: 'working',
-            ...(options.sourceRef ? { sourceRef: options.sourceRef } : {}),
-        },
-    );
-
-    try {
-        const decryption = await decryptBrowserWorkingCopy(workingPath, options.password);
-        assertBrowserWorkingCopyDecrypted(decryption);
+            ...(options.sourceRef ? {sourceRef: options.sourceRef} : {}),
+        });
+        assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, options.password));
         return workingPath;
     } catch (error) {
+        await retireBrowserDocumentWorkingCopy(workingPath);
         await browserDocumentStore.remove(workingPath).catch(() => undefined);
         throw error;
     }
@@ -212,9 +212,10 @@ export async function openDocumentPaths(
         if (size <= BROWSER_MAX_FULL_READ_BYTES) {
             await browserDocumentStore.ensureByteBackedSource(sourcePath);
         }
-        const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+        const workingPath = await reserveBrowserDocumentWorkingCopy(firstFileName, sourcePath);
         let published = false;
         try {
+            await browserDocumentStore.cloneAsWorkingCopy(sourcePath, undefined, workingPath);
             const decryption = await decryptBrowserWorkingCopy(workingPath, password);
             if (decryption.outcome === 'needs-password') {
                 return {
@@ -240,6 +241,7 @@ export async function openDocumentPaths(
             } satisfies TOpenFileResult;
         } finally {
             if (!published) {
+                await retireBrowserDocumentWorkingCopy(workingPath);
                 await browserDocumentStore.remove(workingPath).catch(() => undefined);
             }
         }
@@ -271,8 +273,11 @@ export async function openDocumentPaths(
             saveKind: 'pdf',
         },
     ));
-    const workingPath =
-        await browserDocumentStore.cloneAsWorkingCopy(originalPath);
+    const workingPath = await reserveBrowserDocumentWorkingCopy(generatedName, originalPath);
+    await browserDocumentStore.cloneAsWorkingCopy(originalPath, undefined, workingPath).catch(async (error: unknown) => {
+        await retireBrowserDocumentWorkingCopy(workingPath);
+        throw error;
+    });
     await touchRecentFileForOpen(originalPath);
     browserDocumentStore.unload(originalPath);
 

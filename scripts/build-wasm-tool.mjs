@@ -1,4 +1,8 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
+import {
+    CARGO_ENCODED_RUSTFLAGS_SEPARATOR,
+    getCargoRustflags,
+} from './lib/build-environment.mjs';
 import { spawnSync } from 'node:child_process';
 import {
     mkdir,
@@ -14,7 +18,6 @@ import {
     resolveCargoTargetDirectory,
 } from './cargo-artifacts.mjs';
 import {
-    appendRustflags,
     getWasmArtifactByCrateName,
     WASM_TARGET,
 } from './wasm-artifacts.mjs';
@@ -49,7 +52,11 @@ export function createWasmToolBuildPlan({
         label: artifact.label,
         manifestPath: artifact.manifestPath,
         requiredExports: artifact.requiredExports,
-        rustflags: appendRustflags(env, artifact.rustflags),
+        rustflags: getCargoRustflags({
+            env,
+            extraRustflags: artifact.rustflags,
+            projectRoot: root,
+        }),
     };
 }
 
@@ -102,7 +109,7 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
         cwd: projectRoot,
         env: {
             ...process.env,
-            ...(plan.rustflags ? {RUSTFLAGS: plan.rustflags} : {}),
+            CARGO_ENCODED_RUSTFLAGS: plan.rustflags.join(CARGO_ENCODED_RUSTFLAGS_SEPARATOR),
         },
         stdio: 'inherit',
     });

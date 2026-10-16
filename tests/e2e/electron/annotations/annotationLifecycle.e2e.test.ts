@@ -135,7 +135,9 @@ function isMarkupTool(tool: string): tool is 'Highlight' | 'Underline' | 'Strike
 async function readPaintedAnnotation(page: Page) {
     return page.evaluate(() => {
         const entity = document.querySelector<SVGElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"], .editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]');
-        const visual = entity?.querySelector<SVGElement>('[data-annotation-visual]');
+        const visual = entity?.dataset.markupSubtype === 'Highlight'
+            ? entity.closest('.pdf-annotation-editor-layer')?.querySelector<SVGElement>('.pdf-annotation-editor-text-markup path[data-annotation-visual]')
+            : entity?.querySelector<SVGElement>('[data-annotation-visual]');
         const pageRect = entity?.closest('.page_container')?.getBoundingClientRect();
         const card = entity ? document.querySelector<HTMLElement>(`.editor-pane.is-active .note-item[data-annotation-id="${entity.dataset.annotationId}"]`) : null;
         const chip = card?.querySelector<HTMLElement>('.note-item-color-chip');
@@ -143,7 +145,7 @@ async function readPaintedAnnotation(page: Page) {
             return null;
         }
         const style = getComputedStyle(visual);
-        const rect = entity.getBoundingClientRect();
+        const rect = entity.dataset.markupSubtype === 'Highlight' ? visual.getBoundingClientRect() : entity.getBoundingClientRect();
         return {
             id: entity.dataset.annotationId,
             kind: entity.dataset.annotationKind,
@@ -936,14 +938,14 @@ async function moveCanonicalNote(page: Page, stableKey: string, before: NonNulla
     return moved;
 }
 
-function expectMarkerAnchorClose(actual: ICanonicalNoteSnapshot['markerRect'], expected: ICanonicalNoteSnapshot['markerRect']) {
+function expectMarkerCentreClose(actual: ICanonicalNoteSnapshot['markerRect'], expected: ICanonicalNoteSnapshot['markerRect']) {
     expect(actual).not.toBeNull();
     expect(expected).not.toBeNull();
     if (!actual || !expected) {
         return;
     }
-    expect(actual.left).toBeCloseTo(expected.left, 3);
-    expect(actual.top).toBeCloseTo(expected.top, 3);
+    expect(actual.left + actual.width / 2).toBeCloseTo(expected.left + expected.width / 2, 3);
+    expect(actual.top + actual.height / 2).toBeCloseTo(expected.top + expected.height / 2, 3);
 }
 
 async function readCanonicalHighlightIdentities(page: Page) {
@@ -1151,6 +1153,28 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
+    });
+
+    it('places a new note over an imported highlight without moving the highlight', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createCanonicalAnnotationSurfaceFixturePdf(`note-over-highlight-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(fixture, {force: true}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Note');
+        const markup = '.editor-pane.is-active .page_container [data-annotation-kind="text-markup"]';
+        const original = await page.$eval(markup, element => element.getBoundingClientRect().toJSON());
+        await clickAsUser(page, markup);
+        const input = 'textarea.note-window__textarea';
+        await page.waitForSelector(input, {
+            visible: true,
+            timeout: 2_000,
+        });
+        await page.keyboard.type('Note over foreign highlight');
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Note over foreign highlight');
+        expect(await page.$$eval('.editor-pane.is-active .page_container [data-annotation-kind="note"]', elements => elements.length)).toBe(2);
+        expect(await page.$eval(markup, element => element.getBoundingClientRect().toJSON())).toEqual(original);
     });
 
     it('creates every shape, draw preset and markup with matching styles, undo, save and hard reopen', async () => {
@@ -2562,8 +2586,8 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         });
         expect((await readNoteColorPresentation(page, reopened.stableKey)).chip).toBe('rgb(239, 68, 68)');
         // The native `/Text` writer expands the in-memory point marker to its
-        // 20-point icon rectangle. Its normalized anchor remains stable.
-        expectMarkerAnchorClose(reopened.markerRect, moved.markerRect);
+        // 20-point icon rectangle around the same centre.
+        expectMarkerCentreClose(reopened.markerRect, moved.markerRect);
     }, 90_000);
 
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {

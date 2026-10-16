@@ -1,3 +1,4 @@
+import type { IDocumentOperationOwnership } from '@app/types/documentOperationKind';
 import type { Ref } from 'vue';
 import type {
     IWindowTabTransferSessionState,
@@ -55,6 +56,7 @@ interface IPreparedTransferItem {
     payload: TSplitPayload;
     commandTarget: TWorkspaceCommandTarget | null;
     session: IWindowTabTransferSessionState | null;
+    mutationFrontier: string | null;
 }
 
 interface IRestoreWorkspacePayloadOptions {
@@ -89,7 +91,6 @@ interface IUseWindowTabTransfersOptions {
 }
 
 const DEFAULT_CAPTURE_TIMEOUT_MS = 4000;
-const MERGE_CAPTURE_TIMEOUT_MS = 4000;
 
 export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) => {
     const { t } = useTypedI18n();
@@ -163,45 +164,12 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return createIncomingTransferTargetTab(targetPane);
     }
 
-    async function ackIncomingTransferFailure(transferId: string, error: string) {
-        try {
-            const acked = await getWindowTabsCapability().transferAck({
-                transferId,
-                success: false,
-                error,
-            });
-            if (!acked) {
-                BrowserLogger.warn('tabs', 'Incoming tab transfer failure ack was not accepted', {
-                    transferId,
-                    error,
-                });
-            }
-        } catch (ackError) {
-            BrowserLogger.warn('tabs', 'Failed to ack incoming tab transfer failure', {
-                transferId,
-                error,
-                ackError,
-            });
-        }
-    }
-
-    async function ackIncomingTransferSuccess(transferId: string): Promise<boolean | null> {
-        try {
-            const acked = await getWindowTabsCapability().transferAck({
-                transferId,
-                success: true,
-            });
-            if (!acked) {
-                BrowserLogger.warn('tabs', 'Incoming tab transfer success ack was not accepted', { transferId });
-            }
-            return acked;
-        } catch (ackError) {
-            BrowserLogger.warn('tabs', 'Failed to ack incoming tab transfer success', {
-                transferId,
-                ackError,
-            });
-            return null;
-        }
+    function acknowledgeTransfer(transferId: string, success: boolean, error?: string) {
+        return getWindowTabsCapability().transferAck({
+            transferId,
+            success,
+            ...(error ? {error} : {}),
+        });
     }
 
     function resolveIncomingTransferTargetPane() {
@@ -241,13 +209,13 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     async function prepareIncomingTransferTarget(transfer: IWindowTabIncomingTransfer): Promise<IIncomingTransferTarget | null> {
         const targetPane = resolveIncomingTransferTargetPane();
         if (!targetPane) {
-            await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.noTargetPane'));
+            await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.noTargetPane'));
             return null;
         }
 
         const targetTab = resolveIncomingTransferTargetTab(targetPane.paneId);
         if (!targetTab) {
-            await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.noTargetTab'));
+            await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.noTargetTab'));
             return null;
         }
 
@@ -288,6 +256,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         payload: TSplitPayload,
         shouldCleanupPayload = true,
         closeRestoredWorkspace = false,
+        ownership?: IDocumentOperationOwnership,
     ) {
         const snapshot = getDocumentSession(target.tab.tabId)?.snapshot.value;
         if ((snapshot?.activeTransaction && snapshot.activeTransaction.id !== target.transactionId)
@@ -295,7 +264,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return;
         }
         if (closeRestoredWorkspace && tabHoldsDocument(target.tab.tabId)) {
-            await getDocumentSession(target.tab.tabId)?.close({persist: false});
+            await getDocumentSession(target.tab.tabId)?.close({
+                persist: false,
+                ...(ownership ? {ownership} : {}),
+            });
         }
 
         if (target.tab.created) {
@@ -326,26 +298,25 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function captureWorkspaceTransferItem(
         tabId: string,
+        ownership: IDocumentOperationOwnership,
         timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<IPreparedTransferItem | null> {
         const session = getDocumentSession(tabId);
-        const commandTarget = session?.getView(tabId) ? session.createCommandTarget(tabId) : null;
-        if (!isCommandTargetCurrent(session, commandTarget)) {
-            return null;
-        }
-
         let captureResultClaimed = false;
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
             const workspace = await waitForWorkspace(tabId);
             if (!workspace) {
                 return null;
             }
-
-            if (!isCommandTargetCurrent(session, commandTarget)) {
-                return null;
+            // An opening source owns a pending identity. Stable inactive
+            // views can transfer without repainting their evicted pixels.
+            if (session?.snapshot.value.activeTransaction) {
+                await workspace.waitForDocumentOpenSettled();
             }
-
-            const payload = await workspace.captureSplitPayload();
+            await session?.prepareTransfer();
+            const commandTarget = session?.createCommandTarget(tabId) ?? null;
+            const mutationFrontier = session?.readMutationFrontier() ?? null;
+            const payload = await workspace.captureSplitPayload(undefined, ownership.assertCurrent);
             if (!isCommandTargetCurrent(session, commandTarget)) {
                 await cleanupSplitPayloadSnapshot(payload, {
                     logSection: 'tabs',
@@ -361,7 +332,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                     ...payload,
                     viewState: {
                         zoom: snapshot.zoom,
-                        effectiveZoom: snapshot.effectiveZoom,
                         zoomMode: snapshot.zoomMode,
                         viewMode: snapshot.viewMode,
                         viewRotation: snapshot.viewRotation,
@@ -375,6 +345,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 tabId,
                 payload: transferPayload,
                 commandTarget,
+                mutationFrontier,
                 session: getTransferSessionState(tabId),
             };
         })();
@@ -456,14 +427,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function cleanupFailedRestorePayload(tabId: string, payload: TSplitPayload) {
-        await cleanupSplitPayloadSnapshot(payload, {
-            logSection: 'tabs',
-            context: 'restore-workspace-payload',
-            metadata: { tabId },
-        });
-    }
-
     async function restoreWorkspacePayload(
         tabId: string,
         payload: TSplitPayload | null,
@@ -484,178 +447,142 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return restored;
         } finally {
             if (!restored && !restoreOptions.retainPayloadOnFailure) {
-                await cleanupFailedRestorePayload(tabId, payload);
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'tabs',
+                    context: 'restore-workspace-payload',
+                    metadata: {tabId},
+                });
             }
             options.workspaceRestoreTracker.finish(tabId);
         }
     }
 
-    async function closeSourceWorkspaceWithoutPersist(paneId: string, tabId: string) {
+    async function finalizeTransferredSourceTab(paneId: string, tabId: string, ownership: IDocumentOperationOwnership, ownsSource: () => boolean): Promise<TSourceTransferOutcome> {
         // The departing view's place is remembered while it and its source still exist.
         const session = getDocumentSession(tabId);
-        await rememberReadingView(session, tabId);
-        await options.handoffActiveTabBeforeClose(paneId, tabId);
-        if (!session || !tabHoldsDocument(tabId) || session.views.value.size > 1) {
-            return true;
-        }
-
         options.workspaceRestoreTracker.start(tabId);
         try {
-            return await session.close({persist: false});
-        } catch (error) {
-            BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
-                tabId,
-                error,
-            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
-            return false;
+            await rememberReadingView(session, tabId);
+            await options.handoffActiveTabBeforeClose(paneId, tabId);
+            if (!ownsSource()) return 'failed';
+            if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
+                try {
+                    if (!await session.close({
+                        persist: false,
+                        ownership,
+                        assertCurrent: () => { if (!ownsSource()) throw new Error(t('tabs.transferErrors.sourceChanged')); },
+                    })) return 'failed';
+                } catch (error) {
+                    BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
+                        tabId,
+                        error,
+                    }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
+                    return 'failed';
+                }
+            }
+            return 'success';
         } finally {
             options.workspaceRestoreTracker.finish(tabId);
         }
     }
 
-    async function finalizeTransferredSourceTab(paneId: string, tabId: string): Promise<TSourceTransferOutcome> {
-        const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(paneId, tabId);
-        if (!sourceCloseSucceeded) {
-            return 'failed';
-        }
-
-        if (shouldCloseSourceWindowAfterTransfer(options.tabs.value.length, true)) {
-            const closed = await getWindowTabsCapability().closeCurrentWindow();
-            if (closed) {
-                return 'window-closed';
-            }
-        }
-
-        options.closeTabInState(paneId, tabId);
-        options.cleanupEmptyPanes();
-        return 'success';
-    }
-
     async function transferPreparedTabToTarget(
         item: IPreparedTransferItem,
         target: TWindowTabTransferTarget,
+        ownership: IDocumentOperationOwnership,
     ): Promise<TSourceTransferOutcome> {
         const {
-            tabId,
-            payload,
-            commandTarget,
+            tabId, payload, commandTarget, mutationFrontier,
         } = item;
-        const tab = options.getTabById(tabId);
-        const sourcePane = options.getPaneByTabId(tabId);
-        if (!tab || !sourcePane) {
-            await cleanupSplitPayloadSnapshot(payload, {
-                logSection: 'tabs',
-                context: 'transfer-tab-source-missing',
-                metadata: {
-                    tabId,
-                    target,
-                },
-            });
-            return 'failed';
-        }
-
-        if (!isCommandTargetCurrent(getDocumentSession(tab.id), commandTarget)) {
-            await cleanupSplitPayloadSnapshot(payload, {
-                logSection: 'tabs',
-                context: 'transfer-tab-source-stale-before-transfer',
-                metadata: {
-                    tabId,
-                    target,
-                },
-            });
-            return 'failed';
-        }
-
-        let transferResult;
+        const session = getDocumentSession(tabId);
+        let sourcePane = options.getPaneByTabId(tabId);
+        let transferId: string | null = null;
+        let result: TSourceTransferOutcome = 'failed';
         try {
-            transferResult = await getWindowTabsCapability().transfer({
+            if (!session || !sourcePane || !isCommandTargetCurrent(session, commandTarget)) return result;
+            const transfer = await getWindowTabsCapability().transfer({
                 target,
-                tab: describeTabDocument(getDocumentSession(tab.id)!.snapshot.value),
+                tab: describeTabDocument(session.snapshot.value),
                 payload,
                 ...(item.session === null ? {} : {session: item.session}),
             });
+            if (!transfer.success) throw new Error(transfer.error ?? t('tabs.transferErrors.restoreFailed'));
+            transferId = transfer.transferId;
+            if (!isCommandTargetCurrent(session, commandTarget) || session.readMutationFrontier() !== mutationFrontier) {
+                throw new Error(t('tabs.transferErrors.sourceChanged'));
+            }
+            sourcePane = options.getPaneByTabId(tabId);
+            if (!sourcePane) throw new Error(t('tabs.transferErrors.sourceChanged'));
+            result = await finalizeTransferredSourceTab(sourcePane.paneId, tabId, ownership, () => (
+                isCommandTargetCurrent(session, commandTarget) && session.readMutationFrontier() === mutationFrontier
+            ));
+            if (result !== 'success') throw new Error(t('tabs.transferErrors.sourceChanged'));
+            if (canUseNativeWindowTabTransfers() && !await acknowledgeTransfer(transferId, true)) {
+                throw new Error(t('tabs.transferErrors.restoreFailed'));
+            }
+            const closesWindow = shouldCloseSourceWindowAfterTransfer(options.tabs.value.length, true);
+            options.closeTabInState(options.getPaneByTabId(tabId)?.paneId ?? sourcePane.paneId, tabId);
+            options.cleanupEmptyPanes();
+            return closesWindow && await getWindowTabsCapability().closeCurrentWindow() ? 'window-closed' : result;
         } catch (error) {
-            BrowserLogger.error('tabs', 'Cross-window transfer threw before completion', {
-                tabId,
-                target,
-                error,
-            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
-            await cleanupSplitPayloadSnapshot(payload, {
-                logSection: 'tabs',
-                context: 'transfer-tab-to-target-error',
-                metadata: {
-                    tabId,
-                    target,
-                },
-            });
-            return 'failed';
-        }
-
-        if (!transferResult.success) {
+            result = 'failed';
             BrowserLogger.warn('tabs', 'Cross-window transfer failed', {
                 tabId,
                 target,
-                error: transferResult.error,
+                error,
             });
-            await cleanupSplitPayloadSnapshot(payload, {
-                logSection: 'tabs',
-                context: 'transfer-tab-to-target',
-                metadata: {
-                    tabId,
-                    target,
-                },
+            if (transferId && canUseNativeWindowTabTransfers()) await acknowledgeTransfer(transferId, false, getErrorMessage(error));
+            // A rejected decision can arrive after the owned close. The source
+            // tab still exists, and the broker gives its snapshot back to it.
+            if (session && getDocumentSession(tabId) === session && sourcePane && !tabHoldsDocument(tabId) && payload.kind !== 'empty') {
+                activateIncomingTransferTab(sourcePane.paneId, tabId);
+                const workspace = await waitForWorkspace(tabId);
+                const transactionId = session.claimOpen({
+                    kind: 'restore',
+                    target: {
+                        fileName: payload.kind === 'pdfSnapshot' ? payload.fileName : null,
+                        originalPath: payload.kind === 'pdfSnapshot' ? payload.originalPath : payload.sourcePath,
+                        isDjvu: payload.kind === 'djvu',
+                    },
+                });
+                await workspace?.restoreSplitPayload(payload, transactionId);
+                if (payload.kind === 'pdfSnapshot' && payload.viewState) {
+                    workspace?.restoreViewState({
+                        ...payload.viewState,
+                        currentPage: payload.currentPage ?? null,
+                    });
+                }
+            }
+            session?.reportFailure({
+                message: `${t('tabs.transferErrors.rolledBack')} ${getErrorMessage(error)}`,
+                failure: null,
             });
-            return 'failed';
+            return result;
+        } finally {
+            if (result === 'failed' && tabHoldsDocument(tabId) && !(payload.kind === 'pdfSnapshot' && session?.snapshot.value.identity.workingCopyPath === payload.snapshotPath)) {
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'tabs',
+                    context: 'transfer-rolled-back',
+                    metadata: {tabId},
+                });
+            }
         }
-
-        if (!isCommandTargetCurrent(getDocumentSession(tab.id), commandTarget)) {
-            BrowserLogger.warn('tabs', 'Cross-window transfer source changed before source cleanup', {
-                tabId,
-                target,
-            });
-            return 'failed';
-        }
-
-        return finalizeTransferredSourceTab(sourcePane.paneId, tab.id);
     }
-
 
     async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
-        const item = await captureWorkspaceTransferItem(tabId);
-        if (!item) {
-            return 'failed';
-        }
-        if (tabHoldsDocument(tabId) && item.payload.kind === 'empty') {
-            BrowserLogger.warn('tabs', 'Rejected empty split payload for document tab transfer', {
-                tabId,
-                target,
-            });
-            return 'failed';
-        }
-
-        return transferPreparedTabToTarget(item, target);
-    }
-
-    async function cleanupPreparedMergeItems(items: IPreparedTransferItem[], context: string) {
-        await Promise.all(items.map(item => cleanupSplitPayloadSnapshot(item.payload, {
-            logSection: 'tabs',
-            context,
-            metadata: { tabId: item.tabId },
-        })));
-    }
-
-    async function captureMergeTransferItems(orderedTabIds: string[]) {
-        const sourceTabIds = orderedTabIds.filter(tabId => Boolean(options.getTabById(tabId)));
-        const captures = await Promise.all(sourceTabIds.map(async (tabId): Promise<IPreparedTransferItem | null> => {
-            return captureWorkspaceTransferItem(tabId, MERGE_CAPTURE_TIMEOUT_MS);
-        }));
-        const prepared = captures.filter((item): item is IPreparedTransferItem => item !== null);
-        if (prepared.length !== sourceTabIds.length) {
-            await cleanupPreparedMergeItems(prepared, 'merge-window-preflight-failed');
-            return null;
-        }
-
-        return prepared;
+        const session = getDocumentSession(tabId);
+        if (!session) return 'failed';
+        return session.operationLease.runExclusive('tab-transfer', async (ownership) => {
+            const item = await captureWorkspaceTransferItem(tabId, ownership);
+            if (!item || (tabHoldsDocument(tabId) && item.payload.kind === 'empty')) {
+                session.reportFailure({
+                    message: t('tabs.transferErrors.rolledBack'),
+                    failure: null,
+                });
+                return 'failed' as const;
+            }
+            return transferPreparedTabToTarget(item, target, ownership);
+        });
     }
 
     async function moveTabToNewWindow(tabId?: string) {
@@ -679,41 +606,21 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function mergeWindowInto(targetWindowId: number) {
         const orderedTabIds = collectMergeTabOrder(options.layout.value, options.panes.value, options.tabs.value);
-        const preparedItems = await captureMergeTransferItems(orderedTabIds);
-        if (!preparedItems) {
-            return;
-        }
-
-        const pendingItems = new Map(preparedItems.map(item => [
-            item.tabId,
-            item,
-        ]));
-        for (const item of preparedItems) {
-            pendingItems.delete(item.tabId);
-            const result = await transferPreparedTabToTarget(item, {
+        for (const tabId of orderedTabIds) {
+            const result = await transferTabToTarget(tabId, {
                 kind: 'window',
                 windowId: targetWindowId,
             });
-
-            if (result === 'failed' || result === 'window-closed') {
-                await cleanupPreparedMergeItems([...pendingItems.values()], 'merge-window-aborted');
-                return;
-            }
+            if (result !== 'success') return;
         }
     }
 
-    async function processIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
-        let target: IIncomingTransferTarget | null = null;
+    async function processIncomingTabTransfer(transfer: IWindowTabIncomingTransfer, target: IIncomingTransferTarget) {
         let transferCommitted = false;
         try {
-            target = await prepareIncomingTransferTarget(transfer);
-            if (!target) {
-                return;
-            }
-
             if (!isIncomingTransferSessionCurrent(target.tab.tabId, transfer)) {
                 await rollbackIncomingTransferTarget(target, transfer.payload);
-                await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
+                await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
             if (canUseNativeWindowTabTransfers()) {
@@ -723,21 +630,22 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 });
                 if (!restored || !isCommandTargetCurrent(getDocumentSession(target.tab.tabId), restored)) {
                     await rollbackIncomingTransferTarget(target, transfer.payload, false);
-                    await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
+                    await acknowledgeTransfer(transfer.transferId, false, t('tabs.transferErrors.restoreFailed'));
                     return;
                 }
                 const session = getDocumentSession(target.tab.tabId);
                 const commandTarget = restored;
-                const committed = await ackIncomingTransferSuccess(transfer.transferId);
-                if (committed === null || !committed) {
-                    if (isCommandTargetCurrent(session, commandTarget)) {
-                        await rollbackIncomingTransferTarget(target, transfer.payload, false, true);
+                const committed = await session!.operationLease.runExclusive('tab-transfer', async (ownership) => {
+                    const accepted = await acknowledgeTransfer(transfer.transferId, true);
+                    if (!accepted && isCommandTargetCurrent(session, commandTarget)) {
+                        await rollbackIncomingTransferTarget(target, transfer.payload, false, true, ownership);
                     }
-                    return;
-                }
+                    return accepted;
+                });
+                if (!committed) return;
                 transferCommitted = true;
             } else {
-                const committed = await ackIncomingTransferSuccess(transfer.transferId);
+                const committed = await acknowledgeTransfer(transfer.transferId, true);
                 if (committed === null) {
                     return;
                 }
@@ -773,9 +681,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return;
             }
             if (target) {
-                await rollbackIncomingTransferTarget(target, transfer.payload);
+                await rollbackIncomingTransferTarget(target, transfer.payload, false, true);
             }
-            await ackIncomingTransferFailure(transfer.transferId, getErrorMessage(error));
+            await acknowledgeTransfer(transfer.transferId, false, getErrorMessage(error));
         } finally {
             const session = getDocumentSession(target?.tab.tabId);
             if (session?.snapshot.value.activeTransaction?.id === target?.transactionId) {
@@ -784,8 +692,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
-        return processIncomingTabTransfer(transfer);
+    async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
+        const target = await prepareIncomingTransferTarget(transfer);
+        if (!target) return;
+        return processIncomingTabTransfer(transfer, target);
     }
 
     return {

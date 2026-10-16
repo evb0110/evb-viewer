@@ -61,6 +61,7 @@ interface IAddedChecksModule {findAddedChecks: (
         status: string
     }>,
     readAddedLines: (path: string) => string[],
+    readRemovedLines?: (path: string) => string[],
 ) => string[];}
 
 const addedChecks = await import(
@@ -406,6 +407,47 @@ describe('added check and flake tolerance detection', () => {
             }],
             () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
         )).toEqual([]);
+    });
+    it('treats tests moved between files as edits, not new checks', () => {
+        const removed: Record<string, string[]> = {'tests/a.test.ts': [
+            'it(\'keeps notes\', async () => {',
+            '    }, 120_000);',
+            '    ])(\'reads table row %s\', async row => {',
+        ]};
+        const moved: Record<string, string[]> = {'tests/b.test.ts': [
+            'it(\'keeps notes\', async () => {',
+            '    }, 120_000);',
+            '    ])(\'reads table row %s\', async row => {',
+        ]};
+        const entries = [
+            {
+                path: 'tests/a.test.ts',
+                status: 'M',
+            },
+            {
+                path: 'tests/b.test.ts',
+                status: 'A',
+            },
+        ];
+        expect(addedChecks.findAddedChecks(entries, filePath => moved[filePath] ?? [], filePath => removed[filePath] ?? [])).toEqual([]);
+        const fresh: Record<string, string[]> = {'tests/b.test.ts': [
+            'it(\'keeps notes\', async () => {',
+            'it(\'adds a check\', async () => {',
+            '    }, 90_000);',
+        ]};
+        expect(addedChecks.findAddedChecks(entries, filePath => fresh[filePath] ?? [], filePath => removed[filePath] ?? []))
+            .toEqual(['new test file: tests/b.test.ts']);
+        expect(addedChecks.findAddedChecks(
+            [{
+                path: 'tests/a.test.ts',
+                status: 'M',
+            }],
+            () => [
+                '    }, 120_000);',
+                '    }, 90_000);',
+            ],
+            () => ['    }, 120_000);'],
+        )).toEqual(['test timeout override: tests/a.test.ts (}, 90_000);)']);
     });
 });
 
@@ -1142,36 +1184,79 @@ describe('pushed range resolution for CI', () => {
 });
 
 describe('fix chains', () => {
-    async function repositoryWithThreeFixes() {
+    function repositoryWithThreeFixes(tail: (body: string) => Array<{
+        message: string;
+        files: Record<string, string>;
+    }>) {
         const repository = createRepository('evb-fix-chain-');
         let body = 'export const state = 0;\n';
-        await commit(repository, 'Add viewport state', {'app/viewport.ts': body});
+        const history = [{
+            message: 'Add viewport state',
+            files: {'app/viewport.ts': body},
+        }];
         for (const index of [
             1,
             2,
             3,
         ]) {
             body += `export const fence${index} = ${index};\n`;
-            await commit(repository, `fix(viewer): fence stale viewport write ${index}`, {'app/viewport.ts': body});
+            history.push({
+                message: `fix(viewer): fence stale viewport write ${index}`,
+                files: {'app/viewport.ts': body},
+            });
         }
+        // This check reads committed trees, not an index or working tree. One
+        // import replaces repeated checkout writes and add/commit processes.
+        const date = Math.floor(Date.now() / 1_000);
+        const stream = [
+            ...history,
+            ...tail(body),
+        ].map(({
+            message, files,
+        }) => [
+            'commit refs/heads/main',
+            `committer Policy Test <policy-test@example.test> ${date} +0000`,
+            `data ${Buffer.byteLength(message)}`,
+            message,
+            ...Object.entries(files).flatMap(([
+                filePath,
+                contents,
+            ]) => [
+                `M 100644 inline ${filePath}`,
+                `data ${Buffer.byteLength(contents)}`,
+                contents,
+            ]),
+            '',
+        ].join('\n')).join('\n');
+        // Durability across a power cut is irrelevant to disposable Git history.
+        runGit(repository, [
+            '-c',
+            'core.fsync=none',
+            'fast-import',
+            '--quiet',
+        ], `${stream}done\n`);
         return {
-            body,
             repository,
+            commits: runGit(repository, [
+                'log',
+                '--format=%H',
+                '--reverse',
+            ]).split('\n').slice(4),
         };
     }
 
     it('blocks a fourth fix that grows a file fixed three times this week', async () => {
         const {
-            body,
-            repository,
-        } = await repositoryWithThreeFixes();
-        try {
-            const head = await commit(repository, 'fix(viewer): add one more fence', {
+            repository, commits: [head],
+        } = repositoryWithThreeFixes(body => [{
+            message: 'fix(viewer): add one more fence',
+            files: {
                 'app/viewport.ts': `${body}export const fence4 = 4;\n`,
                 'tests/unit/viewport.test.ts': 'export {};\n',
-            });
-
-            const violations = checker.findPushPolicyViolations([head], repository);
+            },
+        }]);
+        try {
+            const violations = checker.findPushPolicyViolations([head!], repository);
 
             expect(violationSubjects(violations)).toEqual([head]);
             expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows by 1 lines after 3 fix commits');
@@ -1182,25 +1267,27 @@ describe('fix chains', () => {
 
     it('accepts a fix that shrinks the file, a revert, a non-fix change, and an owner override', async () => {
         const {
-            body,
-            repository,
-        } = await repositoryWithThreeFixes();
+            repository, commits,
+        } = repositoryWithThreeFixes(body => [
+            {
+                message: 'fix(viewer): delete the redundant fences',
+                files: {'app/viewport.ts': 'export const state = 0;\n'},
+            },
+            {
+                message: 'Revert "fix(viewer): delete the redundant fences"',
+                files: {'app/viewport.ts': body},
+            },
+            {
+                message: 'refactor(viewer): name the state',
+                files: {'app/viewport.ts': `${body}export const named = 1;\n`},
+            },
+            {
+                message: 'fix(viewer): hold the fence for the release\n\nFix-Chain-Override: ship the fence today, redesign next week',
+                files: {'app/viewport.ts': `${body}export const named = 1;\nexport const held = 1;\n`},
+            },
+        ]);
         try {
-            const shrinking = await commit(repository, 'fix(viewer): delete the redundant fences', {'app/viewport.ts': 'export const state = 0;\n'});
-            const revert = await commit(repository, 'Revert "fix(viewer): delete the redundant fences"', {'app/viewport.ts': body});
-            const refactor = await commit(repository, 'refactor(viewer): name the state', {'app/viewport.ts': `${body}export const named = 1;\n`});
-            const overridden = await commit(
-                repository,
-                'fix(viewer): hold the fence for the release\n\nFix-Chain-Override: ship the fence today, redesign next week',
-                {'app/viewport.ts': `${body}export const named = 1;\nexport const held = 1;\n`},
-            );
-
-            expect(checker.findPushPolicyViolations([
-                shrinking,
-                revert,
-                refactor,
-                overridden,
-            ], repository)).toEqual([]);
+            expect(checker.findPushPolicyViolations(commits, repository)).toEqual([]);
         } finally {
             await removeRepository(repository);
         }

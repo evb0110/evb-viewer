@@ -1,3 +1,7 @@
+import {resolve} from 'node:path';
+import {
+    mkdirSync, writeFileSync,
+} from 'node:fs';
 import {
     describe,
     expect,
@@ -9,6 +13,7 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
+    createMultiPageTextFixturePdf,
     createSearchMatchScrollFixturePdf,
     SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
     SEARCH_MATCH_SCROLL_FIXTURE_QUERY,
@@ -104,6 +109,150 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
+    it('keeps the query, matches and selected occurrence when one page rotates', async () => {
+        const {page} = sessionFixture.getSession();
+        const evidence = resolve('.devkit/rotatesearch', `search-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        await page.evaluate(() => {
+            Reflect.set(window, '__rasterstallRotationFailures', []);
+            const observer = new MutationObserver(() => {
+                const failures = Array.from(document.querySelectorAll<HTMLElement>('.pdf-page-render-error'))
+                    .filter(element => element.getBoundingClientRect().width > 0)
+                    .map(element => ({
+                        at: performance.now(),
+                        text: element.textContent,
+                        page: element.closest('.page_container')?.getAttribute('data-page'),
+                    }));
+                if (failures.length) Reflect.get(window, '__rasterstallRotationFailures').push(...failures);
+            });
+            observer.observe(document.body, {
+                subtree: true,
+                attributes: true,
+                childList: true,
+            });
+            Reflect.set(window, '__rasterstallRotationObserver', observer);
+        });
+        await openPdfInApp(page, await createMultiPageTextFixturePdf('rotation-search-continuity.pdf', 3));
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'search');
+        await clickAsUser(page, '.document-search-bar input');
+        await page.keyboard.type('Page');
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('.document-search-results')?.textContent?.includes('6 results for'));
+        await clickAsUser(page, '.document-search-result[data-result-index="1"]');
+        try {
+            for (const direction of [
+                'Clockwise',
+                'Counterclockwise',
+            ]) {
+                await openDocumentSidebarTab(page, 'Pages');
+                await clickAsUser(page, '[data-thumbnail-page="1"]', {button: 'right'});
+                await clickFoundAsUser(page, label => [...document.querySelectorAll('[role="menuitem"]')]
+                    .find(element => element.textContent?.trim() === label), `Rotate ${direction}`, {description: `Rotate ${direction}`});
+                await page.waitForFunction(landscape => {
+                    const target = document.querySelector<HTMLElement>('.page_container--rendered[data-page="1"]');
+                    const rect = target?.getBoundingClientRect();
+                    return rect && (rect.width > rect.height) === landscape && target?.dataset.pageLayerReadiness === 'ready';
+                }, {}, direction === 'Clockwise');
+                await openDocumentSidebarTab(page, 'search');
+                const state = await page.evaluate(() => ({
+                    query: document.querySelector<HTMLInputElement>('.document-search-bar input')?.value,
+                    summary: document.querySelector('.document-search-results')?.textContent,
+                    selected: document.querySelector('.document-search-result.is-active')?.getAttribute('data-result-index'),
+                    text: document.querySelector('.page_container[data-page="1"] .textLayer')?.textContent,
+                    currentText: [...CSS.highlights?.get('pdf-search-current-match') ?? []].map(range => range.toString()).join('')
+                        || document.querySelector('.pdf-search-highlight--current')?.textContent
+                        || document.querySelector<HTMLElement>('.pdf-word-box--current')?.dataset.word
+                        || '',
+                }));
+                writeFileSync(resolve(evidence, `${direction}.json`), JSON.stringify(state, null, 2));
+                expect(state.query).toBe('Page');
+                expect(state.summary).toContain('6 results for');
+                expect(state.selected).toBe('1');
+                expect(state.text).toContain('Page 1 sample text');
+                expect(state.currentText.toLowerCase()).toBe('page');
+                await clickAsUser(page, 'button[aria-label="Next match"]');
+                await page.waitForFunction(() => document.querySelector('.document-search-result.is-active')
+                    ?.getAttribute('data-result-index') === '2');
+                await clickAsUser(page, 'button[aria-label="Previous match"]');
+                await page.waitForFunction(() => document.querySelector('.document-search-result.is-active')
+                    ?.getAttribute('data-result-index') === '1');
+            }
+        } finally {
+            const failures = await page.evaluate(() => {
+                Reflect.get(window, '__rasterstallRotationObserver')?.disconnect();
+                return Reflect.get(window, '__rasterstallRotationFailures');
+            });
+            writeFileSync(resolve(evidence, 'render-failures.json'), JSON.stringify(failures, null, 2));
+            await page.screenshot({path: resolve(evidence, 'final.png')});
+            expect(failures).toEqual([]);
+        }
+    }, 120_000);
+
+    it('keeps every normalized ligature result inside the settled viewport', async () => {
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, resolve('tests/fixtures/electron/search/mixed-ligature-dictionary.pdf'));
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'search');
+        await clickAsUser(page, '.document-search-bar input');
+        await page.keyboard.type('office');
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('.document-search-results')?.textContent?.includes('38 results for'));
+        await page.waitForFunction(() => ![...document.querySelectorAll('.document-search-results-header-spinner')]
+            .some(element => element.getBoundingClientRect().width > 0));
+        for (let index = 0; index < 38; index += 1) {
+            if (index === 0) {
+                await clickAsUser(page, '.document-search-result[data-result-index="0"]');
+            } else {
+                await clickAsUser(page, 'button[aria-label="Next match"]');
+            }
+            await page.waitForFunction(currentIndex => document.querySelector('.document-search-result.is-active')
+                ?.getAttribute('data-result-index') === String(currentIndex), {}, index);
+            const settled = await page.evaluate(async () => {
+                const invariants = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {
+                    timeoutMs: number;
+                    requireNavigationIdle: boolean
+                }) => Promise<{
+                    settled: boolean;
+                    reason: string | null
+                }>;};
+                return invariants.waitForSettled({
+                    timeoutMs: 10_000,
+                    requireNavigationIdle: true,
+                });
+            });
+            expect(settled.settled, settled.reason ?? 'Viewer did not settle').toBe(true);
+            const current = await page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                const viewport = viewer.getBoundingClientRect();
+                const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
+                    .filter((range): range is Range => range instanceof Range);
+                const highlights = [...viewer.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current')];
+                const rects = [
+                    ...ranges.flatMap(range => [...range.getClientRects()]),
+                    ...highlights.map(element => element.getBoundingClientRect()),
+                ]
+                    .filter(rect => rect.width > 0 && rect.height > 0);
+                return {
+                    text: ranges.length ? ranges.map(range => range.toString()).join('')
+                        : highlights.map(element => element.textContent || element.dataset.word || '').join(''),
+                    viewport: viewport.toJSON(),
+                    rects: rects.map(rect => rect.toJSON()),
+                    visible: rects.length > 0 && rects.every(rect => rect.top >= viewport.top
+                        && rect.bottom <= viewport.bottom && rect.left >= viewport.left && rect.right <= viewport.right),
+                };
+            });
+            expect.soft(current.text, `Result ${index}`).toBe('oﬃce');
+            expect.soft(current.visible, `Result ${index}: ${JSON.stringify(current)}`).toBe(true);
+            console.log(`LIGATURE_NAVIGATION ${JSON.stringify({
+                index,
+                ...current,
+            })}`);
+        }
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+
     it('keeps the final result visible and centers its match after a high-zoom xlarge search', async () => {
         const session = sessionFixture.getSession();
 

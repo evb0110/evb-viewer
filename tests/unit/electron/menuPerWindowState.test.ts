@@ -26,7 +26,7 @@ interface IMenuPerWindowStateTestWindow {
         copy: ReturnType<typeof vi.fn>;
         cut: ReturnType<typeof vi.fn>;
         paste: ReturnType<typeof vi.fn>;
-        selectAll: ReturnType<typeof vi.fn>;
+        sendInputEvent: ReturnType<typeof vi.fn>;
         undo: ReturnType<typeof vi.fn>;
         redo: ReturnType<typeof vi.fn>;
         executeJavaScript: ReturnType<typeof vi.fn>;
@@ -73,7 +73,7 @@ vi.mock('electron', () => {
             copy: vi.fn(),
             cut: vi.fn(),
             paste: vi.fn(),
-            selectAll: vi.fn(),
+            sendInputEvent: vi.fn(),
             undo: vi.fn(),
             redo: vi.fn(),
             executeJavaScript: vi.fn(async () => false),
@@ -281,7 +281,7 @@ describe('menu per-window document state', () => {
         mocks.focusWindow(null);
     });
 
-    it('uses focused window document state independently', () => {
+    it('uses focused and surviving window document state independently', () => {
         const firstWindow = mocks.createWindow(1, 'First Window');
         const secondWindow = mocks.createWindow(2, 'Second Window');
 
@@ -314,6 +314,18 @@ describe('menu per-window document state', () => {
 
         template = getLastMenuTemplate();
         expect(isSaveEnabled(template)).toBe(true);
+
+        setMenuDocumentState(1, false);
+        expect(isSaveEnabled(getLastMenuTemplate())).toBe(false);
+        mocks.windows.splice(0, 1);
+        mocks.focusWindow(null);
+        firstWindow.close();
+        expect(isSaveEnabled(getLastMenuTemplate())).toBe(true);
+        expect(isSaveAsEnabled(getLastMenuTemplate())).toBe(true);
+        expect(activateApplicationMenuItem({accelerator: 'CmdOrCtrl+S'})).toMatchObject({
+            activated: true,
+            windowId: secondWindow.id,
+        });
     });
 
     it('disables save while keeping document actions enabled when a document is clean', () => {
@@ -550,48 +562,34 @@ describe('menu per-window document state', () => {
         expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
     });
 
-    it.each([
-        true,
-        false,
-    ])('routes Select All to the focused annotation editor only when eligible=%s', async (annotationFocused) => {
-        const window = mocks.createWindow(1, 'Window');
-        window.webContents.executeJavaScript.mockResolvedValueOnce(annotationFocused);
-        mocks.windows.push(window);
-        mocks.focusWindow(window);
+    it('queues Select All on the menu window keyboard input stream', () => {
+        const focusedWindow = mocks.createWindow(1, 'Focused window');
+        const menuWindow = mocks.createWindow(2, 'Menu window');
+        mocks.windows.push(focusedWindow, menuWindow);
+        mocks.focusWindow(focusedWindow);
         setupMenu();
-        setMenuDocumentState(1, true);
-
         const item = getEditMenuSubmenu(getLastMenuTemplate())
             .find(candidate => candidate.label === 'menu.selectAll');
         expect(item).toBeDefined();
-        item?.click?.({}, window);
-        await waitForMenuClickTasks();
-
-        if (annotationFocused) {
-            expect(window.webContents.send).toHaveBeenCalledWith('menu:select-all');
-            expect(window.webContents.selectAll).not.toHaveBeenCalled();
-        } else {
-            expect(window.webContents.selectAll).toHaveBeenCalledOnce();
-            expect(window.webContents.send).not.toHaveBeenCalledWith('menu:select-all');
-        }
+        item?.click?.({}, menuWindow);
+        expect(menuWindow.webContents.sendInputEvent).toHaveBeenCalledWith({
+            type: 'keyDown',
+            keyCode: 'A',
+            modifiers: ['control'],
+        });
+        expect(focusedWindow.webContents.sendInputEvent).not.toHaveBeenCalled();
     });
 
-    it('does not run Select All after its target window closes', async () => {
+    it('does not queue Select All on destroyed web contents', () => {
         const window = mocks.createWindow(1, 'Window');
-        window.webContents.executeJavaScript.mockImplementationOnce(async () => {
-            window.close();
-            return false;
-        });
         mocks.windows.push(window);
         mocks.focusWindow(window);
         setupMenu();
+        window.webContents.isDestroyed.mockReturnValue(true);
         const item = getEditMenuSubmenu(getLastMenuTemplate())
             .find(candidate => candidate.label === 'menu.selectAll');
-        expect(item).toBeDefined();
         item?.click?.({}, window);
-        await waitForMenuClickTasks();
-        expect(window.webContents.selectAll).not.toHaveBeenCalled();
-        expect(window.webContents.send).not.toHaveBeenCalled();
+        expect(window.webContents.sendInputEvent).not.toHaveBeenCalled();
     });
 
     it('does not invoke native undo when the window closes during the text focus probe', async () => {

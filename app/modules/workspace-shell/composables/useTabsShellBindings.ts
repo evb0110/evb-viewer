@@ -457,7 +457,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     // A document whose restore ended the renderer comes back closed. The user
-    // is told which one, and that Recent Files still opens it.
+    // is told which one, and that Recent Files still opens it. A document whose
+    // working copy is missing reopens from its file, and the user is told its
+    // unsaved changes wait for a start that finds the copy.
     function reportDocumentsNotReopened(checkpoint: IWorkspaceCheckpoint) {
         for (const document of checkpoint.notReopened ?? []) {
             const fileName = document.fileName ?? document.sourceRef;
@@ -471,6 +473,16 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                     progress: false,
                 });
             }
+        }
+        // Its working copy, the only home of its unsaved changes, was not found.
+        for (const tab of checkpoint.tabs.filter(candidate => candidate.workingCopyLost)) {
+            presentNoticeToast({
+                tone: 'warning',
+                title: t('errors.workspace.workingCopyLostTitle'),
+                description: t('errors.workspace.workingCopyLostDescription', {fileName: tab.fileName ?? tab.sourceRef ?? ''}),
+                duration: Number.POSITIVE_INFINITY,
+                progress: false,
+            });
         }
     }
 

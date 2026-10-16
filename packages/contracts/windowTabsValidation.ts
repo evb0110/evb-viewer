@@ -20,7 +20,6 @@ const positivePageSchema = v.pipe(
 );
 const pdfSnapshotViewStateSchema = v.object({
     zoom: v.number('invalid window tab transfer'),
-    effectiveZoom: v.number('invalid window tab transfer'),
     zoomMode: v.picklist([
         'custom',
         'fit-width',

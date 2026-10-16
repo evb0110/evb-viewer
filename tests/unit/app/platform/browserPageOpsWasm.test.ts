@@ -1,17 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+    PDFArray,
+    PDFDict,
     PDFDocument,
+    PDFHexString,
     degrees,
     PDFName,
     PDFNumber,
+    PDFRef,
     PDFString,
 } from 'pdf-lib';
-import type {
-    PDFArray,
-    PDFDict,
-    PDFRef,
-} from 'pdf-lib';
+
 import {
     beforeEach,
     describe,
@@ -19,10 +19,13 @@ import {
     it,
     vi,
 } from 'vitest';
+import * as v from 'valibot';
 import type { IPageGeometry } from '@contracts/shared';
+import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
+import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 
 const NativeWebAssembly = WebAssembly;
 const loggerWarn = vi.hoisted(() => vi.fn());
@@ -153,6 +156,87 @@ function readOutlineDestination(pdfDocument: PDFDocument) {
     return (first.get(PDFName.of('Dest')) as PDFArray).get(0) as PDFRef;
 }
 
+/** A three-page PDF whose top-level outline items are the given dictionaries. */
+async function createOutlinePdf(describeItems: (pdfDocument: PDFDocument, pages: PDFRef[]) => Array<Record<string, unknown>>) {
+    const pdfDocument = await PDFDocument.create();
+    const pages = [
+        0,
+        1,
+        2,
+    ].map(() => pdfDocument.addPage([
+        200,
+        200,
+    ]).ref);
+    const definitions = describeItems(pdfDocument, pages);
+    const outlines = pdfDocument.context.nextRef();
+    const items = definitions.map(() => pdfDocument.context.nextRef());
+    definitions.forEach((definition, index) => pdfDocument.context.assign(items[index]!, pdfDocument.context.obj({
+        ...definition,
+        Parent: outlines,
+        ...(index > 0 ? {Prev: items[index - 1]} : {}),
+        ...(index + 1 < items.length ? {Next: items[index + 1]} : {}),
+    })));
+    pdfDocument.context.assign(outlines, pdfDocument.context.obj({
+        Type: PDFName.of('Outlines'),
+        First: items[0],
+        Last: items.at(-1),
+        Count: items.length,
+    }));
+    pdfDocument.catalog.set(PDFName.of('Outlines'), outlines);
+    return pdfDocument.save();
+}
+
+/** Each top-level outline item's title, /Dest and /A as written, with the action's file specification resolved. */
+async function readOutlineTargets(data: Uint8Array) {
+    const pdfDocument = await PDFDocument.load(data);
+    let item = pdfDocument.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookupMaybe(PDFName.of('First'), PDFDict);
+    const targets = [];
+    while (item) {
+        const action = item.lookupMaybe(PDFName.of('A'), PDFDict);
+        targets.push({
+            title: item.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(),
+            dest: item.get(PDFName.of('Dest'))?.toString() ?? null,
+            action: action && {
+                kind: action.get(PDFName.of('S'))?.toString(),
+                file: action.lookup(PDFName.of('F'))?.toString(),
+                destination: action.get(PDFName.of('D'))?.toString(),
+            },
+        });
+        item = item.lookupMaybe(PDFName.of('Next'), PDFDict);
+    }
+    return targets;
+}
+
+/** Reads the outline as the browser does, renames its first item and saves it. */
+async function renameFirstBookmarkAndSave(data: Uint8Array) {
+    const wasm = await loadWasmRunner();
+    const catalog = await wasm.run('readCatalog', {data});
+    if (catalog === null || 'status' in catalog || !catalog.bookmarks) {
+        throw new Error('Expected the browser page-ops catalog to read the outline');
+    }
+    const [
+        first,
+        ...rest
+    ] = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
+    const saved = await wasm.run('saveMutations', {
+        data,
+        mutations: {bookmarks: {
+            totalPages: 3,
+            untitledLabel: 'Untitled',
+            items: [
+                {
+                    ...first!,
+                    title: `${first!.title} renamed`,
+                },
+                ...rest,
+            ],
+        }},
+        modifiedAt: 'D:20261012000000Z',
+    });
+    assertSuccessfulWasmMutation(saved);
+    return saved.data;
+}
+
 async function summarizePdf(data: Uint8Array): Promise<IPdfPageSummary[]> {
     const pdfDocument = await PDFDocument.load(data);
     return pdfDocument.getPages().map((page) => {
@@ -266,6 +350,46 @@ describe('browser page-ops WASM fast path', () => {
         vi.clearAllMocks();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    it.each([
+        false,
+        true,
+    ])('publishes a complete bounded note save, or no bytes when a continuation fails: %s', async (failContinuation) => {
+        const input = await createPdf({pageWidths: [200]});
+        const original = input.slice();
+        const mutations = normalizePdfNativeMutationSet({freeTextNotes: Array.from({length: 257}, (_, index) => ({
+            stableKey: `new-browser-note-${index}`,
+            pageIndex: failContinuation && index === 256 ? 1 : 0,
+            text: `Note ${index}`,
+            markerRect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.1,
+                height: 0.1,
+            },
+        }))}, 'Browser continuation notes');
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('saveMutations', {
+            data: input,
+            mutations,
+            modifiedAt: 'D:20261013000000Z',
+        });
+        expect(input).toEqual(original);
+        if (failContinuation) {
+            expect(result).toMatchObject({status: 'failed'});
+            expect(result).not.toHaveProperty('data');
+            return;
+        }
+        if (result === null || 'status' in result) throw new Error('Expected all note continuations to save');
+        expect(result.identityBindings.map(binding => binding.annotationId).sort())
+            .toEqual(mutations.freeTextNotes!.map(note => note.stableKey).sort());
+        const reopened = await PDFDocument.load(result.data);
+        const annotations = reopened.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+        const texts = Array.from({length: annotations.size()}, (_, index) => annotations.lookup(index, PDFDict))
+            .filter(annotation => annotation.get(PDFName.of('Subtype')) === PDFName.of('Text'))
+            .map(annotation => annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText());
+        expect(texts.sort()).toEqual(mutations.freeTextNotes!.map(note => note.text).sort());
     });
 
     it('keeps one exact live request allocation across repeated awkward lengths', async () => {
@@ -567,6 +691,12 @@ describe('browser page-ops WASM fast path', () => {
             bookmarks: [{
                 title: 'Page three',
                 pageIndex: 2,
+                pageYRatio: 0,
+                originalDestination: {
+                    kind: 'Fit',
+                    coordinates: [],
+                    sourceTarget: 2,
+                },
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -608,6 +738,11 @@ describe('browser page-ops WASM fast path', () => {
             bookmarks: [{
                 title: 'Page three',
                 pageIndex: 2,
+                originalDestination: {
+                    kind: 'Fit',
+                    coordinates: [],
+                    sourceTarget: 2,
+                },
             }],
             pageLabels: [
                 {
@@ -641,16 +776,190 @@ describe('browser page-ops WASM fast path', () => {
             throw new Error('Expected a successful browser page-ops catalog read');
         }
         expect(mergedCatalog.bookmarks).toHaveLength(2);
-        expect(mergedCatalog.bookmarks.map(bookmark => bookmark.pageIndex)).toEqual([
+        expect(mergedCatalog.bookmarks?.map(bookmark => bookmark.pageIndex)).toEqual([
             2,
             5,
         ]);
-        expect(mergedCatalog.pageLabels.map(range => range.pageIndex)).toEqual([
+        expect(mergedCatalog.pageLabels?.map(range => range.pageIndex)).toEqual([
             0,
             1,
             3,
             4,
         ]);
+    });
+
+    it('review-b6yr reads valid sibling bookmarks when one destination is dangling', async () => {
+        const data = await createOutlinePdf((_pdfDocument, pages) => [
+            {
+                Title: PDFString.of('Valid first'),
+                Dest: [
+                    pages[0],
+                    PDFName.of('Fit'),
+                ],
+            },
+            {
+                Title: PDFString.of('Target under review'),
+                Dest: PDFRef.of(9999),
+            },
+            {
+                Title: PDFString.of('Valid last'),
+                Dest: [
+                    pages[2],
+                    PDFName.of('FitH'),
+                    null,
+                ],
+            },
+        ]);
+        const wasm = await loadWasmRunner();
+        const catalog = await wasm.run('readCatalog', {data});
+        if (catalog === null || 'status' in catalog) {
+            throw new Error('Expected a successful browser page-ops catalog read');
+        }
+
+        expect(catalog.bookmarksError).toBeUndefined();
+        expect(catalog.bookmarks?.map(bookmark => [
+            bookmark.title,
+            bookmark.pageIndex,
+        ])).toEqual([
+            [
+                'Valid first',
+                0,
+            ],
+            [
+                'Target under review',
+                null,
+            ],
+            [
+                'Valid last',
+                2,
+            ],
+        ]);
+    });
+
+    it('review-b6yr keeps an untouched Unicode named destination when another bookmark is renamed', async () => {
+        const data = await createOutlinePdf((pdfDocument, pages) => {
+            pdfDocument.catalog.set(PDFName.of('Names'), pdfDocument.context.obj({Dests: {Names: [
+                PDFHexString.fromText('caf\u00e9'),
+                [
+                    pages[2],
+                    PDFName.of('FitH'),
+                    null,
+                ],
+            ]}}));
+            return [
+                {
+                    Title: PDFString.of('Chapter'),
+                    Dest: [
+                        pages[1],
+                        PDFName.of('Fit'),
+                    ],
+                },
+                {
+                    Title: PDFString.of('Named'),
+                    Dest: PDFHexString.fromText('caf\u00e9'),
+                },
+            ];
+        });
+        const source = await readOutlineTargets(data);
+
+        const saved = await readOutlineTargets(await renameFirstBookmarkAndSave(data));
+
+        expect(saved.map(target => target.title)).toEqual([
+            'Chapter renamed',
+            'Named',
+        ]);
+        expect(saved[1]).toEqual(source[1]);
+    });
+
+    it.each([
+        [
+            'a PDFDocEncoding name',
+            'caf\u00e9',
+            PDFHexString.of('636166E9'),
+        ],
+        [
+            'an ASCII name stored as UTF-16',
+            'chapter',
+            PDFHexString.fromText('chapter'),
+        ],
+        [
+            'a name with surrounding spaces',
+            ' intro ',
+            PDFString.of(' intro '),
+        ],
+    ])('keeps the name tree bytes of an untouched named destination in %s when another bookmark is renamed', async (_case, name, key) => {
+        const data = await createOutlinePdf((pdfDocument, pages) => {
+            pdfDocument.catalog.set(PDFName.of('Names'), pdfDocument.context.obj({Dests: {Names: [
+                key,
+                [
+                    pages[2],
+                    PDFName.of('FitH'),
+                    null,
+                ],
+            ]}}));
+            return [
+                {
+                    Title: PDFString.of('Chapter'),
+                    Dest: [
+                        pages[1],
+                        PDFName.of('Fit'),
+                    ],
+                },
+                {
+                    Title: PDFString.of('Named'),
+                    Dest: key,
+                },
+            ];
+        });
+
+        const saved = await renameFirstBookmarkAndSave(data);
+
+        const savedDocument = await PDFDocument.load(saved);
+        const treeKey = savedDocument.catalog.lookup(PDFName.of('Names'), PDFDict).lookup(PDFName.of('Dests'), PDFDict)
+            .lookup(PDFName.of('Names'), PDFArray).get(0).toString();
+        expect(treeKey).toBe(key.toString());
+        expect((await readOutlineTargets(saved))[1]!.dest).toBe(treeKey);
+        const reread = await (await loadWasmRunner()).run('readCatalog', {data: saved});
+        if (reread === null || 'status' in reread) {
+            throw new Error('Expected a successful browser page-ops catalog read');
+        }
+        expect(reread.bookmarks?.[1]).toMatchObject({
+            namedDest: name,
+            pageIndex: 2,
+        });
+    });
+
+    it('review-b6yr keeps an untouched GoToR with an indirect file specification when another bookmark is renamed', async () => {
+        const data = await createOutlinePdf((pdfDocument, pages) => [
+            {
+                Title: PDFString.of('Chapter'),
+                Dest: [
+                    pages[1],
+                    PDFName.of('Fit'),
+                ],
+            },
+            {
+                Title: PDFString.of('Remote'),
+                A: {
+                    S: PDFName.of('GoToR'),
+                    F: pdfDocument.context.register(pdfDocument.context.obj({
+                        Type: PDFName.of('Filespec'),
+                        F: PDFString.of('chapter-two.pdf'),
+                        UF: PDFHexString.fromText('chapter-two.pdf'),
+                    })),
+                    D: [
+                        0,
+                        PDFName.of('Fit'),
+                    ],
+                },
+            },
+        ]);
+        const source = await readOutlineTargets(data);
+
+        const saved = await readOutlineTargets(await renameFirstBookmarkAndSave(data));
+
+        expect(source[1]!.action?.file).toContain('/Filespec');
+        expect(saved[1]).toEqual(source[1]);
     });
 
     it('fails closed when core receives non-integer runtime page fields', async () => {

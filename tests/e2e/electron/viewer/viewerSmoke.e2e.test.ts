@@ -13,17 +13,27 @@ import {
     onTestFinished,
 } from 'vitest';
 import {
+    chmod,
     copyFile,
+    cp,
     mkdir,
     readdir,
     readFile,
+    rename,
     rm,
+    stat,
     truncate,
     writeFile,
 } from 'node:fs/promises';
 import { decode as decodePng } from 'fast-png';
 import {
+    decodePDFRawStream,
+    PDFDict,
     PDFDocument,
+    PDFRawStream,
+    PDFHexString,
+    PDFName,
+    PDFString,
     rgb,
     StandardFonts,
 } from 'pdf-lib';
@@ -94,6 +104,9 @@ import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrusted
 import { delay } from 'es-toolkit/promise';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import {
+    getNativeToolPathCandidates,resolveNativeToolPath,
+} from '@electron/native-tools/resolveNativeToolPath';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
@@ -109,7 +122,6 @@ import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudg
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 
@@ -1915,10 +1927,10 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(toggle).not.toBeNull();
         await toggle!.focus();
         await page.keyboard.press('Enter');
-        await waitForFunctionInPage(page, () => !document.querySelector('.pdf-bookmark-item-children'));
+        await waitForFunctionInPage(page, () => !Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(title => title.textContent === 'Child'));
         await waitForToolbarCurrentPage(page, 2);
         await page.keyboard.press('Space');
-        await page.waitForSelector('.pdf-bookmark-item-children');
+        await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(title => title.textContent === 'Child'));
         await activate('Parent');
         await expectActive('Parent', 1);
     }, 90_000);
@@ -2673,11 +2685,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             sessionName: () => `e2e-viewer-region-selection-overlay-${Date.now()}`,
         });
 
-        await session.page.setViewport({
-            deviceScaleFactor: 1,
-            height: 900,
-            width: 1_440,
-        });
+        await session.command('windowResize', [
+            1_440,
+            900,
+        ]);
         const fixturePath = await createMultiPageTextFixturePdf(
             `viewer-region-selection-overlay-${Date.now()}.pdf`,
             12,
@@ -2754,6 +2765,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             expect(selectionRect.height, `${tool.label} selection height`).toBeGreaterThan(80);
             if (tool.label === 'Screenshot') {
                 await session.page.mouse.up();
+                await clickAsUser(session.page, '[data-capture-confirm]');
                 await session.page.waitForSelector('.snip-flash', {timeout: 10_000});
             } else {
                 await session.page.mouse.up();
@@ -3591,10 +3603,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const problems: string[] = [];
         session.page.on('pageerror', error => problems.push(String(error)));
         session.page.on('console', message => {
-            if ([
-                'warning',
-                'error',
-            ].includes(message.type())) problems.push(message.text());
+            if (message.type() === 'warn' || message.type() === 'error') problems.push(message.text());
         });
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -3607,10 +3616,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             ]);
             const lines = number === 1
                 ? Array.from({length: 70}, (_, row) => `Inspection ${row + 1}: valve valve valve valve valve valve valve valve`)
-                : [`PLANT MANUAL PAGE ${number}${[
-                    64,
-                    80,
-                ].includes(number) ? ` valve LATER_DISTINCTIVE_${number}` : ''}`];
+                : [`PLANT MANUAL PAGE ${number}${(number === 64 || number === 80) ? ` valve LATER_DISTINCTIVE_${number}` : ''}`];
             lines.forEach((line, row) => page.drawText(line, {
                 x: 40,
                 y: 752 - row * 9.7,
@@ -3634,8 +3640,6 @@ describe('Electron E2E - Viewer Smoke', () => {
             return panel?.querySelector('.document-search-results-header-summary')?.textContent?.includes('500')
                 && !panel.querySelector('.document-search-results-spinner');
         }, {timeout: 15_000}, sidebar);
-        const heap = await session.page.createCDPSession();
-        onTestFinished(() => heap.detach());
         const samples: unknown[] = [];
         const inspect = async (ordinal: number, pageNumber: number, text: string) => {
             const pageOrdinal = pageNumber === 1 ? ordinal + 1 : 1;
@@ -3645,17 +3649,19 @@ describe('Electron E2E - Viewer Smoke', () => {
                 return Number(row?.dataset.pageNumber) === number
                     && row?.querySelector('.document-search-result-match')?.textContent === `Match ${match}`
                     && !panel?.querySelector('.document-search-results-spinner');
-            }, {timeout: 15_000}, sidebar, pageNumber, pageOrdinal).catch(async error => {
-                await session.page.screenshot({path: join(evidence, `unreachable-${ordinal}.png`)});
-                await writeFile(join(evidence, 'failure.json'), JSON.stringify({
-                    ordinal,
-                    pageNumber,
-                    pageOrdinal,
-                    rendered: await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent),
-                    problems,
-                }, null, 2));
-                throw error;
-            });
+            }, {timeout: 15_000}, sidebar, pageNumber, pageOrdinal);
+            await waitForToolbarCurrentPage(session.page, pageNumber);
+            await waitForViewportQuiet(session.page, 500, 10_000);
+            expect(isToolbarPageVisible(await readViewportPageObservation(session.page))).toBe(true);
+            await waitForFunctionInPage(session.page, (number: number, text: string) => {
+                const viewer = document.querySelector('.editor-pane.is-active #pdf-viewer');
+                const page = viewer?.querySelector(`.page_container[data-page="${number}"]`);
+                const mark = page?.querySelector('.pdf-search-highlight--current');
+                const bounds = mark?.getBoundingClientRect();
+                const viewport = viewer?.getBoundingClientRect();
+                return page?.querySelector('.text-layer')?.textContent?.includes(text) && mark?.textContent === 'valve'
+                    && bounds && viewport && bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+            }, {timeout: 10_000}, pageNumber, text);
             const snapshot = await session.page.evaluate((root: string) => {
                 const panel = document.querySelector(`${root} .document-search-results`);
                 const row = panel?.querySelector<HTMLElement>('.document-search-result.is-active');
@@ -3666,35 +3672,50 @@ describe('Electron E2E - Viewer Smoke', () => {
                     rows: panel?.querySelectorAll('.document-search-result').length,
                 };
             }, sidebar);
-            samples.push({
-                ordinal,
-                ...snapshot,
-                heap: await heap.send('Runtime.getHeapUsage'),
-            });
+            samples.push(snapshot);
             expect(snapshot.pageNumber).toBe(pageNumber);
             expect(snapshot.text).toContain(text);
             expect(snapshot.retained).toBeLessThanOrEqual(500);
             expect(snapshot.rows).toBeLessThan(30);
         };
+        // Select retained rows through the list; next/previous must cross windows.
+        const jump = async (index: number, retained: number) => {
+            const list = `${sidebar} .document-search-results-list`;
+            const row = `${sidebar} .document-search-result[data-result-index="${index}"]`;
+            await session.page.hover(list);
+            await session.page.mouse.wheel({deltaY: await session.page.$eval(list, (node, index, retained) => node.scrollHeight * index / retained - node.scrollTop, index, retained)});
+            await waitForFunctionInPage(session.page, (row: string) => Boolean(document.querySelector(row)), {timeout: 10_000}, row);
+            await clickAsUser(session.page, row);
+        };
         await inspect(0, 1, 'Inspection 1');
+        const selectedText = await session.page.evaluateHandle(() => {
+            const mark = document.querySelector('.editor-pane.is-active .pdf-search-highlight--current');
+            if (!mark) throw new Error('The initial current match is not painted');
+            const range = document.createRange();
+            range.selectNodeContents(mark);
+            return range;
+        });
         await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
-        for (let ordinal = 2; ordinal <= 561; ordinal++) {
-            await session.page.keyboard.press('Space');
-            if (ordinal === 500) await inspect(500, 1, 'Inspection 63');
-            if (ordinal === 560) await inspect(560, 64, 'LATER_DISTINCTIVE_64');
-        }
+        await inspect(1, 1, 'Inspection 1');
+        expect(await selectedText.evaluate(range => range.toString())).toBe('valve');
+        await selectedText.dispose();
+        await jump(499, 500);
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
+        await inspect(500, 1, 'Inspection 63');
+        await jump(60, 62);
+        await inspect(560, 64, 'LATER_DISTINCTIVE_64');
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
         await inspect(561, 80, 'LATER_DISTINCTIVE_80');
-        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .pdf-search-highlight--current')?.textContent === 'valve', {timeout: 15_000});
         await session.page.screenshot({path: join(evidence, 'later-match.png')});
         await session.page.keyboard.press('Space');
         await inspect(0, 1, 'Inspection 1');
         await clickAsUser(session.page, `${sidebar} button[aria-label="Previous match"]`);
         await inspect(561, 80, 'LATER_DISTINCTIVE_80');
-        for (let ordinal = 560; ordinal >= 61; ordinal--) {
-            await session.page.keyboard.press('Space');
-            if (ordinal === 499) await inspect(499, 1, 'Inspection 63');
-            if (ordinal === 61) await inspect(61, 1, 'Inspection 8');
-        }
+        await jump(437, 500);
+        await inspect(499, 1, 'Inspection 63');
+        await jump(0, 500);
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Previous match"]`);
+        await inspect(61, 1, 'Inspection 8');
         await writeFile(join(evidence, 'observations.json'), JSON.stringify({
             samples,
             problems,
@@ -5160,6 +5181,60 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(pageTwoSnapshot.effectiveZoom).toBe(pageOneSnapshot.effectiveZoom);
     });
 
+    it('repaints visible pages and thumbnails after opening the sidebar at DPR 2', async () => {
+        onTestFinished(() => sessionFixture.restart({
+            clean: true,
+            extraEnv: {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '1'},
+        }).then(() => {}));
+        const session = await sessionFixture.restart({
+            clean: true,
+            extraEnv: {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'},
+        });
+        const {page} = session;
+        await page.setViewport({
+            width: 1200,
+            height: 1600,
+            deviceScaleFactor: 2,
+        });
+        const fixture = await createMultiPageTextFixturePdf(`sidebar-raster-replacement-${Date.now()}.pdf`, 36);
+        onTestFinished(() => rm(fixture, {force: true}));
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewportQuiet(page);
+        expect(await page.evaluate(() => devicePixelRatio)).toBe(2);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await expect.poll(() => page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+            const bounds = viewport.getBoundingClientRect();
+            const visible = [...viewport.querySelectorAll<HTMLElement>('.page_container[data-page]')].filter(element => {
+                const box = element.getBoundingClientRect();
+                return box.top < bounds.bottom && box.bottom > bounds.top;
+            });
+            return {
+                pages: visible.length > 0 && visible.every(element => {
+                    const canvas = element.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                    return element.classList.contains('page_container--rendered') && Boolean(canvas
+                        && Math.abs(canvas.width - element.getBoundingClientRect().width * devicePixelRatio) <= 2
+                        && canvas.height > 0 && canvas.checkVisibility())
+                        && !element.querySelector('.pdf-page-render-error');
+                }),
+                thumbnails: [
+                    1,
+                    2,
+                    3,
+                    4,
+                ].every(number => {
+                    const canvas = document.querySelector<HTMLCanvasElement>(`.editor-pane.is-active [data-thumbnail-page="${number}"] .document-thumbnail-list__canvas-host canvas`);
+                    return Boolean(canvas && canvas.width > 0 && canvas.height > 0 && canvas.checkVisibility());
+                }),
+            };
+        }), {timeout: 10_000}).toEqual({
+            pages: true,
+            thumbnails: true,
+        });
+    });
+
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
         let session = sessionFixture.getSession();
 
@@ -5806,6 +5881,695 @@ describe('Electron E2E - Viewer Smoke', () => {
 describe('Electron E2E - Document Output', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-document-output-${Date.now()}`});
 
+    const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
+    function rasterizePrint(pdfPath: string, prefix: string) {
+        return execFileAsync(rasterizer, [
+            '-r',
+            '72',
+            '-png',
+            pdfPath,
+            prefix,
+        ]);
+    }
+
+    async function printFixture(fixturePath: string, printedPath: string, orientation: 'auto' | 'portrait') {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-document-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickVisibleToolbarButton(session.page, 'Print');
+        if (orientation === 'portrait') {
+            const portrait = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Portrait"])', {visible: true});
+            await clickAsUser(session.page, portrait!);
+        }
+        const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {visible: true});
+        await clickAsUser(session.page, submit!);
+        await expect.poll(() => existsSync(printedPath), {timeout: 30_000}).toBe(true);
+        return session;
+    }
+
+    it('prints appearance-less annotation styles through advanced print', async () => {
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `annotation-print-${Date.now()}`);
+        await mkdir(printDirectory, {recursive: true});
+        const fixturePath = join(printDirectory, 'annotations.pdf');
+        const printedPath = join(printDirectory, 'printed.pdf');
+        const expectedPath = join(printDirectory, 'native.pdf');
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const styles = [
+            'S',
+            'D',
+            'B',
+            'I',
+            'U',
+            'Mystery',
+        ];
+        const line = {
+            Subtype: 'Line',
+            L: [
+                120,
+                550,
+                280,
+                650,
+            ],
+        };
+        const inset = [
+            30,
+            30,
+            30,
+            30,
+        ];
+        const vertices = [
+            120,
+            520,
+            200,
+            680,
+            280,
+            520,
+        ];
+        const controls = styles.map(style => ({
+            Subtype: 'Square',
+            BS: {
+                W: 4,
+                S: style,
+                D: new Array<number>(),
+            },
+        }));
+        controls.push({
+            Subtype: 'Square',
+            BS: {
+                W: 4,
+                S: 'D',
+                D: [
+                    -1,
+                    2,
+                ],
+            },
+        });
+        const printAnnotations = [
+            ...controls,
+            {
+                Subtype: 'Square',
+                Border: [
+                    0,
+                    0,
+                    4,
+                    [],
+                ],
+            },
+            {
+                Subtype: 'Square',
+                BS: {
+                    W: 4,
+                    S: 'D',
+                    D: [
+                        0,
+                        0,
+                    ],
+                },
+            },
+            ...[
+                0,
+                1,
+                2,
+            ].map(intensity => ({
+                Subtype: 'Circle',
+                BE: {
+                    S: 'C',
+                    I: intensity,
+                },
+                RD: inset,
+            })),
+            {
+                Subtype: 'Square',
+                RD: inset,
+            },
+            ...[
+                'Square',
+                'Circle',
+                'Diamond',
+                'OpenArrow',
+                'ClosedArrow',
+                'None',
+                'Butt',
+                'ROpenArrow',
+                'RClosedArrow',
+                'Slash',
+            ]
+                .map(ending => ({
+                    ...line,
+                    LE: [
+                        ending,
+                        ending,
+                    ],
+                    BS: {
+                        W: 4,
+                        S: 'D',
+                        D: [
+                            8,
+                            8,
+                        ],
+                    },
+                })),
+            {
+                Subtype: 'PolyLine',
+                Vertices: [
+                    120,
+                    520,
+                    120,
+                    680,
+                    280,
+                    680,
+                ],
+                LE: [
+                    'OpenArrow',
+                    'OpenArrow',
+                ],
+            },
+            ...[
+                [],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ].map(interior => ({
+                ...line,
+                LE: [
+                    'ClosedArrow',
+                    'ClosedArrow',
+                ],
+                IC: interior,
+            })),
+            {
+                Subtype: 'Polygon',
+                Vertices: vertices,
+            },
+            {
+                Subtype: 'Ink',
+                InkList: [vertices],
+            },
+            ...styles.map(style => ({
+                Subtype: 'FreeText',
+                Contents: PDFString.of('Printable text'),
+                DA: PDFString.of('/Helv 12 Tf 0 g'),
+                BS: {
+                    W: 4,
+                    S: style,
+                },
+                RD: [
+                    10,
+                    10,
+                    10,
+                    10,
+                ],
+            })),
+            {
+                Subtype: 'FreeText',
+                Contents: PDFHexString.fromText('Latin abc ܐ xyz'),
+                DA: PDFString.of('/Missing 20 Tf 0 g'),
+                BS: {W: 0},
+                C: [],
+            },
+            {
+                Subtype: 'FreeText',
+                Contents: PDFString.of('Rotate ABC'),
+                DA: PDFString.of('/Missing 20 Tf 0 g'),
+                BS: {W: 0},
+                C: [],
+                PageRotation: 90,
+            },
+        ];
+        for (const annotation of printAnnotations) {
+            const page = pdf.addPage([
+                595.28,
+                841.89,
+            ]);
+            if ('PageRotation' in annotation) {
+                page.node.set(PDFName.of('Rotate'), pdf.context.obj(annotation.PageRotation));
+            }
+            page.node.set(PDFName.of('Resources'), pdf.context.obj({Font: {Helv: font.ref}}));
+            const reference = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Rect: [
+                    90,
+                    490,
+                    310,
+                    710,
+                ],
+                C: [
+                    1,
+                    0,
+                    0,
+                ],
+                F: 4,
+                BS: {W: 4},
+                ...annotation,
+            }));
+            page.node.set(PDFName.of('Annots'), pdf.context.obj([reference]));
+        }
+        await writeFile(fixturePath, await pdf.save({useObjectStreams: false}));
+        const evidenceDirectory = process.env.EVB_AU66BR5_EVIDENCE_DIR;
+        if (evidenceDirectory) {
+            await mkdir(evidenceDirectory, {recursive: true});
+            await copyFile(fixturePath, join(evidenceDirectory, 'annotations.pdf'));
+        }
+        const session = await printFixture(fixturePath, printedPath, 'portrait');
+        if (evidenceDirectory) {
+            onTestFinished(async () => {
+                await sessionFixture.stop({preserveArtifacts: true});
+                await cp(join(process.cwd(), '.devkit', 'sessions', session.name, 'recordings'), join(evidenceDirectory, 'recordings'), {recursive: true});
+                // Keep this suite's normal session owner ready for later cases.
+                await sessionFixture.start({clean: true});
+            });
+        }
+        const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+        await execFileAsync(resolveNativePageOpsPath()!, [
+            'print-layout',
+            '--input',
+            fixturePath,
+            '--output',
+            expectedPath,
+            '--view-mode',
+            'single',
+            '--orientation',
+            'portrait',
+        ]);
+        expect((await PDFDocument.load(await readFile(printedPath))).getPageCount()).toBe(printAnnotations.length);
+        await rasterizePrint(printedPath, join(printDirectory, 'app'));
+        await rasterizePrint(expectedPath, join(printDirectory, 'native'));
+        for (const name of (await readdir(printDirectory)).filter(name => name.startsWith('app-') && name.endsWith('.png'))) {
+            expect(await readFile(join(printDirectory, name))).toEqual(await readFile(join(printDirectory, name.replace('app-', 'native-'))));
+        }
+        if (evidenceDirectory) {
+            await copyFile(printedPath, join(evidenceDirectory, 'printed.pdf'));
+            await copyFile(expectedPath, join(evidenceDirectory, 'native.pdf'));
+            await session.page.screenshot({path: join(evidenceDirectory, 'completed.png')});
+        }
+        for (const pageNumber of [
+            printAnnotations.length - 1,
+            printAnnotations.length,
+        ]) {
+            const image = decodePng(await readFile(join(printDirectory, `app-${pageNumber}.png`)));
+            let ink = 0;
+            for (let i = 0; i < image.data.length; i += image.channels) {
+                if (Math.min(Number(image.data[i]), Number(image.data[i + 1]), Number(image.data[i + 2])) < 220) {
+                    ink += 1;
+                }
+            }
+            if (evidenceDirectory) {
+                await copyFile(join(printDirectory, `app-${pageNumber}.png`), join(evidenceDirectory, `printed-page-${pageNumber}.png`));
+            }
+            console.info(`[FreeText print] page=${pageNumber} ink=${ink}`);
+            expect.soft(ink, `FreeText page ${pageNumber} must print its text`).toBeGreaterThan(300);
+        }
+    }, 180_000);
+
+    it('prints Auto annotations on their own pages and preserves appearance-bearing PDF bytes', async () => {
+        const fixtureDirectory = resolve(process.cwd(), 'tests/fixtures/electron/interop/print-semitic');
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `auto-print-${Date.now()}`);
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const printedPath = join(printDirectory, 'printed.pdf');
+        const controlPath = join(printDirectory, 'control.pdf');
+        const control = await PDFDocument.load(await readFile(resolve('tests/fixtures/electron/freetext-lifecycle-test.pdf')));
+        for (const page of control.getPages()) {
+            const annotations = page.node.Annots()?.asArray() ?? [];
+            page.node.set(PDFName.of('Annots'), control.context.obj(annotations.filter(reference =>
+                control.context.lookup(reference, PDFDict).has(PDFName.of('AP')))));
+        }
+        await writeFile(controlPath, await control.save());
+        const semiticPath = join(fixtureDirectory, 'semitic.pdf');
+        // Odd sizes and turns where only page 2's Square lacks an appearance.
+        const mixedPath = join(printDirectory, 'mixed.pdf');
+        const mixed = await PDFDocument.create();
+        for (const [
+            index,
+            size,
+        ] of ([
+                [
+                    306,
+                    396,
+                ],
+                [
+                    1000,
+                    250,
+                ],
+                [
+                    500,
+                    700,
+                ],
+                [
+                    612,
+                    792,
+                ],
+            ] as const).entries()) {
+            const page = mixed.addPage([...size]);
+            page.node.set(PDFName.of('Rotate'), mixed.context.obj(index * 90));
+            page.drawRectangle({
+                x: 20,
+                y: 30,
+                width: 180,
+                height: 60,
+                color: rgb(0.3, 0.6, 0.7),
+            });
+            const appearance = mixed.context.register(mixed.context.flateStream('q 1 0 0 RG 2 w 1 1 118 58 re S Q', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    120,
+                    60,
+                ],
+            }));
+            page.node.set(PDFName.of('Annots'), mixed.context.obj([mixed.context.register(mixed.context.obj({
+                Type: 'Annot',
+                Subtype: 'Square',
+                Rect: [
+                    30,
+                    120,
+                    150,
+                    180,
+                ],
+                F: 4,
+                C: [
+                    1,
+                    0,
+                    0,
+                ],
+                BS: {W: 2},
+                ...(index === 1 ? {} : {AP: {N: appearance}}),
+            }))]));
+        }
+        await writeFile(mixedPath, await mixed.save({useObjectStreams: false}));
+        // FreeText drawn only by its embedded Devanagari font, in an image-heavy
+        // file whose dictionaries load structurally. The native layout of a small
+        // copy, which loads eagerly, is the expected drawing.
+        const devanagariFont = await readFile(resolve('tests/fixtures/electron/interop/print-devanagari/NotoSansDevanagari-subset.ttf'));
+        const writeDevanagariPdf = async (path: string, imageBytes: number) => {
+            const pdf = await PDFDocument.create();
+            const page = pdf.addPage([
+                612,
+                792,
+            ]);
+            const program = pdf.context.register(pdf.context.stream(devanagariFont, {Length1: devanagariFont.length}));
+            const descriptor = pdf.context.register(pdf.context.obj({
+                Type: 'FontDescriptor',
+                FontName: 'NotoSansDevanagari',
+                FontFile2: program,
+                Flags: 32,
+                FontBBox: [
+                    -1000,
+                    -1000,
+                    2000,
+                    2000,
+                ],
+                ItalicAngle: 0,
+                Ascent: 1000,
+                Descent: -500,
+                CapHeight: 900,
+                StemV: 80,
+            }));
+            const descendant = pdf.context.register(pdf.context.obj({
+                Type: 'Font',
+                Subtype: 'CIDFontType2',
+                BaseFont: 'NotoSansDevanagari',
+                CIDSystemInfo: {
+                    Registry: PDFString.of('Adobe'),
+                    Ordering: PDFString.of('Identity'),
+                    Supplement: 0,
+                },
+                FontDescriptor: descriptor,
+                CIDToGIDMap: 'Identity',
+            }));
+            const font = pdf.context.register(pdf.context.obj({
+                Type: 'Font',
+                Subtype: 'Type0',
+                BaseFont: 'NotoSansDevanagari',
+                Encoding: 'Identity-H',
+                DescendantFonts: [descendant],
+            }));
+            const image = pdf.context.register(pdf.context.stream(new Uint8Array(imageBytes), {
+                Type: 'XObject',
+                Subtype: 'Image',
+                Width: 1,
+                Height: 1,
+                ColorSpace: 'DeviceGray',
+                BitsPerComponent: 8,
+            }));
+            page.node.set(PDFName.of('Resources'), pdf.context.obj({
+                Font: {DocFont: font},
+                XObject: {Im: image},
+            }));
+            page.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                Rect: [
+                    60,
+                    120,
+                    550,
+                    220,
+                ],
+                F: 4,
+                Contents: PDFHexString.fromText('हिन्दी नमस्ते'),
+                DA: PDFString.of('/DocFont 28 Tf 0 g'),
+                BS: {W: 0},
+                P: page.ref,
+            }))]));
+            await writeFile(path, await pdf.save({useObjectStreams: false}));
+        };
+        const devanagariPath = join(printDirectory, 'devanagari.pdf');
+        const devanagariExpectedPath = join(printDirectory, 'devanagari-expected.pdf');
+        await writeDevanagariPdf(devanagariPath, 18 * 1024 * 1024);
+        await writeDevanagariPdf(join(printDirectory, 'devanagari-small.pdf'), 1);
+        const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+        await execFileAsync(resolveNativePageOpsPath()!, [
+            'print-layout',
+            '--input',
+            join(printDirectory, 'devanagari-small.pdf'),
+            '--output',
+            devanagariExpectedPath,
+            '--view-mode',
+            'single',
+            '--orientation',
+            'auto',
+        ]);
+        // A page without a MediaBox anywhere, which readers take as Letter.
+        const noMediaBoxPath = join(printDirectory, 'no-media-box.pdf');
+        const noMediaBox = await PDFDocument.create();
+        const noMediaBoxPage = noMediaBox.addPage([
+            612,
+            792,
+        ]);
+        noMediaBoxPage.node.delete(PDFName.of('MediaBox'));
+        noMediaBoxPage.node.set(PDFName.of('Annots'), noMediaBox.context.obj([noMediaBox.context.register(noMediaBox.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Rect: [
+                60,
+                600,
+                400,
+                700,
+            ],
+            F: 4,
+            Contents: PDFString.of('Margin note'),
+            DA: PDFString.of('/Helv 18 Tf 0 0 1 rg'),
+        }))]));
+        await writeFile(noMediaBoxPath, await noMediaBox.save({useObjectStreams: false}));
+        // A filled form that relies on NeedAppearances, beside a FreeText without /AP.
+        const formPath = join(printDirectory, 'form.pdf');
+        const form = await PDFDocument.create();
+        const formPage = form.addPage([
+            612,
+            792,
+        ]);
+        const fieldRect = [
+            72,
+            600,
+            300,
+            630,
+        ];
+        const noteRect = [
+            72,
+            400,
+            300,
+            460,
+        ];
+        const field = form.context.register(form.context.obj({
+            Type: 'Annot',
+            Subtype: 'Widget',
+            FT: 'Tx',
+            T: PDFString.of('name'),
+            V: PDFString.of('Field value'),
+            DA: PDFString.of('/Helv 12 Tf 0 g'),
+            Rect: fieldRect,
+            F: 4,
+            P: formPage.ref,
+        }));
+        const note = form.context.register(form.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Contents: PDFString.of('Printed note'),
+            DA: PDFString.of('/Helv 14 Tf 0 0 1 rg'),
+            Rect: noteRect,
+            F: 4,
+            P: formPage.ref,
+        }));
+        formPage.node.set(PDFName.of('Annots'), form.context.obj([
+            field,
+            note,
+        ]));
+        const helvetica = form.context.register(form.context.obj({
+            Type: 'Font',
+            Subtype: 'Type1',
+            BaseFont: 'Helvetica',
+        }));
+        form.catalog.set(PDFName.of('AcroForm'), form.context.obj({
+            Fields: [field],
+            NeedAppearances: true,
+            DR: {Font: {Helv: helvetica}},
+            DA: PDFString.of('/Helv 0 Tf 0 g'),
+        }));
+        await writeFile(formPath, await form.save({
+            useObjectStreams: false,
+            updateFieldAppearances: false,
+        }));
+        // Rows of a 72 dpi render inside a PDF rectangle.
+        const renderedRegion = async (png: string, rect: number[]) => {
+            const [
+                left = 0,
+                bottom = 0,
+                right = 0,
+                top = 0,
+            ] = rect;
+            const image = decodePng(await readFile(png));
+            const values: number[] = [];
+            for (let y = image.height - top; y < image.height - bottom; y += 1) {
+                values.push(...image.data.subarray((y * image.width + left) * image.channels, (y * image.width + right) * image.channels));
+            }
+            return values;
+        };
+        const geometry = async (bytes: Buffer) => (await PDFDocument.load(bytes)).getPages()
+            .map(page => [
+                page.getWidth(),
+                page.getHeight(),
+                page.getRotation().angle,
+            ]);
+        const evidenceDirectory = process.env.EVB_PRINTAUTO_EVIDENCE_DIR;
+        const glyphCodes = async (path: string) => {
+            const pdf = await PDFDocument.load(await readFile(path));
+            return pdf.context.enumerateIndirectObjects().flatMap(([
+                , object,
+            ]) => {
+                if (!(object instanceof PDFRawStream)) return [];
+                const content = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
+                return [...content.matchAll(/<([\da-f]+)>\s*Tj/giu)]
+                    .flatMap(match => match[1]!.match(/.{4}/gu)?.map(code => Number.parseInt(code, 16)) ?? []);
+            }).sort((left, right) => left - right);
+        };
+        // The byte control runs first so a missing Semitic print still records it.
+        for (const name of [
+            'control',
+            'mixed',
+            'form',
+            'devanagari',
+            'semitic',
+            'portrait',
+            'noMediaBox',
+        ] as const) {
+            const source = {
+                control: controlPath,
+                mixed: mixedPath,
+                form: formPath,
+                devanagari: devanagariPath,
+                semitic: semiticPath,
+                portrait: semiticPath,
+                noMediaBox: noMediaBoxPath,
+            }[name];
+            await rm(printedPath, {force: true});
+            const session = await printFixture(source, printedPath, name === 'portrait' ? 'portrait' : 'auto');
+            if (evidenceDirectory) {
+                await mkdir(evidenceDirectory, {recursive: true});
+                await copyFile(source, join(evidenceDirectory, `${name}-source.pdf`));
+                await copyFile(printedPath, join(evidenceDirectory, `${name}-printed.pdf`));
+            }
+            if (name === 'control') {
+                expect.soft(await readFile(printedPath)).toEqual(await readFile(source));
+                console.info('[Auto print] appearance control byte comparison complete');
+                continue;
+            }
+            if (name === 'mixed') {
+                const sourceBytes = await readFile(source);
+                const printed = await readFile(printedPath);
+                expect.soft(await geometry(printed), 'Auto keeps every page size and turn').toEqual(await geometry(sourceBytes));
+                expect.soft(printed.subarray(0, sourceBytes.length)).toEqual(sourceBytes);
+                const square = (await PDFDocument.load(printed)).getPage(1).node.Annots()?.lookup(0, PDFDict);
+                expect.soft(square?.has(PDFName.of('AP')), 'page 2 Square gains its appearance').toBe(true);
+                continue;
+            }
+            if (name === 'noMediaBox') {
+                expect.soft((await glyphCodes(printedPath)).length, 'the note prints its text').toBeGreaterThanOrEqual(10);
+                continue;
+            }
+            if (name === 'devanagari') {
+                expect.soft(await glyphCodes(printedPath), 'the FreeText draws its embedded font').toEqual(await glyphCodes(devanagariExpectedPath));
+                await rasterizePrint(printedPath, join(printDirectory, 'devanagari-printed'));
+                await rasterizePrint(devanagariExpectedPath, join(printDirectory, 'devanagari-expected'));
+                const pagePixels = async (png: string) => createHash('sha256').update(decodePng(await readFile(join(printDirectory, png))).data).digest('hex');
+                expect.soft(await pagePixels('devanagari-printed-1.png')).toBe(await pagePixels('devanagari-expected-1.png'));
+                continue;
+            }
+            if (name === 'form') {
+                const sourceBytes = await readFile(source);
+                const printed = await readFile(printedPath);
+                expect.soft(printed.subarray(0, sourceBytes.length)).toEqual(sourceBytes);
+                const annotations = (await PDFDocument.load(printed)).getPage(0).node.Annots();
+                expect.soft(annotations?.lookup(0, PDFDict).has(PDFName.of('AP')), 'the field keeps printing from its value').toBe(false);
+                expect.soft(annotations?.lookup(1, PDFDict).has(PDFName.of('AP')), 'the FreeText gains its appearance').toBe(true);
+                // Base handed the source itself to the printer.
+                await rasterizePrint(printedPath, join(printDirectory, 'form-printed'));
+                await rasterizePrint(source, join(printDirectory, 'form-base'));
+                expect.soft(await renderedRegion(join(printDirectory, 'form-printed-1.png'), fieldRect), 'the field value prints as on base')
+                    .toEqual(await renderedRegion(join(printDirectory, 'form-base-1.png'), fieldRect));
+                const noteRegion = await renderedRegion(join(printDirectory, 'form-printed-1.png'), noteRect);
+                expect.soft(noteRegion.some(value => value < 128), 'the FreeText prints').toBe(true);
+                continue;
+            }
+            const codes = await glyphCodes(printedPath);
+            const expectedCodes = await glyphCodes(join(fixtureDirectory, 'reference.pdf'));
+            console.info('[Auto print] glyph codes', JSON.stringify({
+                codes,
+                expectedCodes,
+            }));
+            expect.soft(codes).toEqual(expectedCodes);
+            await rasterizePrint(printedPath, join(printDirectory, 'printed'));
+            await rasterizePrint(join(fixtureDirectory, 'reference.pdf'), join(printDirectory, 'reference'));
+            if (evidenceDirectory) {
+                await copyFile(join(printDirectory, 'printed-1.png'), join(evidenceDirectory, `${name}-printed.png`));
+                await copyFile(join(printDirectory, 'reference-1.png'), join(evidenceDirectory, 'semitic-reference.png'));
+                await session.page.screenshot({path: join(evidenceDirectory, `${name}-completed.png`)});
+            }
+            const pixelHash = (bytes: Buffer) => createHash('sha256').update(decodePng(bytes).data).digest('hex');
+            expect(pixelHash(await readFile(join(printDirectory, 'printed-1.png'))))
+                .toBe(pixelHash(await readFile(join(printDirectory, 'reference-1.png'))));
+        }
+    }, 180_000);
+
     it('hands off the first dirty path-backed print without saving the original', async () => {
         const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);
         const sourceChecksum = createHash('sha256').update(await readFile(fixturePath)).digest('hex');
@@ -5851,6 +6615,149 @@ describe('Electron E2E - Document Output', () => {
         expect(createHash('sha256').update(await readFile(fixturePath)).digest('hex')).toBe(sourceChecksum);
         await session.page.waitForSelector('.tab.is-dirty', {visible: true});
     }, 120_000);
+
+    it.each([
+        'Save',
+        'Save As',
+        'Save then edit',
+    ] as const)('prints a text box after %s', async (scenario) => {
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-after-save-${Date.now()}.pdf`, 1);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-print-after-save-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-print-after-save-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+                EVB_E2E_SAVE_DIALOG_PATH: join(printDirectory, 'saved-as.pdf'),
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const marker = 'Printed after save contains accepted text';
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        if (scenario === 'Save As') {
+            await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Shift+S'});
+        } else {
+            await clickVisibleToolbarButton(session.page, 'Save');
+        }
+        await waitForFunctionInPage(session.page, () => !document.querySelector('.tab.is-dirty'), {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const secondMarker = 'Second unsaved edit is printed too';
+        if (scenario === 'Save then edit') {
+            await createCanonicalTextBoxWithPointer(session.page, secondMarker, {
+                x: 0.4,
+                y: 0.45,
+            });
+            await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        }
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const submit = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await clickAsUser(session.page, submit!);
+        // A refused print reports its reason in a failure toast and writes nothing,
+        // so the toast's text is the failure to report.
+        const deadline = Date.now() + 30_000;
+        while (!existsSync(printedPath)) {
+            const failure = await session.page.evaluate(() => document.querySelector('.app-toast-failure')?.textContent?.trim() ?? '');
+            if (failure) {
+                throw new Error(`Printing after Save failed: ${failure}`);
+            }
+            if (Date.now() > deadline) {
+                throw new Error('Printing after Save wrote no file');
+            }
+            await delay(250);
+        }
+        // The printed page must show the saved text box, whichever route printed it.
+        const printedText = async () => {
+            const {stdout} = await execFileAsync(resolve(
+                process.cwd(),
+                'resources',
+                'poppler',
+                resolvePlatformArchTag(),
+                'bin',
+                process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext',
+            ), [
+                printedPath,
+                '-',
+            ], {timeout: 30_000});
+            return stdout.replace(/\s+/gu, ' ');
+        };
+        await expect.poll(printedText, {timeout: 30_000}).toContain(marker);
+        if (scenario === 'Save then edit') {
+            expect(await printedText()).toContain(secondMarker);
+            await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        }
+    });
+
+    it('crpart3ne prints single Auto when the native layout tool is unavailable', async () => {
+        const fixturePath = await createMultiPageTextFixturePdf(`crpart3ne-print-${Date.now()}.pdf`, 1);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `crpart3ne-print-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-crpart3ne-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const binary = process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops';
+        const paths = getNativeToolPathCandidates({
+            binaryName: binary,
+            crateName: 'pdf-page-ops',
+            currentDir: resolve('electron'),
+            isPackaged: false,
+        });
+        const moved: string[] = [];
+        try {
+            for (const path of paths) {
+                await rename(path, `${path}.crpart3ne-away`).then(() => moved.push(path), () => undefined);
+            }
+            expect(moved.length).toBeGreaterThan(0);
+            expect((await Promise.all(paths.map(path => stat(path).then(() => true, () => false)))).some(Boolean)).toBe(false);
+            await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Print"]'))
+                .find(button => !button.disabled && button.checkVisibility()), null, {description: 'Open print dialog'});
+            const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {
+                timeout: 15_000,
+                visible: true,
+            });
+            await clickAsUser(session.page, submit!);
+            await expect.poll(async () => {
+                try { return (await PDFDocument.load(await readFile(printedPath))).getPageCount(); } catch { return null; }
+            }, {timeout: 30_000}).toBe(1);
+            const {stdout} = await execFileAsync(resolve('resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext'), [
+                printedPath,
+                '-',
+            ]);
+            expect(stdout).toContain('Page 1 sample text');
+        } finally {
+            for (const path of moved) await rename(`${path}.crpart3ne-away`, path);
+        }
+    }, 90_000);
 
     it('prints a typed page range of a PDF through the print dialog', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-range-${Date.now()}.pdf`, 4);
@@ -5988,7 +6895,7 @@ describe('Electron E2E - Document Output', () => {
             force: true,
             recursive: true,
         }));
-        const session = await sessionFixture.restart({
+        let session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-smoke-export-image-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: join(exportDirectory, 'exported.png')},
@@ -5997,30 +6904,33 @@ describe('Electron E2E - Document Output', () => {
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
-        await openDocumentSidebarTab(session.page, 'Pages');
-        const thumbnailSelector = '.editor-pane.is-active [data-thumbnail-page="1"]';
-        await session.page.waitForSelector(thumbnailSelector, {
-            timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
-            visible: true,
-        });
-        const thumbnail = await session.page.$(thumbnailSelector);
-        await clickAsUser(session.page, thumbnail!, {button: 'right'});
-        const exportItem = await session.page.waitForSelector(
-            '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Export Pages")])',
-            {
-                timeout: 15_000,
+        async function exportFirstPage() {
+            await openDocumentSidebarTab(session.page, 'Pages');
+            const thumbnailSelector = '.editor-pane.is-active [data-thumbnail-page="1"]';
+            await session.page.waitForSelector(thumbnailSelector, {
+                timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
                 visible: true,
-            },
-        );
-        await clickAsUser(session.page, exportItem!);
-        const exportAction = await session.page.waitForSelector(
-            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Export Images"])',
-            {
-                timeout: 15_000,
-                visible: true,
-            },
-        );
-        await clickAsUser(session.page, exportAction!);
+            });
+            const thumbnail = await session.page.$(thumbnailSelector);
+            await clickAsUser(session.page, thumbnail!, {button: 'right'});
+            const exportItem = await session.page.waitForSelector(
+                '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Export Pages")])',
+                {
+                    timeout: 15_000,
+                    visible: true,
+                },
+            );
+            await clickAsUser(session.page, exportItem!);
+            const exportAction = await session.page.waitForSelector(
+                '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Export Images"])',
+                {
+                    timeout: 15_000,
+                    visible: true,
+                },
+            );
+            await clickAsUser(session.page, exportAction!);
+        }
+        await exportFirstPage();
 
         await expect.poll(async () => (await readdir(exportDirectory)).filter(name => name.endsWith('.png')), {timeout: 60_000})
             .not.toEqual([]);
@@ -6038,6 +6948,36 @@ describe('Electron E2E - Document Output', () => {
         expect(image.width).toBeGreaterThan(300);
         expect(inkPixels).toBeGreaterThan(100);
         await expect(readFile(fixturePath)).resolves.toEqual(sourceBytes);
+        if (process.platform === 'linux' && process.getuid?.() !== 0) {
+            const readOnlyDirectory = join(exportDirectory, 'read-only');
+            await mkdir(readOnlyDirectory);
+            await chmod(readOnlyDirectory, 0o555);
+            try {
+                session = await sessionFixture.restart({
+                    clean: true,
+                    sessionName: () => `e2e-searchpaint-export-refused-${Date.now()}`,
+                    extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: join(readOnlyDirectory, 'refused.png')},
+                });
+                await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await exportFirstPage();
+                await session.page.waitForSelector('.app-toast-failure', {
+                    visible: true,
+                    timeout: 60_000,
+                });
+                const description = await session.page.$eval('.app-toast-failure', toast => toast.textContent ?? '');
+                const evidenceDirectory = resolve('.devkit/evidence/searchpaint');
+                await mkdir(evidenceDirectory, {recursive: true});
+                await session.page.screenshot({path: join(evidenceDirectory, `export-refusal-${process.env.SEARCHPAINT_PHASE ?? 'after'}.png`)});
+                expect(description).toContain('EVB Viewer was not allowed to write in that folder.');
+                expect(description).not.toMatch(/Error invoking remote method|pdfExport:images|EACCES|copyfile|\.tmp\b/u);
+                expect(await readdir(readOnlyDirectory)).toEqual([]);
+            } finally {
+                await chmod(readOnlyDirectory, 0o755);
+            }
+        }
+
     }, 120_000);
 });
 
@@ -6152,6 +7092,118 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(djvu.frame).toEqual(pdf.frame);
         expect(djvu.label).toEqual(pdf.label);
     }, 150_000);
+
+    it('keeps toolbar zoom equal to painted PDF and DjVu pages through fit and zoom input', async () => {
+        const session = await sessionFixture.restart({clean: true});
+        const page = session.page;
+        if (!djvuFixture.path) throw new Error(djvuFixture.reason);
+        const pdfPath = await createMultiPageTextFixturePdf(`zoom-owner-${Date.now()}.pdf`, 2);
+        const pdf = await PDFDocument.load(await readFile(pdfPath));
+        const pdfSize = pdf.getPage(0).getSize();
+        await openDjvuInApp(page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const djvuSize = await page.evaluate(async (path: ReturnType<typeof requireDocumentRef>) => {
+            const info = await (window as IE2EWindow).electronAPI!.djvu.getPageSourceInfo(path, 1);
+            return info.pageSize;
+        }, requireDocumentRef(djvuFixture.path));
+        const isMac = await page.evaluate(() => /Mac/iu.test(navigator.platform));
+        for (const fixture of [
+            {
+                kind: 'djvu',
+                path: djvuFixture.path,
+                width: djvuSize.width * 72 / djvuSize.dpi,
+                height: djvuSize.height * 72 / djvuSize.dpi,
+            },
+            {
+                kind: 'pdf',
+                path: pdfPath,
+                ...pdfSize,
+            },
+        ]) {
+            if (fixture.kind === 'pdf') {
+                await openPdfInApp(page, fixture.path, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+            }
+            const readPaintedZoom = () => page.evaluate((size: {
+                width: number;
+                height: number
+            }) => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                const visual = Array.from(host?.querySelectorAll<HTMLImageElement | HTMLCanvasElement>(
+                    '[data-document-page-number="1"] img[data-testid="document-page-source-image"], .page_container[data-page="1"] .page_canvas canvas',
+                ) ?? []).find(element => element.getBoundingClientRect().width > 0 && element.checkVisibility());
+                const painted = visual instanceof HTMLImageElement
+                    ? visual.complete && visual.naturalWidth > 0
+                    : Boolean(visual && visual.width > 0);
+                const bounds = visual?.getBoundingClientRect();
+                const zoomText = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
+                    .find(element => element.checkVisibility())?.textContent ?? '';
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.effectiveZoom;
+                return {
+                    painted,
+                    toolbar,
+                    display: Number.parseInt(zoomText, 10) / 100,
+                    widthZoom: (bounds?.width ?? 0) / size.width,
+                    heightZoom: (bounds?.height ?? 0) / size.height,
+                };
+            }, {
+                width: fixture.width,
+                height: fixture.height,
+            });
+            const check = async (step: string) => {
+                console.info('[zoom-owner-before]', fixture.kind, step, await readPaintedZoom());
+                await expect.poll(async () => {
+                    const sample = await readPaintedZoom();
+                    return sample.painted && typeof sample.toolbar === 'number'
+                        && Math.abs(sample.toolbar - sample.widthZoom) * fixture.width <= 1
+                        && Math.abs(sample.toolbar - sample.heightZoom) * fixture.height <= 1
+                        && Math.abs(sample.display - sample.toolbar) <= 0.0051;
+                }, {
+                    timeout: 10_000,
+                    message: `${fixture.kind}: ${step}`,
+                }).toBe(true);
+                console.info('[zoom-owner]', fixture.kind, step, await readPaintedZoom());
+            };
+            await check('open fit-width');
+            for (const axis of [
+                'Height',
+                'Width',
+            ]) {
+                await clickAsUser(page, '.zoom-controls-display');
+                await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
+                    .find(button => button.textContent?.includes(label) && button.checkVisibility()), `Fit ${axis}`, {description: `Fit ${axis} in the zoom menu`});
+                await page.keyboard.press('Escape');
+                await waitForWorkspaceToolbarSnapshot(page, {zoomMode: axis === 'Height' ? 'fit-height' : 'fit-width'}, {timeoutMs: 10_000});
+                await check(`fit-${axis.toLowerCase()}`);
+            }
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+0'});
+            await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 1}, {timeoutMs: 10_000});
+            await check('actual size');
+            for (const accelerator of [
+                'CmdOrCtrl+=',
+                'CmdOrCtrl+-',
+            ]) {
+                await activateMenuItemAsUser(page, {accelerator});
+                await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: accelerator.endsWith('=') ? 1.25 : 1}, {timeoutMs: 10_000});
+                await check(accelerator);
+            }
+            const point = await page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]')!;
+                const bounds = viewport.getBoundingClientRect();
+                return {
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2,
+                };
+            });
+            const beforeWheel = (await readPaintedZoom()).toolbar!;
+            await page.mouse.move(point.x, point.y);
+            await page.keyboard.down(isMac ? 'Meta' : 'Control');
+            await page.mouse.wheel({deltaY: 120});
+            await page.keyboard.up(isMac ? 'Meta' : 'Control');
+            await expect.poll(async () => (await readPaintedZoom()).toolbar!, {timeout: 10_000}).toBeLessThan(beforeWheel - 0.005);
+            await check('wheel zoom');
+        }
+    }, 180_000);
 
     it('uses the shared macOS Control-scroll and Command-zoom policy for DjVu', async () => {
         let session = sessionFixture.getSession();

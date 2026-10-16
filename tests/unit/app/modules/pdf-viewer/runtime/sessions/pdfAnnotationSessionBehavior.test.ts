@@ -14,7 +14,9 @@ import {
 import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
+import type {
+    IPdfAnnotationParseResult, TPdfAnnotationParseEntity,
+} from '@contracts/pdfAnnotationParseTypes';
 
 const revisionToken = requireDocumentRevisionToken('drt1:annotation-session-behavior-test');
 
@@ -106,10 +108,21 @@ describe('PDF annotation session behavior', () => {
             selectedText: null,
         };
         const created = store.createTextMarkup(markup);
-        const parsedMarkupGeometryByPdfRef = new Map([[
-            '12 0 R',
-            parsedQuadPoints,
-        ]]);
+        const parsedEntities: TPdfAnnotationParseEntity[] = [{
+            kind: 'highlight',
+            name: 'parsed-highlight',
+            objectNumber: 12,
+            generationNumber: 0,
+            pageIndex: requirePageIndex(0),
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            subtype: 'Highlight',
+            contents: '',
+            quadPoints: parsedQuadPoints,
+            color: '#ffff00',
+            opacity: 1,
+        }];
 
         applyParsedHighlightTextToStore({
             targetStore: store,
@@ -117,7 +130,7 @@ describe('PDF annotation session behavior', () => {
                 '12 0 R',
                 'selected text',
             ]]),
-            parsedMarkupGeometryByPdfRef,
+            parsedEntities,
         });
         expect(store.get(created.identity.id)).toMatchObject({selectedText: 'selected text'});
 
@@ -132,7 +145,7 @@ describe('PDF annotation session behavior', () => {
                 '12 0 R',
                 null,
             ]]),
-            parsedMarkupGeometryByPdfRef,
+            parsedEntities,
         });
         expect(store.get(created.identity.id)).toMatchObject({
             contents: 'Authored note',
@@ -146,7 +159,7 @@ describe('PDF annotation session behavior', () => {
                 '12 0 R',
                 'stale text',
             ]]),
-            parsedMarkupGeometryByPdfRef,
+            parsedEntities,
         });
         expect(store.get(created.identity.id)).toMatchObject({selectedText: null});
     });
@@ -202,16 +215,24 @@ describe('PDF annotation session behavior', () => {
                     'second preview',
                 ],
             ]),
-            parsedMarkupGeometryByPdfRef: new Map([
-                [
-                    '12 0 R',
-                    quadPoints,
-                ],
-                [
-                    '13 0 R',
-                    quadPoints,
-                ],
-            ]),
+            parsedEntities: [
+                12,
+                13,
+            ].map((objectNumber): TPdfAnnotationParseEntity => ({
+                kind: 'highlight',
+                name: `parsed-${objectNumber}`,
+                objectNumber,
+                generationNumber: 0,
+                pageIndex: requirePageIndex(0),
+                author: null,
+                createdAt: null,
+                modifiedAt: null,
+                subtype: 'Highlight',
+                contents: '',
+                quadPoints,
+                color: '#ffff00',
+                opacity: 1,
+            })),
         };
 
         applyParsedHighlightTextToStore(options);

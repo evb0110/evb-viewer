@@ -82,6 +82,25 @@ describe('PDF.js provenance attack fixtures', () => {
         }]);
     });
 
+    it('reads CRLF listings from Windows bsdtar the same as LF listings', () => {
+        const rows = [
+            '-rw-rw-rw-  0 0      0           1 Oct 12 06:20 package/file.js',
+            '-rw-rw-rw-  0 0      0           7 Oct 12 06:20 package/other.js',
+        ];
+        expect(parseArchiveListing(`${rows.join('\r\n')}\r\n`)).toEqual([
+            {
+                type: 'file',
+                size: 1,
+                path: 'file.js',
+            },
+            {
+                type: 'file',
+                size: 7,
+                path: 'other.js',
+            },
+        ]);
+    });
+
     it.each([
         'package/../outside',
         '/tmp/outside',

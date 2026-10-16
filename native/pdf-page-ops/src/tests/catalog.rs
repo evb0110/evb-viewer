@@ -36,6 +36,9 @@ fn appends_page_labels_and_bookmarks_as_incremental_revision() {
                     page_index: Some(0),
                     page_y_ratio: Some(0.5),
                     named_dest: None,
+                    original_destination: None,
+                    original_action: None,
+                    original_named_dest: None,
                     bold: true,
                     italic: false,
                     color: Some("#336699".to_string()),
@@ -305,6 +308,9 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         page_index: Some(0),
         page_y_ratio: None,
         named_dest: None,
+                    original_destination: None,
+                    original_action: None,
+                    original_named_dest: None,
         bold: false,
         italic: false,
         color: None,
@@ -343,6 +349,9 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
             page_index: Some(0),
             page_y_ratio: None,
             named_dest: None,
+                    original_destination: None,
+                    original_action: None,
+                    original_named_dest: None,
             bold: false,
             italic: false,
             color: None,
@@ -437,6 +446,9 @@ fn appends_metadata_removal_as_incremental_revision() {
                 page_index: Some(0),
                 page_y_ratio: None,
                 named_dest: None,
+                    original_destination: None,
+                    original_action: None,
+                    original_named_dest: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -769,6 +781,9 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 page_index: Some(0),
                 page_y_ratio: Some(0.25),
                 named_dest: None,
+                    original_destination: None,
+                    original_action: None,
+                    original_named_dest: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -779,6 +794,9 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 page_index: Some(999_999),
                 page_y_ratio: Some(0.75),
                 named_dest: None,
+                    original_destination: None,
+                    original_action: None,
+                    original_named_dest: None,
                 bold: true,
                 italic: true,
                 color: Some("#336699".to_string()),
@@ -1382,4 +1400,446 @@ fn cleanup_split_keeps_notes_with_their_owner_and_markup_on_both_halves() {
             &right[0]
         );
     }
+}
+
+#[test]
+fn saved_bookmark_anchor_uses_rotated_crop_coordinates() {
+    for (rotation, expected) in [
+        (0, (None, 260.0)),
+        (90, (Some(160.0), 80.0)),
+        (180, (None, 140.0)),
+        (270, (Some(360.0), 320.0)),
+    ] {
+        let (mut document, page_id) = create_test_document();
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set("MediaBox", vec![0.into(), 0.into(), 600.into(), 800.into()]);
+        page.set(
+            "CropBox",
+            vec![60.into(), 80.into(), 460.into(), 320.into()],
+        );
+        page.set("Rotate", rotation);
+        let mut input = Vec::new();
+        document.save_to(&mut input).unwrap();
+        let mutations = read_native_mutations_bytes(
+            br#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Anchor","pageIndex":0,"pageYRatio":0.25,"namedDest":null,"bold":false,"italic":false,"color":null,"items":[]}]}}"#,
+        ).unwrap();
+        let output =
+            append_native_mutations_to_bytes(&input, &mutations, "D:20261011000000Z").unwrap();
+        let loaded = Document::load_mem(&output.data).unwrap();
+        let outlines = loaded
+            .get_dictionary(
+                loaded
+                    .catalog()
+                    .unwrap()
+                    .get(b"Outlines")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let bookmark = loaded
+            .get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap())
+            .unwrap();
+        let dest = bookmark.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(dest[1].as_name().unwrap(), b"XYZ");
+        match expected.0 {
+            Some(left) => assert!(
+                (f64::from(dest[2].as_float().unwrap()) - left).abs() < 0.01,
+                "rotation {rotation}"
+            ),
+            None => assert!(dest[2].is_null()),
+        }
+        assert!(
+            (f64::from(dest[3].as_float().unwrap()) - expected.1).abs() < 0.01,
+            "rotation {rotation}"
+        );
+    }
+}
+
+#[test]
+fn saved_resolved_named_bookmark_keeps_source_name() {
+    let (mut document, page_id) = create_test_document();
+    document.get_dictionary_mut(document.root_id().unwrap()).unwrap().set("Dests", dictionary! {"chapter" => vec![page_id.into(), Object::Name(b"FitH".to_vec()), Object::Null]});
+    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
+        "totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Named","pageIndex":0,"pageYRatio":0.2,"namedDest":"chapter","items":[]}]
+    }})).unwrap()).unwrap();
+    let mut input = Vec::new(); document.save_to(&mut input).unwrap();
+    let output = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap();
+    for saved in [Document::load_mem(&output.data).unwrap(), {
+        set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).unwrap(); document
+    }] {
+        let outlines = saved.get_dictionary(saved.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+        let bookmark = saved.get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap()).unwrap();
+        assert_eq!(bookmark.get(b"Dest").unwrap().as_str().unwrap(), b"chapter");
+    }
+}
+
+#[test]
+fn saved_bookmark_refuses_a_page_dictionary_outside_the_page_tree() {
+    let (mut document, page_id) = create_test_document();
+    let orphan = document.add_object(document.get_dictionary(page_id).unwrap().clone());
+    for name in [serde_json::Value::Null, serde_json::json!(""), serde_json::json!("  ")] {
+    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
+        "totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Deleted","pageIndex":null,"namedDest":name,
+        "originalDestination":{"sourceTarget":{"num":orphan.0,"gen":orphan.1},"kind":"Fit","coordinates":[]},"items":[]}]
+    }})).unwrap()).unwrap();
+    let mut input = Vec::new(); document.save_to(&mut input).unwrap();
+    let error = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").err().unwrap();
+    assert!(error.to_string().contains("not in the current page tree"));
+    assert!(set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).is_err());
+    }
+}
+
+#[test]
+fn saved_bookmark_preserves_original_destination_before_lookup() {
+    for (kind, coordinates) in [
+        ("XYZ", serde_json::json!([null, null, null])), ("FitH", serde_json::json!([null])),
+        ("FitR", serde_json::json!([100, 200, 500, 600])), ("Fit", serde_json::json!([])),
+        ("FitV", serde_json::json!([null])), ("FitB", serde_json::json!([])),
+        ("FitBH", serde_json::json!([25])), ("FitBV", serde_json::json!([null])),
+    ] {
+        let (mut document, page_id) = create_test_document();
+        let mut input = Vec::new(); document.save_to(&mut input).unwrap();
+        for source_target in [serde_json::json!({"num": page_id.0, "gen": page_id.1}), serde_json::json!(0)] {
+            let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
+                "totalPages":1, "untitledLabel":"Untitled", "items":[{"title":"Renamed", "pageIndex":null, "namedDest":null,
+                "originalDestination":{"sourceTarget":source_target,"kind":kind,"coordinates":coordinates},
+                "bold":true,"italic":false,"color":null,"items":[]}]
+            }})).unwrap()).unwrap();
+            let output = append_native_mutations_to_bytes(&input, &mutations, "D:20261011000000Z").unwrap();
+            let loaded = Document::load_mem(&output.data).unwrap();
+            let outlines = loaded.get_dictionary(loaded.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+            let bookmark = loaded.get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap()).unwrap();
+            let destination = bookmark.get(b"Dest").unwrap().as_array().unwrap();
+            assert_eq!(destination[0].as_reference().unwrap(), page_id);
+            assert_eq!(destination[1].as_name().unwrap(), kind.as_bytes());
+            for (actual, expected) in destination.iter().skip(2).zip(coordinates.as_array().unwrap()) {
+                if expected.is_null() {assert!(actual.is_null(), "{kind}");}
+                else {assert_eq!(f64::from(actual.as_float().unwrap()), expected.as_f64().unwrap());}
+            }
+        }
+    }
+}
+
+/// The review-b6zk projection fixture: explicit kinds, a name, and remote,
+/// launch and URI actions, one of them behind a reference. A local name
+/// `remote-chapter` must not capture the GoToR destination of the same name.
+fn create_source_intent_outline() -> (Document, ObjectId) {
+    let (mut document, page_id) = create_test_document();
+    let uri_action = document.add_object(dictionary! {
+        "S" => "URI",
+        "URI" => Object::String(b"https://example.org/a?b=1".to_vec(), StringFormat::Hexadecimal),
+    });
+    let fit = |kind: &str| vec![page_id.into(), Object::Name(kind.as_bytes().to_vec())];
+    let items = [
+        ("Fit", dictionary! {"Dest" => fit("Fit")}),
+        ("Named", dictionary! {"Dest" => Object::string_literal("chapter")}),
+        ("GoTo", dictionary! {"A" => dictionary! {"S" => "GoTo", "D" => fit("FitB")}}),
+        ("Remote", dictionary! {"A" => dictionary! {
+            "S" => "GoToR",
+            "F" => Object::string_literal("other.pdf"),
+            "D" => Object::string_literal("remote-chapter"),
+            "NewWindow" => true,
+        }}),
+        ("Launch", dictionary! {"A" => dictionary! {
+            "S" => "Launch",
+            "F" => Object::string_literal("tool.exe"),
+            "Win" => dictionary! {"F" => Object::string_literal("tool.exe"), "P" => Object::string_literal("-x 1.5")},
+        }}),
+        ("Uri", dictionary! {"A" => uri_action}),
+    ];
+    let outlines_id = document.new_object_id();
+    let ids = items.iter().map(|_| document.new_object_id()).collect::<Vec<_>>();
+    for (index, (title, mut item)) in items.into_iter().enumerate() {
+        item.set("Title", Object::string_literal(title));
+        item.set("Parent", outlines_id);
+        if let Some(next) = ids.get(index + 1) {
+            item.set("Next", *next);
+        }
+        document.set_object(ids[index], item);
+    }
+    document.set_object(outlines_id, dictionary! {
+        "Type" => "Outlines", "First" => ids[0], "Last" => *ids.last().unwrap(), "Count" => 6,
+    });
+    let catalog = document.get_dictionary_mut(document.root_id().unwrap()).unwrap();
+    catalog.set("Outlines", outlines_id);
+    catalog.set("Dests", dictionary! {"chapter" => fit("FitH"), "remote-chapter" => fit("Fit")});
+    (document, page_id)
+}
+
+fn outline_targets(document: &Document) -> Vec<(String, Option<Object>, Option<Object>)> {
+    let outlines = document.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+    let mut next = document.get_dictionary(outlines).unwrap().get(b"First").ok().cloned();
+    let mut targets = Vec::new();
+    while let Some(Ok(id)) = next.map(|value| value.as_reference()) {
+        let item = document.get_dictionary(id).unwrap();
+        let resolve = |key: &[u8]| item.get(key).ok().map(|value| document.dereference(value).unwrap().1.clone());
+        let title = lopdf::decode_text_string(item.get(b"Title").unwrap()).unwrap();
+        targets.push((title, resolve(b"Dest"), resolve(b"A")));
+        next = item.get(b"Next").ok().cloned();
+    }
+    targets
+}
+
+#[test]
+fn read_outline_keeps_source_names_and_actions_other_than_go_to() {
+    let (document, _page_id) = create_source_intent_outline();
+    let outline = read_pdf_outline(&document, true).unwrap();
+    let summary = outline
+        .iter()
+        .map(|item| (item.title.as_str(), item.page_index, item.named_dest.as_deref(), item.original_action.is_some()))
+        .collect::<Vec<_>>();
+    assert_eq!(summary, [
+        ("Fit", Some(0), None, false),
+        ("Named", Some(0), Some("chapter"), false),
+        ("GoTo", Some(0), None, false),
+        ("Remote", None, None, true),
+        ("Launch", None, None, true),
+        ("Uri", None, None, true),
+    ]);
+    assert!(outline[1].original_destination.is_none(), "a kept name stays the target");
+    let combined = read_pdf_combine_catalog(&document).unwrap().bookmarks;
+    assert_eq!(combined[1].named_dest, None, "a combine resolves names it cannot carry");
+    assert_eq!(combined[1].page_index, Some(0));
+    assert_eq!(combined[3].original_action, outline[3].original_action);
+}
+
+#[test]
+fn saved_outline_writes_untouched_actions_and_names_back_unchanged() {
+    for append in [false, true] {
+        let (mut document, _page_id) = create_source_intent_outline();
+        let source = outline_targets(&document);
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        items[0]["title"] = "Fit renamed".into();
+        let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
+            "totalPages": 1, "untitledLabel": "Untitled", "items": items,
+        }})).unwrap()).unwrap();
+        let saved = if append {
+            let mut input = Vec::new();
+            document.save_to(&mut input).unwrap();
+            Document::load_mem(&append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap().data).unwrap()
+        } else {
+            set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).unwrap();
+            document
+        };
+        let mut expected = source;
+        expected[0].0 = "Fit renamed".to_string();
+        // The renamed item keeps its target, a name stays a name, and a GoTo
+        // action is written as the destination it names.
+        expected[2] = ("GoTo".to_string(), expected[2].2.as_ref().map(|action| action.as_dict().unwrap().get(b"D").unwrap().clone()), None);
+        assert_eq!(outline_targets(&saved), expected, "append {append}");
+    }
+}
+
+#[test]
+fn read_outline_bounds_and_refuses_unrepresentable_actions() {
+    let (mut document, page_id) = create_source_intent_outline();
+    let first = document.get_dictionary(document.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap().get(b"First").unwrap().as_reference().unwrap();
+    for action in [
+        dictionary! {"S" => "GoToR", "F" => page_id},
+        dictionary! {"S" => "URI", "URI" => Object::String(vec![b'a'; 20_000], StringFormat::Literal)},
+        (0..20).fold(dictionary! {"S" => "Named"}, |inner, _| dictionary! {"S" => "Next", "Next" => inner}),
+    ] {
+        let item = document.get_dictionary_mut(first).unwrap();
+        item.remove(b"Dest");
+        item.set("A", action);
+        let outline = read_pdf_outline(&document, true).unwrap();
+        assert_eq!((outline[0].page_index, &outline[0].original_action), (None, &None));
+    }
+    let oversized = serde_json::json!({"dict": [["S", {"name": "URI"}], ["URI", {"literal": vec![97; 20_000]}]]});
+    let error = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
+        "totalPages": 1, "untitledLabel": "Untitled", "items": [{"title": "Big", "pageIndex": null, "originalAction": oversized, "items": []}],
+    }})).unwrap())
+    .and_then(|mutations| set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()));
+    assert!(error.unwrap_err().to_string().contains("size ceiling"));
+}
+
+#[test]
+fn document_catalog_reads_each_part_whatever_happens_to_the_other() {
+    let (mut document, _page_id) = create_source_intent_outline();
+    let root_id = document.root_id().unwrap();
+    let catalog = document.get_dictionary_mut(root_id).unwrap();
+    catalog.set("PageLabels", dictionary! {"Nums" => vec![0.into(), Object::Integer(5)]});
+    let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
+    assert_eq!(parts["bookmarks"].as_array().unwrap().len(), 6);
+    assert!(parts["pageLabelsError"].is_string() && parts.get("pageLabels").is_none());
+    assert!(read_pdf_combine_catalog(&document).is_err());
+
+    let catalog = document.get_dictionary_mut(root_id).unwrap();
+    catalog.set("PageLabels", dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r"}.into()]});
+    catalog.set("Outlines", Object::Integer(5));
+    let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
+    assert_eq!(parts["pageLabels"][0]["style"], "r");
+    assert!(parts["bookmarksError"].is_string() && parts.get("bookmarks").is_none());
+    assert!(read_pdf_combine_catalog(&document).is_err());
+}
+
+#[test]
+fn dangling_destination_stays_local_to_its_entry() {
+    let (mut document, _page_id) = create_source_intent_outline();
+    let outlines = document.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+    let first = document.get_dictionary(outlines).unwrap().get(b"First").unwrap().as_reference().unwrap();
+    let item = document.get_dictionary_mut(first).unwrap();
+    item.set("Dest", Object::Reference((9999, 0)));
+    let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
+    let titles = parts["bookmarks"].as_array().unwrap().iter().map(|item| item["title"].as_str().unwrap()).collect::<Vec<_>>();
+    assert_eq!(titles, ["Fit", "Named", "GoTo", "Remote", "Launch", "Uri"], "{parts}");
+    assert!(parts["bookmarks"][0]["pageIndex"].is_null() && parts["bookmarks"][0].get("originalDestination").is_none());
+    assert_eq!(parts["bookmarks"][1]["namedDest"], "chapter");
+}
+fn save_outline_entries(document: &mut Document, items: serde_json::Value, append: bool) -> Document {
+    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
+        "totalPages": 1, "untitledLabel": "Untitled", "items": items,
+    }})).unwrap()).unwrap();
+    if append {
+        let mut input = Vec::new();
+        document.save_to(&mut input).unwrap();
+        Document::load_mem(&append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap().data).unwrap()
+    } else {
+        set_bookmarks(document, mutations.bookmarks.as_ref().unwrap()).unwrap();
+        document.clone()
+    }
+}
+
+#[test]
+fn saved_unicode_named_destination_keeps_its_bytes() {
+    for append in [false, true] {
+        let (mut document, page_id) = create_test_document();
+        let key = Object::String(encode_pdf_text_string("caf\u{e9}"), StringFormat::Hexadecimal);
+        let outlines_id = document.new_object_id();
+        let item = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Named"), "Parent" => outlines_id, "Dest" => key.clone(),
+        });
+        document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => item, "Last" => item, "Count" => 1});
+        let catalog = document.get_dictionary_mut(document.root_id().unwrap()).unwrap();
+        catalog.set("Outlines", outlines_id);
+        catalog.set("Names", dictionary! {"Dests" => dictionary! {
+            "Names" => vec![key.clone(), vec![page_id.into(), Object::Name(b"FitH".to_vec()), Object::Null].into()],
+        }});
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        assert_eq!(items[0]["namedDest"], "caf\u{e9}");
+        items[0]["title"] = "Named renamed".into();
+        items.as_array_mut().unwrap().push(serde_json::json!({"title": "Typed", "pageIndex": null, "namedDest": "na\u{ef}ve", "items": []}));
+        let saved = save_outline_entries(&mut document, items, append);
+        let targets = outline_targets(&saved);
+        assert_eq!(targets[0].1, Some(key), "append {append}");
+        assert_eq!(targets[1].1, Some(Object::String(encode_pdf_text_string("na\u{ef}ve"), StringFormat::Hexadecimal)));
+    }
+}
+
+#[test]
+fn saved_untouched_names_keep_their_name_tree_bytes() {
+    // A PDFDocEncoding name and an ASCII name in UTF-16 decode to text the
+    // writer would encode differently, and a name with surrounding spaces is
+    // not one to trim; readers match the key by its bytes.
+    let cases = [
+        ("caf\u{e9}", Object::String(b"caf\xe9".to_vec(), StringFormat::Literal)),
+        ("chapter", Object::String(encode_pdf_text_string("chapter"), StringFormat::Hexadecimal)),
+        (" intro ", Object::string_literal(" intro ")),
+    ];
+    for ((name, key), append) in cases.into_iter().flat_map(|case| [(case.clone(), false), (case, true)]) {
+        let (mut document, page_id) = create_test_document();
+        let outlines_id = document.new_object_id();
+        let chapter = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Chapter"), "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), Object::Name(b"Fit".to_vec())],
+        });
+        let named = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Named"), "Parent" => outlines_id, "Prev" => chapter, "Dest" => key.clone(),
+        });
+        document.get_dictionary_mut(chapter).unwrap().set("Next", named);
+        document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => chapter, "Last" => named, "Count" => 2});
+        let catalog = document.get_dictionary_mut(document.root_id().unwrap()).unwrap();
+        catalog.set("Outlines", outlines_id);
+        catalog.set("Names", dictionary! {"Dests" => dictionary! {
+            "Names" => vec![key.clone(), vec![page_id.into(), Object::Name(b"FitH".to_vec()), Object::Null].into()],
+        }});
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        assert_eq!(items[1]["namedDest"], name);
+        items[0]["title"] = "Chapter renamed".into();
+        let mut edited = items[1].clone();
+        edited["title"] = "Edited".into();
+        edited["namedDest"] = "edited".into();
+        items.as_array_mut().unwrap().push(edited);
+        let saved = save_outline_entries(&mut document, items, append);
+        let targets = outline_targets(&saved);
+        assert_eq!(targets[1].1, Some(key), "{name} append {append}");
+        assert_eq!(targets[2].1, Some(Object::string_literal("edited")), "{name} append {append}");
+        let reread = read_pdf_outline(&saved, true).unwrap();
+        assert_eq!((reread[1].named_dest.as_deref(), reread[1].page_index), (Some(name), Some(0)));
+    }
+}
+
+#[test]
+fn saved_go_to_r_keeps_an_indirect_file_specification() {
+    for append in [false, true] {
+        let (mut document, _page_id) = create_test_document();
+        let filespec = dictionary! {
+            "Type" => "Filespec", "F" => Object::string_literal("chapter-two.pdf"),
+            "UF" => Object::String(encode_pdf_text_string("chapter-two.pdf"), StringFormat::Hexadecimal),
+        };
+        let filespec_id = document.add_object(filespec.clone());
+        let embedded = document.add_object(Stream::new(dictionary! {}, b"attached".to_vec()));
+        let outlines_id = document.new_object_id();
+        let action = |file: Object| dictionary! {"S" => "GoToR", "F" => file, "D" => vec![0.into(), Object::Name(b"Fit".to_vec())]};
+        let remote = document.add_object(dictionary! {"Title" => Object::string_literal("Remote"), "Parent" => outlines_id, "A" => action(filespec_id.into())});
+        let streamed = document.add_object(dictionary! {"Title" => Object::string_literal("Streamed"), "Parent" => outlines_id, "Prev" => remote,
+            "A" => action(dictionary! {"Type" => "Filespec", "F" => Object::string_literal("a.pdf"), "EF" => dictionary! {"F" => embedded}}.into())});
+        document.get_dictionary_mut(remote).unwrap().set("Next", streamed);
+        document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => remote, "Last" => streamed, "Count" => 2});
+        document.get_dictionary_mut(document.root_id().unwrap()).unwrap().set("Outlines", outlines_id);
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        assert!(items[0]["originalAction"].is_object() && items[1].get("originalAction").is_none(), "{items}");
+        items[1]["title"] = "Streamed renamed".into();
+        let saved = save_outline_entries(&mut document, items, append);
+        let targets = outline_targets(&saved);
+        assert_eq!(targets[0].2, Some(Object::Dictionary(action(filespec.clone().into()))), "append {append}");
+        assert_eq!(targets[1].2, None);
+    }
+}
+
+#[test]
+fn accepted_named_and_pending_targets_resolve_without_dropping_unknown_entries() {
+    use evb_native_support::pdf_catalog::BookmarkSourceTarget;
+    let (mut document, page_id) = create_test_document();
+    let root_id = document
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let destination = Object::Array(vec![
+        Object::Reference(page_id),
+        Object::Name(b"Fit".to_vec()),
+    ]);
+    document.get_dictionary_mut(root_id).unwrap().set("Names", dictionary! {
+        "Dests" => dictionary! { "Names" => vec![Object::String(vec![0xe9], StringFormat::Hexadecimal), destination] }
+    });
+    let mut items: Vec<BookmarkEntry> = serde_json::from_value(serde_json::json!([
+        {"title":"Accepted name", "pageIndex":null, "namedDest":"é", "items":[]},
+        {"title":"Pending", "pageIndex":null, "originalDestination":{"kind":"Fit", "sourceTarget":{"num":page_id.0,"gen":page_id.1},"coordinates":[]},"items":[]},
+        {"title":"Unknown", "pageIndex":null, "namedDest":"missing", "items":[]},
+        {"title":"Missing ref", "pageIndex":null, "originalDestination":{"kind":"Fit","sourceTarget":{"num":9999,"gen":0},"coordinates":[]},"items":[]}
+    ])).unwrap();
+    let unknown = items[2..].to_vec();
+    crate::outline::names::resolve_bookmark_source_targets(&document, &mut items).unwrap();
+    assert_eq!(items[0].page_index, Some(0));
+    assert_eq!(items[0].named_dest.as_deref(), Some("é"));
+    assert_eq!(items[1].page_index, Some(0));
+    assert_eq!(
+        items[1]
+            .original_destination
+            .as_ref()
+            .unwrap()
+            .source_target,
+        BookmarkSourceTarget::PageIndex(0)
+    );
+    assert_eq!(items[2..], unknown);
+    document
+        .get_dictionary_mut(root_id)
+        .unwrap()
+        .set("Names", Object::Reference((9999, 0)));
+    let mut unreadable = unknown.clone();
+    crate::outline::names::resolve_bookmark_source_targets(&document, &mut unreadable).unwrap();
+    assert_eq!(unreadable, unknown);
 }

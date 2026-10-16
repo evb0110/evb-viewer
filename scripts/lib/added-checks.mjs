@@ -147,10 +147,29 @@ export function readAddsChecksTrailer(message) {
     return TRAILER_PATTERN.exec(message)?.[1]?.trim() ?? null;
 }
 
-/** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @returns {string[]} */
-export function findAddedChecks(entries, readAddedLines) {
+// A title follows `it(`/`test(`, a one-line `it.each(...)(`, or the `])(` that
+// closes a multi-line `it.each([...])` table.
+const TEST_TITLE_PATTERN = /(?:\b(?:it|test)(?:\.each\([^)]*\))?|^\s*\]\))\(\s*(['"`])((?:\\.|(?!\1).)+)\1/gu;
+
+/** @param {string[]} lines @returns {string[]} */
+function testTitlesOf(lines) {
+    return lines.flatMap(line => Array.from(line.matchAll(TEST_TITLE_PATTERN), match => match[2] ?? ''));
+}
+
+// Moving a test between files edits an existing check: a new test file whose
+// every test title the same change removes elsewhere is a move, and a moved
+// line (an existing timeout, say) is not a new tolerance.
+/** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @param {TReadAddedLines} [readRemovedLines] returns its `-` lines @returns {string[]} */
+export function findAddedChecks(entries, readAddedLines, readRemovedLines = () => []) {
     /** @type {string[]} */
     const found = [];
+    const removedTestLines = entries
+        .filter(({
+            path, status,
+        }) => status !== 'A' && TEST_FILE_PATTERN.test(path))
+        .flatMap(({path}) => readRemovedLines(path));
+    const movedLines = new Set(removedTestLines.map(line => line.trim()));
+    const movedTitles = new Set(testTitlesOf(removedTestLines));
     for (const {
         path,
         status,
@@ -158,18 +177,19 @@ export function findAddedChecks(entries, readAddedLines) {
         if (status === 'D') {
             continue;
         }
+        const isTestFile = TEST_FILE_PATTERN.test(path);
+        const rawAddedLines = readAddedLines(path);
+        const addedLines = rawAddedLines.filter(line => !isTestFile || !movedLines.has(line.trim()));
         if (status === 'A') {
+            const titles = isTestFile ? testTitlesOf(rawAddedLines) : [];
+            const moved = titles.length > 0 && titles.every(title => movedTitles.has(title));
             const rule = ADDED_CHECK_FILE_PATTERNS.find(candidate => candidate.pattern.test(path));
-            if (rule) {
+            if (rule && !moved) {
                 found.push(`${rule.label}: ${path}`);
                 continue;
             }
         }
         const lineRules = ADDED_CHECK_LINE_PATTERNS.filter(candidate => candidate.file.test(path));
-        if (lineRules.length === 0) {
-            continue;
-        }
-        const addedLines = readAddedLines(path);
         for (const rule of lineRules) {
             const line = addedLines.find(candidate => rule.pattern.test(candidate));
             if (line) {
@@ -242,6 +262,13 @@ function addedLinesOf(diff) {
         .filter(line => !removedKeys.has(JSON_KEY_PATTERN.exec(line)?.[1] ?? '\0'));
 }
 
+/** @param {string} diff @returns {string[]} */
+function removedLinesOf(diff) {
+    return diff.split('\n')
+        .filter(line => line.startsWith('-') && !line.startsWith('---'))
+        .map(line => line.slice(1));
+}
+
 /** @param {string[]} arguments_ @param {string} cwd @returns {string | null} */
 function git(arguments_, cwd) {
     const result = spawnSync('git', arguments_, {
@@ -265,14 +292,19 @@ function findStagedAddedChecksAgainst(cwd, base) {
     if (names === null) {
         return [];
     }
-    return findAddedChecks(parseNameStatus(names), path => addedLinesOf(git([
-        'diff',
-        '--cached',
-        '-U0',
-        ...base,
-        '--',
+    const entries = parseNameStatus(names);
+    const diffs = new Map(entries.map(({path}) => [
         path,
-    ], cwd) ?? ''));
+        git([
+            'diff',
+            '--cached',
+            '-U0',
+            ...base,
+            '--',
+            path,
+        ], cwd) ?? '',
+    ]));
+    return findAddedChecks(entries, path => addedLinesOf(diffs.get(path) ?? ''), path => removedLinesOf(diffs.get(path) ?? ''));
 }
 
 // A merge commit only adds what neither parent already had, so a check that
@@ -307,16 +339,21 @@ function findCommitAddedChecks(commit, cwd) {
     if (names === null) {
         return [];
     }
-    return findAddedChecks(parseNameStatus(names), path => addedLinesOf(git([
-        'diff-tree',
-        '--no-commit-id',
-        '--root',
-        '-p',
-        '-U0',
-        commit,
-        '--',
+    const entries = parseNameStatus(names);
+    const diffs = new Map(entries.map(({path}) => [
         path,
-    ], cwd) ?? ''));
+        git([
+            'diff-tree',
+            '--no-commit-id',
+            '--root',
+            '-p',
+            '-U0',
+            commit,
+            '--',
+            path,
+        ], cwd) ?? '',
+    ]));
+    return findAddedChecks(entries, path => addedLinesOf(diffs.get(path) ?? ''), path => removedLinesOf(diffs.get(path) ?? ''));
 }
 
 /** @param {string[]} commits @param {string} cwd @returns {{matches: string[], subject: string}[]} */

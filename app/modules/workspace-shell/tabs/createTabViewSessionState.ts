@@ -10,7 +10,6 @@ export function createTabViewSessionState(
         ...(previousState?.scanCleanup ? {scanCleanup: previousState.scanCleanup} : {}),
         currentPage: Math.max(1, Math.trunc(snapshot.currentPage)),
         zoom: snapshot.zoom,
-        effectiveZoom: snapshot.effectiveZoom,
         zoomMode: snapshot.zoomMode,
         fitMode: snapshot.fitMode,
         viewMode: snapshot.viewMode,

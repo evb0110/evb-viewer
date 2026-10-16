@@ -50,6 +50,7 @@
                 @update:zoom-preset="applyZoomPreset"
                 @update:view-mode="applyViewMode"
                 @update:scroll-mode="applyScrollMode"
+                @update:remember-document-view="updateSettingSafely('rememberDocumentView', $event)"
                 @update:tab-memory-policy="applyTabMemoryPolicy"
                 @update:annotation-color="updateSettingSafely('defaultAnnotationColor', $event)"
                 @update:optimize-pdf-on-save-as="updateSettingSafely('optimizePdfOnSaveAs', $event)"
@@ -261,7 +262,6 @@ const { presentFailureToast } = useFailureToast();
 const {
     settings,
     isLoaded,
-    load,
     loadOrThrow,
     settingsLoadError,
     settingsLoadFailure,
@@ -284,7 +284,11 @@ const {
 
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale]);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
-const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
+const agentMcpRuntime = ref<Omit<IAgentMcpIntegrationStatus, 'enabled'> | null>(null);
+const agentMcpStatus = computed(() => agentMcpRuntime.value && ({
+    ...agentMcpRuntime.value,
+    enabled: settings.value.agentMcpEnabled,
+}));
 const isAgentMcpBusy = ref(false);
 const assistantState = ref<IAgentAssistantState | null>(null);
 const assistantDeviceCode = ref('');
@@ -597,11 +601,7 @@ function applyViewMode(mode: string | { value: string }) {
 }
 
 function applyScrollMode(mode: boolean | { value: boolean }) {
-    if (!isLoaded.value) {
-        return;
-    }
-    const value = typeof mode === 'boolean' ? mode : mode.value;
-    updateSetting('defaultContinuousScroll', value);
+    updateSettingSafely('defaultContinuousScroll', typeof mode === 'boolean' ? mode : mode.value);
 }
 
 function applyTabMemoryPolicy(policy: string | { value: string }) {
@@ -776,11 +776,7 @@ async function refreshAgentMcpStatus() {
 
     isAgentMcpBusy.value = true;
     try {
-        const status = await getAgentCapability().getMcpIntegrationStatus();
-        if (lifecycle.isDisposed()) {
-            return;
-        }
-        agentMcpStatus.value = status;
+        await getAgentCapability().getMcpIntegrationStatus();
     } catch (error) {
         if (lifecycle.isDisposed()) {
             return;
@@ -808,11 +804,6 @@ async function setAgentMcpEnabled(enabled: boolean) {
         if (lifecycle.isDisposed()) {
             return;
         }
-        agentMcpStatus.value = result.status;
-        await load();
-        if (lifecycle.isDisposed()) {
-            return;
-        }
         if (!result.ok) {
             showExpectedAssistantOutcome(
                 'mcp-update',
@@ -833,10 +824,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
             'Failed to update agent MCP integration status',
         );
         try {
-            const status = await getAgentCapability().getMcpIntegrationStatus();
-            if (!lifecycle.isDisposed()) {
-                agentMcpStatus.value = status;
-            }
+            await getAgentCapability().getMcpIntegrationStatus();
         } catch (statusError) {
             BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
         }
@@ -855,6 +843,13 @@ function openAgentMcpInstall() {
         }
         presentAssistantFailure(error, 'mcp-install', 'Failed to open agent MCP install URL');
     });
+}
+
+if (isDesktopRuntime.value) {
+    const unsubscribe = getAgentCapability().onMcpIntegrationChanged?.((status) => {
+        agentMcpRuntime.value = status;
+    });
+    onScopeDispose(() => unsubscribe?.());
 }
 
 onMounted(() => {

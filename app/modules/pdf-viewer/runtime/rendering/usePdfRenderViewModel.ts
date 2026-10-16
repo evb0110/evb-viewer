@@ -27,10 +27,8 @@ interface IUsePdfRenderViewModelOptions {
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     skeletonContentInsets: Ref<IContentInsets | null>;
-    pagesToRender: ComputedRef<number[]>;
     isPageBuffered: (page: number) => boolean;
     isPageRenderedForClass: (page: number) => boolean;
-    isPageRendering: (page: number) => boolean;
     isPageRenderFailed: (page: number) => boolean;
     shouldShowSkeleton: (page: number) => boolean;
     visibleRange: Ref<{

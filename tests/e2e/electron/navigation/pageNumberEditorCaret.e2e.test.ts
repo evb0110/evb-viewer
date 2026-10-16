@@ -1,7 +1,10 @@
 import {
     describe, expect, it,
 } from 'vitest';
-import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf,
+    createPageLabelRangesFixturePdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -29,6 +32,41 @@ describe('Electron E2E - page number editor caret', () => {
         await goToPageLabelViaToolbar(page, '14');
         await waitForToolbarCurrentPage(page, 4);
         expect(await page.$eval('.page_container[data-page="4"]', node => node.textContent ?? '')).toContain('Page 4 sample text');
+        const prefix = 'LongPrefix-'.repeat(6);
+        const longLabelFixture = await createPageLabelRangesFixturePdf(`page-label-long-entry-${Date.now()}.pdf`, 3, [{
+            startPage: 1,
+            style: 'D',
+            prefix,
+            startNumber: 1,
+        }]);
+        await openPdfInApp(page, longLabelFixture);
+        await waitForPdfLoaded(page);
+        await goToPageLabelViaToolbar(page, `${prefix}2`);
+        await waitForToolbarCurrentPage(page, 2);
+        expect(await page.$eval('.page_container[data-page="2"]', node => node.textContent ?? '')).toContain('Page 2 sample text');
+
+    }, 90_000);
+
+    it('goes to the lowercase label a typed value names, not the uppercase label of the same letters', async () => {
+        const {page} = sessions.getSession();
+        const fixture = await createPageLabelRangesFixturePdf(`page-label-case-${Date.now()}.pdf`, 20, [
+            {
+                startPage: 1,
+                style: 'R',
+                startNumber: 1,
+            },
+            {
+                startPage: 11,
+                style: 'r',
+                startNumber: 1,
+            },
+        ]);
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        // Page 4 shows "IV" in the uppercase segment; page 14 shows "iv" in the lowercase one.
+        await goToPageLabelViaToolbar(page, 'iv');
+        await waitForToolbarCurrentPage(page, 14);
+        expect(await page.$eval('.page_container[data-page="14"]', node => node.textContent ?? '')).toContain('Page 14 sample text');
     }, 90_000);
 
     it('keeps the editor focused and moves the caret after a trusted click inside it', async () => {

@@ -657,20 +657,19 @@ export function loadScanCleanupDocumentSettings(
         // first read that knows the document's hash.
         const legacyEntryPending = Boolean(legacyDocumentKey)
             && hasScanCleanupLegacyDocumentEntry(legacyDocumentKey!);
-        if (legacyEntryPending || !remoteSettingsFile?.documentOverrides[normalizedSourceSha256]) {
-            try {
-                remoteSettingsFile = await readRemoteSettings(createSettingsReadRequest(
-                    normalizedSourceSha256,
-                    legacyDocumentKey,
-                    legacyEntryPending,
-                ));
-            } catch (error) {
-                BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
-                throw error;
-            }
-            if (legacyEntryPending && remoteSettingsFile.documentOverrides[normalizedSourceSha256] !== undefined) {
-                clearScanCleanupLegacyStorage(key => key === legacyDocumentKey);
-            }
+        try {
+            await flushScanCleanupDocumentPreferencesStore();
+            remoteSettingsFile = await readRemoteSettings(createSettingsReadRequest(
+                normalizedSourceSha256,
+                legacyDocumentKey,
+                legacyEntryPending,
+            ));
+        } catch (error) {
+            BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
+            throw error;
+        }
+        if (legacyEntryPending && remoteSettingsFile.documentOverrides[normalizedSourceSha256] !== undefined) {
+            clearScanCleanupLegacyStorage(key => key === legacyDocumentKey);
         }
         const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];
         return {

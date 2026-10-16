@@ -8,6 +8,7 @@ import {
 import { ref } from 'vue';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import {
@@ -19,6 +20,26 @@ import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-
 import { readToastDescription } from '@tests/helpers/toastDescription';
 
 describe('workspace document controller views', () => {
+    it('makes the tab empty at the close commit while file cleanup is pending', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({
+            fileName: 'closed.pdf',
+            originalPath: requireDocumentRef('/docs/closed.pdf'),
+            isDirty: false,
+            isDjvu: false,
+        });
+        const cleanup = Promise.withResolvers<boolean>();
+        controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({handleCloseFileFromUi: async (options) => {
+            await options?.onCloseCommit?.();
+            return cleanup.promise;
+        }}));
+        const closing = controller.close({persist: false});
+        await vi.waitFor(() => expect(controller.snapshot.value.phase).toBe('empty'));
+        expect(snapshotOccupiesTab(controller.snapshot.value)).toBe(false);
+        cleanup.resolve(true);
+        await expect(closing).resolves.toBe(true);
+    });
+
     it('occupies an empty tab before mounting and presents the claimed open', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const target = {
@@ -89,6 +110,117 @@ describe('workspace document controller views', () => {
         expect(controller.snapshot.value.identity.fileName).toBe('same.pdf');
         expect(controller.snapshot.value.identity.documentInstanceId).toBe(instance);
         expect(controller.snapshot.value.phase).toBe('presented');
+    });
+
+    it.each([
+        'save-as',
+        'conversion',
+    ])('keeps the admitted lifetime when %s adopts a new path and revision', (operation) => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({
+            fileName: operation === 'conversion' ? 'source.djvu' : 'source.pdf',
+            originalPath: requireDocumentRef(operation === 'conversion' ? '/docs/source.djvu' : '/docs/source.pdf'),
+            isDirty: true,
+            isDjvu: operation === 'conversion',
+        });
+        const admitted = controller.snapshot.value.identity;
+        const savedPath = requireDocumentRef('/docs/saved.pdf');
+        const workingPath = requireDocumentRef('/working/saved.pdf');
+        controller.commitDocument({
+            fileName: 'saved.pdf',
+            originalPath: savedPath,
+            isDjvu: false,
+            revisionInfo: {
+                version: 1,
+                token: requireDocumentRevisionToken('saved-revision-2'),
+                documentRef: workingPath,
+                authority: 'electron-working-copy',
+                contentRevision: 2,
+                mintedAt: requireEpochMs(1_790_000_000_000),
+            },
+        });
+        expect(controller.snapshot.value.identity).toMatchObject({
+            documentSessionKey: admitted.documentSessionKey,
+            documentInstanceId: admitted.documentInstanceId,
+            originalPath: savedPath,
+            workingCopyPath: workingPath,
+            isDjvu: false,
+            revisionInfo: {token: 'saved-revision-2'},
+        });
+    });
+
+    it.each([
+        '/docs/source.pdf',
+        '/docs/replacement.pdf',
+    ])('rejects the old target when a fresh open adopts %s before presentation', (path) => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({
+            fileName: 'source.pdf',
+            originalPath: requireDocumentRef('/docs/source.pdf'),
+            isDirty: false,
+            isDjvu: false,
+        });
+        const admitted = controller.snapshot.value.identity;
+        const oldTarget = controller.createCommandTarget('tab-1');
+        const target = {
+            originalPath: requireDocumentRef(path),
+            fileName: 'opened.pdf',
+        };
+        controller.claimOpen({
+            kind: 'open',
+            target,
+        });
+        expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
+        controller.commitDocument({
+            ...target,
+            isDjvu: false,
+            revisionInfo: null,
+        });
+        expect(controller.snapshot.value.identity.documentSessionKey).not.toBe(admitted.documentSessionKey);
+        expect(controller.snapshot.value.identity.documentInstanceId).not.toBe(admitted.documentInstanceId);
+        expect(controller.snapshot.value.activeTransaction?.kind).toBe('open');
+        expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
+        controller.markPresented();
+        expect(controller.snapshot.value.phase).toBe('presented');
+        expect(controller.validateCommandTarget(oldTarget).ok).toBe(false);
+    });
+
+    it('resumes the retained checkpoint lifetime through working-copy restore and presentation', () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const sourcePath = requireDocumentRef('/docs/source.pdf');
+        const workingPath = requireDocumentRef('/working/recovered.pdf');
+        controller.assign({
+            fileName: 'source.pdf',
+            originalPath: sourcePath,
+            recoveryWorkingCopyPath: workingPath,
+            isDirty: true,
+            isDjvu: false,
+        });
+        const admitted = controller.snapshot.value.identity;
+        controller.claimOpen({
+            kind: 'restore',
+            target: {originalPath: sourcePath},
+        });
+        controller.commitDocument({
+            fileName: 'source.pdf',
+            originalPath: sourcePath,
+            isDjvu: false,
+            revisionInfo: {
+                version: 1,
+                token: requireDocumentRevisionToken('restored-revision-1'),
+                documentRef: workingPath,
+                authority: 'electron-working-copy',
+                contentRevision: 1,
+                mintedAt: requireEpochMs(1_790_000_000_000),
+            },
+        });
+        expect(controller.snapshot.value.identity.documentSessionKey).toBe(admitted.documentSessionKey);
+        expect(controller.snapshot.value.identity.documentInstanceId).toBe(admitted.documentInstanceId);
+        controller.markPresented();
+        expect(controller.snapshot.value.identity.documentSessionKey).toBe(admitted.documentSessionKey);
+        expect(controller.snapshot.value.identity.documentInstanceId).toBe(admitted.documentInstanceId);
+        expect(controller.snapshot.value.recoveryWorkingCopyPath).toBeNull();
+        expect(controller.snapshot.value.dirty).toBe(true);
     });
 
     it('retires a mounted view on removal: its workspace is gone and later mounts are refused', async () => {

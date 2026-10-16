@@ -1,4 +1,6 @@
+import { existsSync } from 'fs';
 import {
+    readFile,
     readdir,
     rm,
     stat,
@@ -27,12 +29,13 @@ import {
     type IWorkingCopyOriginalEntry,
 } from '@electron/file-access/workingCopyStore';
 import {
+    getWorkingCopyJournalPath,
     isWorkingCopyDirectoryName,
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
 import {
-    getAppTempDir,
     getLegacyAppTempDirPath,
+    getManagedAppTempRoots,
 } from '@electron/utils/appTempDir';
 import { drainWorkingCopyMutations } from '@electron/file-access/workingCopyMutationQueue';
 import {
@@ -41,6 +44,13 @@ import {
     hasWorkingCopySyncRequired,
 } from '@electron/file-access/documentRevisionStore';
 import {cleanupStaleAtomicReplaceBackups} from '@electron/utils/atomicReplace';
+import {
+    completeWorkingCopyTransition,
+    readJournal,
+    recoverWorkingCopyTransition,
+} from '@electron/file-access/workingCopyJournal';
+import {getPublicationTemporaryPath} from '@electron/file-access/documentFileWriteAtomic';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {
     cancelWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
@@ -102,15 +112,76 @@ function getWorkingCopyLogicalPath(
     return logicalPath || mapPath;
 }
 
-function isRegisteredWorkingCopyDirectory(workDir: string) {
+export function isRegisteredWorkingCopyDirectory(workDir: string) {
     const normalizedDirectory = normalizePathForLookup(workDir);
-    return [...workingCopyMap.entries()]
-        .some(([
-            mapPath,
-            entry,
-        ]) => normalizePathForLookup(
-            dirname(getWorkingCopyLogicalPath(mapPath, entry)),
-        ) === normalizedDirectory);
+    for (const registration of workingCopyMap) {
+        if (normalizePathForLookup(dirname(getWorkingCopyLogicalPath(...registration))) === normalizedDirectory) return true;
+    }
+    return false;
+}
+
+// The working copy and PDF a folder's journal names, if it has one; an unreadable journal names document.pdf, and
+// recovery refuses it.
+async function readJournaledPaths(workDir: string) {
+    const journal = await readFile(getWorkingCopyJournalPath(join(workDir, 'document.pdf')), 'utf8')
+        .then(text => JSON.parse(text) as {
+            workingCopyPath?: unknown;
+            original?: {path?: unknown}
+        } | null, () => null)
+        .catch(() => ({
+            workingCopyPath: null,
+            original: undefined,
+        }));
+    return journal && {
+        workingCopyPath: join(workDir, typeof journal.workingCopyPath === 'string' ? basename(journal.workingCopyPath) : 'document.pdf'),
+        originalPath: typeof journal.original?.path === 'string' ? journal.original.path : undefined,
+    };
+}
+
+/**
+ * An unused folder goes once STALE_WORK_DIR_MAX_AGE_MS old, and never before its journal is finished, as recovery after
+ * a crash would finish it, under the lock a save of its PDF takes: while another program holds that PDF or the save's
+ * leftover, the folder stays. A document closed in that state kept its journal and dropped its working copy (see
+ * cleanupWorkingCopyDirectory), so its folder goes once the journal is finished, whatever its age.
+ */
+async function isRemovableWorkingCopyDirectory(workDir: string, now: number) {
+    const workDirStat = await stat(workDir).catch(() => null);
+    const stale = workDirStat !== null && workDirStat.isDirectory() && now - workDirStat.mtimeMs >= STALE_WORK_DIR_MAX_AGE_MS;
+    const journaled = await readJournaledPaths(workDir);
+    if (!journaled || !stale && existsSync(journaled.workingCopyPath)) return stale && !journaled;
+    const recover = () => recoverWorkingCopyTransition(journaled.workingCopyPath);
+    const held = await (journaled.originalPath ? withOriginalPathMutationLock(journaled.originalPath, recover) : recover()).catch((error: unknown) => {
+        logger.warn('Could not finish a working-copy journal', {error: getErrorMessage(error)});
+        return {held: true};
+    });
+    return typeof held !== 'object';
+}
+
+/**
+ * A save of a PDF ends what a closed document's interrupted save of the same PDF still had to undo, without putting back
+ * the file from before it: a later start would otherwise keep that file beside the person's own save as if another
+ * program had changed the PDF. The caller holds the PDF's mutation lock; a journal that cannot end now stays.
+ */
+export async function supersedeClosedWorkingCopyJournals(originalPath: string) {
+    for (const workDir of await listWorkingCopyDirectories()) {
+        const journaled = isRegisteredWorkingCopyDirectory(workDir) ? null : await readJournaledPaths(workDir);
+        if (!journaled || existsSync(journaled.workingCopyPath) || journaled.originalPath === undefined
+            || normalizePathForLookup(journaled.originalPath) !== normalizePathForLookup(originalPath)) continue;
+        await readJournal(journaled.workingCopyPath).then(async (journal) => {
+            if (journal?.original) await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
+            await (journal && completeWorkingCopyTransition(journal));
+            await safeRemoveDirectory(workDir);
+        }).catch((error: unknown) => logger.warn('Could not end a closed document\'s journal for a later save', {error: getErrorMessage(error)}));
+    }
+}
+
+async function listWorkingCopyDirectories() {
+    const tempDirs = Array.from(new Set(getManagedAppTempRoots().concat(getLegacyAppTempDirPath()).map(dir => resolve(dir))));
+    const entriesByTempDir = await Promise.all(tempDirs.map(async tempDir =>
+        (await readdir(tempDir).catch(() => [])).map(entryName => resolve(join(tempDir, entryName)))));
+    return entriesByTempDir.flat()
+        .filter(workDir => isWorkingCopyDirectoryName(basename(workDir)))
+        .slice(0, STALE_WORK_DIR_SCAN_LIMIT);
 }
 
 async function performCleanupStaleWorkingCopyDirectories(
@@ -122,39 +193,7 @@ async function performCleanupStaleWorkingCopyDirectories(
     }
     let removedDirectories = 0;
     const now = Date.now();
-    const tempDirs = Array.from(new Set([
-        resolve(getAppTempDir()),
-        resolve(getLegacyAppTempDirPath()),
-    ]));
-    const entriesByTempDir = await Promise.all(tempDirs.map(async (tempDir) => {
-        try {
-            return (await readdir(tempDir)).map(entryName => ({
-                entryName,
-                tempDir,
-            }));
-        } catch {
-            return [];
-        }
-    }));
-    const candidates = entriesByTempDir.flat()
-        .filter(({entryName}) => isWorkingCopyDirectoryName(entryName))
-        .slice(0, STALE_WORK_DIR_SCAN_LIMIT)
-        .map(({
-            entryName,
-            tempDir,
-        }) => ({
-            tempDir,
-            workDir: resolve(join(tempDir, entryName)),
-        }))
-        .filter(({
-            tempDir,
-            workDir,
-        }) => {
-            const relativePath = relative(tempDir, workDir);
-            return relativePath !== '..'
-                && !relativePath.startsWith(`..${sep}`)
-                && !isAbsolute(relativePath);
-        });
+    const candidates = await listWorkingCopyDirectories();
     const workerCount = Math.min(
         candidates.length,
         Math.max(1, Math.trunc(options.statConcurrency ?? 8)),
@@ -174,13 +213,13 @@ async function performCleanupStaleWorkingCopyDirectories(
             if (!candidate) {
                 continue;
             }
-            const backupCleanup = await cleanupStaleAtomicReplaceBackups(candidate.workDir, {
+            const backupCleanup = await cleanupStaleAtomicReplaceBackups(candidate, {
                 isDestinationActive: destinationPath => isRegisteredWorkingCopyDirectory(dirname(destinationPath)),
                 maxAgeMs: STALE_WORK_DIR_MAX_AGE_MS,
                 now,
             });
             if (backupCleanup.hasRetainedBackup) {
-                retainedAtomicReplaceBackupDirectories.add(candidate.workDir);
+                retainedAtomicReplaceBackupDirectories.add(candidate);
             }
             removedAtomicReplaceBackups += backupCleanup.removedBackups;
         }
@@ -199,25 +238,9 @@ async function performCleanupStaleWorkingCopyDirectories(
             }
             const candidateIndex = nextCandidateIndex;
             nextCandidateIndex += 1;
-            const candidate = candidates[candidateIndex];
-            if (!candidate) {
-                continue;
-            }
-            const {workDir} = candidate;
-
-            try {
-                const workDirStat = await stat(workDir);
-                if (!workDirStat.isDirectory() || now - workDirStat.mtimeMs < STALE_WORK_DIR_MAX_AGE_MS) {
-                    continue;
-                }
-            } catch {
-                continue;
-            }
-
-            if (isRegisteredWorkingCopyDirectory(workDir)) {
-                continue;
-            }
-            if (retainedAtomicReplaceBackupDirectories.has(workDir)) {
+            const workDir = candidates[candidateIndex];
+            if (!workDir || isRegisteredWorkingCopyDirectory(workDir) || !await isRemovableWorkingCopyDirectory(workDir, now)
+                || retainedAtomicReplaceBackupDirectories.has(workDir)) {
                 continue;
             }
 
@@ -276,24 +299,26 @@ async function cleanupWorkingCopyDirectory(
     }
 
     try {
-        const tempDirs = new Set([
-            normalizePathForLookup(getAppTempDir()),
-            normalizePathForLookup(getLegacyAppTempDirPath()),
-        ]);
         const workDir = normalizePathForLookup(dirname(normalizedPath));
-        const workDirName = basename(workDir);
-        const isWithinTemp = Array.from(tempDirs).some((tempDir) => {
-            const relativePath = relative(tempDir, workDir);
-            return relativePath !== '..'
-                && !relativePath.startsWith(`..${sep}`)
-                && !isAbsolute(relativePath);
-        });
-        const isWorkingCopyDir = workDirName.startsWith('pdf-work-');
+        const isWithinTemp = getManagedAppTempRoots().concat(getLegacyAppTempDirPath())
+            .some(tempDir => isPathWithin(normalizePathForLookup(tempDir), workDir));
 
-        if (isWithinTemp && isWorkingCopyDir) {
+        if (isWithinTemp && isWorkingCopyDirectoryName(basename(workDir))) {
             const resolvedOriginalPath = originalPath ? normalizePathForLookup(originalPath) : null;
             if (resolvedOriginalPath && isPathWithin(workDir, resolvedOriginalPath)) {
                 logger.warn('Refused to delete a working directory containing its original backing', {workDir});
+                return;
+            }
+            // The journal names what a save left beside the original; finish it before its folder goes. While
+            // another program holds that file, the journal stays for the next start, and only the document goes.
+            const recover = () => recoverWorkingCopyTransition(normalizedPath);
+            // Recovery at close takes the same original-path lock a save holds, so it cannot interleave with one.
+            const held = await (originalPath ? withOriginalPathMutationLock(originalPath, recover) : recover()).catch((error: unknown) => {
+                logger.warn('Could not finish a working-copy journal before closing', {error: getErrorMessage(error)});
+            });
+            if (typeof held === 'object') {
+                logger.warn('Kept a closed document\'s journal until its PDF or save leftover can be finished', {workDir});
+                await rm(normalizedPath, {force: true});
                 return;
             }
             await rm(workDir, {

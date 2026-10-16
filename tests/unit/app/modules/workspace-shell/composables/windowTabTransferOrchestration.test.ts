@@ -30,8 +30,11 @@ import { collectLayoutPaneOrder } from '@app/modules/workspace-shell/window-tabs
 import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
 import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
+import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
 import {
     createWorkspaceDocumentController,
+    snapshotOccupiesTab,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
@@ -48,7 +51,11 @@ const transferAckMock = vi.hoisted(() => vi.fn(async (_ack: {
     success: boolean;
     error?: string
 }) => true));
-const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown}) => ({success: true})));
+const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown}) => ({
+    success: true,
+    transferId: 'transfer-source',
+    targetWindowId: 7,
+})));
 // A clean document's split capture clones its working copy; the clone is the
 // only platform call a merge capture makes.
 const createWorkingCopyFromPathMock = vi.hoisted(() => vi.fn(async (path: string) => `${path}.snapshot.pdf`));
@@ -154,6 +161,126 @@ describe('window tab transfer orchestration helpers', () => {
         expect(shouldCloseSourceWindowAfterTransfer(0, true)).toBe(true);
         expect(shouldCloseSourceWindowAfterTransfer(2, true)).toBe(false);
         expect(shouldCloseSourceWindowAfterTransfer(1, false)).toBe(false);
+    });
+
+    it('keeps Settings on a surviving tab when it opens during source transfer finalization', async () => {
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useState', () => ref({}));
+        onTestFinished(() => {vi.unstubAllGlobals();});
+        const source = createWorkspaceDocumentController({tabId: 'source'});
+        const survivor = createWorkspaceDocumentController({tabId: 'survivor'});
+        const path = requireDocumentRef('/docs/source.djvu');
+        source.commitDocument({
+            fileName: 'source.djvu',
+            originalPath: path,
+            isDjvu: true,
+            revisionInfo: null,
+        });
+        source.claimOpen({
+            kind: 'restore',
+            target: {
+                fileName: 'source.djvu',
+                originalPath: path,
+                isDjvu: true,
+            },
+        });
+        // The source's first paint may arrive after the destination's ACK.
+        // Both show the same document; the source must still be removed.
+        transferMock.mockImplementationOnce(async () => {
+            source.markPresented();
+            return {
+                success: true,
+                transferId: 'transfer-source',
+                targetWindowId: 7,
+            };
+        });
+        source.attachWorkspace('source', createWorkspaceExposeFixture({
+            waitForDocumentOpenSettled: async () => {source.markPresented();},
+            captureSplitPayload: async () => ({
+                kind: 'djvu',
+                sourcePath: path,
+            }),
+            handleCloseFileFromUi: async options => {
+                await options?.onCloseCommit?.();
+                return true;
+            },
+        }));
+        const tabs = ref<ITab[]>([
+            {id: 'source'},
+            {id: 'survivor'},
+        ]);
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'source',
+            tabIds: [
+                'source',
+                'survivor',
+            ],
+        };
+        const activeTabId = ref('source');
+        const activePaneId = ref<string | null>(pane.paneId);
+        const tracker = useWorkspaceRestoreTracker();
+        const sessions = new Map([
+            [
+                'source',
+                source,
+            ],
+            [
+                'survivor',
+                survivor,
+            ],
+        ]);
+        const sections = new Map<string, string>();
+        const handoffStarted = Promise.withResolvers<undefined>();
+        const finishHandoff = Promise.withResolvers<undefined>();
+        const settings = useAppShellToolPages({
+            activePaneId,
+            activeToolPage: ref(null),
+            activateTabById: id => {activeTabId.value = id;},
+            createTab: () => {throw new Error('The surviving empty tab should receive Settings');},
+            findEmptyTab: () => tabs.value.find(tab => !tracker.has(tab.id)
+                && !snapshotOccupiesTab(sessions.get(tab.id)!.snapshot.value)) ?? null,
+            openResultInAppropriateTab: async () => undefined,
+            setTabStartSection: (id, section) => {sections.set(id, section);},
+        });
+        const transfers = useWindowTabTransfers({
+            activePaneId,
+            panes: ref([pane]),
+            tabs,
+            layout: ref(null),
+            createTab: () => {throw new Error('No incoming tab');},
+            getPaneById: () => pane,
+            getTabById: id => tabs.value.find(tab => tab.id === id) ?? null,
+            getPaneByTabId: () => pane,
+            activatePane: () => undefined,
+            activateTab: (_pane, id) => {activeTabId.value = id;},
+            removeTabFromState: () => undefined,
+            cleanupEmptyPanes: () => undefined,
+            closeTabInState: (_pane, id) => {
+                tabs.value = tabs.value.filter(tab => tab.id !== id);
+                sections.delete(id);
+            },
+            documentSessions: cast({getSession: (id: string) => sessions.get(id) ?? null}),
+            workspaceRestoreTracker: tracker,
+            handleCloseTab: async () => undefined,
+            handoffActiveTabBeforeClose: async () => {
+                handoffStarted.resolve(undefined);
+                await finishHandoff.promise;
+            },
+        });
+
+        const moving = transfers.moveTabToNewWindow('source');
+        await Promise.race([
+            handoffStarted.promise,
+            moving,
+        ]);
+        settings.openSettingsPage();
+        finishHandoff.resolve(undefined);
+        await moving;
+
+        expect(tabs.value.map(tab => tab.id)).toEqual(['survivor']);
+        expect(sections.get(activeTabId.value)).toBe('settings');
+        expect(tracker.has('source')).toBe(false);
     });
 
     it('rejects each failed target without making another transfer wait for its mount', async () => {
@@ -421,7 +548,6 @@ describe('window tab transfer orchestration helpers', () => {
                     currentPage: 6,
                     viewState: {
                         zoom: 2,
-                        effectiveZoom: 2,
                         zoomMode: 'custom',
                         viewMode: 'single',
                         viewRotation: 0,
@@ -593,7 +719,12 @@ describe('window tab transfer orchestration helpers', () => {
             rightTab,
         ]) {
             // Each view's DocumentWorkspace captures the document at its own page.
-            controller.attachWorkspace(tabId, createWorkspaceExposeFixture({captureSplitPayload: () => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value)}));
+            controller.attachWorkspace(tabId, createWorkspaceExposeFixture({
+                // These loaded views need no open, even if their pixels have
+                // been evicted. An inactive view cannot repaint for a merge.
+                waitForDocumentOpenSettled: () => Promise.withResolvers<undefined>().promise,
+                captureSplitPayload: (_page, ownership) => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value, ownership),
+            }));
         }
 
         const leftPane = {

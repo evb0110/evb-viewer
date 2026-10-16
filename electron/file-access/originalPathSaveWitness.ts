@@ -1,4 +1,7 @@
-import {createHash} from 'node:crypto';
+import {
+    createOriginalFileExpectationFromStat,
+    expectationMatchesStat,
+} from '@electron/file-access/originalFileExpectation';
 import type {BigIntStats} from 'node:fs';
 import {
     lstat,
@@ -10,80 +13,33 @@ import {
     refreshWorkingCopyOriginalFileExpectation,
     type IWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
-import type * as v from 'valibot';
-import type {originalSaveSnapshotSchema} from '@electron/file-access/readWorkingCopyManifest';
 import {
     deserializeSnapshot,
     readPersistedWorkingCopyManifest,
 } from '@electron/file-access/readWorkingCopyManifest';
-import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
-import {readFileChunk} from '@electron/file-access/readFileChunk';
 import {isErrnoException} from '@contracts/runtimeGuards';
-import {createLogger} from '@electron/utils/createLogger';
+import {
+    captureAdmittedPathSnapshot,
+    capturePathSnapshot,
+    hashContentFingerprintFilePath,
+    type IOriginalPathSaveJournalSnapshot,
+    type IOriginalPathSaveSnapshot,
+    OriginalPathSaveConflictError,
+    rebaseUnchangedSnapshot,
+    serializeSnapshot,
+    snapshotsMatch,
+} from '@electron/file-access/originalPathSnapshot';
 
-const log = createLogger('original-path-save-witness');
-const SAVE_WITNESS_SAMPLE_BYTES = 64 * 1024;
-const SAVE_WITNESS_HASH_CHUNK_BYTES = 1024 * 1024;
-
-interface IOriginalPathSaveSnapshot {
-    contentFingerprint?: string;
-    ctimeNs: bigint;
-    deviceId: bigint;
-    inode: bigint;
-    linkCount: bigint;
-    mtimeNs: bigint;
-    sampleSha256: string;
-    size: bigint;
-}
-
-export interface IOriginalPathSaveJournalSnapshot extends v.InferOutput<typeof originalSaveSnapshotSchema> {}
-
-export class OriginalPathSaveConflictError extends Error {
-    constructor() {
-        super('Original file changed on disk; save skipped to avoid overwriting external edits');
-        this.name = 'OriginalPathSaveConflictError';
-    }
-}
 
 export interface IOriginalPathSaveWitness {
     assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
     getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
-    rebaseOnUnchangedContent: () => Promise<void>;
-    rebaseAfterPublish: () => Promise<void>;
+    rebaseOnUnchangedContent: (proof?: Parameters<typeof rebaseUnchangedSnapshot>[2], signal?: AbortSignal) => Promise<void>;
+    rebaseAfterPublish: (intendedFingerprint: string) => Promise<void>;
 }
 
-function expectationMatchesStat(
-    expected: IWorkingCopyOriginalFileExpectation,
-    actual: BigIntStats,
-) {
-    if (getExpectationStatMismatches(expected, actual).length > 0) {
-        return false;
-    }
-
-    return expected.mtimeNs !== undefined
-        || Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) < 1;
-}
-
-function getExpectationStatMismatches(
-    expected: IWorkingCopyOriginalFileExpectation,
-    actual: BigIntStats,
-) {
-    return [
-        expected.ctimeNs !== undefined && actual.ctimeNs.toString() !== expected.ctimeNs ? 'ctimeNs' : null,
-        expected.deviceId !== undefined && actual.dev.toString() !== expected.deviceId ? 'deviceId' : null,
-        !actual.isFile() ? 'fileType' : null,
-        expected.inode !== undefined && actual.ino.toString() !== expected.inode ? 'inode' : null,
-        expected.mtimeNs !== undefined && actual.mtimeNs.toString() !== expected.mtimeNs ? 'mtimeNs' : null,
-        actual.size !== BigInt(expected.size) ? 'size' : null,
-        expected.mtimeNs === undefined
-            && Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) >= 1
-            ? 'mtimeMs'
-            : null,
-    ].filter((field): field is string => field !== null);
-}
-
-function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
+function hasCompleteStoredIdentity(expected: IWorkingCopyOriginalFileExpectation) {
     return expected.deviceId !== undefined
         && expected.inode !== undefined
         && expected.ctimeNs !== undefined
@@ -91,95 +47,9 @@ function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectat
 }
 
 function isExpectationUsableForCurrentPlatform(expected: IWorkingCopyOriginalFileExpectation) {
-    // Older recovery checkpoints can contain only size and mtime. Those
-    // fields cannot distinguish an unseen same-size interior edit on POSIX.
-    // Windows can use the full baseline where one has been captured.
-    return process.platform === 'win32' || hasImmutablePosixExpectation(expected);
-}
-
-function snapshotsMatch(
-    left: IOriginalPathSaveSnapshot,
-    right: IOriginalPathSaveSnapshot,
-    options: {
-        allowBackupMetadataChange?: boolean;
-        contentOnly?: boolean;
-    } = {},
-) {
-    return (options.contentOnly === true || (
-        left.deviceId === right.deviceId
-        && left.inode === right.inode
-        && left.mtimeNs === right.mtimeNs
-    ))
-        && left.sampleSha256 === right.sampleSha256
-        && left.size === right.size
-        && (options.contentOnly === true || options.allowBackupMetadataChange === true || (
-            left.ctimeNs === right.ctimeNs
-            && left.linkCount === right.linkCount
-        ));
-}
-
-async function sampleFilePath(originalPath: string, size: bigint) {
-    const numericSize = Number(size);
-    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const sampleLength = Math.min(numericSize, SAVE_WITNESS_SAMPLE_BYTES);
-    const lastOffset = numericSize - sampleLength;
-    const offsets = [...new Set([
-        0,
-        Math.floor(lastOffset / 2),
-        lastOffset,
-    ])];
-    const hash = createHash('sha256');
-    for (const offset of offsets) {
-        const sample = Buffer.allocUnsafe(sampleLength);
-        const bytesRead = await readFileChunk(originalPath, sample, offset);
-        if (bytesRead !== sampleLength) {
-            throw new OriginalPathSaveConflictError();
-        }
-        hash.update(`${offset}:${bytesRead}:`);
-        hash.update(sample);
-    }
-    return hash.digest('hex');
-}
-
-async function hashFilePath(
-    originalPath: string,
-    size: bigint,
-    hash: ReturnType<typeof createHash>,
-    signal?: AbortSignal,
-) {
-    const numericSize = Number(size);
-    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(numericSize, SAVE_WITNESS_HASH_CHUNK_BYTES)));
-    let offset = 0;
-    while (offset < numericSize) {
-        signal?.throwIfAborted();
-        const length = Math.min(buffer.byteLength, numericSize - offset);
-        let readOffset = 0;
-        while (readOffset < length) {
-            const bytesRead = await readFileChunk(originalPath, buffer.subarray(readOffset, length), offset + readOffset);
-            if (bytesRead <= 0) {
-                throw new OriginalPathSaveConflictError();
-            }
-            hash.update(buffer.subarray(readOffset, readOffset + bytesRead));
-            readOffset += bytesRead;
-        }
-        signal?.throwIfAborted();
-        offset += length;
-    }
-    return hash.digest('hex');
-}
-
-export async function hashContentFingerprintFilePath(originalPath: string, size: bigint, signal?: AbortSignal) {
-    const numericSize = Number(size);
-    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const hash = createOriginalFileContentFingerprintHash(numericSize);
-    return `sha256-full-v1:${await hashFilePath(originalPath, size, hash, signal)}`;
+    return process.platform === 'win32'
+        ? /^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint ?? '')
+        : hasCompleteStoredIdentity(expected);
 }
 
 async function matchesBaselineOnWitnessPath(
@@ -197,92 +67,19 @@ async function matchesBaselineOnWitnessPath(
     }
     try {
         signal?.throwIfAborted();
-        const pathBefore = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(snapshot, pathBefore)) {
+        const pathBefore = await capturePathSnapshot(originalPath, {ignoreIdentity: true});
+        if (!snapshotsMatch(snapshot, pathBefore, {ignoreIdentity: true})) {
             return false;
         }
-        const actualFingerprint = await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
+        const actualFingerprint = snapshot.contentFingerprint
+            ?? await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
         signal?.throwIfAborted();
-        const pathAfter = await capturePathSnapshot(originalPath);
-        return snapshotsMatch(snapshot, pathAfter)
+        const pathAfter = await capturePathSnapshot(originalPath, {ignoreIdentity: true});
+        return snapshotsMatch(snapshot, pathAfter, {ignoreIdentity: true})
             && actualFingerprint === expected.contentFingerprint;
     } catch {
         return false;
     }
-}
-
-async function matchesExpectedContentFingerprint(
-    originalPath: string,
-    expected: IWorkingCopyOriginalFileExpectation,
-    admittedStat: BigIntStats,
-    signal?: AbortSignal,
-) {
-    if (
-        process.platform !== 'win32'
-        || expected.contentFingerprint === undefined
-    ) {
-        return true;
-    }
-    if (!/^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint)) {
-        return false;
-    }
-
-    try {
-        const before = await lstat(originalPath, {bigint: true});
-        if (!before.isFile() || before.size !== admittedStat.size || before.dev !== admittedStat.dev || before.ino !== admittedStat.ino) {
-            return false;
-        }
-        const actualFingerprint = await hashContentFingerprintFilePath(originalPath, before.size, signal);
-        const after = await lstat(originalPath, {bigint: true});
-        return after.isFile()
-            && after.size === before.size && after.dev === before.dev && after.ino === before.ino
-            && after.mtimeNs === before.mtimeNs && after.ctimeNs === before.ctimeNs
-            && actualFingerprint === expected.contentFingerprint;
-    } catch {
-        return false;
-    }
-}
-
-function createSnapshot(
-    fileStat: BigIntStats,
-    sampleSha256: string,
-): IOriginalPathSaveSnapshot {
-    return {
-        ctimeNs: fileStat.ctimeNs,
-        deviceId: fileStat.dev,
-        inode: fileStat.ino,
-        linkCount: fileStat.nlink,
-        mtimeNs: fileStat.mtimeNs,
-        sampleSha256,
-        size: fileStat.size,
-    };
-}
-
-function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSaveJournalSnapshot {
-    return {
-        ...(snapshot.contentFingerprint ? {contentFingerprint: snapshot.contentFingerprint} : {}),
-        ctimeNs: snapshot.ctimeNs.toString(),
-        deviceId: snapshot.deviceId.toString(),
-        inode: snapshot.inode.toString(),
-        linkCount: snapshot.linkCount.toString(),
-        mtimeNs: snapshot.mtimeNs.toString(),
-        sampleSha256: snapshot.sampleSha256,
-        size: snapshot.size.toString(),
-    };
-}
-
-async function capturePathSnapshot(originalPath: string) {
-    const before = await lstat(originalPath, {bigint: true});
-    if (!before.isFile()) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const sampleSha256 = await sampleFilePath(originalPath, before.size);
-    const after = await lstat(originalPath, {bigint: true});
-    const snapshot = createSnapshot(after, sampleSha256);
-    if (!after.isFile() || !snapshotsMatch(createSnapshot(before, sampleSha256), snapshot, {allowBackupMetadataChange: true})) {
-        throw new OriginalPathSaveConflictError();
-    }
-    return snapshot;
 }
 
 function rethrowWitnessSnapshotError(error: unknown): never {
@@ -303,7 +100,13 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
 
     async assertCurrent(options: {allowBackupMetadataChange?: boolean} = {}) {
         try {
-            if (!snapshotsMatch(this.snapshot, await capturePathSnapshot(this.originalPath), options)) {
+            const actual = await capturePathSnapshot(this.originalPath, {ignoreIdentity: this.snapshot.contentFingerprint !== undefined});
+            if (!snapshotsMatch(this.snapshot, actual)
+                && !(snapshotsMatch(this.snapshot, actual, {
+                    ...options,
+                    ignoreIdentity: true,
+                })
+                    && await matchesBaselineOnWitnessPath(this.originalPath, this.getOriginalFileExpectation(), actual))) {
                 throw new OriginalPathSaveConflictError();
             }
         } catch (error) {
@@ -311,23 +114,18 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         }
     }
 
-    async rebaseOnUnchangedContent() {
+    async rebaseOnUnchangedContent(proof: Parameters<typeof rebaseUnchangedSnapshot>[2] = {kind: 'own-backup-link'}, signal?: AbortSignal) {
         try {
-            const snapshot = await capturePathSnapshot(this.originalPath);
-            if (!snapshotsMatch(this.snapshot, snapshot, {allowBackupMetadataChange: true})) {
-                throw new OriginalPathSaveConflictError();
-            }
-            this.snapshot = snapshot;
+            this.snapshot = await rebaseUnchangedSnapshot(this.originalPath, this.snapshot, proof, signal);
         } catch (error) {
             rethrowWitnessSnapshotError(error);
         }
     }
 
-    async rebaseAfterPublish() {
+    async rebaseAfterPublish(intendedFingerprint: string) {
         try {
-            const snapshot = await capturePathSnapshot(this.originalPath);
-            snapshot.contentFingerprint = await hashContentFingerprintFilePath(this.originalPath, snapshot.size);
-            if (!snapshotsMatch(snapshot, await capturePathSnapshot(this.originalPath))) {
+            const snapshot = await captureAdmittedPathSnapshot(this.originalPath);
+            if (snapshot.contentFingerprint !== intendedFingerprint) {
                 throw new OriginalPathSaveConflictError();
             }
             this.snapshot = snapshot;
@@ -340,15 +138,17 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         return serializeSnapshot(this.snapshot);
     }
 
-    /** The witnessed revision as the save baseline a working copy registers. */
     getOriginalFileExpectation(): IWorkingCopyOriginalFileExpectation {
+        const {
+            deviceId: dev, inode: ino, contentFingerprint, ...snapshot
+        } = this.snapshot;
         return {
-            ctimeNs: this.snapshot.ctimeNs.toString(),
-            deviceId: this.snapshot.deviceId.toString(),
-            inode: this.snapshot.inode.toString(),
-            mtimeMs: Number(this.snapshot.mtimeNs) / 1_000_000,
-            mtimeNs: this.snapshot.mtimeNs.toString(),
-            size: Number(this.snapshot.size),
+            ...createOriginalFileExpectationFromStat({
+                ...snapshot,
+                dev,
+                ino,
+            }),
+            ...(contentFingerprint ? {contentFingerprint} : {}),
         };
     }
 }
@@ -384,18 +184,8 @@ export async function assertPathMatchesSaveWitnessSnapshot(
     }
 }
 
-async function captureRequiredPathSaveWitness(originalPath: string): Promise<IOriginalPathSaveWitness> {
-    return new OriginalPathSaveWitness(originalPath, await capturePathSnapshot(originalPath));
-}
-
-export async function capturePathSaveWitness(
-    originalPath: string,
-): Promise<IOriginalPathSaveWitness | null> {
-    try {
-        return await captureRequiredPathSaveWitness(originalPath);
-    } catch {
-        return null;
-    }
+export function capturePathSaveWitness(originalPath: string): Promise<IOriginalPathSaveWitness | null> {
+    return captureOpenSourceWitness(originalPath).catch(() => null);
 }
 
 /**
@@ -403,8 +193,8 @@ export async function capturePathSaveWitness(
  * revision again before registration without retaining a handle. Only a real
  * snapshot mismatch is a conflict; an unreadable or vanished source keeps its error.
  */
-export function captureOpenSourceWitness(originalPath: string) {
-    return captureRequiredPathSaveWitness(originalPath);
+export async function captureOpenSourceWitness(originalPath: string): Promise<IOriginalPathSaveWitness> {
+    return new OriginalPathSaveWitness(originalPath, await capturePathSnapshot(originalPath));
 }
 
 export async function captureOriginalPathSaveWitness(
@@ -422,7 +212,7 @@ export async function captureOriginalPathSaveWitness(
     }
 
     try {
-        const snapshot = await capturePathSnapshot(originalPath);
+        const snapshot = await captureAdmittedPathSnapshot(originalPath, hasCompleteStoredIdentity(expected) ? expected : undefined, signal);
         const originalStat = await lstat(originalPath, {bigint: true});
         const expectationStatMatches = expectationMatchesStat(expected, originalStat);
         let contentFingerprintVerified = false;
@@ -438,14 +228,6 @@ export async function captureOriginalPathSaveWitness(
                     return null;
                 }
             }
-            if (
-                expectationStatMatches
-                && process.platform === 'win32'
-                && expected.contentFingerprint !== undefined
-                && !contentFingerprintVerified
-            ) {
-                return null;
-            }
             if (!expectationStatMatches && !contentFingerprintVerified) {
                 const restored = await restoreAppPublishedOriginalExpectation(
                     workingPath,
@@ -455,33 +237,20 @@ export async function captureOriginalPathSaveWitness(
                     originalStat,
                 );
                 if (!restored) {
-                    log.debug('Original save witness rejected a changed file expectation', {
-                        fields: getExpectationStatMismatches(expected, originalStat),
-                        originalPath,
-                        expected,
-                        actual: {
-                            ctimeNs: originalStat.ctimeNs.toString(),
-                            deviceId: originalStat.dev.toString(),
-                            inode: originalStat.ino.toString(),
-                            linkCount: originalStat.nlink.toString(),
-                            mtimeNs: originalStat.mtimeNs.toString(),
-                            size: originalStat.size.toString(),
-                        },
-                        workingPath,
-                    });
                     return null;
                 }
                 expected = restored;
             }
         }
-        if (!contentFingerprintVerified && !await matchesExpectedContentFingerprint(originalPath, expected, originalStat, signal)) {
+        if (!contentFingerprintVerified && process.platform === 'win32' && expected.contentFingerprint
+            && !await matchesBaselineOnWitnessPath(originalPath, expected, snapshot, signal)) {
             return null;
         }
         if (signal?.aborted) {
             return null;
         }
-        const pathSnapshot = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(snapshot, pathSnapshot)) {
+        const pathSnapshot = await capturePathSnapshot(originalPath, {ignoreIdentity: contentFingerprintVerified});
+        if (!snapshotsMatch(snapshot, pathSnapshot, {ignoreIdentity: contentFingerprintVerified})) {
             return null;
         }
         return new OriginalPathSaveWitness(originalPath, snapshot);
@@ -511,9 +280,9 @@ async function restoreAppPublishedOriginalExpectation(
         if (saved.path !== originalPath) {
             return null;
         }
-        // The revision commit retains the journal's witnessed publication.
-        // A stale workspace checkpoint cannot erase this save baseline.
-        await assertPathMatchesSaveWitnessSnapshot(originalPath, saved.snapshot, {allowBackupMetadataChange: saved.snapshot.contentFingerprint !== undefined});
+        // The revision commit retains the journal's witnessed publication; a stale workspace checkpoint cannot erase
+        // this save baseline. With its fingerprint, the saved bytes count even when only their metadata changed.
+        await assertPathMatchesSaveWitnessSnapshot(originalPath, saved.snapshot, {contentOnly: saved.snapshot.contentFingerprint !== undefined});
     } else {
         // Older saved copies prove publication only through their shared inode.
         const workingStat = await stat(workingPath, {bigint: true});
@@ -552,14 +321,15 @@ export async function originalPathSaveBaseMatches(
         return false;
     }
     if (expectationMatchesStat(expected, actual)) {
-        return matchesExpectedContentFingerprint(originalPath, expected, actual);
+        if (process.platform !== 'win32') return true;
     }
-    if (
-        process.platform !== 'win32'
-        || expected.contentFingerprint === undefined
-        || !actual.isFile()
-    ) {
+    if (!actual.isFile() || !expected.contentFingerprint) {
         return false;
     }
-    return matchesExpectedContentFingerprint(originalPath, expected, actual);
+    try {
+        return await matchesBaselineOnWitnessPath(originalPath, expected,
+            await captureAdmittedPathSnapshot(originalPath, {contentFingerprint: expected.contentFingerprint}));
+    } catch {
+        return false;
+    }
 }

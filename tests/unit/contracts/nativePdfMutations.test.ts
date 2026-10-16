@@ -8,7 +8,9 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
 } from '@contracts/nativePdfMutations';
-import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
+import {
+    collectExpectedNativeIdentityIds, splitPdfNativeMutationSetIntoBoundedChunks,
+} from '@pdf-core/nativePdfMutationPolicy';
 
 const validNoteTextUpdate = {
     objectNumber: 42,
@@ -142,11 +144,488 @@ function countBookmarkItems(items: readonly INativeBookmarkTestItem[]): number {
 }
 
 describe('native PDF mutation contracts', () => {
+    it.each([
+        [
+            'typeError',
+            TypeError,
+        ],
+        [
+            'error',
+            Error,
+        ],
+    ] as const)('labels nested source-intent failures with errorKind=%s', (errorKind, errorConstructor) => {
+        for (const invalid of [
+            {originalDestination: {kind: 'Invalid'}},
+            {originalAction: {dict: [[
+                'URI',
+                {literal: [256]},
+            ]]}},
+            {originalNamedDest: {literal: [256]}},
+        ]) {
+            const normalize = () => normalizePdfNativeMutationSet({bookmarks: {
+                totalPages: 1,
+                items: [{
+                    ...createBookmark('Parent'),
+                    items: [{
+                        ...createBookmark('Invalid child'),
+                        ...invalid,
+                    }],
+                }],
+            }}, 'mutations', {errorKind});
+            expect(normalize).toThrow(errorConstructor);
+            try {
+                normalize();
+            } catch (error) {
+                expect(error?.constructor).toBe(errorConstructor);
+                expect(error).toHaveProperty('message', 'mutations.bookmarks.items[0].items[0] has an invalid source destination, action or name');
+            }
+        }
+    });
+
+    it('preserves bounded source destinations through save and rejects invalid coordinate shapes', () => {
+        const originalDestination = {
+            kind: 'XYZ',
+            sourceTarget: {
+                num: 17,
+                gen: 0,
+            },
+            coordinates: [
+                null,
+                null,
+                null,
+            ],
+        };
+        const bookmark = {
+            title: 'Source',
+            pageIndex: null,
+            pageYRatio: null,
+            namedDest: null,
+            originalDestination,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        const mutations = {bookmarks: {
+            totalPages: 2,
+            untitledLabel: 'Untitled',
+            items: [bookmark],
+        }};
+        expect(normalizePdfNativeMutationSet(mutations, 'mutations').bookmarks?.items[0]?.originalDestination).toEqual(originalDestination);
+        for (const invalid of [
+            {
+                ...originalDestination,
+                kind: 'Invalid',
+            },
+            {
+                ...originalDestination,
+                coordinates: [null],
+            },
+            {
+                ...originalDestination,
+                coordinates: [
+                    NaN,
+                    null,
+                    null,
+                ],
+            },
+            {
+                ...originalDestination,
+                sourceTarget: {
+                    num: -1,
+                    gen: 0,
+                },
+            },
+        ]) {
+            expect(() => normalizePdfNativeMutationSet({bookmarks: {
+                ...mutations.bookmarks,
+                items: [{
+                    ...bookmark,
+                    originalDestination: invalid,
+                }],
+            }}, 'mutations')).toThrow();
+        }
+    });
+
+    it('preserves a source action through save and rejects actions outside its bounds', () => {
+        const originalAction = {dict: [
+            [
+                'S',
+                {name: 'GoToR'},
+            ],
+            [
+                'F',
+                {literal: [
+                    111,
+                    116,
+                    104,
+                    101,
+                    114,
+                    46,
+                    112,
+                    100,
+                    102,
+                ]},
+            ],
+            [
+                'D',
+                [
+                    0,
+                    {name: 'FitH'},
+                    null,
+                ],
+            ],
+            [
+                'NewWindow',
+                true,
+            ],
+            [
+                'Zoom',
+                {real: 1.5},
+            ],
+        ]};
+        const bookmark = {
+            title: 'Remote',
+            pageIndex: null,
+            pageYRatio: null,
+            namedDest: null,
+            originalAction,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        const mutations = {bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [bookmark],
+        }};
+        expect(normalizePdfNativeMutationSet(mutations, 'mutations').bookmarks?.items[0]?.originalAction).toEqual(originalAction);
+        let nested: unknown = null;
+        for (let depth = 0; depth < 100_000; depth += 1) nested = [nested];
+        for (const invalid of [
+            [[
+                'S',
+                {name: 'URI'},
+            ]],
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'URI',
+                    {literal: [256]},
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'URI',
+                    {text: 'https://example.org'},
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'Zoom',
+                    1.5,
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'URI',
+                    {literal: Array.from({length: 70_000}, () => 97)},
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'Named'},
+                ],
+                [
+                    'Next',
+                    nested,
+                ],
+            ]},
+        ]) {
+            expect(() => normalizePdfNativeMutationSet({bookmarks: {
+                ...mutations.bookmarks,
+                items: [{
+                    ...bookmark,
+                    originalAction: invalid,
+                }],
+            }}, 'mutations')).toThrow();
+        }
+    });
+
+    it('keeps a source name form through save and rejects what native admission refuses', () => {
+        const bookmark = {
+            title: 'Named',
+            pageIndex: null,
+            pageYRatio: null,
+            namedDest: 'caf\u00e9',
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        const save = (originalNamedDest: unknown) => normalizePdfNativeMutationSet({bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [{
+                ...bookmark,
+                originalNamedDest,
+            }],
+        }}, 'mutations').bookmarks?.items[0]?.originalNamedDest;
+        // Native writes back a PDF name or string of at most 16,383 bytes.
+        for (const valid of [
+            {literal: [
+                99,
+                97,
+                102,
+                233,
+            ]},
+            {hex: [
+                254,
+                255,
+                0,
+                99,
+            ]},
+            {name: 'chapter'},
+            {literal: Array.from({length: 16_383}, () => 97)},
+            {name: '\u00e9'.repeat(8_191)},
+        ]) {
+            expect(save(valid)).toEqual(valid);
+        }
+        for (const invalid of [
+            null,
+            true,
+            7,
+            {real: 1.5},
+            {dict: []},
+            [{literal: [97]}],
+            {literal: [256]},
+            {literal: Array.from({length: 16_384}, () => 97)},
+            {name: '\u00e9'.repeat(8_192)},
+        ]) {
+            expect(() => save(invalid)).toThrow();
+        }
+    });
+
     it('normalizes native canonical identity bindings without changing their proof', () => {
         expect(normalizePdfNativeAnnotationIdentityBindings([{
             annotationId: '  app-annotation-1 ',
             pdfRef: '700 0 R',
         }])).toEqual([validIdentityBinding]);
+    });
+
+    it.each([
+        [
+            'Hebrew',
+            'א'.repeat(1_024),
+        ],
+        [
+            'Arabic',
+            'ع'.repeat(1_024),
+        ],
+        [
+            'CJK',
+            `${'界'.repeat(682)}ab`,
+        ],
+    ])('budgets %s report identities in UTF-8 bytes', (_language, annotationId) => {
+        const binding = {
+            annotationId,
+            pdfRef: '700 0 R',
+        };
+        expect(new TextEncoder().encode(annotationId)).toHaveLength(2_048);
+        expect(normalizePdfNativeAnnotationIdentityBindings([binding])).toEqual([binding]);
+        expect(() => normalizePdfNativeAnnotationIdentityBindings([{
+            ...binding,
+            annotationId: `${annotationId}a`,
+        }])).toThrow('2048 UTF-8 bytes');
+    });
+
+    it('refuses the 3200-shape Unicode probe at mutation admission', () => {
+        const identity = `evb-shape:${'é'.repeat(1_100)}`;
+        expect(new TextEncoder().encode(identity)).toHaveLength(2_210);
+        expect(() => normalizePdfNativeMutationSet({shapes: {
+            totalPages: 1,
+            rewriteShapeState: true,
+            shapes: Array.from({length: 3_200}, (_, index) => ({
+                ...validShape,
+                stableKey: index === 3_199
+                    ? identity
+                    : `evb-shape:${index.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`,
+            })),
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        }}, 'mutations')).toThrow('mutations.shapes.shapes[3199].stableKey must contain at most 2048 UTF-8 bytes');
+    });
+
+    it.each([
+        {
+            family: 'shape stable key',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    stableKey: identity,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'shape fallback identity',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    annotationId: identity,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'shape id',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    id: identity,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'deleted shape identity',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [],
+                deletedAnnotationIds: [identity],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'deleted shape stable key',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [identity],
+            }}),
+        },
+        {
+            family: 'note stable key',
+            payload: (identity: string) => ({freeTextNotes: [{
+                ...validFreeTextNote,
+                stableKey: identity,
+            }]}),
+        },
+        {
+            family: 'markup app identity',
+            payload: (identity: string) => ({markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: validFreeTextNote.markerRect,
+                source: 'editor',
+                appAnnotationId: identity,
+            }]}}),
+        },
+        {
+            family: 'markup annotation identity',
+            payload: (identity: string) => ({markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: validFreeTextNote.markerRect,
+                annotationId: identity,
+            }]}}),
+        },
+        {
+            family: 'markup id',
+            payload: (identity: string) => ({markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: validFreeTextNote.markerRect,
+                id: identity,
+            }]}}),
+        },
+        {
+            family: 'image stable key',
+            payload: (identity: string) => ({placedImages: [{
+                ...validImage,
+                stableKey: identity,
+            }]}),
+        },
+        {
+            family: 'image annotation identity',
+            payload: (identity: string) => ({placedImages: [{
+                ...validImage,
+                annotationId: identity,
+            }]}),
+        },
+        {
+            family: 'image recovery stable key',
+            payload: (identity: string) => ({placedImageGeometryUpdates: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                stableKey: identity,
+            }]}),
+        },
+        {
+            family: 'image geometry annotation identity',
+            payload: (identity: string) => ({placedImageGeometryUpdates: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                annotationId: identity,
+            }]}),
+        },
+    ])('budgets $family at mutation admission in UTF-8 bytes', ({payload}) => {
+        for (const identity of [
+            'א'.repeat(1_024),
+            'ع'.repeat(1_024),
+            `${'界'.repeat(682)}ab`,
+        ]) {
+            expect(new TextEncoder().encode(identity)).toHaveLength(2_048);
+            expect(() => normalizePdfNativeMutationSet(payload(identity), 'mutations')).not.toThrow();
+            expect(() => normalizePdfNativeMutationSet(payload(`${identity}a`), 'mutations')).toThrow('2048 UTF-8 bytes');
+        }
+    });
+
+    it('preserves absent image geometry identity fields', () => {
+        const normalized = normalizePdfNativeMutationSet({placedImageGeometryUpdates: [{
+            pageIndex: 0,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.2,
+        }]}, 'mutations');
+        expect(normalized.placedImageGeometryUpdates?.[0]).not.toHaveProperty('annotationId');
+        expect(normalized.placedImageGeometryUpdates?.[0]).not.toHaveProperty('stableKey');
     });
 
     it.each([
@@ -208,6 +687,74 @@ describe('native PDF mutation contracts', () => {
                 pdfRef: validIdentityBinding.pdfRef,
             },
         ])).toThrow('duplicate PDF object reference');
+    });
+
+    it('separates the native-call limits from the atomic save limit', () => {
+        const bindings = Array.from({length: 4_097}, (_, index) => ({
+            annotationId: `annotation-${index}`,
+            pdfRef: `${index + 1} 0 R`,
+        }));
+        expect(normalizePdfNativeAnnotationIdentityBindings(bindings)).toEqual(bindings);
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(bindings, 'chunk', {scope: 'chunk'}))
+            .toThrow('at most 4096');
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(Array(500_001)))
+            .toThrow('at most 500000');
+        const largeReport = Array.from({length: 256}, (_, index) => ({
+            annotationId: `${index}:` + '\u0001'.repeat(1_800),
+            pdfRef: `${index + 1} 0 R`,
+        }));
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(largeReport, 'chunk', {scope: 'chunk'}))
+            .toThrow('byte budget');
+    });
+
+    it('keeps every new identity across a chunked save and bounds each report', () => {
+        const mutations = normalizePdfNativeMutationSet({
+            freeTextNotes: Array.from({length: 4_097}, (_, index) => ({
+                ...validFreeTextNote,
+                stableKey: `uid:0:new-${index}`,
+            })),
+            shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: Array.from({length: 4_096}, (_, index) => ({
+                    ...validShape,
+                    stableKey: `evb-shape:${index.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`,
+                })),
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            },
+        }, 'mutations');
+        let nextRef = 1;
+        const reports = splitPdfNativeMutationSetIntoBoundedChunks(mutations).map(chunk => {
+            const bindings = collectExpectedNativeIdentityIds(chunk).map(annotationId => ({
+                annotationId,
+                pdfRef: `${nextRef++} 0 R`,
+            }));
+            expect(bindings.length).toBeLessThanOrEqual(4_096);
+            expect(new TextEncoder().encode(JSON.stringify(bindings)).byteLength).toBeLessThanOrEqual(256 * 1024);
+            return bindings;
+        });
+        const allBindings = reports.flat();
+        expect(normalizePdfNativeAnnotationIdentityBindings(allBindings)).toEqual(allBindings);
+        expect(new Set(allBindings.map(binding => binding.annotationId)))
+            .toEqual(new Set(collectExpectedNativeIdentityIds(mutations)));
+        expect(allBindings).toHaveLength(8_193);
+    });
+
+    it('keeps escaped and Unicode identities inside the native report byte budget', () => {
+        const mutations = normalizePdfNativeMutationSet({freeTextNotes: Array.from({length: 256}, (_, index) => ({
+            ...validFreeTextNote,
+            stableKey: `uid:${index}:` + '\u0001'.repeat(1_800) + 'é'.repeat(100),
+        }))}, 'mutations');
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks(mutations);
+        const reports = chunks.map(chunk => collectExpectedNativeIdentityIds(chunk).map((annotationId, index) => ({
+            annotationId,
+            pdfRef: `${4_294_967_295 - index} 65535 R`,
+        })));
+        expect(reports.flat()).toHaveLength(256);
+        for (const report of reports) {
+            expect(new TextEncoder().encode(JSON.stringify(report)).byteLength).toBeLessThanOrEqual(256 * 1024);
+        }
     });
 
     it('normalizes every native mutation family for preload and native-tool payloads', () => {

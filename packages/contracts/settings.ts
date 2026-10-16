@@ -66,6 +66,7 @@ export const SETTINGS_SAVE_KEYS = [
     'defaultZoomPreset',
     'defaultViewMode',
     'defaultContinuousScroll',
+    'rememberDocumentView',
     'defaultAnnotationColor',
     'uiScale',
     'tabMemoryPolicy',
@@ -101,6 +102,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultZoomPreset: 'fit-width',
     defaultViewMode: 'single',
     defaultContinuousScroll: true,
+    rememberDocumentView: false,
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
     tabMemoryPolicy: 'conservative',
@@ -258,6 +260,7 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         defaultContinuousScroll: isBoolean(value?.defaultContinuousScroll)
             ? value.defaultContinuousScroll
             : DEFAULT_SETTINGS.defaultContinuousScroll,
+        rememberDocumentView: value?.rememberDocumentView === true,
         defaultAnnotationColor: normalizeDefaultAnnotationColor(value?.defaultAnnotationColor),
         uiScale: normalizeUiScale(value?.uiScale),
         tabMemoryPolicy: normalizeTabMemoryPolicy(value?.tabMemoryPolicy),

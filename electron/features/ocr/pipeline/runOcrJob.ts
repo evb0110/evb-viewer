@@ -2,7 +2,6 @@
  * One OCR job: select the pages that need recognition, render and recognize
  * each page under a broker lease, checkpoint every recognized page, write the
  * searchable PDF in one pdf-page-ops pass, and stage the text catalog.
- *
  * The job runs in the main process inside a job-registry record. The native
  * tools do the CPU work in child processes; this code only orchestrates them.
  */
@@ -621,7 +620,12 @@ async function buildOcrPageProcessingPlan(
             baseContext.popplerEnv,
             baseContext.signal,
             pages.map(page => page.pageNumber),
-        )
+        ).catch((error: unknown) => {
+            baseContext.signal.throwIfAborted();
+            if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            log('warn', 'Source DPI inspection failed; using default OCR resolution', {error: getErrorMessage(error)});
+            return null;
+        })
         : null;
     const detectedDpi = detectedSourceDpi?.documentDpi ?? renderDpi;
     const pageSourceDpiByNumber = new Map<number, number>();
@@ -662,19 +666,8 @@ async function buildOcrPageProcessingPlan(
 }
 
 function getFirstSelectionPage(selection: TOcrPdfPageSelection) {
-    if (Array.isArray(selection)) {
-        return selection[0]?.pageNumber ?? 0;
-    }
-    switch (selection.kind) {
-        case 'all':
-            return 1;
-        case 'range':
-            return selection.firstPage;
-        case 'ranges':
-            return selection.ranges[0]?.firstPage ?? 0;
-        case 'pages':
-            return selection.pages[0]?.pageNumber ?? 0;
-    }
+    for (const [page] of iterateOcrPageRequestBatches(selection, 1)) return page?.pageNumber ?? 0;
+    return 0;
 }
 
 export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
@@ -982,8 +975,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         }
         await storageBudget.assertWithinBudget();
         await durableManifest.markNode('assembled-document', 'verified');
-
-        throwIfAborted(jobSignal);
         const resultSha256 = await hashFileSha256(mergedPdfPath, jobSignal);
         await durableManifest.markNode('verified-result', 'verified');
         publish(lastPage, requestedPageCount, {

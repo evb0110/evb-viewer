@@ -12,9 +12,15 @@
         data-annotation-kind="text-box"
         :aria-label="entity.text || t('annotations.annotationLabel')"
         @mousedown.stop
-        @pointerdown.stop="handlePointerDown"
-        @dblclick.stop="handleEdit"
+        @pointerdown.stop="emit('pointer-down', $event)"
+        @dblclick.stop="!editing && emit('edit', $event)"
     >
+        <span
+            v-if="frameStyle"
+            class="pdf-annotation-editor-text-box__frame"
+            :style="frameStyle"
+            aria-hidden="true"
+        ></span>
         <div
             v-if="editing"
             ref="editorRef"
@@ -28,7 +34,7 @@
             @keydown="handleKeydown"
             @blur="handleBlur"
         ></div>
-        <template v-else>{{ entity.text }}</template>
+        <template v-else>{{ recoveredDraftText ?? entity.text }}</template>
     </div>
 </template>
 
@@ -56,6 +62,7 @@ const props = defineProps<{
     entity: ITextBoxEntity;
     selected: boolean;
     editing?: boolean;
+    originalAppearance?: boolean;
     recoveredDraftText?: string | null;
     recoveredDraftRect?: IAnnotationMarkerRect | null;
     autoSizeDraft?: boolean;
@@ -65,6 +72,7 @@ const props = defineProps<{
     } | null;
     displayRect?: IAnnotationMarkerRect | undefined;
     displayFontSize?: number | undefined;
+    commitDraft?: (draft: ITextBoxCommitDraft) => void | Promise<void>;
 }>();
 const emit = defineEmits<{
     'pointer-down': [event: PointerEvent];
@@ -73,11 +81,11 @@ const emit = defineEmits<{
         clientY: number
     }];
     'draft-change': [text: string];
-    commit: [draft: ITextBoxCommitDraft];
     cancel: [];
 }>();
 const { t } = useTypedI18n();
 const editing = computed(() => props.editing ?? false);
+const paintsOriginal = computed(() => props.entity.readOnly === true || props.originalAppearance === true);
 const rootRef = ref<HTMLElement | null>(null);
 const draftRect = ref<IAnnotationMarkerRect | null>(null);
 const inlineEdit = useTextBoxInlineEdit({
@@ -86,11 +94,12 @@ const inlineEdit = useTextBoxInlineEdit({
     recoveredDraftText: computed(() => props.recoveredDraftText ?? null),
     caretPoint: computed(() => props.caretPoint ?? null),
     onCommit: (text, options) => {
-        const rect = draftRectForContent();
-        emit('commit', {
+        const rect = draftRect.value ?? props.recoveredDraftRect ?? (text !== props.entity.text ? draftRectForContent() : undefined);
+        if (!props.commitDraft) throw new Error('Missing text draft completion owner');
+        return props.commitDraft({
             text,
             restoreFocus: options?.restoreFocus ?? false,
-            ...(rect ? {rect} : {}),
+            ...(rect ? {rect: {...rect}} : {}),
         });
     },
     onCancel: () => emit('cancel'),
@@ -105,18 +114,19 @@ const {
 
 watch(editing, async (value) => {
     draftRect.value = props.recoveredDraftRect ?? null;
-    if (value) { await nextTick(); draftRectForContent(); }
+    if (value && !props.recoveredDraftRect && (props.autoSizeDraft || props.recoveredDraftText != null && props.recoveredDraftText !== props.entity.text)) { await nextTick(); draftRectForContent(); }
 }, {immediate: true});
 onMounted(() => {
-    void document.fonts?.ready.then(() => {if (editing.value) {draftRectForContent();}});
+    void document.fonts?.ready.then(() => {if (editing.value && (draftRect.value || props.autoSizeDraft || inlineEdit.draftText.value !== props.entity.text)) {draftRectForContent();}});
 });
 
 watch(() => props.entity.fontSize, async () => {
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
 
-watch(() => props.entity.rect, async () => {
-    draftRect.value = null;
+watch(() => props.entity.rect, async (rect, previous) => {
+    if (annotationRectsEqual(rect, previous)) return;
+    draftRect.value = editing.value ? rect : null;
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
 
@@ -139,6 +149,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         || !Number.isFinite(pageRect.width)
         || !Number.isFinite(pageRect.height)
     ) {
+        emit('draft-change', inlineEdit.draftText.value);
         return undefined;
     }
     const viewRotation = Number(page?.dataset.viewRotation ?? 0);
@@ -174,7 +185,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             pixels(getComputedStyle(editor).width),
         );
         const intrinsicWidth = (Math.ceil(intrinsicEditorWidth) + extraWidth) / pageWidth;
-        const baseRect = props.entity.rect;
+        const baseRect = props.autoSizeDraft ? props.entity.rect : draftRect.value ?? props.entity.rect;
         const width = Math.min(
             props.autoSizeDraft ? Math.max(baseRect.width, intrinsicWidth) : baseRect.width,
             annotationInlineCapacity(baseRect, props.entity.rotation, {
@@ -193,9 +204,12 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             ? {
                 ...baseRect,
                 width,
-                height: Math.max(baseRect.height, contentHeight),
+                height: Math.max(props.entity.rect.height, contentHeight),
             }
-            : expandTextBoxRectToContentSize(baseRect, width, contentHeight);
+            : expandTextBoxRectToContentSize({
+                ...baseRect,
+                height: props.entity.rect.height,
+            }, width, contentHeight);
         if (props.entity.rotation) {
             const center = {
                 x: baseRect.left + baseRect.width / 2,
@@ -229,13 +243,13 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         editor.style.overflowWrap = editorOverflowWrap;
     }
     draftRect.value = next;
+    emit('draft-change', inlineEdit.draftText.value);
     return annotationRectsEqual(next, props.entity.rect) ? undefined : next;
 }
 
 function handleInputEvent(event: Event) {
     handleInput(event);
     draftRectForContent();
-    emit('draft-change', inlineEdit.draftText.value);
 }
 
 function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = props.entity.fontSize): IAnnotationMarkerRect | null {
@@ -299,39 +313,57 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     } finally { measurement.remove(); }
 }
 
-interface IPdfTextBoxAnnotationExpose {
-    commitDraft: () => void;
-    getDraftRect: () => IAnnotationMarkerRect;
-    getDraftText: () => string;
-    fitRectToContent: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
-}
+// A foreign label's frame: its border and background inset by /RD, behind
+// the text, which sits inside both as it does on the saved page. /RD is on
+// the page's upright top, right, bottom and left; a box turned clockwise by a
+// quarter faces the next side, as Save draws it.
+const frameInsets = computed(() => {
+    const insets = props.entity.readOnly ? undefined : props.entity.frame?.insets;
+    return insets?.map((_, side) => insets[(side + props.entity.rotation / 90) % 4]!);
+});
+const frameStyle = computed(() => {
+    const frame = props.entity.frame;
+    if (!frame || !frameInsets.value) {
+        return null;
+    }
+    return {
+        position: 'absolute' as const,
+        visibility: paintsOriginal.value ? 'hidden' as const : undefined,
+        inset: frameInsets.value.map(inset => toPdfScaledCssLength(inset)).join(' '),
+        // An inset shadow keeps the stroke's exact width; a CSS border snaps to device pixels.
+        boxShadow: frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(frame.borderWidth)} ${frame.borderColor}` : 'none',
+        background: frame.background ?? 'transparent',
+        zIndex: -1,
+        pointerEvents: 'none' as const,
+    };
+});
+
+const framePadding = computed(() => {
+    const frame = props.entity.frame;
+    return frame && frameInsets.value
+        ? {padding: frameInsets.value.map((inset, side) => (
+            `calc(${toPdfScaledCssLength(inset + frame.borderWidth)} + ${side % 2 ? 0.3 : 0.15}em)`
+        )).join(' ')}
+        : {};
+});
 
 const rectStyle = computed(() => ({
-    left: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).left * 100}%`,
-    top: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).top * 100}%`,
-    width: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).width * 100}%`,
-    height: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).height * 100}%`,
-    color: props.entity.color ?? 'var(--ui-text)',
+    left: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).left * 100}%`,
+    top: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).top * 100}%`,
+    width: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).width * 100}%`,
+    height: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).height * 100}%`,
+    // pdf.js draws a read-only label: its box only takes the pointer.
+    color: paintsOriginal.value ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
+    caretColor: props.entity.color ?? 'var(--ui-text)',
+    cursor: props.entity.readOnly ? 'default' : undefined,
     fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,
+    ...framePadding.value,
 }));
 
-function handlePointerDown(event: PointerEvent) {
-    emit('pointer-down', event);
-}
-
-function handleEdit(event: MouseEvent) {
-    if (!editing.value) {
-        emit('edit', {
-            clientX: event.clientX,
-            clientY: event.clientY,
-        });
-    }
-}
-
-defineExpose<IPdfTextBoxAnnotationExpose>({
+defineExpose({
     commitDraft: commit,
-    getDraftRect: () => ({...(draftRect.value ?? props.entity.rect)}),
+    getDraftRect: () => toRaw(draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect),
     getDraftText: () => inlineEdit.draftText.value,
     fitRectToContent,
 });

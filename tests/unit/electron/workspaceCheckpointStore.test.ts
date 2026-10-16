@@ -1,19 +1,26 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 
 import {
+    copyFile,
     mkdir,
     mkdtemp,
     readdir,
     readFile,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
 import type * as NodeFs from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { join } from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+    afterAll,
     afterEach,
+    beforeAll,
     beforeEach,
     describe,
     expect,
@@ -21,6 +28,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
@@ -29,6 +37,14 @@ import {
     allowOpenPath,
     requireOpenPath,
 } from '@electron/file-access/openPathCapabilities';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
+import {WorkingCopyMissingError} from '@electron/file-access/workingCopyMissingError';
+import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
+import {
+    prepareWorkingCopyTransition,
+    recordWorkingCopyJournalOriginal,
+} from '@electron/file-access/workingCopyJournal';
 
 import {
     acknowledgeWorkspaceCheckpoint,
@@ -41,7 +57,12 @@ import {
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
 
+const workingCopyRef = vi.hoisted(() => '/tmp/evb-working/draft.pdf');
 const state = vi.hoisted(() => ({
+    // Each registration has its own id, as in the registry.
+    lastRegistrationId: 999,
+    // Working copies the store finds on disk; a test removes one as a roaming profile would.
+    presentWorkingCopies: new Set<string>(),
     backingEntries: new Map<string, {
         admissionSnapshot?: {
             mtimeNs: bigint;
@@ -78,6 +99,9 @@ vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeFs>();
     return {
         ...actual,
+        existsSync: (path: string) => path === workingCopyRef
+            ? state.presentWorkingCopies.has(path)
+            : state.presentWorkingCopies.has(path) || actual.existsSync(path),
         readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
             if (state.failNextCheckpointRead) {
                 state.failNextCheckpointRead = false;
@@ -100,6 +124,10 @@ vi.mock('electron', () => ({
 
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    captureWorkingCopyAdmissionSnapshot: () => Promise.resolve({
+        mtimeNs: 1n,
+        size: 987_654n,
+    }),
     getWorkingCopyOwnerWebContentsId: (path: string) => state.owners.get(path),
     getWorkingCopyOriginalPath: (path: string, owner: number) => state.owners.get(path) === owner
         ? {originalPath: state.originalPaths.get(path)}
@@ -152,7 +180,7 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
             ...(options?.originalFileExpectation
                 ? {originalFileExpectation: options.originalFileExpectation}
                 : {}),
-            registrationId: 999,
+            registrationId: ++state.lastRegistrationId,
             role: options?.role ?? 'current',
         });
         return Promise.resolve();
@@ -179,7 +207,6 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
 vi.mock('@electron/file-access/workingCopyCleanup', () => ({blockStaleWorkingCopyDirectoryCleanup: state.blockCleanup}));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touchScanCleanupGeneratedOutput: state.touchScanCleanupGeneratedOutput}));
 
-const workingCopyRef = '/tmp/evb-working/draft.pdf';
 const checkpoint: IWorkspaceCheckpoint = {
     version: 1 as const,
     capturedAt: requireEpochMs(123),
@@ -234,7 +261,11 @@ function reloadRenderer(window: Electron.WebContents) {
 }
 
 describe('workspace checkpoint store', () => {
+    beforeAll(() => vi.useFakeTimers({toFake: ['Date']}));
+    afterAll(() => vi.useRealTimers());
+
     beforeEach(async () => {
+        vi.setSystemTime(Date.now() + 1_000);
         state.userDataPath = await mkdtemp(join(tmpdir(), 'evb-workspace-checkpoint-'));
         state.backingEntries.clear();
         state.owners.clear();
@@ -246,10 +277,11 @@ describe('workspace checkpoint store', () => {
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
         state.touchScanCleanupGeneratedOutput.mockClear();
+        state.presentWorkingCopies.clear();
+        state.presentWorkingCopies.add(workingCopyRef);
     });
 
     afterEach(async () => {
-        vi.useRealTimers();
         await rm(state.userDataPath, {
             force: true,
             recursive: true,
@@ -259,7 +291,7 @@ describe('workspace checkpoint store', () => {
     it('atomically persists, claims once, and transfers working-copy ownership', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
-        await saveWorkspaceCheckpoint(checkpoint, 11);
+        await expect(saveWorkspaceCheckpoint(checkpoint, 11)).resolves.toBe(true);
 
         const stored = (await readRecoveryRecord());
         expect(stored).toMatchObject({
@@ -417,7 +449,6 @@ describe('workspace checkpoint store', () => {
 
         // Saves inside the debounce window wait for its real timer. The test
         // clock moves past the window instead, so each save commits directly.
-        vi.useFakeTimers({toFake: ['Date']});
         const saveSettled = async () => {
             vi.setSystemTime(Date.now() + 1_000);
             await saveWorkspaceCheckpoint(twoTabs, 11, window);
@@ -445,17 +476,16 @@ describe('workspace checkpoint store', () => {
             ],
         ]);
 
-        // A restore whose renderer saved again has settled, even when it never
-        // acknowledged (an incomplete restore keeps its evidence): a later
-        // crash closes nothing.
+        // A healthy partial Save cannot acknowledge another document's unfinished restore.
+        // A renderer crash still closes the shown clean document until explicit acknowledgement.
         await saveSettled();
         window.emit('render-process-gone', {}, {reason: 'crashed'});
         reloadRenderer(window);
         await expect(restoredSources()).resolves.toEqual([
             [
                 'tab-1',
-                'shown.pdf',
-                shownPath,
+                null,
+                null,
             ],
             [
                 'tab-2',
@@ -464,7 +494,7 @@ describe('workspace checkpoint store', () => {
             ],
         ]);
 
-        // The renderer dies while that restore opens the shown document.
+        // Another crash preserves the closed document and does not reopen the fatal source.
         window.emit('render-process-gone', {}, {reason: 'oom'});
         reloadRenderer(window);
         const restored = await claimWorkspaceCheckpoint(11, window);
@@ -603,6 +633,17 @@ describe('workspace checkpoint store', () => {
     });
 
     it('retains unacknowledged annotation recovery through ordinary saves and a store restart', async () => {
+        const workingCopyRef = join(state.userDataPath, 'retained-working.pdf');
+        const workingBytes = Buffer.from('%PDF-1.7 retained unsaved working bytes');
+        await writeFile(workingCopyRef, workingBytes);
+        state.presentWorkingCopies.add(workingCopyRef);
+        const retainedCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                workingCopyRef: requireDocumentRef(workingCopyRef),
+            })),
+        };
         const payload = {
             version: 1,
             annotationMutationGeneration: 7,
@@ -614,9 +655,13 @@ describe('workspace checkpoint store', () => {
             drafts: [],
         };
         const recoveryCheckpoint: IWorkspaceCheckpoint = {
-            ...checkpoint,
-            tabs: checkpoint.tabs.map(tab => ({
+            ...retainedCheckpoint,
+            tabs: retainedCheckpoint.tabs.map(tab => ({
                 ...tab,
+                annotationRecoveryFailure: {
+                    reason: 'capture-rejected',
+                    message: 'Recovery state exceeds the 4194304-byte annotation budget',
+                },
                 annotationRecovery: {
                     artifactId: 'capture-tab-1',
                     documentInstanceId: 'document-1',
@@ -629,10 +674,10 @@ describe('workspace checkpoint store', () => {
         };
         const secondWorkingCopyRef = '/tmp/evb-working/unrelated.pdf';
         const checkpointWithUnrelatedTab = (capturedAt: number): IWorkspaceCheckpoint => ({
-            ...checkpoint,
+            ...retainedCheckpoint,
             capturedAt: requireEpochMs(capturedAt),
             panes: [{
-                ...checkpoint.panes[0]!,
+                ...retainedCheckpoint.panes[0]!,
                 tabIds: [
                     requireTabId('tab-1'),
                     requireTabId('tab-2'),
@@ -641,14 +686,14 @@ describe('workspace checkpoint store', () => {
             }],
             tabs: [
                 {
-                    ...checkpoint.tabs[0]!,
+                    ...retainedCheckpoint.tabs[0]!,
                     annotationRecoveryFailure: {
                         reason: 'capture-rejected',
                         message: 'Recovery state exceeds the 4194304-byte annotation budget',
                     },
                 },
                 {
-                    ...checkpoint.tabs[0]!,
+                    ...retainedCheckpoint.tabs[0]!,
                     tabId: requireTabId('tab-2'),
                     fileName: 'unrelated.pdf',
                     sourceRef: requireDocumentRef('/documents/unrelated.pdf'),
@@ -683,12 +728,14 @@ describe('workspace checkpoint store', () => {
 
         await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{annotationRecovery: {payload}}]});
         await saveWorkspaceCheckpoint({
-            ...checkpoint,
+            ...retainedCheckpoint,
             capturedAt: requireEpochMs(124),
         }, 22);
         await flushPendingWorkspaceCheckpointSave();
 
         expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery).toEqual(recoveryRef);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecoveryFailure)
+            .toEqual(recoveryCheckpoint.tabs[0]?.annotationRecoveryFailure);
         expect(await readFile(artifactPath)).toEqual(originalBytes);
 
         state.owners.set(secondWorkingCopyRef, 22);
@@ -720,6 +767,60 @@ describe('workspace checkpoint store', () => {
             requireTabId('tab-2'),
         ]);
         expect(await readFile(artifactPath)).toEqual(originalBytes);
+        expect(await readFile(workingCopyRef)).toEqual(workingBytes);
+
+        if (!restored) throw new Error('The retained checkpoint must be claimable');
+        await restartedStore.saveWorkspaceCheckpoint({
+            ...restored,
+            capturedAt: requireEpochMs(126),
+            tabs: restored.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: undefined,
+                annotationRecoveryFailure: undefined,
+            })),
+        }, 33);
+        await restartedStore.flushPendingWorkspaceCheckpointSave();
+        vi.resetModules();
+        const secondRestart = await import('@electron/workspaceCheckpointStore');
+        const recoveredAgain = await secondRestart.claimWorkspaceCheckpoint(44);
+        expect(recoveredAgain?.tabs[0]?.annotationRecovery).toMatchObject({
+            ...recoveryRef,
+            payload,
+        });
+        expect(recoveredAgain?.tabs[0]?.annotationRecoveryFailure).toEqual(recoveryCheckpoint.tabs[0]?.annotationRecoveryFailure);
+        expect(await readFile(artifactPath)).toEqual(originalBytes);
+        expect(await readFile(workingCopyRef)).toEqual(workingBytes);
+    });
+
+    it('retains an unacknowledged dirty capture refusal when no artifact was admitted', async () => {
+        const failedCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecoveryFailure: {
+                    reason: 'capture-rejected',
+                    message: 'Recovery state exceeds the 4194304-byte annotation budget',
+                },
+            })),
+        };
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(failedCheckpoint, 11);
+        await claimWorkspaceCheckpoint(22);
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(124),
+        }, 22);
+        await flushPendingWorkspaceCheckpointSave();
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecoveryFailure)
+            .toEqual(failedCheckpoint.tabs[0]?.annotationRecoveryFailure);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).not.toHaveProperty('annotationRecovery');
+        vi.resetModules();
+        const restarted = await import('@electron/workspaceCheckpointStore');
+        const claimed = await restarted.claimWorkspaceCheckpoint(33);
+        expect(claimed?.tabs[0]?.annotationRecoveryFailure).toEqual(failedCheckpoint.tabs[0]?.annotationRecoveryFailure);
+        expect(claimed?.tabs[0]).not.toHaveProperty('annotationRecovery');
     });
 
     it('drops unacknowledged annotation recovery after the renderer acknowledges it', async () => {
@@ -970,6 +1071,59 @@ describe('workspace checkpoint store', () => {
                 size: 987_654,
             },
         });
+    });
+
+    it('says a dirty tab\'s unsaved changes are not here when its working copy is not on this computer', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.backingEntries.set(workingCopyRef, {
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+            originalPath: '/documents/draft.pdf',
+            ownerWebContentsId: 11,
+            registrationId: 41,
+            role: 'current',
+        });
+        await saveWorkspaceCheckpoint(checkpoint, 11);
+        state.backingEntries.clear();
+        state.owners.clear();
+        state.originalPaths.clear();
+        state.presentWorkingCopies.delete(workingCopyRef);
+
+        const claimed = await claimWorkspaceCheckpoint(22);
+
+        // It stays changed, so a start that finds the copy again still recovers it.
+        expect(claimed?.tabs).toEqual([{
+            ...checkpoint.tabs[0],
+            workingCopyLost: true,
+        }]);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).not.toHaveProperty('workingCopyLost');
+        // It shows its original, and nothing can save that stand-in or copy it into the missing copy's place.
+        expect(state.restoredOptions.get(workingCopyRef)).toMatchObject({backingState: 'lazy-original'});
+        await expect(ensureWorkingCopyMaterialized(workingCopyRef, {
+            ownerWebContentsId: 22,
+            reason: 'save',
+        })).rejects.toBeInstanceOf(WorkingCopyMissingError);
+        expect(state.presentWorkingCopies.has(workingCopyRef)).toBe(false);
+        await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).toMatchObject({
+            isDirty: true,
+            workingCopyRef,
+        });
+        // Later checkpoints keep the missing copy's own record, not the stand-in's.
+        await saveWorkspaceCheckpoint(checkpoint, 22);
+        const record = await readRecoveryRecord();
+        expect(record.lazyWorkingCopies).toBeUndefined();
+        expect(record.workingCopies).toEqual([expect.objectContaining({
+            backingState: 'materialized',
+            originalFileExpectation: expect.objectContaining({contentFingerprint: 'sha256-full-v1:original-a'}),
+            workingCopyRef,
+        })]);
+        expect(record.workingCopies?.[0]).not.toHaveProperty('admissionSnapshot');
     });
 
     it('restores the durable materialized witness when a live registration drifted', async () => {
@@ -1480,6 +1634,66 @@ describe('workspace checkpoint store', () => {
             backingState: 'lazy-original',
             ownerWebContentsId: 22,
         });
+    });
+
+    it.each([
+        'displaced',
+        'published',
+    ] as const)('ends a Save the crash cut at the %s original before the claimed tab reopens', async (cut) => {
+        const originalPath = join(state.userDataPath, 'documents', 'crashed.pdf');
+        const workingPath = join(state.userDataPath, 'pdf-work-crashed', 'crashed.pdf');
+        const backupPath = `${originalPath}.evb-transition-pdf-work-crashed-save.bak`;
+        await mkdir(dirname(originalPath), {recursive: true});
+        await mkdir(dirname(workingPath), {recursive: true});
+        await writeFile(originalPath, 'ORIGINAL_OLD');
+        await writeFile(workingPath, 'WORKING_OLD');
+        // Save backed up the working copy and moved the PDF aside (or published its new bytes), then the app died.
+        const journal = await prepareWorkingCopyTransition(workingPath, requireDocumentRevisionToken('drt1:test:2:next'));
+        const published = `sha256-full-v1:${createOriginalFileContentFingerprintHash(12).update('ORIGINAL_NEW').digest('hex')}`;
+        await recordWorkingCopyJournalOriginal(journal, {
+            path: originalPath,
+            backupPath,
+            state: cut === 'displaced' ? 'prepared' : 'published',
+            preparedSnapshot: (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal(),
+            intendedFingerprint: published,
+        });
+        await (cut === 'displaced' ? rename(originalPath, backupPath) : copyFile(originalPath, backupPath));
+        await writeFile(workingPath, 'WORKING_NEW');
+        if (cut === 'published') {
+            // Another program changed the published PDF before the restart.
+            await writeFile(originalPath, 'ORIGINAL_NEW external');
+        }
+        const crashedCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(originalPath),
+                workingCopyRef: requireDocumentRef(workingPath),
+            }],
+        };
+        state.owners.set(workingPath, 11);
+        state.originalPaths.set(workingPath, originalPath);
+        await saveWorkspaceCheckpoint(crashedCheckpoint, 11);
+        state.owners.clear();
+        state.originalPaths.clear();
+
+        const claimed = await claimWorkspaceCheckpoint(22);
+
+        await expect(readFile(workingPath, 'utf8')).resolves.toBe('WORKING_OLD');
+        if (cut === 'displaced') {
+            expect(claimed?.tabs[0]?.keptOriginalPath).toBeUndefined();
+            await expect(readdir(dirname(originalPath))).resolves.toEqual(['crashed.pdf']);
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('ORIGINAL_OLD');
+            return;
+        }
+        const keptPath = join(dirname(originalPath), 'crashed (original).pdf');
+        expect(claimed?.tabs[0]?.keptOriginalPath).toBe(keptPath);
+        await expect(readdir(dirname(originalPath)).then(names => names.sort())).resolves.toEqual([
+            'crashed (original).pdf',
+            'crashed.pdf',
+        ]);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('ORIGINAL_NEW external');
+        await expect(readFile(keptPath, 'utf8')).resolves.toBe('ORIGINAL_OLD');
     });
 
     it('rejects dirty lazy persistence and quarantines it on recovery', async () => {

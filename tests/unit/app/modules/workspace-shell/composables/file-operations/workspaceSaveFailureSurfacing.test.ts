@@ -237,6 +237,45 @@ describe('workspace save failure surfacing', () => {
     });
 
     it.each([
+        'ENOSPC: recovery volume is full',
+        'Recovery capture rejected the accepted text',
+    ])('retains dirty work and the original after preparation fails: %s', async cause => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const annotationDirty = ref(true);
+        let published = 'original bytes';
+        const preparation = vi.fn(async (): Promise<void> => {throw new Error(cause);});
+        const {deps} = createDeps({
+            annotationDirty,
+            commitPdfEditorsForSave: preparation,
+            markAnnotationSaved: vi.fn(() => {annotationDirty.value = false;}),
+            hasShapeChanges: () => true,
+            getAllShapes: () => [createShapeAnnotation()],
+            trySavePdfNativeMutations: vi.fn(async () => {
+                published = 'accepted text';
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/source.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(false);
+        expect(published).toBe('original bytes');
+        expect(annotationDirty.value).toBe(true);
+        expect(service.hasSaveFailure.value).toBe(true);
+        expect(service.isAnySaving.value).toBe(false);
+
+        preparation.mockResolvedValue(undefined);
+        await expect(service.handleSave()).resolves.toBe(true);
+        expect(published).toBe('accepted text');
+        expect(annotationDirty.value).toBe(false);
+        expect(service.hasSaveFailure.value).toBe(false);
+    });
+
+    it.each([
         [
             'replaced',
             replaceOpenDocument,

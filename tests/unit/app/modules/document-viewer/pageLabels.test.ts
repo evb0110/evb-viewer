@@ -9,12 +9,21 @@ import {
     buildWholeDocumentPageLabelRanges,
     countPageLabelDifferences,
     createPageLabelModel,
+    derivePageLabelRangesFromLabels,
     findPageByPageLabelInput,
     formatPageIndicatorWithOptions,
+    getVisiblePageLabel,
+    materializePageLabelsForCompatibility,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
+    getPageLabelStartNumberMax,
+    normalizePageLabelRanges,
     replacePageLabelRange,
 } from '@app/modules/document-viewer/pageLabels';
+import { ref } from 'vue';
+import { formatPageLabelForDisplay } from '@pdf-core/pdfPageLabels';
+import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
+import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
 
 describe('document page labels', () => {
     it('uses the last numeric page for default labels', () => {
@@ -308,9 +317,109 @@ describe('document page labels', () => {
             startNumber: 20_000_000_000,
         }]);
 
-        expect(alphabetic.labelAt(1)?.length ?? 0).toBeLessThan(10_000);
-        expect(roman.labelAt(1)?.length ?? 0).toBeLessThan(1_000);
+        expect(formatPageLabelForDisplay(alphabetic.ranges[0]!)).toHaveLength(65);
+        expect(formatPageLabelForDisplay(roman.ranges[0]!)).toHaveLength(65);
         expect(decimal.labelAt(1)).toBe('20000000000');
+    });
+
+    it('keeps the start value an imported range defines, even one the page-numbering field would not admit', () => {
+        const ranges = normalizePageLabelRanges([{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 130,
+        }], 1);
+
+        expect(ranges[0]?.startNumber).toBe(130);
+        expect(createPageLabelModel(1, ranges).labelAt(1)).toBe('ZZZZZ');
+    });
+
+    it('renumbers only the edited page and keeps the numbering the later pages already had', () => {
+        const ranges = replacePageLabelRange(
+            150,
+            [{
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 1,
+            }],
+            {
+                startPage: 110,
+                endPage: 110,
+            },
+            {
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        );
+        const model = createPageLabelModel(150, ranges);
+
+        expect(model.labelAt(109)).toBe('EEEEE');
+        expect(model.labelAt(110)).toBe('1');
+        expect(model.labelAt(111)).toBe('GGGGG');
+    });
+
+    it('admits a typed start value only up to the bound its numbering style can print', () => {
+        const ranges = replacePageLabelRange(
+            1,
+            [],
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+            {
+                style: 'A',
+                prefix: '',
+                startNumber: 20_000_000_000,
+            },
+        );
+
+        expect(ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax('A'));
+    });
+
+    it('reads an imported start value from a label too long to scan, and shows it bounded', () => {
+        // This exceeds the former scan/display cap and the typed start bound.
+        // Huge formula starts have separate coverage without a 38 MB input.
+        const label = 'L'.repeat(262_144);
+        const ranges = derivePageLabelRangesFromLabels([label], 1);
+        const shown = formatPageLabelForDisplay(ranges[0]!);
+
+        expect(ranges).toEqual([{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 6_815_730,
+        }]);
+        expect(shown.length).toBeLessThan(300);
+        expect(shown.endsWith('…')).toBe(true);
+    });
+
+    it('keeps a long literal label whole in its ranges and shows only a bounded head of it', () => {
+        const label = `${'Front matter '.repeat(8)}end. `;
+        const ranges = derivePageLabelRangesFromLabels([label], 1);
+        const shown = formatPageLabelForDisplay(ranges[0]!);
+
+        expect(ranges).toEqual([{
+            startPage: 1,
+            style: null,
+            prefix: label,
+            startNumber: 1,
+        }]);
+        expect(shown.length).toBeLessThan(300);
+        expect(shown.endsWith('…')).toBe(true);
+    });
+
+    it('shows a huge Roman start value as a bounded label', () => {
+        const shown = formatPageLabelForDisplay({
+            startPage: 1,
+            style: 'R',
+            prefix: '',
+            startNumber: 1_000_000_000,
+        });
+
+        expect(shown.length).toBeLessThan(300);
+        expect(shown.endsWith('…')).toBe(true);
     });
 
     it('prefers a logical label over a coincident physical page number', () => {
@@ -323,6 +432,42 @@ describe('document page labels', () => {
 
         expect(model.labelAt(4)).toBe('14');
         expect(findPageByPageLabelInput('14', 20, model)).toBe(4);
+    });
+
+    it('matches an exact label in a later segment before a case-only match in an earlier one', () => {
+        const romanModel = createPageLabelModel(20, [
+            {
+                startPage: 1,
+                style: 'R',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 11,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
+        const alphabeticModel = createPageLabelModel(20, [
+            {
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 11,
+                style: 'a',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
+
+        expect(findPageByPageLabelInput('iv', 20, romanModel)).toBe(14);
+        expect(findPageByPageLabelInput('IV', 20, romanModel)).toBe(4);
+        expect(findPageByPageLabelInput('a', 20, alphabeticModel)).toBe(11);
+        expect(findPageByPageLabelInput('A', 20, alphabeticModel)).toBe(1);
     });
 
     it('builds whole-document numbering ranges without depending on existing broken labels', () => {
@@ -464,5 +609,301 @@ describe('document page labels', () => {
 
         expect(model.readWindow(1, totalPages)).toEqual(labels);
         expect(labels.map((_, index) => model.labelAt(index + 1))).toEqual(labels);
+    });
+});
+
+
+describe('lossless page-label regressions', () => {
+    it('F1 navigates to the full long logical label of page 2', () => {
+        const prefix = 'LongPrefix-'.repeat(6);
+        const model = createPageLabelModel(3, [{
+            startPage: 1,
+            style: 'D',
+            prefix,
+            startNumber: 1,
+        }]);
+        expect(findPageByPageLabelInput(`${prefix}2`, 3, model)).toBe(2);
+        expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!, 1), 3, model)).toBe(2);
+    });
+
+    it('F2 preserves untouched literal labels when page 3 is edited for saving', () => {
+        const common = 'x'.repeat(64);
+        const labels = [
+            `${common}first.`,
+            `${common}second.`,
+            'tail.',
+        ];
+        const ranges = derivePageLabelRangesFromLabels(labels, 3);
+        const saved = replacePageLabelRange(3, ranges, {
+            startPage: 3,
+            endPage: 3,
+        }, {
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        });
+        expect(buildPageLabelsFromRanges(3, saved)).toEqual([
+            labels[0],
+            labels[1],
+            '1',
+        ]);
+    });
+
+    it('F3 retains complete Unicode characters in the label', () => {
+        const prefix = `${'x'.repeat(63)}😀more`;
+        const model = createPageLabelModel(1, [{
+            startPage: 1,
+            style: null,
+            prefix,
+            startNumber: 1,
+        }]);
+        expect(model.labelAt(1)).toBe(prefix);
+        expect(formatPageLabelForDisplay(model.ranges[0]!)).toBe(`${'x'.repeat(63)}😀…`);
+        expect(formatPageLabelForDisplay(`${'x'.repeat(63)}e\u0301more`)).toBe(`${'x'.repeat(63)}e\u0301…`);
+        expect(formatPageLabelForDisplay(`${'x'.repeat(63)}👨‍👩‍👧‍👦more`)).toBe(`${'x'.repeat(63)}👨‍👩‍👧‍👦…`);
+    });
+
+    it('F4 reports all 201 prefixes changed beyond character 64', () => {
+        const common = 'x'.repeat(64);
+        expect(countPageLabelDifferences(201,
+            [{
+                startPage: 1,
+                style: 'D',
+                prefix: `${common}first.`,
+                startNumber: 1,
+            }],
+            [{
+                startPage: 1,
+                style: 'D',
+                prefix: `${common}second.`,
+                startNumber: 1,
+            }],
+        )).toBe(201);
+    });
+
+    it('F5 admits raw agent ranges through the alphabetic start policy', () => {
+        const ranges = ref<IPdfPageLabelRange[]>([{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        const agent = createDocumentAgentPageLabels({
+            pageLabelRanges: ranges,
+            pageLabels: ref(null),
+            pageLabelsDirty: ref(false),
+            totalPages: ref(3),
+            handlePageLabelRangesUpdate: updated => { ranges.value = updated; },
+        });
+        const plan = agent.applyAgentPageLabelPlan({ranges: [{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 1e9,
+        }]}, 'regression');
+        expect(plan.ranges[0]?.startNumber).toBeLessThanOrEqual(getPageLabelStartNumberMax('A'));
+    });
+});
+
+
+describe('page-label presentation and lazy semantics', () => {
+    it.each([
+        {
+            style: 'A',
+            startNumber: 1_000_000_000,
+        },
+        {
+            style: 'a',
+            startNumber: 1_000_000_000,
+        },
+        {
+            style: 'R',
+            startNumber: 1_000_000,
+        },
+        {
+            style: 'r',
+            startNumber: 1_000_000,
+        },
+    ] as const)('bounds huge imported $style numbering in model reads', ({
+        style, startNumber,
+    }) => {
+        const model = createPageLabelModel(128, [{
+            startPage: 1,
+            style,
+            prefix: '',
+            startNumber,
+        }]);
+        expect(model.ranges[0]?.startNumber).toBe(startNumber);
+        const initialHeapBytes = process.memoryUsage().heapUsed;
+        // Check one label before asking for the whole window on the old code.
+        expect(model.labelAt(1)?.length).toBeLessThanOrEqual(65);
+        const labels = model.readWindow(1, 128);
+        expect(labels).toHaveLength(128);
+        expect(labels.every(label => label.length <= 65)).toBe(true);
+        expect(new TextEncoder().encode(JSON.stringify(labels)).byteLength).toBeLessThan(9_000);
+        expect(process.memoryUsage().heapUsed - initialHeapBytes).toBeLessThan(8 * 1024 * 1024);
+    });
+
+    it('refuses a shortened literal target shared by two pages', () => {
+        const common = 'x'.repeat(80);
+        const model = createPageLabelModel(2, [
+            {
+                startPage: 1,
+                style: null,
+                prefix: `${common}first`,
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: null,
+                prefix: `${common}second`,
+                startNumber: 1,
+            },
+        ]);
+        expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!), 2, model)).toBeNull();
+    });
+
+    it('compares huge imported formulas without expanding their numbering', () => {
+        const before = [{
+            startPage: 1,
+            style: 'A' as const,
+            prefix: 'x'.repeat(64),
+            startNumber: 20_000_000_000,
+        }];
+        expect(countPageLabelDifferences(201, before, before)).toBe(0);
+        expect(countPageLabelDifferences(201, before, [{
+            ...before[0]!,
+            prefix: `${before[0]!.prefix}changed`,
+        }])).toBe(201);
+        const updated = applySparsePageLabelUpdates(201, before, [{
+            page: 3,
+            label: 'Cover',
+        }]);
+        expect(updated.find(range => range.startPage === 4)?.startNumber).toBe(20_000_000_003);
+    });
+
+    it('keeps an agent plan over huge imported starts compact and semantically exact', () => {
+        const ranges = ref<IPdfPageLabelRange[]>([{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 20_000_000_000,
+        }]);
+        const agent = createDocumentAgentPageLabels({
+            pageLabelRanges: ranges,
+            pageLabels: ref(null),
+            pageLabelsDirty: ref(false),
+            totalPages: ref(3),
+            handlePageLabelRangesUpdate: updated => { ranges.value = updated; },
+        });
+        const result = agent.applyAgentPageLabelPlan({ segments: [{
+            startPage: 2,
+            endPage: 2,
+            style: 'D',
+            startNumber: 1,
+        }] }, 'regression');
+        expect(result.plan.diff.changedPageCount).toBe(1);
+        expect(result.ranges.find(range => range.startPage === 3)?.startNumber).toBe(20_000_000_002);
+        expect(result.labels).toBeNull();
+        expect(result.summary.firstLabel?.length).toBeLessThanOrEqual(65);
+    });
+
+    it('admits formula plans and raw range inputs through the same start policy', () => {
+        const ranges = ref<IPdfPageLabelRange[]>([{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        const agent = createDocumentAgentPageLabels({
+            pageLabelRanges: ranges,
+            pageLabels: ref(null),
+            pageLabelsDirty: ref(false),
+            totalPages: ref(3),
+            handlePageLabelRangesUpdate: updated => { ranges.value = updated; },
+        });
+        for (const style of [
+            'A',
+            'a',
+            'R',
+            'r',
+        ] as const) {
+            const range = {
+                startPage: 1,
+                endPage: 3,
+                style,
+                startNumber: 1e9,
+            };
+            expect(agent.getAgentPageLabelRangesInput({ ranges: [{
+                ...range,
+                page: 1,
+            }] }, 'regression')[0]?.startNumber).toBe(getPageLabelStartNumberMax(style));
+            expect(agent.previewAgentPageLabelPlan({ segments: [range] }, 'regression').ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax(style));
+            expect(agent.applyAgentPageLabelsToRange(range, 'regression').ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax(style));
+        }
+    });
+});
+
+
+it('navigates long-prefix presentation across numbering styles and rejects hidden suffix ambiguity', () => {
+    for (const style of [
+        'D',
+        'A',
+        'a',
+        'R',
+        'r',
+    ] as const) {
+        const model = createPageLabelModel(3, [{
+            startPage: 1,
+            style,
+            prefix: 'LongPrefix-'.repeat(6),
+            startNumber: 1,
+        }]);
+        expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!, 1), 3, model)).toBe(2);
+    }
+    for (const style of [
+        'A',
+        'R',
+    ] as const) {
+        const model = createPageLabelModel(3, [{
+            startPage: 1,
+            style,
+            prefix: 'x'.repeat(80),
+            startNumber: 1e9,
+        }]);
+        expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!), 3, model)).toBeNull();
+        const onePage = createPageLabelModel(1, model.ranges);
+        expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!), 1, onePage)).toBe(1);
+    }
+});
+
+
+describe('viewer page-label presentation', () => {
+    const hugeRange = {
+        startPage: 1,
+        style: 'A' as const,
+        prefix: '',
+        startNumber: 20_000_000_000,
+    };
+
+    it('renders and sizes imported numbering without expanding its full label', () => {
+        const model = createPageLabelModel(2, [hugeRange]);
+        expect(getVisiblePageLabel(1, model)).toBe(`${'F'.repeat(64)}…`);
+        expect(getVisiblePageLabel(2, model)).toBe(`${'G'.repeat(64)}…`);
+        expect(getMaxPageIndicatorLength(2, model)).toBe(69);
+    });
+
+    it('keeps huge labels compact even for a small document compatibility path', () => {
+        expect(materializePageLabelsForCompatibility(2, [hugeRange])).toBeNull();
+        expect(materializePageLabelsForCompatibility(2, [hugeRange], [
+            'wrong',
+            'labels',
+        ])).toBeNull();
+    });
+
+    it('bounds legacy array presentation without changing the original label', () => {
+        const label = '📖'.repeat(100);
+        expect(getVisiblePageLabel(1, [label])).toBe(`${'📖'.repeat(64)}…`);
+        expect(label).toHaveLength(200);
     });
 });

@@ -6,7 +6,6 @@ import {
     removeManagedScratchTempDir,
 } from '@electron/utils/managedScratchTemp';
 import { isProcessTreeAlive } from '@electron/utils/processTree';
-import { tmpdir } from 'node:os';
 import { getAppTempNamespacePathForNamespace } from '@node-runtime/appTempNamespace';
 import { StringDecoder } from 'string_decoder';
 import {
@@ -71,7 +70,7 @@ export interface IRunCommandOptions {
     rejectOnStdoutTruncation?: boolean;
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
-    onSpawn?: (pid: number) => void;
+    onSpawn?: (pid: number, hasExited: () => boolean) => void;
     onClose?: () => void;
     onTerminationProof?: (proof: Promise<boolean>) => void;
     /** Written to the child's stdin with backpressure, then closed. */
@@ -328,7 +327,7 @@ export async function runNativeCommand(
     if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
         return runNativeCommandCore(command, args, options);
     }
-    const namespacePath = getAppTempNamespacePathForNamespace(tmpdir(), appTempNamespace);
+    const namespacePath = getAppTempNamespacePathForNamespace(appTempNamespace);
     const scratchPath = await createManagedScratchTempDir(NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath);
     const manifestIndex = args.indexOf('--manifest');
     const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
@@ -340,13 +339,12 @@ export async function runNativeCommand(
     let unregistration: Promise<void> | null = null;
     const unregister = () => {
         if (registration === null) return Promise.resolve();
-        unregistration ??= registration.then(child => child?.unregister()).then(() => undefined);
+        unregistration ??= registration.then(child => child?.unregister()).then(() => undefined, (error: unknown) => options.log?.('warn', `Could not remove a managed process record: ${getErrorMessage(error)}`));
         return unregistration;
     };
     let scratchCleanup: Promise<void> | null = null;
     const cleanupScratchIfProven = () => {
         scratchCleanup ??= (async () => {
-            await Promise.resolve(registration);
             const processTreeGone = terminationProof !== null
                 ? await terminationProof
                 : processId === null || (childClosed && !isProcessTreeAlive(processId));
@@ -356,7 +354,7 @@ export async function runNativeCommand(
                     options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}"`);
                     return;
                 }
-                await unregister();
+                void unregister();
             } catch (error) {
                 options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}": ${getErrorMessage(error)}`);
             }
@@ -372,18 +370,19 @@ export async function runNativeCommand(
                 TMP: scratchPath,
                 TEMP: scratchPath,
             },
-            onSpawn: pid => {
+            onSpawn: (pid, hasExited) => {
                 processId = pid;
-                registration = Promise.resolve().then(() => registerManagedProcess(namespacePath, {
+                registration = registerManagedProcess(namespacePath, {
                     pid,
+                    hasExited,
                     binaryPath: command,
                     ...(manifestPath === undefined ? {} : {manifestPath}),
                     scratchPath,
-                })).catch(error => {
-                    if (isProcessTreeAlive(pid)) options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
+                }).catch(error => {
+                    options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
                     return null;
                 });
-                options.onSpawn?.(pid);
+                options.onSpawn?.(pid, hasExited);
             },
             onClose: () => {
                 childClosed = true;
@@ -402,9 +401,7 @@ export async function runNativeCommand(
         await cleanupScratchIfProven();
         return result;
     } catch (error) {
-        if (processId === null && terminationProof === null) {
-            await cleanupScratchIfProven();
-        } else if (terminationProofSettled || (childClosed && terminationProof === null)) {
+        if (terminationProofSettled || (terminationProof === null && (processId === null || childClosed))) {
             await cleanupScratchIfProven();
         }
         throw error;
@@ -690,7 +687,7 @@ async function runNativeCommandCore(
                 return;
             }
             try {
-                onSpawn(pid);
+                onSpawn(pid, () => proc.exitCode !== null || proc.signalCode !== null);
             } catch (error) {
                 // The callback runs before the regular process listeners are
                 // attached. Keep late child errors from becoming uncaught

@@ -51,35 +51,27 @@ export const useWorkspaceMetadataHistory = (deps: {
 }) => {
     const currentSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
     const cleanSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
-    const preservedReloadSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
     const isApplyingSnapshot = ref(false);
 
-    function cloneSnapshot(
-        snapshot: IWorkspaceMetadataSnapshot,
-    ): IWorkspaceMetadataSnapshot {
-        return {
-            bookmarkItems: structuredClone(toRaw(snapshot.bookmarkItems)),
-            pageLabelRanges: structuredClone(toRaw(snapshot.pageLabelRanges)),
-        };
+    function captureCurrentSnapshot(): IWorkspaceMetadataSnapshot {
+        return structuredClone({
+            bookmarkItems: toRaw(deps.bookmarkItems.value),
+            pageLabelRanges: toRaw(deps.pageLabelRanges.value),
+        });
     }
 
-    function captureCurrentSnapshot(): IWorkspaceMetadataSnapshot {
-        return cloneSnapshot({
-            bookmarkItems: deps.bookmarkItems.value,
-            pageLabelRanges: deps.pageLabelRanges.value,
-        });
+    function captureCleanState() {
+        const baseline = cleanSnapshot.value;
+        return () => {
+            cleanSnapshot.value = baseline;
+            syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());
+        };
     }
 
     function syncDirtyFlags(snapshot: IWorkspaceMetadataSnapshot) {
         const baseline = cleanSnapshot.value;
-        if (!baseline) {
-            deps.bookmarksDirty.value = false;
-            deps.pageLabelsDirty.value = false;
-            return;
-        }
-
-        deps.bookmarksDirty.value = !isEqual(snapshot.bookmarkItems, baseline.bookmarkItems);
-        deps.pageLabelsDirty.value = !isEqual(snapshot.pageLabelRanges, baseline.pageLabelRanges);
+        deps.bookmarksDirty.value = baseline !== null && !isEqual(snapshot.bookmarkItems, baseline.bookmarkItems);
+        deps.pageLabelsDirty.value = baseline !== null && !isEqual(snapshot.pageLabelRanges, baseline.pageLabelRanges);
     }
 
     function applySnapshot(snapshot: IWorkspaceMetadataSnapshot) {
@@ -136,25 +128,6 @@ export const useWorkspaceMetadataHistory = (deps: {
         syncDirtyFlags(snapshot);
     }
 
-    function preserveCurrentStateForNextSourceReload() {
-        preservedReloadSnapshot.value = captureCurrentSnapshot();
-    }
-
-    function clearPreservedSourceReloadState() {
-        preservedReloadSnapshot.value = null;
-    }
-
-    function consumePreservedSourceReloadState() {
-        const snapshot = preservedReloadSnapshot.value;
-        preservedReloadSnapshot.value = null;
-        if (!snapshot) {
-            return false;
-        }
-
-        applySnapshot(snapshot);
-        return true;
-    }
-
     function recordCurrentState() {
         if (isApplyingSnapshot.value) {
             return;
@@ -201,12 +174,10 @@ export const useWorkspaceMetadataHistory = (deps: {
     }
 
     return {
+        captureCleanState,
         resetToCurrentState,
         restoreCurrentState,
         markCurrentStateClean,
-        clearPreservedSourceReloadState,
-        consumePreservedSourceReloadState,
-        preserveCurrentStateForNextSourceReload,
         recordCurrentState,
     };
 };

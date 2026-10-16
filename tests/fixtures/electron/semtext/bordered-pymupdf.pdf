@@ -1,0 +1,76 @@
+%PDF-1.7
+%µ¶
+% Written by MuPDF 1.28.2
+
+1 0 obj
+<</Type/Catalog/Pages 2 0 R/Info<</Producer(MuPDF 1.28.2)>>>>
+endobj
+
+2 0 obj
+<</Type/Pages/Count 1/Kids[4 0 R]>>
+endobj
+
+3 0 obj
+<<>>
+endobj
+
+4 0 obj
+<</Type/Page/MediaBox[0 0 595.28 841.89]/Rotate 0/Resources 3 0 R/Parent 2 0 R/Annots[5 0 R]>>
+endobj
+
+5 0 obj
+<</Type/Annot/Subtype/FreeText/Rect[99 690.89 341 742.89]/CL[0 841.89 176 741.89]/BS<</Type/Border/W 2>>/DA(0 0 0.8 rg /Helv 14.0 Tf)/P 4 0 R/F 4/Contents(Bordered label)/Q 0/C[1 1 .85]/RD[0 0 0 0]/AP<</N 7 0 R>>/NM(bordered-pymupdf)>>
+endobj
+
+6 0 obj
+<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>
+endobj
+
+7 0 obj
+<</Type/XObject/Subtype/Form/BBox[99 690.89 341 742.89]/Matrix[1 0 0 1 0 0]/Resources<</Font<</Helv 6 0 R>>>>/Length 195>>
+stream
+1 1 .85 rg
+0 0 .8 RG
+2 w
+99 690.89 242 52 re
+f
+100 691.89 240 50 re
+S
+101 692.89 238 48 re
+W
+n
+q
+1 0 -0 1 99 690.89 cm
+BT
+0 0 .8 rg
+4 53.6 Td
+0 -16.800002 Td
+/Helv 14 Tf
+(Bordered label) Tj
+ET
+Q
+
+endstream
+endobj
+
+8 0 obj
+<</Producer(Public synthetic FreeText fixture, PyMuPDF bordered label)>>
+endobj
+
+xref
+0 9
+0000000000 65535 f 
+0000000042 00000 n 
+0000000120 00000 n 
+0000000172 00000 n 
+0000000193 00000 n 
+0000000304 00000 n 
+0000000556 00000 n 
+0000000645 00000 n 
+0000000997 00000 n 
+
+trailer
+<</Size 9/Info 8 0 R/Root 1 0 R/ID[<C2806A6C4B023CC3AB080CC29EC3AA35><15ABAA4F04832B570CE77C4E5533CD38>]>>
+startxref
+1086
+%%EOF

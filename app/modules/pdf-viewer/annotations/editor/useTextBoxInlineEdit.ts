@@ -13,7 +13,7 @@ interface ITextBoxInlineEditOptions {
     editing: Readonly<Ref<boolean>>;
     recoveredDraftText?: Readonly<Ref<string | null>>;
     caretPoint?: Readonly<Ref<IAnnotationTextEditPoint | null>>;
-    onCommit: (text: string, options?: {restoreFocus: boolean}) => void;
+    onCommit: (text: string, options?: {restoreFocus: boolean}) => void | Promise<void>;
     onCancel: () => void;
 }
 
@@ -34,7 +34,7 @@ interface ITextBoxKeydownEvent {
 export interface ITextBoxInlineEdit {
     readonly editorRef: Ref<HTMLElement | null>;
     readonly draftText: Ref<string>;
-    commit(): void;
+    commit(): void | Promise<void>;
     handleInput(event: ITextBoxInputEvent): void;
     handleKeydown(event: ITextBoxKeydownEvent): void;
     handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>): void;
@@ -78,7 +78,7 @@ export const useTextBoxInlineEdit = (
 ): ITextBoxInlineEdit => {
     const editorRef = ref<HTMLElement | null>(null);
     const draftText = ref(options.entity.value.text);
-    let completed = false;
+    let completion: Promise<void> | null = null;
     let ignoreBlur = false;
 
     async function focusEditor() {
@@ -93,7 +93,7 @@ export const useTextBoxInlineEdit = (
         if (!editing) {
             return;
         }
-        completed = false;
+        completion = null;
         ignoreBlur = false;
         draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
         void focusEditor();
@@ -117,18 +117,26 @@ export const useTextBoxInlineEdit = (
     }
 
     function commit(restoreFocus = false) {
-        if (!options.editing.value || completed) {
+        if (!options.editing.value) {
             return;
         }
-        completed = true;
-        options.onCommit(draftText.value, {restoreFocus});
+        if (completion) return completion;
+        const pending = (async () => { await options.onCommit(draftText.value, {restoreFocus}); })();
+        completion = pending;
+        void pending.catch(() => {
+            if (completion === pending) {
+                completion = null;
+                void focusEditor();
+            }
+        });
+        return pending;
     }
 
     function cancel() {
-        if (!options.editing.value || completed) {
+        if (!options.editing.value || ignoreBlur) {
             return;
         }
-        completed = true;
+        completion = Promise.resolve();
         ignoreBlur = true;
         options.onCancel();
     }
@@ -144,7 +152,7 @@ export const useTextBoxInlineEdit = (
         }
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
-            commit(true);
+            void commit(true);
         }
     }
 
@@ -161,7 +169,7 @@ export const useTextBoxInlineEdit = (
 
     function handleContextFocusOut(event: FocusEvent) {
         if (options.editing.value && isInspectorTarget(event.target) && !isTextContextTarget(event.relatedTarget)) {
-            commit();
+            void commit();
         }
     }
 
@@ -178,12 +186,12 @@ export const useTextBoxInlineEdit = (
             ignoreBlur = false;
             return;
         }
-        if (!isInspectorTarget(event?.relatedTarget)) commit();
+        if (!isInspectorTarget(event?.relatedTarget)) void commit();
     }
 
     onScopeDispose(() => {
         if (typeof document !== 'undefined') document.removeEventListener('focusout', handleContextFocusOut);
-        completed = true;
+        completion = Promise.resolve();
         ignoreBlur = true;
     });
 

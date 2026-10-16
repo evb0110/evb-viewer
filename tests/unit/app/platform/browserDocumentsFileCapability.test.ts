@@ -1,3 +1,4 @@
+import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {
@@ -146,6 +147,15 @@ function createLoadedPdfTask() {
         destroy,
     };
 }
+
+vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserWindowTabs>(),
+    reserveBrowserDocumentWorkingCopy: async (fileName: string) => {
+        const {createBrowserDocumentRef} = await import('@app/platform/browser/browserDocumentRefs');
+        return createBrowserDocumentRef(fileName);
+    },
+    retireBrowserDocumentWorkingCopy: async () => {},
+}));
 
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
@@ -340,6 +350,58 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
     });
 
+    it.each([
+        'commit',
+        'cancel',
+        'denied',
+    ])('preserves native Save bytes through %s', async (outcome) => {
+        const original = Uint8Array.of(37, 80, 68, 70, 1);
+        const edited = Uint8Array.of(37, 80, 68, 70, 2, 3);
+        let physical = original.slice();
+        const handle = createFileSystemFileHandle({
+            name: 'native.pdf',
+            getFile: async () => new File([physical], 'native.pdf', {type: 'application/pdf'}),
+            createWritable: async () => {
+                if (outcome === 'denied') throw new DOMException('Write denied', 'NotAllowedError');
+                return createFileSystemWritableFileStream({write: async chunk => {
+                    physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                }});
+            },
+        });
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
+            if (outcome === 'cancel') throw new DOMException('Canceled', 'AbortError');
+            return handle;
+        }}});
+        const source = await store.createStoredDocument('native.pdf', original, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const revision = await store.getDocumentRevision(working);
+        const stage = await store.createStoredDocument('native-staged.pdf', edited, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'output',
+        });
+        const receipt = await createBrowserStoreStagedArtifact(store, stage, {
+            leaseId: 'native-staged-lease',
+            sha256: createHash('sha256').update(edited).digest('hex'),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: true,
+                semanticScopeSha256: 'a'.repeat(64),
+            },
+        });
+        const commit = capability.commitStagedPdfNativeMutations!(working, receipt, {expectedDocumentRevisionToken: revision.token});
+        if (outcome === 'denied') await expect(commit).rejects.toThrow('Write denied');
+        else expect((await commit).applied).toBe(outcome === 'commit');
+        const expected = outcome === 'commit' ? edited : original;
+        expect(physical).toEqual(expected);
+        await expect(store.read(working)).resolves.toEqual(expected);
+        await expect(store.read(source)).resolves.toEqual(expected);
+        if (outcome !== 'commit') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
+    });
+
     it('returns typed unsupported results for desktop-only folder actions', async () => {
         const { capability } = await loadBrowserDocumentsFileCapability();
 
@@ -404,6 +466,39 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 signal: undefined,
             },
         );
+    });
+
+    it('reads page labels whatever happened to the outline, and reports their own failure', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'page-label-parts.pdf',
+            await createPdfBytes(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            bookmarksError: 'PDF catalog /Outlines must be a dictionary',
+            pageLabels: [{
+                pageIndex: 0,
+                style: 'r',
+            }],
+        });
+        await expect(capability.readPdfPageLabelRanges(workingRef)).resolves.toEqual([{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            bookmarks: [],
+            pageLabelsError: 'PageLabels Nums must contain key/value pairs',
+        });
+        await expect(capability.readPdfPageLabelRanges(workingRef)).rejects.toThrow('PageLabels Nums must contain key/value pairs');
     });
 
     it('reads compact page-label ranges through the browser catalog worker', async () => {
@@ -1567,6 +1662,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             const savedRef = await save;
             expect(savedBytes).toEqual(stagedBytes);
             await expect(browserDocumentStore.read(savedRef!)).resolves.toEqual(stagedBytes);
+            const adopted = await capability.createWorkingCopyFromPath(savedRef!);
+            await expect(browserDocumentStore.read(adopted)).resolves.toEqual(stagedBytes);
         } else if (outcome === 'cancel') {
             await expect(save).resolves.toBeNull();
             expect(savedBytes).toBeNull();
@@ -1575,7 +1672,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             expect(savedBytes).toBeNull();
         }
         await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(originalBytes);
-        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : outcome === 'save' ? stagedBytes : originalBytes);
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : originalBytes);
         await expect(browserDocumentStore.exists(stagedRef)).resolves.toBe(true);
     });
 
@@ -1703,18 +1800,23 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(createWritable).toHaveBeenCalledOnce();
     });
 
-    it('does not deadlock when a regular save queues behind Save As for the same source', async () => {
+    it('keeps a queued Save on its original source when Save As creates a separate copy', async () => {
         const saveAsWriteStarted = Promise.withResolvers<undefined>();
         const releaseSaveAsWrite = Promise.withResolvers<undefined>();
+        let saveAsWrittenBytes: Uint8Array<ArrayBuffer> | null = null;
         const saveAsHandle = createFileSystemFileHandle({
             name: 'save-as.pdf',
-            getFile: vi.fn(async () => new File([], 'save-as.pdf', {type: 'application/pdf'})),
-            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {
+            getFile: vi.fn(async () => new File([saveAsWrittenBytes ?? new Uint8Array()], 'save-as.pdf', {type: 'application/pdf'})),
+            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
                 saveAsWriteStarted.resolve(undefined);
                 await releaseSaveAsWrite.promise;
+                saveAsWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
             })})),
         });
-        const originalCreateWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        let originalWrittenBytes: Uint8Array | null = null;
+        const originalCreateWritable = vi.fn(async () => createFileSystemWritableFileStream({write: async (chunk: FileSystemWriteChunkType) => {
+            originalWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+        }}));
         const originalBytes = Uint8Array.of(37, 80, 68, 70);
         const originalHandle = createFileSystemFileHandle({
             name: 'original.pdf',
@@ -1746,12 +1848,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         releaseSaveAsWrite.resolve(undefined);
 
         await expect(saveAsPromise).resolves.not.toBeNull();
-        await expect(regularSavePromise).resolves.toMatchObject({
-            ok: false,
-            reason: 'write-failed',
-            message: expect.stringContaining('source changed'),
-        });
-        expect(originalCreateWritable).not.toHaveBeenCalled();
+        await expect(regularSavePromise).resolves.toMatchObject({ok: true});
+        expect(originalWrittenBytes).toEqual(originalBytes);
+        expect(saveAsWrittenBytes).toEqual(originalBytes);
+        expect(originalCreateWritable).toHaveBeenCalledOnce();
     });
 
     it('blocks browser save-as when a working copy exceeds the full-read budget', async () => {

@@ -208,7 +208,8 @@ export async function startSessionRecording(browser: Browser, options: {
                     })();
                     return stopPromise;
                 };
-                page.once('close', () => { void stop(); });
+                // Puppeteer marks the page closed after dispatching this event.
+                page.once('close', () => { queueMicrotask(() => { void stop(); }); });
                 page.on('error', error => fail(error));
                 return stop;
             } catch (error) {

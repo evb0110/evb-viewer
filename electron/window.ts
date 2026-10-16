@@ -598,14 +598,6 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         window.on('restore', () => logPaintState('window:restore'));
         window.on('close', () => logPaintState('window:close'));
     }
-    if (config.automation.hideWindow && process.platform !== 'darwin') {
-        // On Windows and X11 a never-shown window draws only for a pending
-        // copy, so CDP screenshots hang. A frame subscription keeps one
-        // pending; it follows each main-frame navigation to the new widget.
-        windowWebContents.on('did-navigate', () => windowWebContents.beginFrameSubscription(() => {
-            lastFrameSubscriptionAtMs = Date.now();
-        }));
-    }
 
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
     attachNativeWindowCloseHandshake(window, {
@@ -723,6 +715,12 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         : null;
     windowWebContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
+        if (keepAutomationRendererActive && process.platform !== 'darwin') {
+            // Keep pending copies for automation windows, including Linux startup.
+            windowWebContents.beginFrameSubscription(() => {
+                lastFrameSubscriptionAtMs = Date.now();
+            });
+        }
     });
     await startupPlaceholderPromise.catch(() => {});
     if (shouldShowStartupPlaceholder) {

@@ -54,7 +54,11 @@
                     />
                 </div>
             </div>
+            <p v-if="menu.comment.readOnly" class="annotation-context-menu-read-only" data-annotation-read-only-notice>
+                {{ t('annotations.readOnlyBorderStyle') }}
+            </p>
             <button
+                v-else
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
                 role="menuitem"
@@ -347,6 +351,14 @@ function pasteImageFromClipboard() {
     padding: var(--app-space-4xl) calc(var(--pdf-context-menu-inline-padding) - var(--app-space-2xs));
     font-size: var(--app-text-size-body-sm);
     border-block: var(--app-hairline-height) solid var(--app-pdf-context-menu-divider);
+}
+
+.annotation-context-menu-read-only {
+    max-width: var(--app-context-menu-preferred-width);
+    margin: var(--app-space-sm) 0;
+    padding: 0 var(--pdf-context-menu-inline-padding);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-body-sm);
 }
 
 .annotation-context-menu-color-label {

@@ -471,7 +471,7 @@ describe('runNativeCommand', () => {
         const resultPromise = runNativeCommand('/bin/tool', [], {onSpawn});
 
         expect(onSpawn).toHaveBeenCalledOnce();
-        expect(onSpawn).toHaveBeenCalledWith(proc.pid);
+        expect(onSpawn).toHaveBeenCalledWith(proc.pid, expect.any(Function));
         proc.emit('close', 0, null);
         await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
     });

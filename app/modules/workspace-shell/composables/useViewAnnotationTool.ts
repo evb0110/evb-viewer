@@ -16,13 +16,15 @@ export const useViewAnnotationTool = (deps: {
     const annotationTool = ref<TAnnotationTool>('none');
 
     function handleAnnotationToolChange(tool: TAnnotationTool) {
-        deps.pdfViewerRef.value?.prepareAnnotationToolChange?.();
-        annotationTool.value = tool;
-        deps.dragMode.value = false;
-        if (tool !== 'select') {
-            deps.pdfViewerRef.value?.clearSelectedShape();
-        }
-        deps.closeAnnotationContextMenu();
+        const apply = () => {
+            annotationTool.value = tool;
+            deps.dragMode.value = false;
+            if (tool !== 'select') deps.pdfViewerRef.value?.clearSelectedShape();
+            deps.closeAnnotationContextMenu();
+            return true;
+        };
+        const pending = deps.pdfViewerRef.value?.prepareAnnotationToolChange?.();
+        return pending ? pending.then(apply, () => false) : apply();
     }
 
     function handleAnnotationToolAutoReset() {
@@ -34,7 +36,7 @@ export const useViewAnnotationTool = (deps: {
     }
 
     function handleAnnotationToolCancel() {
-        handleAnnotationToolChange('select');
+        return handleAnnotationToolChange('select');
     }
 
     return {

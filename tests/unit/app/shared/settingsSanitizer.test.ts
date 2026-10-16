@@ -113,6 +113,20 @@ describe('settings-sanitizer', () => {
         expect(sanitized).not.toHaveProperty('resolvedTier');
     });
 
+    it('only enables closed-document restoration for an explicit boolean opt-in', () => {
+        expect(DEFAULT_SETTINGS.rememberDocumentView).toBe(false);
+        for (const raw of [
+            undefined,
+            {},
+            {rememberDocumentView: false},
+            {rememberDocumentView: 'true'},
+        ]) {
+            expect(sanitizeSettings(raw).rememberDocumentView).toBe(false);
+        }
+        expect(migrateSettings({version: 1}).rememberDocumentView).toBe(false);
+        expect(sanitizeSettings({rememberDocumentView: true}).rememberDocumentView).toBe(true);
+    });
+
     it('normalizes Save As PDF optimization setting', () => {
         expect(sanitizeSettings({optimizePdfOnSaveAs: true}).optimizePdfOnSaveAs).toBe(true);
         expect(sanitizeSettings({optimizePdfOnSaveAs: 'yes'}).optimizePdfOnSaveAs).toBe(false);

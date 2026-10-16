@@ -473,6 +473,16 @@ function setMacOSAutomationAgentMode(infoPlistPath: string) {
     }
 }
 
+function setMacOSBundleIdentifier(infoPlistPath: string, bundleIdentifier: string) {
+    execFileSync('/usr/bin/plutil', [
+        '-replace',
+        'CFBundleIdentifier',
+        '-string',
+        bundleIdentifier,
+        infoPlistPath,
+    ], { stdio: 'ignore' });
+}
+
 const HIDDEN_APP_BUNDLES_ROOT_SEGMENTS = [
     '.devkit',
     'tmp',
@@ -626,6 +636,97 @@ function assertMacOSAutomationAgentMode(infoPlistPath: string) {
     }
 }
 
+/** The nested helper apps of a copy, Contents/Frameworks/*.app, in name order. */
+export function listMacOSNestedHelperApps(appPath: string) {
+    const frameworksPath = join(appPath, 'Contents', 'Frameworks');
+    if (!existsSync(frameworksPath)) {
+        return [];
+    }
+    return readdirSync(frameworksPath, { withFileTypes: true })
+        .filter(entry => entry.isDirectory() && entry.name.endsWith('.app'))
+        .map(entry => join(frameworksPath, entry.name))
+        .sort();
+}
+
+function readMacOSInfoString(infoPlistPath: string, key: string) {
+    try {
+        return execFileSync('/usr/bin/plutil', [
+            '-extract',
+            key,
+            'raw',
+            '-expect',
+            'string',
+            '-o',
+            '-',
+            infoPlistPath,
+        ], {
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        }).trim();
+    } catch {
+        // A missing or non-string key reads as undefined, and every caller refuses that.
+        return undefined;
+    }
+}
+
+/**
+ * Gives the copy and each nested helper app identifiers derived from the copy's
+ * own. A helper keeps the suffix it had after the installed identifier, so
+ * com.evb.viewer.helper.Renderer becomes <copy>.helper.Renderer. Each helper is
+ * signed here, before the app is resealed, because the app's seal covers its
+ * nested code.
+ */
+function rewriteMacOSCopyIdentifiers(appPath: string, bundleIdentifier: string) {
+    const infoPlistPath = join(appPath, 'Contents', 'Info.plist');
+    const installedIdentifier = readMacOSInfoString(infoPlistPath, 'CFBundleIdentifier');
+    if (installedIdentifier === undefined) {
+        throw new Error(`Refusing to copy an app without a CFBundleIdentifier: ${infoPlistPath}`);
+    }
+    setMacOSBundleIdentifier(infoPlistPath, bundleIdentifier);
+    for (const helperPath of listMacOSNestedHelperApps(appPath)) {
+        const helperPlistPath = join(helperPath, 'Contents', 'Info.plist');
+        const helperIdentifier = readMacOSInfoString(helperPlistPath, 'CFBundleIdentifier');
+        if (helperIdentifier === undefined || !helperIdentifier.startsWith(`${installedIdentifier}.`)) {
+            throw new Error(`Refusing macOS automation copy: helper ${basename(helperPath)} has identifier ${helperIdentifier ?? '(none)'}, not under ${installedIdentifier}`);
+        }
+        setMacOSBundleIdentifier(helperPlistPath, `${bundleIdentifier}${helperIdentifier.slice(installedIdentifier.length)}`);
+        execFileSync('/usr/bin/codesign', [
+            '--force',
+            '--sign',
+            '-',
+            helperPath,
+        ], { stdio: 'ignore' });
+        execFileSync('/usr/bin/codesign', [
+            '--verify',
+            '--strict',
+            helperPath,
+        ], { stdio: 'ignore' });
+    }
+}
+
+function assertMacOSAutomationLaunchMetadata(appPath: string, bundleIdentifier: string | undefined) {
+    const infoPlistPath = join(appPath, 'Contents', 'Info.plist');
+    assertMacOSAutomationAgentMode(infoPlistPath);
+    if (bundleIdentifier === undefined) {
+        return;
+    }
+    if (readMacOSInfoString(infoPlistPath, 'CFBundleIdentifier') !== bundleIdentifier) {
+        throw new Error(`Refusing macOS automation launch without CFBundleIdentifier ${bundleIdentifier}: ${infoPlistPath}`);
+    }
+    // A helper that still carries an installed identifier would register that identifier with LaunchServices.
+    for (const helperPath of listMacOSNestedHelperApps(appPath)) {
+        const helperPlistPath = join(helperPath, 'Contents', 'Info.plist');
+        const helperIdentifier = readMacOSInfoString(helperPlistPath, 'CFBundleIdentifier');
+        if (helperIdentifier === undefined || !helperIdentifier.startsWith(`${bundleIdentifier}.`)) {
+            throw new Error(`Refusing macOS automation launch with helper identifier ${helperIdentifier ?? '(none)'}, not under ${bundleIdentifier}: ${helperPlistPath}`);
+        }
+    }
+}
+
 function cloneMacOSAppBundle(sourceAppPath: string, destinationAppPath: string) {
     // cp -c clones through APFS clonefile(2): the bundle shares its blocks with
     // node_modules until a file changes, so a 280 MiB app costs kilobytes.
@@ -677,10 +778,12 @@ function publishStagedMacOSHiddenAppBundle(
 export function prepareMacOSHiddenAppBundle(options: {
     sourceAppPath: string;
     destinationRoot: string;
+    /** Gives the copy this identifier, and its nested helper apps identifiers derived from it. */
+    bundleIdentifier?: string;
 }) {
     const bundlePaths = buildMacOSHiddenAppBundlePaths(options);
     if (isMacOSHiddenAppBundleComplete(bundlePaths)) {
-        assertMacOSAutomationAgentMode(bundlePaths.infoPlistPath);
+        assertMacOSAutomationLaunchMetadata(bundlePaths.appPath, options.bundleIdentifier);
         return bundlePaths;
     }
 
@@ -695,8 +798,11 @@ export function prepareMacOSHiddenAppBundle(options: {
         // Clone the real directory, never a symlink that would redirect plist edits to the source.
         cloneMacOSAppBundle(realpathSync(options.sourceAppPath), stagingPaths.appPath);
         setMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
+        if (options.bundleIdentifier !== undefined) {
+            rewriteMacOSCopyIdentifiers(stagingPaths.appPath, options.bundleIdentifier);
+        }
         resealMacOSAutomationAppBundle(stagingPaths.appPath);
-        assertMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
+        assertMacOSAutomationLaunchMetadata(stagingPaths.appPath, options.bundleIdentifier);
         publishStagedMacOSHiddenAppBundle(stagingRoot, options.destinationRoot, bundlePaths);
     } catch (error) {
         rmSync(stagingRoot, {
@@ -705,7 +811,7 @@ export function prepareMacOSHiddenAppBundle(options: {
         });
         throw error;
     }
-    assertMacOSAutomationAgentMode(bundlePaths.infoPlistPath);
+    assertMacOSAutomationLaunchMetadata(bundlePaths.appPath, options.bundleIdentifier);
     return bundlePaths;
 }
 

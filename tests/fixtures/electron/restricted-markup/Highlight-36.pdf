@@ -1,0 +1,83 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 4 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 5 0 R
+>>
+>>
+/MediaBox [ 0.0 0.0 612 792 ]
+/Parent 2 0 R
+/Contents 6 0 R
+/Annots [ 7 0 R ]
+>>
+endobj
+5 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+6 0 obj
+<<
+/Length 111
+>>
+stream
+BT /F1 20 Tf 80 560 Td (Marked sentence page 1) Tj ET
+q 1 0 0 rg 50 650 60 50 re f 0 0 1 rg 450 80 60 50 re f Q
+endstream
+endobj
+7 0 obj
+<<
+/Type /Annot
+/Subtype /Highlight
+/P 4 0 R
+/F 36
+/NM (Highlight\05536)
+/Rect [ 80 550 360 585 ]
+/Contents (Locked note)
+/T (Public reviewer)
+/QuadPoints [ 80 585 360 585 80 550 360 550 ]
+/C [ 1 1 0 ]
+>>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000113 00000 n 
+0000000162 00000 n 
+0000000312 00000 n 
+0000000382 00000 n 
+0000000544 00000 n 
+trailer
+<<
+/Size 8
+/Root 3 0 R
+/Info 1 0 R
+>>
+startxref
+764
+%%EOF

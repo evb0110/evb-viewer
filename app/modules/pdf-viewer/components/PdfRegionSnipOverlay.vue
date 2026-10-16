@@ -11,7 +11,7 @@
         v-if="shouldRender"
         ref="overlayRef"
         class="snip-overlay"
-        :class="{ 'is-active': active }"
+        :class="{ 'is-active': active, 'is-clean': keyboardController?.state.value === 'capturing' }"
         :role="active ? 'dialog' : undefined"
         :aria-modal="active ? 'true' : undefined"
         :aria-label="active ? hintLabel : undefined"
@@ -26,6 +26,7 @@
     >
         <div
             v-if="selectionRect"
+            :ref="setCropTarget"
             class="snip-selection"
             :style="selectionStyle"
         />
@@ -41,6 +42,14 @@
         >
             {{ copiedLabel }}
         </div>
+        <div v-if="active && keyboardController?.state.value !== 'selecting'" class="snip-controls" @pointerdown.stop @pointerup.stop @keydown.stop>
+            <span role="status">{{ stageLabel }} {{ elapsed }}</span>
+            <template v-if="keyboardController?.state.value === 'confirming'">
+                <span v-if="!hasElectronAPI()">{{ t('toolbar.captureConsent') }}</span>
+                <UButton data-capture-confirm @click="keyboardController.confirmCapture()">{{ t('toolbar.captureConfirm') }}</UButton>
+            </template>
+            <UButton :disabled="keyboardController?.state.value === 'copying'" variant="outline" @click="cancelSelection">{{ t('common.cancel') }}</UButton>
+        </div>
         <div v-if="active && !selectionRect" class="snip-hint">
             {{ hintLabel }}
         </div>
@@ -48,7 +57,11 @@
 </template>
 
 <script setup lang="ts">
-import type { CSSProperties } from 'vue';
+import type {
+    CSSProperties, ComponentPublicInstance,
+} from 'vue';
+import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
+import { hasElectronAPI } from '@app/utils/platform';
 import type { ILocalRect } from '@app/modules/document-viewer/public';
 import type {
     IRegionSelectionOverlayBaseProps,
@@ -82,6 +95,30 @@ const {
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 const overlayRef = ref<HTMLElement | null>(null);
 const keyboardController = inject(pdfRegionSnipKeyboardKey, null);
+const {t} = useTypedI18n();
+const stage = computed(() => keyboardController?.state.value ?? null);
+const elapsed = useStageElapsedClock(stage, new Set([
+    'preparing',
+    'permission',
+    'capturing',
+    'copying',
+]));
+const stageLabel = computed(() => {
+    switch (stage.value) {
+        case 'preparing': return t('toolbar.capturePreparing');
+        case 'permission': return t('toolbar.capturePermission');
+        case 'capturing': return t('toolbar.captureReading');
+        case 'copying': return t('toolbar.captureCopying');
+        case null:
+        case 'idle':
+        case 'selecting':
+        case 'confirming':
+        case 'success': return '';
+    }
+});
+function setCropTarget(element: Element | ComponentPublicInstance | null) {
+    keyboardController?.setCropTarget(element instanceof Element ? element : null);
+}
 
 const {
     handlePointerDown,
@@ -127,11 +164,37 @@ const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
 </script>
 
 <style scoped>
+.snip-overlay.is-clean .snip-selection {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.snip-overlay.is-clean .snip-hint,
+.snip-overlay.is-clean .snip-controls { visibility: hidden; }
+
+.snip-controls,
+.snip-hint {
+    position: sticky;
+    top: var(--app-snip-hint-offset-top);
+    width: fit-content;
+    margin-inline: auto;
+    padding: var(--app-snip-hint-padding);
+    background: var(--app-snip-hint-bg);
+    color: var(--app-snip-hint-fg);
+    border-radius: var(--app-snip-hint-radius);
+}
+
+.snip-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--app-snip-hint-offset-top);
+}
+
 .snip-overlay {
     position: absolute;
     inset: 0;
     z-index: var(--app-z-pdf-selection-overlay);
-    overflow: hidden;
+    overflow: clip;
     pointer-events: none;
     user-select: none;
     outline: none;
@@ -180,15 +243,7 @@ const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
 }
 
 .snip-hint {
-    position: absolute;
-    top: var(--app-snip-hint-offset-top);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: var(--app-snip-hint-padding);
-    border-radius: var(--app-snip-hint-radius);
     border: 1px solid var(--app-snip-hint-border);
-    background: var(--app-snip-hint-bg);
-    color: var(--app-snip-hint-fg);
     font-size: var(--app-snip-hint-font-size);
     line-height: 1;
     pointer-events: none;
@@ -225,12 +280,12 @@ const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
 @keyframes snip-hint-enter {
     from {
         opacity: 0;
-        transform: translateX(-50%) translateY(-4px);
+        transform: translateY(-4px);
     }
 
     to {
         opacity: 1;
-        transform: translateX(-50%) translateY(0);
+        transform: translateY(0);
     }
 }
 </style>

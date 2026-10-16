@@ -1,5 +1,6 @@
 import {createViewportAuthority} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type {IDocumentNavigationTicket} from '@app/modules/document-viewer/public';
 import type {IPdfViewportIntent} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {
@@ -528,6 +529,36 @@ describe('ViewportAuthority', () => {
 
         await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
         expect(writes).toEqual([]);
+    });
+
+    it('keeps a cancelled visual wait pending on its shared surface', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: 'rotation.pdf',
+            documentRevision: 'rotated',
+        });
+        surface.metadataReady(3);
+        const ticket = surface.navigate(createPageNavigationRequest(1, 'search'))!;
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor,
+                left: 0,
+                top: 0,
+            }),
+            awaitMetrics: async () => {},
+            apply: () => {},
+            awaitVisual: async () => {throw new DOMException('Superseded raster layout', 'AbortError');},
+            reportNavigation: (current, report) => surface.reportNavigation(current, report),
+        });
+        await expect(authority.submit({
+            ...intent('rotation', 1),
+            navigationTicket: ticket,
+        })).resolves.toMatchObject({outcome: 'cancelled'});
+        expect(surface.viewportSession.value.visual).toMatchObject({presentation: 'skeleton'});
+        expect(surface.navigationTicket.value).toBe(ticket);
+        surface.reset();
     });
 
     it('replays a current navigation ticket after a stale cancellation', async () => {

@@ -493,6 +493,126 @@ describe('BrowserDocumentStore source registration', () => {
         expect(handle.requestPermission).toHaveBeenCalledExactlyOnceWith({mode: 'read'});
     });
 
+    it('keeps unpublished conversion bytes while leases add or retain readers', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const source = await store.createStoredDocument('input.djvu', Uint8Array.of(1, 2), {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+        });
+        let lease = await store.createLiveLease('window:conversion', [{ref: source}]);
+        const output = await store.createStoredDocument('converted.pdf', Uint8Array.of(3, 4), {
+            mimeType: 'application/pdf',
+            kind: 'output',
+            retention: 'transient',
+        });
+        lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: source}]);
+        store.unload(output);
+        await expect(store.read(output)).resolves.toEqual(Uint8Array.of(3, 4));
+        lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [
+            {ref: source},
+            {ref: output},
+        ]);
+        const reopened = await store.cloneAsWorkingCopy(output);
+        await expect(store.read(reopened)).resolves.toEqual(Uint8Array.of(3, 4));
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
+        await expect(store.exists(output)).resolves.toBe(false);
+    });
+
+    it('collects the retired working source after Clear Recent and keeps successor bytes', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const source = await store.createStoredDocument('old-source.pdf', Uint8Array.of(1, 2, 3), {
+            kind: 'source',
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+        });
+        const working = await store.cloneAsWorkingCopy(source);
+        const lease = await store.createLiveLease('window:source-retirement', [{ref: working}]);
+        await store.clearRecentFiles();
+        const nextSource = await store.createStoredDocument('new-source.pdf', Uint8Array.of(4, 5, 6), {
+            kind: 'source',
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+        });
+        const next = await store.cloneAsWorkingCopy(nextSource);
+        const successor = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: next}]);
+        try {
+            await expect(store.read(next)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+            await expect(store.read(nextSource)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+            const records = indexedDbFactory.getDatabase(DB_NAME)!.getStoreRecords('documents');
+            expect(records.has(working)).toBe(false);
+            expect(records.has(source)).toBe(false);
+        } finally {
+            await store.releaseLiveLease(successor.ownerId, successor.generation);
+        }
+    });
+
+    it('collects retired working bytes after 30 lease replacements in one session', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const makeWorking = () => store.createStoredDocument('retired.pdf', Uint8Array.of(1, 2, 3), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+            storageMode: 'chunked',
+        });
+        let current = await makeWorking();
+        let lease = await store.createLiveLease('window:bounded', [{ref: current}]);
+        const retired: string[] = [];
+        for (let index = 0; index < 30; index += 1) {
+            const next = await makeWorking();
+            await expect(store.cleanupDetachedDocument(current)).resolves.toBe(false);
+            retired.push(current);
+            lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: next}]);
+            current = next;
+        }
+        const database = indexedDbFactory.getDatabase(DB_NAME)!;
+        for (const ref of retired) {
+            expect(database.getStoreRecords('documents').has(ref)).toBe(false);
+            expect(Array.from(database.getStoreRecords('document-chunks').keys()).some(key => String(key).startsWith(ref))).toBe(false);
+        }
+        await expect(store.read(current)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
+        await expect(store.exists(current)).resolves.toBe(false);
+    });
+
+    it('keeps a retired working source while the successor lease protects its proxy', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const working = await store.createStoredDocument('proxy-base.pdf', Uint8Array.of(1, 2, 3), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+        });
+        const proxy = await store.cloneAsWorkingCopy(working);
+        const lease = await store.createLiveLease('window:proxy', [
+            {ref: working},
+            {ref: proxy},
+        ]);
+        const successor = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: proxy}]);
+        store.unload(working);
+        await expect(store.read(proxy)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await store.releaseLiveLease(successor.ownerId, successor.generation);
+        await expect(store.exists(working)).resolves.toBe(false);
+        await expect(store.exists(proxy)).resolves.toBe(false);
+    });
+
+    it('refuses an unclaimed active owner and leaves its bytes protected without Web Locks', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const source = await store.createStoredDocument('owned.pdf', Uint8Array.of(7, 8), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+        });
+        const lease = await store.createLiveLease('window:owned', [{ref: source}]);
+        await expect(store.createLiveLease(lease.ownerId, [])).rejects.toThrow('live lease mutation');
+        store.unload(source);
+        await expect(store.read(source)).resolves.toEqual(Uint8Array.of(7, 8));
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
+        await expect(store.exists(source)).resolves.toBe(false);
+    });
+
     it('fences live lease lifecycle transitions through the repository owner', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(

@@ -12,13 +12,13 @@ import {
     it,
     vi,
 } from 'vitest';
-import {getAppTempDirPathForUserData} from '@electron/utils/appTempDir';
 import {
     findFreePort,
     isProcessAlive,
 } from '@scripts/electron-run/electronRunProcessTree';
 import {projectRoot} from '@scripts/electron-run/projectRoot';
 import {
+    electronAppTempDirPath,
     electronUserDataPath,
     sessionDir,
     sessionFilePath,
@@ -119,7 +119,7 @@ function disposeSession(name: string) {
         recursive: true,
         force: true,
     });
-    rmSync(getAppTempDirPathForUserData(electronUserDataPath(name)), {
+    rmSync(electronAppTempDirPath(name), {
         recursive: true,
         force: true,
     });
@@ -394,7 +394,7 @@ describe('TH-2 automatic E2E session pruning', () => {
 
     it('retains checkpoint bytes and session artifacts during stale pruning', async () => {
         const name = freshSessionName('recovery');
-        const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(name));
+        const appTempPath = electronAppTempDirPath(name);
         const checkpointPath = workspaceCrashCheckpointPath(name);
         const workingCopyPath = join(appTempPath, 'pdf-work-recovery', 'document.pdf');
         await writeSessionInfo(name, UNUSED_PID);
@@ -450,7 +450,7 @@ describe('TH-2 automatic E2E session pruning', () => {
 
     it('removes an abandoned stale session after its owned cleanup checks pass', async () => {
         const name = freshSessionName('abandoned');
-        const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(name));
+        const appTempPath = electronAppTempDirPath(name);
         const workingCopyPath = join(appTempPath, 'pdf-work-abandoned', 'document.pdf');
         await writeSessionInfo(name, UNUSED_PID);
         mkdirSync(join(appTempPath, 'pdf-work-abandoned'), {recursive: true});

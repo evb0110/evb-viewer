@@ -1,11 +1,3 @@
-@font-face {
-    font-family: "EVB Annotation Sans";
-    src: url("/fonts/annotation/DejaVuSans.ttf") format("truetype");
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-}
-
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
 .page_container {
@@ -67,13 +59,12 @@
     pointer-events: none;
 }
 
+/* PDF.js hydration does not gate the app's canonical annotation editor. */
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .text-layer,
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-layer,
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .pdf-annotation-editor-layer,
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-editor-layer,
 .pdfViewer .page_container[data-page-layer-readiness="hydrating"] .text-layer,
 .pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-layer,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .pdf-annotation-editor-layer,
 .pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-editor-layer {
     pointer-events: none;
 }
@@ -277,6 +268,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
+    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-surface__background {
@@ -291,9 +283,7 @@
 
 .pdfViewer.is-selection-markup-tool .pdf-annotation-editor-surface__background,
 .pdfViewer.is-text-selection-mode .pdf-annotation-editor-surface__background,
-.pdfViewer .page_container:not(.page_container--rendered) .pdf-annotation-editor-surface__background,
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .pdf-annotation-editor-surface__background,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .pdf-annotation-editor-surface__background {
+.pdfViewer .page_container:not(.page_container--rendered) .pdf-annotation-editor-surface__background {
     /* stylelint-disable declaration-no-important -- css-important-allow: Readiness and selection modes must override the interactive background while a page is not ready for pointer input. */
     pointer-events: none !important;
     /* stylelint-enable declaration-no-important */
@@ -301,7 +291,6 @@
 
 .pdfViewer .pdf-annotation-editor-surface__svg {
     overflow: visible;
-    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-entity {
@@ -320,7 +309,8 @@
     pointer-events: all;
 }
 
-.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
+.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target],
+.pdfViewer .pdf-annotation-editor-layer.is-text-selecting [data-annotation-hit-target] {
     /* A markup gesture selects document text, including text already marked. */
     pointer-events: none;
 }
@@ -390,10 +380,6 @@
     fill: none;
 }
 
-.pdfViewer .pdf-annotation-editor-surface__html {
-    pointer-events: none;
-}
-
 .pdfViewer .pdf-annotation-editor-text-box,
 .pdfViewer .pdf-annotation-editor-note,
 .pdfViewer .pdf-annotation-editor-stamp {
@@ -407,7 +393,7 @@
     padding: 0.15em 0.3em;
     border: 0;
     outline: 1px solid transparent;
-    font-family: "EVB Annotation Sans", sans-serif;
+    font-family: "EVB Annotation Scripts", "EVB Annotation Sans", sans-serif;
     line-height: 1.35;
     white-space: pre-wrap;
     overflow-wrap: anywhere;

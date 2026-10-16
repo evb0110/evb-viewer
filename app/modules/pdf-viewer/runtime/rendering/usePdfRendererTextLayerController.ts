@@ -6,6 +6,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
     IActivePdfTextLayerTask,
+    IPdfLayerRenderResult,
     TClearSelectionBeforePageLayerTeardown,
     TPdfTextLayerCleanup,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -14,24 +15,15 @@ import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-pag
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { isEqual } from 'es-toolkit';
+import { getTextLayerTextMapping } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import { isRenderCancellation } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;
     pdfPage: IPdfPage;
-    renderResult: {
-        canvas: HTMLCanvasElement;
-        viewport: Parameters<ReturnType<typeof usePdfTextLayerRenderer>['renderTextLayer']>[2];
-        scaleX: number;
-        scaleY: number;
-        rawDims: {
-            pageWidth: number;
-            pageHeight: number;
-        };
-        userUnit: number;
-        totalScaleFactor: number;
-    };
+    renderResult: Omit<IPdfLayerRenderResult, 'annotationCanvasMap'>;
     textLayerDiv: HTMLDivElement | null;
-    preserveCanvasOnStale?: boolean;
 }
 
 interface IUsePdfRendererTextLayerControllerOptions {
@@ -40,7 +32,6 @@ interface IUsePdfRendererTextLayerControllerOptions {
     textLayerCleanupFns: Map<TPageNumber, TPdfTextLayerCleanup>;
     getRenderVersion: () => number;
     cleanupTextLayer: (pageNumber: TPageNumber) => void;
-    cleanupPageIfCurrentRender: (pageNumber: TPageNumber, version: number, requestId?: number) => void;
     cancelActiveTextLayerRender: (pageNumber: TPageNumber) => void;
     cancelActiveTextLayerRenderIfCurrent: (pageNumber: TPageNumber, version: number, requestId: number) => void;
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
@@ -54,7 +45,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         textLayerCleanupFns,
         getRenderVersion,
         cleanupTextLayer,
-        cleanupPageIfCurrentRender,
         cancelActiveTextLayerRender,
         cancelActiveTextLayerRenderIfCurrent,
         clearSelectionBeforePageLayerTeardown,
@@ -68,21 +58,18 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         context: ITextLayerRenderContext,
         scale: number,
         shouldContinue: () => boolean,
+        publish: () => boolean = () => true,
     ) {
         const {
             container,
             pdfPage,
             renderResult,
             textLayerDiv,
-            preserveCanvasOnStale = false,
         } = context;
         if (!textLayerDiv) {
-            return true;
+            return publish();
         }
         if (getRenderVersion() !== version || !shouldContinue()) {
-            if (!preserveCanvasOnStale) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
-            }
             return false;
         }
 
@@ -102,11 +89,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         // selection and the interaction handlers that hang off them survive.
         // Only a content rebuild may tear them down.
         let didRebuildTextLayer = false;
-        const teardownBeforeTextLayerRebuild = () => {
-            didRebuildTextLayer = true;
-            clearSelectionBeforePageLayerTeardown(pageNumber);
-            cleanupTextLayer(pageNumber);
-        };
 
         const controller = new AbortController();
         const documentTeardown = readPdfPageDocumentTeardownSignal(pdfPage);
@@ -114,6 +96,13 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             controller.signal,
             documentTeardown,
         ]) : controller.signal;
+        const cleanupText = () => {
+            clearPdfSelectionForLayerTeardown({
+                target: textLayerDiv,
+                root: container,
+            });
+            textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+        };
         try {
             activeTextLayerAbortControllers.set(pageNumber, {
                 version,
@@ -129,7 +118,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     userUnit,
                     totalScaleFactor,
                     signal,
-                    teardownBeforeTextLayerRebuild,
+                    () => { didRebuildTextLayer = true; },
                 ),
                 {
                     pageNumber,
@@ -152,11 +141,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             isTextLayerRendered = true;
         } catch (textLayerError) {
             if (isPageRenderTimeoutError(textLayerError)) {
-                clearPdfSelectionForLayerTeardown({
-                    target: textLayerDiv,
-                    root: container,
-                });
-                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+                cleanupText();
                 BrowserLogger.warn(
                     'pdf-renderer',
                     `Optional text layer enrichment timed out for page ${String(pageNumber)}`,
@@ -172,11 +157,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             } else if (
                 getRenderVersion() !== version
                 || !shouldContinue()
-                || (
-                    textLayerError
-                    && typeof textLayerError === 'object'
-                    && (textLayerError as { name?: unknown }).name === 'AbortError'
-                )
+                || isRenderCancellation(textLayerError)
             ) {
                 // A newer render of this page cancelled this one and already
                 // owns the shared text layer; cleaning it here would erase
@@ -185,14 +166,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 if (owner && owner.controller !== controller) {
                     return false;
                 }
-                clearPdfSelectionForLayerTeardown({
-                    target: textLayerDiv,
-                    root: container,
-                });
-                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
-                if (!preserveCanvasOnStale) {
-                    cleanupPageIfCurrentRender(pageNumber, version, requestId);
-                }
+                cleanupText();
                 return false;
             } else {
                 logNonCriticalStageError(
@@ -200,11 +174,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     'text layer',
                     textLayerError,
                 );
-                clearPdfSelectionForLayerTeardown({
-                    target: textLayerDiv,
-                    root: container,
-                });
-                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+                cleanupText();
             }
         } finally {
             const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
@@ -216,17 +186,44 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             }
         }
 
-        // A rebuilt layer gets its interaction even when a newer raster has
-        // superseded this render. Later renders only update the spans, so
-        // skipping this here would leave the layer without its selection
-        // sentinel for good.
+        if (getRenderVersion() !== version || !shouldContinue()) return false;
+        const outgoing = container.querySelector<HTMLDivElement>('.text-layer');
+        const selection = outgoing !== textLayerDiv ? container.ownerDocument.getSelection() : null;
+        const previous = outgoing && getTextLayerTextMapping(outgoing);
+        const incoming = getTextLayerTextMapping(textLayerDiv);
+        const remap = (node: Node | null, offset: number) => {
+            if (!node || !outgoing?.contains(node)) return [
+                node,
+                offset,
+            ] as const;
+            const index = previous?.textDivs.findIndex(span => span.contains(node)) ?? -1;
+            const span = previous?.textDivs[index];
+            const target = incoming?.textDivs[index]?.firstChild;
+            if (!span || !(target instanceof Text)) return null;
+            const prefix = span.ownerDocument.createRange();
+            prefix.selectNodeContents(span);
+            prefix.setEnd(node, offset);
+            return [
+                target,
+                prefix.toString().length,
+            ] as const;
+        };
+        const anchor = selection && previous && incoming
+            && (outgoing?.contains(selection.anchorNode) || outgoing?.contains(selection.focusNode))
+            && isEqual(previous.textContentItemsStr, incoming.textContentItemsStr)
+            ? remap(selection.anchorNode, selection.anchorOffset) : null;
+        const focus = anchor && selection ? remap(selection.focusNode, selection.focusOffset) : null;
+        if (!publish()) {
+            textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+            return false;
+        }
+        if (didRebuildTextLayer) {
+            clearSelectionBeforePageLayerTeardown(pageNumber);
+            cleanupTextLayer(pageNumber);
+        }
         if (isTextLayerRendered && didRebuildTextLayer) {
             try {
-                const cleanup =
-                    textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
-                if (typeof cleanup === 'function') {
-                    textLayerCleanupFns.set(pageNumber, cleanup);
-                }
+                textLayerCleanupFns.set(pageNumber, textLayerRenderer.setupTextLayerInteraction(textLayerDiv));
             } catch (textLayerInteractionError) {
                 logNonCriticalStageError(
                     pageNumber,
@@ -238,19 +235,8 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             }
         }
 
-        if (getRenderVersion() !== version || !shouldContinue()) {
-            if (!preserveCanvasOnStale) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
-            }
-            return false;
-        }
-
-        if (!isTextLayerRendered) {
-            // The page canvas is already committed, so optional text failure
-            // must leave the page usable without claiming text readiness. The
-            // caller uses false to keep promotion and an explicit retry alive.
-            return false;
-        }
+        if (!isTextLayerRendered) return false;
+        if (anchor?.[0] && focus?.[0]) selection?.setBaseAndExtent(anchor[0], anchor[1], focus[0], focus[1]);
 
         try {
             textLayerRenderer.applyPageSearchHighlights(

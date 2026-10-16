@@ -30,6 +30,13 @@ else
 fi
 
 
+case "$node_platform:$(locale charmap 2>/dev/null || true)" in
+  # Chromium encodes dropped and native file paths through the locale, so a
+  # non-UTF-8 inherited locale (LANG=C on a service host) mangles non-Latin names.
+  linux:UTF-8) ;;
+  linux:*) export LANG=C.UTF-8 LC_ALL=C.UTF-8 ;;
+esac
+
 export EVB_AUTOMATION_DISABLE_SANDBOX=1
 export EVB_AUTOMATION_NO_FOCUS="$no_focus"
 export EVB_AUTOMATION_HIDE_WINDOW="$hide_window"

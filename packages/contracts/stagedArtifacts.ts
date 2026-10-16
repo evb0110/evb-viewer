@@ -89,6 +89,7 @@ const stagedArtifactValidationsSchema = v.pipe(
 
 const stagedArtifactBaseShape = {
     artifactKind: v.literal('pdf'),
+    contentFingerprint: v.exactOptional(v.pipe(v.string(), v.regex(/^sha256-full-v1:[0-9a-f]{64}$/u))),
     path: documentRefSchema,
     size: nonNegativeSizeSchema,
     validations: stagedArtifactValidationsSchema,

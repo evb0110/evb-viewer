@@ -20,6 +20,7 @@ import type { FailurePresentation } from '@app/composables/useFailureToast';
 import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
 import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
@@ -318,13 +319,25 @@ export function createDocumentPageSourcePresentation(options: {
                 'transitioning',
             ].includes(viewportState.lifecycle)
             || requiresOpeningLayout && (
-                snapshot.geometry === null
-                || snapshot.openingPageFrame?.generation !== lifecycleFence.openSurfaceGeneration
+                snapshot.openingPageFrame?.generation !== lifecycleFence.openSurfaceGeneration
                 || snapshot.openingPageFrame.pageNumber !== pageNumber
             )
             || navigationTicket !== null && !openSurface.isNavigationCurrent(navigationTicket)
         ) {
             return false;
+        }
+        if (requiresOpeningLayout) {
+            const rect = options.getOpeningTarget(pageNumber)?.getBoundingClientRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0 || !openSurface.commitGeometry(
+                lifecycleFence.openSurfaceGeneration,
+                {
+                    width: rect.width,
+                    height: rect.height,
+                    margin: DOCUMENT_PAGE_GUTTER_PX,
+                },
+            )) {
+                return false;
+            }
         }
         const fence = options.openSurfaceRenderOwner
             && openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {

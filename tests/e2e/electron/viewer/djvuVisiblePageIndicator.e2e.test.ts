@@ -1,5 +1,5 @@
 import {
-    copyFileSync, mkdtempSync,
+    copyFileSync, mkdirSync, mkdtempSync, writeFileSync,
 } from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -11,19 +11,27 @@ import {
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openDjvuInApp, waitForDjvuLoaded,
+    clickToolbarButtonWhenEnabled, openDjvuInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    activateMenuItemAsUser, clickAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
-    waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues,
+    waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues, requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 
 
 /** Two DjVu pages: a tall page 1 (1200x4000) and a short page 2 (1200x400), each one black rule. */
 const TALL_THEN_SHORT_DJVU = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'djvu-fixtures', 'tall-then-short.djvu');
+/** The horizontal case: a narrow page 1 (200x200) and a wide page 2 (6000x200). */
+const NARROW_THEN_WIDE_DJVU = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'djvu-fixtures', 'narrow-then-wide.djvu');
 
 /** Page 1 and 2 as the DjVu page-source renderer lays them out, in the scroll container's coordinates. */
 async function readPageGeometry(page: Page) {
@@ -54,8 +62,172 @@ async function readPageGeometry(page: Page) {
     });
 }
 
+function readDjvuRaster(nativeWidth: number) {
+    const image = Array.from(document.querySelectorAll<HTMLImageElement>(
+        '.editor-pane.is-active [data-document-page-number="1"] img[data-testid="document-page-source-image"]',
+    )).findLast(element => element.checkVisibility() && element.getBoundingClientRect().width > 0
+                && element.complete && element.naturalWidth > 0);
+    const width = image?.getBoundingClientRect().width ?? 0;
+    const naturalWidth = image?.complete ? image.naturalWidth : 0;
+    const needed = Math.round(Math.min(width * window.devicePixelRatio, nativeWidth));
+    return {
+        width: Math.round(width),
+        naturalWidth,
+        needed,
+        sharp: naturalWidth > 0 && naturalWidth >= needed - 2,
+    };
+}
+
 describe('Electron E2E - DjVu visible page indicator', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-visible-indicator-${Date.now()}`});
+
+
+    it('repaints the DjVu Fit Width page sharply after every sidebar close', async () => {
+        const session = sessions.getSession();
+        const {page} = session;
+        await page.setViewport(null);
+        await session.command('windowResize', [
+            620,
+            760,
+        ]);
+        const fixture = resolve('tests/fixtures/djvu/sources/color-text-stamps-maps.djvu');
+        await openDjvuInApp(page, fixture, 90_000);
+        await waitForDjvuLoaded(page, 90_000);
+        const nativeWidth = await page.evaluate(async path => (
+            await (window as IE2EWindow).electronAPI!.djvu.getPageSourceInfo(path, 1)
+        ).pageSize.width, requireDocumentRef(fixture));
+        const readRaster = () => page.evaluate(readDjvuRaster, nativeWidth);
+        const evidenceDirectory = resolve('.devkit/evidence/djvublur', session.name);
+        mkdirSync(evidenceDirectory, {recursive: true});
+        await page.evaluate(({
+            nativeWidth, readSource,
+        }) => {
+            const read = Function(`return (${readSource})`)() as typeof readDjvuRaster;
+            Reflect.set(window, '__djvuLoadedRasterSamples', []);
+            const observer = new MutationObserver(records => {
+                for (const record of records) for (const node of record.addedNodes) {
+                    if (!(node instanceof HTMLImageElement) || node.dataset.testid !== 'document-page-source-image') continue;
+                    node.addEventListener('load', () => {
+                        const rect = node.getBoundingClientRect();
+                        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                        if (top === node && node.naturalWidth >= Math.round(Math.min(rect.width * window.devicePixelRatio, nativeWidth)) - 2) {
+                            const sample = read(nativeWidth);
+                            Reflect.get(window, '__djvuLoadedRasterSamples').push(sample);
+                        }
+                    }, {once: true});
+                }
+            });
+            observer.observe(document.querySelector('.editor-pane.is-active')!, {
+                subtree: true,
+                childList: true,
+            });
+            Reflect.set(window, '__djvuLoadedRasterObserver', observer);
+        }, {
+            nativeWidth,
+            readSource: readDjvuRaster.toString(),
+        });
+        const blurred: number[] = [];
+        // Repeated real slides cover the race between resize settle and the
+        // anchor-restore frame. Shrinking first prevents a retained large raster
+        // from hiding a missing repaint on the next enlargement.
+        for (let cycle = 1; cycle <= 18; cycle += 1) {
+            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+            await new Promise(resolve => setTimeout(resolve, 1_500));
+            for (let step = 0; step < 3; step += 1) {
+                await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+-'});
+            }
+            await new Promise(resolve => setTimeout(resolve, 1_500));
+            await requireWorkspaceCommand(page, 'handleFitWidth');
+            await new Promise(resolve => setTimeout(resolve, 1_500));
+            const narrow = await readRaster();
+            console.info('[djvublur-narrow]', JSON.stringify({
+                cycle,
+                narrow,
+            }));
+            expect(narrow.sharp, `cycle ${cycle}: narrow raster is ready: ${JSON.stringify(narrow)}`).toBe(true);
+            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+            // The normal settle budget, rather than the old 8.5-second stall.
+            await new Promise(resolve => setTimeout(resolve, 2_500));
+            const closed = await readRaster();
+            expect(closed.width, `cycle ${cycle}: sidebar really enlarged the page`).toBeGreaterThan(narrow.width + 100);
+            console.info('[djvublur]', JSON.stringify({
+                cycle,
+                narrow,
+                closed,
+            }));
+            if (!closed.sharp) blurred.push(cycle);
+            if (!closed.sharp || cycle === 18) {
+                // Retain the actual painted pixels alongside raster/display
+                // geometry, including the final fixed view and every failure.
+                await page.screenshot({path: join(evidenceDirectory, `sidebar-close-${cycle}.png`)});
+            }
+            if (!closed.sharp) {
+                await new Promise(resolve => setTimeout(resolve, 6_000));
+                console.info('[djvublur-at8500ms]', JSON.stringify({
+                    cycle,
+                    raster: await readRaster(),
+                }));
+            }
+        }
+        const loadedSamples = await page.evaluate(() => {
+            Reflect.get(window, '__djvuLoadedRasterObserver')?.disconnect();
+            return Reflect.get(window, '__djvuLoadedRasterSamples') as Array<ReturnType<typeof readDjvuRaster>>;
+        });
+        expect(loadedSamples.length).toBeGreaterThan(0);
+        expect(loadedSamples.every(sample => sample.sharp), JSON.stringify(loadedSamples)).toBe(true);
+        console.info('[djvublur-summary]', `${blurred.length}/18 cycles blurred at 2.5 s`);
+        expect(blurred, 'every sidebar close paints at its settled display resolution').toEqual([]);
+    }, 360_000);
+
+    // T5/L2: a replacement open must paint its page in the current opening.
+    it.each([
+        [
+            'DjVu',
+            'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
+        ],
+        [
+            'PDF',
+            'tests/fixtures/electron/generated-text.pdf',
+        ],
+    ])('paints an active %s reopened through File > Open in the same tab', async (kind, fixture) => {
+        const session = await sessions.restart({
+            hard: true,
+            sessionName: () => `e2e-same-file-reopen-${kind.toLowerCase()}-${Date.now()}`,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: resolve(fixture)},
+        });
+        const {page} = session;
+        const waitForLoaded = kind === 'DjVu' ? waitForDjvuLoaded : waitForPdfLoaded;
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        await waitForLoaded(page, 120_000);
+        await waitForViewerInteractive(page, 120_000);
+        await waitForViewportQuiet(page);
+        const tabId = await page.$eval('.editor-pane.is-active .tab.is-active', tab => tab.getAttribute('data-tab-id'));
+        const generation = await page.$eval('.editor-pane.is-active [data-open-surface-generation]', element => element.getAttribute('data-open-surface-generation'));
+
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        // Do not accept readiness from the previous opening before its replacement starts.
+        await page.waitForFunction(previous => {
+            const current = document.querySelector('.editor-pane.is-active [data-open-surface-generation]')
+                ?.getAttribute('data-open-surface-generation');
+            return current !== undefined && current !== previous;
+        }, {timeout: 10_000}, generation);
+        try {
+            await waitForLoaded(page, 10_000);
+            await waitForViewerInteractive(page, 10_000);
+            // A PDF replacement can reacquire before its new working copy arrives.
+            // Observe the settled view, then require the painted page again.
+            await waitForViewportQuiet(page, 600, 10_000);
+            await waitForLoaded(page, 10_000);
+            await waitForViewerInteractive(page, 10_000);
+            expect(await page.$eval('.editor-pane.is-active .tab.is-active', tab => tab.getAttribute('data-tab-id'))).toBe(tabId);
+            expect(await page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length)).toBe(1);
+            expect(await page.$('.document-viewer-chassis__opening-page')).toBeNull();
+        } finally {
+            const directory = resolve('.devkit/sessions', session.name);
+            writeFileSync(join(directory, 'same-file-reopen.json'), JSON.stringify(await collectDocumentOpenDiagnostics(page), null, 2));
+            await page.screenshot({path: join(directory, 'same-file-reopen.png')});
+        }
+    }, 180_000);
 
     it('renders the requested two-page DjVu with trailing no-break space beside its one-page sibling', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-identity-'));
@@ -128,4 +300,65 @@ describe('Electron E2E - DjVu visible page indicator', () => {
         const indicator = await readToolbarPageIndicator(page);
         expect(indicator.renderedPage, 'the toolbar names the page the viewport is inside').toBe(1);
     }, 240_000);
+    it('names the wide visible page after horizontal wheel input hides the narrow page', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-wide-indicator-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const {page} = sessions.getSession();
+        const djvuPath = join(directory, 'narrow-then-wide.djvu');
+        copyFileSync(NARROW_THEN_WIDE_DJVU, djvuPath);
+        await openDjvuInApp(page, djvuPath);
+        await waitForDjvuLoaded(page);
+        await clickAsUser(page, '.zoom-controls-display');
+        await page.waitForSelector('.zoom-chip');
+        const preset = await page.$$('.zoom-chip');
+        for (const button of preset) {
+            if ((await button.evaluate(node => node.textContent?.trim())) === '100%') {
+                await clickAsUser(page, button);
+                break;
+            }
+        }
+        await page.keyboard.press('Escape');
+        await waitForWorkspaceToolbarSnapshot(page, {
+            zoomMode: 'custom',
+            effectiveZoom: 1,
+            continuousScroll: true,
+        });
+        await waitForViewportQuiet(page);
+        const before = await readPageGeometry(page);
+        expect(before).not.toBeNull();
+        await page.mouse.move(before!.pointerX, before!.pointerY);
+        await page.mouse.wheel({deltaX: 600});
+        await waitForViewportQuiet(page);
+        const rectangles = await evaluateInPage(page, () => {
+            const first = document.querySelector<HTMLElement>('[data-page-number="1"]')!;
+            const second = document.querySelector<HTMLElement>('[data-page-number="2"]')!;
+            let container = first.parentElement!;
+            while (![
+                'auto',
+                'scroll',
+            ].includes(getComputedStyle(container).overflowY)) container = container.parentElement!;
+            const view = container.getBoundingClientRect();
+            const intersection = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                return Math.max(0, Math.min(view.right, rect.right) - Math.max(view.left, rect.left))
+                    * Math.max(0, Math.min(view.bottom, rect.bottom) - Math.max(view.top, rect.top));
+            };
+            return {
+                firstArea: intersection(first),
+                secondArea: intersection(second),
+                scrollLeft: container.scrollLeft,
+            };
+        });
+        console.log('wide-indicator rectangles', rectangles);
+        expect(rectangles.scrollLeft).toBeGreaterThan(0);
+        expect(rectangles.firstArea).toBe(0);
+        expect(rectangles.secondArea).toBeGreaterThan(0);
+        const indicator = await readToolbarPageIndicator(page);
+        console.log('wide-indicator toolbar', indicator);
+        expect(indicator.renderedPage).toBe(2);
+    }, 240_000);
+
 });

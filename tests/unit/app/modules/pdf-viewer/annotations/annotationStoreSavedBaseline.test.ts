@@ -51,7 +51,8 @@ describe('AnnotationStore saved baseline', () => {
         const frontier = store.beginSave();
         store.updateNote(entity.identity.id, {contents: 'changed'});
 
-        expect(() => store.markPersisted(frontier)).toThrow(/staleRevisionError/u);
+        store.markPersisted(frontier);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(store.dirtyEntities()).toHaveLength(1);
     });
 });

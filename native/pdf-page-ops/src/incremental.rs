@@ -264,9 +264,7 @@ fn apply_native_mutations_internal(
     if !mutations.updates.is_empty() {
         update_note_text(document, &mutations.updates, modified_at)?;
     }
-    if !mutations.geometry_updates.is_empty() {
-        update_note_geometry(document, &mutations.geometry_updates, modified_at)?;
-    }
+    update_note_geometry(document, &mutations.geometry_updates, modified_at)?;
     if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
         upsert_text_notes_with_counter(
             document,
@@ -279,18 +277,14 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
-    if !mutations.text_boxes.is_empty() {
-        upsert_text_boxes_with_counter(
-            document,
-            &mutations.text_boxes,
-            modified_at,
-            &mut annotation_visits,
-            &mut identity_bindings,
-        )?;
-    }
-    if !mutations.deletes.is_empty() {
-        delete_annotations(document, &mutations.deletes)?;
-    }
+    upsert_text_boxes_with_counter(
+        document,
+        &mutations.text_boxes,
+        modified_at,
+        &mut annotation_visits,
+        &mut identity_bindings,
+    )?;
+    delete_annotations(document, &mutations.deletes)?;
     if !mutations.page_rotations.is_empty() {
         rotate_pages(document, &mutations.page_rotations)?;
     }
@@ -330,6 +324,7 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
+    document.max_id = document.objects.keys().next_back().map_or(0, |id| id.0);
     Ok(())
 }
 
@@ -665,9 +660,7 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
     )
 }
 
-/// Reads the base streams a save reuses that a structural load left unread:
-/// stamp sources, and the embedded text-box font when the save writes text
-/// boxes. Other saves never look at those bytes.
+/// Reads reused stamp streams that a structural load left unread.
 fn materialize_reused_base_streams(
     incremental: &mut IncrementalDocument,
     input_path: &Path,
@@ -680,9 +673,6 @@ fn materialize_reused_base_streams(
         qpdf_path,
         &mutations.placed_image_geometry_updates,
     )?;
-    if let Some(qpdf_path) = qpdf_path.filter(|_| !mutations.text_boxes.is_empty()) {
-        incremental.materialize_text_box_font_streams(input_path, qpdf_path);
-    }
     Ok(())
 }
 

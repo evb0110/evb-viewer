@@ -114,6 +114,61 @@ describe('scan cleanup renderer preference store', () => {
         })));
     });
 
+
+    it('keeps another window reading-order commit when an older local save reply arrives late', async () => {
+        const {
+            store, filePath,
+        } = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const shown = getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        let release!: (value: Awaited<ReturnType<typeof store.update>>) => void;
+        let committed!: (value: Awaited<ReturnType<typeof store.update>>) => void;
+        const started = new Promise<Awaited<ReturnType<typeof store.update>>>(done => { committed = done; });
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            const value = await store.update(request);
+            committed(value);
+            return new Promise(done => { release = done; });
+        });
+        shown.binarization = 'sauvola';
+        const saving = flushScanCleanupPreferencesStore();
+        const older = await started;
+        await store.update({settingsPatch: {readingOrder: 'rtl'}});
+        expect(shown.readingOrder).toBe('rtl');
+        release(older);
+        await saving;
+        expect(JSON.parse(await readFile(filePath, 'utf8')).settings).toMatchObject({
+            readingOrder: 'rtl',
+            binarization: 'sauvola',
+        });
+        expect({
+            readingOrder: shown.readingOrder,
+            binarization: shown.binarization,
+        }).toEqual({
+            readingOrder: 'rtl',
+            binarization: 'sauvola',
+        });
+    });
+
+    it('rereads a cached document changed by another window', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const hash = 'd'.repeat(64);
+        await store.update({document: {
+            sourceSha256: hash,
+            patch: {outputMode: 'grayscale'},
+        }});
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        expect((await loadScanCleanupDocumentSettings(hash, '/documents/shared.pdf')).outputMode).toBe('grayscale');
+
+        await store.update({document: {
+            sourceSha256: hash,
+            patch: {outputMode: 'color'},
+        }});
+        expect((await loadScanCleanupDocumentSettings(hash, '/documents/shared.pdf')).outputMode).toBe('color');
+    });
+
     it('persists later global and document edits when settings events are dropped', async () => {
         const {
             filePath, store,
@@ -486,6 +541,7 @@ describe('scan cleanup renderer preference store', () => {
                 pageOverrideDefaults: createScanCleanupPageOverride({manualSkewDegrees: 1}),
             },
         }});
+        capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
         capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
@@ -570,6 +626,7 @@ describe('scan cleanup renderer preference store', () => {
             readingOrder: 'rtl',
             thickness: 1,
         }});
+        capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
         capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
@@ -601,6 +658,7 @@ describe('scan cleanup renderer preference store', () => {
         const {
             filePath, store,
         } = await createDurableSettingsStore();
+        capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
         capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {

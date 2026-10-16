@@ -47,6 +47,7 @@ function getRecoveryTarget(tab: IWorkspaceCheckpointTab): TOpenFileResult | null
             originalPath: tab.sourceRef,
             recoveryDirtyBaseline: true,
             ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
+            ...(tab.keptOriginalPath ? {keptOriginalPath: tab.keptOriginalPath} : {}),
         }
         : null;
 }
@@ -117,12 +118,7 @@ function createLinkedViewSeed(
         ...documentToolbar,
         ...(checkpointTab.currentPage !== null ? {currentPage: checkpointTab.currentPage} : {}),
         ...(checkpointTab.zoomMode !== null ? {zoomMode: checkpointTab.zoomMode} : {}),
-        ...(checkpointTab.zoom !== null
-            ? {
-                zoom: checkpointTab.zoom,
-                effectiveZoom: checkpointTab.zoom,
-            }
-            : {}),
+        ...(checkpointTab.zoom !== null ? {zoom: checkpointTab.zoom} : {}),
         ...(checkpointTab.continuousScroll != null ? {continuousScroll: checkpointTab.continuousScroll} : {}),
         ...(checkpointTab.viewMode != null ? {viewMode: checkpointTab.viewMode} : {}),
         ...(checkpointTab.viewRotation != null ? {viewRotation: checkpointTab.viewRotation} : {}),

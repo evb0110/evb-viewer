@@ -12,7 +12,7 @@ import {
     lstatSync,
     realpathSync,
 } from 'fs';
-import { getAppTempDirPath } from '@electron/utils/appTempDir';
+import { getManagedAppTempRoots } from '@electron/utils/appTempDir';
 
 interface IPathOps {
     dirname(path: string): string;
@@ -142,47 +142,41 @@ function safeRealpathSync(path: string) {
 // The temp namespace is fixed at startup and getAppTempDir() refuses symlinked
 // temp roots, so the canonical base dirs cannot legitimately change while the
 // configured path stays the same; caching them avoids a realpath per validation.
-let cachedTempBaseDirs: {
-    configuredTempDir: string;
-    baseDirs: string[];
-} | null = null;
+// Only a successful canonicalization is cached. Caching the pre-existence
+// fallback pinned an uncanonicalized base set for the process lifetime, which
+// rejected every temp read on hosts where the configured and canonical forms
+// differ (Windows 8.3 short names, macOS /var symlinks).
+const canonicalTempBaseDirs = new Map<string, string[]>();
 
 function getTempBaseDirsSync() {
-    const configuredTempDir = getAppTempDirPath();
-    if (cachedTempBaseDirs?.configuredTempDir === configuredTempDir) {
-        return cachedTempBaseDirs.baseDirs;
-    }
-    const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
-    let canonicalTempDir = tempDir;
-    let canonicalized = false;
-    try {
-        canonicalTempDir = realpathSync(tempDir);
-        canonicalized = true;
-    } catch {
-        // The app temp dir is created lazily; before it exists realpath
-        // cannot resolve it and the canonical form is unknown.
-    }
-    const baseDirs = isSamePath(canonicalTempDir, tempDir)
-        ? [tempDir]
-        : [
-            tempDir,
-            canonicalTempDir,
-        ];
-    // Cache only a successful canonicalization. Caching the pre-existence
-    // fallback pinned an uncanonicalized base set for the process lifetime,
-    // which rejected every temp read on hosts where the configured and
-    // canonical forms differ (Windows 8.3 short names, macOS /var symlinks).
-    if (canonicalized) {
-        cachedTempBaseDirs = {
-            configuredTempDir,
-            baseDirs,
-        };
-    }
-    return baseDirs;
+    // The namespace an earlier release left in temp stays readable for its working copies.
+    return getManagedAppTempRoots().flatMap((configuredTempDir) => {
+        const cached = canonicalTempBaseDirs.get(configuredTempDir);
+        if (cached) {
+            return cached;
+        }
+        const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
+        let canonicalTempDir: string;
+        try {
+            canonicalTempDir = realpathSync(tempDir);
+        } catch {
+            // The app temp dir is created lazily; before it exists realpath
+            // cannot resolve it and the canonical form is unknown.
+            return [tempDir];
+        }
+        const baseDirs = isSamePath(canonicalTempDir, tempDir)
+            ? [tempDir]
+            : [
+                tempDir,
+                canonicalTempDir,
+            ];
+        canonicalTempBaseDirs.set(configuredTempDir, baseDirs);
+        return baseDirs;
+    });
 }
 
 export function resetPathValidatorCachesForTests() {
-    cachedTempBaseDirs = null;
+    canonicalTempBaseDirs.clear();
 }
 
 /**

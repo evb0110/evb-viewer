@@ -30,6 +30,7 @@ interface IAnnotationPointerEvent {
     clientX: number;
     clientY: number;
     pointerId: number;
+    pointerType?: string;
 }
 
 type TAnnotationPointerGestureMode = 'create' | 'move' | 'resize';
@@ -65,6 +66,8 @@ export interface ITextSelectionPointerGesture {
 
 export interface IAnnotationPointerGesture {
     readonly isActive: ComputedRef<boolean>;
+    readonly isTextSelecting: ComputedRef<boolean>;
+    readonly textSelectionTouchAction: ComputedRef<'auto' | 'pan-x pinch-zoom' | 'pan-y pinch-zoom'>;
     readonly mode: ComputedRef<TAnnotationPointerGestureMode | null>;
     readonly resizeHandle: ComputedRef<TAnnotationResizeHandle | null>;
     readonly start: ComputedRef<IAnnotationEditorPoint | null>;
@@ -132,11 +135,20 @@ export const useAnnotationPointerGesture = (
     options: IUseAnnotationPointerGestureOptions,
 ): IAnnotationPointerGesture => {
     const active = shallowRef<IActiveAnnotationPointerGesture | null>(null);
-    let textSelection: {
-        pointerId: number;
+    const textSelection = shallowRef<{
         start: IAnnotationPointerEvent;
         hasMoved: boolean
-    } | null = null;
+    } | null>(null);
+    const isTextSelecting = computed(() => textSelection.value !== null);
+    const isVerticalText = computed(() => {
+        const geometry = options.surface.getPageGeometry(options.pageIndex);
+        return ((geometry?.rotation ?? 0) + (geometry?.viewRotation ?? 0)) % 180 !== 0;
+    });
+    // Chromium decides native touch ownership before pointerdown. Keep pan
+    // across the text line and pinch available, reserving along-line drags.
+    const textSelectionTouchAction = computed(() => options.surface.activeTool.value === 'none'
+        ? isVerticalText.value ? 'pan-x pinch-zoom' : 'pan-y pinch-zoom'
+        : 'auto');
     const isActive = computed(() => active.value !== null);
     const mode = computed(() => active.value?.mode ?? null);
     const resizeHandle = computed(() => active.value?.handle ?? null);
@@ -207,7 +219,7 @@ export const useAnnotationPointerGesture = (
             return false;
         }
         active.value = {
-            moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.selectedIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
+            moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.movingIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
                 const bounds = rectForMovableEntity(entity);
                 return bounds ? [rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex))] : [];
             }),
@@ -263,35 +275,34 @@ export const useAnnotationPointerGesture = (
     }
 
     function beginTextSelection(event: IAnnotationPointerEvent) {
-        if (active.value || textSelection) {
+        if (active.value || textSelection.value) {
             return false;
         }
-        textSelection = {
-            pointerId: event.pointerId,
-            start: {
-                clientX: event.clientX,
-                clientY: event.clientY,
-                pointerId: event.pointerId,
-            },
+        textSelection.value = {
+            start: event,
             hasMoved: false,
         };
         return true;
     }
 
     function updateTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
-        if (textSelection?.pointerId !== event.pointerId) {
+        if (textSelection.value?.start.pointerId !== event.pointerId) {
             return null;
         }
-        textSelection.hasMoved ||= hasPointerMovedPastThreshold(textSelection.start, event, 6);
+        const start = textSelection.value.start;
+        const dx = Math.abs(event.clientX - start.clientX);
+        const dy = Math.abs(event.clientY - start.clientY);
+        textSelection.value.hasMoved ||= hasPointerMovedPastThreshold(start, event, 6)
+            && (start.pointerType !== 'touch' || (isVerticalText.value ? dy > dx : dx > dy));
         return {
-            start: textSelection.start,
-            hasMoved: textSelection.hasMoved,
+            start: textSelection.value.start,
+            hasMoved: textSelection.value.hasMoved,
         };
     }
 
     function finishTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
         const gesture = updateTextSelection(event);
-        textSelection = null;
+        if (gesture) textSelection.value = null;
         return gesture;
     }
 
@@ -325,13 +336,15 @@ export const useAnnotationPointerGesture = (
 
     function cancel() {
         active.value = null;
-        textSelection = null;
+        textSelection.value = null;
     }
 
     onScopeDispose(cancel);
 
     return {
         isActive,
+        isTextSelecting,
+        textSelectionTouchAction,
         mode,
         resizeHandle,
         start,

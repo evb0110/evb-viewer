@@ -43,6 +43,7 @@
     --app-ui-scale: 1;
     --app-font-ui:
         'EVB Noto Sans',
+        'EVB Annotation Scripts',
         Arial,
         'Helvetica Neue',
         Helvetica,
@@ -313,7 +314,6 @@
     --app-context-menu-radius: var(--app-radius-2xl);
     --app-pdf-context-menu-grid-padding: var(--app-space-sm);
     --app-pdf-context-menu-item-radius: var(--app-radius-md);
-    --app-settings-dialog-width: 52rem;
     --app-settings-select-max-size: 24rem;
     --app-sidebar-content-padding: var(--app-space-3xl);
     --app-sidebar-row-padding-block: var(--app-space-2xl);
@@ -830,10 +830,6 @@
     max-height: min(var(--app-settings-select-max-size), var(--reka-combobox-content-available-height, var(--app-settings-select-max-size)));
 }
 
-.app-sidebar-tab-trigger-fluid {
-    flex: 0 1 auto;
-}
-
 .dark {
     --ui-primary: var(--color-brand-200);
     --ui-primary-hover: var(--color-brand-100);
@@ -1059,9 +1055,13 @@
     overscroll-behavior: contain;
 }
 
-/* Toasts name files, and file names often have no break opportunity. */
+/* Toasts name files, and file names often have no break opportunity; a long
+   path scrolls inside a toast of bounded height instead of growing it. */
 .app-toast [data-slot='description'] {
+    max-block-size: calc(var(--app-line-height-body) * 6em);
     overflow-wrap: anywhere;
+    overflow-y: auto;
+    scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
 }
 
 .app-toast-failure-description {
@@ -1079,8 +1079,6 @@
 .app-panel-scroll {
     min-height: 0;
     overflow: auto;
-    scrollbar-gutter: stable both-edges;
-    scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
 }
 
 .app-scrollbar::-webkit-scrollbar {

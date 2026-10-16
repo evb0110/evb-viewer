@@ -16,12 +16,23 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
-        Operation::ReadCatalog => {
-            return write_pdf_combine_catalog(
+        Operation::ReadCatalog | Operation::ReadDocumentCatalog(..) => {
+            let incremental = load_dictionary_incremental_pdf_path(
                 &config.input_path,
                 config.qpdf_path.as_deref(),
-                &mut std::io::stdout().lock(),
-            )
+            )?;
+            let source = AppendedRevision::new(&incremental);
+            let catalog = match &config.operation {
+                Operation::ReadCatalog => serde_json::to_value(read_pdf_combine_catalog(&source)?)?,
+                Operation::ReadDocumentCatalog(Some(path)) => {
+                    let mutations = read_native_mutations(path)?;
+                    let mut bookmarks = mutations.bookmarks.ok_or("Missing bookmarks")?;
+                    outline::names::resolve_bookmark_source_targets(&source, &mut bookmarks.items)?;
+                    serde_json::json!({"bookmarks": bookmarks.items})
+                }
+                _ => read_pdf_document_catalog(&source),
+            };
+            return serde_json::to_writer(std::io::stdout().lock(), &catalog).map_err(Into::into);
         }
         Operation::PageGeometry { page_number } => {
             return write_page_geometry(
@@ -68,22 +79,16 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             );
         }
         Operation::PrintLayout {
-            pages_file,
             view_mode,
             orientation,
         } => {
-            let pages = pages_file
-                .as_deref()
-                .map(read_pages_file)
-                .transpose()
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_print_layout_path(
                 &config.input_path,
                 output_path,
-                pages.as_deref(),
                 *view_mode,
                 *orientation,
-            );
+                config.qpdf_path.as_deref(),
+            )
         }
         Operation::RemoveCrop { pages_file } => {
             let pages = read_pages_file(pages_file)

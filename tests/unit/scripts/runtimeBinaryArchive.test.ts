@@ -514,6 +514,10 @@ describe('runtime binary manifest and verified archive cache', () => {
         const firstGeneratorReady = new Promise<void>(resolve => {
             firstGeneratorEntered = resolve;
         });
+        let secondGeneratorEntered: (() => void) | undefined;
+        const secondGeneratorReady = new Promise<void>(resolve => {
+            secondGeneratorEntered = resolve;
+        });
         let calls = 0;
         const transport = (url: string) => {
             calls += 1;
@@ -521,6 +525,8 @@ describe('runtime binary manifest and verified archive cache', () => {
             return (async function* () {
                 if (invocation === 1) {
                     firstGeneratorEntered?.();
+                } else {
+                    secondGeneratorEntered?.();
                 }
                 expect(url).toBe('https://example.test/runtime.zip');
                 yield archiveBytes.slice(0, 8);
@@ -544,6 +550,7 @@ describe('runtime binary manifest and verified archive cache', () => {
             target,
             transport,
         });
+        await secondGeneratorReady;
         releaseFirstChunk?.();
         const [
             firstResult,

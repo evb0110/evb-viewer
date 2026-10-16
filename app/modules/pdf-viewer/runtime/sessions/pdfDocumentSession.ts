@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {
     IPdfDocument,
     IPdfPage,
@@ -344,12 +345,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function enqueueLifecycleOperation(operation: () => void | Promise<void>) {
-        const queued = lifecycleBarrier.then(async () => {
+        const queued = lifecycleBarrier.catch(() => {}).then(async () => {
             if (!disposed) {
                 await operation();
             }
         });
-        lifecycleBarrier = queued.catch(() => {});
+        lifecycleBarrier = queued;
         return queued;
     }
 
@@ -1181,13 +1182,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         sourceLoader.cancelPendingOpen();
         const invalidation = invalidate('source-replaced', isSameDocumentRewrite);
         const activeScheduledLoadToken = scheduledLoadToken;
-        runGuardedTask(async () => {
+        runGuardedTask(() => enqueueLifecycleOperation(async () => {
             await invalidation;
-            if (activeScheduledLoadToken !== scheduledLoadToken) {
-                return;
-            }
+            if (activeScheduledLoadToken !== scheduledLoadToken) return;
             await load(isReload);
-        }, {
+        }), {
             category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to load replacement PDF source',
@@ -1936,7 +1935,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             invalidatePagesOnNextReload(pages: readonly number[]) {
                 pendingPagesToInvalidate = [...pages];
             },
-            waitForLoadSettled: () => loadSettlePromise,
+            waitForLoadSettled: async () => {
+                // Flush source changes before awaiting their complete presentation.
+                await nextTick();
+                await lifecycleBarrier;
+                await loadSettlePromise;
+                await nextTick();
+                if (loadError.value) {
+                    throw loadError.value instanceof Error ? loadError.value : new Error(getErrorMessage(loadError.value));
+                }
+            },
             preserveNextReloadVisibleContent(shouldPreserve: boolean) {
                 pendingPreserveVisibleContent = shouldPreserve;
             },

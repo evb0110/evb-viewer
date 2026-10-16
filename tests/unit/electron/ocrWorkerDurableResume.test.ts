@@ -59,7 +59,9 @@ describe('real OCR worker durable page checkpoints', () => {
         const identityKey = identityKind === 'native' ? 'evb-scan-cleanup' : `tesseract-${process.platform}-${process.arch}`;
 
         beforeEach(async () => {
-            first = await createOcrWorkerPipelineHarness({concurrency: 3});
+            // One saved page proves recipe invalidation; the other cases cover
+            // partial and concurrent checkpoints across three pages.
+            first = await createOcrWorkerPipelineHarness({pageCount: 1});
             harnesses.push(first);
             vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
             await first.start('old-recipe');

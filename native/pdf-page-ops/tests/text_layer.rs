@@ -525,6 +525,56 @@ fn save_identity_overlay_target(input: &Path, instructions: &Path) {
 }
 
 #[test]
+fn overlay_without_annotations_preserves_absent_and_empty_page_arrays() {
+    let source = path("no-annotations-source", "pdf");
+    let input = path("no-annotations-input", "pdf");
+    let output = path("no-annotations-output", "pdf");
+    let instructions = path("no-annotations-plan", "json");
+    save_empty_pages(&source, 2);
+    let mut target = save_pages(&input, (0..2).map(|_| None), Dictionary::new());
+    let empty_page = target.get_pages()[&2];
+    let empty_array = target.add_object(Object::Array(Vec::new()));
+    target
+        .get_dictionary_mut(empty_page)
+        .unwrap()
+        .set("Annots", empty_array);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]},{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    let pages = saved.get_pages();
+    assert!(
+        !saved.get_dictionary(pages[&1]).unwrap().has(b"Annots"),
+        "an unannotated page must not gain an empty /Annots array"
+    );
+    let existing = saved
+        .get_dictionary(pages[&2])
+        .unwrap()
+        .get(b"Annots")
+        .unwrap();
+    assert!(saved
+        .dereference(existing)
+        .unwrap()
+        .1
+        .as_array()
+        .unwrap()
+        .is_empty());
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
 fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
     let source = path("bidi-text-source", "pdf");
     let input = path("bidi-text-input", "pdf");
@@ -4094,7 +4144,7 @@ fn overlay_preserves_editable_text_box_geometry_and_refuses_unrepresentable_affi
     let source = path("canonical-source", "pdf");
     let mutations = path("canonical-mutations", "json");
     save_empty_pages(&blank, 1);
-    write(&mutations, br#"{"textBoxes":[{"pageIndex":0,"stableKey":"canonical-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    write(&mutations, br#"{"textBoxes":[{"pageIndex":0,"stableKey":"canonical-box","text":"Editable","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
     run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
     for (incremental, matrix, expected_rotation, expected_rect, font_size) in [
         (
@@ -4280,7 +4330,7 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
     )
     .unwrap();
     save_empty_pages(&blank, 1);
-    write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
     run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
     let mut original = Document::load(&source).unwrap();
     let id = original
@@ -4355,7 +4405,7 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
                 .unwrap();
                 assert_eq!(entries["entries"].as_array().unwrap().len(), 1);
                 assert_eq!(entries["entries"][0]["kind"], "text-box");
-                assert_eq!(entries["entries"][0]["text"], "Editable box");
+                assert_eq!(entries["entries"][0]["text"], "Editable");
                 assert_eq!(entries["entries"][0]["rotation"], 0);
                 assert_eq!(
                     entries["entries"][0]["rect"],

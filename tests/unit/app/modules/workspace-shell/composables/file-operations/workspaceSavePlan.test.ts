@@ -16,6 +16,11 @@ import type {
 } from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {
+    PDFDocument, degrees,
+} from 'pdf-lib';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {requireRequestId} from '@contracts/shared';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import type {IPdfViewerSaveTransactionResult} from '@app/modules/pdf-viewer/public';
@@ -288,6 +293,62 @@ describe('workspaceSavePlan', () => {
             assertBeforeExpose: assertAnnotationSaveCurrent,
         }));
         expect(commitAnnotationSave).not.toHaveBeenCalled();
+    });
+
+    it('recovers a queued mutation commit while renderer publication races capture', async () => {
+        const commit = Promise.withResolvers<undefined>();
+        const publication = Promise.withResolvers<undefined>();
+        const captureStarted = Promise.withResolvers<undefined>();
+        const document = await PDFDocument.create();
+        const page = document.addPage([
+            612,
+            792,
+        ]);
+        let bytes = await document.save();
+        const session = createWorkspaceDocumentController({tabId: 'recovery-tab'});
+        const documentRevisionToken = ref(requireDocumentRevisionToken('before-rotation'));
+        const {deps} = createDeps({
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken,
+            workingCopyPath: ref(requireDocumentRef('browser://documents/working.pdf')),
+            runWithDocumentOperationLease: session.operationLease.runExclusive,
+        });
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            pdfDocument: deps.pdfDocument,
+            flushAnnotationMutationsForSave: () => {
+                captureStarted.resolve(undefined);
+                return publication.promise;
+            },
+        });
+        deps.runSaveTransaction = runSaveTransaction;
+        deps.pdfViewerRef = ref({runSaveTransaction});
+        recoveryMocks.readDocumentBytes.mockImplementation(async () => {
+            captureStarted.resolve(undefined);
+            await publication.promise;
+            return bytes;
+        });
+        const mutation = session.operationLease.runExclusive('page-operation', async () => {
+            await commit.promise;
+            page.setRotation(degrees(90));
+            bytes = await document.save();
+            documentRevisionToken.value = requireDocumentRevisionToken('committed-rotation');
+        });
+        // Recovery is requested while the mutation is still committing. The
+        // existing lease admits it against the committed byte revision.
+        const capture = useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes();
+        const outcome = capture.catch(error => error as Error);
+        commit.resolve(undefined);
+        await mutation;
+        await captureStarted.promise;
+        // The asynchronous reload now replaces the renderer while capture
+        // awaits preparation; that must not revoke accepted working bytes.
+        deps.pdfDocument.value = null;
+        publication.resolve(undefined);
+        const recovered = await outcome;
+        expect(recovered).toEqual(bytes);
+        if (!(recovered instanceof Uint8Array)) throw new Error('Recovery lost the committed PDF');
+        expect((await PDFDocument.load(recovered)).getPage(0).getRotation().angle).toBe(90);
+        expect(deps.hasPendingUnsavedChanges?.value).toBe(true);
     });
 
     it('recovers current working bytes when the canonical frontier proves no new mutations remain', async () => {

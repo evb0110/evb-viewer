@@ -819,8 +819,7 @@ describe('browserDocumentMaintenance', () => {
         });
         documentIdbMocks.documentsAtDelete = [record];
         recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(true);
-        let recentFilesReadCount = 0;
-        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockImplementation(() => recentFilesReadCount++ === 0 ? [] : [{
+        recentFilesStoreMocks.tryReadRecentFilesFromStorage.mockReturnValue([{
             originalPath: ref,
             backend: 'browser',
             fileName: `${storageMode}.pdf`,

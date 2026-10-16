@@ -1,24 +1,35 @@
 import {
-    mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
+    copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
-import {join} from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    delimiter,
+    join, resolve,
+} from 'node:path';
 import {deflateSync} from 'node:zlib';
 import {
     PDFDocument, StandardFonts, rgb,
 } from 'pdf-lib';
 import {
-    afterEach, describe, expect, it, onTestFinished,
+    afterEach, describe, expect, it, onTestFinished, vi,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
+    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    installPageEvaluationShims, waitForFunctionInPage,
+} from '@tests/e2e/electron/helpers/pageRuntime';
 import type * as Pdfjs from 'pdfjs-dist';
 import type {
     ConsoleMessage, Page,
@@ -27,8 +38,16 @@ import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     requireDocumentRef, type TDocumentRef,
 } from '@contracts/documentRef';
-import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {
+    callWorkspaceCommand, waitForWorkspaceToolbarIdle,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {LOCALE_MESSAGES} from '@i18n-app';
+import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMenuItem';
+import {
+    electronAppTempDirPath,
+    electronUserDataPath,
+} from '@scripts/electron-run/electronRunSessionPaths';
 
 const sessionName = `e2e-move-tab-view-state-${Date.now()}`;
 const replacementDialogPath = join(electronAppTempDirPath(sessionName), 'cancelled-transfer-replacement.pdf');
@@ -158,6 +177,377 @@ async function waitForTransferredViewSettled(page: Page) {
 }
 
 describe('Move Tab to New Window view state', () => {
+
+    it.each([
+        'commits',
+        'is refused',
+    ] as const)('disables native Save and Save As while moving and restores them when the move %s', async (outcome) => {
+        const home = mkdtempSync(join(tmpdir(), 'moving-menu-'));
+        const fixture = join(home, 'moving.pdf');
+        const savedAs = join(home, 'saved-as.pdf');
+        const replacement = join(home, 'replacement.pdf');
+        let destination: Page | null = null;
+        onTestFinished(async () => {
+            if (destination && !destination.isClosed()) await destination.evaluate(() => (
+                (window as Window & {__movingMenuLoad?: {restore: () => void}}).__movingMenuLoad?.restore()
+            ));
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
+        await sessions.restart({
+            clean: true,
+            hard: true,
+            extraEnv: {
+                EVB_E2E_SAVE_DIALOG_PATH: savedAs,
+                EVB_E2E_OPEN_DIALOG_PATH: replacement,
+            },
+        });
+        for (const path of [
+            join(home, 'seed.pdf'),
+            fixture,
+            replacement,
+        ]) {
+            copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), path);
+        }
+        const {page: source} = sessions.getSession();
+        await openPdfInApp(source, join(home, 'seed.pdf'));
+        destination = await moveTabToNewWindow(source);
+        await installPageEvaluationShims(destination);
+        await clickAsUser(source, '.tab-new');
+        const target = destination;
+        const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.listTargetWindows()))[0]!.windowId;
+        await openPdfInApp(source, fixture);
+        await createFreeTextAnnotationWithPointer(source, 'Save frontier', {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        // The review holds the ordinary first geometry answer while the real
+        // tab menu moves the document. Replacement uses the real file picker.
+        await target.evaluate(() => {
+            const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
+            const then = Promise.prototype.then;
+            let release: () => void = () => {};
+            const gate = new Promise<void>(resolve => {release = resolve;});
+            const state = {
+                held: false,
+                restore: () => {Object.defineProperty(Promise.prototype, 'catch', descriptor); release();},
+            };
+            Object.defineProperty(Promise.prototype, 'catch', {
+                ...descriptor,
+                value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
+                    return then.call(this, (value: unknown) => {
+                        if (value && typeof value === 'object' && 'pageNumber' in value
+                            && 'width' in value && 'height' in value && 'pageCount' in value) {
+                            state.held = true;
+                            Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                            return gate.then(() => value);
+                        }
+                        return value;
+                    }, onRejected);
+                },
+            });
+            (window as Window & {__movingMenuLoad?: typeof state}).__movingMenuLoad = state;
+        });
+        await clickAsUser(source, '.tab.is-active', {button: 'right'});
+        await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetId}"]`);
+        await waitForFunctionInPage(target, () => (
+            (window as Window & {__movingMenuLoad?: {held: boolean}}).__movingMenuLoad?.held === true
+        ));
+        await source.waitForSelector('.workspace-transfer-state', {visible: true});
+        const movingSave = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+S'});
+        const movingSaveAs = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+Shift+S'});
+        console.log('MOVING_NATIVE_MENU', JSON.stringify({
+            outcome,
+            movingSave,
+            movingSaveAs,
+            outputExists: existsSync(savedAs),
+        }));
+        expect(movingSave).toMatchObject({
+            activated: false,
+            reason: 'disabled',
+        });
+        expect(movingSaveAs).toMatchObject({
+            activated: false,
+            reason: 'disabled',
+        });
+        expect(existsSync(savedAs)).toBe(false);
+        if (outcome === 'is refused') {
+            await clickAsUser(target, '#editor-global-toolbar-host button[aria-label="More tools"]');
+            await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.trim() === 'Open File'), undefined, {description: 'Replace the incoming document'});
+            await waitForFunctionInPage(source, () => document.querySelector('.workspace-transfer-state') === null);
+            await waitForPdfLoaded(source);
+        } else {
+            await target.evaluate(() => (window as Window & {__movingMenuLoad?: {restore: () => void}}).__movingMenuLoad?.restore());
+            await waitForPdfLoaded(target);
+            await waitForFunctionInPage(target, () => document.querySelector('.workspace-transfer-state') === null);
+            await vi.waitFor(async () => expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
+                .not.toContain('moving.pdf'), {timeout: 30_000});
+            // A hidden session's native menu targets its first remaining window.
+            // Close the now-empty source, leaving the moved document as that window.
+            await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
+            await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+        }
+        const survivor = outcome === 'commits' ? target : source;
+        await waitForViewerInteractive(survivor);
+        const save = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+S'});
+        await vi.waitFor(async () => expect(await survivor.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
+        expect(await readPdfTextAnnotationRecords(fixture)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save frontier'})]));
+        await waitForWorkspaceToolbarIdle(survivor);
+        const saveAs = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+Shift+S'});
+        await vi.waitFor(async () => expect(existsSync(savedAs) && (await readPdfTextAnnotationRecords(savedAs))
+            .some(record => record.contents === 'Save frontier')).toBe(true), {timeout: 30_000});
+        console.log('SETTLED_NATIVE_MENU', JSON.stringify({
+            outcome,
+            save,
+            saveAs,
+        }));
+        await waitForPdfLoaded(survivor);
+        await waitForViewerInteractive(survivor);
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            await survivor.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}.png`)});
+            copyFileSync(savedAs, join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}-saved.pdf`));
+        }
+    }, 120_000);
+
+
+    it.each([
+        [
+            'ack',
+            true,
+        ],
+        [
+            'cleanup',
+            true,
+        ],
+        [
+            'ack',
+            false,
+        ],
+        [
+            'cleanup',
+            false,
+        ],
+    ] as const)('preserves unsaved work across %s finalization with native close=%s', async (boundary, closeSource) => {
+        const home = mkdtempSync(join(tmpdir(), 'transfer-native-close-'));
+        const gate = join(home, 'handoff');
+        const preload = join(home, 'hold-finalization.cjs');
+        onTestFinished(async () => {
+            writeFileSync(`${gate}.release`, '');
+            // Required preloads must outlive the main process and its workers.
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
+        // Timing setup at the same IPC boundaries as the reviewed loss. The
+        // native close and all document edits use their ordinary input paths.
+        writeFileSync(preload, `
+            const fs = require('node:fs');
+            if (process.versions.electron && process.type === 'browser') setImmediate(function install() {
+                const electron = require('electron');
+                if (!electron.ipcMain) return setImmediate(install);
+                const gate = ${JSON.stringify(gate)};
+                electron.ipcMain.on('window:closeResponse', (event, response) => {
+                    if (electron.BrowserWindow.fromWebContents(event.sender)?.id === 1
+                        && response.status === 'acknowledged') fs.writeFileSync(gate + '.close-requested', '');
+                });
+                const channel = ${JSON.stringify(boundary === 'ack' ? 'tabs:transferAck' : 'file:cleanup')};
+                const wrap = handler => async (event, payload) => {
+                    if (electron.BrowserWindow.fromWebContents(event.sender)?.id === 1
+                        && fs.existsSync(gate + '.arm')
+                        && (${JSON.stringify(boundary)} === 'ack' ? payload.success
+                            : String(payload) === fs.readFileSync(gate + '.arm', 'utf8'))) {
+                        fs.writeFileSync(gate + '.held', '');
+                        await new Promise(resolve => {
+                            const poll = setInterval(() => {
+                                if (fs.existsSync(gate + '.release')) {clearInterval(poll); resolve();}
+                            }, 25);
+                        });
+                    }
+                    return handler(event, payload);
+                };
+                const existing = electron.ipcMain._invokeHandlers?.get(channel);
+                if (existing) electron.ipcMain._invokeHandlers.set(channel, wrap(existing));
+                const register = electron.ipcMain.handle.bind(electron.ipcMain);
+                electron.ipcMain.handle = (name, handler) => register(name, name === channel ? wrap(handler) : handler);
+            });
+        `);
+        await sessions.restart({
+            clean: true,
+            hard: true,
+            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(preload)}`},
+        });
+        const {page: source} = sessions.getSession();
+        const fixture = join(home, 'unsaved-handoff.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), fixture);
+        await openPdfInApp(source, fixture);
+        await createFreeTextAnnotationWithPointer(source, 'Unsaved handoff edit', {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        await clickAsUser(source, '.tab-new');
+        await clickAsUser(source, '.tab-list .tab:first-child');
+        // Only the original source's cleanup is delayed, never the incoming copy.
+        const workingCopy = await source.evaluate(() => (window as IE2EWindow).__evbTestApi!
+            .collectWorkspaceDebugState().activeWorkspaceState?.workingCopyPath);
+        expect(workingCopy).toBeTruthy();
+        writeFileSync(`${gate}.arm`, boundary === 'cleanup' ? workingCopy! : '');
+        const oldPages = new Set(await source.browser().pages());
+        await clickAsUser(source, '.tab.is-active', {button: 'right'});
+        await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
+        await vi.waitFor(() => expect(existsSync(`${gate}.held`)).toBe(true), {timeout: 30_000});
+        const destination = (await source.browser().pages()).find(page => !oldPages.has(page))!;
+        if (closeSource) {
+            // Hidden macOS cannot route OS Close input; this addresses the
+            // same BrowserWindow.close that native Close invokes.
+            if (process.platform === 'darwin') {
+                await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
+            } else {
+                await activateMenuItemAsUser(source, {accelerator: 'Ctrl+Shift+W'});
+            }
+            await vi.waitFor(() => expect(existsSync(`${gate}.close-requested`)).toBe(true), {timeout: 15_000});
+            // Observe the provisional edited copy before allowing finalization.
+            // Native Close must keep its source alive throughout this interval.
+            await destination.screenshot({path: join(home, 'pending-close.png')});
+            expect(source.isClosed()).toBe(false);
+        }
+        writeFileSync(`${gate}.release`, '');
+        if (closeSource) await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+        await vi.waitFor(async () => expect(await destination.$('.workspace-transfer-state')).toBeNull(), {timeout: 30_000});
+        const texts = await destination.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
+            node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
+        )));
+        expect(texts).toContain('Unsaved handoff edit');
+        await clickFoundAsUser(destination, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save surviving document'});
+        await vi.waitFor(async () => expect(await destination.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
+        const saved = await readPdfTextAnnotationRecords(fixture);
+        console.log('TRANSFER_NATIVE_CLOSE_RESULT', JSON.stringify({
+            boundary,
+            closeSource,
+            sourceClosed: source.isClosed(),
+            texts,
+            saved,
+        }));
+        expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Unsaved handoff edit'})]));
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}.png`)});
+            copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}-saved.pdf`));
+        }
+    }, 120_000);
+
+    it.each([
+        'annotation',
+        'save',
+    ] as const)('keeps accepted work when a person attempts %s during a move', async (action) => {
+        const {page: source} = sessions.getSession();
+        const appTempDirectory = electronAppTempDirPath(sessions.getSession().name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, `transfer-${action}-`)));
+        const fixture = join(outputDirectory, `pending-${action}.pdf`);
+        createSlowTransferFixture(fixture, 32 * 1024 * 1024);
+        await openPdfInApp(source, fixture, 120_000);
+        await createFreeTextAnnotationWithPointer(source, 'Captured edit', {
+            x: 0.28,
+            y: 0.32,
+        }, 1);
+        await clickAsUser(source, '.tab-new');
+        await clickAsUser(source, '.tab-list .tab:first-child');
+        await waitForPdfLoaded(source, 120_000);
+        await waitForViewerInteractive(source);
+        const oldPages = new Set(await source.browser().pages());
+        await clickAsUser(source, '.tab.is-active', {button: 'right'});
+        await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
+        let destination: Page | undefined;
+        await vi.waitFor(async () => {
+            destination = (await source.browser().pages()).find(page => !oldPages.has(page));
+            expect(destination).toBeDefined();
+        }, {timeout: 30_000});
+        const annotationTexts = (page: Page) => page.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
+            node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
+        )));
+        const save = (page: Page) => clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save'});
+        // On the old app these ordinary controls remain editable. Exercise that
+        // same opportunity; accepted work must survive in the moved PDF.
+        const moving = await source.$('.workspace-transfer-state');
+        if (moving) {
+            expect(await source.$eval('.workspace-transfer-state', node => node.textContent?.trim())).toBe(LOCALE_MESSAGES.en.tabs.moving);
+            expect(await source.$$eval('button[aria-label]', buttons => buttons.some(button => (
+                /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !(button as HTMLButtonElement).disabled
+            )))).toBe(false);
+            if (process.env.EVB_R3_EVIDENCE_DIR) {
+                await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-moving.png`)});
+            }
+            // Trusted input hits the moving surface, which shields the editor.
+            await clickAsUser(source, '.workspace-transfer-state');
+            if (action === 'annotation') await source.keyboard.type('Accepted during move');
+        } else if (action === 'annotation') {
+            await createFreeTextAnnotationWithPointer(source, 'Accepted during move', {
+                x: 0.65,
+                y: 0.55,
+            }, 1);
+        } else {
+            await save(source);
+        }
+        const acceptedInSource = await annotationTexts(source);
+        await waitForPdfLoaded(destination!, 120_000);
+        const destinationTexts = await annotationTexts(destination!);
+        await vi.waitFor(async () => {
+            expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
+                .not.toContain(`pending-${action}.pdf`);
+        }, {timeout: 10_000}).catch(() => undefined);
+        const sourceLabels = await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim()));
+        if (sourceLabels.includes(`pending-${action}.pdf`)) {
+            console.log('TRANSFER_MUTATION_RESULT', JSON.stringify({
+                action,
+                moving: moving !== null,
+                acceptedInSource,
+                destinationTexts,
+                sourceLabels,
+                saved: await readPdfTextAnnotationRecords(fixture),
+            }));
+            expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
+        }
+        await save(destination!);
+        await vi.waitFor(async () => {
+            expect(await destination!.$('.tab.is-active.is-dirty')).toBeNull();
+        }, {timeout: 30_000});
+        const saved = await readPdfTextAnnotationRecords(fixture);
+        console.log('TRANSFER_MUTATION_RESULT', JSON.stringify({
+            action,
+            moving: moving !== null,
+            acceptedInSource,
+            destinationTexts,
+            sourceLabels,
+            saved,
+        }));
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-saved.pdf`));
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-source.png`)});
+            await destination!.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-destination.png`)});
+        }
+        expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
+        expect(destinationTexts).toContain('Captured edit');
+        expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Captured edit'})]));
+        for (const text of acceptedInSource) {
+            expect(destinationTexts).toContain(text);
+            expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: text})]));
+        }
+        expect(moving).not.toBeNull();
+    }, 180_000);
+
     it('restores a fast incoming tab while another source is still opening in the target', async () => {
         const {page: target} = sessions.getSession();
         const appTempDirectory = electronAppTempDirPath(sessions.getSession().name);
@@ -202,12 +592,16 @@ describe('Move Tab to New Window view state', () => {
             await source.keyboard.type(String(percent));
             await source.keyboard.press('Enter');
         }
-        const targetTitle = await target.title();
+        const peers = await target.evaluate(() => window.electronAPI!.windowTabs!.listTargetWindows());
+        const targetWindow = await fastSource.evaluate(async (peerIds: number[]) => (
+            (await window.electronAPI!.windowTabs!.listTargetWindows()).find(candidate => !peerIds.includes(candidate.windowId))
+        ), peers.map(peer => peer.windowId));
+        if (!targetWindow) throw new Error('Transfer target window was not listed');
         const moveToTarget = async (source: Page) => {
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
-            await clickFoundAsUser(source, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
-            {description: `Move Tab to Window: ${targetTitle}`});
+            // The first incoming document changes the window's title. Its
+            // visible menu command still addresses the same native window.
+            await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetWindow.windowId}"]`);
         };
         await moveToTarget(slowSource);
         await moveToTarget(fastSource);
@@ -222,6 +616,12 @@ describe('Move Tab to New Window view state', () => {
         {description: 'fast transferred tab'});
         await waitForToolbarCurrentPage(target, 5);
         await waitForPdfLoaded(target);
+        // A painted incoming page is provisional until the source finalizes.
+        // Read its restored zoom once the visible control becomes available.
+        await target.waitForSelector('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)', {
+            visible: true,
+            timeout: 30_000,
+        });
         expect(await readView(target)).toMatchObject({
             page: 5,
             zoomText: '80%',
@@ -231,12 +631,16 @@ describe('Move Tab to New Window view state', () => {
         {description: 'slow transferred tab'});
         await waitForToolbarCurrentPage(target, 12);
         await waitForPdfLoaded(target, 120_000);
+        await waitForFunctionInPage(slowSource, () => !Array.from(document.querySelectorAll('.tab-label'))
+            .some(tab => tab.textContent?.trim() === 'slow-transfer.pdf'), {timeout: 120_000});
+        await target.waitForSelector('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)', {
+            visible: true,
+            timeout: 120_000,
+        });
         expect(await readView(target)).toMatchObject({
             page: 12,
             zoomText: '110%',
         });
-        await waitForFunctionInPage(slowSource, () => !Array.from(document.querySelectorAll('.tab-label'))
-            .some(tab => tab.textContent?.trim() === 'slow-transfer.pdf'), {timeout: 120_000});
 
         expect(await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())))
             .toEqual(expect.arrayContaining([
@@ -265,9 +669,10 @@ describe('Move Tab to New Window view state', () => {
         await clickAsUser(source, '.tab-new');
         await clickAsUser(source, '.tab-list [role="tab"]:first-child');
 
-        // Recent remembers B's own zoom. A's later view restoration must not
-        // overwrite it when B replaces the incoming document in the same tab.
+        // B is closed before it replaces A. With restoration off it starts
+        // at its default zoom; A's transfer must not overwrite that view.
         await openPdfInApp(target, replacementPath);
+        const replacementDefaultView = await readView(target);
         await clickAsUser(target, '#editor-global-toolbar-host .zoom-controls-display');
         await clickAsUser(target, '.zoom-chip-custom-input', {count: 3});
         await target.keyboard.type('80');
@@ -350,7 +755,7 @@ describe('Move Tab to New Window view state', () => {
             targetTabs: await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
         };
         console.log('SUPERSEDED_TRANSFER', JSON.stringify(outcome));
-        expect(outcome.replacement.zoomText).toBe('80%');
+        expect(outcome.replacement.zoomText).toBe(replacementDefaultView.zoomText);
         expect(outcome.sourceTabs).toContain('superseded-slow.pdf');
         expect(outcome.targetTabs).toContain('replacement.pdf');
     }, 180_000);
@@ -485,6 +890,7 @@ describe('Move Tab to New Window view state', () => {
 
     it('keeps the moved view over the place Recent remembers for its document', async () => {
         const session = sessions.getSession();
+        await setRememberPlaceAsUser(session, true);
         const appTempDirectory = electronAppTempDirPath(session.name);
         mkdirSync(appTempDirectory, {recursive: true});
         outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-')));
@@ -521,4 +927,286 @@ describe('Move Tab to New Window view state', () => {
         expect((await readView(destination)).page).toBe(7);
 
     }, 120_000);
+});
+
+type TSettingsLocale = 'en' | 'ru';
+
+function diagnosticsSwitchSelector(locale: TSettingsLocale) {
+    return `[role="switch"][aria-label="${LOCALE_MESSAGES[locale].settings.clientDiagnostics}"]`;
+}
+
+async function openSettingsView(page: Page, locale: TSettingsLocale) {
+    await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
+        LOCALE_MESSAGES[locale].toolbar.settings, {description: `${locale} Settings toolbar button`});
+    await page.waitForSelector('.settings-grid', {
+        visible: true,
+        timeout: 15_000,
+    });
+}
+
+async function setDiagnosticsSwitch(page: Page, locale: TSettingsLocale, checked: boolean) {
+    const selector = diagnosticsSwitchSelector(locale);
+    const current = await page.$eval(selector, element => element.getAttribute('aria-checked'));
+    if (current !== String(checked)) {
+        await clickAsUser(page, selector);
+    }
+    await page.waitForFunction((target: string, expected: string) => (
+        document.querySelector(target)?.getAttribute('aria-checked') === expected
+    ), {timeout: 15_000}, selector, String(checked));
+}
+
+async function waitForPersistedDiagnosticsPreference(userDataPath: string, expected: string) {
+    const settingsPath = join(userDataPath, 'settings.json');
+    await vi.waitFor(async () => {
+        const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as {clientDiagnosticsPreference?: string};
+        expect(persisted.clientDiagnosticsPreference).toBe(expected);
+    }, {
+        timeout: 15_000,
+        interval: 50,
+    });
+}
+
+async function chooseTheme(page: Page, theme: 'light' | 'dark') {
+    // The label text sits on top of the radio's wrapper; the radio button itself is covered.
+    const label = theme === 'dark' ? LOCALE_MESSAGES.en.settings.themeDark : LOCALE_MESSAGES.en.settings.themeLight;
+    await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('.settings-grid .settings-radio-label'))
+        .find(element => element.textContent?.trim() === text), label, {description: `${label} theme`});
+}
+
+async function chooseLanguage(page: Page, currentLabel: string, nextLabel: string) {
+    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]'))
+        .find(button => button.textContent?.trim() === label), currentLabel, {description: 'Interface language selector'});
+    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+        .find(option => option.textContent?.trim() === label), nextLabel, {description: `${nextLabel} interface language`});
+}
+
+async function readRenderedSettings(page: Page) {
+    return page.evaluate((russianSettingsLabel: string) => ({
+        lang: document.documentElement.lang,
+        dark: document.documentElement.classList.contains('dark'),
+        russianSettingsButton: document.querySelector(`button[aria-label="${russianSettingsLabel}"]`) !== null,
+    }), LOCALE_MESSAGES.ru.toolbar.settings);
+}
+
+describe('Settings changes reach every open window', () => {
+    it('does not silently replay a failed choice over another window save', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'settings-failed-choice-'));
+        onTestFinished(async () => {
+            // A renderer reset retains NODE_OPTIONS in main and its workers.
+            // Stop the injected process before deleting its required preload.
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
+        const marker = join(home, 'fail-save');
+        const preload = join(home, 'fail-settings.cjs');
+        // Test-owned Node preload: reject only the armed settings temp-file write,
+        // leaving the product build and every later write unchanged.
+        writeFileSync(preload, `
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const writeFile = fs.promises.writeFile;
+            fs.promises.writeFile = async (...args) => {
+                if (process.versions.electron
+                    && path.dirname(String(args[0])) === process.env.EVB_AUTOMATION_USER_DATA_DIR
+                    && path.extname(String(args[0])) === '.tmp'
+                    && fs.existsSync(${JSON.stringify(`${marker}.arm`)})) {
+                    fs.unlinkSync(${JSON.stringify(`${marker}.arm`)});
+                    fs.writeFileSync(${JSON.stringify(`${marker}.failed`)}, 'ENOSPC');
+                    throw Object.assign(new Error('ENOSPC: no space left on device'), {code: 'ENOSPC'});
+                }
+                return writeFile(...args);
+            };
+            require('node:module').syncBuiltinESMExports();
+        `);
+        await sessions.restart({
+            clean: true,
+            extraEnv: {
+                HOME: home,
+                CODEX_HOME: join(home, '.codex'),
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(preload)}`,
+            },
+        });
+        const session = sessions.getSession();
+        const source = session.page;
+        const fixture = join(home, 'failed-save.pdf');
+        await createTwelvePageFixture(fixture);
+        await openPdfInApp(source, fixture);
+        await waitForPdfLoaded(source);
+        const destination = await moveTabToNewWindow(source);
+        await openSettingsView(source, 'en');
+        await openSettingsView(destination, 'en');
+        const settingsPath = join(electronUserDataPath(session.name), 'settings.json');
+        const readAuthor = (page: Page) => page.$eval('#settings-author', element => (element as HTMLInputElement).value);
+        const typeAuthor = async (page: Page, value: string) => {
+            await clickAsUser(page, '#settings-author', {count: 3});
+            await page.keyboard.press('Backspace');
+            await page.keyboard.type(value);
+        };
+        await typeAuthor(source, 'Saved author');
+        await vi.waitFor(async () => {
+            expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
+            expect(await readAuthor(destination)).toBe('Saved author');
+        }, {timeout: 15_000});
+        writeFileSync(`${marker}.arm`, 'arm');
+        await typeAuthor(source, 'Chosen author');
+        await vi.waitFor(async () => expect(await readFile(`${marker}.failed`, 'utf8')).toBe('ENOSPC'), {timeout: 15_000});
+        await source.waitForFunction(() => document.body.textContent?.includes('ENOSPC'));
+        expect(await readAuthor(source)).toBe('Chosen author');
+        expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
+
+        await typeAuthor(destination, 'Other window');
+        // Observe after the 400 ms save debounce and notification delivery have settled.
+        await new Promise(resolve => setTimeout(resolve, 2_000));
+        const result = {
+            saved: JSON.parse(await readFile(settingsPath, 'utf8')),
+            sourceAuthor: await readAuthor(source),
+            destinationAuthor: await readAuthor(destination),
+            failureVisible: await source.evaluate(() => document.body.textContent?.includes('ENOSPC')),
+        };
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            writeFileSync(join(process.env.EVB_R3_EVIDENCE_DIR, 'failed-save-remote.json'), JSON.stringify(result, null, 2));
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'remote-source.png')});
+            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'remote-destination.png')});
+        }
+        expect(result.saved.authorName).toBe('Other window');
+        expect(result.sourceAuthor).toBe('Chosen author');
+        expect(result.destinationAuthor).toBe('Other window');
+        expect(result.failureVisible).toBe(true);
+
+        await clickFoundAsUser(source, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+            .find(button => button.textContent?.trim() === label), LOCALE_MESSAGES.en.common.retry, {description: 'Retry the retained author choice'});
+        await vi.waitFor(async () => {
+            expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Chosen author');
+            expect(await readAuthor(source)).toBe('Chosen author');
+            expect(await readAuthor(destination)).toBe('Chosen author');
+        }, {timeout: 15_000});
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            writeFileSync(join(process.env.EVB_R3_EVIDENCE_DIR, 'failed-save-retry.json'), await readFile(settingsPath, 'utf8'));
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'retry-source.png')});
+            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'retry-destination.png')});
+        }
+    }, 180_000);
+
+    it('shows a diagnostics withdrawal, a theme and a language change in the window a tab moved to', async () => {
+        const session = sessions.getSession();
+        const source = session.page;
+        const appTempDirectory = electronAppTempDirPath(session.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'settings-sync-')));
+        const fixture = join(outputDirectory, 'settings-sync.pdf');
+        await createTwelvePageFixture(fixture);
+        await openPdfInApp(source, fixture);
+        await waitForPdfLoaded(source);
+
+        // Consent starts granted, so the window that opens from the move reports with it on.
+        await openSettingsView(source, 'en');
+        await setDiagnosticsSwitch(source, 'en', true);
+        await waitForPersistedDiagnosticsPreference(electronUserDataPath(session.name), 'granted');
+        await clickAsUser(source, '.tab-list .tab.is-active');
+        const destination = await moveTabToNewWindow(source);
+
+        await openSettingsView(source, 'en');
+        await setDiagnosticsSwitch(source, 'en', false);
+        await chooseTheme(source, 'dark');
+        await chooseLanguage(source, 'English', 'Русский');
+        await waitForFunctionInPage(source, () => (
+            document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark')
+        ), {timeout: 15_000});
+        expect(await readRenderedSettings(source)).toEqual({
+            lang: 'ru',
+            dark: true,
+            russianSettingsButton: true,
+        });
+
+        // A missed broadcast leaves the window as it was; the assertion below names what it shows.
+        await waitForFunctionInPage(destination, () => (
+            document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark')
+        ), {timeout: 15_000}).catch(() => undefined);
+        const rendered = await readRenderedSettings(destination);
+        await openSettingsView(destination, rendered.russianSettingsButton ? 'ru' : 'en');
+        const diagnosticsChecked = await destination.$eval(
+            `${diagnosticsSwitchSelector('en')}, ${diagnosticsSwitchSelector('ru')}`,
+            element => element.getAttribute('aria-checked'),
+        );
+        expect({
+            ...rendered,
+            diagnosticsChecked,
+        }).toEqual({
+            lang: 'ru',
+            dark: true,
+            russianSettingsButton: true,
+            diagnosticsChecked: 'false',
+        });
+    }, 120_000);
+
+    it('shows an agent MCP switch turned off in one window in the window a tab moved to', async () => {
+        // Codex is installed on this host, and a switch-off with Codex present opens a native
+        // confirmation no E2E session can answer. Pointing every Codex lookup away from the
+        // installed copy, and HOME away from the owner's Codex configuration, lets the same
+        // capability call run without one.
+        const session = sessions.getSession();
+        const settingsPath = join(electronUserDataPath(session.name), 'settings.json');
+        const stored = await readFile(settingsPath, 'utf8').then(content => JSON.parse(content) as object, () => ({}));
+        writeFileSync(settingsPath, JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            ...stored,
+            agentMcpEnabled: true,
+        }, null, 2));
+        const isolatedHome = mkdtempSync(join(tmpdir(), 'mcp-home-'));
+        onTestFinished(() => rmSync(isolatedHome, {
+            recursive: true,
+            force: true,
+        }));
+        await sessions.restart({
+            clean: false,
+            extraEnv: {
+                EVB_E2E_OPEN_DIALOG_PATH: replacementDialogPath,
+                HOME: isolatedHome,
+                PATH: process.platform === 'win32'
+                    ? [
+                        join(process.env.SystemRoot ?? 'C:\\Windows', 'System32'),
+                        process.env.SystemRoot ?? 'C:\\Windows',
+                    ].join(delimiter)
+                    : '/usr/bin:/bin',
+                SHELL: join(isolatedHome, 'no-shell'),
+                CODEX_CLI_PATH: join(isolatedHome, 'no-codex'),
+            },
+        });
+        const restarted = sessions.getSession();
+        const source = restarted.page;
+        const appTempDirectory = electronAppTempDirPath(restarted.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'settings-mcp-')));
+        const fixture = join(outputDirectory, 'settings-mcp.pdf');
+        await createTwelvePageFixture(fixture);
+        await openPdfInApp(source, fixture);
+        await waitForPdfLoaded(source);
+        const destination = await moveTabToNewWindow(source);
+
+        const mcpPrimaryButton = '.settings-agent-card:not(.settings-agent-card--stack) .settings-agent-actions button';
+        const readMcpPrimaryLabel = (page: Page) => page.$eval(mcpPrimaryButton, element => element.textContent?.trim() ?? '');
+        await openSettingsView(destination, 'en');
+        await destination.waitForFunction((selector: string, label: string) => (
+            document.querySelector(selector)?.textContent?.trim() === label
+        ), {timeout: 30_000}, mcpPrimaryButton, LOCALE_MESSAGES.en.settings.agentMcpRepair);
+
+        // The Settings switch cannot send this request headless: with Codex missing, an enabled
+        // integration shows Repair, and that button opens an install dialog. This calls the
+        // capability the switch calls, from the window the user acts in.
+        const result = await source.evaluate(() => window.electronAPI!.agent!.setMcpIntegrationEnabled(false));
+        expect(result).toMatchObject({ok: true});
+        expect(JSON.parse(await readFile(settingsPath, 'utf8'))).toMatchObject({agentMcpEnabled: false});
+
+        // A missed broadcast leaves the moved window on Repair; the assertion names what it shows.
+        await destination.waitForFunction((selector: string, label: string) => (
+            document.querySelector(selector)?.textContent?.trim() === label
+        ), {timeout: 15_000}, mcpPrimaryButton, LOCALE_MESSAGES.en.settings.agentMcpEnable).catch(() => undefined);
+        expect(await readMcpPrimaryLabel(destination)).toBe(LOCALE_MESSAGES.en.settings.agentMcpEnable);
+    }, 240_000);
 });

@@ -66,6 +66,7 @@ const launchConfig = {
 vi.mock('electron', () => ({
     dialog: {showMessageBox: mocks.showMessageBox},
     shell: {openExternal: mocks.openExternal},
+    BrowserWindow: {fromWebContents: () => null},
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -103,12 +104,30 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
     shutdownLocalMcpServer: mocks.shutdownLocalMcpServer,
 }));
 
+const runtimeStatuses = vi.hoisted(() => [] as Array<{
+    enabled: boolean;
+    serverRunning: boolean;
+    codexConfigured: boolean
+}>);
+vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'evb-viewer://app/electron'}}}));
+vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => [{
+    isDestroyed: () => false,
+    webContents: {
+        isDestroyed: () => false,
+        getURL: () => 'evb-viewer://app/electron',
+        send: (_channel: string, status: typeof runtimeStatuses[number]) => runtimeStatuses.push(status),
+    },
+}]}));
+vi.mock('@electron/features/agent/lazyAgentAssistant', () => ({}));
+vi.mock('@electron/features/agent/workspaceBridge', () => ({}));
+
 vi.mock('@electron/te', () => ({te: (_key: string, values?: Record<string, string>) => values?.server ?? 'translated'}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('codexMcpIntegration', () => {
     beforeEach(() => {
         vi.resetModules();
+        runtimeStatuses.length = 0;
         state.settings = {agentMcpEnabled: false};
         state.serverRunning = false;
         mocks.loadSettings.mockClear();
@@ -123,6 +142,66 @@ describe('codexMcpIntegration', () => {
         mocks.logger.warn.mockClear();
         fileMocks.readFile.mockClear();
         fileMocks.writeFile.mockClear();
+    });
+
+    it('publishes an earlier read before a later completed MCP lifecycle', async () => {
+        let release!: () => void;
+        let captured!: () => void;
+        const started = new Promise<void>(done => { captured = done; });
+        const gate = new Promise<void>(done => { release = done; });
+        let configured = false;
+        mocks.runCodexCli.mockImplementation(async (_path: string, args: string[]) => {
+            if (args[1] === 'get') {
+                const wasConfigured = configured;
+                if (!wasConfigured) { captured(); await gate; }
+                return {
+                    ok: wasConfigured,
+                    stdout: wasConfigured ? JSON.stringify({
+                        enabled: true,
+                        transport: {
+                            type: 'stdio',
+                            ...launchConfig,
+                        },
+                    }) : '',
+                    stderr: '',
+                };
+            }
+            configured = args[1] === 'add';
+            return {
+                ok: true,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const {createAgentService} = await import('@electron/features/agent/createAgentService');
+        const service = createAgentService();
+        const read = service.getMcpIntegrationStatus();
+        await started;
+        const update = service.setMcpIntegrationEnabled({
+            sender: {} as never,
+            senderId: 1,
+        }, true);
+        release();
+        await read;
+        await update;
+        expect(runtimeStatuses.map(({
+            enabled, serverRunning, codexConfigured,
+        }) => ({
+            enabled,
+            serverRunning,
+            codexConfigured,
+        }))).toEqual([
+            {
+                enabled: false,
+                serverRunning: false,
+                codexConfigured: false,
+            },
+            {
+                enabled: true,
+                serverRunning: true,
+                codexConfigured: true,
+            },
+        ]);
     });
 
     it('registers Codex against the durable stdio proxy transport', async () => {

@@ -123,6 +123,8 @@ describe('Electron E2E fixture policy', () => {
         const screenshotPath = join(root, 'screenshots', 'failure.png');
         const logPath = join(root, 'session.log');
         const appLogPath = join(root, 'electron-logs', 'app.ndjson');
+        const recordingPath = join(root, 'recordings', 'run', 'window-1.mp4');
+        const artifactRoot = join(projectRoot, '.devkit', 'test', 'electron-e2e-artifacts', sessionName);
 
         try {
             await mkdir(join(root, 'electron-user-data'), {recursive: true});
@@ -136,6 +138,8 @@ describe('Electron E2E fixture policy', () => {
             await writeFile(logPath, 'diagnostics');
             await mkdir(join(root, 'electron-logs'), {recursive: true});
             await writeFile(appLogPath, 'worker terminal outcome');
+            await mkdir(join(root, 'recordings', 'run'), {recursive: true});
+            await writeFile(recordingPath, 'completed recording');
 
             prunePreservedSessionArtifacts(sessionName);
 
@@ -145,8 +149,24 @@ describe('Electron E2E fixture policy', () => {
             await expect(stat(join(root, 'electron-user-data'))).rejects.toMatchObject({code: 'ENOENT'});
             await expect(stat(join(root, 'automation-electron-app'))).rejects.toMatchObject({code: 'ENOENT'});
             await expect(stat(join(root, 'automation-electron-app-entry'))).rejects.toMatchObject({code: 'ENOENT'});
+
+            prunePreservedSessionArtifacts(sessionName, {archiveForRestart: true});
+
+            const [restartDirectory = ''] = await readdir(artifactRoot);
+            expect(restartDirectory).toMatch(/^restart-/u);
+            const retainedRoot = join(artifactRoot, restartDirectory);
+            await expect(readFile(join(retainedRoot, 'recordings', 'run', 'window-1.mp4'), 'utf8')).resolves.toBe('completed recording');
+            await expect(readFile(join(retainedRoot, 'electron-logs', 'app.ndjson'), 'utf8')).resolves.toBe('worker terminal outcome');
+            await expect(readFile(join(retainedRoot, 'session.log'), 'utf8')).resolves.toBe('diagnostics');
+            await expect(readFile(join(retainedRoot, 'screenshots', 'failure.png'), 'utf8')).resolves.toBe('screenshot');
+            await expect(stat(recordingPath)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(stat(join(retainedRoot, 'electron-user-data'))).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             await rm(root, {
+                force: true,
+                recursive: true,
+            });
+            await rm(artifactRoot, {
                 force: true,
                 recursive: true,
             });

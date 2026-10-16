@@ -44,6 +44,10 @@ import {
     recoverWorkingCopyTransition,
 } from '@electron/file-access/workingCopyJournal';
 import {writeWorkingCopyManifestRevision} from '@electron/file-access/workingCopyManifest';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {
+    getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 
 let tempRoot = '';
 
@@ -183,7 +187,7 @@ describe('documentRevisionStore', () => {
         await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.not.toBeNull();
     });
 
-    it('removes orphaned transition backups of its own working copy when opening it', async () => {
+    it('keeps unjournaled original backups that may be retained external versions', async () => {
         const originalPath = join(tempRoot, 'orphaned-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-orphaned', 'orphaned-original.pdf');
         const orphanedBackupPath = `${originalPath}.evb-transition-pdf-work-orphaned-stale.bak`;
@@ -202,12 +206,12 @@ describe('documentRevisionStore', () => {
 
         await ensureWorkingCopyRevision(workingPath, 7);
 
-        expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(orphanedBackupPath)).toBe(true);
         expect(existsSync(legacyBackupPath)).toBe(true);
         expect(existsSync(unrelatedPath)).toBe(true);
     });
 
-    it('removes an orphaned backup of a near-limit original name from its own working copy', async () => {
+    it('keeps a retained backup of a near-limit original name', async () => {
         const originalPath = join(tempRoot, `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`);
         const workingPath = join(tempRoot, 'pdf-work-orphaned-long', 'working.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
@@ -223,7 +227,7 @@ describe('documentRevisionStore', () => {
 
         await ensureWorkingCopyRevision(workingPath, 7);
 
-        expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(orphanedBackupPath)).toBe(true);
         expect(existsSync(originalPath)).toBe(true);
     });
 
@@ -250,6 +254,7 @@ describe('documentRevisionStore', () => {
             path: originalPath,
             backupPath: otherBackupPath,
             state: 'published',
+            intendedFingerprint: fullFingerprint('ORIGINAL_NEW'),
         });
         await writeFile(originalPath, 'ORIGINAL_NEW');
         await writeFile(otherPath, 'WORKING_NEW');
@@ -263,6 +268,113 @@ describe('documentRevisionStore', () => {
         await recoverWorkingCopyTransition(otherPath);
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('ORIGINAL_OLD');
         await expect(readFile(otherPath, 'utf8')).resolves.toBe('WORKING_OLD');
+    });
+
+    it.each([
+        [
+            'a staged native save, which names its window',
+            {ownerWebContentsId: 7},
+        ],
+        [
+            'Save, which registers no window',
+            {},
+        ],
+    ])('lets another window read its copy of a PDF while %s holds the PDF', async (_save, mutationOptions) => {
+        const originalPath = join(tempRoot, 'shared-live.pdf');
+        const savingPath = join(tempRoot, 'pdf-work-saving', 'shared-live.pdf');
+        const readingPath = join(tempRoot, 'pdf-work-reading', 'shared-live.pdf');
+        for (const path of [
+            savingPath,
+            readingPath,
+        ]) {
+            mkdirSync(dirname(path), {recursive: true});
+            writeFileSync(path, 'SHARED');
+        }
+        writeFileSync(originalPath, 'SHARED');
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {
+            ensureWorkingCopyRevision, getWorkingCopyRevision,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const {withOriginalPathMutationLock} = await import('@electron/file-access/withOriginalPathMutationLock');
+        await setWorkingCopyOriginalPath(savingPath, originalPath, 7, {deferOriginalFileExpectation: true});
+        await setWorkingCopyOriginalPath(readingPath, originalPath, 8, {deferOriginalFileExpectation: true});
+        await ensureWorkingCopyRevision(savingPath, 7);
+        const revision = await ensureWorkingCopyRevision(readingPath, 8);
+
+        // Window 7 saves: its mutation holds the PDF's lock until the save is let go.
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let holding!: () => void;
+        const held = new Promise<void>((resolve) => {
+            holding = resolve;
+        });
+        const save = enqueueWorkingCopyMutation(savingPath, () => withOriginalPathMutationLock(originalPath, async () => {
+            holding();
+            await released;
+        }), mutationOptions);
+        await held;
+
+        // Window 8 reads its own copy without waiting for that save.
+        await expect(getWorkingCopyRevision(readingPath, 8)).resolves.toMatchObject({token: revision.token});
+        release();
+        await save;
+    });
+
+    it('retains both primary and rollback errors, journal bytes and revision until restoration succeeds', async () => {
+        const originalPath = join(tempRoot, 'rollback-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-rollback', 'document.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'original');
+        writeFileSync(workingPath, 'before');
+        const rollbackError = Object.assign(new Error('rollback replacement locked'), {code: 'EPERM'});
+        const primaryError = markUnprovenNativeTermination(
+            Object.assign(new Error('primary replacement busy'), {code: 'EBUSY'}), 'native tree was not confirmed stopped',
+        );
+        vi.doMock('fs/promises', async (importOriginal) => {
+            const actual = await importOriginal<typeof FsPromises>();
+            return {
+                ...actual,
+                rename: async (...args: Parameters<typeof actual.rename>) => {
+                    if (String(args[0]).includes('journal-') && String(args[1]) === workingPath) throw rollbackError;
+                    return actual.rename(...args);
+                },
+            };
+        });
+        try {
+            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+            const {
+                ensureWorkingCopyRevision, transitionWorkingCopyContentRevision,
+            } = await import('@electron/file-access/documentRevisionStore');
+            const {readWorkingCopyRevision} = await import('@electron/file-access/workingCopyManifest');
+            const {readJournal} = await import('@electron/file-access/workingCopyJournal');
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+            const initial = await ensureWorkingCopyRevision(workingPath, 7);
+            const outcome = await transitionWorkingCopyContentRevision(workingPath, 'page-ops', async () => {
+                await writeFile(workingPath, 'after');
+                throw primaryError;
+            }, 7).catch((error: unknown) => error);
+            expect(outcome).toBeInstanceOf(AggregateError);
+            expect(outcome).toMatchObject({errors: [
+                primaryError,
+                rollbackError,
+            ]});
+            expect(getUnprovenNativeTerminationDetail(outcome)).toBe('native tree was not confirmed stopped');
+            const journal = await readJournal(workingPath);
+            expect(journal).not.toBeNull();
+            expect(await readFile(journal!.backupPath, 'utf8')).toBe('before');
+            expect(await readFile(workingPath, 'utf8')).toBe('after');
+            expect((await readWorkingCopyRevision(workingPath))?.token).toBe(initial.token);
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+        vi.resetModules();
+        const {recoverWorkingCopyTransition: recover} = await import('@electron/file-access/workingCopyJournal');
+        await recover(workingPath);
+        expect(await readFile(workingPath, 'utf8')).toBe('before');
+        expect(existsSync(join(dirname(workingPath), 'journal.json'))).toBe(false);
     });
 
     it('publishes a transition revision only after its commit succeeds', async () => {
@@ -520,6 +632,9 @@ describe('documentRevisionStore', () => {
 });
 
 const NEXT = requireDocumentRevisionToken('drt1:test:2:next');
+const fullFingerprint = (content: string) => `sha256-full-v1:${createOriginalFileContentFingerprintHash(Buffer.byteLength(content))
+    .update(content)
+    .digest('hex')}`;
 
 describe('workingCopyJournal crash recovery', () => {
     let root = '';
@@ -588,7 +703,28 @@ describe('workingCopyJournal crash recovery', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
     });
 
-    it('restores a published original together with the working copy', async () => {
+    it.each([
+        [
+            'proves the PDF still holds the published bytes',
+            'saved-1',
+            [
+                'document.pdf',
+                'manifest.json',
+                'original.pdf',
+            ],
+        ],
+        // Sampled bytes alone cannot tell EVB's bytes from another program's edit, so nothing is overwritten.
+        [
+            'has no full fingerprint',
+            'saved-2',
+            [
+                'document.pdf',
+                'manifest.json',
+                'original (original).pdf',
+                'original.pdf',
+            ],
+        ],
+    ])('restores the working copy, and the published original only when the journal %s', async (proof, original, names) => {
         const workingCopyPath = await setup('drt1:test:1:current');
         const originalPath = join(root, 'original.pdf');
         const originalBackupPath = join(root, 'original.pdf.evb-transition-test.bak');
@@ -599,17 +735,14 @@ describe('workingCopyJournal crash recovery', () => {
             path: originalPath,
             backupPath: originalBackupPath,
             state: 'published',
+            ...(proof === 'has no full fingerprint' ? {} : {intendedFingerprint: fullFingerprint('saved-2')}),
         });
         await writeFile(workingCopyPath, 'revision-2');
 
         await recoverWorkingCopyTransition(workingCopyPath);
-        await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-1');
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe(original);
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
-        await expect(readdir(root)).resolves.toEqual([
-            'document.pdf',
-            'manifest.json',
-            'original.pdf',
-        ]);
+        await expect(readdir(root)).resolves.toEqual(names);
     });
 
     it('leaves a truncated journal and the document untouched', async () => {

@@ -128,18 +128,12 @@ export function isChunkedRecordMissingChunks(
 }
 
 export function countSourceDependents(records: IBrowserPersistedDocumentRecord[]) {
-    const dependentCounts = new Map<string, number>();
-    for (const record of records) {
-        if (!record.sourceRef) {
-            continue;
+    return records.reduce((counts, {sourceRef}) => {
+        if (sourceRef) {
+            counts.set(sourceRef, (counts.get(sourceRef) ?? 0) + 1);
         }
-
-        dependentCounts.set(
-            record.sourceRef,
-            (dependentCounts.get(record.sourceRef) ?? 0) + 1,
-        );
-    }
-    return dependentCounts;
+        return counts;
+    }, new Map<string, number>());
 }
 
 export function shouldRemovePersistedRecord(
@@ -148,18 +142,10 @@ export function shouldRemovePersistedRecord(
     sourceDependentCounts: Map<string, number>,
 ) {
     const durableWorkingRecoveryGraceMs = 10 * 60 * 1_000;
-    return (
-        (
-            record.kind === 'working'
-            && (
-                record.retention !== 'durable'
-                || record.updatedAt < Date.now() - durableWorkingRecoveryGraceMs
-            )
-        )
-        || (
-            !recentRefs.has(record.ref)
-            && (sourceDependentCounts.get(record.ref) ?? 0) === 0
-        )
+    return (sourceDependentCounts.get(record.ref) ?? 0) === 0 && (
+        (record.kind === 'working' && (record.retention !== 'durable'
+            || record.updatedAt < Date.now() - durableWorkingRecoveryGraceMs))
+        || !recentRefs.has(record.ref)
     );
 }
 

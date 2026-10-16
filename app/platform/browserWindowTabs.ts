@@ -1,4 +1,5 @@
-import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
+import * as functionUtils from 'es-toolkit/function';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {
     IWindowTabIncomingTransfer,
@@ -28,12 +29,12 @@ import {
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import {
-    releaseBrowserDocumentLiveLease,
-    saveBrowserDocumentLiveLease,
     holdLeaseOwnerLock,
     holdsLeaseOwnerLock,
     loadLiveLeaseOwnerIds,
+    loadBrowserDocumentLiveLease,
 } from '@app/platform/browser/browserDocumentLeaseStore';
+import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import type { TDocumentRef } from '@contracts/documentRef';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
@@ -46,9 +47,6 @@ const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
-function transferAuthorityId(transferId: string) {
-    return `transfer:${transferId}`;
-}
 
 function buildTransferAuthorityRecord(
     transfer: IWindowTabIncomingTransfer,
@@ -68,7 +66,7 @@ function buildTransferAuthorityRecord(
     }
     const expired = Date.now() >= deadlineAt;
     return {
-        id: transferAuthorityId(transfer.transferId),
+        id: `transfer:${transfer.transferId}`,
         transferId: transfer.transferId,
         nonce,
         sourceWindowId: transfer.sourceWindowId,
@@ -264,23 +262,11 @@ let currentRecoveryInstanceNonce = '';
 let isCurrentWindowReady = false;
 let cleanupRegistered = false;
 
-type TBrowserWindowTabsMessageHandlers = {
-    [TType in TBrowserWindowTabsMessage['type']]: (
-        message: Extract<
-            TBrowserWindowTabsMessage,
-            { type: TType }
-        >,
-    ) => void;
-};
-
 function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage | null {
     const result = v.safeParse(browserWindowTabsMessageSchema, data, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
-function noopUnsubscribe(): TMenuEventUnsubscribe {
-    return () => {};
-}
 function hasBrowserWindowContext() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
@@ -672,7 +658,7 @@ function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage
         && message.instanceNonce === currentRecoveryInstanceNonce;
 }
 
-function rekeyCurrentWindow() {
+export function rekeyCurrentWindow() {
     const retainedWindowId = currentWindowId;
     const nextWindowId = createWindowId();
     void holdLeaseOwnerLock(recoveryOwnerId(nextWindowId), true);
@@ -757,7 +743,6 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
     }
 
     if (!message.ack.success) {
-        void abortBrowserTransferAuthority(message.ack.transferId, pending.nonce);
         finishTransfer(message.ack.transferId, {
             success: false,
             error: message.ack.error ?? 'Target rejected browser transfer.',
@@ -771,27 +756,12 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
         pending.targetWindowId,
     );
     if (authority?.state === 'committed') {
+        // The durable decision protects bytes while the receiver adopts its reader.
+        authority.backingRefs.forEach(({ref}) => documentDependencyReaders.delete(ref));
         finishTransfer(message.ack.transferId, {success: true});
+        await publishBrowserDocumentLiveLeases();
     }
 }
-
-const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
-    discover: () => {
-        announceCurrentWindow();
-    },
-    announce: handleWindowAnnouncement,
-    unregister: (message) => {
-        if (message.windowId === currentWindowId) {
-            return;
-        }
-        markWindowUnavailable(
-            message.windowId,
-            'Target browser window closed before transfer completed.',
-        );
-    },
-    transfer: handleIncomingTransferMessage,
-    ack: message => { void handleTransferAckMessage(message); },
-};
 
 function handleMessage(data: unknown) {
     const message = parseBrowserWindowTabsMessage(data);
@@ -804,19 +774,19 @@ function handleMessage(data: unknown) {
 
     switch (message.type) {
         case 'discover':
-            browserWindowTabsMessageHandlers.discover(message);
+            announceCurrentWindow();
             break;
         case 'announce':
-            browserWindowTabsMessageHandlers.announce(message);
+            handleWindowAnnouncement(message);
             break;
         case 'unregister':
-            browserWindowTabsMessageHandlers.unregister(message);
+            if (message.windowId !== currentWindowId) markWindowUnavailable(message.windowId, 'Target browser window closed before transfer completed.');
             break;
         case 'transfer':
-            browserWindowTabsMessageHandlers.transfer(message);
+            handleIncomingTransferMessage(message);
             break;
         case 'ack':
-            browserWindowTabsMessageHandlers.ack(message);
+            void handleTransferAckMessage(message);
             break;
     }
 }
@@ -924,14 +894,9 @@ function openTargetWindow(targetWindowId: number) {
 }
 
 function waitForDiscoverySettling() {
-    return new Promise<void>((resolve) => {
-        if (!hasBrowserWindowContext()) {
-            resolve();
-            return;
-        }
-
-        window.setTimeout(resolve, DISCOVERY_SETTLE_DELAY_MS);
-    });
+    return hasBrowserWindowContext()
+        ? new Promise<void>(resolve => window.setTimeout(resolve, DISCOVERY_SETTLE_DELAY_MS))
+        : Promise.resolve();
 }
 
 function pruneStaleTargetWindows(discoveryStartedAt: number) {
@@ -990,95 +955,103 @@ async function holdRecoveryOwnerLock() {
     }
 }
 // Recovery records and their live document leases share this platform owner.
-let recoveryLiveLease: {
-    ownerId: string;
-    generation: number
-} | null = null;
+type TDocumentDependencyOwner = (() => TDocumentRef[]) & {complete?: () => Promise<void>};
+const documentDependencyReaders = new Map<string | (() => TDocumentRef[]), TDocumentDependencyOwner>();
+let recoveryLiveLease: Promise<Awaited<ReturnType<typeof loadBrowserDocumentLiveLease>>> | null = null;
 
-async function releaseRecoveryLiveLease() {
-    if (!recoveryLiveLease) return;
-    const lease = recoveryLiveLease;
-    try {
-        await releaseBrowserDocumentLiveLease(lease.ownerId, lease.generation);
-        recoveryLiveLease = null;
-    } catch {
-        // Retain the generation for the next same-owner clean checkpoint.
-    }
+async function claimRecoveryLiveLease() {
+    await holdRecoveryOwnerLock();
+    if (ensureChannel()) await browserWindowTabsCapability.listTargetWindows();
+
+    return holdRecoveryOwnerLock().then(ownerId => ownerId ? loadBrowserDocumentLiveLease(ownerId) : null);
 }
 
-async function publishRecoveryLiveLease(ownerId: string, refs: TDocumentRef[]) {
-    try {
-        const lease = await saveBrowserDocumentLiveLease(ownerId, recoveryLiveLease?.generation ?? 0, 'active', refs.map(ref => ({ref})));
-        recoveryLiveLease = {
-            ownerId,
-            generation: lease.generation,
-        };
-    } catch (error) {
-        // A later successful record write or heartbeat reacquires the lease.
-        recoveryLiveLease = null;
-        BrowserLogger.warn('workspace-recovery', 'Failed to publish browser document live lease', error);
-    }
+export function registerBrowserDocumentDependencyReader(read: () => TDocumentRef[]) {
+    documentDependencyReaders.set(read, read);
+    return () => documentDependencyReaders.delete(read);
 }
 
-// Publishes the live leases of open documents without writing a recovery
-// record. A clean, unedited document writes no checkpoint, so save and touch
-// never carry its lease. The workspace-shell recovery hook calls this for every
-// open document, so that the sweep keeps its source.
-export function publishBrowserDocumentLiveLeases(ownerId: string, liveDocumentRefs: TDocumentRef[]) {
-    return publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+export async function reserveBrowserDocumentWorkingCopy(fileName: string, sourceRef?: TDocumentRef) {
+    const ref = createBrowserDocumentRef(fileName);
+    if (sourceRef && (await browserDocumentStore.requireEntry(sourceRef)).memoryOnly || !getBrowserWindowRecoveryOwnerId()) return ref;
+    documentDependencyReaders.set(ref, () => sourceRef ? [
+        ref,
+        sourceRef,
+    ] : [ref]);
+    return publishBrowserDocumentLiveLeases().then(() => ref, (error: unknown) => {
+        documentDependencyReaders.delete(ref);
+        throw error;
+    });
+}
+
+export function handoffBrowserDocumentWorkingCopy(ref: TDocumentRef, ownerRef: TDocumentRef, complete: () => Promise<void>) {
+    const owner = documentDependencyReaders.get(ownerRef);
+    if (ref === ownerRef && !owner) return;
+    const readOwner: TDocumentDependencyOwner = owner ?? (() => [ownerRef]);
+    documentDependencyReaders.delete(ref);
+    documentDependencyReaders.set(ownerRef, Object.assign(
+        () => readOwner().concat(ref),
+        {complete: functionUtils.once(() => Promise.resolve(readOwner.complete?.()).finally(complete))},
+    ));
+}
+
+export async function retireBrowserDocumentWorkingCopy(ref: TDocumentRef) {
+    const owner = documentDependencyReaders.get(ref);
+    await (owner?.complete?.() ?? Promise.resolve()).finally(() => {
+        if (documentDependencyReaders.get(ref) === owner) documentDependencyReaders.delete(ref);
+        return publishBrowserDocumentLiveLeases();
+    });
+}
+
+export function publishBrowserDocumentLiveLeases(
+    ownerId?: string | null,
+    refs: TDocumentRef[] = [],
+) {
+    const previous = recoveryLiveLease ?? Promise.resolve(null);
+    const publication = previous.then(lease => lease ?? claimRecoveryLiveLease()).then(async (lease) => {
+        ownerId ??= getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) return null;
+        const dependencies = new Set<string>(documentDependencyReaders.size > 0
+            ? [...documentDependencyReaders.values()].flatMap(read => read())
+            : refs);
+        if (dependencies.size === 0 && !lease) return null;
+        if (lease?.ownerId === ownerId && lease.status === 'active'
+            && lease.protectedDependencies.length === dependencies.size
+            && lease.protectedDependencies.every(dependency => dependency.chunkGeneration === undefined && dependencies.has(dependency.ref))) return lease;
+        const generation = lease?.ownerId === ownerId ? lease.generation : 0;
+        return dependencies.size > 0
+            ? browserDocumentStore.heartbeatLiveLease(ownerId, generation, Array.from(dependencies, ref => ({ref})))
+            : browserDocumentStore.releaseLiveLease(ownerId, generation);
+    });
+    // A rejected publication keeps the last committed authority and generation.
+    recoveryLiveLease = publication.catch(() => previous);
+    return publication;
 }
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {
         getOwnerId: getBrowserWindowRecoveryOwnerId,
-        async load(ownerId) {
-            if (recoveryLiveLease && recoveryLiveLease.ownerId !== ownerId) {
-                await releaseRecoveryLiveLease();
-                // A later page load's orphan sweep reclaims the lease once this owner's lock is free.
-                recoveryLiveLease = null;
-            }
-            return loadBrowserWorkspaceRecovery(ownerId);
-        },
+        load: loadBrowserWorkspaceRecovery,
         async save(ownerId, expectedGeneration, checkpoint, snapshotRefs, liveDocumentRefs) {
             const outcome = await saveBrowserWorkspaceRecovery(ownerId, expectedGeneration, checkpoint, snapshotRefs);
-            if (outcome.saved) await publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+            if (outcome.saved) await publishBrowserDocumentLiveLeases(ownerId, liveDocumentRefs);
             return outcome;
         },
         async touch(ownerId, expectedGeneration, liveDocumentRefs) {
             const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
-            if (outcome.saved && (recoveryLiveLease || liveDocumentRefs.length > 0)) {
-                await publishRecoveryLiveLease(ownerId, liveDocumentRefs);
-            }
+            if (outcome.saved) await publishBrowserDocumentLiveLeases(ownerId, liveDocumentRefs);
             return outcome;
         },
-        async clear(ownerId, expectedGeneration) {
-            const outcome = await clearBrowserWorkspaceRecovery(ownerId, expectedGeneration);
-            if (outcome.saved) await releaseRecoveryLiveLease();
-            return outcome;
-        },
+        clear: clearBrowserWorkspaceRecovery,
     },
-    async saveWorkspaceCheckpoint() {},
     // Restore acknowledgement cannot delete the browser's only dirty bytes.
     // The browser writer retires them after a replacement or clean checkpoint.
     async acknowledgeWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {
-        if (!await holdRecoveryOwnerLock()) {
-            return null;
-        }
-        if (ensureChannel()) {
-            const discoveryStartedAt = Date.now();
-            postMessage({
-                type: 'discover',
-                windowId: currentWindowId,
-                instanceNonce: currentRecoveryInstanceNonce,
-            });
-            await waitForDiscoverySettling();
-            pruneStaleTargetWindows(discoveryStartedAt);
-        }
-
-        const ownerId = await holdRecoveryOwnerLock();
+        await (recoveryLiveLease ?? Promise.resolve(null)).then(lease => lease ?? claimRecoveryLiveLease());
+        const ownerId = getBrowserWindowRecoveryOwnerId();
         if (!ownerId) return null;
         const records = await loadBrowserWorkspaceRecoveries();
         const exact = records.find(record => record.ownerId === ownerId)
@@ -1260,7 +1233,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             incomingTransferListeners.delete(callback);
         };
     },
-    onWindowAction: noopUnsubscribe,
+    onWindowAction: () => functionUtils.noop,
     async closeCurrentWindow() {
         if (!hasBrowserWindowContext()) {
             return false;
@@ -1282,7 +1255,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     acknowledgePendingExternalOpenPaths() {
         return Promise.resolve();
     },
-    onMenuNewTab: noopUnsubscribe,
-    onMenuCloseTab: noopUnsubscribe,
-    onMenuSplitEditor: noopUnsubscribe,
+    onMenuNewTab: () => functionUtils.noop,
+    onMenuCloseTab: () => functionUtils.noop,
+    onMenuSplitEditor: () => functionUtils.noop,
 };

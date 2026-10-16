@@ -53,6 +53,21 @@ function expectSymmetricEquality(
 }
 
 describe('areBookmarkEntriesEqual', () => {
+    it('distinguishes original destination kinds and null coordinates that change saved navigation', () => {
+        const originalDestination = {
+            kind: 'FitH' as const,
+            sourceTarget: 0,
+            coordinates: [null],
+        };
+        const left = [createEntry('Source', {originalDestination})];
+        expectSymmetricEquality(left, [createEntry('Source', {originalDestination: {...originalDestination}})], true);
+        expectSymmetricEquality(left, [createEntry('Source', {originalDestination: {
+            ...originalDestination,
+            coordinates: [0],
+        }})], false);
+        expectSymmetricEquality(left, [createEntry('Source')], false);
+    });
+
     it('ignores key order, untrimmed titles, and equivalent color spellings', () => {
         const rebuilt: IPdfBookmarkEntry[] = [
             {

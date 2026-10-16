@@ -269,7 +269,7 @@ describe('annotation geometry rendering', () => {
         'Underline',
         'StrikeOut',
         'Squiggly',
-    ] as const)('draws the %s subtype with a separate hit target', subtype => {
+    ] as const)('draws the %s subtype with a separate hit target', async subtype => {
         const entity: ITextMarkupEntity = {
             kind: 'text-markup',
             identity: {id: asAnnotationId('markup')},
@@ -292,12 +292,18 @@ describe('annotation geometry rendering', () => {
             opacity: 0.3,
         };
         const host = document.createElement('div');
-        const app = createApp({render: () => h('svg', [h(PdfTextMarkupAnnotation, {
-            entity,
-            selected: false,
-        })])});
+        document.body.append(host);
+        const app = createApp({render: () => h('div', [
+            h('svg', {id: 'markup-fill-plane'}),
+            h('svg', [h(PdfTextMarkupAnnotation, {
+                entity,
+                selected: false,
+                highlightFillTarget: '#markup-fill-plane',
+            })]),
+        ])});
         app.mount(host);
-        onTestFinished(() => app.unmount());
+        onTestFinished(() => {app.unmount(); host.remove();});
+        await nextTick();
         expect(host.querySelectorAll('[data-annotation-hit-target]')).toHaveLength(1);
         const visual = host.querySelector('[data-annotation-visual]')!;
         expect(visual).not.toBeNull();

@@ -1,12 +1,6 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
-import {
-    parsePageIndex,
-    requirePageIndex,
-} from '@contracts/pageNumbers';
+import { parsePageIndex } from '@contracts/pageNumbers';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
@@ -17,7 +11,6 @@ import type {
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
-    getOptionalArray,
     getOptionalString,
     isRecord,
 } from '@app/services/pdfjs/runtime';
@@ -30,201 +23,15 @@ interface IRefProxy {
 const OUTLINE_LOG_SECTION = 'pdfOutline';
 const MAX_OUTLINE_DEPTH = 256;
 
-export interface IOutlineItemRaw {
-    title: string;
-    dest: string | unknown[] | null;
-    bold?: boolean | undefined;
-    italic?: boolean | undefined;
-    color?: ArrayLike<number> | null | undefined;
-    items?: IOutlineItemRaw[] | undefined;
-}
-
 export interface IBookmarkDestinationTarget {
     page: number;
     pageYRatio?: number | null | undefined;
-}
-
-/**
- * Returns a fast page-level bookmark target from the outline's cached page index.
- * Full PDF.js destination resolution can lag on large files, so bookmark clicks
- * first move to the known page and then refine once the exact destination resolves.
- */
-export function resolveImmediateBookmarkDestinationTarget(
-    item: Pick<IBookmarkItem, 'pageIndex' | 'pageYRatio'>,
-): IBookmarkDestinationTarget | null {
-    if (typeof item.pageIndex !== 'number' || !Number.isFinite(item.pageIndex)) {
-        return null;
-    }
-
-    return {
-        page: Math.max(0, Math.trunc(item.pageIndex)) + 1,
-        pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
-            ? clamp(item.pageYRatio, 0, 1)
-            : 0,
-    };
-}
-
-function normalizeBookmarkDestinationRatio(target: IBookmarkDestinationTarget) {
-    return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio)
-        ? target.pageYRatio
-        : null;
-}
-
-function areBookmarkDestinationTargetsEquivalent(
-    first: IBookmarkDestinationTarget,
-    second: IBookmarkDestinationTarget,
-) {
-    return first.page === second.page
-        && normalizeBookmarkDestinationRatio(first) === normalizeBookmarkDestinationRatio(second);
-}
-
-/**
- * Preserves bookmark destination intent by replaying async refinement after the
- * fast jump. Equal resolved targets are still useful for virtualized PDFs where
- * the first snap can run before the destination page DOM is ready.
- */
-export function shouldEmitResolvedBookmarkDestinationTarget(
-    target: IBookmarkDestinationTarget,
-    immediateTarget: IBookmarkDestinationTarget | null,
-) {
-    if (immediateTarget === null || !areBookmarkDestinationTargetsEquivalent(target, immediateTarget)) {
-        return true;
-    }
-
-    return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio);
-}
-
-interface IPageViewBounds {
-    top: number;
-    bottom: number;
-    height: number;
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {
     return isRecord(value)
         && typeof value.num === 'number'
         && typeof value.gen === 'number';
-}
-
-function normalizeOutlineDest(value: unknown): IOutlineItemRaw['dest'] {
-    if (typeof value === 'string' || value === null || Array.isArray(value)) {
-        return value;
-    }
-
-    return null;
-}
-
-function isOutlineColorCandidate(value: unknown): value is ArrayLike<number> {
-    return isRecord(value)
-        && typeof value.length === 'number'
-        && value.length >= 3
-        && typeof value[0] === 'number'
-        && typeof value[1] === 'number'
-        && typeof value[2] === 'number';
-}
-
-function normalizeOutlineColor(value: unknown): ArrayLike<number> | null {
-    return isOutlineColorCandidate(value) ? value : null;
-}
-
-function normalizeOutlineItem(value: unknown): IOutlineItemRaw | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const title = getOptionalString(value, 'title') ?? '';
-
-    return {
-        title,
-        dest: normalizeOutlineDest(value.dest ?? null),
-        bold: value.bold === true ? true : undefined,
-        italic: value.italic === true ? true : undefined,
-        color: normalizeOutlineColor(value.color),
-    };
-}
-
-export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
-    if (!Array.isArray(value)) {
-        return [];
-    }
-
-    const root: IOutlineItemRaw[] = [];
-    const stack: Array<{
-        value: unknown;
-        target: IOutlineItemRaw[];
-        depth: number;
-    }> = [];
-    let skippedOverDepth = false;
-
-    for (let index = value.length - 1; index >= 0; index -= 1) {
-        stack.push({
-            value: value[index],
-            target: root,
-            depth: 1,
-        });
-    }
-
-    while (stack.length > 0) {
-        const frame = stack.pop();
-        if (!frame) {
-            break;
-        }
-        const normalized = normalizeOutlineItem(frame.value);
-        if (!normalized) {
-            continue;
-        }
-
-        frame.target.push(normalized);
-
-        const childValues = isRecord(frame.value)
-            ? getOptionalArray(frame.value, 'items')
-            : null;
-        if (!childValues?.length) {
-            continue;
-        }
-
-        if (frame.depth >= MAX_OUTLINE_DEPTH) {
-            skippedOverDepth = true;
-            continue;
-        }
-
-        normalized.items = [];
-        for (let index = childValues.length - 1; index >= 0; index -= 1) {
-            stack.push({
-                value: childValues[index],
-                target: normalized.items,
-                depth: frame.depth + 1,
-            });
-        }
-    }
-
-    if (skippedOverDepth) {
-        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped PDF outline items beyond the supported nesting depth', {maxDepth: MAX_OUTLINE_DEPTH});
-    }
-
-    return root;
-}
-
-export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined) {
-    if (!color || typeof color.length !== 'number' || color.length < 3) {
-        return null;
-    }
-
-    const parts = [
-        color[0],
-        color[1],
-        color[2],
-    ];
-
-    const rgb = parts.map((value) => {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric)) {
-            return 0;
-        }
-        return clamp(Math.round(numeric), 0, 255);
-    });
-
-    return normalizeBookmarkColor(`#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`);
 }
 
 function normalizeDestinationPageIndex(rawPageRef: number, numPages: number) {
@@ -284,32 +91,6 @@ function shouldAlignDestinationToPageTop(destinationKind: string | null) {
         || destinationKind === 'FitR';
 }
 
-function getPageViewBounds(page: IPdfPage): IPageViewBounds | null {
-    const view = Array.isArray(page.view) ? page.view : null;
-    const top = view ? getFiniteDestinationNumber(view[3]) : null;
-    const bottom = view ? getFiniteDestinationNumber(view[1]) : null;
-
-    if (top !== null && bottom !== null && top > bottom) {
-        return {
-            top,
-            bottom,
-            height: top - bottom,
-        };
-    }
-
-    const viewport = page.getViewport({ scale: 1 });
-    const height = getFiniteDestinationNumber(viewport.height);
-    if (height !== null && height > 0) {
-        return {
-            top: height,
-            bottom: 0,
-            height,
-        };
-    }
-
-    return null;
-}
-
 async function resolveDestinationPageYRatio(
     pdfDocument: IPdfDocument,
     page: number,
@@ -323,19 +104,39 @@ async function resolveDestinationPageYRatio(
     }
 
     const destinationTop = getDestinationTopValue(destinationArray, destinationKind);
-    if (destinationTop === null) {
+    if (destinationKind === 'Fit' || destinationKind === 'FitB') {
         return 0;
     }
-
+    const left = destinationKind === 'XYZ' || destinationKind === 'FitR'
+        ? getFiniteDestinationNumber(destinationArray[2])
+        : null;
+    if (left === null && destinationTop === null) {
+        return null;
+    }
     try {
         const pdfPage = await pdfDocument.getPage(page);
         throwIfAborted(signal);
-        const bounds = getPageViewBounds(pdfPage);
-        if (!bounds) {
+        const viewport = pdfPage.getViewport({scale: 1});
+        if (!Number.isFinite(viewport.height) || viewport.height <= 0) {
             return null;
         }
-
-        return clamp((bounds.top - destinationTop) / bounds.height, 0, 1);
+        // A null PDF coordinate retains the reader's current coordinate.
+        // Only the axis contributing to displayed Y needs to be specified.
+        if ((viewport.transform[1] !== 0 && left === null)
+            || (viewport.transform[3] !== 0 && destinationTop === null)) {
+            return null;
+        }
+        const point = viewport.convertToViewportPoint(left ?? 0, destinationTop ?? 0);
+        let top = point[1];
+        if (destinationKind === 'FitR') {
+            const right = getFiniteDestinationNumber(destinationArray[4]);
+            const bottom = getFiniteDestinationNumber(destinationArray[3]);
+            if (right === null || bottom === null) return null;
+            top = Math.min(top ?? 0, viewport.convertToViewportPoint(right, bottom)[1] ?? 0);
+        }
+        return typeof top === 'number' && Number.isFinite(top)
+            ? clamp(top / viewport.height, 0, 1)
+            : null;
     } catch (error) {
         if (signal?.aborted) {
             throwIfAborted(signal);
@@ -347,7 +148,7 @@ async function resolveDestinationPageYRatio(
 
 async function resolveDestinationArray(
     pdfDocument: IPdfDocument,
-    dest: IOutlineItemRaw['dest'],
+    dest: IBookmarkItem['dest'],
     destinationCache?: Map<string, unknown[] | null>,
     signal?: AbortSignal,
 ): Promise<unknown[] | null> {
@@ -422,26 +223,6 @@ async function resolvePageIndexFromDestinationArray(
     }
 }
 
-export async function resolvePageIndex(
-    pdfDocument: IPdfDocument,
-    dest: IOutlineItemRaw['dest'],
-    destinationCache: Map<string, unknown[] | null>,
-    refIndexCache: Map<string, number | null>,
-    signal?: AbortSignal,
-) {
-    if (!dest) {
-        return null;
-    }
-
-    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache, signal);
-
-    if (!destinationArray || destinationArray.length === 0) {
-        return null;
-    }
-
-    return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache, signal);
-}
-
 export interface IResolvedBookmarkPageTarget {
     pageIndex: number;
     pageYRatio: number | null;
@@ -476,7 +257,7 @@ export async function resolveBookmarkPageTargets(
 
 async function resolveDestinationTarget(
     pdfDocument: IPdfDocument,
-    dest: IOutlineItemRaw['dest'],
+    dest: IBookmarkItem['dest'],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
     signal?: AbortSignal,
@@ -508,101 +289,6 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-export async function buildResolvedOutline(
-    items: IOutlineItemRaw[],
-    pdfDocument: IPdfDocument,
-    destinationCache: Map<string, unknown[] | null>,
-    refIndexCache: Map<string, number | null>,
-    createId: TCreateBookmarkId,
-    options: { resolveDestinations?: boolean } = {},
-): Promise<IBookmarkItem[]> {
-    const root: IBookmarkItem[] = [];
-    const stack: Array<{
-        item: IOutlineItemRaw;
-        target: IBookmarkItem[];
-        parentId: string | null;
-        depth: number;
-    }> = [];
-    let skippedOverDepth = false;
-
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-        const item = items[index];
-        if (item) {
-            stack.push({
-                item,
-                target: root,
-                parentId: null,
-                depth: 1,
-            });
-        }
-    }
-
-    while (stack.length > 0) {
-        const frame = stack.pop();
-        if (!frame) {
-            break;
-        }
-        const destinationTarget = options.resolveDestinations === false
-            ? null
-            : await resolveDestinationTarget(
-                pdfDocument,
-                frame.item.dest,
-                destinationCache,
-                refIndexCache,
-            );
-        const children: IBookmarkItem[] = [];
-        const resolvedPageIndex = destinationTarget?.pageIndex ?? null;
-        const pageIndex = resolvedPageIndex === null
-            ? null
-            : requirePageIndex(resolvedPageIndex);
-        const id = createId({
-            parentId: frame.parentId,
-            title: frame.item.title,
-            pageIndex,
-            dest: frame.item.dest,
-        });
-        frame.target.push({
-            title: frame.item.title,
-            dest: frame.item.dest,
-            id,
-            pageIndex,
-            ...(destinationTarget?.pageYRatio === null || destinationTarget?.pageYRatio === undefined
-                ? {}
-                : {pageYRatio: destinationTarget.pageYRatio}),
-            bold: frame.item.bold === true,
-            italic: frame.item.italic === true,
-            color: convertOutlineColorToHex(frame.item.color),
-            items: children,
-        });
-
-        if (!frame.item.items?.length) {
-            continue;
-        }
-        if (frame.depth >= MAX_OUTLINE_DEPTH) {
-            skippedOverDepth = true;
-            continue;
-        }
-
-        for (let index = frame.item.items.length - 1; index >= 0; index -= 1) {
-            const item = frame.item.items[index];
-            if (item) {
-                stack.push({
-                    item,
-                    target: children,
-                    parentId: id,
-                    depth: frame.depth + 1,
-                });
-            }
-        }
-    }
-
-    if (skippedOverDepth) {
-        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped resolved PDF outline items beyond the supported nesting depth', {maxDepth: MAX_OUTLINE_DEPTH});
-    }
-
-    return root;
-}
-
 export function buildOutlineFromBookmarkEntries(
     entries: readonly IPdfBookmarkEntry[],
     createId: TCreateBookmarkId,
@@ -615,18 +301,18 @@ export function buildOutlineFromBookmarkEntries(
         depth: number;
     }> = [];
     let skippedOverDepth = false;
-
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const entry = entries[index];
-        if (entry) {
+    // Pushed last first, so that the stack pops entries in reading order.
+    const pushEntries = (items: readonly IPdfBookmarkEntry[], target: IBookmarkItem[], parentId: string | null, depth: number) => {
+        for (const entry of [...items].reverse()) {
             stack.push({
                 entry,
-                target: root,
-                parentId: null,
-                depth: 1,
+                target,
+                parentId,
+                depth,
             });
         }
-    }
+    };
+    pushEntries(entries, root, null, 1);
 
     while (stack.length > 0) {
         const frame = stack.pop();
@@ -637,20 +323,29 @@ export function buildOutlineFromBookmarkEntries(
         const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
             ? parsePageIndex(Math.max(0, Math.trunc(frame.entry.pageIndex)))
             : null;
+        const dest = frame.entry.originalDestination
+            ? [
+                frame.entry.originalDestination.sourceTarget,
+                {name: frame.entry.originalDestination.kind},
+                ...frame.entry.originalDestination.coordinates,
+            ]
+            : frame.entry.namedDest;
         const id = createId({
             parentId: frame.parentId,
             title: frame.entry.title,
             pageIndex,
-            dest: frame.entry.namedDest,
+            dest,
         });
         frame.target.push({
             title: frame.entry.title,
-            dest: frame.entry.namedDest,
+            dest,
             id,
             pageIndex,
             ...(typeof frame.entry.pageYRatio === 'number' && Number.isFinite(frame.entry.pageYRatio)
                 ? {pageYRatio: clamp(frame.entry.pageYRatio, 0, 1)}
                 : {}),
+            ...(frame.entry.originalAction ? {originalAction: frame.entry.originalAction} : {}),
+            ...(frame.entry.originalNamedDest === undefined ? {} : {originalNamedDest: frame.entry.originalNamedDest}),
             bold: frame.entry.bold === true,
             italic: frame.entry.italic === true,
             color: normalizeBookmarkColor(frame.entry.color),
@@ -664,18 +359,7 @@ export function buildOutlineFromBookmarkEntries(
             skippedOverDepth = true;
             continue;
         }
-
-        for (let index = frame.entry.items.length - 1; index >= 0; index -= 1) {
-            const entry = frame.entry.items[index];
-            if (entry) {
-                stack.push({
-                    entry,
-                    target: children,
-                    parentId: id,
-                    depth: frame.depth + 1,
-                });
-            }
-        }
+        pushEntries(frame.entry.items, children, id, frame.depth + 1);
     }
 
     if (skippedOverDepth) {
@@ -683,14 +367,6 @@ export function buildOutlineFromBookmarkEntries(
     }
 
     return root;
-}
-
-export async function resolveBookmarkDestinationPage(
-    pdfDocument: IPdfDocument,
-    dest: string | unknown[] | null,
-) {
-    const target = await resolveBookmarkDestinationTarget(pdfDocument, dest);
-    return target?.page ?? null;
 }
 
 export async function resolveBookmarkDestinationTarget(

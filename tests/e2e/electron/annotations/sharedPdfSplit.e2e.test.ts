@@ -24,9 +24,11 @@ import {
     clickAsUser,
     clickFoundAsUser,
     revealForPointer,
+    activateMenuItemAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     goToPageViaToolbar,
+    clickVisibleToolbarButton,
     openAnnotationsTab,
     openDocumentSidebarTab,
     openPdfInApp,
@@ -44,6 +46,7 @@ import {
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
 // Issue #845, owner-approved design R5: Split shows one document in two views.
 // The views share annotations, undo, dirty state and save; each keeps its own
@@ -468,6 +471,77 @@ async function clickPaneTool(page: Page, paneId: string, tool: string) {
 }
 
 describe('shared PDF split', () => {
+    it('paints both linked views after a held divider drag is released', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-divider-${stamp}.pdf`, 40);
+        session = await startElectronE2ESession(`e2e-rasterstall-divider-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        const quiet = async () => {
+            await waitForViewerInteractive(page);
+            await waitForViewportQuiet(page);
+        };
+        await waitForPdfLoaded(page);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+0'});
+        await quiet();
+        await goToPageViaToolbar(page, 31);
+        await quiet();
+        const viewportBox = await page.$eval('.editor-pane.is-active #pdf-viewer', element => element.getBoundingClientRect().toJSON());
+        await page.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2);
+        await page.mouse.wheel({deltaY: 120});
+        await quiet();
+        await clickVisibleToolbarButton(page, 'Fit Width');
+        await quiet();
+        const source = await page.$eval('.editor-pane.is-active', element => (element as HTMLElement).dataset.editorPaneId!);
+        await splitActiveTabFromTabMenu(page, 'right');
+        await quiet();
+        const other = (await paneIds(page)).find(id => id !== source)!;
+        await activatePaneByTab(page, other);
+        await goToPageViaToolbar(page, 17);
+        await quiet();
+        await activatePaneByTab(page, source);
+        await quiet();
+        for (const delta of [
+            -90,
+            180,
+            35,
+        ]) {
+            const sash = await page.$eval('.editor-sash', element => element.getBoundingClientRect().toJSON());
+            await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(sash.x + sash.width / 2 + delta, sash.y + sash.height / 2, {steps: delta === 35 ? 5 : 12});
+            if (delta === 35) await quiet();
+            await page.mouse.up();
+            await quiet();
+        }
+        for (const [
+            paneId,
+            pageNumber,
+        ] of [
+                [
+                    source,
+                    31,
+                ],
+                [
+                    other,
+                    17,
+                ],
+            ] as const) {
+            await expect.poll(() => page.$eval(`${paneSelector(paneId)} .page_container[data-page="${pageNumber}"]`, element => ({
+                painted: element.classList.contains('page_container--rendered')
+                    && [...element.querySelectorAll('canvas')].some(canvas => canvas.width > 0 && canvas.height > 0 && canvas.checkVisibility()),
+                error: Boolean(element.querySelector('.pdf-page-render-error')),
+                text: element.textContent?.includes(`Fixture ${element.getAttribute('data-page')}/40`),
+            })), {timeout: 10_000}).toEqual({
+                painted: true,
+                error: false,
+                text: true,
+            });
+        }
+    }, TIMEOUT_MS);
+
     // Issue #942, behavior contract I1: a window resize while the tab menu is
     // open used to close the menu and forget its tab, yet the closing menu still
     // took clicks, so Split Right did nothing. The click is raw trusted input on

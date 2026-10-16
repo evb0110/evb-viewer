@@ -425,7 +425,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = {
             ...harness.value,
-            getSettings: vi.fn(() => new Promise<typeof stored>(resolve => { resolveRead = resolve; })),
+            getSettings: vi.fn().mockResolvedValue(stored)
+                .mockImplementationOnce(() => new Promise<typeof stored>(resolve => { resolveRead = resolve; })),
             updateSettings: vi.fn(async () => stored),
         };
         vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(request.pageNumber, 'single-uncut-page'));

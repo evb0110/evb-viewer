@@ -381,3 +381,87 @@ fn refuses_an_incremental_append_onto_an_empty_password_encrypted_base() {
 
     let _ = std::fs::remove_file(&input_path);
 }
+
+#[test]
+fn encryption_probe_counts_the_xref_bytes_a_chain_consumes_not_its_read_windows() {
+    // Each revision's xref table is a few dozen bytes, but the probe reads a
+    // 64 MiB window from every offset. Those windows overlap the later
+    // revisions, so summing them rejects a chain whose tables do not overlap.
+    const REVISIONS: u64 = 20;
+    const SPACING: u64 = 32 * 1024 * 1024;
+    let path = temp_pdf_path("xref-probe-revision-windows");
+    let mut file = std::fs::File::create(&path).unwrap();
+    let mut previous = None;
+    for revision in 0..REVISIONS {
+        let offset = revision * SPACING;
+        let prev = previous.map(|prev| format!("/Prev {prev}")).unwrap_or_default();
+        let section = format!(
+            "xref\n0 1\n0000000000 65535 f \ntrailer\n<</Size 1{prev}/Root 1 0 R>>\nstartxref\n{offset}\n%%EOF\n"
+        );
+        file.seek(std::io::SeekFrom::Start(offset)).unwrap();
+        file.write_all(section.as_bytes()).unwrap();
+        previous = Some(offset);
+    }
+    drop(file);
+
+    assert!(!path_has_encryption_entry(&path).unwrap());
+    remove_file(&path).unwrap();
+}
+
+#[test]
+fn encryption_probe_rejects_a_section_embedded_in_another_sections_span() {
+    // The root trailer's literal string holds a whole xref section, and /Prev
+    // reaches it. The root's consumed bytes cover that section, so the two
+    // spans overlap. The padding keeps the summed consumed bytes below the
+    // file length, so only the span check can refuse the chain.
+    let root = b"%PDF-1.7\n".len() + 4096;
+    let head = "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 /Padding (";
+    let embedded = root + head.len();
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    bytes.resize(root - 1, b'%');
+    bytes.push(b'\n');
+    bytes.extend_from_slice(head.as_bytes());
+    bytes.extend_from_slice(b"xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n");
+    bytes.extend_from_slice(format!(") /Prev {embedded} >>\nstartxref\n{root}\n%%EOF\n").as_bytes());
+    let path = temp_pdf_path("xref-probe-embedded-section");
+    std::fs::write(&path, bytes).unwrap();
+
+    let error = path_has_encryption_entry(&path)
+        .expect_err("a section inside another section's span must fail closed");
+    assert_eq!(
+        error.downcast_ref::<NativeError>().unwrap().code,
+        NativeErrorCode::CorruptXref
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn encryption_probe_rejects_an_xref_stream_whose_declared_length_overruns_the_file() {
+    let root = b"%PDF-1.7\n".len();
+    let stream = "1 0 obj\n<< /Type /XRef /Size 1 /W [1 1 1] /Length 999999999 >>\nstream\nx\nendstream\nendobj\n";
+    let bytes = format!("%PDF-1.7\n{stream}startxref\n{root}\n%%EOF\n");
+    let path = temp_pdf_path("xref-stream-declared-overrun");
+    std::fs::write(&path, bytes).unwrap();
+
+    let error = path_has_encryption_entry(&path)
+        .expect_err("a declared xref stream length past the file end must fail closed");
+    assert_eq!(
+        error.downcast_ref::<NativeError>().unwrap().code,
+        NativeErrorCode::CorruptXref
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn encryption_probe_does_not_read_an_indirect_xref_stream_length_as_its_size() {
+    // `999999999 0 R` names an object the probe does not resolve, so its first
+    // number must not become a declared length that overruns the file.
+    let root = b"%PDF-1.7\n".len();
+    let stream = "1 0 obj\n<< /Type /XRef /Size 1 /W [1 1 1] /Length 999999999 0 R >>\nstream\nx\nendstream\nendobj\n";
+    let bytes = format!("%PDF-1.7\n{stream}startxref\n{root}\n%%EOF\n");
+    let path = temp_pdf_path("xref-stream-indirect-length");
+    std::fs::write(&path, bytes).unwrap();
+
+    assert!(!path_has_encryption_entry(&path).unwrap());
+    let _ = std::fs::remove_file(path);
+}

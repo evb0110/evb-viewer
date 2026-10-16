@@ -11,6 +11,7 @@ import type {
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {parsePdfJsAnnotationRef} from '@contracts/pdfAnnotationRefs';
 import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
+import {PDF_NATIVE_IDENTITY_BINDING_LIMITS} from '@contracts/nativePdfIdentityBindings';
 import type {
     IPdfNativeMutationContinuation,
     TPdfNativeMutationContinuationFamily,
@@ -200,6 +201,7 @@ interface IShapeMutationChunk {
 
 function splitShapeMutation(
     shapes: IPdfNativeShapesMutation,
+    identityChunkItems: number,
 ): IShapeMutationChunk[] {
     const chunks: IShapeMutationChunk[] = [];
     let shapeIndex = 0;
@@ -213,7 +215,7 @@ function splitShapeMutation(
     ) {
         const chunkShapes: IPdfNativeShapeAnnotation[] = [];
         let pointCount = 0;
-        while (chunkShapes.length < PDF_NATIVE_MUTATION_LIMITS.shapes) {
+        while (chunkShapes.length < Math.min(PDF_NATIVE_MUTATION_LIMITS.shapes, identityChunkItems)) {
             const shape = shapes.shapes[shapeIndex];
             if (shape === undefined) {
                 break;
@@ -252,13 +254,13 @@ function markupGeometryCount(hint: IPdfNativeMarkupSubtypeHint): number {
     return hint.markupGeometry?.length ?? 0;
 }
 
-function splitMarkupMutation(markup: IPdfNativeMarkupMutation): IPdfNativeMarkupMutation[] {
+function splitMarkupMutation(markup: IPdfNativeMarkupMutation, identityChunkItems: number): IPdfNativeMarkupMutation[] {
     const chunks: IPdfNativeMarkupMutation[] = [];
     let hintIndex = 0;
     while (hintIndex < markup.hints.length || chunks.length === 0) {
         const hints: IPdfNativeMarkupSubtypeHint[] = [];
         let geometryCount = 0;
-        while (hints.length < PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
+        while (hints.length < Math.min(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems, identityChunkItems)) {
             const hint = markup.hints[hintIndex];
             if (hint === undefined) {
                 break;
@@ -282,9 +284,26 @@ function splitMarkupMutation(markup: IPdfNativeMarkupMutation): IPdfNativeMarkup
     return chunks;
 }
 
+// PDF object ids are u32/u16 in the native writer. Reserve their largest
+// canonical reference before it is known, including JSON escaping and UTF-8.
+function identityBindingReportBytes(annotationIds: readonly string[]) {
+    return new TextEncoder().encode(JSON.stringify(annotationIds.map(annotationId => ({
+        annotationId,
+        pdfRef: '4294967295 65535 R',
+    })))).byteLength;
+}
+
 export function splitPdfNativeMutationSetIntoBoundedChunks(
     mutations: IPdfNativeMutationSet,
 ): TPdfNativeMutationChunk[] {
+    const identityIds = collectExpectedNativeIdentityIds(mutations);
+    const maxEntryBytes = identityIds.reduce((largest, id) => Math.max(largest, identityBindingReportBytes([id]) - 1), 1);
+    const identityChunkItems = Math.min(
+        PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems,
+        Math.floor((PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes - 1) / maxEntryBytes),
+    );
+    if (identityChunkItems === 0) fail('A native annotation identity exceeds the report byte budget');
+    const noteChunkItems = Math.min(PDF_NATIVE_MUTATION_LIMITS.noteChanges, identityChunkItems);
     const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'placedImageGeometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
     let updateIndex = 0;
     let geometryUpdateIndex = 0;
@@ -299,30 +318,30 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
         || deleteIndex < (mutations.deletes?.length ?? 0)
         || noteChunks.length === 0
     ) {
-        const updates = (mutations.updates ?? []).slice(updateIndex, updateIndex + PDF_NATIVE_MUTATION_LIMITS.noteChanges);
+        const updates = (mutations.updates ?? []).slice(updateIndex, updateIndex + noteChunkItems);
         updateIndex += updates.length;
         const geometryUpdates = (mutations.geometryUpdates ?? []).slice(geometryUpdateIndex, geometryUpdateIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length,
+            noteChunkItems - updates.length,
         ));
         geometryUpdateIndex += geometryUpdates.length;
         const placedImageGeometryUpdates = (mutations.placedImageGeometryUpdates ?? []).slice(
             placedImageGeometryUpdateIndex,
             placedImageGeometryUpdateIndex + Math.max(
                 0,
-                PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+                noteChunkItems - updates.length - geometryUpdates.length,
             ),
         );
         placedImageGeometryUpdateIndex += placedImageGeometryUpdates.length;
         const freeTextNotes = (mutations.freeTextNotes ?? []).slice(noteIndex, noteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+            noteChunkItems - updates.length - geometryUpdates.length
                 - placedImageGeometryUpdates.length,
         ));
         noteIndex += freeTextNotes.length;
         const deletes = (mutations.deletes ?? []).slice(deleteIndex, deleteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+            noteChunkItems - updates.length - geometryUpdates.length
                 - placedImageGeometryUpdates.length - freeTextNotes.length,
         ));
         deleteIndex += deletes.length;
@@ -339,12 +358,8 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
         });
     }
 
-    // Keep the legacy field in the chunk writer until old callers complete the
-    // migration to textBoxes.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const editorChunks = sliceIntoChunks(mutations.freeTextEditors ?? [], PDF_NATIVE_MUTATION_LIMITS.freeTextEditors);
     const textBoxes = getTextBoxes(mutations);
-    const textBoxChunks = sliceIntoChunks(textBoxes, PDF_NATIVE_MUTATION_LIMITS.textBoxes);
+    const textBoxChunks = sliceIntoChunks(textBoxes, Math.min(PDF_NATIVE_MUTATION_LIMITS.textBoxes, identityChunkItems));
     const {
         pageLabels: pageLabelsMutation,
         bookmarks: bookmarksMutation,
@@ -368,14 +383,14 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
                 items,
                 ...(bookmarkPath === undefined ? {} : {bookmarkPath}),
             }));
-    const shapeChunks = shapesMutation === undefined ? [] : splitShapeMutation(shapesMutation);
-    const markupChunks = mutations.markup === undefined ? [] : splitMarkupMutation(mutations.markup);
+    const shapeChunks = shapesMutation === undefined ? [] : splitShapeMutation(shapesMutation, identityChunkItems);
+    const markupChunks = mutations.markup === undefined ? [] : splitMarkupMutation(mutations.markup, identityChunkItems);
     const imageChunks: IPdfNativePlacedImage[][] = [[]];
     let imageChunkBytes = 0;
     for (const image of mutations.placedImages ?? []) {
         const encodedBytes = image.bytesBase64?.length ?? 0;
         let chunk = imageChunks[imageChunks.length - 1]!;
-        if (chunk.length >= PDF_NATIVE_MUTATION_LIMITS.placedImages
+        if (chunk.length >= Math.min(PDF_NATIVE_MUTATION_LIMITS.placedImages, identityChunkItems)
             || (chunk.length > 0 && imageChunkBytes + encodedBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesInlineChunkBytes)) {
             chunk = [];
             imageChunks.push(chunk);
@@ -385,34 +400,8 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
         imageChunkBytes += encodedBytes;
     }
 
-    const chunks: TPdfNativeMutationChunk[] = [];
     const base: TPdfNativeMutationChunk = {};
-    const firstNotes = noteChunks[0];
-    if (firstNotes) Object.assign(base, firstNotes);
-    const firstEditors = editorChunks[0];
-    if (mutations.freeTextEditors?.length && firstEditors) base.freeTextEditors = firstEditors;
-    const firstTextBoxes = textBoxChunks[0];
-    if (textBoxes.length && firstTextBoxes) base.textBoxes = firstTextBoxes;
-    const firstPageLabels = pageLabelChunks[0];
-    if (firstPageLabels) base.pageLabels = firstPageLabels;
-    const firstBookmarks = bookmarkChunks[0];
-    if (firstBookmarks) base.bookmarks = firstBookmarks;
-    const firstShapes = shapeChunks[0];
-    if (shapesMutation !== undefined && firstShapes) {
-        base.shapes = {
-            ...shapesMutation,
-            ...firstShapes,
-            rewriteShapeState: shapesMutation.rewriteShapeState,
-        };
-    }
-    const firstMarkup = markupChunks[0];
-    if (firstMarkup) base.markup = firstMarkup;
-    const firstImages = imageChunks[0];
-    if (mutations.placedImages?.length && firstImages) base.placedImages = firstImages;
-    if (Object.keys(base).length === 0) {
-        fail('native PDF mutations could not be split into bounded chunks', {errorKind: 'error'});
-    }
-    chunks.push(base);
+    const chunks: TPdfNativeMutationChunk[] = [base];
 
     const appendFamilyChunks = <T>(
         family: TPdfNativeMutationContinuationFamily,
@@ -424,23 +413,30 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             index,
             value,
         ] of values.entries()) {
-            if (index === 0) {
-                continue;
-            }
-            const chunk: TPdfNativeMutationChunk = {continuation: {
+            const chunk: TPdfNativeMutationChunk = index === 0 ? {} : {continuation: {
                 family,
                 chunkIndex: index,
                 chunkCount: values.length,
                 ...continuationFields?.(value),
             }};
             append(chunk, value);
-            chunks.push(chunk);
+            const combined = {
+                ...base,
+                ...chunk,
+            };
+            const combinedIds = index === 0 ? collectExpectedNativeIdentityIds(combined) : [];
+            if (index === 0 && combinedIds.length <= PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems
+                && identityBindingReportBytes(combinedIds) <= PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes) {
+                Object.assign(base, chunk);
+            } else {
+                chunks.push(chunk);
+            }
         }
     };
 
     appendFamilyChunks('notes', noteChunks, (chunk, value) => Object.assign(chunk, value));
-    appendFamilyChunks('freeTextEditors', editorChunks, (chunk, value) => {chunk.freeTextEditors = value;});
-    appendFamilyChunks('textBoxes', textBoxChunks, (chunk, value) => {chunk.textBoxes = value;});
+
+    appendFamilyChunks('textBoxes', textBoxes.length ? textBoxChunks : [], (chunk, value) => {chunk.textBoxes = value;});
     appendFamilyChunks('pageLabels', pageLabelChunks, (chunk, value) => {chunk.pageLabels = value;});
     appendFamilyChunks(
         'bookmarks',
@@ -462,11 +458,12 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             chunk.shapes = {
                 ...shapesMutation,
                 ...value,
-                rewriteShapeState: false,
+                rewriteShapeState: value === shapeChunks[0] && shapesMutation.rewriteShapeState,
             };
         });
     }
     appendFamilyChunks('markup', markupChunks, (chunk, value) => {chunk.markup = value;});
-    appendFamilyChunks('placedImages', imageChunks, (chunk, value) => {chunk.placedImages = value;});
+    appendFamilyChunks('placedImages', mutations.placedImages?.length ? imageChunks : [], (chunk, value) => {chunk.placedImages = value;});
+    if (Object.keys(base).length === 0) fail('native PDF mutations could not be split into bounded chunks');
     return chunks;
 }

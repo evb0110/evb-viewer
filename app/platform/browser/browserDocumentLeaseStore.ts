@@ -60,28 +60,27 @@ export function holdLeaseOwnerLock(ownerId: string, ifAvailable = false) {
     ownerLock?.release.abort();
     const release = new AbortController();
     const released = new Promise<void>(resolveReleased => release.signal.addEventListener('abort', () => resolveReleased()));
+    const grant = Promise.withResolvers<boolean>();
     const lock = {
         ownerId,
         held: false,
-        granted: Promise.resolve(false),
+        granted: grant.promise,
         release,
     };
-    lock.granted = new Promise<boolean>((resolveGranted, rejectGranted) => {
-        locks.request(
-            leaseOwnerLockName(ownerId),
-            {
-                mode: 'exclusive',
-                ...(ifAvailable ? {ifAvailable: true} : {signal: release.signal}),
-            },
-            async grantedLock => {
-                lock.held = Boolean(grantedLock) && !release.signal.aborted;
-                resolveGranted(lock.held);
-                if (lock.held) await released;
-            },
-        ).catch(rejectGranted);
-    });
-    // A request withdrawn before its grant rejects; a save waiting for it fails.
-    lock.granted.catch(() => undefined);
+    locks.request(
+        leaseOwnerLockName(ownerId),
+        {
+            mode: 'exclusive',
+            ...(ifAvailable ? {ifAvailable: true} : {signal: release.signal}),
+        },
+        async grantedLock => {
+            lock.held = Boolean(grantedLock) && !release.signal.aborted;
+            grant.resolve(lock.held);
+            if (lock.held) await released;
+        },
+    ).catch(grant.reject);
+    // A failed admission owns no lock; a late refusal cannot erase its successor.
+    lock.granted.catch(() => { if (ownerLock === lock) ownerLock = null; });
     ownerLock = lock;
     return lock.granted;
 }
@@ -112,7 +111,7 @@ export async function saveBrowserDocumentLiveLease(
     // own or a previous page's, as after a reload. Without a lock manager only
     // a dead lease is replaced.
     const replacesLease = expectedGeneration === 0 && ownerLock !== null;
-    const result = await runObjectStoreTransaction<IBrowserDocumentLiveLease | null>(
+    const result = await runObjectStoreTransaction<(IBrowserDocumentLiveLease & {droppedRefs: string[]}) | null>(
         BROWSER_LIVE_LEASES_STORE,
         'readwrite',
         (store, setResult) => {
@@ -141,7 +140,12 @@ export async function saveBrowserDocumentLiveLease(
                     ).values()),
                 };
                 store.put(next);
-                setResult(next);
+                // Return collection admission to the store owner; persist only the lease.
+                const keptRefs = new Set(next.protectedDependencies.map(dependency => `${dependency.ref}::${dependency.chunkGeneration ?? ''}`));
+                setResult({
+                    ...next,
+                    droppedRefs: (current?.protectedDependencies ?? []).filter(dependency => !keptRefs.has(`${dependency.ref}::${dependency.chunkGeneration ?? ''}`)).map(dependency => dependency.ref),
+                });
             };
         },
     );
@@ -149,43 +153,26 @@ export async function saveBrowserDocumentLiveLease(
     return result;
 }
 
-export async function createBrowserDocumentLiveLease(
-    ownerId: string,
-    protectedDependencies: IBrowserDocumentLeaseDependency[] = [],
-) {
-    return saveBrowserDocumentLiveLease(ownerId, 0, 'active', protectedDependencies);
-}
-
-export async function releaseBrowserDocumentLiveLease(ownerId: string, generation: number) {
-    return saveBrowserDocumentLiveLease(ownerId, generation, 'dead', []);
-}
-
-export async function setBrowserDocumentLiveLeaseSuspended(
-    ownerId: string,
-    generation: number,
-    suspended: boolean,
-    protectedDependencies: IBrowserDocumentLeaseDependency[],
-) {
-    return saveBrowserDocumentLiveLease(ownerId, generation, suspended ? 'suspended' : 'active', protectedDependencies);
+export async function loadBrowserDocumentLiveLease(ownerId: string) {
+    const result = await withObjectStoreReadResult(BROWSER_LIVE_LEASES_STORE, store => store.get(leaseId(ownerId)));
+    return decodeLease(result.value);
 }
 
 // The owners whose context is alive, or null where the browser has no lock
 // manager to tell.
 export async function loadLiveLeaseOwnerIds() {
     const locks = resolveLockManager();
-    if (!locks) {
-        return null;
-    }
-    return new Set(((await locks.query()).held ?? []).flatMap(({name}) => (
-        typeof name === 'string' && name.startsWith(LEASE_OWNER_LOCK_PREFIX)
-            ? [name.slice(LEASE_OWNER_LOCK_PREFIX.length)]
+    return locks ? new Set(((await locks.query()).held ?? []).flatMap(lock => (
+        lock.mode === 'exclusive' && typeof lock.name === 'string' && lock.name.startsWith(LEASE_OWNER_LOCK_PREFIX)
+            ? [lock.name.slice(LEASE_OWNER_LOCK_PREFIX.length)]
             : []
-    )));
+    ))) : null;
 }
 
 type TLeaseOwnerLock = 'acquired' | 'held' | 'unsupported';
 
-// Runs `use` with what the browser can prove about an owner's liveness:
+// Shared admissions exclude the context's exclusive liveness lock without
+// making a maintenance or recovery caller look like that context.
 // 'acquired' means this context holds the owner's lock until `use` settles,
 // which no live owner allows; 'held' means another context holds it, as a
 // frozen or throttled owner does; 'unsupported' means it cannot tell.
@@ -197,7 +184,7 @@ export async function withLeaseOwnerLock<T>(ownerId: string, use: (lock: TLeaseO
     return locks.request(
         leaseOwnerLockName(ownerId),
         {
-            mode: 'exclusive',
+            mode: 'shared',
             ifAvailable: true,
         },
         lock => use(lock ? 'acquired' : 'held'),

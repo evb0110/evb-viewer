@@ -14,6 +14,7 @@ import {
 } from 'vitest';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
+    electronAppTempDirPath,
     electronUserDataPath,
     sessionDir,
     sessionFilePath,
@@ -21,7 +22,6 @@ import {
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {pruneStaleE2ESessions} from '@scripts/electron-run/electronRunE2ESessionPrune';
-import {getAppTempDirPathForUserData} from '@electron/utils/appTempDir';
 import {cleanupStaleSessionArtifacts} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 
@@ -77,8 +77,7 @@ function spawnStraySessionElectron(sessionName: string, cdpPort = STRAY_CDP_PORT
 describe('Electron automation stop residue', () => {
     it('removes the session-owned EVB temp namespace after a stopped session', async () => {
         const sessionName = `stop-temp-cleanup-${String(process.pid)}-${String(Date.now())}`;
-        const userDataPath = electronUserDataPath(sessionName);
-        const appTempPath = getAppTempDirPathForUserData(userDataPath);
+        const appTempPath = electronAppTempDirPath(sessionName);
         mkdirSync(join(appTempPath, 'pdf-work-orphan'), {recursive: true});
         writeFileSync(join(appTempPath, 'pdf-work-orphan', 'document.pdf'), 'stale');
         try {
@@ -109,7 +108,7 @@ describe('Electron automation stop residue', () => {
 
     it('reclaims an abandoned startup namespace after stale startup metadata is cleaned', async () => {
         const sessionName = `stop-startup-recovery-${String(process.pid)}-${String(Date.now())}`;
-        const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(sessionName));
+        const appTempPath = electronAppTempDirPath(sessionName);
         mkdirSync(join(appTempPath, 'pdf-work-abandoned-start'), {recursive: true});
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
@@ -146,7 +145,7 @@ describe('Electron automation stop residue', () => {
         try {
             for (let index = 0; index < 4; index += 1) {
                 const sessionName = `stop-temp-repeat-${String(process.pid)}-${String(Date.now())}-${String(index)}`;
-                const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(sessionName));
+                const appTempPath = electronAppTempDirPath(sessionName);
                 appTempPaths.push(appTempPath);
                 sessionDirs.push(sessionDir(sessionName));
                 mkdirSync(join(appTempPath, `pdf-work-${String(index)}`), {recursive: true});
@@ -187,7 +186,7 @@ describe('Electron automation stop residue', () => {
 
     it('keeps working-copy temp data when a stop preserves workspace recovery', async () => {
         const sessionName = `stop-temp-preserve-${String(process.pid)}-${String(Date.now())}`;
-        const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(sessionName));
+        const appTempPath = electronAppTempDirPath(sessionName);
         const checkpointPath = workspaceCrashCheckpointPath(sessionName);
         mkdirSync(join(appTempPath, 'pdf-work-recovery'), {recursive: true});
         writeFileSync(join(appTempPath, 'pdf-work-recovery', 'document.pdf'), 'recover me');
@@ -226,7 +225,7 @@ describe('Electron automation stop residue', () => {
         'fails a stop that leaves a session-owned Electron process alive and retains the session',
         async () => {
             const sessionName = `stop-residue-${String(process.pid)}-${String(Date.now())}`;
-            const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(sessionName));
+            const appTempPath = electronAppTempDirPath(sessionName);
             mkdirSync(join(appTempPath, 'pdf-work-live'), {recursive: true});
             const stray = spawnStraySessionElectron(sessionName);
             try {
@@ -269,8 +268,8 @@ describe('Electron automation stop residue', () => {
         async () => {
             const orphanName = `stop-orphan-no-metadata-${String(process.pid)}-${String(Date.now())}`;
             const activeName = `stop-active-profile-${String(process.pid)}-${String(Date.now())}`;
-            const orphanTempPath = getAppTempDirPathForUserData(electronUserDataPath(orphanName));
-            const activeTempPath = getAppTempDirPathForUserData(electronUserDataPath(activeName));
+            const orphanTempPath = electronAppTempDirPath(orphanName);
+            const activeTempPath = electronAppTempDirPath(activeName);
             mkdirSync(join(orphanTempPath, 'pdf-work-orphan'), {recursive: true});
             mkdirSync(join(activeTempPath, 'pdf-work-active'), {recursive: true});
             const orphan = spawnStraySessionElectron(orphanName, STRAY_CDP_PORT + 1);
@@ -316,8 +315,8 @@ describe('Electron automation stop residue', () => {
         async () => {
             const staleName = `e2e-orphan-no-metadata-${String(process.pid)}-${String(Date.now())}`;
             const activeName = `e2e-active-profile-${String(process.pid)}-${String(Date.now())}`;
-            const staleTempPath = getAppTempDirPathForUserData(electronUserDataPath(staleName));
-            const activeTempPath = getAppTempDirPathForUserData(electronUserDataPath(activeName));
+            const staleTempPath = electronAppTempDirPath(staleName);
+            const activeTempPath = electronAppTempDirPath(activeName);
             const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
             mkdirSync(join(staleTempPath, 'pdf-work-orphan'), {recursive: true});
             mkdirSync(join(activeTempPath, 'pdf-work-active'), {recursive: true});
@@ -374,7 +373,7 @@ describe('Electron automation stop residue', () => {
 
     it('E2E stale pruning retains a namespace when a workspace checkpoint exists', async () => {
         const sessionName = `e2e-preserve-checkpoint-${String(process.pid)}-${String(Date.now())}`;
-        const appTempPath = getAppTempDirPathForUserData(electronUserDataPath(sessionName));
+        const appTempPath = electronAppTempDirPath(sessionName);
         const checkpointPath = workspaceCrashCheckpointPath(sessionName);
         const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
         mkdirSync(join(appTempPath, 'pdf-work-recovery'), {recursive: true});

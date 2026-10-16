@@ -30,6 +30,14 @@ const transferRequest: IWindowTabTransferRequest = {
         originalPath: requireDocumentRef('/tmp/sample.pdf'),
         snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
         isDirty: false,
+        viewState: {
+            zoom: 1,
+            zoomMode: 'fit-width',
+            viewMode: 'single',
+            viewRotation: 0,
+            showSidebar: false,
+            continuousScroll: true,
+        },
     },
 };
 const checkpoint: IWorkspaceCheckpoint = {
@@ -82,8 +90,28 @@ describe('window tabs platform feature schemas', () => {
 
     it('round-trips transfer, checkpoint, target-window, and external-open values', () => {
         expect(codecs[channels.transfer]!.decodeArgs([transferRequest])).toEqual([transferRequest]);
+        expect(codecs[channels.transfer]!.decodeArgs([{
+            ...transferRequest,
+            payload: {
+                ...transferRequest.payload,
+                viewState: {
+                    ...(transferRequest.payload.kind === 'pdfSnapshot' ? transferRequest.payload.viewState : {}),
+                    effectiveZoom: 10,
+                },
+            },
+        }])).toEqual([transferRequest]);
         expect(codecs[channels.transfer]!.decodeResult(transferResult)).toEqual(transferResult);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([checkpoint])).toEqual([checkpoint]);
+        expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(true)).toBe(true);
+        expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(false)).toBe(false);
+        expect(() => codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(undefined)).toThrow();
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods.find(descriptor => descriptor.path.at(-1) === 'saveWorkspaceCheckpoint')).toMatchObject({
+            optionalWhenImplemented: true,
+            required: {
+                browser: false,
+                electron: true,
+            },
+        });
         expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
         expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeResult('7')).toBe('7');
         expect(codecs[channels.resumeWorkspaceCheckpoint]!.decodeArgs(['7'])).toEqual(['7']);

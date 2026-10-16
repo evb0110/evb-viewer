@@ -1,6 +1,4 @@
-import {
-    parseDocumentRef, type TDocumentRef,
-} from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
@@ -22,6 +20,10 @@ import {
     writeDocumentRefToHandle,
     writeBytesToHandleInSaveLock,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
+import {
+    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
+    handoffBrowserDocumentWorkingCopy,
+} from '@app/platform/browserWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 
 export class BrowserExternalSaveSyncRequiredError extends Error {
@@ -34,19 +36,6 @@ export class BrowserExternalSaveSyncRequiredError extends Error {
     }
 }
 
-function buildBrowserLargeJobError(
-    label: string,
-    maxBytes: number,
-    hint?: string,
-) {
-    return buildBrowserByteLimitError(
-        label,
-        maxBytes,
-        'inputs',
-        hint,
-    );
-}
-
 export async function assertBrowserPathWithinFullReadBudget(
     path: string,
     label: string,
@@ -54,7 +43,7 @@ export async function assertBrowserPathWithinFullReadBudget(
 ) {
     const { size } = await browserDocumentStore.stat(path);
     if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        throw buildBrowserLargeJobError(label, BROWSER_MAX_FULL_READ_BYTES, hint);
+        throw buildBrowserByteLimitError(label, BROWSER_MAX_FULL_READ_BYTES, 'inputs', hint);
     }
 }
 
@@ -62,6 +51,7 @@ export async function saveWorkingBytesToSource(
     workingCopyPath: TDocumentRef,
     getBrowserLargeSaveHandleHint: () => string,
     revisionOptions?: IDocumentMutationRevisionOptions,
+    stagedOutput?: ITypedStagedArtifact,
 ) {
     const sourceRef = await browserDocumentStore.getSourceRef(workingCopyPath);
     const saveTarget = await browserDocumentStore.getSaveTarget(sourceRef);
@@ -92,11 +82,14 @@ export async function saveWorkingBytesToSource(
             sourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
             async (mutation) => {
+                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
+                if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
                 if (pickedTarget.handle) {
                     await mutation.assertPhysicalSourceBaseCurrent();
-                    await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
+                    if (staged) await writeBytesToHandleInSaveLock(pickedTarget.handle, staged.bytes);
+                    else await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
                     externalWriteCommitted = true;
-                    const { size } = await browserDocumentStore.stat(workingCopyPath);
+                    const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
                     await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
                         fileSize: size,
                         saveHandle: pickedTarget.handle,
@@ -114,7 +107,7 @@ export async function saveWorkingBytesToSource(
                         'Saving documents',
                         getBrowserLargeSaveHandleHint(),
                     );
-                    const bytes = await browserDocumentStore.read(workingCopyPath);
+                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
                     const saveResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName: ensurePdfExtension(pickedTarget.fileName),
                         mimeType: 'application/pdf',
@@ -141,6 +134,7 @@ export async function saveWorkingBytesToSource(
                 // record points at. Skipping it on the picker branch left the
                 // working copy describing the file it no longer saves to, so the
                 // next ordinary Save reported our own write as an external edit.
+                if (staged) await mutation.write(staged.bytes);
                 await mutation.acknowledgePhysicalSourceCommit();
                 await browserDocumentStore.touchRecentFile(sourceRef);
                 return true;
@@ -236,45 +230,22 @@ export async function savePdfAsFromWorkingCopy(
         await ensureFileHandleWritePermission(saveResult.handle);
     }
     let externalWriteCommitted: boolean | null = false;
-    let savedSourceRef: TDocumentRef | null;
     try {
-        const savedSourceRefResult = await browserDocumentStore.runDocumentMutationWithSource(
+        return await browserDocumentStore.runDocumentMutationWithSource(
             workingCopyPath,
             previousSourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
-            async (mutation) => {
+            async () => {
                 const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
                 let normalizedFileName = ensurePdfExtension(saveResult.fileName);
                 let savedHandle = saveResult.handle;
-                let sourceRef: TDocumentRef;
-
+                let bytes: Uint8Array = new Uint8Array();
+                let fileSize: number;
                 if (saveResult.handle) {
                     if (staged) await writeBytesToHandleInSaveLock(saveResult.handle, staged.bytes);
                     else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
                     externalWriteCommitted = true;
-                    const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
-                    sourceRef = await browserDocumentStore.createStoredDocument(
-                        normalizedFileName,
-                        new Uint8Array(),
-                        {
-                            mimeType: 'application/pdf',
-                            saveKind: 'pdf',
-                            kind: 'source',
-                            saveHandle: saveResult.handle,
-                            storageMode: 'handle',
-                        },
-                    );
-                    await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
-                        fileSize: size,
-                        saveHandle: saveResult.handle,
-                        saveName: normalizedFileName,
-                    });
-                    await browserDocumentStore.assignSaveTarget(
-                        sourceRef,
-                        normalizedFileName,
-                        'pdf',
-                        saveResult.handle,
-                    );
+                    fileSize = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
                 } else {
                     if (!staged) {
                         await assertBrowserPathWithinFullReadBudget(
@@ -283,43 +254,44 @@ export async function savePdfAsFromWorkingCopy(
                             useNativeAppMessage,
                         );
                     }
-                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
+                    bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
                     const downloadResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName,
                         mimeType: 'application/pdf',
                         pickerTypes: buildPdfSaveTypes(),
                         downloadFallbackLabel: 'Saving documents',
                     });
-
-                    if (downloadResult.canceled) {
-                        return null;
-                    }
-
+                    if (downloadResult.canceled) return null;
                     externalWriteCommitted = true;
                     normalizedFileName = ensurePdfExtension(downloadResult.fileName);
                     savedHandle = downloadResult.handle;
-                    sourceRef = await browserDocumentStore.createStoredDocument(
-                        normalizedFileName,
-                        bytes,
-                        {
-                            mimeType: 'application/pdf',
-                            saveKind: 'pdf',
-                            kind: 'source',
-                            saveHandle: downloadResult.handle,
-                        },
-                    );
+                    fileSize = bytes.byteLength;
                 }
-                await mutation.replaceWorkingCopySource(
-                    sourceRef,
-                    normalizedFileName,
-                    savedHandle,
-                );
-                await browserDocumentStore.touchRecentFile(sourceRef);
-                browserDocumentStore.unload(sourceRef);
-                return sourceRef;
+                const sourceRef = await reserveBrowserDocumentWorkingCopy(normalizedFileName);
+                try {
+                    await browserDocumentStore.createStoredDocument(normalizedFileName, bytes, {
+                        ref: sourceRef,
+                        mimeType: 'application/pdf',
+                        saveKind: 'pdf',
+                        kind: 'source',
+                        saveHandle: savedHandle,
+                        ...(savedHandle ? {storageMode: 'handle' as const} : {}),
+                    });
+                    if (savedHandle) {
+                        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
+                            fileSize,
+                            saveHandle: savedHandle,
+                            saveName: normalizedFileName,
+                        });
+                    }
+                    handoffBrowserDocumentWorkingCopy(sourceRef, workingCopyPath, () => browserDocumentStore.touchRecentFile(sourceRef));
+                    return sourceRef;
+                } catch (error) {
+                    await retireBrowserDocumentWorkingCopy(sourceRef);
+                    throw error;
+                }
             },
         );
-        savedSourceRef = parseDocumentRef(savedSourceRefResult);
     } catch (error) {
         if (error instanceof BrowserFileWriteOutcomeError) {
             externalWriteCommitted = error.externalWriteCommitted;
@@ -329,14 +301,4 @@ export async function savePdfAsFromWorkingCopy(
         }
         throw error;
     }
-
-    if (
-        savedSourceRef
-        && savedSourceRef !== previousSourceRef
-        && previousSourceRef !== workingCopyPath
-    ) {
-        await browserDocumentStore.cleanupDetachedDocument(previousSourceRef)
-            .catch(() => undefined);
-    }
-    return savedSourceRef;
 }

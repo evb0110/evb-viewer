@@ -237,17 +237,65 @@ describe('AnnotationStore dirty and persistence projection', () => {
         })]);
     });
 
-    it('rejects a stale frontier before applying bindings', () => {
+    it('rejects a stale frontier before writing', () => {
         const store = new AnnotationStore();
         const created = store.createNote(note('stale'));
         const frontier = store.beginSave();
         store.updateNote(created.identity.id, {contents: 'changed'});
 
-        expect(() => store.markPersisted(frontier, [{
-            annotationId: created.identity.id,
-            pdfRef: '41R',
-        }])).toThrow('staleRevisionError');
+        expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
         expect(store.get(created.identity.id)?.identity.pdfRef).toBeUndefined();
         expect(store.get(created.identity.id)?.persistedRevision).toBe(-1);
     });
+    it('acknowledges published revisions while later edits and notes stay dirty', () => {
+        const store = new AnnotationStore();
+        const first = store.createNote(note('published', {contents: 'saved text'}));
+        const frontier = store.beginSave();
+        store.updateNote(first.identity.id, {contents: 'later edit'});
+        const later = store.createNote(note('later', {contents: 'later note'}));
+
+        store.markPersisted(frontier, [{
+            annotationId: first.identity.id,
+            pdfRef: '41R',
+        }]);
+
+        expect(store.get(first.identity.id)).toMatchObject({
+            contents: 'later edit',
+            persistedRevision: 0,
+            revision: 1,
+            identity: {pdfRef: '41R'},
+        });
+        expect(store.dirtyEntities().map(entity => entity.identity.id)).toEqual([
+            first.identity.id,
+            later.identity.id,
+        ]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+        store.markPersisted(store.beginSave(), [{
+            annotationId: later.identity.id,
+            pdfRef: '42R',
+        }]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(store.dirtyEntities()).toEqual([]);
+    });
+
+    it('keeps a deletion accepted after publication bound for the next save', () => {
+        const store = new AnnotationStore();
+        const first = store.createNote(note('late-delete'));
+        const frontier = store.beginSave();
+        store.delete(first.identity.id);
+        store.markPersisted(frontier, [{
+            annotationId: first.identity.id,
+            pdfRef: '43R',
+        }]);
+        expect(store.get(first.identity.id)).toMatchObject({
+            deleted: true,
+            identity: {pdfRef: '43R'},
+        });
+        expect(store.countDirtyPersistedDeletions()).toBe(1);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+        store.markPersisted(store.beginSave());
+        expect(store.get(first.identity.id)?.identity.pdfRef).toBeUndefined();
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
 });

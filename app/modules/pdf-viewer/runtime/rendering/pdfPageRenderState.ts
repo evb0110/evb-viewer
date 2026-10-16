@@ -1,5 +1,7 @@
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { TPdfViewRotation } from '@contracts/shared';
+import type {IPdfLayerRenderResult} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -78,6 +80,7 @@ interface IPdfPageRenderSlot {
     readonly targetViewRotation: TPdfViewRotation | null;
     readonly container: HTMLElement | null;
     readonly committedRasterQuality: IPdfCommittedRasterQuality | null;
+    readonly committedRender: IPdfLayerRenderResult | null;
     readonly pendingDocumentToken: string | null;
     readonly pendingTargetScale: number | null;
     readonly pendingTargetOutputScale: number | null;
@@ -126,6 +129,7 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     targetViewRotation: null,
     container: null,
     committedRasterQuality: null,
+    committedRender: null,
     pendingDocumentToken: null,
     pendingTargetScale: null,
     pendingTargetOutputScale: null,
@@ -278,6 +282,7 @@ export function createPdfPageRenderState() {
         remove: pageNumber => updateSlot(pageNumber, {
             visual: 'none',
             canvasReadiness: 'none',
+            committedRender: null,
             layerReadiness: 'none',
             textLayerReadiness: 'none',
             hydrationRequestId: null,
@@ -379,6 +384,7 @@ export function createPdfPageRenderState() {
                 committedRasterQuality: preserveCommittedVisual
                     ? current.committedRasterQuality
                     : null,
+                committedRender: preserveCommittedVisual ? current.committedRender : null,
                 container: preserveCommittedVisual ? current.container : container,
                 pendingDocumentToken: documentToken,
                 pendingTargetScale: targetScale,
@@ -430,6 +436,7 @@ export function createPdfPageRenderState() {
                 intent: 'settled',
                 paintsAnnotations: true,
             },
+            committedRender: IPdfLayerRenderResult | null = null,
         ) {
             const current = getSlot(pageNumber);
             if (current.job !== 'rendering' || current.version !== version || current.requestId !== requestId) {
@@ -445,6 +452,7 @@ export function createPdfPageRenderState() {
                 targetViewRotation: current.pendingTargetViewRotation,
                 container: current.pendingContainer,
                 committedRasterQuality,
+                committedRender: committedRender ? Object.freeze(committedRender) : null,
             });
             logPdfRenderTrace('renderer-canvas-mounted', {
                 pageNumber,
@@ -453,6 +461,18 @@ export function createPdfPageRenderState() {
                 intent: committedRasterQuality.intent,
             });
             return true;
+        },
+        isOriginalAppearance(pageNumber: TPageNumber, pdfRef: string | null | undefined) {
+            const slot = getSlot(pageNumber);
+            const rendered = slot.committedRender;
+            const id = normalizePdfJsAnnotationId(pdfRef);
+            const input = rendered?.annotationInput;
+            const output = rendered?.annotationOutput;
+            const annotation = input?.annotations.find(entry => normalizePdfJsAnnotationId(entry.id) === id);
+            if (slot.canvasReadiness !== 'ready' || !id || !input || !output || input.excludedIds.has(id) || !annotation) return false;
+            if (!annotation.hasOwnCanvas || !output.requestedSeparateCanvas) return true;
+            const canvas = output.ownCanvases.find(([ref]) => normalizePdfJsAnnotationId(ref) === id)?.[1];
+            return Boolean(canvas?.isConnected && slot.container?.contains(canvas));
         },
         isPaintedWithoutAnnotations(pageNumber: TPageNumber) {
             return getSlot(pageNumber).committedRasterQuality?.paintsAnnotations === false;

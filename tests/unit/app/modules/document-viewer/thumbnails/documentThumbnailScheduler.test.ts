@@ -277,6 +277,81 @@ describe('createDocumentThumbnailScheduler', () => {
         scheduler.dispose();
     });
 
+    it.each([
+        'ignores abort',
+        'rejects on abort',
+    ])('counts deadlines when the provider %s and lets later thumbnails render', async (behavior) => {
+        vi.useFakeTimers();
+        const failures: string[] = [];
+        const surfaces: number[] = [];
+        const late = deferred<IDocumentRenderLease>();
+        const release = vi.fn();
+        const scheduler = createDocumentThumbnailScheduler({
+            maxConcurrency: 1,
+            renderTimeoutMs: 10,
+            render: request => {
+                if (request.pageNumber !== 5) return Promise.resolve(lease(request.widthPx));
+                if (behavior === 'ignores abort') return late.promise;
+                return new Promise<never>((_resolve, reject) => {
+                    request.signal?.addEventListener('abort', () => reject(new DOMException('Canceled render', 'AbortError')), {once: true});
+                });
+            },
+            prepareSurface: async () => undefined,
+            onStateChange: (pageNumber, state) => {
+                if (state) surfaces.push(pageNumber);
+            },
+            onError: error => {
+                failures.push(error instanceof Error ? error.message : String(error));
+                if (failures.length === 3) scheduler.reconcile([demand(6, 128)]);
+            },
+        });
+        try {
+            scheduler.reconcile([
+                demand(5, 128),
+                demand(6, 128),
+            ]);
+            await vi.advanceTimersByTimeAsync(40);
+            expect(failures).toEqual(Array<string>(3).fill('Thumbnail render timed out after 10ms'));
+            expect(surfaces).toEqual([6]);
+            expect(scheduler.getSnapshot().activePages).toEqual([]);
+            late.resolve(lease(128, release));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(surfaces).toEqual([6]);
+            expect(release).toHaveBeenCalledTimes(behavior === 'ignores abort' ? 3 : 0);
+        } finally {
+            scheduler.dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps a real cancellation clean even when its provider misses the deadline', async () => {
+        vi.useFakeTimers();
+        const pending = deferred<IDocumentRenderLease>();
+        const onError = vi.fn();
+        const release = vi.fn();
+        const scheduler = createDocumentThumbnailScheduler({
+            maxConcurrency: 1,
+            renderTimeoutMs: 10,
+            render: () => pending.promise,
+            prepareSurface: async () => undefined,
+            onStateChange: () => undefined,
+            onError,
+        });
+        try {
+            scheduler.reconcile([demand(5, 128)]);
+            scheduler.reset();
+            await vi.advanceTimersByTimeAsync(20);
+            pending.resolve(lease(128, release));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(onError).not.toHaveBeenCalled();
+            expect(scheduler.getSnapshot().committedPages).toEqual([]);
+            expect(release).toHaveBeenCalledOnce();
+        } finally {
+            scheduler.dispose();
+            vi.useRealTimers();
+        }
+    });
+
     it('reports the requested width alongside the leased raster it committed', async () => {
         const states: Array<{
             requestWidthPx: number;

@@ -199,9 +199,15 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
         .get_dictionary_mut(popup_id)
         .unwrap()
         .set("Parent", Object::Reference(target_id));
+    // A FreeText's /C fills its box: its colour belongs to its DA.
+    let label_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_one_id,
+        "Rect" => vec![50.into(), 10.into(), 150.into(), 40.into()], "Contents" => Object::string_literal("label"),
+        "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"), "C" => vec![1.into(), 1.into(), 0.85.into()],
+    });
     document.get_dictionary_mut(page_one_id).unwrap().set(
         "Annots",
-        vec![Object::Reference(target_id), Object::Reference(popup_id)],
+        vec![Object::Reference(target_id), Object::Reference(popup_id), Object::Reference(label_id)],
     );
 
     let input_path = temp_pdf_path("append-note-geometry-input");
@@ -228,6 +234,13 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
                 },
                 color: Some(Some("#336699".to_string())),
                 open: Some(true),
+            }, NoteGeometryUpdate {
+                object_number: label_id.0,
+                generation_number: label_id.1,
+                page_index: 0,
+                marker_rect: MarkerRect { left: 0.25, top: 0.6, width: 0.5, height: 0.3 },
+                color: Some(Some("#f59e0b".to_string())),
+                open: None,
             }],
             ..NativeMutationsFile::default()
         },
@@ -236,6 +249,8 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
     .unwrap();
 
     let loaded = Document::load(&output_path).unwrap();
+    let label = loaded.get_dictionary(label_id).unwrap();
+    assert_eq!(label.get(b"C").unwrap(), document.get_dictionary(label_id).unwrap().get(b"C").unwrap());
     let page_one_annots = get_page_annots(&loaded, page_one_id).unwrap();
     let page_two_annots = get_page_annots(&loaded, page_two_id).unwrap();
     assert!(!page_one_annots.iter().any(|object| {
@@ -250,10 +265,10 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
         .any(|object| object.as_reference().ok() == Some(popup_id)));
 
     let expected_rect = PdfRect {
-        x1: 120.0,
-        y1: 55.0,
-        x2: 140.0,
-        y2: 75.0,
+        x1: 125.0,
+        y1: 59.0,
+        x2: 145.0,
+        y2: 79.0,
     };
     let target = loaded.get_dictionary(target_id).unwrap();
     assert_eq!(
@@ -1262,8 +1277,8 @@ fn appends_free_text_note_as_text_annotation_for_legacy_callers() {
     assert!(text_note.get(b"AP").is_err());
     assert_approximately(rect.width(), 20.0);
     assert_approximately(rect.height(), 20.0);
-    assert_approximately(rect.x1, 20.0);
-    assert_approximately(rect.y1, 60.0);
+    assert_approximately((rect.x1 + rect.x2) / 2.0, 20.16);
+    assert_approximately((rect.y1 + rect.y2) / 2.0, 79.92);
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
@@ -1741,7 +1756,7 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
                     stable_key: "pdfjs_internal_editor_0".to_string(),
                     annotation_id: None,
                     text: text.to_string(),
-                    rect: [2.0, 54.0, 59.0, 80.0],
+                    rect: [2.0, 54.0, 198.0, 80.0],
                     rotation: 0,
                     font_size: 16.0,
                     color: [245, 158, 11],
@@ -1812,7 +1827,7 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
     document.save_to(&mut original_bytes).unwrap();
     write(&pdf_path, &original_bytes).unwrap();
 
-    let text = "A long text box line that wraps at the requested width without changing its font size";
+    let text = "Wrapping text box";
     let created_at = 1_780_000_000_000;
     let modified_at = 1_780_000_060_000;
     append_native_mutations(
@@ -1901,14 +1916,16 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
         .unwrap();
     let appearance_text = String::from_utf8_lossy(&appearance.content);
     assert!(appearance_text.matches(" Tj").count() > 1);
-    for line in wrap_free_text_lines(text, 100.0, 16.0) {
+    let layout = crate::text_box_font::layout;
+    let width = |line: &str| layout(line.trim_end(), f64::MAX, 16.0)[0].width;
+    for line in layout(text, 100.0, 16.0) {
         // This mirrors the writer's line-break measurement; rendered fit is checked by the PDF appearance assertions above.
-        assert!(free_text_line_width(line.trim_end(), 16.0) <= 100.0);
+        assert!(width(&line.text) <= 100.0);
     }
-    let lines = wrap_free_text_lines("aaa    bbb", 35.0, 16.0);
+    let lines: Vec<_> = layout("aaa    bbb", 35.0, 16.0).into_iter().map(|line| line.text).collect();
     assert_eq!(lines.concat(), "aaa    bbb");
     for line in lines {
-        assert!(free_text_line_width(line.trim_end(), 16.0) <= 35.0);
+        assert!(width(&line) <= 35.0);
     }
 }
 
@@ -2100,7 +2117,7 @@ fn refuses_foreign_freetext_targets_before_rewrite_or_append() {
                     }],
                     "textBoxes": [{
                         "pageIndex": destination_page, "stableKey": "foreign-text",
-                        "annotationId": by_reference.then(|| format_pdfjs_annotation_ref(id)),
+                        "annotationId": by_reference.then(|| format!("{} {} R", id.0, id.1)),
                         "text": "must not replace the appearance",
                         "rect": [100.0, 400.0, 400.0, 440.0], "rotation": 0, "fontSize": 12.0,
                         "color": [0, 0, 0],
@@ -2152,7 +2169,8 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
             "Subtype" => "Form",
             "BBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
         },
-        b"q old appearance Q".to_vec(),
+        // Its producer paints the /C fill in its own appearance.
+        b"q 0.2 0.3 0.4 rg 0 0 10 10 re f Q".to_vec(),
     ));
     let popup_id = document.add_object(dictionary! {
         "Type" => "Annot",
@@ -2171,6 +2189,8 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         "CreationDate" => Object::string_literal("D:20260101000000Z"),
         "M" => Object::string_literal("D:20260102000000Z"),
         "DA" => Object::string_literal("/Courier 12 Tf 0.2 0.3 0.4 rg 2 Tc 3 Tr"),
+        // A producer's fill in the text colour: unusual, but its own (review-b7s).
+        "C" => vec![0.2.into(), 0.3.into(), 0.4.into()],
         "AP" => dictionary! {
             "N" => old_appearance,
             "R" => Object::string_literal("rollover"),
@@ -2215,9 +2235,9 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
             text_boxes: vec![TextBoxMutation {
                 page_index: 0,
                 stable_key: "foreign-text-box".to_string(),
-                annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)),
+                annotation_id: Some(format!("{} {} R", foreign_id.0, foreign_id.1)),
                 text: "edited foreign text".to_string(),
-                rect: [20.0, 30.0, 160.0, 80.0],
+                rect: [20.0, 25.0, 160.0, 80.0],
                 rotation: 0,
                 font_size: 18.0,
                 color: [17, 24, 39],
@@ -2253,11 +2273,111 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         before_ap.get(b"UnknownAP").unwrap()
     );
     let da = String::from_utf8_lossy(after.get(b"DA").unwrap().as_str().unwrap());
-    assert!(da.contains("/Courier 18 Tf"));
     assert!(da.contains("2 Tc 3 Tr"));
     assert!(da.contains("0.0667 0.0941 0.1529 rg"));
+    // Its 7 pt border keeps the colour it was drawn in, the old text colour,
+    // and the text fits inside it at the size the DA records.
+    assert!(da.ends_with(" 0.2 0.3 0.4 RG"), "{da}");
+    let normal = loaded.get_object(after_ap.get(b"N").unwrap().as_reference().unwrap()).unwrap();
+    let content = String::from_utf8(normal.as_stream().unwrap().decompressed_content().unwrap()).unwrap();
+    assert!(content.starts_with("q 0.2 0.3 0.4 rg 20 25 140 55 re f Q\nq\n0.2 0.3 0.4 RG 7 w"), "{content}");
+    let drawn = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap();
+    assert!(drawn.parse::<f64>().unwrap() < 18.0 && da.contains(&format!("/Courier {drawn} Tf")), "{da}");
     assert_eq!(loaded.get_dictionary(popup_id).unwrap(), &before_popup);
-
+    // The editor reopens it with the same frame. A dashed border is not one
+    // the editor draws, so such a label keeps its producer's appearance.
+    let entries = collect_parsed_annotations(&loaded, "D:20260831130000Z").unwrap();
+    let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
+    let frame = reopened.frame.as_ref().unwrap();
+    let border = (frame.border_width, frame.border_color.as_deref(), frame.background.as_deref());
+    assert_eq!((frame.insets, border), ([0.0; 4], (7.0, Some("#334d66"), Some("#334d66"))));
+    // A /C in the text colour of a box EVB saved is what EVB once wrote there
+    // as the label's colour, not a fill: the next Save drops it.
+    let mut legacy = loaded.clone();
+    legacy.get_dictionary_mut(foreign_id).unwrap().set("C", vec![0.0667.into(), 0.0941.into(), 0.1529.into()]);
+    let edit = TextBoxMutation {
+        page_index: 0, stable_key: "foreign-text-box".to_string(),
+        annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: "edited foreign text".to_string(),
+        rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 18.0, color: [200, 0, 0],
+        author: None, created_at: None, modified_at: None,
+    };
+    let edit = NativeMutationsFile { text_boxes: vec![edit], ..NativeMutationsFile::default() };
+    apply_native_mutations(&mut legacy, &edit, "D:20260831140000Z").unwrap();
+    assert!(legacy.get_dictionary(foreign_id).unwrap().get(b"C").is_err(), "EVB's old /C goes");
+    let mut dashed = loaded.clone();
+    dashed.get_dictionary_mut(foreign_id).unwrap().set("BS", dictionary! {"W" => 7, "S" => "D"});
+    // A dashed label keeps its producer's appearance: the reader gives it as a
+    // read-only text box, and the writer refuses to edit it (review-b7s).
+    let entries = collect_parsed_annotations(&dashed, "D:20260831130000Z").unwrap();
+    assert!(matches!(&entries[0], PdfAnnotationParseEntry::TextBox(label) if label.read_only), "{:?}", entries[0]);
+    let refused = apply_native_mutations(&mut dashed, &edit, "D:20260831140000Z").unwrap_err().to_string();
+    assert!(refused.contains("is read-only: its border style is not editable"), "{refused}");
+    // verify13w: a producer's black /C whose own appearance strokes a black
+    // border and paints no fill is no background. The editor shows a white
+    // label, and edits, reopened and edited again, never add a fill (review-b8f).
+    let mut unfilled = loaded.clone();
+    let stroked = unfilled.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 55.into()]},
+        b"q 2 w 0 0 0 RG 1 1 138 53 re S BT /Helv 12 Tf 0 0 0 rg 8 13 Td (foreign text) Tj ET Q".to_vec(),
+    ));
+    let label = unfilled.get_dictionary_mut(foreign_id).unwrap();
+    label.set("C", vec![0.into(), 0.into(), 0.into()]);
+    label.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+    label.set("BS", dictionary! {"W" => 2, "S" => "S"});
+    label.remove(b"Border");
+    label.remove(b"EVBTextGeometry");
+    label.get_mut(b"AP").unwrap().as_dict_mut().unwrap().set("N", stroked);
+    let frame_of = |document: &Document| {
+        let entries = collect_parsed_annotations(document, "D:20260831130000Z").unwrap();
+        let PdfAnnotationParseEntry::TextBox(label) = &entries[0] else { panic!("{:?}", entries[0]) };
+        let frame = label.frame.clone().unwrap();
+        (frame.border_width, frame.border_color, frame.background)
+    };
+    assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None));
+    for (text, color) in [("edited once", [245, 158, 11]), ("edited twice", [34, 197, 94])] {
+        let edit = TextBoxMutation {
+            page_index: 0, stable_key: "foreign-text-box".to_string(),
+            annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(),
+            rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 12.0, color,
+            author: None, created_at: None, modified_at: None,
+        };
+        let edit = NativeMutationsFile { text_boxes: vec![edit], ..NativeMutationsFile::default() };
+        apply_native_mutations(&mut unfilled, &edit, "D:20260831140000Z").unwrap();
+        let label = unfilled.get_dictionary(foreign_id).unwrap();
+        assert!(label.get(b"C").is_err(), "the /C its appearance never painted goes");
+        let normal = label.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+        let content = String::from_utf8(unfilled.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
+        assert!(!content.contains(" re f") && content.contains("0 G 2 w 1 J 0 j"), "{content}");
+        assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None), "it reopens unfilled");
+    }
+    // An inline image paints a real background (review-b8f, r12-make-variants
+    // inline-image): /C stays the label's fill, on screen and through Save.
+    let mut inline = loaded.clone();
+    let painted = inline.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 55.into()]},
+        b"q 140 0 0 55 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /RGB ID \0\0\0 EI Q BT /Helv 12 Tf 1 1 1 rg 8 13 Td (Fill probe) Tj ET".to_vec(),
+    ));
+    let label = inline.get_dictionary_mut(foreign_id).unwrap();
+    label.set("C", vec![0.into(), 0.into(), 0.into()]);
+    label.set("DA", Object::string_literal("/Helv 12 Tf 1 1 1 rg"));
+    label.set("BS", dictionary! {"W" => 2, "S" => "S"});
+    label.remove(b"Border");
+    label.remove(b"EVBTextGeometry");
+    label.get_mut(b"AP").unwrap().as_dict_mut().unwrap().set("N", painted);
+    assert_eq!(frame_of(&inline).2.as_deref(), Some("#000000"), "the inline image is the label's fill");
+    let edit = TextBoxMutation {
+        page_index: 0, stable_key: "foreign-text-box".to_string(),
+        annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: "Fill probe".to_string(),
+        rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 12.0, color: [245, 158, 11],
+        author: None, created_at: None, modified_at: None,
+    };
+    let edit = NativeMutationsFile { text_boxes: vec![edit], ..NativeMutationsFile::default() };
+    apply_native_mutations(&mut inline, &edit, "D:20260831140000Z").unwrap();
+    let label = inline.get_dictionary(foreign_id).unwrap();
+    assert!(label.get(b"C").is_ok(), "the filled label keeps its /C");
+    let normal = label.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+    let content = String::from_utf8(inline.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
+    assert!(content.starts_with("q 0 0 0 rg 20 25 140 55 re f Q"), "{content}");
 }
 
 #[test]
@@ -2415,7 +2535,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                     stable_key: "freetext-first".to_string(),
                     annotation_id: None,
                     text: "first editor".to_string(),
-                    rect: [2.0, 54.0, 59.0, 80.0],
+                    rect: [2.0, 54.0, 198.0, 80.0],
                     rotation: 0,
                     font_size: 16.0,
                     color: [17, 24, 39],
@@ -2920,17 +3040,16 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
 }
 
 #[test]
-fn unicode_text_boxes_append_reopen_and_share_one_embedded_font() {
+fn unicode_text_boxes_append_reopen_with_verified_font_subsets() {
     let (mut document, page_id) = create_test_document();
     let pdf_path = temp_pdf_path("unicode-text-box-font-reuse");
     let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
     let mut original = Vec::new();
     document.save_to(&mut original).unwrap();
     write(&pdf_path, &original).unwrap();
-    for (index, text) in ["Cafe\u{301} Привет שָׁלוֹם", "العَرَبِيَّة Latin 123\nשלום"].iter().enumerate() {
+    for (index, text) in ["Cafe\u{301} Привет שָׁלוֹם", "العَرَبِيَّة Latin 123\nשלום", "ܫܠܵܡܵܐ", "בְּרֵאשִׁ֖ית", "بَسْمِ لَا بــِسْمِ"].iter().enumerate() {
         let before = fs::read(&pdf_path).unwrap();
-        append_native_mutations(&pdf_path, &pdf_path, &NativeMutationsFile {
-            text_boxes: vec![TextBoxMutation {
+        let editor = TextBoxMutation {
                 page_index: 0,
                 stable_key: format!("unicode-{index}"),
                 annotation_id: None,
@@ -2942,21 +3061,170 @@ fn unicode_text_boxes_append_reopen_and_share_one_embedded_font() {
                 author: None,
                 created_at: None,
                 modified_at: None,
-            }],
-            ..NativeMutationsFile::default()
-        }, "D:20260908000000Z").unwrap();
+        };
+        let mutations = NativeMutationsFile { text_boxes: vec![editor], ..NativeMutationsFile::default() };
+        append_native_mutations(&pdf_path, &pdf_path, &mutations, "D:20260908000000Z").unwrap();
         let saved_bytes = fs::read(&pdf_path).unwrap();
         assert_eq!(&saved_bytes[..before.len()], before.as_slice());
         let saved = Document::load(&pdf_path).unwrap();
-        let font_count = saved.objects.values().filter(|object| object.as_dict().ok()
-            .is_some_and(|dict| dict.has(b"EVBTextFontVersion"))).count();
-        assert_eq!(font_count, 1, "a subsequent save must reuse the existing embedded font");
         let annots = get_page_annots(&saved, page_id).unwrap();
         assert_eq!(annots.len(), index + 1);
         let annotation = saved.get_dictionary(annots[index].as_reference().unwrap()).unwrap();
         assert_eq!(annotation.get(b"Contents").ok().and_then(pdf_string_to_text).as_deref(), Some(*text));
-        crate::text_box_font::validate_appearance_font(&saved, annotation).unwrap();
+        let appearance = saved.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap();
+        let normal = saved.resolved(appearance.get(b"N").unwrap()).unwrap().as_stream().unwrap();
+        let resources = saved.resolved(normal.dict.get(b"Resources").unwrap()).unwrap().as_dict().unwrap();
+        let fonts = saved.resolved(resources.get(b"Font").unwrap()).unwrap().as_dict().unwrap();
+        for (name, font) in fonts.iter() {
+            let index = std::str::from_utf8(name).unwrap().trim_start_matches("TextFont").parse::<usize>().unwrap();
+            let font = saved.resolved(font).unwrap().as_dict().unwrap();
+            let descendant = saved.resolved(&font.get(b"DescendantFonts").unwrap().as_array().unwrap()[0]).unwrap().as_dict().unwrap();
+            let descriptor = saved.resolved(descendant.get(b"FontDescriptor").unwrap()).unwrap().as_dict().unwrap();
+            let program = saved.resolved(descriptor.get(b"FontFile2").unwrap()).unwrap().as_stream().unwrap().decompressed_content().unwrap();
+            assert!(program.len() < crate::text_box_font::FONTS[index].len(), "only used glyph outlines are embedded");
+            assert!(!saved.resolved(descendant.get(b"CIDToGIDMap").unwrap()).unwrap().as_stream().unwrap().decompressed_content().unwrap().is_empty());
+        }
     }
+}
+
+#[test]
+fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
+    // The editor sizes a box to the text it shows. A box one line high whose
+    // saved text would wrap keeps every glyph inside its clip, at a smaller size.
+    use crate::text_box_font::{layout, LINE_HEIGHT, PADDING_X, PADDING_Y};
+    let text = "ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ";
+    let line = &layout(text, f64::MAX, 16.0)[0];
+    for (scale, shrinks) in [(1.02, false), (0.97, true)] {
+        let width = line.width * scale + 2.0 * PADDING_X * 16.0;
+        let height = (LINE_HEIGHT + 2.0 * PADDING_Y) * 16.0;
+        let editor = TextBoxMutation {
+            page_index: 0, stable_key: "fit".to_string(), annotation_id: None, text: text.to_string(),
+            rect: [10.0, 10.0, 10.0 + width, 10.0 + height], rotation: 0, font_size: 16.0,
+            color: [0, 0, 0], author: None, created_at: None, modified_at: None,
+        };
+        let rect = PdfRect { x1: 10.0, y1: 10.0, x2: 10.0 + width, y2: 10.0 + height };
+        let mut document = Document::with_version("1.7");
+        let mut fonts = crate::text_box_font::SharedFonts::default();
+        let (id, size) = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts, None).unwrap();
+        assert_eq!(size < 16.0, shrinks, "the DA records the size the appearance draws");
+        let content = String::from_utf8(document.get_object(id).unwrap().as_stream().unwrap().content.clone()).unwrap();
+        let numbers = |suffix| content.lines().filter(move |op: &&str| op.ends_with(suffix))
+            .map(|op| op.split_whitespace().filter_map(|token| token.parse().ok()).collect::<Vec<f64>>());
+        assert_eq!(numbers("Tj").count(), line.glyphs.len(), "every glyph is drawn");
+        for glyph in numbers("Tj") {
+            let (x, y) = (glyph[4], glyph[5]);
+            assert!((0.0..width).contains(&x) && (0.0..height).contains(&y), "{glyph:?} lies outside the clip");
+        }
+        assert!(numbers("Tf").all(|size| (size[0] < 16.0) == shrinks), "{content}");
+    }
+}
+
+#[test]
+fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
+    // review-b6ys: the editor sized this margin box for 15 lines at 22 pt. The
+    // spaces that hang at line ends must not make the saved text shrink.
+    let editor = TextBoxMutation {
+        page_index: 0, stable_key: "narrow".to_string(), annotation_id: None,
+        text: "A word. A phrase. A word. A phrase. A word. A phrase.".to_string(),
+        rect: [540.0, 220.0, 600.6584, 671.7922], rotation: 0, font_size: 22.0,
+        color: [17, 24, 39], author: None, created_at: None, modified_at: None,
+    };
+    let [x1, y1, x2, y2] = editor.rect;
+    let geometry = crate::text_box_font::geometry(PdfRect { x1, y1, x2, y2 }, 0, 0).unwrap();
+    let text = |width, size| crate::text_box_font::layout(&editor.text, width, size);
+    let fonts = &crate::text_box_font::FONTS;
+    let (size, lines) = crate::annotations::fit_text_box(editor.font_size, &geometry, fonts, text);
+    assert_eq!((size, lines.len()), (22.0, 15));
+}
+
+#[test]
+fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
+    // review-b6yw: a 25 x 45 pt foreign "W" at 22 pt, edited for color only,
+    // and a foreign DA whose trailing Tf size is malformed. A tool that strips
+    // EVB's private keys, as PyMuPDF does, leaves their values null.
+    for (da, rect, text, fits_at_22, stripped) in [
+        ("/Helv 22 Tf 0 0 0 rg", [20.0, 20.0, 45.0, 65.0], "W", false, false),
+        ("/Helv 22 Tf 0.2 0.4 0.6 rg /Helv invalid Tf", [20.0, 15.0, 180.0, 90.0], "Edited foreign text", true, false),
+        ("/Helv 22 Tf 0 0 0 rg", [20.0, 15.0, 180.0, 90.0], "Stripped label", true, true),
+    ] {
+        let (mut document, page_id) = create_test_document();
+        let mut foreign = dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("foreign"),
+            "Rect" => rect.iter().map(|value| Object::Real(*value as f32)).collect::<Vec<_>>(),
+            "Contents" => Object::string_literal(text), "DA" => Object::string_literal(da), "P" => page_id,
+        };
+        if stripped {
+            foreign.set("EVBTextGeometry", Object::Null);
+        }
+        let foreign_id = document.add_object(foreign);
+        document.get_dictionary_mut(page_id).unwrap().set("Annots", vec![Object::Reference(foreign_id)]);
+        let pdf_path = temp_pdf_path("edited-foreign-text-box");
+        let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        write(&pdf_path, &bytes).unwrap();
+        // Untouched, it opens at the size its own appearance draws.
+        let entries = collect_parsed_annotations(&document, "D:20261012000000Z").unwrap();
+        let PdfAnnotationParseEntry::TextBox(untouched) = &entries[0] else { panic!("{:?}", entries[0]) };
+        assert_eq!(untouched.font_size, 22.0, "{da}");
+        let editor = TextBoxMutation {
+            page_index: 0, stable_key: "foreign".to_string(),
+            annotation_id: Some(format!("{} {} R", foreign_id.0, foreign_id.1)), text: text.to_string(), rect: rect.map(|v| v + 1e-5),
+            rotation: 0, font_size: 22.0, color: [245, 158, 11], author: None, created_at: None, modified_at: None,
+        };
+        let mutations = NativeMutationsFile { text_boxes: vec![editor], ..NativeMutationsFile::default() };
+        append_native_mutations(&pdf_path, &pdf_path, &mutations, "D:20261012000000Z").unwrap();
+        let saved = Document::load(&pdf_path).unwrap();
+        let entries = collect_parsed_annotations(&saved, "D:20261012000000Z").unwrap();
+        let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
+        let annotation = saved.get_dictionary(foreign_id).unwrap();
+        // The editor resent it a hundred-thousandth of a point off; /Rect and
+        // EVB's first layout rectangle keep the producer's numbers (review-b7s).
+        let stored = annotation.get(b"EVBTextGeometry").unwrap().as_dict().unwrap().get(b"Rect").unwrap();
+        for written in [annotation.get(b"Rect").unwrap(), stored] {
+            let PdfRect { x1, y1, x2, y2 } = parse_rect(written).unwrap();
+            assert_eq!([x1, y1, x2, y2], rect, "{da}");
+        }
+        let normal = saved.resolved(saved.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap().get(b"N").unwrap()).unwrap();
+        let content = String::from_utf8(normal.as_stream().unwrap().content.clone()).unwrap();
+        let drawn: f64 = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap().parse().unwrap();
+        assert_eq!((reopened.font_size, drawn == 22.0), (drawn, fits_at_22), "{content}");
+    }
+}
+
+#[test]
+fn text_boxes_of_one_save_share_one_font_subset() {
+    // Each box once embedded its own fonts, with widths and Unicode mappings
+    // for every glyph of the program: 200 boxes saved as 21.6 MB.
+    let mut sizes = Vec::new();
+    for count in [20, 200] {
+        let (mut document, _) = create_test_document();
+        let pdf_path = temp_pdf_path(&format!("shared-text-box-fonts-{count}"));
+        let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
+        let mut original = Vec::new();
+        document.save_to(&mut original).unwrap();
+        write(&pdf_path, &original).unwrap();
+        let text_boxes = (0..count).map(|index| TextBoxMutation {
+            page_index: 0, stable_key: format!("latin-{index}"), annotation_id: None,
+            text: format!("Box {index}: AV office ffi, pp. 12-15"),
+            rect: [5.0, 5.0 + f64::from(index % 4) * 22.0, 195.0, 25.0 + f64::from(index % 4) * 22.0],
+            rotation: 0, font_size: 12.0, color: [17, 24, 39], author: None, created_at: None, modified_at: None,
+        }).collect();
+        let mutations = NativeMutationsFile { text_boxes, ..NativeMutationsFile::default() };
+        append_native_mutations(&pdf_path, &pdf_path, &mutations, "D:20261012000000Z").unwrap();
+        let saved = Document::load(&pdf_path).unwrap();
+        let programs = saved.objects.values().filter(|object| object.as_dict().is_ok_and(|dict| dict.has(b"FontFile2"))).count();
+        assert_eq!(programs, 1, "{count} Latin boxes share one DejaVu Sans subset");
+        for object in saved.objects.values().filter_map(|object| object.as_dict().ok()) {
+            if let Ok(widths) = object.get(b"W").and_then(Object::as_array) {
+                assert!(widths.len() < 2 * 64, "widths list only the drawn glyphs");
+            }
+        }
+        sizes.push(fs::metadata(&pdf_path).unwrap().len());
+    }
+    // The base revision's single complete DejaVu Sans made 200 boxes 0.87 MB.
+    assert!(sizes[1] - sizes[0] < 180 * 2_500, "{sizes:?}");
+    assert!(sizes[1] < 870_000, "{sizes:?}");
 }
 
 #[test]
@@ -2983,6 +3251,57 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             assert_approximately(text.rect.width, expected.width);
             assert_approximately(text.rect.height, expected.height);
             let id = get_page_annots(&document, page_id).unwrap()[0].as_reference().unwrap();
+            // Another program gives the turned box a border, a fill and /RD. A
+            // colour edit keeps them, with mitred corners, and fits the text
+            // inside on whichever sides the box faces.
+            let dict = document.get_dictionary_mut(id).unwrap();
+            dict.set("BS", dictionary! {"W" => 3});
+            dict.set("C", vec![1.into(), 1.into(), 0.85.into()]);
+            dict.set("RD", vec![1.into(), 2.into(), 3.into(), 4.into()]);
+            // The editor resends the unmoved box, and its marker as a note's
+            // geometry, a hundred-thousandth of a point off (review-b7s); its
+            // written geometry stays exactly as it was.
+            let geometry = |dict: &Dictionary| (dict.get(b"Rect").unwrap().clone(), dict.get(b"EVBTextGeometry").unwrap().clone());
+            let written = geometry(dict);
+            let recolour = TextBoxMutation {
+                page_index: 0, stable_key: "rotated-text".to_string(), annotation_id: None,
+                text: "Привет שלום".to_string(), rect: [60.00001, 25.0, 139.99998, 75.0], rotation,
+                font_size: 10.0, color: [200, 0, 0], author: None, created_at: None, modified_at: None,
+            };
+            let marker_rect = MarkerRect { left: text.rect.left + 2e-8, ..text.rect };
+            let marker = NoteGeometryUpdate { object_number: id.0, generation_number: id.1, page_index: 0, marker_rect, color: None, open: None };
+            let recolour = NativeMutationsFile { geometry_updates: vec![marker], text_boxes: vec![recolour], ..Default::default() };
+            apply_native_mutations(&mut document, &recolour, "D:20260908000000Z").unwrap();
+            let dict = document.get_dictionary(id).unwrap();
+            assert_eq!(geometry(dict), written);
+            let normal = dict.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+            let content = String::from_utf8(document.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
+            // /RD and the border apply to /Rect's own left, bottom, right and top.
+            let r = parse_rect(dict.get(b"Rect").unwrap()).unwrap();
+            let (x, y, w, h) = (r.x1 + 1.0, r.y1 + 2.0, r.width() - 4.0, r.height() - 6.0);
+            let fill = format!("q 1 1 0.85 rg {} re f Q\n", format_operands(&[x, y, w, h]));
+            let stroke = format_operands(&[x + 1.5, y + 1.5, w - 3.0, h - 3.0]);
+            assert!(content.starts_with(&fill), "{content}");
+            assert!(content.contains(&format!("0 0 0 RG 3 w 1 J 0 j\n{stroke} re S\n")), "{content}");
+            let numbers = |line: &str| line.split_whitespace().filter_map(|n| n.parse().ok()).collect::<Vec<f64>>();
+            let lines: Vec<&str> = content.lines().collect();
+            let at = lines.iter().position(|line| line.ends_with(" re W n")).unwrap();
+            let (matrix, clip) = (numbers(lines[at - 1]), numbers(lines[at]));
+            let matrix = crate::split_pages::PdfMatrix::from_values(matrix.try_into().unwrap());
+            let text_box = matrix.bounds(PdfRect { x1: 0.0, y1: 0.0, x2: clip[2], y2: clip[3] });
+            let inside = [(text_box.x1, x + 3.0), (text_box.y1, y + 3.0), (text_box.x2, x + w - 3.0), (text_box.y2, y + h - 3.0)];
+            for (actual, expected) in inside {
+                assert_approximately(actual, expected);
+            }
+            let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
+            let text = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::TextBox(value) => Some(value), _ => None }).unwrap();
+            // The reader gives the page's upright sides; the editor turns them
+            // clockwise with the box, a quarter at a time.
+            let insets = text.frame.as_ref().unwrap().insets;
+            let [top, right, bottom, left] = [0, 1, 2, 3].map(|side| insets[(side + usize::from(rotation / 90)) % 4]);
+            let (width, height) = if page_rotation % 180 == 0 { (80.0, 50.0) } else { (50.0, 80.0) };
+            assert_approximately(clip[2], width - left - right - 6.0);
+            assert_approximately(clip[3], height - top - bottom - 6.0);
             let dict = document.get_dictionary_mut(id).unwrap();
             // An external viewer moved the visible annotation, leaving EVB's
             // private geometry stale. It must never override that external edit.
@@ -3066,5 +3385,30 @@ fn metadata_free_freetext_on_a_swapped_page_stays_foreign() {
             | (0, PdfAnnotationParseEntry::TextBox(_)) => {}
             _ => panic!("page {page_rotation} classified unexpectedly: {entry:?}"),
         }
+    }
+}
+
+#[test]
+fn print_layout_draws_a_text_note_without_appearance_for_any_standard_icon() {
+    for icon in ["Note", "Comment", "Help", "Key", "NewParagraph", "Paragraph", "Insert"] {
+        let (mut document, page_id) = create_test_document();
+        let annot_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => icon,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "F" => 4,
+        });
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annot_id)]);
+
+        build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto)
+            .unwrap_or_else(|error| panic!("/{icon} note failed to print: {error}"));
+        assert!(
+            print_annotation_appearance(&document).is_some(),
+            "/{icon} note was not drawn"
+        );
     }
 }

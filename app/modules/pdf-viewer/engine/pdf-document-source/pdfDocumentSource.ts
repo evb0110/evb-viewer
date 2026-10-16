@@ -35,7 +35,6 @@ export interface IPdfDocument {
     readonly loadingTask: IPdfLoadingTask;
     getPage(pageNumber: number): Promise<IPdfPage>;
     getPageLabels(): Promise<string[] | null>;
-    getOutline(): Promise<unknown[] | null>;
     getDestination(destination: string): Promise<unknown[] | null>;
     getPageIndex(pageRef: IPdfRef): Promise<number>;
     cleanup(): Promise<void>;
@@ -96,6 +95,8 @@ export interface IPdfAnnotation {
     readonly id?: string;
     readonly annotationType?: number;
     readonly subtype?: string;
+    readonly hasAppearance?: boolean;
+    readonly hasOwnCanvas?: boolean;
 }
 
 export interface IPdfRenderTask {
@@ -603,10 +604,6 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     }
 
     async function openBlob(src: Blob, version: number, cancelled: Promise<void>) {
-        const blobSizeError = getBlobSizeError(src);
-        if (blobSizeError) {
-            throw blobSizeError;
-        }
         if (version !== options.getRenderVersion()) {
             return null;
         }
@@ -643,7 +640,11 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             ...documentOptions,
         });
         const task = loadingTask;
-        const document = await task.promise;
+        const document = await Promise.race([
+            task.promise,
+            cancelled.then(() => null),
+        ]);
+        if (!document) return null;
         if (loadingTask === task) {
             loadingTask = null;
         }
@@ -759,8 +760,10 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         const document = await Promise.race([
             task.promise,
             rangeFailure.rangeReadFailure,
+            cancelled.then(() => null),
         ]);
         rangeFailure.complete();
+        if (!document) return null;
         logPdfRenderTrace('pdf-document-get-document-resolve', {
             version,
             sourceKind: 'path',

@@ -22,6 +22,7 @@ describe('browser file picker adapter', () => {
     afterEach(() => {
         vi.useRealTimers();
         Reflect.deleteProperty(navigator, 'userActivation');
+        Reflect.deleteProperty(window, 'showSaveFilePicker');
         document.body.replaceChildren();
     });
 
@@ -130,4 +131,55 @@ describe('browser file picker adapter', () => {
         expect(requestPermission).not.toHaveBeenCalled();
         expect(createWritable).not.toHaveBeenCalled();
     });
+
+    it.each([
+        'pick',
+        'bytes',
+    ])('refuses an incompatible TIFF destination through the %s save path without changing its bytes', async (path) => {
+        let saved = 'existing PNG bytes';
+        const writable = Object.assign(new WritableStream(), {
+            write: async (data: FileSystemWriteChunkType) => {saved = String(data);},
+            close: async () => {},
+            abort: async () => {},
+            seek: async () => {},
+            truncate: async () => {},
+        }) satisfies FileSystemWritableFileStream;
+        const handle = {
+            kind: 'file',
+            name: 'doc.png',
+            isSameEntry: async () => false,
+            getFile: async () => new File([saved], 'doc.png'),
+            createSyncAccessHandle: async () => {throw new Error('not used');},
+            createWritable: async () => writable,
+        } satisfies FileSystemFileHandle;
+        Reflect.set(window, 'showSaveFilePicker', async () => handle);
+        const {
+            pickSaveTarget, saveBytesToPickerOrDownload,
+        } = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const options = {
+            suggestedName: 'doc.tif',
+            pickerTypes: [{accept: {'image/tiff': [
+                '.tif',
+                '.tiff',
+            ]}}],
+        };
+        const save = path === 'pick' ? pickSaveTarget(options) : saveBytesToPickerOrDownload(Uint8Array.of(77, 77, 0, 42), {
+            ...options,
+            mimeType: 'image/tiff',
+        });
+        await expect(save).rejects.toThrow('Choose a file name ending in .tif, .tiff');
+        expect(await (await handle.getFile()).text()).toBe('existing PNG bytes');
+    });
+
+    it.each([
+        'jpeg',
+        'png',
+        'tiff',
+    ] as const)('restricts an encoded %s save to that format', async (format) => {
+        const {buildImageExportPickerTypes} = await import('@app/platform/browser-api/browserFileAccepts');
+        const {IMAGE_EXPORT_FORMATS} = await import('@pdf-core/imageExportFileName');
+        expect(buildImageExportPickerTypes(format).flatMap(type => Object.keys(type.accept)))
+            .toEqual([IMAGE_EXPORT_FORMATS[format].mimeType]);
+    });
+
 });

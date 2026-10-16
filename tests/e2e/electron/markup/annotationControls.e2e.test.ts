@@ -1,12 +1,24 @@
 import {
-    copyFileSync, mkdtempSync, rmSync,
+    copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
-import {join} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import type {Page} from 'puppeteer-core';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {
+    decodePDFRawStream, PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, rgb,
+} from 'pdf-lib';
+import type {
+    PDFNumber, PDFRef,
+} from 'pdf-lib';
+import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
     describe,
     expect,
@@ -27,16 +39,92 @@ import {
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openAnnotationsTab,
+    openDocumentSidebarTab,
     openPdfInApp,
     saveViaVisibleToolbar,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    clickAsUser, revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const POINTER_READY_TIMEOUT_MS = 30_000;
 const STYLE_UPDATE_TIMEOUT_MS = 20_000;
 const SIDEBAR_RESIZE_DELTA_PX = 96;
+// Spaces, punctuation and tatweel are shared by scripts; the screen and the saved
+// page both draw them with DejaVu Sans, whatever script surrounds them.
+const SHARED_CHARACTER = /\p{Script=Common}/u;
+
+// Counts PDF.js ink inside and outside the saved text box. With `unclipped`, the
+// appearance loses its clip and grows with its Rect at unit scale, so any glyph the
+// saved layout placed outside the box shows up as ink outside it.
+async function renderedTextBoxInk(bytes: Uint8Array, unclipped: boolean) {
+    const pdf = await PDFDocument.load(bytes);
+    const annotation = (pdf.getPage(0).node.Annots()?.asArray() ?? []).map(ref => pdf.context.lookup(ref, PDFDict)).find(object => (
+        object.get(PDFName.of('Subtype'))?.toString() === '/FreeText'
+    ))!;
+    const numbers = (dict: PDFDict, key: string) => dict.lookup(PDFName.of(key), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
+    const rect = numbers(annotation, 'Rect');
+    if (unclipped) {
+        const reference = annotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef;
+        const stream = pdf.context.lookup(reference) as PDFRawStream;
+        const grow = (box: number[]) => pdf.context.obj([
+            box[0]! - 200,
+            box[1]! - 200,
+            box[2]! + 200,
+            box[3]! + 200,
+        ]);
+        const dict = stream.dict.clone(pdf.context);
+        dict.delete(PDFName.of('Filter'));
+        dict.set(PDFName.of('BBox'), grow(numbers(stream.dict, 'BBox')));
+        annotation.set(PDFName.of('Rect'), grow(rect));
+        const content = Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1');
+        expect(content).toContain(' re W n');
+        pdf.context.assign(reference, PDFRawStream.of(dict, Buffer.from(content.replace(' re W n', ' re n'), 'latin1')));
+    }
+    const task = pdfjs.getDocument({
+        data: await pdf.save(),
+        ...createPdfjsNodeDocumentOptions(),
+    });
+    try {
+        const page = await (await task.promise).getPage(1);
+        const viewport = page.getViewport({scale: 2});
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const context = canvas.getContext('2d');
+        await Reflect.apply(page.render, page, [{
+            canvas,
+            canvasContext: context,
+            viewport,
+            annotationMode: pdfjs.AnnotationMode.ENABLE,
+        }]).promise;
+        const [
+            left,
+            top,
+        ] = viewport.convertToViewportPoint(rect[0]!, rect[1]!);
+        const [
+            right,
+            bottom,
+        ] = viewport.convertToViewportPoint(rect[2]!, rect[3]!);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const ink = {
+            inside: 0,
+            outside: 0,
+        };
+        for (let y = 0; y < canvas.height; y += 1) {
+            for (let x = 0; x < canvas.width; x += 1) {
+                const offset = (y * canvas.width + x) * 4;
+                if (Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) >= 160) continue;
+                const within = x >= Math.min(left!, right!) && x <= Math.max(left!, right!) && y >= Math.min(top!, bottom!) && y <= Math.max(top!, bottom!);
+                ink[within ? 'inside' : 'outside'] += 1;
+            }
+        }
+        return ink;
+    } finally {
+        await task.destroy();
+    }
+}
 
 async function expectTwoLinePreviewPaint(page: Page) {
     // Selection and root scaling update the clamped preview asynchronously.
@@ -509,6 +597,469 @@ describe('Electron E2E - annotation controls', () => {
         sessionName: () => `e2e-annotation-controls-${Date.now()}`,
     });
 
+
+    it('preserves the original normal appearance until a supported semantic edit', async () => {
+        // Core61, A1/A5/T4: original r12 857-byte input, not the distinct repository fixture.
+        const original = Buffer.from('JVBERi0xLjcKJYGBgYEKCjUgMCBvYmoKPDwKL1R5cGUgL1hPYmplY3QKL1N1YnR5cGUgL0Zvcm0KL0JCb3ggWyAwIDAgMzAwIDQwIF0KL1Jlc291cmNlcyA8PAovRm9udCA8PAovSGVsdiA0IDAgUgo+Pgo+PgovRmlsdGVyIC9GbGF0ZURlY29kZQovTGVuZ3RoIDEwMwo+PgpzdHJlYW0KeJwlyr0OgjAYheFeyjvK1BYcmFv+uql8iTsKRlOjMHj9tDFvcs7yrFTGkDv+7/bGBfQVix7yuJOnRvsRfekdoUEpRRs44ySZOf6wJbIknNseidsKuXPonjHy3T7TXCAvWtkBE9YZMgplbmRzdHJlYW0KZW5kb2JqCgo3IDAgb2JqCjw8Ci9GaWx0ZXIgL0ZsYXRlRGVjb2RlCi9UeXBlIC9PYmpTdG0KL04gNQovRmlyc3QgMjYKL0xlbmd0aCAyNzkKPj4Kc3RyZWFtCnicVVDLasMwELzrK+aYnlZynMchBJy0plBaQmzIIfTg2KoRGCnYSkn/vis5oQ0rIbQzuzuzChIJ0hRTLJZIoRYKcySzKVYrQeXPWYN2VasHQW+mGXBkosQen4K27mI9lFivxR93W/mqc60Yi6AC+ZERgAD3OlRHnPZ6cJe+5gLmMZvedWOqjbvyPMkxlxJLvjw1s9b5oGN+0/HQPHfWCyouJx+/IakEbapBBwT0qrtv7U1dCXqxtWuMbUEHYzM7mHvisWOc969l3mtd6qsPomvPOpQc9aXhTeW4GevZ3YBJbroO596d9JOg5wyTqAAqQfnF5kP0LUObIu77gIRHgYq4hO3NfeyZI2Xzu0j7wOy+Vz6/FP12egplbmRzdHJlYW0KZW5kb2JqCgo4IDAgb2JqCjw8Ci9TaXplIDkKL1Jvb3QgMiAwIFIKL0ZpbHRlciAvRmxhdGVEZWNvZGUKL1R5cGUgL1hSZWYKL0xlbmd0aCA0MQovVyBbIDEgMiAyIF0KL0luZGV4IFsgMCA5IF0KPj4Kc3RyZWFtCnicY2Bg+P+fiYGdgQFEMIIIJhDBzMggABFjYWSUYQDKzGRgAABcagMBCmVuZHN0cmVhbQplbmRvYmoKCnN0YXJ0eHJlZgo2NjUKJSVFT0Y=', 'base64');
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-core61-'));
+        const saved = join(evidence, 'original.pdf');
+        writeFileSync(saved, original);
+        let {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        const selector = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        await page.waitForSelector(selector);
+        const originalAnnotationId = await page.$eval(selector, element => element.getAttribute('data-annotation-id'));
+
+        async function originalPaint(label: string, bytes = original, blank = false) {
+            const box = await page.waitForSelector(selector);
+            await revealForPointer(page, box!);
+            // Selection grips are app chrome; keep selection mounted while comparing PDF paint.
+            const gripPaint = await page.addStyleTag({content: '.editor-pane.is-active .pdf-annotation-selection-handle[data-pdf-annotation-resize-handle] { opacity: 0 !important; }'});
+            try {
+                await page.evaluate(async () => {
+                    await document.fonts.ready;
+                    await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+                });
+                const layout = await box!.evaluate(element => {
+                    const container = element.closest('.page_container')!;
+                    const viewer = container.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                    const bounds = viewer.getBoundingClientRect();
+                    const selection = window.getSelection();
+                    const caret = element.classList.contains('is-editing') && selection?.isCollapsed && selection.rangeCount
+                        ? selection.getRangeAt(0).getBoundingClientRect().toJSON() : null;
+                    const textColor = getComputedStyle(element).color;
+                    return {
+                        caret,
+                        textColor,
+                        referenceAlpha: textColor === 'rgba(0, 0, 0, 0)',
+                        box: element.getBoundingClientRect().toJSON(),
+                        page: container.getBoundingClientRect().toJSON(),
+                        viewport: new DOMRect(bounds.left + viewer.clientLeft, bounds.top + viewer.clientTop, viewer.clientWidth, viewer.clientHeight).toJSON(),
+                        dpr: devicePixelRatio,
+                    };
+                });
+                expect(layout.box.left >= layout.viewport.left && layout.box.right <= layout.viewport.right
+                && layout.box.top >= layout.viewport.top && layout.box.bottom <= layout.viewport.bottom, 'Whole glyph ROI is visible').toBe(true);
+                const screenshot = Buffer.from(await page.screenshot());
+                writeFileSync(join(evidence, `${label}-viewport.png`), screenshot);
+                const full = await loadImage(screenshot);
+                const browserReference = await page.evaluate(async ({
+                    data, pageWidth, dpr, expectedVersion, expectedBuild, alpha,
+                }) => {
+                // The existing vendored public API opens independent bytes, not the live document or raster.
+                    const browserPdfjs = Object.getOwnPropertyDescriptor(globalThis, 'pdfjsLib')?.value as typeof pdfjs | undefined;
+                    if (!browserPdfjs || browserPdfjs.version !== expectedVersion || browserPdfjs.build !== expectedBuild
+                    || typeof browserPdfjs.getDocument !== 'function') throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');
+                    if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) throw new Error('Independent reference cannot own a shared explicit worker port');
+                    const workerSrc = browserPdfjs.GlobalWorkerOptions.workerSrc;
+                    const options = {
+                        verbosity: browserPdfjs.VerbosityLevel.ERRORS,
+                        standardFontDataUrl: '/pdf/standard_fonts/',
+                        cMapUrl: '/pdf/cmaps/',
+                        cMapPacked: true,
+                        wasmUrl: '/pdf/wasm/',
+                        iccUrl: '/pdf/iccs/',
+                        useSystemFonts: false,
+                        canvasMaxAreaInBytes: 128 * 1024 * 1024,
+                    };
+                    const task = browserPdfjs.getDocument({
+                        data: new Uint8Array(data),
+                        ...options,
+                    });
+                    try {
+                        const referencePage = await (await task.promise).getPage(1);
+                        const scale = pageWidth / referencePage.getViewport({scale: 1}).width;
+                        const viewport = referencePage.getViewport({scale: scale * dpr});
+                        const reference = document.createElement('canvas');
+                        reference.width = Math.ceil(viewport.width);
+                        reference.height = Math.ceil(viewport.height);
+                        const context = reference.getContext('2d', {alpha});
+                        if (!context) throw new Error('Independent Browser reference has no 2D canvas context');
+                        if (typeof context.getContextAttributes !== 'function') throw new Error('Independent Browser reference context attributes are unavailable');
+                        const contextAttributes = context.getContextAttributes();
+                        if (contextAttributes.alpha !== alpha) throw new Error('Independent Browser reference alpha does not match public text paint');
+                        await referencePage.render({
+                            canvas: reference,
+                            canvasContext: context,
+                            viewport,
+                            annotationMode: browserPdfjs.AnnotationMode.ENABLE_FORMS,
+                        }).promise;
+                        return {
+                            png: reference.toDataURL('image/png'),
+                            scale,
+                            backend: {
+                                version: browserPdfjs.version,
+                                build: browserPdfjs.build,
+                                workerSrc,
+                                options,
+                                requestedAlpha: alpha,
+                                contextAttributes,
+                                canvasWidth: reference.width,
+                                canvasHeight: reference.height,
+                                viewportWidth: viewport.width,
+                                viewportHeight: viewport.height,
+                                viewportTransform: viewport.transform,
+                                canvasIsDOM: reference instanceof HTMLCanvasElement,
+                                ownerDocumentIsCurrent: reference.ownerDocument === document,
+                            },
+                        };
+                    } finally { await task.destroy(); }
+                }, {
+                    data: Array.from(bytes),
+                    pageWidth: layout.page.width,
+                    dpr: layout.dpr,
+                    expectedVersion: pdfjs.version,
+                    expectedBuild: pdfjs.build,
+                    alpha: layout.referenceAlpha,
+                });
+                {
+                    const scale = browserReference.scale;
+                    const referencePng = Buffer.from(browserReference.png.slice('data:image/png;base64,'.length), 'base64');
+                    const reference = await loadImage(referencePng);
+                    writeFileSync(join(evidence, `${label}-reference.png`), referencePng);
+                    writeFileSync(join(evidence, `${label}-reference-backend.json`), JSON.stringify(browserReference.backend, null, 2));
+                    // Exclude the original 2pt border and all selection chrome. Compare glyphs,
+                    // including horizontal extent and silhouette, in the full-viewport pixels.
+                    const inset = 4 * scale;
+                    const width = Math.floor((layout.box.width - 2 * inset) * layout.dpr);
+                    const height = Math.floor((layout.box.height - 2 * inset) * layout.dpr);
+                    const sample = (image: typeof full | typeof reference, x: number, y: number) => {
+                        const canvas = createCanvas(width, height);
+                        canvas.getContext('2d').drawImage(image, x, y, width, height, 0, 0, width, height);
+                        return canvas.getContext('2d').getImageData(0, 0, width, height).data;
+                    };
+                    const actual = sample(full, (layout.box.left + inset) * layout.dpr, (layout.box.top + inset) * layout.dpr);
+                    const expected = sample(reference, (layout.box.left - layout.page.left + inset) * layout.dpr, (layout.box.top - layout.page.top + inset) * layout.dpr);
+                    const lightGlyphs = Math.max(expected[0]!, expected[1]!, expected[2]!) < 160;
+                    const points = (pixels: Uint8ClampedArray) => {
+                        const result: Array<{
+                            x: number;
+                            y: number
+                        }> = [];
+                        for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+                        // The collapsed editor caret is chrome, not a glyph. Exclude its exact column in both images.
+                            const caretX = layout.caret ? (layout.caret.left - layout.box.left - inset) * layout.dpr : null;
+                            if (caretX !== null && x >= Math.floor(caretX) && x <= Math.ceil(caretX)) continue;
+                            const offset = (y * width + x) * 4;
+                            if (lightGlyphs ? Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) > 200
+                                : Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 160) result.push({
+                                x,
+                                y,
+                            });
+                        }
+                        return result;
+                    };
+                    const liveInk = points(actual);
+                    const originalInk = points(expected);
+                    if (blank) {
+                        expect(originalInk.length, `${label} independent normal appearance is blank`).toBe(0);
+                        expect(liveInk.length, `${label} nonempty Contents must not invent glyphs`).toBe(0);
+                        return;
+                    }
+                    expect(originalInk.length, 'Independent original appearance has glyph ink').toBeGreaterThan(0);
+                    expect(liveInk.length, 'Live appearance has glyph ink').toBeGreaterThan(0);
+                    const bounds = (ink: typeof liveInk) => [
+                        Math.min(...ink.map(p => p.x)),
+                        Math.max(...ink.map(p => p.x)),
+                        Math.min(...ink.map(p => p.y)),
+                        Math.max(...ink.map(p => p.y)),
+                    ];
+                    const liveBounds = bounds(liveInk);
+                    const referenceBounds = bounds(originalInk);
+                    writeFileSync(join(evidence, `${label}-glyphs.json`), JSON.stringify({
+                        layout,
+                        liveBounds,
+                        referenceBounds,
+                    }));
+                    for (let i = 0; i < 4; i += 1) expect(Math.abs(liveBounds[i]! - referenceBounds[i]!) / layout.dpr, `${label} glyph extent ${i}, one CSS pixel rounding`).toBeLessThanOrEqual(1);
+                    const outside = (from: typeof liveInk, to: typeof liveInk) => from.filter(a => !to.some(b => Math.abs(a.x - b.x) <= layout.dpr && Math.abs(a.y - b.y) <= layout.dpr)).length;
+                    expect(outside(liveInk, originalInk), `${label} live glyph silhouette matches original font`).toBe(0);
+                    expect(outside(originalInk, liveInk), `${label} original glyph silhouette is complete`).toBe(0);
+                }
+            } finally {
+                try { await gripPaint.evaluate(element => element.remove()); }
+                finally { await gripPaint.dispose(); }
+            }
+        }
+        const normalAppearance = async (bytes: Uint8Array) => {
+            const pdf = await PDFDocument.load(bytes);
+            const annotation = (pdf.getPage(0).node.Annots()?.asArray() ?? []).map(ref => pdf.context.lookup(ref, PDFDict))
+                .find(object => object.get(PDFName.of('Subtype'))?.toString() === '/FreeText')!;
+            const normal = annotation.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'));
+            if (!(normal instanceof PDFRawStream)) throw new Error('Saved normal appearance is not a stream');
+            return {
+                stream: Buffer.from(normal.contents),
+                resources: normal.dict.lookup(PDFName.of('Resources'), PDFDict).toString(),
+                rect: annotation.lookup(PDFName.of('Rect'), PDFArray).toString(),
+                contents: annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).asBytes(),
+            };
+        };
+        await originalPaint('untouched');
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, selector);
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try { await page.keyboard.press('c'); } finally { await page.keyboard.up(modifier); }
+        await originalPaint('selected-copy');
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector}.is-editing [contenteditable="true"]`);
+        await originalPaint('no-op-entry');
+        await page.keyboard.press('Escape');
+        await originalPaint('escaped');
+        expect(readFileSync(saved), 'No-op input leaves original file bytes untouched').toEqual(original);
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector}.is-editing [contenteditable="true"]`);
+        await page.keyboard.down(modifier);
+        try { await page.keyboard.press('Enter'); } finally { await page.keyboard.up(modifier); }
+        await originalPaint('unchanged-completion');
+        for (const handleSelector of [
+            '[data-pdf-annotation-move-handle]',
+            '[data-pdf-annotation-resize-handle="se"]',
+        ]) {
+            if (handleSelector.includes('resize')) await clickAsUser(page, selector);
+            const handle = await page.waitForSelector(handleSelector);
+            const point = await revealForPointer(page, handle!);
+            await page.mouse.move(point.x, point.y);
+            await page.mouse.down();
+            await page.mouse.move(point.x + 18, point.y + 8, {steps: 3});
+            await page.keyboard.press('Escape');
+            await page.mouse.up();
+            await originalPaint(handleSelector.includes('resize') ? 'cancelled-resize' : 'cancelled-move');
+        }
+        const untouched = await normalAppearance(original);
+        await clickAnnotationTool(page, 'Draw');
+        await drawInkStroke(page);
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        expect(await normalAppearance(readFileSync(saved)), 'Unrelated ink save preserves untouched AP, Resources, Rect and Contents bytes').toEqual(untouched);
+        await originalPaint('unrelated-ink-save');
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector}.is-editing [contenteditable="true"]`);
+        await selectAllFocusedAnnotationText(page);
+        await page.keyboard.type('Core61 edited text');
+        await page.keyboard.down(modifier);
+        try { await page.keyboard.press('Enter'); } finally { await page.keyboard.up(modifier); }
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await page.waitForFunction((boxSelector, annotationId) => {
+            const box = document.querySelector(boxSelector);
+            return box?.getAttribute('data-annotation-id') === annotationId && box.checkVisibility()
+                && !box.classList.contains('is-editing')
+                && box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Fill probe';
+        }, {}, selector, originalAnnotationId);
+        await originalPaint('text-undo-before-save');
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const edited = await PDFDocument.load(readFileSync(saved));
+        const annotation = edited.context.lookup(edited.getPage(0).node.Annots()!.get(0), PDFDict);
+        expect(annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Core61 edited text');
+        await originalPaint('saved-edit-stale-proxy', readFileSync(saved));
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await page.waitForFunction((boxSelector, annotationId) => {
+            const box = document.querySelector(boxSelector);
+            return box?.getAttribute('data-annotation-id') === annotationId && box.checkVisibility()
+                && !box.classList.contains('is-editing')
+                && box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Fill probe';
+        }, {}, selector, originalAnnotationId);
+        await originalPaint('text-undo-after-save');
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
+        await originalPaint('text-redo-after-save', readFileSync(saved));
+        const restarted = await sessionFixture.restart({hard: true});
+        page = restarted.page;
+        await openPdfInApp(restarted.page, saved);
+        await waitForViewerInteractive(restarted.page);
+        await originalPaint('saved-edit-reopened', readFileSync(saved));
+        // Local controls keep the same semantic text while changing only the selected normal appearance.
+        for (const mode of [
+            'selected-state',
+            'blank-state',
+            'missing-appearance',
+            'malformed-decode',
+        ]) {
+            const pdf = await PDFDocument.load(original);
+            const annotation = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+            const ap = annotation.lookup(PDFName.of('AP'), PDFDict);
+            const normal = ap.get(PDFName.of('N'))!;
+            if (mode === 'missing-appearance') {
+                annotation.delete(PDFName.of('AP'));
+                annotation.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 0 0 rg'));
+            } else {
+                const blankStream = pdf.context.stream(mode === 'malformed-decode' ? 'invalid flate bytes' : '', {
+                    Type: 'XObject',
+                    Subtype: 'Form',
+                    BBox: [
+                        0,
+                        0,
+                        300,
+                        40,
+                    ],
+                    ...(mode === 'malformed-decode' ? {Filter: 'FlateDecode'} : {}),
+                });
+                if (mode === 'malformed-decode') {
+                    expect(
+                        () => decodePDFRawStream(blankStream).decode(),
+                        'Malformed normal appearance fixture contains invalid compressed data',
+                    ).toThrow(/flate|decode|compression|FCHECK/iu);
+                }
+                const blankRef = pdf.context.register(blankStream);
+                ap.set(PDFName.of('N'), mode === 'malformed-decode' ? blankRef : pdf.context.obj({
+                    On: normal,
+                    Off: blankRef,
+                }));
+                annotation.set(PDFName.of('AS'), PDFName.of(mode === 'selected-state' ? 'On' : 'Off'));
+                if (mode !== 'selected-state') annotation.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 0 0 rg'));
+            }
+            const bytes = Buffer.from(await pdf.save());
+            const path = join(evidence, `${mode}.pdf`);
+            writeFileSync(path, bytes);
+            await openPdfInApp(page, path);
+            await waitForViewerInteractive(page);
+            await originalPaint(mode, bytes, mode === 'blank-state' || mode === 'malformed-decode');
+        }
+        // Keep PDF annotation order and Multiply against the actual whole-page backdrop.
+        for (const mode of [
+            'shape-before-text',
+            'text-before-shape',
+            'multiply-stamp-overlap',
+        ]) {
+            const pdf = await PDFDocument.load(original);
+            const pdfPage = pdf.getPage(0);
+            if (mode === 'multiply-stamp-overlap') pdfPage.drawRectangle({
+                x: 80,
+                y: 580,
+                width: 220,
+                height: 80,
+                color: rgb(1, 0.5, 0.25),
+            });
+            const annotations = pdfPage.node.Annots()!;
+            const text = annotations.get(0);
+            const squareAppearance = pdf.context.register(pdf.context.stream('q /GS gs 0 0 1 rg 0 0 180 60 re f Q', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    180,
+                    60,
+                ],
+                Resources: {ExtGState: {GS: {BM: mode === 'multiply-stamp-overlap' ? 'Multiply' : 'Normal'}}},
+            }));
+            const square = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'Square',
+                Rect: [
+                    90,
+                    590,
+                    270,
+                    650,
+                ],
+                C: [
+                    0,
+                    0,
+                    1,
+                ],
+                AP: {N: squareAppearance},
+                F: 4,
+            }));
+            const stampPixels = createCanvas(1, 1);
+            stampPixels.getContext('2d').fillStyle = '#00ff00';
+            stampPixels.getContext('2d').fillRect(0, 0, 1, 1);
+            const stampImage = await pdf.embedPng(stampPixels.toBuffer('image/png'));
+            const stampAppearance = pdf.context.register(pdf.context.stream('q 40 0 0 40 0 0 cm /Im0 Do Q', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    40,
+                    40,
+                ],
+                Resources: {XObject: {Im0: stampImage.ref}},
+            }));
+            const stamp = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'Stamp',
+                Rect: [
+                    140,
+                    600,
+                    180,
+                    640,
+                ],
+                AP: {N: stampAppearance},
+                F: 4,
+            }));
+            pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj(mode === 'shape-before-text' ? [
+                square,
+                stamp,
+                text,
+            ] : [
+                text,
+                square,
+                stamp,
+            ]));
+            const bytes = Buffer.from(await pdf.save());
+            const path = join(evidence, `${mode}.pdf`);
+            writeFileSync(path, bytes);
+            await openPdfInApp(page, path);
+            await waitForViewerInteractive(page);
+            const box = await page.waitForSelector(selector);
+            await revealForPointer(page, box!);
+            const bounds = await box!.evaluate(element => element.closest('.page_container')!.getBoundingClientRect().toJSON());
+            const dpr = await page.evaluate(() => devicePixelRatio);
+            const full = await loadImage(Buffer.from(await page.screenshot()));
+            const referenceTask = pdfjs.getDocument({
+                data: new Uint8Array(bytes),
+                ...createPdfjsNodeDocumentOptions(),
+            });
+            try {
+                const referencePage = await (await referenceTask.promise).getPage(1);
+                const viewport = referencePage.getViewport({scale: bounds.width / 600 * dpr});
+                const reference = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+                await Reflect.apply(referencePage.render, referencePage, [{
+                    canvas: reference,
+                    canvasContext: reference.getContext('2d'),
+                    viewport,
+                    annotationMode: pdfjs.AnnotationMode.ENABLE_FORMS,
+                }]).promise;
+                const screenshot = createCanvas(full.width, full.height);
+                screenshot.getContext('2d').drawImage(full, 0, 0);
+                for (const [
+                    x,
+                    y,
+                ] of [
+                        [
+                            120,
+                            605,
+                        ],
+                        [
+                            160,
+                            605,
+                        ],
+                        [
+                            250,
+                            605,
+                        ],
+                        [
+                            95,
+                            645,
+                        ],
+                    ]) {
+                    const [
+                        px,
+                        py,
+                    ] = viewport.convertToViewportPoint(x!, y!);
+                    const expected = reference.getContext('2d').getImageData(Math.round(px!), Math.round(py!), 1, 1).data;
+                    const actual = screenshot.getContext('2d').getImageData(Math.round(bounds.left * dpr + px!), Math.round(bounds.top * dpr + py!), 1, 1).data;
+                    expect([...actual], `${mode} PDF order/backdrop at ${x},${y}`).toEqual([...expected]);
+                }
+                writeFileSync(join(evidence, `${mode}-viewport.png`), screenshot.toBuffer('image/png'));
+                writeFileSync(join(evidence, `${mode}-reference.png`), reference.toBuffer('image/png'));
+            } finally {await referenceTask.destroy();}
+        }
+        // The original fixture and every recorded viewport remain under task TMP for paired proof.
+    });
+
     it('keeps annotation cards stationary and visibly selects every annotation kind', async () => {
         // Owner report: selecting a rectangle lost feedback, and switching types
         // moved the whole list. A6/R2/I1: visible row activation selects its mark.
@@ -759,6 +1310,750 @@ describe('Electron E2E - annotation controls', () => {
         await restarted.page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         )).some(element => element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Keyboard text box'), {timeout: STYLE_UPDATE_TIMEOUT_MS});
+    });
+
+    it.each([
+        [
+            'Syriac',
+            'ܫܠܵܡܵܐ',
+            'NotoSansSyriac-Regular',
+        ],
+        [
+            'Hebrew cantillation',
+            'שָׁל֑וֹם',
+            'NotoSansHebrew-Regular',
+        ],
+    ])('paints the UI search input and results for %s with the bundled font', async (script, text, postScriptName) => {
+        const {page} = sessionFixture.getSession();
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-semitic-search-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        // core4's public two-page RTL fixture has exact pointed text, embedded
+        // glyphs and ToUnicode mappings. Search itself is already correct.
+        await openPdfInApp(page, resolve('tests/fixtures/electron/semtext/search.pdf'));
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Search');
+        const input = '.editor-pane.is-active .document-search-bar input';
+        await clickAsUser(page, input);
+        await page.keyboard.type(text);
+        await page.keyboard.press('Enter');
+        await page.waitForFunction((query: string) => {
+            const panel = document.querySelector('.editor-pane.is-active .document-search-results');
+            return panel?.querySelector('.document-search-results-header-summary')?.textContent?.includes(query)
+                && !panel.querySelector('.document-search-results-spinner')
+                && panel.querySelectorAll('.document-search-result').length === 2;
+        }, {timeout: POINTER_READY_TIMEOUT_MS}, text);
+        await page.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+        });
+        await page.screenshot({path: join(evidence, 'search-page.png')});
+        await (await page.$(input))!.screenshot({path: join(evidence, 'search-input.png')});
+        await (await page.$('.editor-pane.is-active .document-search-results'))!.screenshot({path: join(evidence, 'search-results.png')});
+        const client = await page.createCDPSession();
+        await client.send('DOM.enable');
+        await client.send('CSS.enable');
+        const tree = await client.send('DOM.getDocument', {pierce: true});
+        const samples = [];
+        for (const selector of [
+            input,
+            '.editor-pane.is-active .document-search-result-highlight',
+        ]) {
+            const node = await client.send('DOM.querySelector', {
+                nodeId: tree.root.nodeId,
+                selector,
+            });
+            const {fonts} = await client.send('CSS.getPlatformFontsForNode', {nodeId: node.nodeId});
+            samples.push({
+                selector,
+                fonts,
+            });
+        }
+        await client.detach();
+        const value = await page.$eval(input, element => (element as HTMLInputElement).value);
+        const matches = await page.$$eval('.editor-pane.is-active .document-search-result-highlight', elements => elements.map(element => element.textContent));
+        writeFileSync(join(evidence, 'painted-fonts.json'), JSON.stringify({
+            script,
+            text,
+            value,
+            matches,
+            samples,
+        }, null, 2));
+        expect(value).toBe(text);
+        expect(matches).toEqual([
+            text,
+            text,
+        ]);
+        for (const sample of samples) {
+            const glyphs = sample.fonts.filter(font => font.glyphCount > 0);
+            expect.soft(glyphs.length, `${script} ${sample.selector} has painted glyphs`).toBeGreaterThan(0);
+            expect.soft(glyphs.every(font => font.isCustomFont && font.postScriptName === postScriptName),
+                `${script} ${sample.selector} uses the shipped covering font`).toBe(true);
+        }
+    });
+
+    it.each([
+        [
+            'Arabic',
+            'بَسْمِ لَا بــِسْمِ',
+            'DejaVuSans.ttf',
+            0.12,
+            false,
+        ],
+        [
+            'Syriac',
+            'ܫܠܵܡܵܐ',
+            'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
+        ],
+        [
+            'Hebrew cantillation',
+            'בְּרֵאשִׁ֖ית',
+            'NotoSansHebrew-Regular.ttf',
+            0.12,
+            false,
+        ],
+        [
+            'Syriac seyame',
+            'ܡܲܠܟܹ̈ܐ',
+            'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
+        ],
+        [
+            'Syriac sentence',
+            'ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ',
+            'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
+        ],
+        [
+            'Syriac tatweel',
+            'ܡـܠܟܐ',
+            'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
+        ],
+        [
+            // Ordinary Latin text in a narrow margin box keeps the size it is typed in.
+            'Latin narrow margin',
+            'A word. A phrase. A word. A phrase. A word. A phrase.',
+            'DejaVuSans.ttf',
+            0.9,
+            true,
+        ],
+    ])('paints typed %s with its bundled font and saves its appearance', async (script, text, fontFile, x, keepsTypedSize) => {
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-semitic-text-box-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        const blank = await PDFDocument.create();
+        blank.addPage(PageSizes.A4);
+        writeFileSync(saved, await blank.save());
+        const programs = new Set([
+            fontFile,
+            ...Array.from(text).some(character => SHARED_CHARACTER.test(character)) ? ['DejaVuSans.ttf'] : [],
+        ].map(file => file.replace('.ttf', '')));
+        let {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await createCanonicalTextBoxWithPointer(page, text, {
+            x,
+            y: 0.22,
+        });
+        const editorFontSize = () => page.$eval('.editor-pane.is-active .pdf-annotation-editor-text-box', element => {
+            const style = getComputedStyle(element);
+            return Number.parseFloat(style.fontSize) / Number.parseFloat(style.getPropertyValue('--scale-factor'));
+        });
+
+        async function paintedTextMatchesBundledProgram(label: string) {
+            const box = await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box');
+            expect(box).not.toBeNull();
+            await page.evaluate(async () => {
+                await document.fonts.ready;
+                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            });
+            await revealForPointer(page, box!);
+            const camera = await box!.evaluate(element => {
+                const viewer = element.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const bounds = viewer.getBoundingClientRect();
+                const rect = element.getBoundingClientRect();
+                const y = bounds.top + viewer.clientTop + viewer.clientHeight / 2;
+                return {
+                    x: bounds.left + viewer.clientLeft + viewer.clientWidth / 2,
+                    y,
+                    deltaY: rect.top < y - viewer.clientHeight / 2 || rect.bottom > y + viewer.clientHeight / 2 ? rect.top + rect.height / 2 - y : 0,
+                };
+            });
+            if (camera.deltaY) {
+                await page.mouse.move(camera.x, camera.y);
+                await page.mouse.wheel({deltaY: camera.deltaY});
+                await revealForPointer(page, box!);
+            }
+            const capture = await box!.evaluate(element => {
+                const viewer = element.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const bounds = viewer.getBoundingClientRect();
+                return {
+                    clip: element.getBoundingClientRect().toJSON(),
+                    viewport: new DOMRect(bounds.left + viewer.clientLeft, bounds.top + viewer.clientTop, viewer.clientWidth, viewer.clientHeight).toJSON(),
+                };
+            });
+            writeFileSync(join(evidence, `${label}-roi.json`), JSON.stringify({
+                camera,
+                ...capture,
+            }));
+            expect(capture.clip.left >= capture.viewport.left && capture.clip.top >= capture.viewport.top
+                && capture.clip.right <= capture.viewport.right && capture.clip.bottom <= capture.viewport.bottom,
+            `The whole text box is inside the document viewport: ${JSON.stringify(capture)}`).toBe(true);
+            const actual = Buffer.from(await page.screenshot({clip: capture.clip}));
+            writeFileSync(join(evidence, `${label}-box.png`), actual);
+            await page.screenshot({path: join(evidence, `${label}-page.png`)});
+            const client = await page.createCDPSession();
+            await client.send('DOM.enable');
+            await client.send('CSS.enable');
+            const tree = await client.send('DOM.getDocument');
+            const node = await client.send('DOM.querySelector', {
+                nodeId: tree.root.nodeId,
+                selector: '.editor-pane.is-active .pdf-annotation-editor-text-box',
+            });
+            const platform = await client.send('CSS.getPlatformFontsForNode', {nodeId: node.nodeId});
+            const previewSelector = '.editor-pane.is-active .note-item .note-item-text';
+            const preview = await page.waitForSelector(previewSelector);
+            await preview!.screenshot({path: join(evidence, `${label}-preview.png`)});
+            const previewNode = await client.send('DOM.querySelector', {
+                nodeId: tree.root.nodeId,
+                selector: `${previewSelector} span span`,
+            });
+            const previewFonts = await client.send('CSS.getPlatformFontsForNode', {nodeId: previewNode.nodeId});
+            writeFileSync(join(evidence, `${label}-preview-fonts.json`), JSON.stringify(previewFonts, null, 2));
+            const previewGlyphs = previewFonts.fonts.filter(font => font.glyphCount > 0);
+            expect.soft(previewGlyphs.length, `${script} comment preview paints text`).toBeGreaterThan(0);
+            // Previews use the UI font: bundled script faces only for the scripts that need them.
+            expect.soft(previewGlyphs.some(font => font.isCustomFont && font.postScriptName === 'DejaVuSans'),
+                `${script} comment preview keeps DejaVu Sans out of the UI font`).toBe(false);
+            if (fontFile !== 'DejaVuSans.ttf') {
+                expect.soft(previewGlyphs.some(font => font.isCustomFont && font.postScriptName === fontFile.replace('.ttf', '')),
+                    `${script} comment preview uses the bundled script program`).toBe(true);
+            }
+            await client.detach();
+            const paintedFonts = platform.fonts.filter(font => font.glyphCount > 0);
+            expect.soft(paintedFonts.some(font => font.postScriptName === fontFile.replace('.ttf', ''))).toBe(true);
+            expect.soft(paintedFonts.every(font => font.isCustomFont && programs.has(font.postScriptName)),
+                `${script} actually paints every glyph with the shipped program its saved layout uses`).toBe(true);
+
+            // A separate family chooses the complete reference program. Its
+            // DejaVu strut matches the shared paragraph metrics on screen.
+            await page.evaluate(async (file: string, content: string) => {
+                const base = new FontFace('Semtext Reference', 'url("/fonts/annotation/DejaVuSans.ttf")');
+                document.fonts.add(await base.load());
+                const unicodeRange = Array.from(new Set(Array.from(content).filter(character => !/\p{Script=Common}/u.test(character)).map(character => (
+                    `U+${character.codePointAt(0)!.toString(16)}`
+                )))).join(',');
+                const font = new FontFace('Semtext Reference', `url("/fonts/annotation/${file}")`, {unicodeRange});
+                document.fonts.add(await font.load());
+                await document.fonts.ready;
+                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            }, fontFile, text);
+
+            // Compare both families in one Chromium canvas so viewport LCD
+            // compositing cannot change the oracle's antialiasing. Font identity
+            // above and the captured box pixels establish the real screen paint.
+            const comparison = await box!.evaluate((element, content) => {
+                const style = getComputedStyle(element);
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 128;
+                const context = canvas.getContext('2d')!;
+                context.direction = style.direction === 'rtl' ? 'rtl' : 'ltr';
+                context.textAlign = 'right';
+                context.textBaseline = 'alphabetic';
+                context.fillStyle = style.color;
+                function paint(family: string) {
+                    context.clearRect(0, 0, canvas.width, canvas.height);
+                    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${family}`;
+                    context.fillText(content, 488, 80);
+                    return {
+                        png: canvas.toDataURL(),
+                        pixels: context.getImageData(0, 0, canvas.width, canvas.height).data,
+                    };
+                }
+                const actual = paint(style.fontFamily);
+                const reference = paint('Semtext Reference');
+                return {
+                    matches: actual.pixels.every((value, index) => value === reference.pixels[index]),
+                    actual: actual.png,
+                    reference: reference.png,
+                };
+            }, text);
+            const image = await loadImage(actual);
+            const canvas = createCanvas(image.width, image.height);
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const pixels = context.getImageData(0, 0, image.width, image.height).data;
+            let ink = 0;
+            for (let y = 2; y < image.height - 2; y += 1) {
+                for (let x = 2; x < image.width - 2; x += 1) {
+                    const offset = (y * image.width + x) * 4;
+                    if (Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 150) ink += 1;
+                }
+            }
+            expect.soft(ink, 'The actual text box paints text pixels').toBeGreaterThan(0);
+            for (const [
+                name,
+                png,
+            ] of [
+                    [
+                        'canvas',
+                        comparison.actual,
+                    ],
+                    [
+                        'reference',
+                        comparison.reference,
+                    ],
+                ]) {
+                writeFileSync(join(evidence, `${label}-${name}.png`), Buffer.from(png!.split(',')[1]!, 'base64'));
+            }
+            writeFileSync(join(evidence, `${label}-pixels.json`), JSON.stringify({
+                script,
+                text,
+                ink,
+                fonts: paintedFonts,
+                matches: comparison.matches,
+            }));
+            expect.soft(comparison.matches, `${script} glyphs and marks match the independent bundled-font pixels`).toBe(true);
+
+        }
+
+        await paintedTextMatchesBundledProgram('before-save');
+        const typedSize = await editorFontSize();
+        let saveError: string | null = null;
+        try {
+            await saveViaVisibleToolbar(page, 12_000, saved);
+        } catch (error) {
+            saveError = String(error);
+        }
+        expect.soft(saveError, 'The typed annotation can be saved').toBeNull();
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const annotations = pdf.getPage(0).node.Annots()?.asArray() ?? [];
+        const freeText = annotations.map(ref => pdf.context.lookup(ref, PDFDict)).find(object => (
+            object.get(PDFName.of('Subtype'))?.toString() === '/FreeText'
+        ));
+        const contents = freeText?.get(PDFName.of('Contents'));
+        const savedText = contents instanceof PDFString || contents instanceof PDFHexString ? contents.decodeText() : null;
+        const hasAppearance = Boolean(freeText?.get(PDFName.of('AP')));
+        writeFileSync(join(evidence, 'save.json'), JSON.stringify({
+            script,
+            text,
+            saveError,
+            savedText,
+            hasAppearance,
+        }));
+        expect.soft(hasAppearance).toBe(true);
+        expect.soft(savedText).toBe(text);
+        // The saved page draws the text at the size the editor showed and reopens with.
+        const normal = pdf.context.lookup(freeText!.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
+        const appearanceContent = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');
+        const drawnSizes = new Set(Array.from(appearanceContent
+            .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));
+        const recordedSize = Number(/([\d.]+) Tf/u.exec(freeText!.lookup(PDFName.of('DA'), PDFString).decodeText())?.[1]);
+        expect.soft([...drawnSizes], `${script} appearance draws at the size its DA records`).toEqual([recordedSize]);
+        // Where the saved fonts need more room than the screen did, the size
+        // shrinks only to fit, and the DA records it for the reopened editor.
+        expect.soft(recordedSize, `${script} never saves a larger size than typed`).toBeLessThanOrEqual(typedSize + 0.01);
+        if (keepsTypedSize) {
+            expect.soft(recordedSize, `${script} saves the size the editor showed`).toBeCloseTo(typedSize, 2);
+        }
+        const clipped = await renderedTextBoxInk(readFileSync(saved), false);
+        const unclipped = await renderedTextBoxInk(readFileSync(saved), true);
+        writeFileSync(join(evidence, 'saved-ink.json'), JSON.stringify({
+            clipped,
+            unclipped,
+        }));
+        expect.soft(clipped.inside, `${script} saved page paints text in PDF.js`).toBeGreaterThan(0);
+        // The clip is the box itself, so it can hide only ink placed outside the box.
+        expect.soft(unclipped.outside, `${script} saved layout keeps every glyph inside its box`).toBe(0);
+        // EVB's print output draws the saved appearance as saved.
+        const printed = join(evidence, 'printed.pdf');
+        execFileSync(resolveNativePageOpsPath()!, [
+            'print-layout',
+            '--input',
+            saved,
+            '--output',
+            printed,
+            '--view-mode',
+            'single',
+            '--orientation',
+            'portrait',
+        ]);
+        const printedPdf = await PDFDocument.load(readFileSync(printed));
+        const printedStreams = printedPdf.context.enumerateIndirectObjects().flatMap(([
+            , object,
+        ]) => (
+            object instanceof PDFRawStream ? [Buffer.from(decodePDFRawStream(object).decode()).toString('latin1')] : []
+        ));
+        expect.soft(printedStreams, `${script} prints the saved appearance unchanged`).toContain(appearanceContent);
+        const restarted = await sessionFixture.restart({
+            sessionName: () => `e2e-semtext-reopen-${Date.now()}`,
+            hard: true,
+            clean: true,
+        });
+        page = restarted.page;
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await page.screenshot({path: join(evidence, 'reopened-page.png')});
+        await page.waitForFunction((expected: string) => Array.from(document.querySelectorAll(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box',
+        )).some(element => element.textContent === expected), {timeout: 30_000}, text);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await paintedTextMatchesBundledProgram('reopened');
+        expect.soft(await editorFontSize(), `${script} reopens at its saved size`).toBeCloseTo(recordedSize, 2);
+    });
+
+    it.each([
+        // A 25 x 45 pt FreeText "W" at 22 pt from another program: its glyph
+        // reaches past the box, so the saved size must fit it.
+        [
+            'compact',
+            'compact.pdf',
+        ],
+        // review-b7f: 13.33 pt labels in 150 x 20 pt boxes. Their vowel points
+        // reach below the nominal line, and the saved size must keep them.
+        [
+            'short Arabic',
+            'short-arabic.pdf',
+        ],
+        [
+            'short Syriac',
+            'short-syriac.pdf',
+        ],
+        [
+            'short Hebrew',
+            'short-hebrew.pdf',
+        ],
+        // A bordered label keeps its producer's border and background: PyMuPDF
+        // writes /BS and /C; a hand-written Acrobat-style label /Border, /RD,
+        // /C and a stroking colour in its DA.
+        [
+            'bordered PyMuPDF',
+            'bordered-pymupdf.pdf',
+        ],
+        [
+            'bordered hand-written',
+            'bordered-handwritten.pdf',
+        ],
+        // Boxes EVB wrote turned by 90 and 180 degrees, to which another program
+        // later gave a border, a fill and /RD: the frame turns with the text.
+        [
+            'turned 90 degrees and bordered',
+            'turned-90-bordered.pdf',
+        ],
+        [
+            'turned 180 degrees and bordered',
+            'turned-180-bordered.pdf',
+        ],
+    ])('keeps a %s foreign label whole when only its color changes', async (_label, fixture) => {
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-foreign-label-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext', fixture), saved);
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .pdf-annotation-editor-text-box');
+        const source = await PDFDocument.load(readFileSync(saved));
+        const sourceText = source.context.lookup(source.getPage(0).node.Annots()!.get(0), PDFDict);
+        const borderEntries = (dict: PDFDict) => [
+            'BS',
+            'Border',
+            'C',
+            'RD',
+        ].map(key => dict.get(PDFName.of(key))?.toString() ?? null);
+        const rect = sourceText.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
+        const borderWidth = (/\/W (\d+(?:\.\d+)?)/u.exec(sourceText.get(PDFName.of('BS'))?.toString() ?? '')
+            ?? /^\[\s*\d+\s+\d+\s+(\d+(?:\.\d+)?)/u.exec(sourceText.get(PDFName.of('Border'))?.toString() ?? ''))?.[1];
+        // On screen the border has the width its producer gave it, relative to the box.
+        const screenBorder = await page.$eval('.editor-pane.is-active .pdf-annotation-editor-text-box', box => {
+            const frame = box.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame');
+            // The frame strokes its border as an inset shadow: "<colour> 0px 0px 0px <width> inset".
+            const spread = frame ? /([\d.]+)px inset$/u.exec(getComputedStyle(frame).boxShadow)?.[1] : undefined;
+            return Number(spread ?? 0) / box.getBoundingClientRect().width;
+        });
+        expect.soft(screenBorder, 'the editor draws the label\'s border').toBeCloseTo(Number(borderWidth ?? 0) / (rect[2]! - rect[0]!), 3);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const freeText = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+        expect.soft(borderEntries(freeText), 'the saved label keeps its border entries').toEqual(borderEntries(sourceText));
+        if (Number(borderWidth ?? 0) > 0) {
+            expect.soft(freeText.lookup(PDFName.of('DA'), PDFString).decodeText(), 'the border keeps its colour').toMatch(/ RG$/u);
+        }
+        const normal = pdf.context.lookup(freeText.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
+        const appearance = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');
+        if (Number(borderWidth ?? 0) > 0) {
+            // Its frame keeps PDF's mitred corners, turned or not.
+            expect.soft(appearance, 'the saved label draws its frame').toContain(`${borderWidth} w 1 J 0 j`);
+        }
+        const drawnSizes = new Set(Array.from(appearance
+            .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));
+        const recordedSize = Number(/([\d.]+) Tf/u.exec(freeText.lookup(PDFName.of('DA'), PDFString).decodeText())?.[1]);
+        expect.soft([...drawnSizes], 'the label draws at the size its DA records').toEqual([recordedSize]);
+        expect.soft((await renderedTextBoxInk(readFileSync(saved), true)).outside, 'the saved label keeps its whole glyph').toBe(0);
+    });
+
+    it('keeps a foreign label unfilled where its own appearance paints no fill', async () => {
+        // verify13w / review-b8f: /C [0 0 0] beside an appearance that strokes a
+        // 2 pt black border and paints no fill. The label shows white, and
+        // after a text and colour edit its saved file gains no fill.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-unfilled-label-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/unfilled-black-c.pdf'), saved);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const frameFill = (page: Page) => page.$eval(box, element => getComputedStyle(element.querySelector('.pdf-annotation-editor-text-box__frame')!).backgroundColor);
+        const openLabel = async (page: Page) => {
+            await openPdfInApp(page, saved);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickAnnotationTool(page, 'Select');
+            await clickVisibleAnnotationControl(page, box);
+        };
+        const {page} = sessionFixture.getSession();
+        await openLabel(page);
+        expect.soft(await frameFill(page), 'the label shows no fill its appearance never painted').toBe('rgba(0, 0, 0, 0)');
+        await clickAsUser(page, box, {count: 2});
+        await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]');
+        await selectAllFocusedAnnotationText(page);
+        await page.keyboard.type('Edited label', {delay: 4});
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try {
+            await page.keyboard.press('Enter');
+        } finally {
+            await page.keyboard.up(modifier);
+        }
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const label = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+        const normal = pdf.context.lookup(label.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
+        const appearance = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');
+        expect.soft(label.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText(), 'the edit is saved').toBe('Edited label');
+        expect.soft(appearance, 'the saved label draws its border and no fill').toMatch(/ 2 w 1 J 0 j\n/u);
+        expect.soft(appearance, 'the saved label draws its border and no fill').not.toMatch(/ re f\b/u);
+        const restarted = await sessionFixture.restart({hard: true});
+        await openLabel(restarted.page);
+        expect.soft(await frameFill(restarted.page), 'the reopened label is still unfilled').toBe('rgba(0, 0, 0, 0)');
+    });
+
+    it('turns a foreign label\'s frame with its box through Save and reopen', async () => {
+        // review-b7s: /RD [1 2 7 12] gives a 300 x 40 pt label a different inset
+        // on every side. A box turned clockwise by a quarter faces the next side.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-turned-frame-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/asymmetric-frame.pdf'), saved);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const frameInsets = (page: Page) => page.$eval(box, (element) => {
+            const frame = getComputedStyle(element.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame')!);
+            // The box lays out at the label's unturned 300 pt width.
+            const points = 300 / (element as HTMLElement).offsetWidth;
+            return [
+                frame.top,
+                frame.right,
+                frame.bottom,
+                frame.left,
+            ].map(inset => Math.round(Number.parseFloat(inset) * points * 10) / 10);
+        });
+        const openLabel = async (page: Page) => {
+            await openPdfInApp(page, saved);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickAnnotationTool(page, 'Select');
+            await clickVisibleAnnotationControl(page, box);
+        };
+        const {page} = sessionFixture.getSession();
+        await openLabel(page);
+        expect(await frameInsets(page), 'the upright label').toEqual([
+            12,
+            7,
+            2,
+            1,
+        ]);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
+        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active [data-annotation-rotation-value]')?.textContent?.includes('90'));
+        const turned = await frameInsets(page);
+        expect(turned, 'the turned box faces the page\'s next sides').toEqual([
+            7,
+            2,
+            1,
+            12,
+        ]);
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const restarted = await sessionFixture.restart({hard: true});
+        await openLabel(restarted.page);
+        expect(await frameInsets(restarted.page), 'the reopened label keeps the frame it had before Save').toEqual(turned);
+    });
+
+    it.each([
+        'dashed',
+        'beveled',
+        'inset',
+        'underlined',
+        'cloudy',
+    ])('lets a person select and copy a %s label it cannot edit', async (style) => {
+        // review-b7s: a label whose border the editor cannot draw keeps its
+        // producer's appearance. It is selectable, says why it is read-only,
+        // copies its text, and no move or delete reaches it.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-read-only-label-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const pdfPath = join(evidence, `${style}.pdf`);
+        copyFileSync(resolve('tests/fixtures/electron/semtext', `${style}.pdf`), pdfPath);
+        const notice = 'This label\'s border style can\'t be edited here; it keeps its original look.';
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, pdfPath);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, box);
+        // Where the label sits on its page: a scroll moves the page, not the label.
+        const placement = () => page.$eval(box, (element) => {
+            const label = element.getBoundingClientRect();
+            const sheet = element.closest('.pdf-annotation-editor-layer')!.getBoundingClientRect();
+            return [
+                label.left - sheet.left,
+                label.top - sheet.top,
+                label.width,
+                label.height,
+            ];
+        });
+        const before = await placement();
+        // pdf.js draws the label: its text and border are on the page under the box.
+        const ink = async () => {
+            const clip = await page.$eval(box, element => element.getBoundingClientRect().toJSON());
+            const image = await loadImage(Buffer.from(await page.screenshot({clip})));
+            const canvas = createCanvas(image.width, image.height);
+            canvas.getContext('2d').drawImage(image, 0, 0);
+            const pixels = canvas.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+            return Array.from({length: pixels.length / 4}, (_, index) => pixels[index * 4]! < 128).filter(Boolean).length;
+        };
+        await expect.poll(ink, {message: 'the label stays drawn on the page'}).toBeGreaterThan(50);
+        const chrome = await page.evaluate(() => ({
+            notices: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-pdf-annotation-read-only-notice], .editor-pane.is-active [data-annotation-read-only-notice]'))
+                .filter(element => element.checkVisibility()).map(element => element.textContent?.trim()),
+            grips: document.querySelectorAll('.editor-pane.is-active [data-pdf-annotation-move-handle], .editor-pane.is-active [data-pdf-annotation-resize-handle]').length,
+            swatches: document.querySelectorAll('.editor-pane.is-active .annotation-style-editor .swatch').length,
+            deletes: document.querySelectorAll('.editor-pane.is-active .note-item-delete').length,
+        }));
+        expect.soft(chrome, 'the label explains itself and offers no edit').toEqual({
+            notices: [
+                notice,
+                notice,
+            ],
+            grips: 0,
+            swatches: 0,
+            deletes: 0,
+        });
+        // A drag and the Delete key leave it where and as it was.
+        const grab = await page.$eval(box, element => element.getBoundingClientRect().toJSON());
+        await page.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(grab.x + grab.width / 2 + 60, grab.y + grab.height / 2 + 40, {steps: 8});
+        await page.mouse.up();
+        await page.keyboard.press('Delete');
+        expect.soft(await placement(), 'the label does not move').toEqual(before);
+        // Its context menu copies the text and offers no Delete.
+        const target = await page.$eval(box, element => element.getBoundingClientRect().toJSON());
+        await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2, {button: 'right'});
+        await page.waitForSelector('.annotation-context-menu [data-annotation-read-only-notice]', {visible: true});
+        const menu = await page.$$eval('.annotation-context-menu .pdf-context-menu__action', buttons => buttons
+            .map(button => button.textContent?.trim()));
+        expect.soft(menu.some(label => label?.startsWith('Delete')), 'no Delete in the menu').toBe(false);
+        await clickAsUser(page, {
+            find: (label: unknown) => Array.from(document.querySelectorAll('.annotation-context-menu .pdf-context-menu__action'))
+                .find(button => button.textContent?.trim() === label),
+            arg: 'Copy Text to Clipboard',
+            description: 'the label\'s Copy Text action',
+        });
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`Foreign ${style} label`);
+        expect.soft(readFileSync(pdfPath).equals(readFileSync(resolve('tests/fixtures/electron/semtext', `${style}.pdf`))), 'the file is untouched').toBe(true);
+    });
+
+    it('drags only the editable member of a selection with a read-only label', async () => {
+        // review-b8f: a read-only label in the selection neither moves nor
+        // stops the editable box short of the page edge it never reaches.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-mixed-drag-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const pdfPath = join(evidence, 'dashed.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/dashed.pdf'), pdfPath);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, pdfPath);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        const label = `${box}[data-annotation-id="${await page.$eval(box, element => (element as HTMLElement).dataset.annotationId)}"]`;
+        const editable = `${box}[data-annotation-id="${await createCanonicalTextBoxWithPointer(page, 'Editable beside a label', {
+            x: 0.3,
+            y: 0.35,
+        })}"]`;
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, editable);
+        await page.keyboard.down('Shift');
+        await clickVisibleAnnotationControl(page, label);
+        await page.keyboard.up('Shift');
+        expect(await page.$$(`${box}.is-selected`)).toHaveLength(2);
+        const rectOf = (selector: string) => page.$eval(selector, element => element.getBoundingClientRect().toJSON());
+        const [
+            labelBefore,
+            before,
+        ] = [
+            await rectOf(label),
+            await rectOf(editable),
+        ];
+        await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(before.x + before.width / 2 - 140, before.y + before.height / 2, {steps: 8});
+        expect.soft(await rectOf(label), 'the label\'s selection stays over it during the drag').toEqual(labelBefore);
+        await page.mouse.up();
+        expect.soft((await rectOf(editable)).x - before.x, 'the editable box goes as far as asked').toBeCloseTo(-140, 0);
+        expect.soft(await rectOf(label), 'the label stays where it is').toEqual(labelBefore);
+    });
+
+    it('opens a foreign label with a malformed DA at the size it draws', async () => {
+        // Its DA ends in "/Helv invalid Tf"; its appearance draws at 22 pt.
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, resolve('tests/fixtures/electron/semtext/malformed.pdf'));
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .pdf-annotation-editor-text-box');
+        const size = await page.$eval('.editor-pane.is-active .annotation-style-editor input[aria-label="Text Size"]', element => (
+            Number((element as HTMLInputElement).value)
+        ));
+        expect(size, 'the size control shows the size the label draws').toBe(22);
     });
 
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {

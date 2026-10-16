@@ -894,5 +894,11 @@ const isMain = process.argv[1]
     && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMain) {
-    process.exitCode = await runPrivateVercelDeploy();
+    // Only production needs the inherited flock; previews also support Windows.
+    if (process.platform === 'win32' && process.argv.slice(2).includes('--prod')) {
+        console.error('Production deploys require macOS or Linux for the inherited flock; previews support Windows.');
+        process.exitCode = 1;
+    } else {
+        process.exitCode = await runPrivateVercelDeploy();
+    }
 }

@@ -116,6 +116,7 @@ describe('browser compact DjVu saved scan pixels', () => {
                 path: bundlePath,
                 type: 'module',
             });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallDjvuRasterContentAcceptance') === 'function');
             await page.evaluate(async () => {
                 const install = Reflect.get(globalThis, '__evbInstallDjvuRasterContentAcceptance');
                 if (typeof install !== 'function') {

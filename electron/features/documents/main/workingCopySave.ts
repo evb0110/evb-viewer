@@ -1,5 +1,4 @@
 import { existsSync } from 'fs';
-import {rm} from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
     IDocumentMutationRevisionOptions,
@@ -7,14 +6,8 @@ import type {
     TDocumentSaveFailureReason,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {atomicReplace} from '@electron/utils/atomicReplace';
+import {getPublicationTemporaryPath} from '@electron/file-access/documentFileWriteAtomic';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     ensureWorkingCopyMaterialized,
@@ -34,8 +27,12 @@ import {
     enqueueWorkingCopyMutation,
     type IWorkingCopyMutationOperation,
 } from '@electron/file-access/workingCopyMutationQueue';
-import {assertQueuedWorkingCopyMutationPreconditions} from '@electron/file-access/documentMutationGuards';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    normalizeExpectedDocumentRevisionToken as normalizeMutationRevisionToken,
+} from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
@@ -71,16 +68,11 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
     };
 }
 
-function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
-    const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined) {
-        return null;
-    }
-    const parsedToken = parseDocumentRevisionToken(token);
-    if (parsedToken === null) {
+function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null) {
+    if (options?.expectedDocumentRevisionToken === null) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
-    return parsedToken;
+    return normalizeMutationRevisionToken(options);
 }
 
 function getValidationSaveFailureReason(validation: IPdfValidationResult): TDocumentSaveFailureReason {
@@ -96,6 +88,7 @@ function createSaveFailureResult(
     error?: unknown,
     options: {
         externalWriteCommitted?: boolean;
+        keptFilePath?: string;
         validation?: IPdfValidationResult | null;
     } = {},
 ): TDocumentSaveResult {
@@ -105,6 +98,7 @@ function createSaveFailureResult(
         reason,
         ...(message === undefined ? {} : {message}),
         ...(options.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: options.externalWriteCommitted}),
+        ...(options.keptFilePath === undefined ? {} : {keptFilePath: options.keptFilePath}),
         ...(reason === 'working-copy-sync-required' ? {workingCopySyncRequired: true} : {}),
         ...(options.validation === undefined ? {} : {validation: options.validation}),
     };
@@ -117,8 +111,8 @@ function areWorkingCopyAndOriginalMissing(workingPath: string, senderWebContents
         && !existsSync(mapping.originalPath);
 }
 
-async function refreshWorkingCopyOriginalFileExpectationForSave(workingPath: string, senderWebContentsId: number) {
-    const refreshed = await refreshWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+async function refreshWorkingCopyOriginalFileExpectationForSave(...args: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>) {
+    const refreshed = await refreshWorkingCopyOriginalFileExpectation(...args);
     if (!refreshed) {
         throw new Error('Working copy registration changed before original expectation refresh completed');
     }
@@ -141,74 +135,68 @@ async function replaceOriginalWithValidatedTemp(
     originalPath: string,
     workingPath: string,
     senderWebContentsId: number,
-    writeTemp: (tempPath: string) => Promise<void>,
+    writeTemp: (tempPath: string) => Promise<Awaited<ReturnType<typeof copyFileCopyOnWrite>>> | Promise<void>,
     options: {
         optimize?: 'large' | 'force';
         signal?: AbortSignal;
         validation?: TPdfSaveValidation;
     } = {},
 ): Promise<IReplaceOriginalWithValidatedTempResult> {
-    const tempPath = makeSiblingTempPath(originalPath);
-    let replaced = false;
-    try {
-        await writeTemp(tempPath);
-        const optimizedValidation = options.optimize === 'force'
-            ? await optimizePdfForSave(tempPath, {
-                force: true,
-                label: 'qpdf(optimize-current-pdf)',
-            })
-            : options.optimize === 'large'
-                ? await optimizeLargePdfForOrdinarySave(tempPath)
-                : null;
-        const validation = optimizedValidation ?? (options.validation === 'structural'
-            ? await validatePdfFileForSave(tempPath)
-            : await validatePdfFile(tempPath));
-        if (!validation.isValid) {
-            return {
-                validation,
-                optimized: false,
-            };
-        }
-
-        const transition = await transitionOriginalAndWorkingCopyRevision({
-            workingCopyPath: workingPath,
+    let result: IReplaceOriginalWithValidatedTempResult = {
+        validation: createOriginalChangedValidationResult(),
+        optimized: false,
+    };
+    const invalidStage = new Error('The staged PDF failed validation');
+    const transition = await transitionOriginalAndWorkingCopyRevision({
+        workingCopyPath: workingPath,
+        originalPath,
+        reason: 'save-sync',
+        senderId: senderWebContentsId,
+        captureOriginalWitness: () => captureOriginalPathSaveWitness(
+            workingPath,
             originalPath,
-            reason: 'save-sync',
-            senderId: senderWebContentsId,
-            captureOriginalWitness: () => captureOriginalPathSaveWitness(
-                workingPath,
-                originalPath,
-                senderWebContentsId,
-                options.signal,
-            ),
-            ...(options.signal === undefined ? {} : {signal: options.signal}),
-            publishOriginal: assertDestinationCurrent => atomicReplace(tempPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-            publishedSourcePath: tempPath,
-            afterWorkingCopySync: () => refreshWorkingCopyOriginalFileExpectationForSave(
-                workingPath,
-                senderWebContentsId,
-            ),
-            afterOriginalRestore: () => refreshWorkingCopyOriginalFileExpectationForSave(
-                workingPath,
-                senderWebContentsId,
-            ),
-        });
-        if (!transition) {
-            return {
-                validation: createOriginalChangedValidationResult(),
-                optimized: false,
+            senderWebContentsId,
+            options.signal,
+        ),
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
+        // The journal names this stage before it exists; recovery removes one a crash left.
+        stagePublication: async backupPath => {
+            const tempPath = getPublicationTemporaryPath(originalPath, backupPath);
+            const copied = await writeTemp(tempPath);
+            const optimizedValidation = options.optimize === 'force'
+                ? await optimizePdfForSave(tempPath, {
+                    force: true,
+                    label: 'qpdf(optimize-current-pdf)',
+                })
+                : options.optimize === 'large'
+                    ? await optimizeLargePdfForOrdinarySave(tempPath)
+                    : null;
+            const validation = optimizedValidation ?? (options.validation === 'structural'
+                ? await validatePdfFileForSave(tempPath)
+                : await validatePdfFile(tempPath));
+            result = {
+                validation,
+                optimized: validation.isValid && optimizedValidation !== null,
             };
-        }
-        replaced = true;
-        return {
-            validation,
-            optimized: optimizedValidation !== null,
-        };
-    } finally {
-        if (!replaced) {
-            await rm(tempPath, { force: true }).catch(() => undefined);
-        }
-    }
+            if (!validation.isValid) throw invalidStage;
+            return {
+                path: tempPath,
+                ...(optimizedValidation === null && copied ? {contentFingerprint: copied.contentFingerprint} : {}),
+            };
+        },
+        publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(getPublicationTemporaryPath(originalPath, destinationBackupPath), originalPath, {
+            assertDestinationCurrent,
+            destinationBackupPath,
+        }),
+        refreshOriginalExpectation: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
+    }).catch((error: unknown) => {
+        if (error !== invalidStage) throw error;
+        return null;
+    });
+    return transition || !result.validation.isValid ? result : {
+        validation: createOriginalChangedValidationResult(),
+        optimized: false,
+    };
 }
 
 async function runNativePdfSaveMutation(
@@ -219,7 +207,7 @@ async function runNativePdfSaveMutation(
         normalizedWorkingPath: string,
         tempPath: string,
         operation: IWorkingCopyMutationOperation,
-    ) => Promise<void>,
+    ) => Promise<Awaited<ReturnType<typeof copyFileCopyOnWrite>>> | Promise<void>,
     optimize: 'large' | 'force',
     failureMessage: string,
 ): Promise<IPdfValidationResult> {
@@ -281,27 +269,19 @@ export async function handleFileSaveStructured(
             });
             const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
-            const queuedSave = await replaceOriginalWithValidatedTemp(
+            return replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
-                tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
+                tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath, {
+                    fingerprintSource: true,
+                    signal: operation.signal,
+                }),
                 {
                     validation: 'structural',
                     signal: operation.signal,
                 },
             );
-            if (queuedSave.validation.isValid) {
-                return {
-                    validation: queuedSave.validation,
-                    workingCopyRefreshed: true,
-                };
-            }
-
-            return {
-                validation: queuedSave.validation,
-                workingCopyRefreshed: false,
-            };
         });
 
         if (!saveResult.validation.isValid) {
@@ -330,6 +310,12 @@ export async function handleFileSaveStructured(
             validation: saveResult.validation,
         };
     } catch (err) {
+        if (err instanceof OriginalPathSaveConflictError) {
+            return createSaveFailureResult('original-changed', err, {
+                externalWriteCommitted: err.keptFilePath !== undefined,
+                ...(err.keptFilePath === undefined ? {} : {keptFilePath: err.keptFilePath}),
+            });
+        }
         if (
             typeof context.senderId === 'number'
             && areWorkingCopyAndOriginalMissing(workingPath.trim(), context.senderId)
@@ -391,7 +377,10 @@ export async function handleOptimizePdfForInteraction(
         context,
         workingPath,
         options,
-        (normalizedWorkingPath, tempPath) => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
+        (normalizedWorkingPath, tempPath, operation) => copyFileCopyOnWrite(normalizedWorkingPath, tempPath, {
+            fingerprintSource: true,
+            signal: operation.signal,
+        }),
         'force',
         'Failed to optimize PDF',
     );

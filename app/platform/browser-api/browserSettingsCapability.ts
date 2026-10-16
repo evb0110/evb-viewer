@@ -281,8 +281,14 @@ function refreshSharedSettings() {
         diagnosticsPreferenceRevision += 1;
     }
     setRendererDiagnosticsPreference(settingsState.clientDiagnosticsPreference);
+    notifySettingsListeners();
+}
+
+// Listeners see every commit: one from another page through a storage event, and this
+// page's own through save, before save resolves. A withdrawal still in flight stays applied.
+function notifySettingsListeners() {
     for (const listener of settingsListeners) {
-        listener(sanitizeSettings(settingsState));
+        listener(sanitizeSettings(applyDiagnosticsPreferenceOverride(settingsState)));
     }
 }
 
@@ -368,6 +374,7 @@ export const browserSettingsCapability: ISettingsCapability = {
             ) {
                 setRendererDiagnosticsPreference(nextDiagnosticsPreference);
             }
+            notifySettingsListeners();
         }).catch((error: unknown) => {
             if (
                 nextDiagnosticsPreference === 'granted'

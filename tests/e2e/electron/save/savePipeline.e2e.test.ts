@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {
     clickAsUser,
     clickFoundAsUser,
+    activateMenuItemAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {existsSync} from 'node:fs';
 import {
@@ -20,6 +21,7 @@ import {
     join,
 } from 'node:path';
 import {promisify} from 'node:util';
+import {pathToFileURL} from 'node:url';
 import {
     afterEach,
     describe,
@@ -31,6 +33,7 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
+    PDFString,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
@@ -612,6 +615,58 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         session = null;
     });
 
+    it.each([
+        'save',
+        'save-as',
+    ])('keeps a note accepted during %s in the saved file or dirty for the next save', async (operation) => {
+        const source = await createMultiPageTextFixturePdf(`save-late-edit-${operation}-${Date.now()}.pdf`, 1);
+        session = await startElectronE2ESession(`e2e-save-late-edit-${operation}-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [source],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: source},
+        });
+        const page = session.page;
+        await waitForOpenedPdf(page, source);
+        await createStickyNoteWithPointer(page, 'Captured note', {
+            x: 0.4,
+            y: 0.3,
+        }, 1, {allowClearPointSearch: true});
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await waitForSaveFrontierReady(page);
+        await installReceiptProbe(page, true);
+        if (operation === 'save-as') {
+            await clickAsUser(page, 'button[aria-label="Save options"]');
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-item'))
+                .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'Save As'});
+        } else await clickEnabledSaveButton(page);
+        await waitForStagedArtifact(page);
+        await createStickyNoteWithPointer(page, 'Accepted later note', {
+            x: 0.6,
+            y: 0.4,
+        }, 1, {allowClearPointSearch: true});
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await page.evaluate(() => (window as TSaveReceiptProbeWindow).__resumeSaveReceiptCommit?.());
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
+        await waitForVisibleMountedPdfCanvases(page, SAVE_TIMEOUT_MS);
+        await expect.poll(() => page.$$eval('.pdf-annotation-editor-note', notes => notes.length)).toBe(2);
+        // An edit accepted during Save may join that publication or remain
+        // dirty; either way, the next saved file must retain both notes.
+        if (await isSaveButtonEnabled(page)) {
+            await waitForSaveFrontierReady(page);
+            await saveFromWorkspace(page, source);
+            await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        }
+        expect((await readPdfTextAnnotationRecords(source)).map(note => note.contents).sort())
+            .toEqual([
+                'Accepted later note',
+                'Captured note',
+            ]);
+        await page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
+    }, E2E_TIMEOUT_MS);
+
     it('keeps each reading point when Save As reloads a linked split or single view', async () => {
         const drifts: Array<{
             pageBefore: number;
@@ -904,7 +959,9 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(await isSaveButtonEnabled(page)).toBe(true);
         const failureText = await page.$eval('.app-toast-failure:not([data-state="closed"])', element => element.textContent ?? '');
         expect(failureText).toContain('Failed to save file');
-        expect(failureText).toContain('Permission to write the file was denied. Choose Save As to save your changes elsewhere.');
+        expect(failureText).toContain('EVB Viewer cannot write in the folder that holds this PDF, so it was not saved. Choose Save As to save your changes in another folder.');
+        // The refusal offers Save As itself, not only in its text.
+        expect(await page.$$eval('.app-toast-failure:not([data-state="closed"]) button', buttons => buttons.map(button => button.textContent?.trim()))).toContain('Save As...');
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
             .find(button => button.textContent?.trim() === 'Copy details'), null, {description: 'Copy save failure details'});
         const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -1059,6 +1116,175 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(existsSync(destinationPath)).toBe(process.platform === 'win32');
         if (process.platform === 'win32') {
             await expect(readFile(destinationPath)).resolves.toEqual(await readFile(sourcePath));
+        }
+    }, E2E_TIMEOUT_MS);
+
+    it('keeps an external save made while refreshing the saved original', async () => {
+        const pdfPath = createFixturePath(`save-refresh-race-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
+        pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
+        const beforeSave = Buffer.from(await pdf.save({useObjectStreams: false}));
+        await writeFile(pdfPath, beforeSave);
+        const seamPath = createFixturePath(`save-refresh-seam-${Date.now()}.mjs`);
+        const workingPathFile = `${seamPath}.working`;
+        const externalProof = `${seamPath}.external`;
+        await writeFile(seamPath, `
+import fs from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
+const rename = fs.rename, link = fs.link, stat = fs.stat;
+let published = false, synced = false;
+fs.link = async (source, destination) => {
+    const result = await link(source, destination);
+    if (destination === target) published = true;
+    return result;
+};
+fs.rename = async (source, destination) => {
+    const result = await rename(source, destination);
+    if (destination === target) published = true;
+    if (published && destination === await fs.readFile(workingPathFile, 'utf8').catch(() => '')) synced = true;
+    return result;
+};
+fs.stat = async (path, ...args) => {
+    if (synced && path === target) {
+        synced = false;
+        const writer = spawnSync(process.execPath, ['--input-type=module', '-e',
+            "import fs from 'node:fs/promises';const h=await fs.open(process.argv[1],'r+');await h.write('EXTERNAL',262144);await h.close();await fs.copyFile(process.argv[1],process.argv[2]);", target, proof],
+            {env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true});
+        if (writer.status !== 0) throw new Error(writer.stderr);
+    }
+    return stat(path, ...args);
+};
+syncBuiltinESMExports();
+`);
+        try {
+            session = await startElectronE2ESession(`e2e-save-refresh-race-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(seamPath).href)}`},
+            });
+            const {page} = session;
+            await waitForOpenedPdf(page, pdfPath);
+            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+            expect(workingPath).toBeTruthy();
+            await writeFile(workingPathFile, workingPath!);
+            await createFreeTextAnnotationWithPointer(page, 'Refresh race accepted work', {
+                x: 0.4,
+                y: 0.3,
+            });
+            await waitForSaveFrontierReady(page);
+            const outcome = await clickSaveAndAwaitOutcome(page, pdfPath);
+            const external = await readFile(externalProof);
+            expect(external.subarray(262144, 262152).toString()).toBe('EXTERNAL');
+            expect((await readFile(pdfPath)).equals(external)).toBe(true);
+            console.log('[save-refresh-race]', JSON.stringify({
+                outcome,
+                externalRetained: true,
+            }));
+            expect(outcome).toBe('refused');
+            expect(await isSaveButtonEnabled(page)).toBe(true);
+            const text = await page.evaluate(() => document.body.textContent ?? '');
+            expect(text).toContain('The PDF changed elsewhere while it was being saved. The version that was on disk just before your save was kept next to it as');
+            expect(text).toContain('Your changes are still open here; use Save As to keep them.');
+            const keptPath = pdfPath.replace(/\.pdf$/u, ' (original).pdf');
+            await expect(readFile(keptPath)).resolves.toEqual(beforeSave);
+            expect(text).toContain(keptPath);
+            await page.screenshot({path: createFixturePath('save-refresh-race-kept.png')});
+        } finally {
+            await session?.stop();
+            session = null;
+            await Promise.all([
+                seamPath,
+                workingPathFile,
+                externalProof,
+            ].map(path => rm(path, {force: true})));
+        }
+    }, E2E_TIMEOUT_MS);
+
+    it('keeps an external save made right after an annotation save', async () => {
+        const pdfPath = createFixturePath(`save-after-commit-race-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
+        pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
+        await writeFile(pdfPath, await pdf.save({useObjectStreams: false}));
+        const seamPath = createFixturePath(`save-after-commit-seam-${Date.now()}.mjs`);
+        const workingPathFile = `${seamPath}.working`;
+        const externalProof = `${seamPath}.external`;
+        // Another program saves the PDF once EVB has synced the working copy and
+        // written its manifest, after the save transaction has checked the original.
+        await writeFile(seamPath, `
+import fs from 'node:fs/promises';
+import {dirname, join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
+const rename = fs.rename, link = fs.link;
+let published = false, synced = false, fired = false;
+fs.link = async (source, destination) => {
+    const result = await link(source, destination);
+    if (destination === target) published = true;
+    return result;
+};
+fs.rename = async (source, destination) => {
+    const result = await rename(source, destination);
+    const workingPath = await fs.readFile(workingPathFile, 'utf8').catch(() => '');
+    if (destination === target) published = true;
+    if (published && destination === workingPath) synced = true;
+    if (synced && !fired && workingPath && destination === join(dirname(workingPath), 'manifest.json')) {
+        fired = true;
+        const writer = spawnSync(process.execPath, ['--input-type=module', '-e',
+            "import fs from 'node:fs/promises';const h=await fs.open(process.argv[1],'r+');await h.write('EXTERNAL',262144);await h.close();await fs.copyFile(process.argv[1],process.argv[2]);", target, proof],
+            {env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true});
+        if (writer.status !== 0) throw new Error(writer.stderr);
+    }
+    return result;
+};
+syncBuiltinESMExports();
+`);
+        try {
+            session = await startElectronE2ESession(`e2e-save-after-commit-race-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(seamPath).href)}`},
+            });
+            const {page} = session;
+            await waitForOpenedPdf(page, pdfPath);
+            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+            expect(workingPath).toBeTruthy();
+            await writeFile(workingPathFile, workingPath!);
+            await createFreeTextAnnotationWithPointer(page, 'First accepted note', {
+                x: 0.4,
+                y: 0.3,
+            });
+            await waitForSaveFrontierReady(page);
+            const first = await clickSaveAndAwaitOutcome(page, pdfPath);
+            const external = await readFile(externalProof);
+            expect(external.subarray(262144, 262152).toString()).toBe('EXTERNAL');
+            expect((await readFile(pdfPath)).equals(external)).toBe(true);
+            await createFreeTextAnnotationWithPointer(page, 'Second accepted note', {
+                x: 0.4,
+                y: 0.6,
+            });
+            await waitForSaveFrontierReady(page);
+            const second = await clickSaveAndAwaitOutcome(page, pdfPath);
+            console.log('[save-after-commit-race]', JSON.stringify({
+                first,
+                second,
+                externalRetained: (await readFile(pdfPath)).equals(external),
+            }));
+            expect(first).toBe('saved');
+            expect(second).toBe('refused');
+            expect((await readFile(pdfPath)).equals(external)).toBe(true);
+            expect(await isSaveButtonEnabled(page)).toBe(true);
+            await page.screenshot({path: createFixturePath('save-after-commit-race-refused.png')});
+        } finally {
+            await session?.stop();
+            session = null;
+            await Promise.all([
+                seamPath,
+                workingPathFile,
+                externalProof,
+            ].map(path => rm(path, {force: true})));
         }
     }, E2E_TIMEOUT_MS);
 
@@ -1651,4 +1877,321 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(await hashFile(pdfPath)).toBe(beforeHash);
     }, E2E_TIMEOUT_MS);
 
+});
+
+describe('[crpart3core] replacement lifecycle', () => {
+    it('CR2 keeps the old document alive until queued cancellation finishes', async () => {
+        const fixture = await createMultiPageTextFixturePdf(`crpart3core-replacement-${Date.now()}.pdf`, 2);
+        const run = await startElectronE2ESession(`e2e-crpart3core-replacement-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [fixture],
+        });
+        onTestFinished(() => run.stop());
+        const {page} = run;
+        await waitForOpenedPdf(page, fixture);
+        await page.evaluate(() => {
+            const element = document.querySelector<HTMLElement & {__vueParentComponent?: IPageLabelProbeComponent}>('.editor-pane .page_container');
+            let component = element?.__vueParentComponent;
+            let slot: IReplacementSessionSlot | undefined;
+            while (component && !slot) {
+                for (const key of Reflect.ownKeys(component.provides ?? {})) {
+                    if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = component.provides[key] as IReplacementSessionSlot;
+                }
+                component = component.parent ?? undefined;
+            }
+            if (!slot) {
+                const seen = new Set<IPageLabelProbeVNode>();
+                const visit = (vnode: IPageLabelProbeVNode | undefined) => {
+                    if (!vnode || seen.has(vnode) || slot) return;
+                    seen.add(vnode);
+                    const owner = vnode.component;
+                    if (owner) {
+                        for (const key of Reflect.ownKeys(owner.provides ?? {})) {
+                            if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = owner.provides[key] as IReplacementSessionSlot;
+                        }
+                        visit(owner.subTree);
+                    }
+                    if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                    visit(vnode.ssContent);
+                    visit(vnode.ssFallback);
+                };
+                visit(document.querySelector<HTMLElement & {_vnode?: IPageLabelProbeVNode}>('#__nuxt')?._vnode);
+            }
+            if (!slot) throw new Error('No real document session slot is reachable for the fault seam');
+            const session = slot.resolve(() => {throw new Error('An existing session is required');});
+            const pdfDocument = session.pdfDocument.value;
+            if (!pdfDocument) throw new Error('The initial PDF must be loaded before holding cancellation');
+            let release!: () => void;
+            const gate = new Promise<void>(resolve => {release = resolve;});
+            const probe = {
+                entered: false,
+                destroys: 0,
+                release,
+            };
+            (window as IReplacementProbeWindow).__crpart3core = probe;
+            const attachView = session.attachView.bind(session);
+            session.attachView = (...args: unknown[]) => {
+                const view = attachView(...args);
+                view.subscribe((transition: {reason: string}) => {
+                    if (transition.reason !== 'deactivated') return;
+                    probe.entered = true;
+                    return gate;
+                });
+                session.attachView = attachView;
+                return view;
+            };
+            const destroy = pdfDocument.loadingTask.destroy.bind(pdfDocument.loadingTask);
+            pdfDocument.loadingTask.destroy = (...args: unknown[]) => {probe.destroys += 1; return destroy(...args);};
+        });
+        await splitActiveTabFromTabMenu(page, 'right');
+        await waitForViewerInteractive(page, 60_000);
+        const panes = await page.$$eval('.editor-pane', nodes => nodes.map(node => (node as HTMLElement).dataset.editorPaneId!));
+        try {
+            await clickAsUser(page, `.editor-pane[data-editor-pane-id="${panes[1]}"] .tab-new`);
+            await page.waitForFunction(() => (window as IReplacementProbeWindow).__crpart3core?.entered, {timeout: 10_000});
+            await activatePaneByTab(page, panes[0]!);
+            const {openDocumentSidebarTab} = await import('@tests/e2e/electron/helpers/viewerCore');
+            await openDocumentSidebarTab(page, 'Pages', 60_000);
+            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.toLowerCase().includes('rotate counterclockwise')), null, {description: 'Rotate counterclockwise'});
+            await expect.poll(async () => (await readPdfPageSnapshots(workingPath))[0]?.rotation, {timeout: 60_000}).toBe(270);
+            await waitForAnimationFrames(page, 12);
+            expect(await page.evaluate(() => (window as IReplacementProbeWindow).__crpart3core?.destroys)).toBe(0);
+        } finally {
+            await page.evaluate(() => (window as IReplacementProbeWindow).__crpart3core?.release());
+        }
+        await waitForViewerInteractive(page, 60_000);
+        const layout = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', node => {
+            const rect = node.getBoundingClientRect();
+            return {
+                width: rect.width,
+                height: rect.height,
+                canvas: Boolean(node.querySelector('canvas')),
+            };
+        });
+        expect(layout.canvas).toBe(true);
+        expect(layout.width).toBeGreaterThan(layout.height);
+        await page.waitForFunction(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas__render-layer canvas');
+            const context = canvas?.getContext('2d');
+            if (!canvas || !context || canvas.width === 0 || canvas.height === 0) return false;
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index + 3]! > 0 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 200) return true;
+            }
+            return false;
+        }, {timeout: 20_000});
+    }, E2E_TIMEOUT_MS);
+});
+
+interface IPageLabelProbeComponent {
+    provides: Record<PropertyKey, unknown>;
+    parent?: IPageLabelProbeComponent | null;
+    subTree?: IPageLabelProbeVNode;
+}
+interface IReplacementProbeWindow extends Window {__crpart3core?: {
+    entered: boolean;
+    destroys: number;
+    release(): void
+};}
+interface IReplacementSessionSlot {resolve(create: () => never): {
+    pdfDocument: {value: {loadingTask: {destroy(...args: unknown[]): Promise<void>}} | null};
+    attachView(...args: unknown[]): {subscribe(listener: (transition: {reason: string}) => Promise<void> | undefined): void};
+};}
+
+interface IPageLabelProbeVNode {
+    component?: IPageLabelProbeComponent;
+    children?: IPageLabelProbeVNode[] | string;
+    ssContent?: IPageLabelProbeVNode;
+    ssFallback?: IPageLabelProbeVNode;
+}
+interface IPageLabelProbeMetadata {metadata: {pageLabelState: {
+    pageLabelsResolved: {value: boolean};
+    pageLabelRanges: {value: Array<{startNumber: number}>};
+    labelAt(page: number): string | null;
+    readPageLabelWindow(start: number, end: number): string[];
+}};}
+
+describe('[crpart3core] huge imported numbering', () => {
+    it.each([
+        {
+            style: 'A',
+            startNumber: 1_000_000_000,
+        },
+        {
+            style: 'R',
+            startNumber: 1_000_000,
+        },
+    ])('CR19 bounds $style label reads and preserves /St on save', async ({
+        style, startNumber,
+    }) => {
+        const fixture = await createMultiPageTextFixturePdf(`crpart3core-huge-${style}-${Date.now()}.pdf`, 128);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        pdf.catalog.set(PDFName.of('PageLabels'), pdf.context.obj({Nums: [
+            0,
+            {
+                S: PDFName.of(style),
+                St: startNumber,
+            },
+        ]}));
+        await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+        const run = await startElectronE2ESession(`e2e-crpart3core-labels-${style}-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [fixture],
+        });
+        onTestFinished(() => run.stop());
+        const {page} = run;
+        await waitForOpenedPdf(page, fixture);
+        const {readToolbarPageIndicator} = await import('@tests/e2e/electron/helpers/toolbarPageIndicator');
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 20_000}).toContain('…');
+        const shown = await readToolbarPageIndicator(page);
+        expect(shown.primaryText?.length).toBeLessThanOrEqual(65);
+        expect(shown.renderedPage).toBe(1);
+        const reads = await page.evaluate(() => {
+            let state: IPageLabelProbeMetadata['metadata']['pageLabelState'] | null = null;
+            const seen = new Set<IPageLabelProbeVNode>();
+            const visit = (vnode: IPageLabelProbeVNode | undefined) => {
+                if (!vnode || seen.has(vnode) || state) return;
+                seen.add(vnode);
+                const component = vnode.component;
+                if (component) {
+                    for (const key of Reflect.ownKeys(component.provides)) {
+                        if (typeof key === 'symbol' && key.description === 'documentContext') {
+                            state = (component.provides[key] as IPageLabelProbeMetadata).metadata.pageLabelState;
+                        }
+                    }
+                    visit(component.subTree);
+                }
+                if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                visit(vnode.ssContent);
+                visit(vnode.ssFallback);
+            };
+            visit((document.querySelector('#__nuxt') as HTMLElement & {_vnode?: IPageLabelProbeVNode} | null)?._vnode);
+            if (!state) throw new Error('The real document page-label owner is unavailable');
+            const owner = state as IPageLabelProbeMetadata['metadata']['pageLabelState'];
+            const firstLength = owner.labelAt(1)?.length ?? 0;
+            // Avoid asking the old code to serialize a multi-gigabyte window.
+            const labels = firstLength <= 65 ? owner.readPageLabelWindow(1, 128) : [];
+            return {
+                resolved: owner.pageLabelsResolved.value,
+                sourceStart: owner.pageLabelRanges.value[0]?.startNumber,
+                firstLength,
+                windowLength: labels.length,
+                maximumLength: Math.max(0, ...labels.map(label => label.length)),
+                payloadBytes: new TextEncoder().encode(JSON.stringify(labels)).byteLength,
+            };
+        });
+        expect(reads.resolved).toBe(true);
+        expect(reads.sourceStart).toBe(startNumber);
+        expect(reads.firstLength).toBeLessThanOrEqual(65);
+        expect(reads.windowLength).toBe(128);
+        expect(reads.maximumLength).toBeLessThanOrEqual(65);
+        expect(reads.payloadBytes).toBeLessThan(9_000);
+        await createStickyNoteWithPointer(page, 'Save keeps imported numbering', {
+            x: 0.62,
+            y: 0.3,
+        });
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await saveFromWorkspace(page, fixture);
+        const {
+            PDFArray, PDFDict, PDFNumber,
+        } = await import('pdf-lib');
+        const saved = await PDFDocument.load(await readFile(fixture));
+        const tree = saved.catalog.lookup(PDFName.of('PageLabels'), PDFDict);
+        const range = tree.lookup(PDFName.of('Nums'), PDFArray).lookup(1, PDFDict);
+        expect(range.lookup(PDFName.of('St'), PDFNumber).asNumber()).toBe(startNumber);
+        expect((await readPdfTextAnnotationRecords(fixture)).map(note => note.contents)).toContain('Save keeps imported numbering');
+    }, E2E_TIMEOUT_MS);
+});
+
+describe('[crpart3core] submitted open', () => {
+    it('CR2 replaces a submitted large PDF and frees its worker', async () => {
+        const {createLargeScannedFixturePdf} = await import('@tests/e2e/electron/helpers/fixtures');
+        const large = await createLargeScannedFixturePdf(`crpart3core-large-${Date.now()}.pdf`);
+        const replacement = await createMultiPageTextFixturePdf(`crpart3core-small-${Date.now()}.pdf`, 1);
+        const pdf = await PDFDocument.load(await readFile(replacement));
+        pdf.getPage(0).drawText('Replacement is ready', {
+            x: 60,
+            y: 80,
+            size: 18,
+        });
+        await writeFile(replacement, await pdf.save());
+        const run = await startElectronE2ESession(`e2e-crpart3core-submitted-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: replacement},
+        });
+        onTestFinished(() => run.stop());
+        const {page} = run;
+        const errors: string[] = [];
+        page.on('pageerror', error => errors.push(String(error)));
+        const client = await run.browser.target().createCDPSession();
+        const listWorkers = async () => (await client.send('Target.getTargets')).targetInfos
+            .filter(target => target.type === 'worker').map(target => target.targetId);
+        try {
+            const existingWorkers = await listWorkers();
+            await page.evaluate(() => {
+                const owner = window as Window & {__crpart3coreSubmitted?: boolean};
+                const OriginalWorker = window.Worker;
+                // Keep the viewer's first document submitted: the worker that
+                // receives the first GetDocRequest parses the file, but the page
+                // never hears its GetDoc reply, so that loading task never
+                // settles. Teardown still reaches the worker.
+                window.Worker = new Proxy(OriginalWorker, {construct(target, args) {
+                    const worker = Reflect.construct(target, args) as Worker;
+                    const post = worker.postMessage.bind(worker);
+                    const listen = worker.addEventListener.bind(worker);
+                    let submitted = false;
+                    let held: Event | null = null;
+                    worker.postMessage = ((message: unknown, options?: Transferable[] | StructuredSerializeOptions) => {
+                        if (typeof message === 'object' && message !== null && (message as {action?: unknown}).action === 'GetDocRequest') {
+                            submitted = true;
+                            window.Worker = OriginalWorker;
+                        }
+                        Reflect.apply(post, worker, options === undefined ? [message] : [
+                            message,
+                            options,
+                        ]);
+                    }) as Worker['postMessage'];
+                    worker.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => listen(
+                        type,
+                        type === 'message' && typeof listener === 'function'
+                            ? (event: Event) => {
+                                // Every listener of this worker must miss the same reply.
+                                if (submitted && (event === held || (!held && (event as MessageEvent<{action?: unknown} | null>).data?.action === 'GetDoc'))) {
+                                    held = event;
+                                    owner.__crpart3coreSubmitted = true;
+                                    return;
+                                }
+                                listener.call(worker, event);
+                            }
+                            : listener,
+                        options,
+                    )) as Worker['addEventListener'];
+                    return worker;
+                }});
+            });
+            await triggerOpenPathInApp(page, large);
+            await page.waitForFunction(() => (window as Window & {__crpart3coreSubmitted?: boolean}).__crpart3coreSubmitted, {timeout: 20_000});
+            const readTab = () => page.$eval('.editor-pane.is-active .tab.is-active[data-tab-id]', node => (node as HTMLElement).dataset.tabId);
+            const tab = await readTab();
+            const firstWorkers = (await listWorkers()).filter(id => !existingWorkers.includes(id));
+            expect(firstWorkers.length).toBeGreaterThan(0);
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+            await waitForOpenedPdf(page, replacement);
+            expect(await readTab()).toBe(tab);
+            await expect.poll(async () => page.$eval('.editor-pane.is-active .textLayer', node => node.textContent), {timeout: 20_000})
+                .toContain('Replacement is ready');
+            expect(await page.$$eval('.editor-pane.is-active .page_container', nodes => nodes.length)).toBe(1);
+            await expect.poll(async () => (await listWorkers()).some(id => firstWorkers.includes(id)), {timeout: 20_000}).toBe(false);
+            expect((await listWorkers()).filter(id => !existingWorkers.includes(id))).toHaveLength(1);
+            expect(await page.$$eval('[role="status"], [role="alert"]', nodes => nodes.map(node => node.textContent).join(' ')))
+                .not.toMatch(/failed|error|unable/i);
+            expect(errors).toEqual([]);
+        } finally {
+            await client.detach();
+        }
+    }, E2E_TIMEOUT_MS);
 });

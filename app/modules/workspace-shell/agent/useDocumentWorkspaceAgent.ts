@@ -494,7 +494,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 'document.screenshot_page',
             ],
             parse: parseAgentPageImageInput,
-            run: (captureInput: Record<string, unknown>, actionId) => captureAgentPageImage(captureInput, actionId),
+            run: (captureInput: Record<string, unknown>, actionId, context) => captureAgentPageImage(captureInput, actionId, () => context?.assertCurrentDocument()),
         },
         {
             ids: [
@@ -737,7 +737,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
                 if (annotationTool.value !== 'note') {
-                    await handleQuickNoteAction();
+                    if (await handleQuickNoteAction() === false) return {
+                        ok: false,
+                        annotationTool: annotationTool.value,
+                    };
                 }
                 await nextTick();
                 return {annotationTool: annotationTool.value};
@@ -776,7 +779,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             ],
             parse: parseAgentAnnotationToolInput,
             async run(tool: TAnnotationTool) {
-                handleAnnotationToolChange(tool);
+                if (await handleAnnotationToolChange(tool) === false) return {
+                    ok: false,
+                    annotationTool: annotationTool.value,
+                };
                 await nextTick();
                 return {annotationTool: annotationTool.value};
             },

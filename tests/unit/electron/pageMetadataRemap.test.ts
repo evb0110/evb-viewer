@@ -20,6 +20,7 @@ import {join} from 'node:path';
 import {
     applyPageMetadataRemap,
     remapPageMetadata,
+    resolvePageMetadataSourceTargets,
 } from '@electron/features/page-ops/main/pageMetadataRemap';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
@@ -63,6 +64,173 @@ describe('page metadata remap', () => {
         rmSync(tempRoot, {
             force: true,
             recursive: true,
+        });
+    });
+
+    it('resolves source references before renumbering and promotes children of removed pages', async () => {
+        const child = {
+            ...bookmark('child', null),
+            namedDest: null,
+            originalDestination: {
+                sourceTarget: {
+                    num: 7,
+                    gen: 0,
+                },
+                kind: 'Fit' as const,
+                coordinates: [],
+            },
+        };
+        const pending = {
+            ...bookmark('pending', null, [child]),
+            namedDest: null,
+            originalDestination: {
+                sourceTarget: {
+                    num: 4,
+                    gen: 0,
+                },
+                kind: 'FitH' as const,
+                coordinates: [null],
+            },
+        };
+        const metadata = {
+            bookmarks: [pending],
+            untitledBookmarkLabel: 'Untitled',
+        };
+        mocks.runNativeToolCommand.mockImplementation(async (_binary, args) => ({
+            stdout: args[0] === '--show-npages' ? '2' : JSON.stringify({bookmarks: [{
+                ...pending,
+                pageIndex: 1,
+                originalDestination: {
+                    ...pending.originalDestination,
+                    sourceTarget: 1,
+                },
+                items: [{
+                    ...child,
+                    pageIndex: 0,
+                    originalDestination: {
+                        ...child.originalDestination,
+                        sourceTarget: 0,
+                    },
+                }],
+            }]}),
+            stderr: '',
+            exitCode: 0,
+        }));
+        const source = await resolvePageMetadataSourceTargets(metadata, '/source.pdf', {
+            signal: new AbortController().signal,
+            cancelGroup: 'test',
+        });
+        const moved = remapPageMetadata(source!, {
+            previousPageCount: 2,
+            pages: [
+                {fromPageNumber: 2},
+                {fromPageNumber: 1},
+            ],
+        });
+        expect(moved.bookmarks?.items[0]?.pageIndex).toBe(0);
+        expect(moved.bookmarks?.items[0]?.originalDestination?.sourceTarget).toBe(0);
+        const deleted = remapPageMetadata(source!, {
+            previousPageCount: 2,
+            pages: [{fromPageNumber: 1}],
+        });
+        expect(deleted.bookmarks?.items.map(item => item.title)).toEqual(['child']);
+        expect(deleted.bookmarks?.items[0]?.originalDestination?.sourceTarget).toBe(0);
+    });
+
+    it('resolves an accepted name from the source catalog before deleting its page', async () => {
+        mocks.runNativeToolCommand.mockImplementation(async (_binary, args) => ({
+            stdout: args[0] === '--show-npages' ? '3' : JSON.stringify({bookmarks: [{
+                ...bookmark('Removed', 2, [bookmark('Child', 0)]),
+                namedDest: 'chapter-two',
+            }]}),
+            stderr: '',
+            exitCode: 0,
+        }));
+        const source = await resolvePageMetadataSourceTargets({
+            bookmarks: [{
+                ...bookmark('Removed', null, [bookmark('Child', 0)]),
+                namedDest: 'chapter-two',
+            }],
+            untitledBookmarkLabel: 'Untitled',
+        }, '/source.pdf', {
+            signal: new AbortController().signal,
+            cancelGroup: 'test',
+        });
+        expect(source?.bookmarks?.[0]?.pageIndex).toBe(2);
+        const removed = remapPageMetadata(source!, {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 2},
+            ],
+        });
+        expect(removed.bookmarks?.items.map(item => item.title)).toEqual(['Child']);
+        const identity = remapPageMetadata(source!, {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 2},
+                {fromPageNumber: 3},
+            ],
+        });
+        expect(identity.bookmarks?.items[0]?.namedDest).toBe('chapter-two');
+    });
+
+    it('keeps split named subtrees at their original paths before remapping pages', async () => {
+        const metadata = {
+            bookmarks: [
+                bookmark('Before', 0),
+                bookmark('Parent', null, [
+                    bookmark('Nested', null, Array.from({length: 5_000}, (_, index) => bookmark(`Child ${index}`, null))),
+                    {
+                        ...bookmark('Unresolved', null),
+                        namedDest: 'missing',
+                    },
+                ]),
+                bookmark('After', 0),
+            ],
+            untitledBookmarkLabel: 'Untitled',
+        };
+        const resolve = (items: readonly IPdfBookmarkEntry[]): IPdfBookmarkEntry[] => items.map(item => ({
+            ...item,
+            pageIndex: item.namedDest === 'missing' ? null : requirePageIndex(2),
+            items: resolve(item.items),
+        }));
+        mocks.runNativeToolCommand.mockImplementation(async (_binary: string, args: string[]) => ({
+            stdout: args[0] === '--show-npages' ? '3' : JSON.stringify({bookmarks: resolve(
+                JSON.parse(await readFile(args[args.indexOf('--mutations-file') + 1]!, 'utf8')).bookmarks.items,
+            )}),
+            stderr: '',
+            exitCode: 0,
+        }));
+        const source = await resolvePageMetadataSourceTargets(metadata, '/source.pdf', {
+            signal: new AbortController().signal,
+            cancelGroup: 'nested-bookmarks',
+        });
+        expect(source?.bookmarks?.map(item => item.title)).toEqual([
+            'Before',
+            'Parent',
+            'After',
+        ]);
+        expect(source?.bookmarks?.[1]?.items.map(item => item.title)).toEqual([
+            'Nested',
+            'Unresolved',
+        ]);
+        expect(source?.bookmarks?.[1]?.items[0]?.items).toEqual(resolve(metadata.bookmarks[1]!.items[0]!.items));
+        expect(metadata.bookmarks[1]!.items[0]!.items[0]!.pageIndex).toBeNull();
+        const remapped = remapPageMetadata(source!, {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 3},
+            ],
+        });
+        expect(remapped.bookmarks?.items[1]?.items[0]?.items).toHaveLength(5_000);
+        expect(remapped.bookmarks?.items[1]?.items[0]?.items.every(item => item.pageIndex === 1)).toBe(true);
+        expect(remapped.bookmarks?.items[1]?.items[1]).toMatchObject({
+            title: 'Unresolved',
+            pageIndex: null,
+            namedDest: 'missing',
         });
     });
 
@@ -116,6 +284,71 @@ describe('page metadata remap', () => {
                 namedDest: 'named',
             }),
         ]);
+    });
+
+    it('maps an unresolved numeric source target and promotes children of a deleted target', () => {
+        const pending: IPdfBookmarkEntry = {
+            ...bookmark('Pending', null, [bookmark('Child', 2)]),
+            namedDest: null,
+            originalDestination: {
+                kind: 'FitH',
+                sourceTarget: 1,
+                coordinates: [null],
+            },
+        };
+        const source = {
+            bookmarks: [pending],
+            untitledBookmarkLabel: 'Untitled',
+        };
+        const moved = remapPageMetadata(source, {
+            previousPageCount: 3,
+            nextPageCount: 3,
+            pages: [
+                {fromPageNumber: 2},
+                {fromPageNumber: 1},
+                {fromPageNumber: 3},
+            ],
+        });
+        expect(moved.bookmarks?.items[0]).toMatchObject({
+            pageIndex: 0,
+            originalDestination: {
+                kind: 'FitH',
+                sourceTarget: 0,
+                coordinates: [null],
+            },
+        });
+        const deleted = remapPageMetadata(source, {
+            previousPageCount: 3,
+            nextPageCount: 2,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 3},
+            ],
+        });
+        expect(deleted.bookmarks?.items).toEqual([expect.objectContaining({
+            title: 'Child',
+            pageIndex: 1,
+        })]);
+    });
+
+    it('retains a resolved named destination under an identity delta', () => {
+        const result = remapPageMetadata({
+            bookmarks: [{
+                ...bookmark('Named', 0),
+                namedDest: 'chapter',
+            }],
+            untitledBookmarkLabel: 'Untitled',
+        }, {
+            previousPageCount: 1,
+            nextPageCount: 1,
+            ranges: [{
+                kind: 'retain',
+                fromPageNumber: 1,
+                toPageNumber: 1,
+                count: 1,
+            }],
+        });
+        expect(result.bookmarks?.items[0]?.namedDest).toBe('chapter');
     });
 
     it('does not turn unknown metadata into deletion mutations', () => {

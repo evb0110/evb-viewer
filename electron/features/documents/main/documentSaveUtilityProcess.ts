@@ -12,6 +12,7 @@ import {
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
 import {atomicReplace} from '@electron/utils/atomicReplace';
+import {getOwnStartTime} from '@electron/utils/processIdentity';
 import {
     cancelNativeCommandGroupAndWait,
     runNativeCommand,
@@ -36,6 +37,8 @@ if (!isUtilityParentPort(rawParentPort)) {
     throw new Error('Document save utility started without a parent port');
 }
 const utilityParentPort = rawParentPort;
+// Read this process's start time while the request arrives: its validation command records it.
+void getOwnStartTime();
 
 async function inspectPdf(
     path: string,

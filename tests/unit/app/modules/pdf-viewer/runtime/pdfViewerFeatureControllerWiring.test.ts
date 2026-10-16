@@ -59,7 +59,6 @@ type TFeatureController = ReturnType<typeof usePdfViewerFeatureController>;
 interface IPdfRenderStateOptions {
     isPageBuffered: (pageNumber: number) => boolean;
     isPageRenderedForClass: (pageNumber: number) => boolean;
-    isPageRendering: (pageNumber: number) => boolean;
     isPageRenderFailed: (pageNumber: number) => boolean;
     shouldShowSkeleton: (pageNumber: number) => boolean;
 }
@@ -190,7 +189,6 @@ describe('usePdfViewerFeatureController wiring', () => {
         for (const predicateName of [
             'isPageBuffered',
             'isPageRenderedForClass',
-            'isPageRendering',
             'isPageRenderFailed',
         ] as const) {
             expect(() => options[predicateName](5)).not.toThrow();

@@ -19,7 +19,10 @@ import {
     utimes,
     writeFile,
 } from 'node:fs/promises';
-import {join} from 'node:path';
+import {
+    delimiter,
+    join,
+} from 'node:path';
 import {tmpdir} from 'node:os';
 import type * as NodeFsPromises from 'fs/promises';
 import { FakeAssistantAppServerProcess } from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
@@ -330,5 +333,95 @@ describe('Codex installation metadata freshness', () => {
         await expect(getCodexCliInfo()).rejects.toThrow('version launch failed');
         expect(await getCodexCliInfo()).toMatchObject({version: '0.157.1'});
         expect(await versionInvocations()).toBe(1);
+    });
+});
+
+describe('Codex CLI discovery', () => {
+    const sandbox = join(tmpdir(), 'evb-codex-discovery');
+    const codexName = process.platform === 'win32' ? 'codex.cmd' : 'codex';
+    const homeDirectory = join(sandbox, 'home');
+    const installedFiles = new Set<string>();
+
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+        installedFiles.clear();
+        mocks.userData = join(sandbox, 'user-data');
+        mocks.existsSync.mockImplementation(path => typeof path === 'string' && installedFiles.has(path));
+        mocks.access.mockImplementation(async path => {
+            if (!installedFiles.has(String(path))) {
+                throw Object.assign(new Error(`ENOENT: ${String(path)}`), {code: 'ENOENT'});
+            }
+        });
+        vi.stubEnv('CODEX_CLI_PATH', join(sandbox, 'no-codex'));
+        vi.stubEnv('PATH', join(sandbox, 'empty-bin'));
+        vi.stubEnv('HOME', homeDirectory);
+        vi.stubEnv('USERPROFILE', homeDirectory);
+        vi.stubEnv('SHELL', join(sandbox, 'no-shell'));
+    });
+
+    afterEach(() => {
+        vi.unstubAllEnvs();
+        mocks.userData = '/tmp/evb-codex-test';
+    });
+
+    it('finds the Codex.app bundled CLI on macOS', async () => {
+        const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+        Object.defineProperty(process, 'platform', {value: 'darwin'});
+        try {
+            const bundled = '/Applications/Codex.app/Contents/Resources/codex';
+            installedFiles.add(bundled);
+            const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
+            await expect(resolveCodexCliPath()).resolves.toBe(bundled);
+        } finally {
+            Object.defineProperty(process, 'platform', originalPlatform!);
+        }
+    });
+
+    it('finds the CLI on a PATH entry, where Homebrew and npm global installs appear', async () => {
+        const homebrewBin = join('/opt/homebrew', 'bin');
+        const npmGlobalBin = join(sandbox, 'npm-global', 'bin');
+        vi.stubEnv('PATH', [
+            homebrewBin,
+            npmGlobalBin,
+        ].join(delimiter));
+        installedFiles.add(join(npmGlobalBin, codexName));
+        const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
+        await expect(resolveCodexCliPath()).resolves.toBe(join(npmGlobalBin, codexName));
+    });
+
+    it('finds the CLI in HOME/.local/bin', async () => {
+        const localBin = join(homeDirectory, '.local', 'bin', codexName);
+        installedFiles.add(localBin);
+        const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
+        await expect(resolveCodexCliPath()).resolves.toBe(localBin);
+    });
+
+    it.skipIf(process.platform === 'win32')('asks the login shell where codex is when the app has no shell PATH', async () => {
+        const shell = join(sandbox, 'bin', 'zsh');
+        const homebrewCli = '/opt/homebrew/bin/codex';
+        vi.stubEnv('SHELL', shell);
+        installedFiles.add(shell);
+        installedFiles.add(homebrewCli);
+        const childProcess = await vi.importActual<typeof NodeChildProcess>('node:child_process');
+        mocks.spawn.mockImplementation((_command, _args, options) => childProcess.spawn(
+            process.execPath,
+            [
+                '--eval',
+                `process.stdout.write(${JSON.stringify(`${homebrewCli}\n`)})`,
+                '--',
+            ],
+            options,
+        ));
+        const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
+        await expect(resolveCodexCliPath()).resolves.toBe(homebrewCli);
+    });
+
+    it('does not reach a Codex installed in fixed system directories outside PATH, HOME and SHELL', async () => {
+        installedFiles.add('/usr/local/bin/codex');
+        installedFiles.add('/opt/homebrew/bin/codex');
+        installedFiles.add('/usr/bin/codex');
+        const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
+        await expect(resolveCodexCliPath()).resolves.toBeNull();
     });
 });

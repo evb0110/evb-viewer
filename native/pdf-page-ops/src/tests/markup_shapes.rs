@@ -41,7 +41,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                     },
                     markup_geometry: None,
                     app_annotation_id: None,
-                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: Some("#00ff00".to_string()),
                     opacity: Some(0.45),
                     author: None,
@@ -115,7 +115,7 @@ fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: Some("#00ff00".to_string()),
                 author: None,
                 contents: Some("updated contents".to_string()),
@@ -215,7 +215,7 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
                     marker_rect,
                     markup_geometry: Some(vec![marker_rect]),
                     app_annotation_id: None,
-                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: None,
                     opacity: None,
                     author: None,
@@ -275,7 +275,7 @@ fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: Some("#00ff00".to_string()),
                 opacity: None,
                 author: None,
@@ -734,7 +734,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                     },
                     markup_geometry: None,
                     app_annotation_id: None,
-                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: Some("#ff0000".to_string()),
                     author: None,
                     contents: None,
@@ -796,7 +796,7 @@ fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
                         marker_rect,
                         markup_geometry: Some(vec![marker_rect]),
                         app_annotation_id: None,
-                        annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                        annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                         color: None,
                         opacity: None,
                         author: None,
@@ -852,7 +852,7 @@ fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: None,
                 opacity: Some(0.45),
                 author: None,
@@ -1011,7 +1011,7 @@ fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: None,
                 author: None,
                 contents: Some("edited imported markup note".to_string()),
@@ -1232,7 +1232,7 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
             },
             markup_geometry: None,
             app_annotation_id: None,
-            annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+            annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
             color: Some("#00ff00".to_string()),
             author: None,
             contents: None,
@@ -1503,7 +1503,12 @@ fn preserves_distinct_markup_identities_when_geometry_is_identical() {
 
 #[test]
 fn validates_each_distinct_new_markup_identity_after_save() {
-    let (document, page_id) = create_test_document();
+    let (mut document, page_id, foreign_id) = create_test_markup_pdf("Highlight");
+    let foreign = document.get_dictionary_mut(foreign_id).unwrap();
+    foreign.set("Rect", vec![0.into(), 0.into(), 200.into(), 100.into()]);
+    foreign.set("NM", Object::string_literal("foreign-highlight"));
+    foreign.set("Contents", Object::string_literal("Foreign highlight"));
+    let foreign_before = foreign.clone();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let mut first = test_markup_hint(0);
     first.app_annotation_id = Some("highlight-app-first".to_string());
@@ -1529,7 +1534,9 @@ fn validates_each_distinct_new_markup_identity_after_save() {
         .filter_map(|object_id| revision.dictionary(object_id).ok())
         .filter_map(|dict| dict.get(b"NM").ok().and_then(pdf_string_to_text))
         .collect();
-    assert_eq!(names.len(), 2);
+    assert_eq!(names.len(), 3);
+    assert!(names.iter().any(|name| name == "foreign-highlight"));
+    assert_eq!(revision.dictionary(foreign_id).unwrap(), &foreign_before);
     assert!(names.iter().any(|name| name == "highlight-first"));
     assert!(names.iter().any(|name| name == "highlight-second"));
 }
@@ -1835,7 +1842,7 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
             total_pages: 1,
             rewrite_shape_state: true,
             shapes: Vec::new(),
-            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_annotation_ids: vec![format!("{} {} R", shape_id.0, shape_id.1)],
             deleted_stable_keys: Vec::new(),
         },
         "D:20260831130000Z",
@@ -1862,7 +1869,7 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
             total_pages: 1,
             rewrite_shape_state: true,
             shapes: Vec::new(),
-            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_annotation_ids: vec![format!("{} {} R", shape_id.0, shape_id.1)],
             deleted_stable_keys: Vec::new(),
         },
         "D:20260831130000Z",
@@ -1889,7 +1896,7 @@ fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys(
         .set("Annots", vec![Object::Reference(shape_id)]);
     let before = document.get_dictionary(shape_id).unwrap().clone();
     let mut requested = rectangle_shape("bare-shape", "#112233");
-    requested.annotation_id = Some(format_pdfjs_annotation_ref(shape_id));
+    requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
 
     apply_shape_annotations(
         &mut document,
@@ -2798,4 +2805,272 @@ fn rewrites_an_indirect_source_rect_when_the_shape_moved() {
     let rect = resolved_shape_rect_values(&document, object_id);
     assert_approximately(rect[0], 30.0);
     assert_approximately(rect[2], 110.0);
+}
+
+#[test]
+fn print_layout_draws_each_evb_shape_saved_without_appearance() {
+    let rect = || vec![20.into(), 20.into(), 100.into(), 80.into()];
+    let line_endings = |start: &[u8], end: &[u8]| {
+        Object::Array(vec![
+            Object::Name(start.to_vec()),
+            Object::Name(end.to_vec()),
+        ])
+    };
+    let shapes = [
+        ("Square", dictionary! {
+            "Subtype" => "Square", "Rect" => rect(), "C" => vec![1.into(), 0.into(), 0.into()],
+            "Border" => vec![0.into(), 0.into(), 2.into()],
+        }, b"re".as_slice()),
+        ("Circle", dictionary! {
+            "Subtype" => "Circle", "Rect" => rect(), "C" => vec![0.into(), 0.into(), 1.into()],
+            "IC" => vec![1.into(), 1.into(), 0.into()],
+        }, b" c\n".as_slice()),
+        ("Line", dictionary! {
+            "Subtype" => "Line", "Rect" => rect(), "L" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()], "LE" => line_endings(b"None", b"OpenArrow"),
+        }, b" l\nS\n".as_slice()),
+        ("PolyLine", dictionary! {
+            "Subtype" => "PolyLine", "Rect" => rect(),
+            "Vertices" => vec![20.into(), 20.into(), 60.into(), 80.into(), 100.into(), 20.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+        }, b" l\nS\n".as_slice()),
+        ("Polygon", dictionary! {
+            "Subtype" => "Polygon", "Rect" => rect(),
+            "Vertices" => vec![20.into(), 20.into(), 60.into(), 80.into(), 100.into(), 20.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()], "IC" => vec![0.into(), 1.into(), 0.into()],
+        }, b"h\nb\n".as_slice()),
+    ];
+    for (label, mut annotation, expected_operator) in shapes {
+        let (mut document, page_id) = create_test_document();
+        annotation.set("F", 4);
+        let annot_id = document.add_object(annotation);
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annot_id)]);
+
+        build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto)
+            .unwrap_or_else(|error| panic!("{label} saved without appearance failed to print: {error}"));
+        let appearance = print_annotation_appearance(&document)
+            .unwrap_or_else(|| panic!("{label} was not drawn"));
+        assert!(
+            appearance.windows(expected_operator.len()).any(|window| window == expected_operator),
+            "{label} appearance lacks {:?}: {}",
+            String::from_utf8_lossy(expected_operator),
+            String::from_utf8_lossy(&appearance)
+        );
+    }
+}
+
+#[test]
+fn print_layout_skips_a_shape_without_the_print_flag() {
+    let (mut document, page_id) = create_test_document();
+    let annot_id = document.add_object(dictionary! {
+        "Subtype" => "Square",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+        "F" => 0,
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annot_id)]);
+
+    build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto).unwrap();
+    assert!(print_annotation_appearance(&document).is_none());
+}
+
+#[test]
+fn print_layout_draws_an_evb_shape_saved_before_the_print_flag_but_not_a_foreign_one() {
+    let square = || {
+        dictionary! {
+            "Subtype" => "Square", "Rect" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+            "C" => vec![1.into(), 0.into(), 0.into()], "Border" => vec![0.into(), 0.into(), 2.into()],
+        }
+    };
+
+    let (mut evb_document, _) = embedded_shape_pdf(&[("evb-shape:legacy-square", square())]);
+    build_print_layout(&mut evb_document, None, PrintViewMode::Single, PrintOrientation::Auto)
+        .unwrap();
+    assert!(
+        print_annotation_appearance(&evb_document).is_some(),
+        "EVB-owned Square without /F was not printed"
+    );
+
+    let (mut foreign_document, foreign_page_id) = create_test_document();
+    let annot_id = foreign_document.add_object(square());
+    foreign_document
+        .get_dictionary_mut(foreign_page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annot_id)]);
+    build_print_layout(&mut foreign_document, None, PrintViewMode::Single, PrintOrientation::Auto)
+        .unwrap();
+    assert!(print_annotation_appearance(&foreign_document).is_none());
+}
+
+fn ordinary_shape(shape_type: &str, stable_key: &str) -> ShapeAnnotation {
+    let mut shape = rectangle_shape(stable_key, "#336699");
+    shape.shape_type = shape_type.to_string();
+    shape.x2 = Some(0.7);
+    shape.y2 = Some(0.6);
+    shape.points = vec![
+        ShapePoint { x: 0.1, y: 0.2 },
+        ShapePoint { x: 0.4, y: 0.6 },
+        ShapePoint { x: 0.8, y: 0.3 },
+    ];
+    shape
+}
+
+fn assert_every_page_annotation_prints(document: &Document, page_id: ObjectId, expected: usize) {
+    let annots = get_page_annots(document, page_id).unwrap();
+    assert_eq!(annots.len(), expected);
+    for annot in annots {
+        let dict = document.get_dictionary(annot.as_reference().unwrap()).unwrap();
+        let flags = dict.get(b"F").ok().and_then(|value| value.as_i64().ok()).unwrap_or(0);
+        assert_eq!(flags & 4, 4, "{} saved without the Print flag: {dict:?}", annotation_subtype(dict));
+    }
+}
+
+#[test]
+fn saves_every_ordinary_shape_with_the_print_flag_on_both_routes() {
+    let shapes = vec![
+        ordinary_shape("rectangle", "evb-shape:print-rectangle"),
+        ordinary_shape("circle", "evb-shape:print-circle"),
+        ordinary_shape("line", "evb-shape:print-line"),
+        ordinary_shape("polyline", "evb-shape:print-polyline"),
+        ordinary_shape("polygon", "evb-shape:print-polygon"),
+    ];
+
+    let (mut document, page_id) = create_test_document();
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: shapes.clone(),
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260609123456+03'00'",
+        &mut None,
+    )
+    .unwrap();
+    assert_every_page_annotation_prints(&document, page_id, shapes.len());
+
+    let (mut seed, _page_id) = create_test_document();
+    let input_path = seed_shape_pdf(&mut seed, "print-flag-incremental");
+    let output_path = temp_pdf_path("print-flag-incremental-output");
+    write(&output_path, read(&input_path).unwrap()).unwrap();
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &shapes_mutation(shapes.clone()),
+        "D:20260609123456+03'00'",
+    )
+    .unwrap();
+    let loaded = Document::load(&output_path).unwrap();
+    assert_every_page_annotation_prints(&loaded, page_id, shapes.len());
+}
+
+#[test]
+fn an_edited_evb_shape_saved_without_the_print_flag_prints_after_the_edit() {
+    let legacy_square = dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Square",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+        "C" => vec![1.into(), 0.into(), 0.into()],
+        "Border" => vec![0.into(), 0.into(), 2.into()],
+    };
+    let (mut document, page_id) =
+        embedded_shape_pdf(&[("evb-shape:legacy-square", legacy_square)]);
+    assert!(get_page_annots(&document, page_id).unwrap().len() == 1);
+
+    let mut shape = rectangle_shape("evb-shape:legacy-square", "#112233");
+    shape.x = 0.25;
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![shape],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260609123456+03'00'",
+        &mut None,
+    )
+    .unwrap();
+    assert_every_page_annotation_prints(&document, page_id, 1);
+}
+
+fn embedded_shape_pdf_with_indirect_flags(stable_key: &str) -> (Document, ObjectId) {
+    let (mut document, page_id) = create_test_document();
+    let flags_id = document.add_object(Object::Integer(34));
+    let object_id = document.add_object(Object::Dictionary(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Square",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+        "C" => vec![1.into(), 0.into(), 0.into()],
+        "Border" => vec![0.into(), 0.into(), 2.into()],
+        "F" => Object::Reference(flags_id),
+    }));
+    write_managed_shape_stable_key(
+        document.get_dictionary_mut(object_id).unwrap(),
+        Some(stable_key),
+    );
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(object_id)]);
+    (document, page_id)
+}
+
+fn assert_only_annotation_flags(document: &Document, expected: i64) {
+    let page_id = *document.get_pages().values().next().unwrap();
+    let annots = get_page_annots(document, page_id).unwrap();
+    assert_eq!(annots.len(), 1);
+    let dict = document
+        .get_dictionary(annots[0].as_reference().unwrap())
+        .unwrap();
+    let flags = document
+        .dereference(dict.get(b"F").unwrap())
+        .unwrap()
+        .1
+        .as_i64()
+        .unwrap();
+    assert_eq!(flags, expected, "annotation kept {flags}, expected {expected}");
+}
+
+#[test]
+fn adding_print_keeps_indirect_hidden_and_noview_flags_on_both_save_routes() {
+    let stable_key = "evb-shape:indirect-flags";
+    let shape = rectangle_shape(stable_key, "#112233");
+
+    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_flags(stable_key);
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![shape.clone()],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260609123456+03'00'",
+        &mut None,
+    )
+    .unwrap();
+    assert_only_annotation_flags(&document, 38);
+
+    let (mut seed, _page_id) = embedded_shape_pdf_with_indirect_flags(stable_key);
+    let input_path = seed_shape_pdf(&mut seed, "indirect-flags-incremental");
+    let output_path = temp_pdf_path("indirect-flags-incremental-output");
+    write(&output_path, read(&input_path).unwrap()).unwrap();
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &shapes_mutation(vec![shape]),
+        "D:20260609123456+03'00'",
+    )
+    .unwrap();
+    assert_only_annotation_flags(&Document::load(&output_path).unwrap(), 38);
 }

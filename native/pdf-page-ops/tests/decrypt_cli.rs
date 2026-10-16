@@ -121,6 +121,42 @@ fn plaintext_fixture() -> Vec<u8> {
     bytes
 }
 
+/// An unencrypted file whose cross-reference stream (object 5) gives its
+/// /Length as `6 0 R`. Object 6 is defined by an earlier classic table, so the
+/// length is reachable only through the revision chain.
+fn indirect_xref_length_fixture() -> Vec<u8> {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R >>",
+        "<< /Length 0 >>\nstream\n\nendstream",
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
+    }
+    let length = bytes.len();
+    bytes.extend(b"6 0 obj\n7\nendobj\n");
+    let classic = bytes.len();
+    bytes.extend(b"xref\n0 7\n0000000000 65535 f \n");
+    for offset in offsets {
+        bytes.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend(format!("0000000000 65535 f \n{length:010} 00000 n \n").as_bytes());
+    bytes.extend(b"trailer\n<< /Size 7 /Root 1 0 R >>\n");
+    let stream = bytes.len();
+    // One W [1 4 2] entry: object 5 is in use at the stream's own offset.
+    let mut entry = vec![1];
+    entry.extend((stream as u32).to_be_bytes());
+    entry.extend([0, 0]);
+    bytes.extend(format!("5 0 obj\n<< /Type /XRef /Size 7 /Index [5 1] /W [1 4 2] /Root 1 0 R /Prev {classic} /Length 6 0 R >>\nstream\n").as_bytes());
+    bytes.extend(entry);
+    bytes.extend(format!("\nendstream\nendobj\nstartxref\n{stream}\n%%EOF\n").as_bytes());
+    bytes
+}
+
 fn write_password_file(path: &Path, password: &str, trailing_newline: bool) {
     let mut file = std::fs::File::create(path).unwrap();
     file.write_all(password.as_bytes()).unwrap();
@@ -312,6 +348,35 @@ fn decrypt_opens_an_unencrypted_file_without_writing_output() {
 }
 
 #[test]
+fn decrypt_opens_an_xref_stream_whose_length_an_earlier_section_defines() {
+    let input = path("indirect-length-input", "pdf");
+    let output = path("indirect-length-output", "pdf");
+    write(&input, indirect_xref_length_fixture()).unwrap();
+
+    let result = run_decrypt(&input, &output, None);
+
+    assert!(
+        result.status.success(),
+        "decrypt failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        !output.exists(),
+        "an unprotected file must not be reserialized"
+    );
+    let sidecar_path = output.parent().unwrap().join(format!(
+        "{}.decrypt.json",
+        output.file_name().unwrap().to_string_lossy()
+    ));
+    let sidecar: Value = serde_json::from_slice(&read(&sidecar_path).unwrap())
+        .expect("parse decrypt outcome sidecar");
+    assert_eq!(sidecar["outcome"], "opened");
+
+    let _ = remove_file(&input);
+    let _ = remove_file(sidecar_path);
+}
+
+#[test]
 fn save_mutations_append_refuses_an_empty_password_encrypted_base() {
     let input = path("append-input", "pdf");
     let output = path("append-output", "pdf");
@@ -358,4 +423,70 @@ fn visibility_refuses_encrypted_bytes() {
     }
     let _ = remove_file(input);
     let _ = remove_file(pages);
+}
+
+#[test]
+fn decrypt_rejects_direct_xref_length_overrun_in_every_key_order() {
+    use std::io::{Seek, SeekFrom};
+    for tail in ["", " /Root 1 0 R", " /Custom 123", " /Custom true"] {
+        let input = path("length-order-input", "pdf");
+        let output = path("length-order-output", "pdf");
+        let offset = 513 * 1024 * 1024;
+        let mut file = std::fs::File::create(&input).unwrap();
+        file.write_all(b"%PDF-1.7\n").unwrap();
+        file.seek(SeekFrom::Start(offset)).unwrap();
+        file.write_all(format!("1 0 obj << /Type /XRef /Size 1 /W [1 1 1] /Length 999999999{tail} >>\nstream\nx\nstartxref\n{offset}\n%%EOF\n").as_bytes()).unwrap();
+        drop(file);
+        let result = run_decrypt(&input, &output, None);
+        assert!(!result.status.success(), "overrun with {tail} admitted");
+        assert!(String::from_utf8_lossy(&result.stderr).contains("corrupt-xref"));
+        let _ = remove_file(input);
+        let _ = remove_file(&output);
+        let _ = remove_file(format!("{}.decrypt.json", output.display()));
+    }
+}
+
+#[test]
+fn decrypt_opens_hybrid_xref_with_a_shared_predecessor() {
+    let input = path("hybrid-shared-prev", "pdf");
+    let output = path("hybrid-shared-prev-output", "pdf");
+    let mut bytes = plaintext_fixture();
+    let text = String::from_utf8_lossy(&bytes);
+    let previous = text
+        .rsplit_once("startxref\n")
+        .unwrap()
+        .1
+        .lines()
+        .next()
+        .unwrap()
+        .parse::<usize>()
+        .unwrap();
+    let root = Document::load_mem(&bytes)
+        .unwrap()
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap()
+        .0;
+    let stream = bytes.len();
+    bytes.extend(format!("5 0 obj << /Type /XRef /Size 6 /Index [5 1] /W [1 4 2] /Root {root} 0 R /Prev {previous} /Length 7 >>\nstream\n").as_bytes());
+    bytes.push(1);
+    bytes.extend((stream as u32).to_be_bytes());
+    bytes.extend(0_u16.to_be_bytes());
+    bytes.extend(b"\nendstream\nendobj\n");
+    let classic = bytes.len();
+    bytes.extend(format!("xref\n5 1\n{stream:010} 00000 n \ntrailer << /Size 6 /Root {root} 0 R /XRefStm {stream} /Prev {previous} >>\nstartxref\n{classic}\n%%EOF\n").as_bytes());
+    write(&input, &bytes).unwrap();
+    let result = run_decrypt(&input, &output, None);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(read(&input).unwrap(), bytes);
+    assert!(!output.exists());
+    let _ = remove_file(input);
+    let _ = remove_file(&output);
+    let _ = remove_file(format!("{}.decrypt.json", output.display()));
 }

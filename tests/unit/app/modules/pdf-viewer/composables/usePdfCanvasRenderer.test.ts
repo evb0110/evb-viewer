@@ -33,7 +33,7 @@ function createCanvas() {
     return {
         width: 0,
         height: 0,
-        style: {} as CSSStyleDeclaration,
+        style: {setProperty(property: string, value: string) {Reflect.set(this, property, value);}} as CSSStyleDeclaration,
         getContext: vi.fn(() => ({})),
         remove: vi.fn(),
     };
@@ -99,6 +99,40 @@ describe('usePdfCanvasRenderer', () => {
         delete (globalThis as Record<string, unknown>).document;
     });
 
+    it.each([
+        [
+            'invalid viewport size',
+            {
+                width: Infinity,
+                height: Infinity,
+            },
+        ],
+        [
+            'invalid canvas scale',
+            {
+                width: Number.MAX_VALUE,
+                height: Number.MAX_VALUE,
+            },
+        ],
+    ] as const)('rejects a permanent %s instead of discarding the attempt', async (reason, dimensions) => {
+        installCanvasDocument();
+        const page = createPdfPage({getViewport: () => ({
+            ...DEFAULT_VIEWPORT,
+            ...dimensions,
+        })});
+        const renderer = usePdfCanvasRenderer({outputScale: 2});
+        await expect(renderer.prepareCanvasRender(page as never, 1)).rejects.toThrow(reason);
+    });
+
+    it('rejects a missing 2D context and releases its reserved surface', async () => {
+        const {canvas} = installCanvasDocument();
+        canvas.getContext.mockReturnValue(null as never);
+        const release = vi.fn();
+        const renderer = usePdfCanvasRenderer({outputScale: 1});
+        await expect(renderer.prepareCanvasRender(createPdfPage() as never, 1, {reserveSurface: () => ({release})})).rejects.toThrow('2D context');
+        expect(release).toHaveBeenCalledOnce();
+    });
+
     it('requests separate annotation canvases for appearance-backed annotations', async () => {
         const {
             canvas,
@@ -107,7 +141,7 @@ describe('usePdfCanvasRenderer', () => {
         } = await renderScenario();
 
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
+            annotationMode: AnnotationMode.ENABLE,
             annotationCanvasMap: expect.any(Map),
             canvas,
         }));
@@ -125,7 +159,7 @@ describe('usePdfCanvasRenderer', () => {
 
         expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.ENABLE_FORMS,
+            annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds: new Set(['hidden']),
             canvas,
         }));
@@ -135,25 +169,24 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.annotationCanvasMap).toBeNull();
     });
 
-    it('disables annotation appearances while the canonical projection is pending', async () => {
-        const { canvas } = installCanvasDocument();
-        const annotationProjectionReady = ref(false);
-        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
+    it('awaits the canonical projection before painting annotation appearances', async () => {
+        installCanvasDocument();
+        const prepared = Promise.withResolvers<undefined>();
+        const started = Promise.withResolvers<undefined>();
+        const pdfPage = createPdfPage({getOperatorList: vi.fn()});
         const renderer = usePdfCanvasRenderer({
             outputScale: 1,
-            annotationProjectionReady,
+            prepareAnnotations: async () => {started.resolve(undefined); await prepared.promise;},
         });
-
-        const result = await renderer.renderCanvas(pdfPage as never, 1);
-
-        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
-        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.DISABLE,
-            canvas,
-        }));
-        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
-        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
-        expect(result?.annotationCanvasMap).toBeNull();
+        const raster = renderer.renderCanvas(pdfPage as never, 1);
+        try {
+            await started.promise;
+            expect(pdfPage.render).not.toHaveBeenCalled();
+            prepared.resolve(undefined);
+            const result = await raster;
+            expect(result?.paintsAnnotations).toBe(true);
+            expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode: AnnotationMode.ENABLE}));
+        } finally {prepared.resolve(undefined); await raster;}
     });
 
     it('applies the settled-render default canvas pixel budget', async () => {
@@ -168,7 +201,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(canvas.width).toBe(200);
         expect(canvas.height).toBe(100);
         expect(canvas.style.width).toBe('200px');
-        expect(canvas.style.height).toBe('100px');
+        expect(canvas.style.height).toBe('auto');
         expect(result).toMatchObject({
             requestedPixels: 80_000,
             grantedPixels: 20_000,
@@ -327,7 +360,7 @@ describe('usePdfCanvasRenderer', () => {
         const annotationCanvas = {
             width: 32,
             height: 16,
-            style: {} as CSSStyleDeclaration,
+            style: {setProperty(property: string, value: string) {Reflect.set(this, property, value);}} as CSSStyleDeclaration,
             remove: vi.fn(),
         };
         const renderError = new Error('cancelled');
@@ -360,6 +393,51 @@ describe('usePdfCanvasRenderer', () => {
         expect(annotationCanvas.remove).toHaveBeenCalled();
     });
 
+    it.each([
+        'checkbox',
+        'radio',
+    ])('reclaims both %s appearances when a half-drawn page is discarded', async () => {
+        const { canvas } = installCanvasDocument();
+        const appearances = [
+            createCanvas(),
+            createCanvas(),
+        ];
+        for (const appearance of appearances) {
+            appearance.width = 32;
+            appearance.height = 16;
+        }
+        const renderer = usePdfCanvasRenderer({outputScale: 1});
+        const prepared = await renderer.prepareCanvasRender(createPdfPage() as never, 1);
+        expect(prepared).not.toBeNull();
+        // PDF.js 6.3 puts the checked and unchecked appearances in one map entry.
+        prepared!.annotationCanvasMap!.set('widget', cast(appearances));
+        prepared!.annotationCanvasMap!.set('page', cast(canvas));
+
+        renderer.cleanupCanvasRenderResult(prepared!);
+
+        expect([
+            canvas,
+            ...appearances,
+        ].map(item => [
+            item.width,
+            item.height,
+        ])).toEqual([
+            [
+                0,
+                0,
+            ],
+            [
+                0,
+                0,
+            ],
+            [
+                0,
+                0,
+            ],
+        ]);
+        expect(prepared!.annotationCanvasMap!.size).toBe(0);
+    });
+
     // PDF.js matches hiddenAnnotationIds against the ids getAnnotations()
     // reports, so every form the store holds reaches it in that one form.
     it('asks PDF.js to leave the hidden annotations out, in its own id form', async () => {
@@ -380,7 +458,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(pdfPage.render).toHaveBeenCalledTimes(2);
         const renderContexts = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls);
         expect(renderContexts[0]?.[0]).toEqual(expect.objectContaining({
-            annotationMode: AnnotationMode.ENABLE_FORMS,
+            annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds: new Set([
                 '12R',
                 '7R',

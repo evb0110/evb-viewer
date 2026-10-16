@@ -113,6 +113,7 @@ describe('workingCopy', () => {
         vi.resetModules();
         vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-working-copy-test-'));
+        vi.stubEnv('EVB_APP_STATE_DIR', tempRoot);
         vi.stubEnv('TMPDIR', tempRoot);
         vi.stubEnv('TEMP', tempRoot);
         vi.stubEnv('TMP', tempRoot);
@@ -290,7 +291,9 @@ describe('workingCopy', () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
-        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {
+            normalizePdfAppendBase, pdfNeedsAppendBaseRewrite,
+        } = await import('@electron/pdf/pdfAppendBase');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
         const originalPath = join(tempRoot, 'replaced-during-rewrite.pdf');
@@ -300,6 +303,7 @@ describe('workingCopy', () => {
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
         let rewrittenWorkingPath = '';
+        vi.mocked(pdfNeedsAppendBaseRewrite).mockResolvedValueOnce(true);
         vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
             rewrittenWorkingPath = workingPath;
             writeFileSync(workingPath, Buffer.alloc(64 * 1024, 31));
@@ -314,6 +318,43 @@ describe('workingCopy', () => {
         expect(getWorkingCopyBackingEntry(rewrittenWorkingPath, 7)).toBeNull();
     });
 
+    it.each([
+        'unsupported',
+        'success',
+    ])('refuses an unsampled edit during normalization after a %s copy', async (cloneResult) => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = cloneResult;
+        preventAutomaticWorkingCopyMaterialization();
+        const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+        const {
+            normalizePdfAppendBase, pdfNeedsAppendBaseRewrite,
+        } = await import('@electron/pdf/pdfAppendBase');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'unsampled-rewrite.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        const fixedTime = new Date('2026-09-01T00:00:00Z');
+        writeFileSync(originalPath, bytes);
+        utimesSync(originalPath, fixedTime, fixedTime);
+        if (cloneResult === 'unsupported') vi.mocked(pdfNeedsAppendBaseRewrite).mockResolvedValueOnce(true);
+        let rewrittenPath = '';
+        vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath, options) => {
+            await options?.admitRewrite?.();
+            rewrittenPath = workingPath;
+            writeFileSync(workingPath, Buffer.from('%PDF-rewritten working copy'));
+            const changed = Buffer.from(bytes);
+            changed.write('EXTERNAL-EDIT', 262144);
+            rewriteSourceInPlaceKeepingSizeAndMtime(originalPath, changed, fixedTime);
+            return true;
+        });
+
+        await expect(createWorkingCopyWithOutcome(allowOpenPath(originalPath)!, 7))
+            .rejects.toMatchObject({code: 'source-changed'});
+        expect(rewrittenPath).not.toBe('');
+        expect(existsSync(dirname(rewrittenPath))).toBe(false);
+        expect(getWorkingCopyBackingEntry(rewrittenPath, 7)).toBeNull();
+        expect(readFileSync(originalPath).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
+    });
+
     // A download that the browser or messenger opens as soon as it lands gets
     // its quarantine and last-used attributes while the open runs. That moves
     // the file's ctime and nothing else.
@@ -321,7 +362,9 @@ describe('workingCopy', () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
-        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {
+            normalizePdfAppendBase, pdfNeedsAppendBaseRewrite,
+        } = await import('@electron/pdf/pdfAppendBase');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
         const originalPath = join(tempRoot, 'metadata-touched-during-open.pdf');
@@ -329,6 +372,7 @@ describe('workingCopy', () => {
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
         const ctimeBefore = statSync(originalPath, {bigint: true}).ctimeNs;
+        vi.mocked(pdfNeedsAppendBaseRewrite).mockResolvedValueOnce(true);
         vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
             writeFileSync(workingPath, Buffer.alloc(64 * 1024, 51));
             // Read-only and back: a mode change on POSIX, an attribute change
@@ -594,6 +638,107 @@ describe('workingCopy', () => {
         }
     });
 
+    it.each([
+        'metadata',
+        'content',
+    ])('proves raw clone bytes after a %s change', async (change) => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const originalPath = join(tempRoot, 'raw-clone.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        const fixedTime = new Date('2026-09-01T00:00:00Z');
+        writeFileSync(originalPath, bytes);
+        utimesSync(originalPath, fixedTime, fixedTime);
+        vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async () => {
+            if (change === 'content') {
+                const edited = Buffer.from(bytes);
+                edited.write('EXTERNAL-EDIT', 262144);
+                rewriteSourceInPlaceKeepingSizeAndMtime(originalPath, edited, fixedTime);
+            } else {
+                chmodSync(originalPath, 0o600);
+            }
+            return false;
+        });
+        const opening = createWorkingCopy(allowOpenPath(originalPath)!, 7);
+        if (change === 'content') {
+            await expect(opening).rejects.toMatchObject({code: 'source-changed'});
+        } else {
+            expect(readFileSync(await opening).equals(bytes)).toBe(true);
+        }
+    });
+
+    it.each([
+        'unchanged',
+        'changed',
+        'missing-baseline',
+    ])('fingerprints identity-churning originals only against admitted bytes: %s', async (scenario) => {
+        const originalPath = join(tempRoot, 'network-original.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        writeFileSync(originalPath, bytes);
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const baseline = `sha256-full-v1:${createOriginalFileContentFingerprintHash(bytes.length).update(bytes).digest('hex')}`;
+        if (scenario === 'changed') {
+            const changed = Buffer.from(bytes);
+            changed.write('EXTERNAL-EDIT', 262144);
+            writeFileSync(originalPath, changed);
+        }
+        const metadata = statSync(originalPath, {bigint: true});
+        let sequence = 0n;
+        vi.doMock('node:fs/promises', async importOriginal => {
+            const fs = await importOriginal<typeof FsPromises>();
+            return {
+                ...fs,
+                lstat: async (...args: Parameters<typeof fs.lstat>) => {
+                    const actual = await fs.lstat(...args);
+                    if (String(args[0]) !== originalPath) return actual;
+                    return {
+                        ...metadata,
+                        isFile: () => true,
+                        dev: metadata.dev + ++sequence,
+                        ino: metadata.ino + sequence,
+                    };
+                },
+            };
+        });
+        vi.resetModules();
+        try {
+            const {
+                createOriginalFileContentFingerprint, createOriginalFileExpectationFromStat,
+            } = await import('@electron/file-access/originalFileExpectation');
+            const result = await createOriginalFileContentFingerprint(originalPath, {
+                ...createOriginalFileExpectationFromStat(metadata),
+                ...(scenario === 'missing-baseline' ? {} : {contentFingerprint: baseline}),
+            });
+            expect(result).toBe(scenario === 'unchanged' ? baseline : undefined);
+            const {workingCopyAdmissionSnapshotsMatch} = await import('@electron/file-access/workingCopyStore');
+            expect(await workingCopyAdmissionSnapshotsMatch(
+                {
+                    deviceId: metadata.dev + 1n,
+                    inode: metadata.ino + 1n,
+                    size: metadata.size,
+                    mtimeNs: metadata.mtimeNs,
+                },
+                {
+                    deviceId: metadata.dev,
+                    inode: metadata.ino,
+                    size: metadata.size,
+                    mtimeNs: metadata.mtimeNs,
+                },
+                originalPath,
+                {
+                    ...createOriginalFileExpectationFromStat(metadata),
+                    ...(scenario === 'missing-baseline' ? {} : {contentFingerprint: baseline}),
+                },
+            )).toBe(scenario === 'unchanged');
+
+        } finally {
+            vi.doUnmock('node:fs/promises');
+            vi.resetModules();
+        }
+    });
+
     it('captures a full content fingerprint for mapped working copies', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
@@ -610,6 +755,79 @@ describe('workingCopy', () => {
             expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint)
                 .toBe('sha256-full-v1:48af473d28c041d4a5de15465f1768fefbfedda7c449580c2f2eb1f7941ad95f');
         });
+    });
+
+    it('keeps historical proof available while an unchanged registration refreshes', async () => {
+        setPlatform('win32');
+        const originalPath = join(tempRoot, 'refresh-proof-original.pdf');
+        const workingPath = join(tempRoot, 'refresh-proof-working.pdf');
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 65));
+        writeFileSync(workingPath, 'accepted-unsaved-work');
+        const {
+            createOriginalFileExpectationFromStat, getWorkingCopyOriginalFileExpectation, refreshWorkingCopyOriginalFileExpectation, setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {hashContentFingerprintFilePath} = await import('@electron/file-access/originalPathSnapshot');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const info = statSync(originalPath, {bigint: true});
+        const expected = {
+            ...createOriginalFileExpectationFromStat(info),
+            contentFingerprint: await hashContentFingerprintFilePath(originalPath, info.size),
+        };
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            backingState: 'eager',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: expected,
+        });
+        const chunks = await import('@electron/file-access/readFileChunk');
+        const read = chunks.readFileChunk;
+        const release = deferred<undefined>();
+        const blocked = vi.spyOn(chunks, 'readFileChunk').mockImplementation(async (...args) => {
+            if (args[0] === originalPath && args[1].length === 1024 * 1024) await release.promise;
+            return read(...args);
+        });
+        try {
+            await refreshWorkingCopyOriginalFileExpectation(workingPath, 7);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(expected.contentFingerprint);
+            release.resolve(undefined);
+            await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.not.toBeNull();
+        } finally {
+            release.resolve(undefined);
+            blocked.mockRestore();
+        }
+    });
+
+    it('waits for a new refresh proof before completing registration', async () => {
+        setPlatform('win32');
+        const originalPath = join(tempRoot, 'pending-refresh-original.pdf');
+        const workingPath = join(tempRoot, 'pending-refresh-working.pdf');
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 65));
+        writeFileSync(workingPath, 'accepted-unsaved-work');
+        const {
+            getWorkingCopyOriginalFileExpectation, refreshWorkingCopyOriginalFileExpectation, setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {backingState: 'eager'});
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 66));
+        const chunks = await import('@electron/file-access/readFileChunk');
+        const read = chunks.readFileChunk;
+        const started = deferred<undefined>();
+        const release = deferred<undefined>();
+        const blocked = vi.spyOn(chunks, 'readFileChunk').mockImplementation(async (...args) => {
+            if (args[0] === originalPath && args[1].length === 1024 * 1024) {
+                started.resolve(undefined);
+                await release.promise;
+            }
+            return read(...args);
+        });
+        try {
+            const refreshed = refreshWorkingCopyOriginalFileExpectation(workingPath, 7);
+            await started.promise;
+            release.resolve(undefined);
+            expect(await refreshed).toBe(true);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toMatch(/^sha256-full-v1:[0-9a-f]{64}$/u);
+        } finally {
+            release.resolve(undefined);
+            blocked.mockRestore();
+        }
     });
 
     it('captures a full content fingerprint above 64 MiB', async () => {
@@ -893,7 +1111,7 @@ describe('workingCopy', () => {
         }
     });
 
-    it('leaves the fingerprint to the registration scan when the source changes under the eager copy', async () => {
+    it('refuses the open when the source changes under the eager copy', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const originalPath = join(tempRoot, 'eager-changing-original.pdf');
         const originalBytes = Buffer.concat([
@@ -945,19 +1163,11 @@ describe('workingCopy', () => {
         try {
             const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-            const {
-                getWorkingCopyBackingEntry,
-                getWorkingCopyOriginalFileExpectation,
-            } = await import('@electron/file-access/workingCopyStore');
-            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
-
-            const workingPath = await createWorkingCopy(allowOpenPath(originalPath)!, 7);
-
+            // The copy holds the bytes it read before the change; the fresh read
+            // of the original no longer matches them, so the open is refused.
+            await expect(createWorkingCopy(allowOpenPath(originalPath)!, 7))
+                .rejects.toMatchObject({code: 'source-changed'});
             expect(changed).toBe(true);
-            await waitUntilDone(() => getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController === undefined);
-            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
-                `sha256-full-v1:${createOriginalFileContentFingerprintHash(changedBytes.byteLength).update(changedBytes).digest('hex')}`,
-            );
         } finally {
             vi.doUnmock('fs/promises');
             vi.doUnmock('@electron/file-access/workingCopyDecryption');
@@ -1099,6 +1309,73 @@ describe('workingCopy', () => {
             ...activeMetadata,
             retired: true,
         });
+    });
+
+    it('keeps the full original fingerprint a checkpoint restores with a deferred expectation', async () => {
+        const {
+            createOriginalFileExpectationFromStat,
+            getWorkingCopyOriginalFileExpectation,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const originalPath = join(tempRoot, 'restored-fingerprint-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-restored-fingerprint', 'working.pdf');
+        const originalBytes = Buffer.alloc(64, 62);
+        writeFileSync(originalPath, originalBytes);
+        const restoredExpectation = {
+            ...createOriginalFileExpectationFromStat(statSync(originalPath, {bigint: true})),
+            contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
+        };
+
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: restoredExpectation,
+        });
+
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toEqual(restoredExpectation);
+    });
+
+    it.each([
+        [
+            'the same bytes',
+            'admits',
+        ],
+        [
+            'different same-size bytes',
+            'refuses',
+        ],
+    ] as const)('%s replacing a recovered original while EVB is stopped: Save %s', async (replacement, outcome) => {
+        const {
+            createOriginalFileExpectationFromStat,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const originalPath = join(tempRoot, 'recovered-source.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-recovered-source', 'working.pdf');
+        const originalBytes = Buffer.alloc(256 * 1024, 62);
+        writeFileSync(originalPath, originalBytes);
+        const checkpointExpectation = {
+            ...createOriginalFileExpectationFromStat(statSync(originalPath, {bigint: true})),
+            contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
+        };
+        // Another program replaces the source with a new file while EVB is stopped.
+        const replacementBytes = Buffer.from(originalBytes);
+        if (replacement === 'different same-size bytes') replacementBytes.write('EXTERNAL', 128 * 1024);
+        writeFileSync(`${originalPath}.replacement`, replacementBytes);
+        renameSync(`${originalPath}.replacement`, originalPath);
+
+        // EVB restarts and restores the recovered tab from its checkpoint.
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: checkpointExpectation,
+        });
+
+        const witness = await captureOriginalPathSaveWitness(workingPath, originalPath, 7);
+        expect(witness === null ? 'refuses' : 'admits').toBe(outcome);
+        expect(readFileSync(originalPath).equals(replacementBytes)).toBe(true);
     });
 
     it('never reuses registration IDs after the active registry is cleared', async () => {

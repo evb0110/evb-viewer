@@ -485,6 +485,9 @@ function createDocumentScope(
     };
 }
 
+// Warm the real provider graph without consuming the mock's adapter-load gate.
+await vi.importActual('@electron/features/agent/claudeAgentSdkAssistant');
+
 describe('agent assistant opt-in gating', () => {
     beforeEach(async () => {
         vi.resetModules();

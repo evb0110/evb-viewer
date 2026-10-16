@@ -12,6 +12,7 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -183,9 +184,13 @@ export async function analyzePdfConformanceFile(
 }
 
 
-function isQpdfValidationTimeoutError(error: unknown) {
-    return error instanceof Error
-        && QPDF_VALIDATE_TIMEOUT_PATTERN.test(getErrorMessage(error));
+function throwIfValidationMustRefuse(error: unknown, signal?: AbortSignal) {
+    if (getUnprovenNativeTerminationDetail(error) !== undefined || isAbortError(error)) {
+        throw error;
+    }
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
 }
 
 async function validatePdfFileWithStructuralFallback(
@@ -211,6 +216,7 @@ async function validatePdfFileWithStructuralFallback(
             warnings: [`qpdf validation timed out after ${validationTimeoutMs}ms; fallback PDF structure validation succeeded.`],
         };
     } catch (fallbackError) {
+        throwIfValidationMustRefuse(fallbackError, options.signal);
         return {
             isValid: false,
             tool: 'qpdf',
@@ -254,19 +260,14 @@ export async function validatePdfFile(
             ],
         };
     } catch (error) {
-        if (isQpdfValidationTimeoutError(error)) {
+        throwIfValidationMustRefuse(error, options.signal);
+        if (error instanceof Error && QPDF_VALIDATE_TIMEOUT_PATTERN.test(getErrorMessage(error))) {
             return validatePdfFileWithStructuralFallback(
                 filePath,
                 error,
                 validationTimeoutMs,
                 options,
             );
-        }
-        if (options.signal?.aborted) {
-            throw abortErrorFromSignal(options.signal);
-        }
-        if (isAbortError(error)) {
-            throw error;
         }
         return {
             isValid: false,
@@ -314,12 +315,7 @@ async function validatePdfFileWithPageCount(
             warnings: extractQpdfWarnings(result.stderr),
         };
     } catch (error) {
-        if (options.signal?.aborted) {
-            throw abortErrorFromSignal(options.signal);
-        }
-        if (isAbortError(error)) {
-            throw error;
-        }
+        throwIfValidationMustRefuse(error, options.signal);
         return {
             isValid: false,
             tool: 'qpdf',

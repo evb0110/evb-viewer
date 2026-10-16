@@ -44,7 +44,7 @@ export interface IDocumentViewPort {
         | 'requestThumbnailInvalidation'
         | 'closeAllDropdowns'
         | 'openDropdown'>;
-    search: Pick<ReturnType<typeof useWorkspaceSearchSidebar>, 'resetSearchCache' | 'closeSearch'>;
+    search: Pick<ReturnType<typeof useWorkspaceSearchSidebar>, 'resetSearchCache' | 'closeSearch' | 'adoptPageRotation'>;
     navigation: Pick<ReturnType<typeof useWorkspaceViewState>, 'canUndo' | 'canRedo'>;
     pageContextMenu: ReturnType<typeof usePageContextMenu>;
     closeAnnotationContextMenu: () => void;

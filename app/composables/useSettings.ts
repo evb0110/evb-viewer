@@ -21,6 +21,7 @@ import {
     setRendererDiagnosticsPreference,
 } from '@app/utils/failureReporter';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
+import { useTypedI18n } from '@app/composables/useTypedI18n';
 import {
     createSettingsPersistenceQueue,
     type ISettingsPersistenceQueue,
@@ -41,7 +42,6 @@ let flushDebouncedSettingsSave: (() => void) | null = null;
 let settingsSaveFlushListener: (() => void) | null = null;
 let unsubscribeSettingsChanges: (() => void) | null = null;
 const pendingSettingsIntent = new Map<keyof ISettingsData, unknown>();
-let settingsIntentRevision = 0;
 
 type TSettingsPersistenceFailureCode = 'SETTINGS_LOAD_FAILED' | 'SETTINGS_SAVE_FAILED';
 
@@ -73,7 +73,36 @@ function cancelDebouncedSettingsSave() {
     flushDebouncedSettingsSave = null;
 }
 
+/**
+ * What a window adopts from a committed write it did not make: each key it has
+ * no unsaved edit in, and a diagnostics withdrawal even over a local grant. A
+ * grant saved elsewhere therefore cannot reopen reporting in a window whose own
+ * withdrawal is not yet saved.
+ */
+export function selectAdoptedSettings(
+    current: ISettingsData,
+    lastSaved: ISettingsData | null,
+    committed: ISettingsData,
+    pendingIntent?: ReadonlyMap<keyof ISettingsData, unknown>,
+): Partial<ISettingsData> {
+    const adopted: Partial<ISettingsData> = {};
+    for (const key of Object.keys(committed) as Array<keyof ISettingsData>) {
+        const withdrawal = key === 'clientDiagnosticsPreference' && committed[key] === 'denied';
+        if (withdrawal || (pendingIntent?.has(key)
+            ? pendingIntent.get(key) === committed[key]
+            : current[key] === lastSaved?.[key])) {
+            Object.assign(adopted, {[key]: committed[key]});
+        }
+    }
+    return adopted;
+}
+
 export const useSettings = () => {
+    const {
+        locale,
+        setLocale,
+    } = useTypedI18n();
+    const colorMode = useColorMode();
     const localeCookie = useCookie(
         BROWSER_LOCALE_COOKIE_KEY,
         PERSISTENT_SETTINGS_COOKIE_OPTIONS,
@@ -109,10 +138,6 @@ export const useSettings = () => {
     const settingsLoadFailure = useState<IPresentedFailureCapture | null>('settings:load-failure', () => null);
     const settingsSaveFailure = useState<IPresentedFailureCapture | null>('settings:save-failure', () => null);
 
-    function rememberSavedSettings(nextSettings: ISettingsData) {
-        lastSavedSettings.value = sanitizeSettings(nextSettings);
-    }
-
     function refreshSettingsBootstrapCookieSnapshot() {
         hasSettingsCookieSnapshot.value = localeCookie.value != null
             || themeCookie.value != null;
@@ -122,7 +147,7 @@ export const useSettings = () => {
         state: settings,
         isResolved: isLoaded,
         error: settingsLoadError,
-        load: loadSettingsState,
+        load,
     } = usePlatformHydratedState<ISettingsData>({
         key: 'settings',
         initialValue: () => initialSettings,
@@ -133,17 +158,13 @@ export const useSettings = () => {
         },
         onLoaded(nextSettings) {
             refreshSettingsBootstrapCookieSnapshot();
-            rememberSavedSettings(nextSettings);
-            const pendingEntries = [...pendingSettingsIntent.entries()];
-            if (pendingEntries.length > 0) {
-                const mergedSettings = sanitizeSettings({
+            lastSavedSettings.value = sanitizeSettings(nextSettings);
+            if (pendingSettingsIntent.size > 0) {
+                settings.value = sanitizeSettings({
                     ...nextSettings,
-                    ...Object.fromEntries(
-                        pendingEntries,
-                    ),
+                    ...Object.fromEntries(pendingSettingsIntent),
                 });
-                settings.value = mergedSettings;
-                setRendererDiagnosticsPreference(mergedSettings.clientDiagnosticsPreference);
+                setRendererDiagnosticsPreference(settings.value.clientDiagnosticsPreference);
                 settingsLoadFailure.value = null;
                 cancelDebouncedSettingsSave();
                 void getSettingsPersistenceQueue().save();
@@ -161,25 +182,26 @@ export const useSettings = () => {
         },
     });
 
-    if (import.meta.client && unsubscribeSettingsChanges === null) {
-        unsubscribeSettingsChanges = getSettingsCapability().onChanged((nextSettings) => {
-            pendingSettingsIntent.delete('clientDiagnosticsPreference');
-            const previous = lastSavedSettings.value;
-            for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
-                if (key === 'clientDiagnosticsPreference' || settings.value[key] === previous?.[key]) {
-                    Object.assign(settings.value, {[key]: nextSettings[key]});
-                }
+    if (typeof window !== 'undefined' && unsubscribeSettingsChanges === null) {
+        unsubscribeSettingsChanges = getSettingsCapability().onChanged((committed) => {
+            const adopted = selectAdoptedSettings(settings.value, lastSavedSettings.value, committed, pendingSettingsIntent);
+            for (const key of Object.keys(adopted) as Array<keyof ISettingsData>) pendingSettingsIntent.delete(key);
+            if (Object.hasOwn(adopted, 'clientDiagnosticsPreference')) {
+                setRendererDiagnosticsPreference(adopted.clientDiagnosticsPreference);
             }
-            rememberSavedSettings(nextSettings);
+            Object.assign(settings.value, adopted);
+            if (adopted.theme !== undefined) {
+                colorMode.preference = adopted.theme;
+            }
+            if (adopted.locale !== undefined && adopted.locale !== locale.value) {
+                void setLocale(adopted.locale).catch((error: unknown) => {
+                    BrowserLogger.warn('settings', 'Failed to apply the language saved in another window', error);
+                });
+            }
+            lastSavedSettings.value = sanitizeSettings(committed);
+            if (isLoaded.value && pendingSettingsIntent.size > 0 && settingsSaveStatus.value !== 'failed') void getSettingsPersistenceQueue().save();
+            else if (settingsSaveStatus.value === 'saving') settingsSaveStatus.value = 'idle';
         });
-    }
-
-    async function load() {
-        const loadedSettings = await loadSettingsState();
-        if (loadedSettings !== null) {
-            rememberSavedSettings(loadedSettings);
-        }
-        return loadedSettings;
     }
 
     async function loadOrThrow() {
@@ -199,14 +221,8 @@ export const useSettings = () => {
             getSettingsSnapshot: () => toRaw(settings.value),
             getLastSavedSettings: () => lastSavedSettings.value,
             savePatch: patch => getSettingsCapability().save(patch),
-            onSaved(nextSettings) {
-                rememberSavedSettings(nextSettings);
+            onSaved() {
                 refreshSettingsBootstrapCookieSnapshot();
-                for (const key of pendingSettingsIntent.keys()) {
-                    if (settings.value[key] === nextSettings[key]) {
-                        pendingSettingsIntent.delete(key);
-                    }
-                }
                 settingsSaveFailure.value = null;
             },
             onSaveError(error) {
@@ -217,7 +233,7 @@ export const useSettings = () => {
                 );
             },
             onStatusChanged(status, error) {
-                settingsSaveStatus.value = status;
+                settingsSaveStatus.value = status === 'idle' && pendingSettingsIntent.size > 0 ? 'saving' : status;
                 settingsSaveError.value = error ? getErrorMessage(error) : null;
             },
         });
@@ -229,14 +245,7 @@ export const useSettings = () => {
         if (!isLoaded.value) {
             return true;
         }
-        const persistenceQueue = getSettingsPersistenceQueue();
-        let flushedRevision = settingsIntentRevision;
-        let saved = await persistenceQueue.save();
-        while (saved && flushedRevision !== settingsIntentRevision) {
-            flushedRevision = settingsIntentRevision;
-            saved = await persistenceQueue.save();
-        }
-        return saved;
+        return getSettingsPersistenceQueue().save();
     }
 
     // Trailing debounce: per-keystroke updates otherwise write storage plus
@@ -263,15 +272,14 @@ export const useSettings = () => {
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
-        settingsIntentRevision += 1;
-        if (!isLoaded.value) {
-            pendingSettingsIntent.set(key, value);
-        }
+        if (settingsSaveStatus.value !== 'saving' && value === lastSavedSettings.value?.[key]) pendingSettingsIntent.delete(key);
+        else pendingSettingsIntent.set(key, value);
         Object.assign(settings.value, {[key]: value});
         if (key === 'clientDiagnosticsPreference') {
             setRendererDiagnosticsPreference(value);
         }
-        scheduleDebouncedSave();
+        if (settingsSaveStatus.value === 'saving') void getSettingsPersistenceQueue().save();
+        else scheduleDebouncedSave();
     }
 
     return {
@@ -300,6 +308,5 @@ if (import.meta.hot) {
         settingsPersistenceQueue = null;
         unsubscribeSettingsChanges?.();
         unsubscribeSettingsChanges = null;
-        settingsIntentRevision = 0;
     });
 }

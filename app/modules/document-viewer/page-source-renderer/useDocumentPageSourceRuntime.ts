@@ -1022,14 +1022,12 @@ export const useDocumentPageSourceRuntime = (options: {
             ?? pageMetrics.value.length;
         const visiblePage = resolveDocumentVisiblePageForIndicator({
             currentPage: props.value.currentPage,
-            geometry: {
-                pageHeights: pageHeights.value,
-                pageTops: pageTops.value,
-                totalHeight: totalHeight.value,
-            },
+            pageLayouts: zoomAnchorPageLayouts.value,
+            scrollLeft: container.scrollLeft,
             scrollTop: container.scrollTop,
             totalPages,
             viewportHeight: container.clientHeight,
+            viewportWidth: container.clientWidth,
         });
         if (visiblePage && (forceProjection || visiblePage !== props.value.currentPage)) {
             const observedPage = chassisAuthority?.observePage(visiblePage) ?? visiblePage;
@@ -1305,7 +1303,6 @@ export const useDocumentPageSourceRuntime = (options: {
             createPageFailureError: presentation.createFailureError,
             emit,
             ensureExactPageMetric,
-            getOpeningShellTarget: getChassisOpeningShellTarget,
             layoutLifecycle,
             loadController: activeLoadController,
             markExactPageMetric: pageNumber => exactPageMetricNumbers.add(pageNumber),
@@ -1417,10 +1414,6 @@ export const useDocumentPageSourceRuntime = (options: {
         }
     });
     transitions.start();
-    watch(effectiveZoom, (value) => {
-        emit('update:effectiveZoom', value);
-        if (!props.value.isResizing) scheduleRender.schedule();
-    });
     function retainOnlyPageStates(pages: readonly number[]) {
         if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
@@ -1487,6 +1480,7 @@ export const useDocumentPageSourceRuntime = (options: {
         surfaceStyle,
         viewerExpose: {
             getViewerContainer: () => viewerContainer.value,
+            getEffectiveZoom: () => effectiveZoom.value,
             getCurrentPage: () => props.value.currentPage,
             waitForViewerLoadSettled: () => loadSettled,
             scrollToPage,

@@ -14,6 +14,9 @@ import {
 } from '@napi-rs/canvas';
 import {
     PDFDocument,
+    PDFDict,
+    PDFArray,
+    PDFString,
     PDFName,
     StandardFonts,
 } from 'pdf-lib';
@@ -40,6 +43,8 @@ import {
 import {
     createFixturePath,
     createScannedTextFixturePdf,
+    readPdfCatalogWithPdfjs,
+    readPdfMetadataWithQpdf,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -52,8 +57,11 @@ import {
     openPdfInApp,
     saveViaVisibleToolbar,
     waitForViewerInteractive,
+    waitForWorkspaceHistorySettled,
+    clickVisibleToolbarButton,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {wheelPdfViewportAndWaitForSettlement} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {
     callWorkspaceCommand,
@@ -74,6 +82,8 @@ const SCANNED_TEXT = 'Harbor lantern signal';
 const SEARCHED_WORD = 'lantern';
 const LATE_RESULT_TEXT = 'Copper weather beacon';
 const LATE_RESULT_WORD = 'beacon';
+const ACCEPTED_BOOKMARK = 'Accepted OCR bookmark';
+const ACCEPTED_LABEL_PREFIX = 'Accepted-';
 const OCR_TIMEOUT_MS = 180_000;
 const ACTIVE_HOST = '.workspace-host[data-workspace-active="true"]';
 
@@ -109,6 +119,51 @@ async function clickVisibleButton(page: Page, scope: string, name: string, timeo
         ))
     ), {timeout: timeoutMs}, scope, name);
     await clickAsUser(page, handle.asElement() as ElementHandle<HTMLButtonElement>);
+}
+
+async function waitForBookmarkRow(page: Page, title: string) {
+    await waitForFunctionInPage(page, (expected: string) => Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row, .document-bookmark-item__row'))
+        .some(row => row.checkVisibility() && row.textContent?.trim() === expected), {timeout: 30_000}, title);
+}
+
+async function acceptBookmarkAndPageLabel(page: Page) {
+    await openDocumentSidebarTab(page, 'Bookmarks');
+    await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
+    await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
+    await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+    await page.keyboard.type(ACCEPTED_BOOKMARK);
+    await page.keyboard.press('Enter');
+    await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+    await openDocumentSidebarTab(page, 'Pages');
+    const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
+    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        await clickAsUser(page, disclosure);
+    }
+    await clickAsUser(page, '#page-label-prefix-input');
+    await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
+    await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+    await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
+        .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+}
+
+async function completeOcrFromMenu(page: Page) {
+    await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+    const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
+        item.textContent?.trim() === 'OCR'
+        && !item.hasAttribute('data-disabled')
+        && item.getAttribute('aria-disabled') !== 'true'
+        && item.checkVisibility()
+    )), {timeout: 30_000});
+    await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+    await page.waitForSelector('[role="dialog"]', {visible: true});
+    await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+    await waitForFunctionInPage(page, () => (
+        document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+    ), {timeout: OCR_TIMEOUT_MS});
+    await clickVisibleButton(page, '[role="dialog"]', 'Close');
+    await page.waitForSelector('[role="dialog"]', {hidden: true});
+    await waitForViewerInteractive(page, 90_000);
 }
 
 async function waitForTextLayerWord(page: Page) {
@@ -527,68 +582,477 @@ if (process.versions.electron && process.type === 'browser') {
         await sessionFixture.resetForE2E();
     }, 420_000);
 
-    it('makes a scanned page searchable, saves it, and finds a recognized word after reopening', async () => {
-        const session = sessionFixture.getSession();
+    it.each([
+        {
+            probe: 'successful',
+            delayProbe: false,
+        },
+        {
+            probe: 'timed-out',
+            delayProbe: true,
+        },
+    ])('makes a scanned page searchable, saves it, and finds a recognized word after reopening with a $probe DPI probe', async ({delayProbe}) => {
+        const scratch = await mkdtemp(join(tmpdir(), 'ocr-dpi-probe-'));
+        const hookPath = join(scratch, 'probe-delay.cjs');
+        const queryPath = join(scratch, 'real-query.cjs');
+        const receiptPath = join(scratch, 'real-query-completed.txt');
+        if (delayProbe) {
+            // Keep the real command, its output and the app's deadline. The
+            // forwarding process holds completion after the real query exits;
+            // the app must therefore handle its ordinary optional-probe timeout.
+            await writeFile(queryPath, `
+const {spawn} = require('node:child_process');
+const {writeFileSync} = require('node:fs');
+const [command, ...args] = process.argv.slice(2);
+const child = spawn(command, args, {stdio: 'inherit', windowsHide: true});
+child.once('error', () => process.exit(1));
+child.once('close', code => {
+    writeFileSync(${JSON.stringify(receiptPath)}, String(code));
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    process.exit(code ?? 1);
+});
+`);
+            await writeFile(hookPath, `
+if (process.versions.electron && process.type === 'browser') {
+    const cp = require('node:child_process');
+    const {basename} = require('node:path');
+    const originalSpawn = cp.spawn;
+    cp.spawn = function(command, args, options) {
+        // Linux's existing memory-limit shell execs the same Poppler binary.
+        const tool = command === '/bin/sh' && args?.[1]?.startsWith('ulimit -S -d') ? args[3] : command;
+        if (basename(String(tool)).replace(/\\.exe$/i, '') !== 'pdfimages' || !args?.includes('-list')) {
+            return originalSpawn.call(this, command, args, options);
+        }
+        return originalSpawn.call(this, process.execPath, [${JSON.stringify(queryPath)}, command, ...args], {
+            ...options,
+            env: {...options?.env, ELECTRON_RUN_AS_NODE: '1'},
+        });
+    };
+    require('node:module').syncBuiltinESMExports();
+}
+`);
+        }
+        const session = delayProbe
+            ? await sessionFixture.restart({
+                sessionName: () => `e2e-ocr-dpi-timeout-${Date.now()}`,
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${hookPath}`},
+            })
+            : sessionFixture.getSession();
+        try {
+            const {page} = session;
+            const sourcePath = await createScannedTextFixturePdf(
+                'ocr-journey-scan.pdf',
+                SCANNED_TEXT,
+                '60px EvbOcrJourneySans',
+            );
+            await openPdfInApp(page, sourcePath, 90_000);
+            await waitForViewerInteractive(page, 90_000);
+
+            await session.command('windowResize', [
+                1180,
+                700,
+            ]);
+            // English is the preselected recognition language.
+            await clickVisibleToolbarButton(page, 'OCR');
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+            const dialogLayout = await page.$eval('[role="dialog"]', (dialog) => {
+                const scrollableElements = Array.from(dialog.querySelectorAll<HTMLElement>('*')).filter((element) => {
+                    const overflowY = window.getComputedStyle(element).overflowY;
+                    return element.scrollHeight > element.clientHeight
+                        && (overflowY === 'auto' || overflowY === 'scroll');
+                });
+                return {
+                    width: dialog.getBoundingClientRect().width,
+                    hasNestedScrollRegions: scrollableElements.some(element => (
+                        scrollableElements.some(parent => parent !== element && parent.contains(element))
+                    )),
+                };
+            });
+            expect(dialogLayout.width).toBeGreaterThanOrEqual(900);
+            expect(dialogLayout.hasNestedScrollRegions).toBe(false);
+
+            await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+            await waitForFunctionInPage(page, () => (
+                document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+                || Boolean(document.querySelector('[role="dialog"] .error-text')?.textContent?.trim())
+            ), {timeout: OCR_TIMEOUT_MS});
+            expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent))
+                .toContain('OCR complete - PDF is now searchable');
+            if (delayProbe) expect(await readFile(receiptPath, 'utf8')).toBe('0');
+            await clickVisibleButton(page, '[role="dialog"]', 'Close');
+            await page.waitForSelector('[role="dialog"]', {hidden: true});
+            await waitForTextLayerWord(page);
+
+            await saveViaVisibleToolbar(page, 90_000);
+            expect(await assertOcrPdfSemanticOutput(sourcePath, SCANNED_TEXT)).toContain(SEARCHED_WORD);
+
+            await clickVisibleButton(page, 'body', 'Close Tab');
+            await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
+            await openPdfInApp(page, sourcePath, 90_000);
+            await waitForViewerInteractive(page, 90_000);
+
+            await openDocumentSidebarTab(page, 'Search');
+            await clickAsUser(page, `${ACTIVE_HOST} .document-search-bar input`);
+            await page.keyboard.type(SEARCHED_WORD);
+            await page.keyboard.press('Enter');
+            await waitForFunctionInPage(page, (host: string, word: string) => (
+                Array.from(document.querySelectorAll(`${host} .document-search-result`))
+                    .some(result => result.textContent?.toLocaleLowerCase().includes(word))
+            ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
+            await clickAsUser(page, `${ACTIVE_HOST} .document-search-result`);
+            await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
+        } finally {
+            if (delayProbe) {
+                await sessionFixture.restart({extraEnv: {NODE_OPTIONS: process.env.NODE_OPTIONS ?? ''}});
+            }
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 300_000);
+
+    // Accepted bookmark and page-label edits are renderer state until Save. An
+    // OCR run replaces the working copy, so these edits must travel with the
+    // OCR output: they stay on screen after the run and are written by Save.
+    it('keeps accepted bookmark and page-label edits through OCR, on screen and in the saved file', async () => {
+        const session = await sessionFixture.resetForE2E();
         const {page} = session;
         const sourcePath = await createScannedTextFixturePdf(
-            'ocr-journey-scan.pdf',
+            'ocr-metadata-scan.pdf',
             SCANNED_TEXT,
             '60px EvbOcrJourneySans',
         );
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-
         await session.command('windowResize', [
-            1440,
-            900,
+            1200,
+            700,
         ]);
-        // English is the preselected recognition language.
-        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
-        await page.waitForSelector('[role="dialog"]', {visible: true});
-        const dialogLayout = await page.$eval('[role="dialog"]', (dialog) => {
-            const scrollableElements = Array.from(dialog.querySelectorAll<HTMLElement>('*')).filter((element) => {
-                const overflowY = window.getComputedStyle(element).overflowY;
-                return element.scrollHeight > element.clientHeight
-                    && (overflowY === 'auto' || overflowY === 'scroll');
-            });
-            return {
-                width: dialog.getBoundingClientRect().width,
-                hasNestedScrollRegions: scrollableElements.some(element => (
-                    scrollableElements.some(parent => parent !== element && parent.contains(element))
-                )),
-            };
-        });
-        expect(dialogLayout.width).toBeGreaterThanOrEqual(900);
-        expect(dialogLayout.hasNestedScrollRegions).toBe(false);
 
-        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-        ), {timeout: OCR_TIMEOUT_MS});
-        await clickVisibleButton(page, '[role="dialog"]', 'Close');
-        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await acceptBookmarkAndPageLabel(page);
+
+        await completeOcrFromMenu(page);
+
         await waitForTextLayerWord(page);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
 
-        await saveViaVisibleToolbar(page, 90_000);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        const catalog = await readPdfCatalogWithPdfjs(sourcePath);
+        expect(catalog.pageLabels?.[0]).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        const {outlines} = await readPdfMetadataWithQpdf(sourcePath);
+        expect(outlines.map(item => item.title)).toEqual([ACCEPTED_BOOKMARK]);
         expect(await assertOcrPdfSemanticOutput(sourcePath, SCANNED_TEXT)).toContain(SEARCHED_WORD);
-
         await clickVisibleButton(page, 'body', 'Close Tab');
         await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-ocr-metadata-'));
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        await page.screenshot({path: join(evidence, 'reopened.png')});
+        console.info(`OCR metadata evidence: ${evidence}`);
+    }, 420_000);
 
-        await openDocumentSidebarTab(page, 'Search');
-        await clickAsUser(page, `${ACTIVE_HOST} .document-search-bar input`);
-        await page.keyboard.type(SEARCHED_WORD);
-        await page.keyboard.press('Enter');
-        await waitForFunctionInPage(page, (host: string, word: string) => (
-            Array.from(document.querySelectorAll(`${host} .document-search-result`))
-                .some(result => result.textContent?.toLocaleLowerCase().includes(word))
-        ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
-        await clickAsUser(page, `${ACTIVE_HOST} .document-search-result`);
-        await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
-    }, 300_000);
+    it('retains untouched remote, launch and named outline intent through OCR and Save', async () => {
+        const {page} = await sessionFixture.resetForE2E();
+        const sourcePath = await createScannedTextFixturePdf('ocr-source-intent.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
+        const pdf = await PDFDocument.load(await readFile(sourcePath));
+        const outlines = pdf.context.obj({Type: PDFName.of('Outlines')});
+        const outlinesRef = pdf.context.register(outlines);
+        const definitions = [
+            {
+                Title: PDFString.of('Remote'),
+                A: {
+                    S: PDFName.of('GoToR'),
+                    F: PDFString.of('other.pdf'),
+                    D: PDFString.of('remote-chapter'),
+                    NewWindow: true,
+                },
+            },
+            {
+                Title: PDFString.of('Launch'),
+                A: {
+                    S: PDFName.of('Launch'),
+                    F: PDFString.of('tool.exe'),
+                },
+            },
+            {
+                Title: PDFString.of('Named'),
+                Dest: PDFString.of('chapter'),
+            },
+        ];
+        const nodes = definitions.map(definition => {const node = pdf.context.obj({
+            ...definition,
+            Parent: outlinesRef,
+        }); return {
+            node,
+            ref: pdf.context.register(node),
+        };});
+        nodes.forEach(({node}, index) => {
+            if (index > 0) node.set(PDFName.of('Prev'), nodes[index - 1]!.ref);
+            if (index + 1 < nodes.length) node.set(PDFName.of('Next'), nodes[index + 1]!.ref);
+        });
+        outlines.set(PDFName.of('First'), nodes[0]!.ref);
+        outlines.set(PDFName.of('Last'), nodes.at(-1)!.ref);
+        outlines.set(PDFName.of('Count'), pdf.context.obj(3));
+        pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({chapter: [
+            pdf.getPages()[0]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]}));
+        await writeFile(sourcePath, await pdf.save());
+        const readIntent = async () => {
+            const document = await PDFDocument.load(await readFile(sourcePath));
+            let node = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+            return Array.from({length: 3}, (_, index) => {
+                const intent = {
+                    action: node.get(PDFName.of('A'))?.toString(),
+                    dest: node.get(PDFName.of('Dest'))?.toString(),
+                };
+                if (index < 2) node = node.lookup(PDFName.of('Next'), PDFDict);
+                return intent;
+            });
+        };
+        const expected = await readIntent();
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const title of [
+            'Remote',
+            'Launch',
+            'Named',
+        ]) await waitForBookmarkRow(page, title);
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+        const item = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === 'OCR' && item.checkVisibility()));
+        await clickAsUser(page, item.asElement() as ElementHandle<HTMLElement>);
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true, {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await waitForViewerInteractive(page, 90_000);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        expect(await readIntent()).toEqual(expected);
+        const saved = await PDFDocument.load(await readFile(sourcePath));
+        const destination = saved.catalog.lookup(PDFName.of('Dests'), PDFDict).lookup(PDFName.of('chapter'), PDFArray).asArray();
+        expect(destination.slice(1).map(value => value.toString())).toEqual([
+            '/FitH',
+            'null',
+        ]);
+        await clickVisibleButton(page, 'body', 'Close Tab');
+        await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const title of [
+            'Remote',
+            'Launch',
+            'Named',
+        ]) await waitForBookmarkRow(page, title);
+        const evidence = join(process.cwd(), '.devkit/core3-r3/media/ocr-source-intent');
+        await mkdir(evidence, {recursive: true});
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        await page.screenshot({path: join(evidence, 'reopened.png')});
+    }, 420_000);
 
+    it('review-b6zk preserves a label accepted during background OCR', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-live-metadata.pdf', 20);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1200,
+            700,
+        ]);
+
+        await acceptBookmarkAndPageLabel(page);
+
+        const running=callWorkspaceCommand(page,'runAgentAction',[
+            'ocr.start',
+            {
+                pageRange:'all',
+                open:false,
+            },
+        ]);
+        const settled=running.then(value=>value,error=>({error:String(error)}));
+        await vi.waitFor(async()=>{
+            const status=await callWorkspaceCommand<{ocr?:{
+                isRunning?:boolean;
+                processedCount?:number;
+                totalPages?:number
+            }}>(page,'runAgentAction',[
+                'ocr.status',
+                {},
+            ]);
+            expect(status.value?.ocr?.isRunning).toBe(true);
+            expect(status.value?.ocr?.processedCount ?? 0).toBeGreaterThan(0);
+            expect(status.value?.ocr?.processedCount ?? 0).toBeLessThan((status.value?.ocr?.totalPages ?? 0)-3);
+            console.info('REVIEW_PROCESSING '+JSON.stringify(status.value?.ocr));
+        },{timeout:30_000});
+        expect(await page.$$eval('[role="dialog"]',dialogs=>dialogs.some(dialog=>(dialog as HTMLElement).checkVisibility()))).toBe(false);
+        await clickAsUser(page,'#page-label-prefix-input');
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
+        // Menu activation acknowledges the request before selection reaches the field.
+        await waitForFunctionInPage(page, () => {
+            const input = document.activeElement;
+            return input instanceof HTMLInputElement && input.id === 'page-label-prefix-input'
+                && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+        });
+        await page.keyboard.type('Late-');
+        await clickAsUser(page,`${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+        await expect.poll(async()=>(await readToolbarPageIndicator(page)).primaryText,{timeout:15_000}).toBe('Late-1');
+        console.info('REVIEW_LATE_ACCEPTED Late-1');
+        await settled;
+        await vi.waitFor(async()=>{
+            const status=await callWorkspaceCommand<{ocr?:{isRunning?:boolean}}>(page,'runAgentAction',[
+                'ocr.status',
+                {},
+            ]);
+            expect(status.value?.ocr?.isRunning).toBe(false);
+        },{timeout:OCR_TIMEOUT_MS});
+        await waitForViewerInteractive(page,90_000);
+        await waitForTextLayerWord(page);
+        const displayed=(await readToolbarPageIndicator(page)).primaryText;
+        await saveViaVisibleToolbar(page,90_000,sourcePath);
+        const labels=(await readPdfCatalogWithPdfjs(sourcePath)).pageLabels;
+        await mkdir(join(process.cwd(), '.devkit/core3-r3'), {recursive: true});
+        await copyFile(sourcePath,join(process.cwd(),'.devkit/core3-r3/late-ocr-saved.pdf'));
+        await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr.png')});
+        await clickVisibleButton(page,'body','Close Tab');
+        await page.waitForSelector(`${ACTIVE_HOST} .page_container`,{hidden:true});
+        await openPdfInApp(page,sourcePath,90_000);
+        await waitForViewerInteractive(page,90_000);
+        const reopened=(await readToolbarPageIndicator(page)).primaryText;
+        await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr-reopened.png')});
+        console.info('REVIEW_LATE_RESULT '+JSON.stringify({
+            displayed,
+            labels,
+            reopened,
+        }));
+        expect(displayed,'OCR must retain an edit accepted while it was recognizing pages').toBe('Late-1');
+        expect(labels?.[0]).toBe('Late-1');
+    },420_000);
+
+    it('review-b6zk preserves accepted metadata when undoing OCR', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-metadata-scan.pdf',
+            SCANNED_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1200,
+            700,
+        ]);
+
+        await acceptBookmarkAndPageLabel(page);
+
+        await completeOcrFromMenu(page);
+
+        await waitForTextLayerWord(page);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await expect.poll(async () => {
+            const working = await getActiveWorkspaceWorkingCopyPath(page);
+            return (await extractTextWithPdfjs(working))[0]?.text?.includes(SEARCHED_WORD) ?? false;
+        }, {timeout: 60_000}).toBe(false);
+        await waitForWorkspaceHistorySettled(page);
+        await waitForViewerInteractive(page, 90_000);
+        const afterUndo = (await readToolbarPageIndicator(page)).primaryText;
+        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.filter(row => (row as HTMLElement).checkVisibility()).map(row => row.textContent?.trim()));
+        await mkdir(join(process.cwd(), '.devkit/core3-r3'), {recursive: true});
+        await page.screenshot({path: join(process.cwd(), '.devkit/core3-r3/undo-ocr.png')});
+        console.info('REVIEW_UNDO '+JSON.stringify({
+            afterUndo,
+            rows,
+        }));
+        expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        expect(rows).toContain(ACCEPTED_BOOKMARK);
+        await activateMenuItemAsUser(page, {accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+Z' : 'Ctrl+Y'});
+        await expect.poll(async () => (await extractTextWithPdfjs(await getActiveWorkspaceWorkingCopyPath(page)))[0]?.text?.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(true);
+        await waitForWorkspaceHistorySettled(page);
+        await waitForViewerInteractive(page, 90_000);
+        await waitForTextLayerWord(page);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await expect.poll(async () => (await extractTextWithPdfjs(await getActiveWorkspaceWorkingCopyPath(page)))[0]?.text?.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(false);
+        await waitForWorkspaceHistorySettled(page);
+        await waitForViewerInteractive(page, 90_000);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('1');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+    }, 420_000);
+
+    it('review-b6yh preserves accepted metadata after OCR Save Undo Save', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-save-undo-metadata-scan.pdf',
+            SCANNED_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1200,
+            700,
+        ]);
+
+        await acceptBookmarkAndPageLabel(page);
+
+        await completeOcrFromMenu(page);
+
+        await waitForTextLayerWord(page);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await expect.poll(async () => {
+            const working = await getActiveWorkspaceWorkingCopyPath(page);
+            return (await extractTextWithPdfjs(working))[0]?.text?.includes(SEARCHED_WORD) ?? false;
+        }, {timeout: 60_000}).toBe(false);
+        await waitForWorkspaceHistorySettled(page);
+        await waitForViewerInteractive(page, 90_000);
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-save-undo-save-'));
+        console.info(`Save Undo Save evidence: ${evidence}`);
+        const afterUndo = (await readToolbarPageIndicator(page)).primaryText;
+        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.filter(row => (row as HTMLElement).checkVisibility()).map(row => row.textContent?.trim()));
+        await page.screenshot({path: join(evidence, 'after-undo.png')});
+        console.info('REVIEW_UNDO '+JSON.stringify({
+            afterUndo,
+            rows,
+        }));
+        expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        expect(rows).toContain(ACCEPTED_BOOKMARK);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        const saved = await readPdfCatalogWithPdfjs(sourcePath);
+        const {outlines} = await readPdfMetadataWithQpdf(sourcePath);
+        console.info('REVIEW_SAVE_UNDO_SAVE '+JSON.stringify({
+            labels:saved.pageLabels,
+            titles:outlines.map(item=>item.title),
+        }));
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        expect(saved.pageLabels?.[0], 'Save after Undo OCR must persist the retained accepted label').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        expect(outlines.map(item=>item.title)).toEqual([ACCEPTED_BOOKMARK]);
+    }, 420_000);
 
     // Owner report 2026-10-10: after OCR of the current page, the page under
     // the dialog moved to its blank top. Applying the searchable PDF rewrites
@@ -1022,6 +1486,9 @@ if (process.versions.electron && process.type === 'browser') {
         await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.startsWith('Processing page ') === true
+        ), {timeout: OCR_TIMEOUT_MS});
 
         // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
         await page.evaluate((host: string) => {

@@ -1,6 +1,8 @@
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {existsSync} from 'fs';
 import {
     readFile,
     rm,
@@ -30,7 +32,6 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
     type TPdfNativeMutationSetNativeToolPayload,
 } from '@pdf-core';
-import { isErrnoException } from '@contracts/runtimeGuards';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -138,28 +139,27 @@ async function materializeNativeBinarySidecars(
         return payload;
     }
     const mutationPayload = payload as IPdfNativeMutationSet & {placedImages: NonNullable<IPdfNativeMutationSet['placedImages']>};
-    const placedImages = await Promise.all(mutationPayload.placedImages.map(async (image) => {
-        if (image.bytesBase64 !== undefined) {
-            return image;
-        }
-        if (!image.source) {
-            throw new Error('Placed image source is missing');
-        }
-        const source = await resolveManagedTempFileHandle(context, image.source);
-        const {
-            source: _source,
-            ...metadata
-        } = image;
-        return {
-            ...metadata,
-            bytesPath: source.path,
-            byteLength: source.size,
-            sha256: source.sha256,
-        };
-    }));
     return {
         ...payload,
-        placedImages,
+        placedImages: await Promise.all(mutationPayload.placedImages.map(async (image) => {
+            if (image.bytesBase64 !== undefined) {
+                return image;
+            }
+            if (!image.source) {
+                throw new Error('Placed image source is missing');
+            }
+            const source = await resolveManagedTempFileHandle(context, image.source);
+            const {
+                source: _source,
+                ...metadata
+            } = image;
+            return {
+                ...metadata,
+                bytesPath: source.path,
+                byteLength: source.size,
+                sha256: source.sha256,
+            };
+        })),
     };
 }
 
@@ -235,9 +235,6 @@ async function assertNativeOutputReady(outputPath: string): Promise<void> {
 
 async function cleanupTempPath(path: string): Promise<void> {
     await rm(path, {force: true}).catch((error: unknown) => {
-        if (isErrnoException(error) && error.code === 'ENOENT') {
-            return;
-        }
         log.debug('Failed to cleanup native note text temp file', {
             path,
             error: getErrorMessage(error),
@@ -340,7 +337,10 @@ async function prepareNativeNoteMutation(options: {
                         async () => normalizePdfNativeAnnotationIdentityBindings(
                             JSON.parse(await readFile(join(dirname(payloadFilePath), identityBindingsFileName), 'utf8')),
                             `native identity bindings chunk ${chunkIndex}`,
-                            {errorKind: 'error'},
+                            {
+                                errorKind: 'error',
+                                scope: 'chunk',
+                            },
                         ),
                     );
                     identityBindings.push(...chunkBindings);
@@ -356,12 +356,9 @@ async function prepareNativeNoteMutation(options: {
     };
 }
 
-async function syncNativeOutputToRequestingWorkingCopy(
-    requestedWorkingPath: string,
-    senderWebContentsId: number,
-): Promise<void> {
-    await ensureWorkingCopyDirectory(requestedWorkingPath, senderWebContentsId);
-    if (!await refreshWorkingCopyOriginalFileExpectation(requestedWorkingPath, senderWebContentsId)) {
+async function syncNativeOutputToRequestingWorkingCopy(...args: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>): Promise<void> {
+    await ensureWorkingCopyDirectory(args[0], args[1]);
+    if (!await refreshWorkingCopyOriginalFileExpectation(...args)) {
         throw new Error('Working copy registration changed before original expectation refresh completed');
     }
 }
@@ -479,52 +476,50 @@ export async function handleCommitStagedPdfNativeMutations(
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
     const operationStartedAtEpochMs = Date.now();
+    const refreshWorkingCopy = (expectation?: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>[2]) => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId, expectation);
+    const releaseStagedArtifact = async () => {
+        releaseManagedTempFileHandle(context, stagedOutput.leaseId);
+        await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
+            cleanupTempPath(stagedOutput.path));
+    };
     let result: IPdfNativeNoteTextSaveResult | null = null;
-    let stagedArtifactCleaned = false as boolean;
     try {
         result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
             await assertQueuedWorkingCopyMutationPreconditions(
                 normalizedWorkingPath,
                 expectedDocumentRevisionToken,
             );
-            await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-                ownerWebContentsId: senderId,
-                reason: 'native-mutation',
-            });
             const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-            // Typed PDF receipts validate the artifact extension as part of the
-            // main-process trust boundary.
             const transition = await transitionOriginalAndWorkingCopyRevision({
                 workingCopyPath: normalizedWorkingPath,
                 originalPath,
                 reason: 'native-mutation',
                 senderId,
                 signal: operation.signal,
-                publishedSourcePath: stagedOutput.path,
+                stagePublication: () => Promise.resolve(stagedOutput),
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     normalizedWorkingPath,
                     originalPath,
                     senderId,
                     operation.signal,
                 ),
-                publishOriginal: async assertDestinationCurrent => {
+                publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
                     const currentArtifact = await resolveTypedStagedArtifact(context, stagedOutput);
-                    await publishImmutableFileAtomic(currentArtifact.path, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})});
+                    await publishImmutableFileAtomic(currentArtifact.path, originalPath, {
+                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    });
+                    // The stage is a hard link to the published original; unlinking it moves the
+                    // original's ctime, so it must happen before the transaction records the witness.
+                    await releaseStagedArtifact();
                 },
-                afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
-                    normalizedWorkingPath,
-                    senderId,
-                ),
-                afterOriginalRestore: () => syncNativeOutputToRequestingWorkingCopy(
-                    normalizedWorkingPath,
-                    senderId,
-                ),
+                refreshOriginalExpectation: refreshWorkingCopy,
                 onPhase: (phase, durationMs) => phaseTimings.push({
                     phase,
                     durationMs,
                 }),
             });
-            let queuedResult: IPdfNativeNoteTextSaveResult = transition
+            return transition
                 ? {
                     applied: true,
                     validation: createNativeValidationResult(),
@@ -536,40 +531,20 @@ export async function handleCommitStagedPdfNativeMutations(
                     ...createNotAppliedResult(),
                     reason: 'original-changed',
                 };
-
-            releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-            await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
-                cleanupTempPath(stagedOutput.path));
-            stagedArtifactCleaned = true;
-
-            if (queuedResult.applied) {
-                try {
-                    const refreshed = await measureNativeNotePhase(
-                        phaseTimings,
-                        'refresh-original-expectation-after-release',
-                        () => refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId),
-                    );
-                    if (!refreshed) {
-                        throw new Error('Working copy registration changed after native mutation commit');
-                    }
-                } catch (error) {
-                    queuedResult = {
-                        ...queuedResult,
-                        syncError: getErrorMessage(error),
-                    };
-                }
-            }
-            return queuedResult;
         }, {
             kind: 'native-pdf-mutation-staged-commit',
             ownerWebContentsId: senderId,
         });
+    } catch (error) {
+        if (!(error instanceof OriginalPathSaveConflictError)) throw error;
+        result = {
+            ...createNotAppliedResult(error),
+            reason: 'original-changed',
+            ...(error.keptFilePath === undefined ? {} : {keptFilePath: error.keptFilePath}),
+        };
     } finally {
-        if (!stagedArtifactCleaned) {
-            releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-            await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
-                cleanupTempPath(stagedOutput.path));
-        }
+        // Publication already released a published stage; this releases one it never reached or failed to remove.
+        if (existsSync(stagedOutput.path)) await releaseStagedArtifact();
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
     const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);

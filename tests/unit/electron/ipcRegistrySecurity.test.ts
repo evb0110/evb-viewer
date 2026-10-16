@@ -104,7 +104,10 @@ const mocks = vi.hoisted(() => {
         registeredWindowsById: new Map<number, unknown>(),
         browserWindowFromWebContents: vi.fn(),
         getWindowByIdFromRegistry: vi.fn(),
-        loadSettings: vi.fn(async () => ({theme: 'dark'})),
+        loadSettings: vi.fn(async () => ({
+            theme: 'dark',
+            locale: 'en',
+        })),
         updateSettings: vi.fn(),
         setElectronLocale: vi.fn(async () => {}),
         updateRecentFilesMenu: vi.fn(),

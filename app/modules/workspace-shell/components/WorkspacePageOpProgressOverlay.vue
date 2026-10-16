@@ -169,7 +169,6 @@ const subDetailText = computed(() => {
 :global(.workspace-page-op-progress-overlay.app-progress-overlay) {
     position: absolute;
     inset: auto 0 0;
-    z-index: auto;
     display: flex;
     height: var(--app-toolbar-row-height);
     align-items: center;

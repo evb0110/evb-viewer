@@ -1,10 +1,12 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    getBrowserPageOpsWorkerRequestId,
+    isBrowserWorkerResponseEnvelope,
+} from '@contracts/browserPageOpsWorker';
 import {
     isSerializableErrorEnvelope,
     SerializableError,
     type ISerializableErrorEnvelope,
 } from '@contracts/serializableError';
-import * as v from 'valibot';
 
 export interface IPendingBrowserWorkerRequest {
     requestType: string;
@@ -27,12 +29,6 @@ type TSerializableErrorEnvelopeGuard = (
     value: unknown,
 ) => value is ISerializableErrorEnvelope;
 
-function getWorkerResponseId(response: unknown) {
-    return isRecord(response) && typeof response.id === 'number'
-        ? response.id
-        : null;
-}
-
 export function settleBrowserWorkerResult<
     TRequestType extends string,
     TResultData,
@@ -43,7 +39,7 @@ export function settleBrowserWorkerResult<
     onSettled: () => void,
     isErrorEnvelope: TSerializableErrorEnvelopeGuard = isSerializableErrorEnvelope,
 ) {
-    const responseId = getWorkerResponseId(response);
+    const responseId = getBrowserPageOpsWorkerRequestId(response);
     if (responseId === null) {
         return;
     }
@@ -53,42 +49,23 @@ export function settleBrowserWorkerResult<
         return;
     }
 
-    const result = v.safeParse(v.union([
-        v.pipe(
-            v.object({
-                id: v.number(),
-                ok: v.literal(true),
-                type: v.string(),
-                data: v.unknown(),
-            }),
-            // v.unknown accepts undefined; worker success responses require the data member.
-            v.check(value => 'data' in value),
-        ),
-        v.object({
-            id: v.number(),
-            ok: v.literal(false),
-            error: v.string(),
-            errorEnvelope: v.optional(v.custom<ISerializableErrorEnvelope>(isErrorEnvelope)),
-        }),
-    ]), response, {abortEarly: true});
-
     pendingRequests.delete(responseId);
     if (pending.timeoutTimer) {
         clearTimeout(pending.timeoutTimer);
         pending.timeoutTimer = null;
     }
-    if (!result.success) {
+    if (!isBrowserWorkerResponseEnvelope(response)) {
         pending.reject(new Error('Browser worker returned an invalid response'));
         onSettled();
         return;
     }
-    if (result.output.ok) {
-        if (result.output.type !== pending.requestType) {
+    if (response.ok) {
+        if (response.type !== pending.requestType) {
             pending.reject(new Error('Browser worker returned an invalid response'));
             onSettled();
             return;
         }
-        if (!pending.resolveData(result.output.data as TResultData)) {
+        if (!pending.resolveData(response.data as TResultData)) {
             pending.reject(new Error('Browser worker returned an invalid result'));
             onSettled();
             return;
@@ -97,8 +74,14 @@ export function settleBrowserWorkerResult<
         return;
     }
 
-    pending.reject(result.output.errorEnvelope
-        ? new SerializableError(result.output.errorEnvelope)
-        : new Error(result.output.error));
+    const errorEnvelope = response.errorEnvelope;
+    if (errorEnvelope !== undefined && !isErrorEnvelope(errorEnvelope)) {
+        pending.reject(new Error('Browser worker returned an invalid response'));
+        onSettled();
+        return;
+    }
+    pending.reject(errorEnvelope
+        ? new SerializableError(errorEnvelope)
+        : new Error(response.error));
     onSettled();
 }

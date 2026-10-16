@@ -50,7 +50,7 @@ function createWorkspaceFileSwitch(deps: {
     openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     finalizeOpen: (outcome: TDocumentOpenOutcome) => Promise<TDocumentOpenOutcome>;
-    closeFile: () => void;
+    closeFile: () => void | Promise<void>;
 }) {
     let lifecycleGeneration = 0;
 
@@ -94,7 +94,7 @@ function createWorkspaceFileSwitch(deps: {
             await hooks.beforeClose?.();
         }
         if (generation === lifecycleGeneration) {
-            deps.closeFile();
+            await deps.closeFile();
             // Source watchers own derived navigation, toolbar, and chassis
             // cleanup; let them observe the empty source before close commits.
             await nextTick();
@@ -267,8 +267,8 @@ export const useWorkspaceFileLifecycleController = (
         try {
             const activated = await openDjvuFile(djvuPath, {
                 // After main accepts the DjVu and before its pages are shown.
-                closeActiveDocument: (pageCount) => {
-                    closeFile();
+                closeActiveDocument: async (pageCount) => {
+                    await closeFile();
                     return admitOpeningSource(djvuPath, Promise.resolve(pageCount));
                 },
                 setOriginalPath: (path) => {

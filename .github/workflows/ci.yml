@@ -366,11 +366,15 @@ jobs:
         run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
 
   browser_integration:
-    name: Browser Integration
+    name: Browser Integration (${{ matrix.shard }}/2)
     if: ${{ needs.changed_areas.outputs.browser_integration == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
 
     steps:
       - name: Checkout
@@ -388,7 +392,7 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Browser integration tests
-        run: pnpm run test:integration:browser
+        run: pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/2
 
   scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles
@@ -472,7 +476,7 @@ jobs:
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
             .tmp/pdf-search
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/DejaVuSans.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/*.ttf', 'public/pdf/standard_fonts/LiberationSans-*.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
             electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
@@ -528,7 +532,7 @@ jobs:
         run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Install PDF test tools
-        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf xdotool
+        run: scripts/ci/apt-install.sh ffmpeg imagemagick poppler-utils qpdf xdotool
 
       - name: Install Playwright Chromium
         # annotationStrokeParity compares Electron with standalone Chromium.

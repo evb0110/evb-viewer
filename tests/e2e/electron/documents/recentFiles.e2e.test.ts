@@ -34,6 +34,8 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
@@ -48,6 +50,7 @@ import {
     waitForActiveDocumentSource,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
@@ -141,6 +144,21 @@ interface IRecentOpenTransitionResult {
         skeletonVisible: boolean;
     } | null;
     visibleTextAtDeadline: string;
+}
+
+async function waitForOpenCheckpoint(session: IElectronE2ESession, sourcePath: string, page: number, zoom: string) {
+    await expect.poll(() => {
+        const tab = readWorkspaceRecoveryRecords<{checkpoint: IWorkspaceCheckpoint}>(session.name)
+            .flatMap(record => record.checkpoint.tabs)
+            .find(candidate => candidate.sourceRef === sourcePath);
+        return tab && {
+            page: tab.currentPage,
+            zoom: `${Math.round((tab.zoom ?? 0) * 100)}%`,
+        };
+    }, {timeout: RECENT_ROW_TIMEOUT_MS}).toEqual({
+        page,
+        zoom,
+    });
 }
 
 async function startToolbarTransitionSampling(session: IElectronE2ESession) {
@@ -1510,7 +1528,7 @@ describe('Electron E2E - Recent Files', () => {
         await waitForActiveDocumentSource(session.page, secondPath);
     });
 
-    it('reopens an unchanged PDF where it was left, after a tab close and after a relaunch', async () => {
+    it('reopens a closed PDF at defaults unless remembering is enabled, and keeps an open checkpoint', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-view-${Date.now()}.pdf`, 40);
         // Open File answers with the fixture, as the native dialog would.
         const extraEnv = {EVB_E2E_OPEN_DIALOG_PATH: fixturePath};
@@ -1523,6 +1541,27 @@ describe('Electron E2E - Recent Files', () => {
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
         const defaultZoomLabel = await readZoomLabel(session);
+        await goToPageViaToolbar(session.page, 27);
+        await zoomInTwiceAsReader(session, defaultZoomLabel);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForRecentFileRow(session, fixturePath);
+        await clickRecentFile(session, fixturePath);
+        await waitForRecentPdfOpen(session, fixturePath);
+        await expectReadingPlace(session, 1, defaultZoomLabel);
+
+        // Open documents belong to the checkpoint even with ordinary reopen restoration off.
+        await goToPageViaToolbar(session.page, 27);
+        const checkpointZoom = await zoomInTwiceAsReader(session, defaultZoomLabel);
+        await waitForOpenCheckpoint(session, fixturePath, 27, checkpointZoom);
+        session = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            extraEnv,
+        });
+        await waitForPdfLoaded(session.page);
+        await expectReadingPlace(session, 27, checkpointZoom);
+
+        await setRememberPlaceAsUser(session, true);
         await goToPageViaToolbar(session.page, 27);
         await openDocumentSidebarTab(session.page, 'Pages');
         await clickAsUser(session.page, '#editor-global-toolbar-host .zoom-controls-display');
@@ -1584,6 +1623,15 @@ describe('Electron E2E - Recent Files', () => {
             afterReopen,
         })).toBeLessThanOrEqual(1);
 
+        await waitForOpenCheckpoint(session, fixturePath, 27, readingZoomLabel);
+        session = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            extraEnv,
+        });
+        await waitForPdfLoaded(session.page);
+        await expectReadingPlace(session, 27, readingZoomLabel);
+
         // Quitting remembers the place the reader moved to since the reopen.
         await goToPageViaToolbar(session.page, 31);
         await quitAsUser(session);
@@ -1618,6 +1666,7 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-changed-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         // The clean restart clears session fixtures, so the file is made after it.
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-changed-${Date.now()}.pdf`, 40);
         await openPdfInApp(session.page, fixturePath);
@@ -1645,6 +1694,7 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-intent-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         // The clean restart clears session fixtures, so the file is made after it.
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-intent-${Date.now()}.pdf`, 40);
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
@@ -1692,6 +1742,7 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-split-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-split-${Date.now()}.pdf`, 40);
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
@@ -1737,6 +1788,7 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-zoom-intent-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         // The clean restart clears session fixtures, so the file is made after it.
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-zoom-intent-${Date.now()}.pdf`, 40);
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
@@ -1809,6 +1861,7 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-turned-zoom-intent-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         // The clean restart clears session fixtures, so the file is made after it.
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-turned-zoom-intent-${Date.now()}.pdf`, 40);
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
@@ -1949,10 +2002,12 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-layouts-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         const views: Array<{
             name: string;
             commands: string[];
-            page: number
+            page: number;
+            expectedRotation?: number
         }> = [
             {
                 name: 'continuous-last',
@@ -1978,11 +2033,16 @@ describe('Electron E2E - Recent Files', () => {
                 name: 'turned-90',
                 commands: ['handleViewRotationCw'],
                 page: 3,
+                expectedRotation: 90,
             },
             {
                 name: 'turned-270',
-                commands: ['handleViewRotationCcw'],
+                commands: [
+                    'handleViewRotationCcw',
+                    'handleViewRotationCcw',
+                ],
                 page: 2,
+                expectedRotation: 270,
             },
         ];
         for (const view of views) {
@@ -1992,6 +2052,10 @@ describe('Electron E2E - Recent Files', () => {
             await waitForPdfLoaded(session.page);
             for (const command of view.commands) {
                 await requireWorkspaceCommand(session.page, command);
+            }
+            if (view.expectedRotation !== undefined) {
+                const snapshot = await requireWorkspaceCommand<{ viewRotation: number }>(session.page, 'getToolbarSnapshot');
+                expect(snapshot?.viewRotation, view.name).toBe(view.expectedRotation);
             }
             await goToPageViaToolbar(session.page, view.page);
             await expectHeldReopenOnDrawnRect(session, fixturePath, view.page);
@@ -2005,6 +2069,7 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-5001-${Date.now()}`,
         });
+        await setRememberPlaceAsUser(session, true);
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-5001-${Date.now()}.pdf`, 5001);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
@@ -2032,6 +2097,7 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
             clean: true,
             extraEnv,
         });
+        await setRememberPlaceAsUser(session, true);
         // The toolbar's page and zoom, and a drawn page image in the viewport.
         async function expectDjvuPlace(pageNumber: number, zoomLabel: string) {
             await waitForToolbarCurrentPage(session.page, pageNumber);
@@ -2093,6 +2159,7 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
         }
         const sourcePath = djvuFixture.path;
         const session = sessionFixture.getSession();
+        await setRememberPlaceAsUser(session, true);
         await openDjvuInApp(session.page, sourcePath, 90_000);
         await waitForDjvuLoaded(session.page, 90_000);
         // Zoomed past the viewport's width, the reopened page brings a

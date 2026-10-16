@@ -130,9 +130,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdf: {
             document: deps.pdfDocument,
             viewer: deps.pdfViewerRef,
-            commitEditorsForSave: async () => {
-                await deps.pdfViewerRef.value?.commitPdfEditorsForSave?.();
-            },
+            commitEditorsForSave: () => deps.pdfViewerRef.value?.commitPdfEditorsForSave?.() ?? Promise.resolve(),
             runSaveTransaction: request => deps.pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
@@ -161,20 +159,14 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         },
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
-            preparePostSaveReload: () => {
-                const reloadWaiter = createPdfReloadWaiter({
-                    pdfDocument: deps.pdfDocument,
-                    pdfViewerRef: deps.pdfViewerRef,
-                    ...(deps.openSurface ? {openSurface: deps.openSurface} : {}),
-                    resetSearchCache: deps.resetSearchCache,
-                    pageToRestore: resolvePdfReloadPage(deps.currentPage.value),
-                    restoreScroll: false,
-                });
-                return {
-                    promise: reloadWaiter.promise,
-                    cancel: () => reloadWaiter.cancel(),
-                };
-            },
+            preparePostSaveReload: () => createPdfReloadWaiter({
+                pdfDocument: deps.pdfDocument,
+                pdfViewerRef: deps.pdfViewerRef,
+                ...(deps.openSurface ? {openSurface: deps.openSurface} : {}),
+                resetSearchCache: deps.resetSearchCache,
+                pageToRestore: resolvePdfReloadPage(deps.currentPage.value),
+                restoreScroll: false,
+            }),
         },
         ...(deps.runWithDocumentOperationLease
             ? {runWithDocumentOperationLease: deps.runWithDocumentOperationLease}

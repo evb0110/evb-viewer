@@ -66,11 +66,11 @@ export interface IPdfRasterRenderTarget<TPrepared> {
         captureSettlement: TPdfPageOperationSettlementCapture,
     ): Promise<TPrepared | null>;
     start(prepared: TPrepared, page: IPdfPage): IPdfRenderTask;
-    commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
+    commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean | Promise<boolean>;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
-    /** A current demand whose render kept throwing until its retries ran out. */
-    onRenderFailed?: ((demand: IPdfRasterDemand, error: unknown) => void) | undefined;
+    /** Every current demand settles when its bounded attempts run out. */
+    onRenderExhausted?: ((outcome: TPdfRasterOutcome) => void) | undefined;
     release(pageNumber: TPageNumber, reason: string): void;
 }
 
@@ -279,36 +279,15 @@ export function createPdfPageRasterScheduler(
         void settlement.then(() => work.coordinatedOperationSettlements.delete(settlement));
     }
 
-    async function releasePageLease(work: IRasterWork) {
-        const pageLease = work.pageLease;
-        if (!pageLease) {
-            return;
-        }
-        if (work.coordinatedOperationSettlements.size > 0) {
-            await Promise.allSettled(work.coordinatedOperationSettlements);
-        }
-        pageLease.release();
-        work.pageLease = null;
-    }
-
-    function hasPendingWorkForPage(targetId: string, pageNumber: TPageNumber) {
-        const prefix = `${targetId}\0${String(pageNumber)}\0`;
-        for (const key of queued.keys()) {
-            if (key.startsWith(prefix)) {
-                return true;
-            }
-        }
-        for (const key of inFlight.keys()) {
-            if (key.startsWith(prefix)) {
-                return true;
-            }
-        }
-        for (const key of retryPending.keys()) {
-            if (key.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
+    function hasPendingReplacement(work: IRasterWork) {
+        return [
+            ...queued.values(),
+            ...inFlight.values(),
+            ...retryPending.values(),
+        ].some(candidate => candidate.key !== work.key
+            && candidate.target.id === work.target.id
+            && candidate.demand.pageNumber === work.demand.pageNumber
+            && isDemandCurrent(candidate));
     }
 
     function hasCommittedResidentForPage(targetId: string, pageNumber: TPageNumber) {
@@ -358,18 +337,14 @@ export function createPdfPageRasterScheduler(
         work.retryTimer?.clear();
         work.retryTimer = null;
         work.controller.abort();
-        if (work.stage !== 'rendering') {
-            releaseReservation(work);
-        }
         queued.delete(work.key);
         settleWork(work, {
             status: 'cancelled',
             demand: work.demand,
         });
-        if (work.prepared !== null && work.stage !== 'rendering') {
-            discardPrepared(work);
-        }
         if (work.stage !== 'rendering' && work.stage !== 'committing') {
+            releaseReservation(work);
+            if (work.prepared !== null) discardPrepared(work);
             releaseTarget(work, reason);
         }
     }
@@ -477,15 +452,13 @@ export function createPdfPageRasterScheduler(
     function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
         if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
             settleWork(work, exhausted);
-            if (exhausted.status === 'failed' && isDemandCurrent(work)) {
-                // The target's report must not reject this unawaited execution.
+            if (isDemandCurrent(work)) {
                 try {
-                    work.target.onRenderFailed?.(work.demand, exhausted.error);
+                    work.target.onRenderExhausted?.(exhausted);
                 } catch (error) {
                     logPdfRenderTrace('pdf-raster-render-failed-callback-failed', {
                         error: getErrorMessage(error),
-                        pageNumber: work.demand.pageNumber,
-                        targetId: work.target.id,
+                        demand: work.demand,
                     });
                 }
             }
@@ -528,16 +501,15 @@ export function createPdfPageRasterScheduler(
                 category,
                 bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
                 priority: LANE_ORDER[work.demand.lane],
-                // A resident whose own replacement is queued or in flight
-                // refuses eviction: evicting it would blank a visible page
-                // for the gap before its replacement commits. Budget pressure
-                // falls on genuinely cold residents instead.
+                // Current visible rasters keep their leases. A pending replacement
+                // supersedes its stale resident, so budget pressure can reclaim
+                // that lease instead of charging both canvases. The target keeps
+                // the old pixels on screen until the new raster commits.
                 canEvict: () => residents.has(work.key)
-                    && !hasPendingWorkForPage(work.target.id, work.demand.pageNumber)
                     && !(isDemandCurrent(work) && (
                         work.demand.lane === 'navigation-target'
                         || work.demand.lane === 'viewport-visible'
-                    )),
+                    ) && !hasPendingReplacement(work)),
                 evict: () => {
                     const resident = residents.get(work.key);
                     if (resident) {
@@ -621,7 +593,7 @@ export function createPdfPageRasterScheduler(
                 return;
             }
             work.stage = 'committing';
-            committed = work.target.commit(work.prepared, work.demand);
+            committed = await work.target.commit(work.prepared, work.demand);
             if (!committed) {
                 discardPrepared(work);
                 releaseReservation(work);
@@ -657,24 +629,21 @@ export function createPdfPageRasterScheduler(
                 demand: work.demand,
             });
         } catch (error) {
-            if (work.prepared !== null) {
-                discardPrepared(work);
-            }
+            discardPrepared(work);
             releaseReservation(work);
-            if (!isDemandCurrent(work)) {
-                settleWork(work, {
+            scheduleReattempt(work, !isDemandCurrent(work)
+                || error instanceof Error && (error.name === 'AbortError' || error.name === 'RenderingCancelledException') ? {
                     status: 'cancelled',
                     demand: work.demand,
-                });
-            } else {
-                scheduleReattempt(work, {
+                } : {
                     status: 'failed',
                     demand: work.demand,
                     error,
                 });
-            }
         } finally {
-            await releasePageLease(work);
+            if (work.coordinatedOperationSettlements.size > 0) await Promise.allSettled(work.coordinatedOperationSettlements);
+            work.pageLease?.release();
+            work.pageLease = null;
             if (inFlight.get(work.key) === work) {
                 inFlight.delete(work.key);
             }

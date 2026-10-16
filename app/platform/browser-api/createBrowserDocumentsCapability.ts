@@ -1,3 +1,6 @@
+import {
+    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
+} from '@app/platform/browserWindowTabs';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -124,6 +127,7 @@ export function createBrowserDocumentsCapability(
     const errorMessageProvider = {
         largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint'),
         useNativeApp: () => translateBrowserMessage('errors.browser.useNativeApp'),
+        imageExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.imageExtensionMismatch', {extensions}),
     };
     configureBrowserFilePickerMessages(errorMessageProvider);
     configureBrowserFilePickerDescriptions((key) =>
@@ -168,24 +172,28 @@ export function createBrowserDocumentsCapability(
         cleanupFile: fileCapability.cleanupFile,
         recovery: {
             async createSnapshot(fileName, data, sourceRef) {
-                const ref = await browserDocumentStore.createStoredDocument(fileName, data, {
-                    mimeType: 'application/pdf',
-                    kind: 'working',
-                    retention: 'durable',
-                    saveKind: 'pdf',
-                    ...(sourceRef ? {sourceRef} : {}),
-                });
+                const ref = await reserveBrowserDocumentWorkingCopy(fileName, sourceRef);
                 try {
+                    await browserDocumentStore.createStoredDocument(fileName, data, {
+                        ref,
+                        mimeType: 'application/pdf',
+                        kind: 'working',
+                        retention: 'durable',
+                        saveKind: 'pdf',
+                        ...(sourceRef ? {sourceRef} : {}),
+                    });
                     return {
                         ref,
                         revisionToken: (await fileCapability.getDocumentRevision(ref)).token,
                     };
                 } catch (error) {
+                    await retireBrowserDocumentWorkingCopy(ref);
                     await browserDocumentStore.cleanupDetachedDocument(ref).catch(() => undefined);
                     throw error;
                 }
             },
             async cleanupSnapshot(ref) {
+                await retireBrowserDocumentWorkingCopy(ref);
                 await browserDocumentStore.cleanupDetachedDocument(ref);
             },
         },

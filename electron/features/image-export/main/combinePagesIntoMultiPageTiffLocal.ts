@@ -40,6 +40,8 @@ interface ICombinePagesIntoMultiPageTiffLocalOptions {
     deleteSourcePages?: boolean;
     defaultDpi?: number;
     signal?: AbortSignal;
+    // The temporary file the caller already recorded, beside the output.
+    tempPath?: string;
 }
 
 const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
@@ -430,11 +432,13 @@ export async function combinePagesIntoMultiPageTiffLocal(
     const signal = options instanceof AbortSignal ? options : options.signal;
     const defaultDpi = options instanceof AbortSignal ? 72 : options.defaultDpi ?? 72;
     const deleteSourcePages = !(options instanceof AbortSignal) && options.deleteSourcePages === true;
+    const tempPath = options instanceof AbortSignal ? undefined : options.tempPath;
+    const tempOutputPath = tempPath ?? makeSiblingTempPath(outputPath);
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
     }
     throwIfAborted(signal);
-    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, signal, defaultDpi)) {
+    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, tempOutputPath, signal, defaultDpi)) {
         if (deleteSourcePages) {
             await removeSourcePages(pagePaths);
         }
@@ -453,7 +457,6 @@ export async function combinePagesIntoMultiPageTiffLocal(
         firstPageDataOffset,
         header,
     } = encodeMultiPageTiffHeader(pages);
-    const tempOutputPath = makeSiblingTempPath(outputPath);
     const stream = createWriteStream(tempOutputPath, { flags: 'w' });
     const streamCompletion = finished(stream);
     void streamCompletion.catch(() => undefined);

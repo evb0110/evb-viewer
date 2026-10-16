@@ -16,7 +16,10 @@ import {
 } from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {computeNativeBuildId} from '../../../scripts/native-build-id.mjs';
+import {
+    computeNativeBuildId,
+    getNativeExternalBuildInputs,
+} from '../../../scripts/native-build-id.mjs';
 import {
     execFileSync,
     spawn,
@@ -92,6 +95,33 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
 
+describe('private deploy CLI platform policy', () => {
+    it.each([
+        [
+            [],
+            'Unsupported deploy target: invalid',
+        ],
+        [
+            ['--prod'],
+            'Production deploys require macOS or Linux',
+        ],
+    ])('validates Windows preview arguments and refuses production (%j)', (args, expectedError) => {
+        const entry = resolve('scripts/deployVercelPrivate.mjs');
+        // Invalid target stops before source preparation or any deploy command.
+        const result = spawnSync(process.execPath, [
+            '--input-type=module',
+            '-e',
+            `
+            Object.defineProperty(process, 'platform', {value: 'win32'});
+            process.argv = [process.execPath, ${JSON.stringify(entry)}, '--target=invalid', ...${JSON.stringify(args)}];
+            await import(${JSON.stringify(pathToFileURL(entry).href)});
+        `,
+        ], {encoding: 'utf8'});
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(expectedError);
+    });
+});
+
 // Injected Windows spawns receive cmd.exe quoting before the target parses argv.
 function spawnedArg(arg: string) {
     return process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg;
@@ -125,36 +155,8 @@ let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
 let lockHome: string | undefined;
 
-beforeAll(() => {
-    // Build one clean, tagged repository; each test gets a separate copy.
-    projectFixtureTemplate = createProjectFixture();
-    // The production deploy lock lives under the home directory: keep it out of the real one.
-    lockHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-home-'));
-    savedHome = process.env.HOME;
-    savedUserProfile = process.env.USERPROFILE;
-    process.env.HOME = lockHome;
-    process.env.USERPROFILE = lockHome;
-});
-
-afterAll(() => {
-    if (projectFixtureTemplate) {
-        rmSync(projectFixtureTemplate, {
-            recursive: true,
-            force: true,
-        });
-    }
-    restoreEnv('HOME', savedHome);
-    restoreEnv('USERPROFILE', savedUserProfile);
-    if (lockHome) {
-        rmSync(lockHome, {
-            recursive: true,
-            force: true,
-        });
-    }
-});
-
 // A separate deploy process that holds the production lock until it is killed.
-async function startProductionLockOwner(projectRoot: string) {
+function startProductionLockOwner(projectRoot: string) {
     const owner = spawn(process.execPath, [
         '--input-type=module',
         '-e',
@@ -193,7 +195,7 @@ async function startProductionLockOwner(projectRoot: string) {
             'pipe',
         ],
     });
-    await new Promise<void>((resolveHeld, rejectHeld) => {
+    const held = new Promise<void>((resolveHeld, rejectHeld) => {
         owner.stdout.on('data', (chunk: Buffer) => {
             if (chunk.toString().includes('lock-held')) {
                 resolveHeld();
@@ -201,7 +203,7 @@ async function startProductionLockOwner(projectRoot: string) {
         });
         owner.once('exit', code => rejectHeld(new Error(`owner exited before taking the lock: ${code}`)));
     });
-    return owner;
+    return Object.assign(owner, {held});
 }
 
 function childProcessIds(parentPid: number) {
@@ -401,8 +403,10 @@ function writeNativeWasmFixture(projectRoot: string) {
         writeFileSync(path.join(nativeRoot, crateName, 'Cargo.toml'), `[package]\nname = "${crateName}"\n`);
         writeFileSync(path.join(nativeRoot, crateName, 'src', 'lib.rs'), 'pub fn version() -> u32 { 1 }\n');
     }
-    mkdirSync(path.join(projectRoot, 'public', 'fonts', 'annotation'), {recursive: true});
-    writeFileSync(path.join(projectRoot, 'public', 'fonts', 'annotation', 'DejaVuSans.ttf'), 'font\n');
+    for (const input of getNativeExternalBuildInputs('pdf-page-ops')) {
+        mkdirSync(path.dirname(path.join(projectRoot, input)), {recursive: true});
+        writeFileSync(path.join(projectRoot, input), 'font\n');
+    }
     mkdirSync(path.join(projectRoot, '.tmp'), {recursive: true});
     writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify({
         'pdf-image-combine': computeNativeBuildId(projectRoot, 'pdf-image-combine'),
@@ -425,7 +429,36 @@ function commitFixtureChanges(projectRoot: string) {
     ], {cwd: projectRoot});
 }
 
-describe('private Vercel deployment source', () => {
+// The deploy lock helper runs python3 with fcntl, which Windows lacks; deploys run from macOS and Linux.
+describe.skipIf(process.platform === 'win32')('private Vercel deployment source', () => {
+    beforeAll(() => {
+        // Build one clean, tagged repository; each test gets a separate copy.
+        projectFixtureTemplate = createProjectFixture();
+        // The production deploy lock lives under the home directory: keep it out of the real one.
+        lockHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-home-'));
+        savedHome = process.env.HOME;
+        savedUserProfile = process.env.USERPROFILE;
+        process.env.HOME = lockHome;
+        process.env.USERPROFILE = lockHome;
+    });
+
+    afterAll(() => {
+        if (projectFixtureTemplate) {
+            rmSync(projectFixtureTemplate, {
+                recursive: true,
+                force: true,
+            });
+        }
+        restoreEnv('HOME', savedHome);
+        restoreEnv('USERPROFILE', savedUserProfile);
+        if (lockHome) {
+            rmSync(lockHome, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('removes Git identity and local secrets while preserving project linkage', () => {
         const projectRoot = createProjectFixture();
         let prepared: IPreparedPrivateDeploySource | undefined;
@@ -605,7 +638,8 @@ describe('private Vercel deployment source', () => {
     it.skipIf(process.platform === 'win32')('lets a deploy proceed after the process holding the production lock was killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
-        const owner = await startProductionLockOwner(projectRoot);
+        const owner = startProductionLockOwner(projectRoot);
+        await owner.held;
 
         try {
             owner.kill('SIGKILL');
@@ -728,7 +762,8 @@ describe('private Vercel deployment source', () => {
     it.skipIf(process.platform === 'win32')('keeps a live deploy\'s production lock when the processes it started are killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
-        const owner = await startProductionLockOwner(projectRoot);
+        const owner = startProductionLockOwner(projectRoot);
+        await owner.held;
 
         try {
             // A killed process closes its descriptors while it exits, before the next
@@ -768,19 +803,51 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it.skipIf(process.platform === 'win32')('keeps a live owner\'s production deploy lock in force across task temp roots', async () => {
-        const projectRoot = createProjectFixture();
-        const originalTmpdir = process.env.TMPDIR;
-        const ownerTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-owner-'));
-        const otherSessionTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-other-'));
-        const lockPath = (() => {
-            process.env.TMPDIR = ownerTmpdir;
-            return getProductionDeployLockPath('project');
-        })();
-        const owner = await startProductionLockOwner(projectRoot);
-        const deployCalls: string[][] = [];
+    describe('production lock across task temp roots', () => {
+        let projectRoot: string;
+        let originalTmpdir: string | undefined;
+        let ownerTmpdir: string;
+        let otherSessionTmpdir: string;
+        let lockPath: string;
+        let owner: Awaited<ReturnType<typeof startProductionLockOwner>>;
 
-        try {
+        beforeAll(async () => {
+            // Start the cold child and reach its held-lock stop point before
+            // measuring the attempt from a different task temp root.
+            projectRoot = createProjectFixture();
+            originalTmpdir = process.env.TMPDIR;
+            ownerTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-owner-'));
+            otherSessionTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-other-'));
+            lockPath = (() => {
+                process.env.TMPDIR = ownerTmpdir;
+                return getProductionDeployLockPath('project');
+            })();
+            owner = startProductionLockOwner(projectRoot);
+            await owner.held;
+        });
+        afterAll(async () => {
+            restoreEnv('TMPDIR', originalTmpdir);
+            if (owner?.exitCode === null && owner.signalCode === null) {
+                owner.kill('SIGKILL');
+                await once(owner, 'exit');
+            }
+            rmSync(lockPath, {force: true});
+            for (const directory of [
+                ownerTmpdir,
+                otherSessionTmpdir,
+                projectRoot,
+            ]) {
+                rmSync(directory, {
+                    force: true,
+                    maxRetries: 5,
+                    recursive: true,
+                    retryDelay: 20,
+                });
+            }
+        });
+
+        it('keeps a live owner\'s production deploy lock in force across task temp roots', async () => {
+            const deployCalls: string[][] = [];
             process.env.TMPDIR = otherSessionTmpdir;
             await expect(runPrivateVercelDeploy({
                 command: 'vercel-test',
@@ -801,24 +868,7 @@ describe('private Vercel deployment source', () => {
             })).rejects.toThrow('Timed out waiting for the production deploy lock');
             expect(deployCalls).toEqual([]);
             expect(JSON.parse(readFileSync(lockPath, 'utf8')).pid).toBe(owner.pid);
-        } finally {
-            restoreEnv('TMPDIR', originalTmpdir);
-            owner.kill('SIGKILL');
-            await once(owner, 'exit');
-            rmSync(lockPath, {force: true});
-            for (const directory of [
-                ownerTmpdir,
-                otherSessionTmpdir,
-                projectRoot,
-            ]) {
-                rmSync(directory, {
-                    force: true,
-                    maxRetries: 5,
-                    recursive: true,
-                    retryDelay: 20,
-                });
-            }
-        }
+        });
     });
 
     it('refuses to deploy an uncommitted tracked-source snapshot', () => {
@@ -1340,20 +1390,15 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it.skipIf(process.platform === 'win32').each([
-        'deploy',
-        'promote',
-    ])('retains the flock in a %s CLI after the deploy parent is killed', async phase => {
+    async function startInheritedCli(phase: string) {
         const projectRoot = createProjectFixture();
         const childScript = path.join(projectRoot, '.devkit', 'controlled-cli.mjs');
         mkdirSync(path.dirname(childScript), {recursive: true});
-        const promotedPath = path.join(projectRoot, '.devkit', 'promoted');
         writeFileSync(childScript, `
-            import {watch, writeFileSync} from 'node:fs';
+            import {watch} from 'node:fs';
             watch(${JSON.stringify(path.dirname(childScript))}, () => {});
             process.on('SIGUSR2', () => {
-                writeFileSync(${JSON.stringify(promotedPath)}, 'dpl_ours');
-                process.stdout.write('cli-finished\\n');
+                process.stdout.write('cli-finished:dpl_ours\\n');
                 process.exit(0);
             });
             process.stdout.write('cli-held:' + process.pid + '\\n');
@@ -1385,44 +1430,57 @@ describe('private Vercel deployment source', () => {
             ],
         });
         const closed = once(owner, 'close');
-        let cliPid: number | undefined;
-        let release: (() => Promise<void>) | undefined;
-        let admitted = false;
-        const finished = new Promise<void>(resolveFinished => {
+        const finished = new Promise<string>(resolveFinished => {
             owner.stdout.on('data', chunk => {
-                if (chunk.toString().includes('cli-finished')) resolveFinished();
+                const result = chunk.toString().match(/cli-finished:(\S+)/u)?.[1];
+                if (result) resolveFinished(result);
             });
         });
         try {
-            cliPid = await new Promise<number>((resolveReady, rejectReady) => {
+            const cliPid = await new Promise<number>((resolveReady, rejectReady) => {
                 owner.stdout.on('data', chunk => {
                     const pid = chunk.toString().match(/cli-held:(\d+)/u)?.[1];
                     if (pid) resolveReady(Number(pid));
                 });
                 owner.once('exit', code => rejectReady(new Error(`owner exited before CLI started: ${code}`)));
             });
+            return {
+                projectRoot,
+                owner,
+                closed,
+                cliPid,
+                finished,
+            };
+        } catch (error) {
             owner.kill('SIGKILL');
-            await once(owner, 'exit');
-            try {
-                release = await acquireProductionDeployLock({
-                    env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
-                    projectId: 'project',
-                });
-                admitted = true;
-            } catch (error) {
-                expect(String(error)).toContain('Timed out waiting');
-            }
-            process.kill(cliPid, 'SIGUSR2');
-            await finished;
-            expect(readFileSync(promotedPath, 'utf8')).toBe('dpl_ours');
-            expect(admitted).toBe(false);
-        } finally {
-            await release?.();
+            await closed;
+            rmSync(projectRoot, {
+                recursive: true,
+                force: true,
+            });
+            throw error;
+        }
+    }
+
+    describe.each([
+        'deploy',
+        'promote',
+    ])('inherited %s CLI lock', phase => {
+        let fixture: Awaited<ReturnType<typeof startInheritedCli>>;
+        beforeAll(async () => {
+            // Arm the real child and await its stop point before timing the cut.
+            fixture = await startInheritedCli(phase);
+        });
+        afterAll(async () => {
+            if (!fixture) return;
+            const {
+                owner, cliPid, closed, projectRoot,
+            } = fixture;
             if (owner.exitCode === null && owner.signalCode === null) {
                 owner.kill('SIGKILL');
                 await once(owner, 'exit');
             }
-            if (cliPid) {
+            if (!owner.stdout.destroyed) {
                 try { process.kill(cliPid, 'SIGKILL'); } catch { /* Already exited. */ }
             }
             await closed;
@@ -1430,12 +1488,33 @@ describe('private Vercel deployment source', () => {
                 recursive: true,
                 force: true,
             });
-        }
-        release = await acquireProductionDeployLock({
-            env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
-            projectId: 'project',
         });
-        await release();
+
+        it(`retains the flock in a ${phase} CLI after the deploy parent is killed`, async () => {
+            const {
+                owner, cliPid, finished, closed,
+            } = fixture;
+            owner.kill('SIGKILL');
+            await once(owner, 'exit');
+            let release: (() => Promise<void>) | undefined;
+            try {
+                // A surviving CLI must keep the lock, despite its dead parent.
+                await expect(acquireProductionDeployLock({
+                    env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+                    projectId: 'project',
+                }).then(acquired => { release = acquired; })).rejects.toThrow('Timed out waiting');
+            } finally {
+                await release?.();
+            }
+            process.kill(cliPid, 'SIGUSR2');
+            expect(await finished).toBe('dpl_ours');
+            await closed;
+            release = await acquireProductionDeployLock({
+                env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+                projectId: 'project',
+            });
+            await release();
+        });
     });
 
     it.skipIf(process.platform === 'win32')('stops promotion when another publisher wins during the staged build', async () => {

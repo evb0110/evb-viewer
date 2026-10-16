@@ -84,12 +84,9 @@ function attachDocumentWorkspace(session: IWorkspaceDocumentController, expected
     });
     const workspace = createWorkspaceExposeFixture({
         hasPdf: true,
-        handleCloseFileFromUi: vi.fn(async (options?: {
-            persist?: boolean;
-            onCloseCommit?: () => void;
-        }) => {
+        handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
             expect(options?.persist).toBe(expectedPersist);
-            options?.onCloseCommit?.();
+            await options?.onCloseCommit?.();
             return true;
         }),
     });
@@ -339,8 +336,8 @@ describe('useAppShellTabLifecycle', () => {
 
     it('closes a tab whose document is still opening and ends the open', async () => {
         const session = createWorkspaceDocumentController({tabId: 'tab-1'});
-        const workspace = createWorkspaceExposeFixture({handleCloseFileFromUi: vi.fn(async (options?: {onCloseCommit?: () => void}) => {
-            options?.onCloseCommit?.();
+        const workspace = createWorkspaceExposeFixture({handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
+            await options?.onCloseCommit?.();
             return true;
         })});
         session.attachWorkspace('tab-1', workspace as IWorkspaceExpose);

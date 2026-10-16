@@ -1,9 +1,14 @@
 use super::*;
+
+#[path = "xref_admission.rs"]
+mod xref_admission;
 use lopdf::{encryption::DecryptionError, DecompressError, Error as LopdfError, LoadOptions};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
     Mutex,
 };
+pub(crate) use xref_admission::{check_xref_chain, path_has_encryption_entry};
+use xref_admission::{path_xref_chain, preflight_pdf_xref_chain};
 
 pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
@@ -389,25 +394,6 @@ fn load_incremental_pdf_path_with_policy(
     };
     validate_loaded_document(incremental.get_prev_documents(), policy)?;
     Ok(incremental)
-}
-
-/// Walks a path's cross-reference chain with the eager preflight's parsers,
-/// reading each section through a window that grows only when it runs out.
-fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
-    let mut file =
-        File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let (root, _) = read_terminal_xref(path, encoded_len)?;
-    let input_len = usize::try_from(encoded_len)?;
-    check_xref_chain(
-        usize::try_from(root)?,
-        input_len,
-        PDF_PATH_LOAD_POLICY,
-        |offset, window_len| {
-            let window = read_window(&mut file, offset, window_len.min(input_len - offset))?;
-            let truncated = offset + window.len() < input_len;
-            Ok((std::borrow::Cow::Owned(window), truncated))
-        },
-    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -912,7 +898,7 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                             AdmissionKey::First => dictionary.first = Some(value),
                             AdmissionKey::Length => {
                                 dictionary.length = Some(value);
-                                dictionary.length_is_direct = true;
+                                dictionary.length_is_direct = !lexer.next_is_reference();
                             }
                             AdmissionKey::N => dictionary.n = Some(value),
                             AdmissionKey::Prev => dictionary.prev = Some(value),
@@ -930,8 +916,6 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                             }
                             _ => {}
                         }
-                    } else if dictionary.length_is_direct {
-                        dictionary.length_is_direct = false;
                     }
                 }
                 previous_integers = [previous_integers[1], Some(value)];
@@ -966,9 +950,6 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                     }
                 }
                 if let Some(dictionary) = dictionaries.last_mut() {
-                    if dictionary.length_is_direct {
-                        dictionary.length_is_direct = false;
-                    }
                     dictionary.pending_key = None;
                 }
                 previous_integers = [None, None];
@@ -1052,518 +1033,6 @@ impl<'a> XrefCursor<'a> {
             false
         }
     }
-}
-
-fn preflight_pdf_xref_chain(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
-    let eof_offset = bytes
-        .windows(b"%%EOF".len())
-        .rposition(|window| window == b"%%EOF")
-        .unwrap_or(bytes.len());
-    let Some(marker_offset) = bytes[..eof_offset]
-        .windows(b"startxref".len())
-        .enumerate()
-        .rfind(|(offset, window)| {
-            *window == b"startxref"
-                && (*offset == 0
-                    || bytes
-                        .get(offset - 1)
-                        .is_some_and(|byte| is_pdf_whitespace(*byte) || is_pdf_delimiter(*byte)))
-                && bytes
-                    .get(offset + b"startxref".len())
-                    .is_some_and(|byte| is_pdf_whitespace(*byte))
-        })
-        .map(|(offset, _)| offset)
-    else {
-        // lopdf remains responsible for classifying documents without a terminal
-        // cross-reference pointer. The structural scanner above still applies its
-        // cheap declaration limits to these malformed inputs.
-        return Ok(());
-    };
-    let mut root_cursor = XrefCursor::at(bytes, marker_offset + b"startxref".len());
-    let root = root_cursor
-        .unsigned()
-        .and_then(|value| usize::try_from(value).ok())
-        .ok_or_else(|| xref_error("PDF startxref pointer is invalid"))?;
-    check_xref_chain(root, bytes.len(), policy, |offset, _window_len| {
-        Ok((std::borrow::Cow::Borrowed(&bytes[offset..]), false))
-    })
-    .map(|_| ())
-}
-
-/// Walks a cross-reference chain from its terminal section through every
-/// `/Prev` and `/XRefStm` link with the append loader's section parsers and
-/// ceilings. `section_at(offset, window_len)` returns the input from `offset`,
-/// either to its end or as a window of at most `window_len` bytes, and says
-/// whether the window was cut short. Only a parse that failed after running
-/// out of a cut-short window is retried with a longer one; any other failure
-/// keeps its own classification. A section that still runs out at the probe
-/// ceiling exceeds it.
-pub(crate) fn check_xref_chain<'a>(
-    root: usize,
-    input_len: usize,
-    policy: PdfLoadPolicy,
-    mut section_at: impl FnMut(usize, usize) -> Result<(std::borrow::Cow<'a, [u8]>, bool)>,
-) -> Result<XrefChain> {
-    let mut pending = Vec::with_capacity(MAX_PDF_XREF_REVISIONS);
-    let mut visited = HashSet::with_capacity(MAX_PDF_XREF_REVISIONS);
-    let mut scanned_bytes = 0_usize;
-    let mut chain = XrefChain {
-        encrypted: false,
-        size: None,
-    };
-    pending.push(root);
-
-    while let Some(offset) = pending.pop() {
-        if offset >= input_len {
-            return Err(xref_error("PDF cross-reference offset is outside the file"));
-        }
-        if visited.len() == MAX_PDF_XREF_REVISIONS && !visited.contains(&offset) {
-            return Err(limit_error(format!(
-                "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
-            )));
-        }
-        if !visited.insert(offset) {
-            return Err(xref_error(
-                "PDF cross-reference revision chain contains a repeated offset",
-            ));
-        }
-
-        let mut window_len = FIRST_XREF_SECTION_WINDOW_BYTES;
-        let (dictionary, consumed) = loop {
-            let (section, truncated) = section_at(offset, window_len)?;
-            INPUT_END_REACHED.with(|reached| reached.set(false));
-            let parsed = if section.starts_with(b"xref") {
-                parse_classic_xref_section(&section, 0, policy)
-            } else {
-                parse_xref_stream_section(&section, 0, policy)
-            };
-            let ran_out = truncated && INPUT_END_REACHED.with(std::cell::Cell::get);
-            match parsed {
-                Ok(parsed) => break parsed,
-                Err(_error) if ran_out && window_len < MAX_XREF_PROBE_BYTES => {
-                    window_len = window_len.saturating_mul(8).min(MAX_XREF_PROBE_BYTES);
-                }
-                Err(_error) if ran_out => {
-                    return Err(limit_error(
-                        "PDF cross-reference section exceeds the structural probe ceiling",
-                    ));
-                }
-                Err(error) => return Err(error),
-            }
-        };
-        scanned_bytes = scanned_bytes
-            .checked_add(consumed)
-            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
-        if scanned_bytes > input_len {
-            return Err(xref_error(
-                "PDF cross-reference sections overlap or exceed the input",
-            ));
-        }
-        if offset == root {
-            chain.size = dictionary.size;
-        }
-        chain.encrypted |= dictionary.has_encrypt;
-
-        for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
-            let linked = usize::try_from(linked)
-                .map_err(|_| xref_error("PDF cross-reference link is too large"))?;
-            if linked >= input_len {
-                return Err(xref_error("PDF cross-reference link is outside the file"));
-            }
-            if pending.len() == MAX_PDF_XREF_REVISIONS {
-                return Err(limit_error(format!(
-                    "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
-                )));
-            }
-            pending.push(linked);
-        }
-    }
-    Ok(chain)
-}
-
-/// What a cross-reference chain says about a file without loading its body.
-pub(crate) struct XrefChain {
-    /// A real `/Encrypt` entry in any revision's trailer.
-    pub(crate) encrypted: bool,
-    /// The terminal trailer's `/Size`, one more than the highest object number.
-    pub(crate) size: Option<u64>,
-}
-
-fn parse_classic_xref_section(
-    bytes: &[u8],
-    offset: usize,
-    policy: PdfLoadPolicy,
-) -> Result<(AdmissionDictionary, usize)> {
-    let mut cursor = XrefCursor::at(bytes, offset);
-    if !cursor.consume(b"xref") {
-        return Err(xref_error("PDF classic cross-reference marker is invalid"));
-    }
-    let mut declared_rows = 0_u64;
-    let mut actual_rows = 0_u64;
-    let mut largest_end = 0_u64;
-
-    loop {
-        if cursor.consume(b"trailer") {
-            break;
-        }
-        let start = cursor
-            .unsigned()
-            .ok_or_else(|| xref_error("PDF cross-reference subsection start is invalid"))?;
-        let count = cursor
-            .unsigned()
-            .ok_or_else(|| xref_error("PDF cross-reference subsection count is invalid"))?;
-        let end = start
-            .checked_add(count)
-            .ok_or_else(|| limit_error("PDF cross-reference subsection range overflow"))?;
-        declared_rows = declared_rows
-            .checked_add(count)
-            .ok_or_else(|| limit_error("PDF cross-reference row count overflow"))?;
-        largest_end = largest_end.max(end);
-        if declared_rows > policy.max_objects as u64 || end > policy.max_objects as u64 {
-            return Err(limit_error(format!(
-                "PDF classic cross-reference table exceeds the {}-object admission ceiling",
-                policy.max_objects
-            )));
-        }
-        for _ in 0..count {
-            cursor
-                .unsigned()
-                .ok_or_else(|| xref_error("PDF cross-reference entry offset is invalid"))?;
-            cursor
-                .unsigned()
-                .ok_or_else(|| xref_error("PDF cross-reference entry generation is invalid"))?;
-            if !matches!(cursor.token(), Some(b"n" | b"f")) {
-                return Err(xref_error("PDF cross-reference entry type is invalid"));
-            }
-            actual_rows = actual_rows
-                .checked_add(1)
-                .ok_or_else(|| limit_error("PDF cross-reference row count overflow"))?;
-            if actual_rows > policy.max_objects as u64 {
-                return Err(limit_error(format!(
-                    "PDF classic cross-reference table exceeds the {}-object admission ceiling",
-                    policy.max_objects
-                )));
-            }
-        }
-    }
-
-    if actual_rows != declared_rows {
-        return Err(xref_error(
-            "PDF cross-reference row count does not match its declarations",
-        ));
-    }
-    let (dictionary, dictionary_end) = parse_xref_dictionary(bytes, cursor.cursor, policy)?;
-    let size = dictionary
-        .size
-        .ok_or_else(|| xref_error("PDF cross-reference trailer is missing /Size"))?;
-    if size > policy.max_objects as u64 || largest_end > size {
-        return Err(limit_error(format!(
-            "PDF classic cross-reference table exceeds the {}-object admission ceiling",
-            policy.max_objects
-        )));
-    }
-    Ok((dictionary, dictionary_end.saturating_sub(offset)))
-}
-
-fn parse_xref_stream_section(
-    bytes: &[u8],
-    offset: usize,
-    policy: PdfLoadPolicy,
-) -> Result<(AdmissionDictionary, usize)> {
-    let mut cursor = XrefCursor::at(bytes, offset);
-    cursor
-        .unsigned()
-        .ok_or_else(|| xref_error("PDF cross-reference stream object number is invalid"))?;
-    cursor
-        .unsigned()
-        .ok_or_else(|| xref_error("PDF cross-reference stream generation is invalid"))?;
-    if !cursor.consume(b"obj") {
-        return Err(xref_error(
-            "PDF cross-reference offset does not point to an xref table or object",
-        ));
-    }
-    let (dictionary, dictionary_end) = parse_xref_dictionary(bytes, cursor.cursor, policy)?;
-    if dictionary.dictionary_type != Some(AdmissionDictionaryType::Xref) {
-        return Err(xref_error(
-            "PDF cross-reference stream is missing /Type /XRef",
-        ));
-    }
-    let size = dictionary
-        .size
-        .ok_or_else(|| xref_error("PDF cross-reference stream is missing /Size"))?;
-    if size > policy.max_objects as u64
-        || dictionary
-            .index_total
-            .unwrap_or(size)
-            .gt(&(policy.max_objects as u64))
-        || dictionary.largest_index_end.unwrap_or(size).gt(&size)
-    {
-        return Err(limit_error(format!(
-            "PDF cross-reference stream exceeds the {}-object admission ceiling",
-            policy.max_objects
-        )));
-    }
-    if dictionary.width_count != Some(3) || dictionary.largest_width.is_some_and(|width| width > 8)
-    {
-        return Err(limit_error(
-            "PDF cross-reference stream has an unsafe field-width declaration",
-        ));
-    }
-    let mut stream_cursor = XrefCursor::at(bytes, dictionary_end);
-    if !stream_cursor.consume(b"stream") {
-        return Err(xref_error("PDF cross-reference stream data is missing"));
-    }
-    Ok((dictionary, dictionary_end.saturating_sub(offset)))
-}
-
-fn parse_xref_dictionary(
-    bytes: &[u8],
-    offset: usize,
-    policy: PdfLoadPolicy,
-) -> Result<(AdmissionDictionary, usize)> {
-    let mut lexer = AdmissionLexer::new(
-        bytes
-            .get(offset..)
-            .ok_or_else(|| xref_error("PDF cross-reference dictionary offset is invalid"))?,
-    );
-    if !matches!(lexer.next_token(), Some(AdmissionToken::DictionaryStart)) {
-        return Err(xref_error("PDF cross-reference dictionary is missing"));
-    }
-    let mut dictionary = AdmissionDictionary::default();
-    let mut dictionary_depth = 1_usize;
-    let mut array_depth = 0_usize;
-    // A revision's direct /DecodeParms, read here because the structural scan
-    // can stop before it reaches this stream.
-    let mut decode_parms: Option<(AdmissionPredictorParms, Option<AdmissionKey>)> = None;
-
-    while let Some(token) = lexer.next_token() {
-        match token {
-            AdmissionToken::DictionaryStart => {
-                if dictionary_depth == 1
-                    && array_depth == 0
-                    && dictionary
-                        .pending_key
-                        .take_if(|key| *key == AdmissionKey::DecodeParms)
-                        .is_some()
-                {
-                    decode_parms = Some((AdmissionPredictorParms::default(), None));
-                }
-                dictionary_depth = dictionary_depth.saturating_add(1);
-                enforce_structural_nesting(dictionary_depth, array_depth, policy)?;
-            }
-            AdmissionToken::DictionaryEnd => {
-                dictionary_depth = dictionary_depth.saturating_sub(1);
-                if dictionary_depth == 1 {
-                    if let Some((parms, _)) = decode_parms.take() {
-                        dictionary.decode_parms = Some(parms);
-                    }
-                }
-                if dictionary_depth == 0 {
-                    validate_admission_dictionary(&dictionary, policy, &mut 0)?;
-                    return Ok((dictionary, offset.saturating_add(lexer.cursor)));
-                }
-            }
-            AdmissionToken::ArrayStart if dictionary_depth == 1 => {
-                array_depth = array_depth.saturating_add(1);
-                enforce_structural_nesting(dictionary_depth, array_depth, policy)?;
-                if let Some(key) = dictionary
-                    .pending_key
-                    .take()
-                    .and_then(AdmissionArrayKey::from_key)
-                {
-                    dictionary.array = Some(AdmissionArray {
-                        depth: array_depth,
-                        key,
-                        item_count: 0,
-                        range_total: 0,
-                        pending_range_start: 0,
-                        largest_range_end: 0,
-                    });
-                }
-            }
-            AdmissionToken::ArrayEnd if dictionary_depth == 1 => {
-                if dictionary
-                    .array
-                    .is_some_and(|array| array.depth == array_depth)
-                {
-                    let array = dictionary.array.take().unwrap();
-                    if array.item_count == 0
-                        || (array.key == AdmissionArrayKey::Index && array.item_count % 2 != 0)
-                    {
-                        return Err(xref_error("PDF cross-reference array is invalid"));
-                    }
-                    match array.key {
-                        AdmissionArrayKey::Index => {
-                            dictionary.index_total = Some(array.range_total);
-                            dictionary.largest_index_end = Some(array.largest_range_end);
-                        }
-                        AdmissionArrayKey::W => {
-                            dictionary.width_count = Some(array.item_count);
-                            dictionary.largest_width = Some(array.largest_range_end);
-                        }
-                    }
-                }
-                array_depth = array_depth.saturating_sub(1);
-            }
-            AdmissionToken::Name(name) if dictionary_depth == 1 && array_depth == 0 => {
-                if decoded_name_matches(name, b"Encrypt") {
-                    dictionary.has_encrypt = true;
-                }
-                if dictionary.pending_key == Some(AdmissionKey::Type) {
-                    dictionary.dictionary_type = admission_dictionary_type(name);
-                    dictionary.pending_key = None;
-                } else {
-                    dictionary.pending_key = admission_key(name);
-                }
-            }
-            AdmissionToken::Integer(value) if dictionary_depth == 1 => {
-                if dictionary
-                    .array
-                    .is_some_and(|array| array.depth == array_depth)
-                {
-                    let array = dictionary.array.as_mut().unwrap();
-                    if array.key == AdmissionArrayKey::Index {
-                        if array.item_count % 2 == 0 {
-                            array.pending_range_start = value;
-                        } else {
-                            array.range_total =
-                                array.range_total.checked_add(value).ok_or_else(|| {
-                                    limit_error("PDF cross-reference index count overflow")
-                                })?;
-                            let end =
-                                array
-                                    .pending_range_start
-                                    .checked_add(value)
-                                    .ok_or_else(|| {
-                                        limit_error("PDF cross-reference index range overflow")
-                                    })?;
-                            array.largest_range_end = array.largest_range_end.max(end);
-                        }
-                    } else {
-                        array.largest_range_end = array.largest_range_end.max(value);
-                    }
-                    array.item_count += 1;
-                } else if array_depth == 0 {
-                    match dictionary.pending_key.take() {
-                        Some(AdmissionKey::Length) => dictionary.length = Some(value),
-                        Some(AdmissionKey::Prev) => dictionary.prev = Some(value),
-                        Some(AdmissionKey::Size) => dictionary.size = Some(value),
-                        Some(AdmissionKey::XrefStm) => dictionary.xref_stm = Some(value),
-                        _ => {}
-                    }
-                }
-            }
-            AdmissionToken::Keyword(_) if dictionary_depth == 1 && array_depth == 0 => {
-                dictionary.pending_key = None;
-            }
-            AdmissionToken::Name(name) if dictionary_depth == 2 && array_depth == 0 => {
-                if let Some((_, key)) = decode_parms.as_mut() {
-                    *key = admission_key(name);
-                }
-            }
-            AdmissionToken::Integer(value) if dictionary_depth == 2 && array_depth == 0 => {
-                if let Some((parms, key)) = decode_parms.as_mut() {
-                    match key.take() {
-                        Some(AdmissionKey::Predictor) => parms.predictor = Some(value),
-                        Some(AdmissionKey::Columns) => parms.columns = Some(value),
-                        Some(AdmissionKey::Colors) => parms.colors = Some(value),
-                        Some(AdmissionKey::BitsPerComponent) => {
-                            parms.bits_per_component = Some(value)
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    Err(xref_error("PDF cross-reference dictionary is unterminated"))
-}
-
-/// Checks the terminal xref chain for a real `/Encrypt` entry without loading
-/// the PDF body. This is used only after the byte-input ceiling has rejected an
-/// eager load, where a raw byte search could mistake page content for trailer
-/// metadata or miss encryption inherited through an earlier revision.
-pub(crate) fn path_has_encryption_entry(path: &Path) -> Result<bool> {
-    let file_len = fs::metadata(path)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
-        .len();
-    let (terminal_xref, _) = read_terminal_xref(path, file_len)?;
-    let mut pending = vec![terminal_xref];
-    let mut visited = HashSet::new();
-    let mut scanned_bytes = 0_u64;
-
-    while let Some(offset) = pending.pop() {
-        if offset >= file_len {
-            return Err(xref_error("PDF cross-reference offset is outside the file"));
-        }
-        if !visited.insert(offset) {
-            return Err(xref_error(
-                "PDF cross-reference revision chain contains a repeated offset",
-            ));
-        }
-        if visited.len() > MAX_PDF_XREF_REVISIONS {
-            return Err(limit_error(format!(
-                "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
-            )));
-        }
-
-        let section = read_xref_probe_window(path, offset)?;
-        scanned_bytes = scanned_bytes
-            .checked_add(u64::try_from(section.len()).map_err(|_| {
-                limit_error("PDF cross-reference scan length exceeds the addressable range")
-            })?)
-            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
-        if scanned_bytes > file_len {
-            return Err(xref_error(
-                "PDF cross-reference sections overlap or exceed the input",
-            ));
-        }
-        let parsed = if section.starts_with(b"xref") {
-            parse_classic_xref_section(&section, 0, PDF_PATH_LOAD_POLICY)
-        } else {
-            parse_xref_stream_section(&section, 0, PDF_PATH_LOAD_POLICY)
-        };
-        let (dictionary, consumed) = match parsed {
-            Ok(parsed) => parsed,
-            Err(_error) if section.len() == MAX_XREF_PROBE_BYTES => {
-                return Err(limit_error(
-                    "PDF cross-reference section exceeds the structural probe ceiling",
-                ));
-            }
-            Err(error) => return Err(error),
-        };
-        if dictionary.has_encrypt {
-            return Ok(true);
-        }
-        if consumed == 0 {
-            return Err(xref_error("PDF cross-reference section consumed no bytes"));
-        }
-        for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
-            if linked >= file_len {
-                return Err(xref_error("PDF cross-reference link is outside the file"));
-            }
-            pending.push(linked);
-        }
-    }
-
-    Ok(false)
-}
-
-fn read_xref_probe_window(path: &Path, offset: u64) -> Result<Vec<u8>> {
-    let mut file =
-        File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    file.seek(SeekFrom::Start(offset))
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut bytes = Vec::new();
-    file.take(MAX_XREF_PROBE_BYTES as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    Ok(bytes)
-}
-
-fn xref_error(message: impl Into<String>) -> Box<dyn Error> {
-    domain_error(NativeErrorCode::CorruptXref, message)
 }
 
 fn enforce_structural_nesting(
@@ -1909,7 +1378,7 @@ mod tests {
     }
 
     #[test]
-    fn xref_probe_rejects_revision_windows_that_revisit_input_bytes() {
+    fn xref_probe_accepts_revision_windows_that_run_into_later_revisions() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1926,9 +1395,9 @@ mod tests {
         bytes.extend_from_slice(format!("startxref\n{second_offset}\n%%EOF\n").as_bytes());
         std::fs::write(&path, bytes).unwrap();
 
-        let error = path_has_encryption_entry(&path)
-            .expect_err("overlapping revision probe windows must fail closed");
-        assert_corrupt_xref(error);
+        // The first window reads into the second revision; only the parsed
+        // tables count toward the input length, so the chain is admitted.
+        assert!(!path_has_encryption_entry(&path).unwrap());
 
         let _ = std::fs::remove_file(path);
     }
@@ -2437,15 +1906,14 @@ mod tests {
             load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&structural), 0);
         assert_eq!(qpdf_calls(), 1);
-        drop(structural);
+        read_pdf_combine_catalog(&AppendedRevision::new(&structural)).unwrap();
         let mut geometry = Vec::new();
         write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
         assert!(String::from_utf8(geometry)
             .unwrap()
             .contains(r#""width":200.0"#));
-        write_pdf_combine_catalog(&input_path, Some(&qpdf_path), &mut Vec::new()).unwrap();
         write_annotation_name_index_path(&input_path, &index_path, Some(&qpdf_path)).unwrap();
-        assert_eq!(qpdf_calls(), 4);
+        assert_eq!(qpdf_calls(), 3);
 
         // Page-size metadata and a parse of a page without notes or stamps read
         // the same view and print what an eager load (no qpdf) prints.
@@ -2455,7 +1923,7 @@ mod tests {
         write_annotation_parse_path(&input_path, parse, "D:20261009120000Z", Some(&qpdf_path))
             .unwrap();
         write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None).unwrap();
-        assert_eq!(qpdf_calls(), 6);
+        assert_eq!(qpdf_calls(), 5);
         assert_eq!(
             std::fs::read(sizes).unwrap(),
             std::fs::read(eager_sizes).unwrap()
@@ -2467,7 +1935,7 @@ mod tests {
 
         // An encrypted file stays eager, so it keeps its error classification.
         assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
-        assert_eq!(qpdf_calls(), 6);
+        assert_eq!(qpdf_calls(), 5);
     }
 
     /// zlib of one PNG-predicted four-byte row, and of two Columns-2 rows

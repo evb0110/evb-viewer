@@ -18,12 +18,11 @@ import * as v from 'valibot';
 const SHA256_PATTERN = /^[0-9a-f]{64}$/iu;
 
 function finiteNumber(fieldName: string, min?: number, max?: number) {
-    const bounds = `${min === undefined ? '' : ` >= ${min}`}${max === undefined ? '' : ` <= ${max}`}`;
+    const message = `${fieldName} must be a finite number${min === undefined ? '' : ` >= ${min}`}${max === undefined ? '' : ` <= ${max}`}`;
     return v.pipe(
-        v.number(`${fieldName} must be a finite number${bounds}`),
-        v.finite(`${fieldName} must be a finite number${bounds}`),
-        v.check(value => (min === undefined || value >= min) && (max === undefined || value <= max),
-            `${fieldName} must be a finite number${bounds}`),
+        v.number(message),
+        v.finite(message),
+        v.check(value => (min === undefined || value >= min) && (max === undefined || value <= max), message),
     );
 }
 
@@ -36,11 +35,8 @@ function nonNegativeInteger(fieldName: string) {
 }
 
 function nonEmptyString(fieldName: string, allowEmpty = false) {
-    return v.pipe(
-        v.string(`${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`),
-        v.check(value => allowEmpty || value.length > 0,
-            `${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`),
-    );
+    const message = `${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`;
+    return v.pipe(v.string(message), v.check(value => allowEmpty || value.length > 0, message));
 }
 
 function nullableString(fieldName: string, allowEmpty = true) {
@@ -66,6 +62,22 @@ const revisionTokenSchema = v.pipe(
     v.check(value => parseDocumentRevisionToken(value) !== null, 'must be a valid document revision token'),
     v.transform(value => parseDocumentRevisionToken(value)!),
 );
+const noteReplySchema = v.strictObject({
+    objectNumber: nonNegativeInteger('annotation parse replies.objectNumber'),
+    generationNumber: nonNegativeInteger('annotation parse replies.generationNumber'),
+    contents: nonEmptyString('annotation parse replies.contents', true),
+    state: v.optional(v.nullable(nonEmptyString('annotation parse replies.state', true))),
+    stateModel: v.optional(v.nullable(nonEmptyString('annotation parse replies.stateModel', true))),
+    author: nullableString('annotation parse replies.author'),
+    createdAt: nullableTimestamp('annotation parse replies.createdAt'),
+    modifiedAt: nullableTimestamp('annotation parse replies.modifiedAt'),
+}, 'contains unsupported field');
+const repliesSchema = v.pipe(
+    v.unknown(),
+    v.check(value => Array.isArray(value) && value.length <= 4_096,
+        'annotation parse replies must contain at most 4096 replies'),
+    v.array(noteReplySchema),
+);
 const parseIdentity = {
     pageIndex: pageIndexSchema,
     objectNumber: nonNegativeInteger('objectNumber'),
@@ -74,6 +86,7 @@ const parseIdentity = {
     author: nullableString('author'),
     createdAt: nullableTimestamp('createdAt'),
     modifiedAt: nullableTimestamp('modifiedAt'),
+    replies: v.optional(repliesSchema),
 };
 const baseRectSchema = v.strictObject({
     left: finiteNumber('rect.left'),
@@ -128,6 +141,7 @@ const strokeSchema = v.pipe(
     v.transform((value): TPoint[] => value ?? []),
 );
 
+const frameInset = finiteNumber('annotation parse text-box.frame.insets', 0);
 const textBoxSchema = v.pipe(
     v.strictObject({
         kind: v.literal('text-box'),
@@ -137,6 +151,20 @@ const textBoxSchema = v.pipe(
         rotation: rotationSchema,
         fontSize: finiteNumber('annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
         color: rgbColorSchema('annotation parse text-box.color'),
+        // Insets are /RD's top, right, bottom and left, in PDF points.
+        frame: v.optional(v.strictObject({
+            insets: v.strictTuple([
+                frameInset,
+                frameInset,
+                frameInset,
+                frameInset,
+            ]),
+            borderWidth: finiteNumber('annotation parse text-box.frame.borderWidth', 0),
+            borderColor: v.nullable(rgbColorSchema('annotation parse text-box.frame.borderColor')),
+            background: v.nullable(rgbColorSchema('annotation parse text-box.frame.background')),
+        }, 'contains unsupported field')),
+        // A label whose border style the editor cannot draw: selectable, never edited.
+        readOnly: v.optional(v.literal(true)),
     }, 'contains unsupported field'),
     v.check(({
         rect, rotation,
@@ -149,14 +177,6 @@ const textBoxSchema = v.pipe(
             && rect.width * rect.height <= availableArea + 1e-7;
     }, 'annotation parse text-box.rect cannot fit inside the normalized page bounds after rotation'),
 );
-const noteReplySchema = v.strictObject({
-    objectNumber: nonNegativeInteger('annotation parse note.replies.objectNumber'),
-    generationNumber: nonNegativeInteger('annotation parse note.replies.generationNumber'),
-    contents: nonEmptyString('annotation parse note.replies.contents', true),
-    author: nullableString('annotation parse note.replies.author'),
-    createdAt: nullableTimestamp('annotation parse note.replies.createdAt'),
-    modifiedAt: nullableTimestamp('annotation parse note.replies.modifiedAt'),
-}, 'contains unsupported field');
 const noteSchema = v.strictObject({
     kind: v.literal('note'),
     ...parseIdentity,
@@ -169,12 +189,7 @@ const noteSchema = v.strictObject({
     contents: nonEmptyString('annotation parse note.contents', true),
     color: v.optional(v.nullable(rgbColorSchema('annotation parse note.color')), null),
     open: v.boolean('annotation parse note.open must be a boolean'),
-    replies: v.pipe(
-        v.unknown(),
-        v.check(value => Array.isArray(value) && value.length <= 4_096,
-            'annotation parse note.replies must contain at most 4096 replies'),
-        v.array(noteReplySchema),
-    ),
+    replies: repliesSchema,
 }, 'contains unsupported field');
 const highlightSchema = v.strictObject({
     kind: v.literal('highlight'),

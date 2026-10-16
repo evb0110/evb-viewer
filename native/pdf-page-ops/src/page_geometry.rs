@@ -218,24 +218,12 @@ pub(crate) fn resolve_page_rotation(
     document: &impl PdfObjectSource,
     page_id: ObjectId,
 ) -> Result<i64> {
-    let mut current_id = Some(page_id);
-    let mut seen = HashSet::new();
-
-    while let Some(object_id) = current_id {
-        if !seen.insert(object_id) {
-            return Err("Page tree cycle while resolving Rotate".into());
-        }
-
-        let dict = document.dictionary(object_id)?;
-        if let Ok(object) = dict.get(b"Rotate") {
-            let resolved = document.resolved(object)?;
-            return Ok(normalize_page_rotation(resolved.as_i64()?));
-        }
-
-        current_id = dict.get(b"Parent").and_then(Object::as_reference).ok();
-    }
-
-    Ok(0)
+    let Some(rotate) = resolve_inherited_object(document, page_id, b"Rotate")? else {
+        return Ok(0);
+    };
+    Ok(normalize_page_rotation(
+        document.resolved(rotate)?.as_i64()?,
+    ))
 }
 
 fn resolve_page_rotation_targets(
@@ -658,11 +646,12 @@ pub(crate) fn resolve_page_id(
     })
 }
 
-pub(crate) fn resolve_inherited_box(
-    document: &impl PdfObjectSource,
+/// The value a page sets for an inheritable key, or its nearest ancestor's.
+pub(crate) fn resolve_inherited_object<'a>(
+    document: &'a impl PdfObjectSource,
     page_id: ObjectId,
     key: &[u8],
-) -> Result<PdfRect> {
+) -> Result<Option<&'a Object>> {
     let mut current_id = Some(page_id);
     let mut seen = HashSet::new();
 
@@ -677,14 +666,23 @@ pub(crate) fn resolve_inherited_box(
 
         let dict = document.dictionary(object_id)?;
         if let Ok(object) = dict.get(key) {
-            let resolved = document.resolved(object)?;
-            return parse_rect(resolved);
+            return Ok(Some(object));
         }
 
         current_id = dict.get(b"Parent").and_then(Object::as_reference).ok();
     }
 
-    Err(format!("Missing inherited {}", String::from_utf8_lossy(key)).into())
+    Ok(None)
+}
+
+pub(crate) fn resolve_inherited_box(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+    key: &[u8],
+) -> Result<PdfRect> {
+    let object = resolve_inherited_object(document, page_id, key)?
+        .ok_or_else(|| format!("Missing inherited {}", String::from_utf8_lossy(key)))?;
+    parse_rect(document.resolved(object)?)
 }
 
 pub(crate) fn parse_rect(object: &Object) -> Result<PdfRect> {

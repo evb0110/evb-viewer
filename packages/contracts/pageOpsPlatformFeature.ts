@@ -1,3 +1,8 @@
+import {
+    decodeBookmarkSourceIntent,
+    PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA,
+    PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
+} from '@contracts/pdfBookmarkEntry';
 import type {
     TPageNumber,
     IPageMoveRangeSegment,
@@ -41,6 +46,21 @@ import {
 
 const MAX_COLLECTION_ITEMS = 100_000;
 const MAX_PAGE_SELECTION_ITEMS = 1_000_000;
+/** qpdf's page listing is read before it can rewrite source object identities. */
+export function decodePageSourceReferences(value: unknown) {
+    const page = v.pipe(v.object({object: v.pipe(v.string(), v.regex(/^[1-9]\d* \d+ R$/u))}), v.transform(({object}) => {
+        const [
+            num,
+            gen,
+        ] = object.split(' ').map(Number);
+        return v.parse(PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA, {
+            num,
+            gen,
+        });
+    }));
+    return v.parse(v.object({pages: v.pipe(v.array(page), v.maxLength(MAX_PAGE_SELECTION_ITEMS))}), value).pages;
+}
+
 const METHOD_TIMEOUT_MS = 30 * 60 * 1_000;
 const PAGE_LABEL_STYLES = [
     'D',
@@ -69,6 +89,7 @@ type TRotateArgs = [string, TPageOpsPageSelection, number, TPageOpsRotationAngle
 type TCropArgs = [string, TPageOpsPageSelection, number, ICropMargins, IPageOpsMutationOptions | undefined];
 type TRemoveCropArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TGetPageGeometryArgs = [string, number];
+type TReadOutlineArgs = [string];
 
 function decodeString(args: unknown[], index: number, fieldName: string) {
     const value = args[index];
@@ -251,6 +272,7 @@ function decodeBookmarkEntries(
             title: raw.title,
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             ...(pageYRatio === undefined ? {} : {pageYRatio}),
+            ...decodeBookmarkSourceIntent(raw),
             namedDest: raw.namedDest,
             bold: raw.bold,
             italic: raw.italic,
@@ -260,7 +282,7 @@ function decodeBookmarkEntries(
     });
 }
 
-function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
+export function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
     if (!isRecord(value)) {
         throw new Error('options.metadataSnapshot must be an object');
     }
@@ -730,6 +752,15 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 workingCopyPath,
                 pageNumber,
             ],
+        ),
+        // The document's outline as the native catalog reader keeps it: names
+        // and actions other than GoTo stay what the source says.
+        readOutline: method(
+            'readOutline',
+            'page-ops:read-outline',
+            args<TReadOutlineArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
+            v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
+            (workingCopyPath: string): TReadOutlineArgs => [workingCopyPath],
         ),
     },
     events: {},

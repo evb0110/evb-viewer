@@ -1,0 +1,419 @@
+import type {ChildProcess} from 'node:child_process';
+import {
+    access,
+    readFile,
+    readlink,
+} from 'node:fs/promises';
+import type {Socket} from 'node:net';
+import {
+    isAbsolute,
+    join,
+    resolve,
+} from 'node:path';
+import {createInterface} from 'node:readline';
+import {promisify} from 'node:util';
+
+// Who started a process: its pid and the creation time the OS keeps for it,
+// read from the OS and compared exactly. The managed process reaper and the
+// scratch and namespace owners prove a run with it; no clock is consulted.
+
+export interface IProcessIdentity {
+    executablePath: string;
+    arguments: readonly string[];
+    startTime: string;
+    // What proves a child an older build recorded (see isExactStartTime): the
+    // pid that created it, which Windows keeps, and the environment it was
+    // started with, NUL-delimited on macOS.
+    parentPid?: number;
+    environment?: string;
+}
+
+const LINUX_BOOT_ID_PATH = '/proc/sys/kernel/random/boot_id';
+
+// starttime counts clock ticks since boot, so the boot id keeps a process
+// from an earlier boot apart from one that got the same pid at the same tick.
+function parseProcStartTime(stat: string, bootId: string) {
+    const commandEnd = stat.lastIndexOf(')');
+    if (commandEnd < 0) {
+        return null;
+    }
+    const fields = stat.slice(commandEnd + 2).trim().split(/\s+/u);
+    // The slice starts at field 3 (state), while starttime is field 22.
+    return fields[19] === undefined ? null : `${bootId.trim()}:${fields[19]}`;
+}
+
+function normalizeProcessStartTime(value: string) {
+    const normalized = value.trim().replace(/\s+/gu, ' ');
+    return normalized.length > 0 ? normalized : null;
+}
+
+function parseCommandLine(commandLine: string) {
+    return (commandLine.match(/"[^"]*"|'[^']*'|\S+/gu) ?? [])
+        .map(argument => argument.length >= 2
+            && ((argument.startsWith('"') && argument.endsWith('"'))
+                || (argument.startsWith('\'') && argument.endsWith('\'')))
+            ? argument.slice(1, -1)
+            : argument);
+}
+
+async function execFileForIdentity(
+    file: string,
+    argumentsList: readonly string[],
+    options: {
+        env?: NodeJS.ProcessEnv;
+        timeout: number;
+        maxBuffer: number;
+        windowsHide?: boolean
+    },
+) {
+    // Keep the child-process inspection lazy. The normal Linux path uses
+    // /proc, and loading child_process during module evaluation would make
+    // feature tests that replace spawn need to provide unrelated APIs.
+    const {execFile} = await import('node:child_process');
+    return promisify(execFile)(file, [...argumentsList], options);
+}
+
+// starttime is set at fork and kept through exec until the parent reaps the
+// process. cmdline is still empty while Node's spawn returns mid-exec, and
+// cmdline and exe are gone once the child exits.
+// procfs answers from memory; the built-in module keeps a feature test's fs mock out of it.
+function readLinuxStartTime(pid: number) {
+    const {readFileSync} = process.getBuiltinModule('node:fs');
+    return parseProcStartTime(readFileSync(`/proc/${String(pid)}/stat`, 'utf8'), readFileSync(LINUX_BOOT_ID_PATH, 'utf8'));
+}
+
+async function readLinuxProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
+    try {
+        const startTime = readLinuxStartTime(pid);
+        const [
+            commandLine,
+            executablePath,
+        ] = await Promise.all([
+            readFile(`/proc/${String(pid)}/cmdline`),
+            readlink(`/proc/${String(pid)}/exe`),
+        ]);
+        const argumentsList = commandLine.toString('utf8').split('\0').filter(Boolean);
+        if (argumentsList.length === 0 || startTime === null) {
+            return null;
+        }
+        return {
+            executablePath: resolve(executablePath),
+            arguments: argumentsList,
+            startTime,
+        };
+    } catch {
+        return null;
+    }
+}
+
+// kinfo_proc starts with p_starttime (seconds and microseconds). KERN_PROCARGS2
+// retains NUL-delimited argv and environment; proc_pidpath names the executable.
+// The shared JXA reader asks these OS APIs directly, so spaces are never parsed.
+const MAC_PROCESS_SCRIPT = `ObjC.import('Foundation');
+ObjC.bindFunction('sysctl', ['int', ['void *', 'unsigned int', 'void *', 'unsigned long *', 'void *', 'unsigned long']]);
+ObjC.bindFunction('proc_pidpath', ['int', ['int', 'void *', 'unsigned int']]);
+function read(encoded) {
+    const mib = $.NSData.alloc.initWithBase64EncodedStringOptions(encoded, 0);
+    const size = Ref();
+    if ($.sysctl(mib.bytes, mib.length / 4, null, size, null, 0) !== 0) return null;
+    const data = $.NSMutableData.dataWithLength(size[0]);
+    if ($.sysctl(mib.bytes, mib.length / 4, data.mutableBytes, size, null, 0) !== 0) return null;
+    return data.subdataWithRange($.NSMakeRange(0, size[0]));
+}
+function run(argv) {
+    const info = read(argv[0]);
+    if (!info || Number(info.length) !== 648) return '';
+    const fields = [info.subdataWithRange($.NSMakeRange(0, 12))];
+    if (argv[1]) {
+        const path = $.NSMutableData.dataWithLength(4096);
+        const length = $.proc_pidpath(Number(argv[1]), path.mutableBytes, 4096);
+        const args = read(argv[2]);
+        if (length <= 0 || !args) return '';
+        fields.push(path.subdataWithRange($.NSMakeRange(0, length)), args);
+    }
+    return fields.map(data => data.base64EncodedStringWithOptions(0).js).join(' ');
+}`;
+
+async function readMacProcessData(pid: number, includeArguments = false) {
+    const mib = Buffer.from(Int32Array.of(1, 14, 1, pid).buffer); // CTL_KERN, KERN_PROC, KERN_PROC_PID
+    const procArgs = Buffer.from(Int32Array.of(1, 49, pid).buffer); // CTL_KERN, KERN_PROCARGS2
+    try {
+        const {stdout} = await execFileForIdentity('/usr/bin/osascript', [
+            '-l',
+            'JavaScript',
+            '-e',
+            MAC_PROCESS_SCRIPT,
+            mib.toString('base64'),
+            ...(includeArguments ? [
+                String(pid),
+                procArgs.toString('base64'),
+            ] : []),
+        ], {
+            timeout: 2_000,
+            maxBuffer: 2 * 1024 * 1024,
+        });
+        return String(stdout).trim().split(' ').map(part => Buffer.from(part, 'base64'));
+    } catch {
+        return [];
+    }
+}
+
+function macStartTime(head: Buffer | undefined) {
+    return head?.length === 12 ? `${String(head.readBigInt64LE(0))}.${String(head.readInt32LE(8)).padStart(6, '0')}` : null;
+}
+
+async function readMacProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
+    const [
+        head,
+        path,
+        procArgs,
+    ] = await readMacProcessData(pid, true);
+    const startTime = macStartTime(head);
+    const executablePath = path?.toString('utf8');
+    if (startTime === null || !executablePath || !isAbsolute(executablePath) || !procArgs || procArgs.length < 4) return null;
+    const argc = procArgs.readInt32LE(0);
+    // Skip exec_path and its alignment padding. Empty argv entries after argv[0] still count.
+    let offset = procArgs.indexOf(0, 4) + 1;
+    if (offset < 5 || argc <= 0) return null;
+    while (procArgs[offset] === 0) offset += 1;
+    const fields = procArgs.subarray(offset).toString('utf8').split('\0');
+    if (fields.length <= argc) return null;
+    return {
+        executablePath: resolve(executablePath),
+        arguments: fields.slice(0, argc),
+        startTime,
+        environment: fields.slice(argc).filter(Boolean).join('\0'),
+    };
+}
+
+async function readWindowsProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
+    const command = [
+        `$process = Get-Process -Id ${String(pid)} -ErrorAction Stop`,
+        `$native = Get-CimInstance Win32_Process -Filter "ProcessId = ${String(pid)}" -ErrorAction Stop`,
+        '@($process.StartTime.ToUniversalTime().ToString(\'o\'), $native.ParentProcessId, $native.ExecutablePath, $native.CommandLine) -join "`n"',
+    ].join('; ');
+    try {
+        const {stdout} = await execFileForIdentity('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            command,
+        ], {
+            timeout: 2_000,
+            windowsHide: true,
+            maxBuffer: 16 * 1024,
+        });
+        const lines = String(stdout).trim().split(/\r?\n/u);
+        const startTime = normalizeProcessStartTime(lines.shift() ?? '');
+        const parentPid = Number(lines.shift());
+        const executablePath = lines.shift()?.trim();
+        const argumentsList = parseCommandLine(lines.join(' '));
+        if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
+            return null;
+        }
+        return {
+            executablePath: resolve(executablePath),
+            arguments: argumentsList,
+            startTime,
+            parentPid,
+        };
+    } catch {
+        return null;
+    }
+}
+
+export async function readProcessIdentity(pid: number, platform = process.platform) {
+    if (platform === 'linux') {
+        return readLinuxProcessIdentity(pid);
+    }
+    if (platform === 'darwin') {
+        return readMacProcessIdentity(pid);
+    }
+    if (platform === 'win32') {
+        return readWindowsProcessIdentity(pid);
+    }
+    return null;
+}
+
+// Windows keeps a process's creation time to 100 ns, which Get-Process prints
+// in full. One PowerShell per process answers in order, one line per pid: one
+// launched per question cost every native command about a second (#930). It
+// prints nothing for a pid that is gone and "denied" for a process it may not
+// inspect. Its pipes keep this process alive only while a question is open.
+const WINDOWS_START_TIME_HOST_SCRIPT = `while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $answer = ''
+    try { $answer = (Get-Process -Id ([int]$line) -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') }
+    catch [Microsoft.PowerShell.Commands.ProcessCommandException] {}
+    catch { $answer = 'denied' }
+    if ($null -eq $answer) { $answer = 'denied' }
+    [Console]::Out.WriteLine($answer)
+    [Console]::Out.Flush()
+}`;
+
+interface IWindowsStartTimeHost {
+    child: ChildProcess;
+    answers: Array<(answer: string | null) => void>;
+    // Ends this reader: its open questions answer null, and the next read starts another.
+    end: () => void;
+}
+
+let windowsStartTimeHost: IWindowsStartTimeHost | null = null;
+
+function readWindowsStartTime(pid: number) {
+    return new Promise<string | null>(resolveAnswer => {
+        if (windowsStartTimeHost === null) {
+            const child = process.getBuiltinModule('node:child_process').spawn('powershell.exe', [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                WINDOWS_START_TIME_HOST_SCRIPT,
+            ], {
+                stdio: [
+                    'pipe',
+                    'pipe',
+                    'ignore',
+                ],
+                windowsHide: true,
+            });
+            const started: IWindowsStartTimeHost = {
+                child,
+                answers: [],
+                end: () => {
+                    if (windowsStartTimeHost === started) windowsStartTimeHost = null;
+                    started.answers.splice(0).forEach(answer => answer(null));
+                    child.kill();
+                },
+            };
+            createInterface({input: child.stdout}).on('line', line => {
+                started.answers.shift()?.(line.trim());
+                if (started.answers.length === 0) (child.stdout as Socket).unref();
+            });
+            child.once('error', started.end).once('close', started.end);
+            child.stdin.once('error', started.end);
+            child.unref();
+            (child.stdin as Socket).unref();
+            windowsStartTimeHost = started;
+        }
+        const host = windowsStartTimeHost;
+        host.answers.push(resolveAnswer);
+        (host.child.stdout as Socket).ref();
+        host.child.stdin!.write(`${String(pid)}\n`);
+        // The two-second bound of every identity read: a reader that has not answered by then is ended.
+        setTimeout(() => host.answers.includes(resolveAnswer) && host.end(), 2_000).unref();
+    });
+}
+
+/**
+ * The creation time the OS keeps for a process, as one exact string: Linux
+ * "boot id:ticks since boot", macOS "seconds.microseconds", Windows ISO 8601 to
+ * 100 ns. "" when the process is gone, "denied" when this user may not read it
+ * (Windows), null when it could not be asked.
+ */
+export async function readProcessStartTime(pid: number): Promise<string | null> {
+    if (process.platform === 'win32') {
+        return readWindowsStartTime(pid);
+    }
+    if (process.platform === 'darwin') {
+        return isProcessAlive(pid) ? macStartTime((await readMacProcessData(pid))[0]) : '';
+    }
+    if (process.platform !== 'linux') {
+        return null;
+    }
+    try {
+        return readLinuxStartTime(pid);
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'ENOENT' ? '' : null;
+    }
+}
+
+let ownStartTime: Promise<string | null> | null = null;
+
+/** This process's creation time, read from the OS once. Null when it cannot be read. */
+export function getOwnStartTime() {
+    ownStartTime ??= readProcessStartTime(process.pid).then(startTime => (startTime === '' || startTime === 'denied' ? null : startTime));
+    return ownStartTime;
+}
+
+export function isProcessAlive(pid: number) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return !(error instanceof Error && (error as NodeJS.ErrnoException).code === 'ESRCH');
+    }
+}
+
+// Exact, at the OS value's own precision. A Linux registry entry from before
+// the boot id was recorded holds bare ticks; it can only name a process of this
+// boot's that started at that tick, and the reaper also matches its executable.
+// The shape of a start time this build reads, per platform. Older builds kept
+// macOS ps seconds and a Windows clock estimate, which never equal it.
+const EXACT_START_TIME_PATTERNS: Partial<Record<NodeJS.Platform, RegExp>> = {
+    darwin: /^\d+\.\d{6}$/u,
+    linux: /^[\da-f-]+:\d+$/u,
+    win32: /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{7}Z$/u,
+};
+
+export function isExactStartTime(startTime: string, platform = process.platform) {
+    return EXACT_START_TIME_PATTERNS[platform]?.test(startTime) === true;
+}
+
+export function startTimesMatch(recorded: string, observed: string, platform = process.platform) {
+    return recorded === observed || (platform === 'linux' && /^\d+$/u.test(recorded) && observed.endsWith(`:${recorded}`));
+}
+
+// Whether a profile's Chromium single-instance lock is held, asked without
+// touching it: a live instance logs a connection to its socket, and a handle on
+// its lock file could stand in a launch's way. Windows deletes "lockfile" when
+// its holder closes it, so it exists exactly while held. On POSIX,
+// SingletonSocket links to the holder's socket in a short temporary folder,
+// which the kernel lists among the bound sockets only while a process has it
+// open. A failure keeps it held.
+async function isProfileHeld(userDataPath: string) {
+    if (process.platform === 'win32') {
+        return access(join(userDataPath, 'lockfile')).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
+    }
+    const socketPath = await readlink(join(userDataPath, 'SingletonSocket')).catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? '' : null);
+    if (socketPath === '' || socketPath === null) {
+        return socketPath === null;
+    }
+    try {
+        const boundSockets = process.platform === 'linux'
+            ? process.getBuiltinModule('node:fs').readFileSync('/proc/net/unix', 'utf8')
+            : String((await execFileForIdentity('/usr/sbin/netstat', [
+                '-f',
+                'unix',
+                '-an',
+            ], {
+                timeout: 2_000,
+                maxBuffer: 8 * 1024 * 1024,
+            })).stdout);
+        return boundSockets.split('\n').some(line => line.trimEnd().endsWith(` ${socketPath}`));
+    } catch {
+        return true;
+    }
+}
+
+/** The profile a record belongs to: the one this process holds, another profile's user-data folder, or unknown. */
+export const OWN_PROFILE = 'own';
+
+// Whether the run that recorded this pid and creation time still runs. A
+// matching creation time proves it; another one, or a gone pid, proves it ended.
+// Unproven (no time recorded by an older version, or one this user may not
+// read) defers to the profile: this process holds its own profile, so only a
+// run of this process's own could still be on; another profile's lock decides
+// for it; an unknown one is kept.
+export async function isRecordedProcessRunning(pid: number, startTime: string | null | undefined, profile?: string) {
+    const observed = typeof startTime === 'string' ? await readProcessStartTime(pid) : (isProcessAlive(pid) ? null : '');
+    if (observed === '') {
+        return false;
+    }
+    if (observed !== null && observed !== 'denied') {
+        return startTimesMatch(startTime!, observed);
+    }
+    if (profile === OWN_PROFILE) {
+        // This user can read every process of its own; a null time is this version's own unread one.
+        return startTime === null || (observed === null && startTime !== undefined);
+    }
+    return profile === undefined || isProfileHeld(profile);
+}

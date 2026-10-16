@@ -36,7 +36,7 @@ import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDire
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
-    readNativePdfCatalog,
+    readNativePdfCatalogPart,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
@@ -409,13 +409,9 @@ const nativePdfPageLabelRangeSchema = v.pipe(v.object({
 })));
 
 export function parseNativePdfPageLabelRanges(
-    value: unknown,
+    pageLabels: readonly unknown[],
 ): Array<v.InferOutput<typeof nativePdfPageLabelRangeSchema>> {
-    const catalog = v.safeParse(v.object({pageLabels: v.array(v.unknown())}), value, {abortEarly: true});
-    if (!catalog.success) {
-        throw new Error('Native PDF catalog read returned invalid page labels');
-    }
-    return catalog.output.pageLabels.map((rawRange, index) => {
+    return pageLabels.map((rawRange, index) => {
         const parsed = v.safeParse(nativePdfPageLabelRangeSchema, rawRange, {abortEarly: true});
         if (!parsed.success) {
             throw new Error(`Native PDF catalog page label ${index} is invalid`);
@@ -440,7 +436,7 @@ export async function handlePdfPageLabelRanges(
         navigation: 'Renderer navigation canceled native PDF page-label read',
     }, async (signal, cancelGroup) => {
         const readCatalog = async (physicalPath: string) => parseNativePdfPageLabelRanges(
-            await readNativePdfCatalog(binaryPath, physicalPath, {
+            await readNativePdfCatalogPart(binaryPath, physicalPath, 'pageLabels', {
                 commandLabel: 'evb-pdf-page-ops(read-page-labels)',
                 signal,
                 cancelGroup,

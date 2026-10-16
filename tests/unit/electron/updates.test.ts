@@ -1727,6 +1727,75 @@ describe('updates robustness', () => {
         ]);
     });
 
+    it('hydrates fresh windows without claiming an update or opening a dialog', async () => {
+        const owner = await loadUpdatesModule();
+        expect(owner.getUpdateStatus({senderId: 1}).requestedHere).not.toBe(true);
+        const ui = await renderers(owner);
+        expect(ui.map(window => window.dialog.value.open)).toEqual([
+            false,
+            false,
+            false,
+        ]);
+        expect(ui.every(window => window.status.value.requestedHere !== true)).toBe(true);
+    });
+
+    it('hydrates an uninvolved window with the same available offer as download events', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
+        const owner = await loadUpdatesModule();
+        const events = fanout(owner);
+        await owner.triggerManualUpdateCheck({senderId: 1});
+        const gate = Promise.withResolvers<string[]>();
+        mocks.autoUpdater.downloadUpdate.mockImplementation(() => gate.promise);
+        owner.downloadAvailableUpdate({senderId: 1});
+        await flushPromises();
+        mocks.autoUpdater.emit('download-progress', {percent: 37});
+        await vi.advanceTimersByTimeAsync(250);
+        const [fresh] = await renderers(owner, [2]);
+        const hydrated = {...fresh!.status.value};
+        const dialog = {...fresh!.dialog.value};
+        const inProgress = fresh!.isCheckInProgress.value;
+        const requested = owner.getUpdateStatus({senderId: 1});
+        gate.resolve([]);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(hydrated).toEqual(events.at(-1)![1]);
+        expect(hydrated).toMatchObject({
+            phase: 'available',
+            percent: null,
+            requestedHere: false,
+        });
+        expect(dialog).toMatchObject({
+            open: false,
+            phase: 'available',
+            percent: null,
+        });
+        expect(inProgress).toBe(false);
+        expect(requested).toMatchObject({
+            phase: 'downloading',
+            percent: 37,
+            requestedHere: true,
+        });
+    });
+
+    it('does not reopen a closed completed check when its renderer hydrates again', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.0.0'));
+        const owner = await loadUpdatesModule();
+        const [asking] = await renderers(owner, [1]);
+        await asking!.checkForUpdates();
+        expect(asking!.dialog.value.open).toBe(true);
+        asking!.closeDialog();
+        const [reloaded] = await renderers(owner, [1]);
+        expect(reloaded!.status.value).toMatchObject({
+            phase: 'no-update',
+            origin: 'manual',
+        });
+        expect(reloaded!.status.value.requestedHere).not.toBe(true);
+        expect(reloaded!.dialog.value.open).toBe(false);
+    });
+
     it('keeps joined renderers on download progress and its failure', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {

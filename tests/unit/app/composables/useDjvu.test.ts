@@ -166,6 +166,8 @@ function createDeferred<T>() {
 describe('useDjvu', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockConvertJobResult.mockReset();
+        mockElectronAPI.djvu.startConvertToPdf.mockReset();
         clearRegisteredPdfRasterDisplayProfilesForTests();
         mockDjvuModeState.isDjvuMode.value = false;
         mockDjvuModeState.activationGeneration = 0;
@@ -726,12 +728,16 @@ describe('useDjvu', () => {
                 jobId: TJobId;
                 requestId: TRequestId;
             }>();
-            mockElectronAPI.djvu.startConvertToPdf.mockImplementationOnce(() => admission.promise);
+            const started = createDeferred<undefined>();
+            mockElectronAPI.djvu.startConvertToPdf.mockImplementationOnce(() => {
+                started.resolve(undefined);
+                return admission.promise;
+            });
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu');
             const conversion = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
-            await vi.waitFor(() => expect(djvu.conversionState.value.isConverting).toBe(true));
+            await started.promise;
 
             const cancel = djvu.cancelActiveJobs();
             admission.resolve({
@@ -757,18 +763,26 @@ describe('useDjvu', () => {
                 .mockResolvedValueOnce('/tmp/new.pdf');
             const oldResult = createDeferred<IDjvuConvertResult>();
             const newResult = createDeferred<IDjvuConvertResult>();
+            const oldStarted = createDeferred<undefined>();
+            const newStarted = createDeferred<undefined>();
             mockConvertJobResult
-                .mockImplementationOnce(() => oldResult.promise)
-                .mockImplementationOnce(() => newResult.promise);
+                .mockImplementationOnce(() => {
+                    oldStarted.resolve(undefined);
+                    return oldResult.promise;
+                })
+                .mockImplementationOnce(() => {
+                    newStarted.resolve(undefined);
+                    return newResult.promise;
+                });
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu');
             const oldConversion = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
-            await vi.waitFor(() => expect(mockConvertJobResult).toHaveBeenCalledTimes(1));
+            await oldStarted.promise;
             await djvu.cancelActiveJobs();
 
             const newConversion = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
-            await vi.waitFor(() => expect(mockConvertJobResult).toHaveBeenCalledTimes(2));
+            await newStarted.promise;
             oldResult.resolve({
                 success: true,
                 pdfPath: requireDocumentRef('/tmp/old.pdf'),
@@ -979,7 +993,9 @@ describe('useDjvu', () => {
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             const conversionResult = createDeferred<IDjvuConvertResult>();
+            const started = createDeferred<undefined>();
             mockConvertJobResult.mockImplementation((_source, _output, options) => {
+                started.resolve(undefined);
                 progressCallback?.({
                     jobId: requireJobId('foreign-job'),
                     requestId: requireRequestId('foreign-request'),
@@ -1008,7 +1024,7 @@ describe('useDjvu', () => {
                 },
             })));
 
-            await vi.waitFor(() => expect(mockConvertJobResult).toHaveBeenCalledTimes(1));
+            await started.promise;
             await Promise.resolve();
             await Promise.resolve();
             const admittedOptions = mockConvertJobResult.mock.calls[0]![2]!;

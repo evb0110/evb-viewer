@@ -62,9 +62,11 @@ type TDjvuArtifactRangeUpdate = {
 
 export interface IDjvuSourceIdentity {
     sourceSha256: string;
-    size: number;
-    mtimeMs: number;
-    ctimeMs: number;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+    dev: bigint;
+    ino: bigint;
 }
 
 const djvuArtifactManifestSchema = v.object({
@@ -264,13 +266,18 @@ async function sha256File(path: string, signal?: AbortSignal) {
     return hash.digest('hex');
 }
 
+// Windows input aliases change ctime without changing bytes. File identity,
+// size and write time detect replacement/writes; resume still hashes the bytes.
+// Unix keeps its previous change-time check, since its tools need no aliases.
 function sourceStatsMatch(
-    left: Pick<IDjvuSourceIdentity, 'size' | 'mtimeMs' | 'ctimeMs'>,
-    right: Pick<IDjvuSourceIdentity, 'size' | 'mtimeMs' | 'ctimeMs'>,
+    left: Pick<IDjvuSourceIdentity, 'size' | 'mtimeNs' | 'ctimeNs' | 'dev' | 'ino'>,
+    right: Pick<IDjvuSourceIdentity, 'size' | 'mtimeNs' | 'ctimeNs' | 'dev' | 'ino'>,
 ) {
     return left.size === right.size
-        && left.mtimeMs === right.mtimeMs
-        && left.ctimeMs === right.ctimeMs;
+        && left.mtimeNs === right.mtimeNs
+        && left.dev === right.dev
+        && left.ino === right.ino
+        && (process.platform === 'win32' || left.ctimeNs === right.ctimeNs);
 }
 
 export async function assertDjvuSourceIdentity(
@@ -279,7 +286,7 @@ export async function assertDjvuSourceIdentity(
     signal?: AbortSignal,
 ) {
     signal?.throwIfAborted();
-    const source = await stat(sourcePath);
+    const source = await stat(sourcePath, {bigint: true});
     if (!sourceStatsMatch(identity, source)) {
         throw new Error('DjVu source changed while a checkpoint export was in progress');
     }
@@ -287,20 +294,18 @@ export async function assertDjvuSourceIdentity(
 
 async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
-    const sourceBeforeHash = await stat(sourcePath);
+    const sourceBeforeHash = await stat(sourcePath, {bigint: true});
     const sourceSha256 = await sha256File(sourcePath, signal);
-    const source = await stat(sourcePath);
+    const source = await stat(sourcePath, {bigint: true});
     const identity = {
         sourceSha256,
         size: source.size,
-        mtimeMs: source.mtimeMs,
-        ctimeMs: source.ctimeMs,
+        mtimeNs: source.mtimeNs,
+        ctimeNs: source.ctimeNs,
+        dev: source.dev,
+        ino: source.ino,
     } satisfies IDjvuSourceIdentity;
-    if (!sourceStatsMatch({
-        size: sourceBeforeHash.size,
-        mtimeMs: sourceBeforeHash.mtimeMs,
-        ctimeMs: sourceBeforeHash.ctimeMs,
-    }, identity)) {
+    if (!sourceStatsMatch(sourceBeforeHash, identity)) {
         throw new Error('DjVu source changed while its resume fingerprint was being computed');
     }
     return identity;

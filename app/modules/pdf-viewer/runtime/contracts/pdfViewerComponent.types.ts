@@ -35,6 +35,7 @@ export interface IPdfViewerProps {
     viewRotation?: TPdfViewRotation | undefined;
     continuousScroll?: boolean | undefined;
     isActive?: boolean | undefined;
+    isInteractionActive?: boolean | undefined;
     /** Keep the document session alive without mounting the reader presentation. */
     mountPresentation?: boolean | undefined;
     isResizing?: boolean | undefined;
@@ -55,7 +56,6 @@ export interface IPdfViewerProps {
 
 export interface IPdfViewerEmit {
     (e: 'update:zoomState', state: TPdfZoomState): void;
-    (e: 'update:effectiveZoom', value: number): void;
     (e: 'update:currentPage', page: number): void;
     (e: 'update:navigationFeedbackPage', page: number | null): void;
     (e: 'update:totalPages', total: number): void;

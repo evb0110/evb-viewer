@@ -2,12 +2,18 @@ import type * as TViMockOriginalModule from '@electron/file-access/workingCopySt
 import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyMutationCommitSignal';
 
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import {
+    mkdtemp, readFile, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const mocks = vi.hoisted(() => ({
     debug: vi.fn(),
@@ -67,6 +73,15 @@ function deferred<T>() {
     };
 }
 
+const byteTargets: string[] = [];
+async function createByteTarget() {
+    const directory = await mkdtemp(join(tmpdir(), 'mutation-start-'));
+    byteTargets.push(directory);
+    const path = join(directory, 'document.pdf');
+    await writeFile(path, 'before');
+    return path;
+}
+
 function parseLog(prefix: string, calls: unknown[][]) {
     const message = calls
         .map(call => call[0])
@@ -83,6 +98,12 @@ describe('workingCopyMutationQueue telemetry', () => {
         mocks.nextOperationId = 0;
         mocks.registrations.length = 0;
         mocks.controllers.length = 0;
+    });
+    afterEach(async () => {
+        await Promise.all(byteTargets.splice(0).map(path => rm(path, {
+            recursive: true,
+            force: true,
+        })));
     });
 
     it('keeps its critical write out of working-copy close cancellation', async () => {
@@ -191,20 +212,26 @@ describe('workingCopyMutationQueue telemetry', () => {
         }
     });
 
-    it('does not fail a mutation when starting listeners throw or reject', async () => {
+    it.each([
+        'throw',
+        'reject',
+    ])('preserves bytes when required preparation listeners %s', async (failureKind) => {
         const {
             enqueueWorkingCopyMutation,
             onWorkingCopyMutationStarting,
         } = await import('@electron/file-access/workingCopyMutationQueue');
-        const operation = vi.fn(async () => undefined);
+        const path = await createByteTarget();
+        const operation = () => writeFile(path, 'after');
         const unsubscribeFirst = onWorkingCopyMutationStarting(() => {
-            throw new Error('first listener failed');
+            const error = new Error('required preparation failed');
+            if (failureKind === 'throw') throw error;
+            return Promise.reject(error);
         });
-        const unsubscribeSecond = onWorkingCopyMutationStarting(() => Promise.reject(new Error('second listener failed')));
+        const unsubscribeSecond = onWorkingCopyMutationStarting(() => Promise.reject(new Error('another preparation failed')));
 
         try {
-            await expect(enqueueWorkingCopyMutation('/tmp/Book.pdf', operation)).resolves.toBeUndefined();
-            expect(operation).toHaveBeenCalledOnce();
+            await expect(enqueueWorkingCopyMutation(path, operation)).rejects.toThrow('required preparation failed');
+            expect(await readFile(path, 'utf8')).toBe('before');
         } finally {
             unsubscribeFirst();
             unsubscribeSecond();
@@ -230,53 +257,43 @@ describe('workingCopyMutationQueue telemetry', () => {
         expect(observedLimits[0]).toBeLessThanOrEqual(8);
     });
 
-    it('releases the path queue when mutation-start preparation exceeds its bound', async () => {
-        vi.useFakeTimers();
+    it('refuses an expired start and never writes after its preparation completes late', async () => {
         const {
             enqueueWorkingCopyMutation,
             onWorkingCopyMutationStarting,
         } = await import('@electron/file-access/workingCopyMutationQueue');
-        let startingCalls = 0;
-        const operation = vi.fn(async () => undefined);
-        const unsubscribe = onWorkingCopyMutationStarting(() => {
-            startingCalls += 1;
-            return startingCalls === 1 ? new Promise<never>(() => undefined) : undefined;
-        });
+        const path = await createByteTarget();
+        const preparation = deferred<undefined>();
+        const unsubscribe = onWorkingCopyMutationStarting(() => preparation.promise);
+        vi.useFakeTimers();
 
         try {
-            const first = enqueueWorkingCopyMutation('/tmp/MutationStartTimeout.pdf', operation, {kind: 'first-write'});
+            const first = enqueueWorkingCopyMutation(path, () => writeFile(path, 'after'));
+            const refused = expect(first).rejects.toThrow('Mutation-start preparation timed out after 30000ms');
             await Promise.resolve();
-            const second = enqueueWorkingCopyMutation('/tmp/MutationStartTimeout.pdf', operation, {kind: 'second-write'});
-            let settled = false;
-            void Promise.all([
-                first,
-                second,
-            ]).then(() => {
-                settled = true;
-            });
-
             await vi.advanceTimersByTimeAsync(30_000);
-
-            expect(settled).toBe(true);
-            expect(operation).toHaveBeenCalledTimes(2);
-            expect(mocks.warn.mock.calls.some(([message]) => (
-                typeof message === 'string'
-                && message.includes('Mutation-start preparation timed out')
-            ))).toBe(true);
+            await refused;
+            expect(await readFile(path, 'utf8')).toBe('before');
+            preparation.resolve(undefined);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(await readFile(path, 'utf8')).toBe('before');
+            await enqueueWorkingCopyMutation(path, () => writeFile(path, 'fresh'));
+            expect(await readFile(path, 'utf8')).toBe('fresh');
         } finally {
             unsubscribe();
             vi.useRealTimers();
         }
     });
 
-    it('rechecks cancellation after mutation-start preparation', async () => {
+    it('refuses cancellation during required preparation without waiting for it, including late completion', async () => {
         const {cancelMainOperationsForOwner} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
         const {
             enqueueWorkingCopyMutation,
             onWorkingCopyMutationStarting,
         } = await import('@electron/file-access/workingCopyMutationQueue');
         const preparation = deferred<undefined>();
-        const operation = vi.fn(async () => undefined);
+        const path = await createByteTarget();
+        const operation = () => writeFile(path, 'after');
         let preparationSignal: AbortSignal | undefined;
         const unsubscribe = onWorkingCopyMutationStarting((_path, signal) => {
             preparationSignal = signal;
@@ -284,15 +301,16 @@ describe('workingCopyMutationQueue telemetry', () => {
         });
 
         try {
-            const mutation = enqueueWorkingCopyMutation('/tmp/Book.pdf', operation, {ownerWebContentsId: 42});
+            const mutation = enqueueWorkingCopyMutation(path, operation, {ownerWebContentsId: 42});
             await Promise.resolve();
 
             cancelMainOperationsForOwner(42, 'renderer lifecycle ended');
             expect(preparationSignal?.aborted).toBe(true);
-            preparation.resolve(undefined);
-
             await expect(mutation).rejects.toThrow('renderer lifecycle ended');
-            expect(operation).not.toHaveBeenCalled();
+            expect(await readFile(path, 'utf8')).toBe('before');
+            preparation.resolve(undefined);
+            await Promise.resolve();
+            expect(await readFile(path, 'utf8')).toBe('before');
         } finally {
             unsubscribe();
         }

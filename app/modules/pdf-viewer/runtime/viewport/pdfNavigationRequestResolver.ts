@@ -135,7 +135,8 @@ export function resolveTextAnchorRect(
     if (target.searchRange) {
         const exactRange = createTextLayerRangeForSearchMatch(textLayer, target.searchRange);
         const matchCase = target.searchOptions?.matchCase ?? false;
-        const pageLocalRange = Number.isSafeInteger(target.pageMatchIndex)
+        const pageLocalRange = !target.searchOptions?.useRegex
+            && Number.isSafeInteger(target.pageMatchIndex)
             && Number.isSafeInteger(target.expectedPageMatchCount)
             ? createTextLayerRangeForSearchOccurrence(textLayer, target)
             : null;
@@ -143,7 +144,7 @@ export function resolveTextAnchorRect(
             ? pageLocalRange
             : rangeMatchesSearchText(exactRange, target.text, matchCase)
                 ? exactRange
-                : createTextLayerRangeForSearchOccurrence(textLayer, {
+                : target.searchOptions?.useRegex ? null : createTextLayerRangeForSearchOccurrence(textLayer, {
                     text: target.text,
                     pageMatchIndex: target.pageMatchIndex,
                     searchQuery: target.searchQuery,

@@ -147,19 +147,6 @@ impl IncrementalDocument {
         self.set_base_stream_bytes(object_id, bytes)
     }
 
-    /// A text-box save reuses EVB's embedded font only when the font's
-    /// streams match the bundled font, and a structural load leaves them
-    /// unread. A stale or externally changed font falls back to fresh
-    /// embedding, so a stream that cannot be read is left unavailable.
-    pub(crate) fn materialize_text_box_font_streams(&mut self, path: &Path, qpdf_path: &Path) {
-        if self.unavailable_base_streams.is_empty() {
-            return;
-        }
-        for object_id in crate::text_box_font::candidate_streams(&self.previous_document) {
-            let _ = self.materialize_base_stream(path, qpdf_path, object_id, 1024 * 1024);
-        }
-    }
-
     pub(crate) fn opt_clone_object_to_new_document(&mut self, object_id: ObjectId) -> Result<()> {
         if self.new_document.has_object(object_id) {
             return Ok(());
@@ -1745,60 +1732,6 @@ esac
                 .unwrap(),
             0
         );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn structural_load_reads_text_box_font_streams_only_when_asked() {
-        let nonce = test_qpdf_temp_nonce().unwrap();
-        let stem = format!("evb-qpdf-font-streams-{nonce}");
-        let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
-        let qpdf_path = std::env::temp_dir().join(format!("{stem}-command"));
-        let calls_path = std::env::temp_dir().join(format!("{stem}-calls.log"));
-        let mut input = Document::with_version("1.7");
-        let catalog_id = input.add_object(dictionary! { "Type" => "Catalog" });
-        input.trailer.set("Root", catalog_id);
-        input.save(&input_path).unwrap();
-        let version = crate::text_box_font::FONT_VERSION;
-        let structure = format!(
-            r#"{{"qpdf":[{{"jsonversion":2,"pdfversion":"1.7","maxobjectid":6}},{{"trailer":{{"value":{{"/Root":"1 0 R","/Size":7}}}},"obj:1 0 R":{{"value":{{"/Type":"/Catalog"}}}},"obj:2 0 R":{{"value":{{"/Type":"/Font","/Subtype":"/Type0","/ToUnicode":"3 0 R","/DescendantFonts":["4 0 R"],"/EVBTextFontVersion":"u:{version}"}}}},"obj:3 0 R":{{"stream":{{"dict":{{}}}}}},"obj:4 0 R":{{"value":{{"/Type":"/Font","/FontDescriptor":"5 0 R"}}}},"obj:5 0 R":{{"value":{{"/Type":"/FontDescriptor","/FontFile2":"6 0 R"}}}},"obj:6 0 R":{{"stream":{{"dict":{{}}}}}}}}]}}"#
-        );
-        let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in\n  *--show-object=*) printf 'font bytes' ;;\n  *) printf '%s' '{structure}' ;;\nesac\n",
-            calls_path.display()
-        );
-        let fake_executable = crate::write_fake_executable(&qpdf_path, &script);
-
-        let loaded = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path);
-        let calls_after_load = fs::read_to_string(&calls_path).unwrap_or_default();
-        let (mut incremental, _) = loaded.expect("structural load should succeed");
-        incremental.materialize_text_box_font_streams(&input_path, &qpdf_path);
-        let calls = fs::read_to_string(&calls_path).unwrap_or_default();
-        drop(fake_executable);
-        for path in [&input_path, &qpdf_path, &calls_path] {
-            let _ = fs::remove_file(path);
-        }
-
-        // Geometry, catalog, index and metadata reads stop at the structural
-        // pass; only a text-box save reads the font it may reuse.
-        assert_eq!(calls_after_load.lines().count(), 1, "{calls_after_load}");
-        assert!(!calls_after_load.contains("--show-object"));
-        let stream_reads = calls
-            .lines()
-            .filter(|call| call.contains("--show-object"))
-            .collect::<Vec<_>>();
-        assert_eq!(stream_reads.len(), 2, "{calls}");
-        assert!(stream_reads[0].contains("--show-object=3,0"));
-        assert!(stream_reads[1].contains("--show-object=6,0"));
-        for stream_id in [(3, 0), (6, 0)] {
-            let stream = incremental
-                .get_prev_documents()
-                .get_object(stream_id)
-                .unwrap()
-                .as_stream()
-                .unwrap();
-            assert_eq!(stream.content, b"font bytes");
-        }
     }
 
     #[cfg(unix)]

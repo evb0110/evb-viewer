@@ -266,7 +266,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         handleSave: save.handleSave,
     });
 
-    const activeDriver = driver.activeDocumentDriver;
     const viewerCapabilities = document.viewerCapabilities;
     const viewerDefaults = useWorkspaceViewerDefaults({
         appSettings,
@@ -306,7 +305,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? file.djvuSourcePath.value)),
         pdfSrc,
         canPrint: computed(() => (
-            activeDriver.value?.capabilities.print === true
+            driver.activeDocumentDriver.value?.capabilities.print === true
             && (file.hasPdf.value || document.sourceCapabilities.value.directImageExport)
         )),
         canSave: saveService.canSave,
@@ -353,11 +352,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         if (!viewer || file.isDjvuMode.value) {
             return;
         }
-        void runDetached(async () => {
-            if (await save.ensureWorkingCopyFreshForRead()) {
-                await viewer.captureRegionToClipboard();
-            }
-        }, {
+        void runDetached(() => viewer.captureRegionToClipboard(), {
             category: 'user-visible-operation',
             scope: 'workspace',
             message: 'Failed to capture PDF region',
@@ -483,10 +478,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onAnnotationSetting: annotations.handleAnnotationSettingChange,
             onAnnotationState: annotations.handleAnnotationState,
             onAnnotationToolAutoReset: annotationToolState.handleAnnotationToolAutoReset,
-            onAnnotationToolCancel: annotationToolState.handleAnnotationToolCancel,
+            onAnnotationToolCancel: () => { void annotationToolState.handleAnnotationToolCancel(); },
             onCurrentPageUpdate: handleCurrentPage,
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
-            onEffectiveZoomUpdate: (value) => { view.effectiveZoom.value = value; },
             onInitialVisualPending: options.onInitialVisualPending,
             onInitialVisualReady: options.onInitialVisualReady,
             onLoadError: handleLoadError,
@@ -494,13 +488,13 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onNavigationFeedbackPageUpdate: (value) => { options.navigationFeedbackPage.value = value; },
             onShapeContextMenu: annotationActions.handleShapeContextMenu,
             onSourceCapabilitiesUpdate: (capabilities) => {
-                if (activeDriver.value) {
+                if (driver.activeDocumentDriver.value) {
                     document.sourceCapabilities.value = capabilities;
                 }
             },
             onPageSourceUpdate: (source) => { view.documentPageSource.value = source; },
             onTotalPagesUpdate: (value) => {
-                if (activeDriver.value || value === 0) {
+                if (driver.activeDocumentDriver.value || value === 0) {
                     handleTotalPages(value);
                 }
             },

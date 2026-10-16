@@ -47,7 +47,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     fitMode: Ref<TWorkspaceAgentFitMode>;
     handleActualSize: () => void;
     handleAnnotationFocusComment: (comment: IAnnotationCommentSummary) => Promise<void>;
-    handleAnnotationToolChange: (tool: TAnnotationTool) => void;
+    handleAnnotationToolChange: (tool: TAnnotationTool) => boolean | Promise<boolean>;
     handleBookmarksChange: (payload: IPdfBookmarkChangePayload) => void;
     updateTextMarkupColorWithHistory: (comment: IAnnotationCommentSummary, color: string) => boolean;
     handleDeleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;

@@ -335,10 +335,10 @@ async function expectMarkupPaint(page: Page, subtype: string, lineCount: number)
         groups => groups.map(group => ({
             hitTargets: Array.from(group.querySelectorAll('[data-annotation-hit-target]')).map(element => ({
                 fill: getComputedStyle(element).fill,
-                painted: Array.from(group.closest('svg')!.querySelectorAll<SVGGeometryElement>('[data-markup-subtype="Highlight"] [data-annotation-visual]')).some(visual => {
+                painted: Array.from(group.closest('.pdf-annotation-editor-layer')!.querySelectorAll<SVGGeometryElement>('.pdf-annotation-editor-text-markup path[data-annotation-visual]')).some(visual => {
                     const x = Number(element.getAttribute('x')) + Number(element.getAttribute('width')) / 2;
                     const y = Number(element.getAttribute('y')) + Number(element.getAttribute('height')) / 2;
-                    return Number(getComputedStyle(visual).opacity) > 0 && visual.isPointInFill(new DOMPoint(x, y));
+                    return getComputedStyle(visual).fill !== 'none' && Number(getComputedStyle(visual).opacity) > 0 && visual.isPointInFill(new DOMPoint(x, y));
                 }),
                 geometry: [
                     'x',

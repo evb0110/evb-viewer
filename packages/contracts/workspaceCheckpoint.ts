@@ -9,28 +9,17 @@ import {
     ZOOM_MODE_SCHEMA as zoomModeSchema,
 } from '@contracts/recentReadingView';
 import {parseEpochMs} from '@contracts/timestamps';
-import {parsePageIndex} from '@contracts/pageNumbers';
-import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import {PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
 
 const editRevisionSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
-const bookmarkRecoveryEntrySchema: v.GenericSchema<unknown, IPdfBookmarkEntry> = v.lazy(() => v.object({
-    title: v.string(),
-    pageIndex: v.nullable(v.pipe(v.number(), v.check(value => parsePageIndex(value) !== null), v.transform(value => parsePageIndex(value)!))),
-    pageYRatio: v.exactOptional(v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)))),
-    namedDest: v.nullable(v.string()),
-    bold: v.boolean(),
-    italic: v.boolean(),
-    color: v.nullable(v.string()),
-    items: v.array(bookmarkRecoveryEntrySchema),
-}));
 
 /** Metadata travels in the existing identity-bound document recovery artifact. */
 export const workspaceMetadataRecoverySchema = v.object({
     bookmarks: v.optional(v.object({
         revision: editRevisionSchema,
         dirty: v.literal(true),
-        items: v.array(bookmarkRecoveryEntrySchema),
+        items: v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
     })),
     pageLabels: v.optional(v.object({
         revision: editRevisionSchema,
@@ -46,16 +35,11 @@ export const workspaceMetadataRecoverySchema = v.object({
 export type IWorkspaceMetadataRecovery = v.InferOutput<typeof workspaceMetadataRecoverySchema>;
 
 const documentRecoveryMetadataSchema = v.object({metadata: v.optional(workspaceMetadataRecoverySchema)});
-export function readWorkspaceRecoveryMetadata(value: unknown) {
-    return v.parse(documentRecoveryMetadataSchema, value).metadata;
-}
+export const readWorkspaceRecoveryMetadata = (value: unknown) => v.parse(documentRecoveryMetadataSchema, value).metadata;
 
 const paneIdSchema = v.pipe(v.string(), v.check(value => parsePaneId(value) !== null), v.transform(value => parsePaneId(value)!));
 const tabIdSchema = v.pipe(v.string(), v.check(value => parseTabId(value) !== null), v.transform(value => parseTabId(value)!));
 const documentRefSchema = v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!));
-const nullablePaneIdSchema = v.nullable(paneIdSchema);
-const nullableTabIdSchema = v.nullable(tabIdSchema);
-const nullableDocumentRefSchema = v.nullable(documentRefSchema);
 const epochMsSchema = v.pipe(v.number(), v.check(value => parseEpochMs(value) !== null), v.transform(value => parseEpochMs(value)!));
 function createLayoutNodeSchema(depth: number): v.GenericSchema<unknown, TEditorLayoutNode> {
     const leafSchema = v.object({
@@ -85,7 +69,7 @@ const layoutSchema: v.GenericSchema<unknown, TEditorLayoutNode | null> = v.lazy(
 const annotationRecoverySchema = v.object({
     artifactId: v.pipe(v.string(), v.regex(/^[a-zA-Z0-9_-]{1,128}$/u)),
     documentInstanceId: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
-    workingCopyRef: nullableDocumentRefSchema,
+    workingCopyRef: v.nullable(documentRefSchema),
     workingByteRevision: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
     annotationMutationGeneration: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(0)),
     payload: v.optional(v.unknown()),
@@ -94,15 +78,17 @@ const annotationRecoverySchema = v.object({
 const paneSchema = v.object({
     paneId: paneIdSchema,
     tabIds: v.array(tabIdSchema),
-    activeTabId: nullableTabIdSchema,
+    activeTabId: v.nullable(tabIdSchema),
 });
 
 const checkpointTabSchema = v.object({
     tabId: tabIdSchema,
-    paneId: nullablePaneIdSchema,
+    paneId: v.nullable(paneIdSchema),
     fileName: v.nullable(v.string()),
-    sourceRef: nullableDocumentRefSchema,
-    workingCopyRef: nullableDocumentRefSchema,
+    sourceRef: v.nullable(documentRefSchema),
+    workingCopyRef: v.nullable(documentRefSchema),
+    // Set by a claim: the file a rolled-back save kept beside the PDF, named when the tab reopens its working copy.
+    keptOriginalPath: v.optional(documentRefSchema),
     requiresSaveAsOnFirstSave: v.optional(v.boolean()),
     isDirty: v.boolean(),
     isDjvu: v.boolean(),
@@ -113,6 +99,7 @@ const checkpointTabSchema = v.object({
     viewMode: v.optional(v.nullable(viewModeSchema)),
     viewRotation: v.optional(v.nullable(viewRotationSchema)),
     annotationRecovery: v.optional(annotationRecoverySchema),
+    workingCopyLost: v.optional(v.literal(true)),
     annotationRecoveryFailure: v.optional(v.object({
         reason: v.literal('capture-rejected'),
         message: v.pipe(v.string(), v.maxLength(4096)),
@@ -126,14 +113,14 @@ const checkpointTabSchema = v.object({
 export const workspaceCheckpointSchema = v.object({
     version: v.literal(1),
     capturedAt: epochMsSchema,
-    activePaneId: nullablePaneIdSchema,
-    activeTabId: nullableTabIdSchema,
+    activePaneId: v.nullable(paneIdSchema),
+    activeTabId: v.nullable(tabIdSchema),
     layout: layoutSchema,
     panes: v.pipe(v.array(paneSchema), v.maxLength(32)),
     tabs: v.array(checkpointTabSchema),
     notReopened: v.optional(v.array(v.object({
         fileName: v.nullable(v.string()),
-        sourceRef: nullableDocumentRefSchema,
+        sourceRef: v.nullable(documentRefSchema),
     }))),
 });
 

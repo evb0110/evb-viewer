@@ -48,7 +48,7 @@ interface IPageAnnotationActionsDeps {
         pageX: number | null;
         pageY: number | null;
     }) => void;
-    handleAnnotationToolChange: (tool: TAnnotationTool) => void;
+    handleAnnotationToolChange: (tool: TAnnotationTool) => boolean | Promise<boolean>;
     openAnnotationNoteWindow: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationNoteWindow: (annotationId: string) => void;
     setAnnotationNoteWindowError: (annotationId: string, error: string | null) => void;
@@ -112,8 +112,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const previousSidebarVisibility = showSidebar.value;
         const previousSidebarTab = sidebarTab.value;
         try {
-            dragMode.value = false;
-            handleAnnotationToolChange(deps.annotationTool.value === 'note' ? 'select' : 'note');
+            return await handleAnnotationToolChange(deps.annotationTool.value === 'note' ? 'select' : 'note');
         } finally {
             await nextTick();
             showSidebar.value = previousSidebarVisibility;
@@ -125,7 +124,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (!pdfViewerRef.value) {
             return;
         }
-        handleAnnotationToolChange('select');
+        if (await handleAnnotationToolChange('select') === false) return;
         annotationActiveCommentStableKey.value = annotationIdForSummary(comment);
         showSidebar.value = true;
         sidebarTab.value = 'annotations';
@@ -347,13 +346,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    function handleShapeContextMenu(payload: {
+    async function handleShapeContextMenu(payload: {
         shapeId: string;
         clientX: number;
         clientY: number;
     }) {
         closeAnnotationContextMenu();
-        handleAnnotationToolChange('select');
+        if (await handleAnnotationToolChange('select') === false) return;
         pdfViewerRef.value?.selectAnnotationById?.(payload.shapeId);
         const comment = getAnnotationCommentsSnapshot()?.find(candidate => candidate.appAnnotationId === payload.shapeId) ?? null;
         if (comment) {
@@ -586,7 +585,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             closeAnnotationContextMenu();
             return;
         }
-        handleAnnotationToolChange(tool);
+        if (await handleAnnotationToolChange(tool) === false) return;
         await nextTick();
         await pdfViewerRef.value.highlightSelection();
         closeAnnotationContextMenu();

@@ -1,7 +1,8 @@
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
+import type {
+    IPdfAnnotationParseResult, TPdfAnnotationParseEntity,
+} from '@contracts/pdfAnnotationParseTypes';
 import type {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     mapPdfAnnotationParseEntity,
     mapPdfAnnotationParseForeign,
@@ -22,11 +23,13 @@ export interface ICommitPdfAnnotationParseToStoreOptions {
 export function applyParsedHighlightTextToStore(options: {
     targetStore: AnnotationStore;
     selectedTextByPdfRef: ReadonlyMap<string, string | null>;
-    parsedMarkupGeometryByPdfRef: ReadonlyMap<string, ITextMarkupEntity['quadPoints']>;
+    parsedEntities: readonly TPdfAnnotationParseEntity[];
 }) {
     options.targetStore.batch(() => options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
         const id = options.targetStore.resolveExternal({pdfRef});
-        const expectedQuadPoints = options.parsedMarkupGeometryByPdfRef.get(pdfRef);
+        const parsed = options.parsedEntities.find(entry => entry.kind === 'highlight'
+            && pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber) === pdfRef);
+        const expectedQuadPoints = parsed?.kind === 'highlight' ? parsed.quadPoints : undefined;
         if (id && expectedQuadPoints) {
             options.targetStore.updateTextMarkupSelectedText(id, selectedText, expectedQuadPoints);
         }

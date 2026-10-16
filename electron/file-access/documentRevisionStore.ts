@@ -11,10 +11,7 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createStaleRevisionError,
     createWorkingCopySyncRequiredError,
@@ -22,6 +19,7 @@ import {
 import {createEpochMs} from '@contracts/timestamps';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {aggregateErrorsKeepingUnprovenTermination} from '@electron/utils/nativeTerminationProof';
 import {
     readWorkingCopyRevision,
     readWorkingCopySyncRequired,
@@ -33,6 +31,7 @@ import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
     getWorkingCopyOriginalPath,
+    getWorkingCopyOriginalPathForPersistence,
     getWorkingCopyOriginalFileExpectation,
     getWorkingCopyRegistrationId,
     normalizePathForLookup,
@@ -44,13 +43,13 @@ import {
     isManagedWorkingCopyPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
-import {withIdleOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
+import {snapshotMainOperations} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
     completeWorkingCopyTransition,
     prepareWorkingCopyTransition,
     recoverWorkingCopyTransition,
     rollbackWorkingCopyTransition,
-    sweepOrphanedOriginalBackups,
     type IWorkingCopyJournal,
     type TWorkingCopyContentBackupMode,
 } from '@electron/file-access/workingCopyJournal';
@@ -66,41 +65,21 @@ interface IProvisionalWorkingCopyRevision {
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
 const runContentTransitionSerially = createKeyedSerialQueue();
 
-// A transition repairs its own journal and original backup. A reader repairs
-// only what an ended or failed transition left behind: while the working copy
-// or its original is mid-transition it skips the repair, so it neither waits
-// for that transition nor rolls it back or deletes its backup.
-function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
+// A transition repairs its own journal and original backup. A reader, or a restart claiming the working copy, repairs
+// only what an ended or failed transition left behind: while a mutation of the working copy or of another copy of its
+// original (that copy looked up in main, whichever window owns it, originals compared by the original-path lock's key)
+// is under way it skips the repair, so it neither waits for that transition nor rolls it back or deletes its backup.
+// Otherwise it queues behind any repair already running, so no reader exposes a revision before its bytes are repaired.
+export function repairEndedTransition(workingCopyPath: string, senderId?: number) {
+    const originalPath = getWorkingCopyOriginalPath(workingCopyPath, senderId)?.originalPath;
     const key = getRevisionQueueKey(workingCopyPath);
-    const repair = () => runContentTransitionSerially(key, async () => {
-        await recoverWorkingCopyTransition(workingCopyPath);
-        if (originalPath) {
-            await sweepOrphanedOriginalBackups(originalPath, workingCopyPath);
-        }
-    });
-    if (!runContentTransitionSerially.isIdle(key)) {
+    const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined));
+    const originalKey = originalPath === undefined ? undefined : getRevisionQueueKey(originalPath);
+    if (snapshotMainOperations().some(operation => operation.kind === 'critical-write' && operation.workingCopyPath !== undefined && (getRevisionQueueKey(operation.workingCopyPath) === key
+        || getRevisionQueueKey(getWorkingCopyOriginalPathForPersistence(operation.workingCopyPath)?.originalPath ?? '') === originalKey))) {
         return Promise.resolve();
     }
-    return originalPath ? withIdleOriginalPathMutationLock(originalPath, repair) : repair();
-}
-
-function requireDocumentRef(value: string): TDocumentRef {
-    const parsed = parseDocumentRef(value);
-    if (parsed === null) {
-        throw new TypeError('Working copy path must be an absolute document ref');
-    }
-    return parsed;
-}
-
-async function measureRevisionTransitionPhase<T>(
-    phase: string,
-    onPhase: ((phase: string, durationMs: number) => void) | undefined,
-    operation: () => Promise<T>,
-): Promise<T> {
-    return measureOperationPhase(operation, durationMs => {
-        try { onPhase?.(phase, durationMs); }
-        catch (error) { log.warn(`Document revision phase reporter failed: ${getErrorMessage(error)}`); }
-    });
+    return originalPath ? withOriginalPathMutationLock(originalPath, repair) : repair();
 }
 
 function getRevisionQueueKey(workingCopyPath: string) {
@@ -221,15 +200,17 @@ async function refreshOriginalExpectationAfterManagedLinkedDetach(
 }
 
 function assertCanUseWorkingCopyRevision(workingCopyPath: string, senderId?: number) {
+    workingCopyPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
+    if (!workingCopyPath) throw new Error('Invalid file path');
     const ownerWebContentsId = getWorkingCopyOwnerWebContentsId(workingCopyPath);
     if (typeof ownerWebContentsId === 'number' && ownerWebContentsId !== senderId) {
         throw new Error('Working copy path is owned by another sender');
     }
     if (workingCopyMap.has(workingCopyPath) || (isManagedWorkingCopyPath(workingCopyPath) && isExistingFile(workingCopyPath))) {
-        return;
+        return workingCopyPath;
     }
     if (existsSync(getWorkingCopyManifestPath(workingCopyPath))) {
-        return;
+        return workingCopyPath;
     }
 
     throw new Error('Working copy path is not managed');
@@ -270,11 +251,7 @@ export async function initializeFreshWorkingCopyRevision(
     workingCopyPath: string,
     senderId?: number,
 ): Promise<IDocumentRevisionInfo> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     const queueKey = getRevisionQueueKey(normalizedWorkingPath);
     const active = provisionalWorkingCopyRevisions.get(queueKey);
     if (active) {
@@ -284,10 +261,7 @@ export async function initializeFreshWorkingCopyRevision(
         return ensureWorkingCopyRevision(normalizedWorkingPath, senderId);
     }
 
-    await repairEndedTransition(
-        normalizedWorkingPath,
-        getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath,
-    );
+    await repairEndedTransition(normalizedWorkingPath, senderId);
 
     const revision = createRevision(normalizedWorkingPath, 1, senderId);
     await writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {durable: false});
@@ -359,19 +333,12 @@ export async function ensureWorkingCopyRevision(
     workingCopyPath: string,
     senderId?: number,
 ): Promise<IDocumentRevisionInfo> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     const provisional = provisionalWorkingCopyRevisions.get(getRevisionQueueKey(normalizedWorkingPath));
     if (provisional) {
         return provisional.revision;
     }
-    await repairEndedTransition(
-        normalizedWorkingPath,
-        getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath,
-    );
+    await repairEndedTransition(normalizedWorkingPath, senderId);
     hydrateWorkingCopySyncRequired(normalizedWorkingPath);
 
     const existing = await readWorkingCopyRevision(normalizedWorkingPath);
@@ -394,11 +361,7 @@ export async function markWorkingCopyContentChanged(
     reason: TDocumentRevisionChangeReason,
     senderId?: number,
 ): Promise<IDocumentRevisionChangedEvent> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
 
     const previous = await readWorkingCopyRevision(normalizedWorkingPath);
@@ -427,22 +390,20 @@ async function runWorkingCopyContentRevisionTransition(
     onPhase?: (phase: string, durationMs: number) => void,
     contentBackupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ): Promise<IDocumentRevisionChangedEvent> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
-    await measureRevisionTransitionPhase('revision-await-existing-durability', onPhase, () =>
+    const measureRevisionTransitionPhase = <T>(phase: string, operation: () => Promise<T>) =>
+        measureOperationPhase(operation, durationMs => onPhase?.(phase, durationMs));
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
+    await measureRevisionTransitionPhase('revision-await-existing-durability', () =>
         awaitWorkingCopyRevisionDurability(normalizedWorkingPath));
     const linkedOriginalExpectationFence = await captureLinkedOriginalExpectationFence(
         normalizedWorkingPath,
         senderId,
     );
 
-    const previous = await measureRevisionTransitionPhase('revision-read-previous', onPhase, () =>
+    const previous = await measureRevisionTransitionPhase('revision-read-previous', () =>
         readWorkingCopyRevision(normalizedWorkingPath));
     const revision = createRevision(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
-    const journal = await measureRevisionTransitionPhase('revision-prepare-journal', onPhase, () =>
+    const journal = await measureRevisionTransitionPhase('revision-prepare-journal', () =>
         prepareWorkingCopyTransition(
             normalizedWorkingPath,
             revision.token,
@@ -450,10 +411,10 @@ async function runWorkingCopyContentRevisionTransition(
             contentBackupMode,
         ));
     try {
-        await measureRevisionTransitionPhase('revision-commit-files', onPhase, () =>
+        await measureRevisionTransitionPhase('revision-commit-files', () =>
             commit(revision, journal));
         // The durable manifest write is the transaction commit point.
-        await measureRevisionTransitionPhase('revision-write-manifest', onPhase, () =>
+        await measureRevisionTransitionPhase('revision-write-manifest', () =>
             writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {},
                 journal.original?.state === 'published' && journal.original.publishedSnapshot
                     ? {
@@ -462,11 +423,19 @@ async function runWorkingCopyContentRevisionTransition(
                     }
                     : undefined));
     } catch (error) {
-        await rollbackWorkingCopyTransition(journal);
+        try {
+            await rollbackWorkingCopyTransition(journal);
+        } catch (rollbackError) {
+            throw aggregateErrorsKeepingUnprovenTermination([
+                error,
+                rollbackError,
+            ],
+            `Working-copy transition and rollback failed: ${getErrorMessage(error)}; ${getErrorMessage(rollbackError)}`);
+        }
         throw error;
     }
     try {
-        await measureRevisionTransitionPhase('revision-complete-journal', onPhase, () =>
+        await measureRevisionTransitionPhase('revision-complete-journal', () =>
             completeWorkingCopyTransition(journal));
     } catch (error) {
         log.debug(`Failed to clean committed working-copy journal: ${getErrorMessage(error)}`);

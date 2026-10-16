@@ -9,20 +9,14 @@ import {
     vi,
 } from 'vitest';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     buildOutlineFromBookmarkEntries,
-    buildResolvedOutline,
-    convertOutlineColorToHex,
     flattenBookmarks,
     normalizeBookmarkColor,
-    parseOutlineItems,
     resolveActiveBookmarkForPage,
-    resolveBookmarkDestinationPage,
     resolveBookmarkDestinationTarget,
     resolveBookmarkPageTargets,
-    resolveImmediateBookmarkDestinationTarget,
-    resolvePageIndex,
-    shouldEmitResolvedBookmarkDestinationTarget,
     summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
 import { cast } from '@tests/helpers/cast';
@@ -37,10 +31,60 @@ function createPdfPageStub(view: TPdfPageView = [
     0,
     612,
     792,
-]): IPdfPage {
+], rotation = 0): IPdfPage {
     return cast<IPdfPage>({
         view,
-        getViewport: vi.fn(() => ({ height: view[3] - view[1] })),
+        rotate: rotation,
+        getViewport: vi.fn(() => {
+            const [
+                left,
+                bottom,
+                right,
+                top,
+            ] = view;
+            const width = right - left;
+            const height = top - bottom;
+            const transform = rotation === 90 ? [
+                0,
+                1,
+                1,
+                0,
+                -bottom,
+                -left,
+            ]
+                : rotation === 180 ? [
+                    -1,
+                    0,
+                    0,
+                    1,
+                    right,
+                    -bottom,
+                ]
+                    : rotation === 270 ? [
+                        0,
+                        -1,
+                        -1,
+                        0,
+                        top,
+                        right,
+                    ]
+                        : [
+                            1,
+                            0,
+                            0,
+                            -1,
+                            -left,
+                            top,
+                        ];
+            return {
+                height: rotation % 180 === 0 ? height : width,
+                transform,
+                convertToViewportPoint: (x: number, y: number) => [
+                    transform[0]! * x + transform[2]! * y + transform[4]!,
+                    transform[1]! * x + transform[3]! * y + transform[5]!,
+                ],
+            };
+        }),
     });
 }
 
@@ -74,18 +118,20 @@ function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
     };
 }
 
-function createDeepRawOutline(depth: number) {
-    const root: {
-        title: string;
-        items?: unknown[];
-    } = { title: 'root' };
-    let cursor = root;
-    for (let index = 1; index < depth; index += 1) {
-        const child = { title: `child-${index}` };
-        cursor.items = [child];
-        cursor = child;
+function createDeepBookmarkEntry(depth: number): IPdfBookmarkEntry {
+    let entry: IPdfBookmarkEntry | null = null;
+    for (let index = depth - 1; index >= 0; index -= 1) {
+        entry = {
+            title: `child-${index}`,
+            pageIndex: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: entry ? [entry] : [],
+        };
     }
-    return root;
+    return entry!;
 }
 
 function countOutlineDepth(items: Array<{ items?: readonly unknown[] | undefined }>) {
@@ -101,25 +147,7 @@ function countOutlineDepth(items: Array<{ items?: readonly unknown[] | undefined
 }
 
 describe('pdfOutlineHelpers', () => {
-    it('converts outline color arrays to hex', () => {
-        expect(convertOutlineColorToHex([
-            255,
-            128.2,
-            0,
-        ])).toBe('#ff8000');
-        expect(convertOutlineColorToHex(null)).toBeNull();
-        expect(convertOutlineColorToHex([
-            1,
-            2,
-        ])).toBeNull();
-    });
-
     it('treats the black outline default as no explicit color', () => {
-        expect(convertOutlineColorToHex(new Uint8ClampedArray([
-            0,
-            0,
-            0,
-        ]))).toBeNull();
         expect(normalizeBookmarkColor('#000000')).toBeNull();
         expect(normalizeBookmarkColor('#000')).toBeNull();
         expect(normalizeBookmarkColor('#010101')).toBe('#010101');
@@ -129,29 +157,6 @@ describe('pdfOutlineHelpers', () => {
         expect(normalizeBookmarkColor('#abc')).toBe('#aabbcc');
         expect(normalizeBookmarkColor('  #A1b2C3  ')).toBe('#a1b2c3');
         expect(normalizeBookmarkColor('blue')).toBeNull();
-    });
-
-    it('parses deeply nested outlines with bounded depth while preserving siblings', () => {
-        const items = parseOutlineItems([
-            createDeepRawOutline(320),
-            { title: 'sibling' },
-        ]);
-
-        expect(items.map(item => item.title)).toEqual([
-            'root',
-            'sibling',
-        ]);
-        expect(countOutlineDepth(items)).toBeLessThanOrEqual(256);
-    });
-
-    it('preserves more than ten thousand sibling outline entries', () => {
-        const source = Array.from({length: 10_001}, (_, index) => ({title: `entry-${index}`}));
-
-        const items = parseOutlineItems(source);
-
-        expect(items).toHaveLength(10_001);
-        expect(items[0]?.title).toBe('entry-0');
-        expect(items[10_000]?.title).toBe('entry-10000');
     });
 
     it('projects more than ten thousand pending bookmark entries without truncation', () => {
@@ -176,42 +181,13 @@ describe('pdfOutlineHelpers', () => {
         expect(items[10_000]?.title).toBe('entry-10000');
     });
 
-    it('resolves more than ten thousand PDF outline entries without truncation', async () => {
-        const source = Array.from({length: 10_001}, (_, index) => ({title: `entry-${index}`}));
-        const rawItems = parseOutlineItems(source);
-        const pdfDocument = createPdfDocumentStub();
-        let id = 0;
+    it('projects deeply nested bookmark entries without recursive stack growth', () => {
+        const root = createDeepBookmarkEntry(320);
 
-        const items = await buildResolvedOutline(
-            rawItems,
-            pdfDocument,
-            new Map(),
-            new Map(),
-            () => {
-                const currentId = id;
-                id += 1;
-                return `bookmark-${currentId}`;
-            },
-        );
+        const resolved = buildOutlineFromBookmarkEntries([root], () => 'bookmark-id');
 
-        expect(items).toHaveLength(10_001);
-        expect(items[10_000]?.title).toBe('entry-10000');
-    });
-
-    it('resolves deeply nested outlines without recursive stack growth', async () => {
-        const pdfDoc = createPdfDocumentStub();
-        const rawItems = parseOutlineItems([createDeepRawOutline(320)]);
-
-        const resolved = await buildResolvedOutline(
-            rawItems,
-            pdfDoc,
-            new Map(),
-            new Map(),
-            () => 'bookmark-id',
-        );
-
-        expect(resolved[0]?.title).toBe('root');
-        expect(countOutlineDepth(resolved)).toBeLessThanOrEqual(256);
+        expect(resolved[0]?.title).toBe('child-0');
+        expect(countOutlineDepth(resolved)).toBe(256);
     });
 
     it('projects pending bookmark entries into visible outline items without PDF.js', () => {
@@ -262,41 +238,38 @@ describe('pdfOutlineHelpers', () => {
         }]);
     });
 
-    it('preserves resolved pageYRatio anchors from PDF outline destinations', async () => {
-        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub([
+    it.each([
+        [
             0,
+            0.25,
+        ],
+        [
+            90,
+            0.25,
+        ],
+        [
+            180,
+            0.75,
+        ],
+        [
+            270,
+            0.75,
+        ],
+    ])('maps an imported bookmark through the cropped page view at %s degrees', async (rotation, expected) => {
+        const pdfDoc = createPdfDocumentStub({getPage: async () => createPdfPageStub([
+            60,
+            80,
+            460,
+            320,
+        ], rotation)});
+        const target = await resolveBookmarkDestinationTarget(pdfDoc, [
             0,
-            612,
-            800,
-        ]));
-        const pdfDoc = createPdfDocumentStub({
-            numPages: 2,
-            getPage,
-        });
-        const rawItems = parseOutlineItems([{
-            title: 'Mid-page section',
-            dest: [
-                0,
-                { name: 'XYZ' },
-                null,
-                600,
-                null,
-            ],
-        }]);
-
-        const resolved = await buildResolvedOutline(
-            rawItems,
-            pdfDoc,
-            new Map(),
-            new Map(),
-            () => 'bookmark-id',
-        );
-
-        expect(resolved[0]).toMatchObject({
-            title: 'Mid-page section',
-            pageIndex: 0,
-            pageYRatio: 0.25,
-        });
+            {name: 'XYZ'},
+            160,
+            260,
+            null,
+        ]);
+        expect(target?.pageYRatio).toBeCloseTo(expected!);
     });
 
     it('resolves the vertical anchor of a lazily loaded bookmark with its page', async () => {
@@ -328,29 +301,6 @@ describe('pdfOutlineHelpers', () => {
         });
     });
 
-    it('resolves named destination and caches destination + ref index', async () => {
-        const getDestination = vi.fn(async (_name: string) => [{
-            num: 4,
-            gen: 0, 
-        }]);
-        const getPageIndex = vi.fn(async (_ref: unknown) => 3);
-        const pdfDoc = createPdfDocumentStub({
-            getDestination,
-            getPageIndex,
-        });
-
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        const first = await resolvePageIndex(pdfDoc, 'chapter-1', destinationCache, refIndexCache);
-        const second = await resolvePageIndex(pdfDoc, 'chapter-1', destinationCache, refIndexCache);
-
-        expect(first).toBe(3);
-        expect(second).toBe(3);
-        expect(getDestination).toHaveBeenCalledTimes(1);
-        expect(getPageIndex).toHaveBeenCalledTimes(1);
-    });
-
     it('stops stale named-destination resolution before scheduling page lookup', async () => {
         const destination = Promise.withResolvers<unknown[] | null>();
         const getDestination = vi.fn(() => destination.promise);
@@ -372,37 +322,6 @@ describe('pdfOutlineHelpers', () => {
 
         await expect(resolution).rejects.toMatchObject({name: 'AbortError'});
         expect(getPageIndex).not.toHaveBeenCalled();
-    });
-
-    it('handles numeric destinations in both 0-based and 1-based forms', async () => {
-        const pdfDoc = createPdfDocumentStub({ numPages: 5 });
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        await expect(resolvePageIndex(pdfDoc, [2], destinationCache, refIndexCache)).resolves.toBe(2);
-        await expect(resolvePageIndex(pdfDoc, [5], destinationCache, refIndexCache)).resolves.toBe(4);
-        await expect(resolvePageIndex(pdfDoc, [99], destinationCache, refIndexCache)).resolves.toBeNull();
-    });
-
-    it('returns null when destination lookup fails', async () => {
-        const pdfDoc = createPdfDocumentStub({getDestination: vi.fn(async () => {
-            throw new Error('lookup failed');
-        })});
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        await expect(resolvePageIndex(pdfDoc, 'missing', destinationCache, refIndexCache)).resolves.toBeNull();
-        expect(destinationCache.get('missing')).toBeNull();
-    });
-
-    it('resolves bookmark destination page as 1-based number', async () => {
-        const pdfDoc = createPdfDocumentStub({
-            numPages: 6,
-            getDestination: vi.fn(async () => [3]),
-        });
-
-        await expect(resolveBookmarkDestinationPage(pdfDoc, 'toc')).resolves.toBe(4);
-        await expect(resolveBookmarkDestinationPage(pdfDoc, [6])).resolves.toBe(6);
     });
 
     it('resolves /XYZ bookmark top coordinates into normalized page y targets', async () => {
@@ -430,7 +349,7 @@ describe('pdfOutlineHelpers', () => {
         expect(getPage).toHaveBeenCalledWith(3);
     });
 
-    it('treats /XYZ destinations without an explicit top as top-of-page bookmarks', async () => {
+    it('keeps the vertical coordinate unspecified for /XYZ with a null top', async () => {
         const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub());
         const pdfDoc = createPdfDocumentStub({
             numPages: 6,
@@ -443,47 +362,8 @@ describe('pdfOutlineHelpers', () => {
             null,
             null,
             null,
-        ])).resolves.toEqual({
-            page: 2,
-            pageYRatio: 0,
-        });
+        ])).resolves.toEqual({page: 2});
         expect(getPage).not.toHaveBeenCalled();
-    });
-
-    it('resolves an already indexed bookmark into an immediate page navigation target', () => {
-        expect(resolveImmediateBookmarkDestinationTarget(createBookmark('indexed', 278))).toEqual({
-            page: 279,
-            pageYRatio: 0,
-        });
-        expect(resolveImmediateBookmarkDestinationTarget(createBookmark('missing', null))).toBeNull();
-    });
-
-    it('emits late same-page bookmark destination refinement even when the resolved y target matches', () => {
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 279,
-            pageYRatio: 0.35,
-        }, {
-            page: 279,
-            pageYRatio: 0,
-        })).toBe(true);
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 279,
-            pageYRatio: 0,
-        }, {
-            page: 279,
-            pageYRatio: 0,
-        })).toBe(true);
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 328,
-            pageYRatio: 0.35,
-        }, {
-            page: 279,
-            pageYRatio: 0,
-        })).toBe(true);
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 279,
-            pageYRatio: 0.35,
-        }, null)).toBe(true);
     });
 
     it('preserves an explicitly active bookmark when multiple entries share the current page', () => {

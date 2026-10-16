@@ -10,8 +10,10 @@ export type TSettingsPersistenceStatus = 'idle' | 'saving' | 'failed';
 export interface ISettingsPersistenceQueueOptions {
     getSettingsSnapshot: () => unknown;
     getLastSavedSettings: () => ISettingsData | null;
+    // The reply confirms the operation completed. Only the ordered change stream
+    // acknowledges renderer intent; it can arrive after this reply.
     savePatch: (patch: TSettingsSavePatch) => Promise<void>;
-    onSaved: (settings: ISettingsData) => void;
+    onSaved: () => void;
     onSaveError: (error: unknown) => void;
     onStatusChanged?: (status: TSettingsPersistenceStatus, error?: unknown) => void;
 }
@@ -55,7 +57,7 @@ export function createSettingsPersistenceQueue(
                 if (Object.keys(patch).length > 0) {
                     await options.savePatch(patch);
                 }
-                options.onSaved(payload);
+                options.onSaved();
             } catch (error) {
                 options.onSaveError(error);
                 options.onStatusChanged?.('failed', error);

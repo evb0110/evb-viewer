@@ -13,10 +13,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import { atomicReplace } from '@electron/utils/atomicReplace';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
@@ -29,9 +26,12 @@ function isNativeTiffCombineDisabled() {
     return process.env.VITEST === 'true' && !runtimeConfig.test.nativeTiffCombineEnabled;
 }
 
+// The caller records tempOutputPath in its scratch record before calling, so a
+// crash mid-write leaves nothing behind for the next start.
 export async function tryCombinePagesWithNativeTiffCombiner(
     pagePaths: string[],
     outputPath: string,
+    tempOutputPath: string,
     signal?: AbortSignal,
     dpi?: number,
 ) {
@@ -55,7 +55,6 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     const scratchRoot = getAppTempDir();
     const tempDir = await createManagedScratchTempDir('pdfExport-scope-', scratchRoot);
     const inputsPath = join(tempDir, 'inputs.txt');
-    const tempOutputPath = makeSiblingTempPath(outputPath);
     let replacedOutput = false;
     let terminationProof: Promise<boolean> | undefined;
     let terminationUnproven = false;

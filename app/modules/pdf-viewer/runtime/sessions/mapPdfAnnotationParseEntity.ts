@@ -34,6 +34,11 @@ function parsedEntityBase(entry: TPdfAnnotationParseEntity) {
         createdAt: entry.createdAt === null ? null : createEpochMs(entry.createdAt),
         modifiedAt: entry.modifiedAt === null ? null : createEpochMs(entry.modifiedAt),
         author: entry.author,
+        ...(entry.replies === undefined ? {} : {replies: entry.replies.map(reply => ({
+            ...reply,
+            createdAt: reply.createdAt === null ? null : createEpochMs(reply.createdAt),
+            modifiedAt: reply.modifiedAt === null ? null : createEpochMs(reply.modifiedAt),
+        }))}),
     };
 }
 
@@ -51,6 +56,8 @@ export function mapPdfAnnotationParseEntity(
                 rotation: entry.rotation,
                 fontSize: entry.fontSize,
                 color: entry.color,
+                ...(entry.frame === undefined ? {} : {frame: entry.frame}),
+                ...(entry.readOnly ? {readOnly: true} : {}),
             };
         case 'note':
             return {
@@ -61,11 +68,6 @@ export function mapPdfAnnotationParseEntity(
                 color: entry.color,
                 open: entry.open,
                 ...(entry.recoveryData === undefined ? {} : {recoveryData: entry.recoveryData}),
-                replies: entry.replies.map(reply => ({
-                    ...reply,
-                    createdAt: reply.createdAt === null ? null : createEpochMs(reply.createdAt),
-                    modifiedAt: reply.modifiedAt === null ? null : createEpochMs(reply.modifiedAt),
-                })),
             };
         case 'highlight':
             return {

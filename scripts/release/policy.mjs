@@ -1,3 +1,5 @@
+import { getNativeExternalBuildInputs } from '../native-build-id.mjs';
+
 export function hasDeveloperIdSigningCredentials(env = process.env) {
     return Boolean(env.CSC_LINK && env.CSC_KEY_PASSWORD);
 }
@@ -57,6 +59,7 @@ export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     'packages/pdf-core/**',
     'packages/pdf-core/nativePdfMutationPolicy.ts',
     'scripts/build-native-tool.mjs',
+    'scripts/lib/build-environment.mjs',
     'scripts/native-build-id.mjs',
     'scripts/ci/stageExactPdfFixture.ts',
     'tests/e2e/electron/smoke/blockingPdfSaveSmoke.e2e.test.ts',
@@ -88,6 +91,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'native/pdf-page-ops/**',
                 'native/scan-primitives/**',
                 'scripts/build-wasm-tool.mjs',
+                'scripts/lib/build-environment.mjs',
                 'scripts/ensure-wasm-artifacts.mjs',
                 'scripts/native-build-id.mjs',
                 'scripts/wasm-artifacts.mjs',
@@ -134,6 +138,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'native/scan-primitives/**',
                 'packages/contracts/**',
                 'scripts/build-wasm-tool.mjs',
+                'scripts/lib/build-environment.mjs',
                 'scripts/ensure-wasm-artifacts.mjs',
                 'scripts/wasm-artifacts.mjs',
                 'packages/scan-cleanup/**',
@@ -173,7 +178,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'electron/**',
                 'packages/**',
                 'public/pdf/**',
-                'public/fonts/annotation/DejaVuSans.ttf',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
                 'vendor/**',
                 'packages/scan-cleanup/**',
                 'resources/**',
@@ -233,7 +238,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'deny.toml',
                 'native/**',
                 'packages/contracts/**',
-                'public/fonts/annotation/DejaVuSans.ttf',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
                 'resources/**',
                 'scripts/ci/apt-install.sh',
                 'scripts/ci/classify-changed-areas.mjs',
@@ -255,7 +260,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 '.github/workflows/**',
                 'build/**',
                 'native/**',
-                'public/fonts/annotation/DejaVuSans.ttf',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
                 'resources/**',
                 'server/**',
                 'scripts/afterPack.cjs',
@@ -265,6 +270,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/build-*.sh',
                 'scripts/build-warning-allowlist.json',
                 'scripts/cargo-artifacts.mjs',
+                'scripts/lib/build-environment.mjs',
                 'scripts/check-build-*.mjs',
                 'scripts/check-electron-builder-asar-unpack.mjs',
                 'scripts/ci/classify-changed-areas.mjs',
@@ -347,6 +353,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'native/**',
                 'rust-toolchain.toml',
                 'scripts/build-native-tool.mjs',
+                'scripts/lib/build-environment.mjs',
                 'scripts/native-build-id.mjs',
                 'scripts/cargo-artifacts.mjs',
                 'scripts/native-rust-targets.mjs',
