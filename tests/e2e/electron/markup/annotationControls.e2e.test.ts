@@ -609,6 +609,7 @@ describe('Electron E2E - annotation controls', () => {
         await waitForViewerInteractive(page);
         const selector = '.editor-pane.is-active .pdf-annotation-editor-text-box';
         await page.waitForSelector(selector);
+        const originalAnnotationId = await page.$eval(selector, element => element.getAttribute('data-annotation-id'));
 
         async function originalPaint(label: string, bytes = original, blank = false) {
             const box = await page.waitForSelector(selector);
@@ -841,6 +842,12 @@ describe('Electron E2E - annotation controls', () => {
         await page.keyboard.down(modifier);
         try { await page.keyboard.press('Enter'); } finally { await page.keyboard.up(modifier); }
         await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await page.waitForFunction((boxSelector, annotationId) => {
+            const box = document.querySelector(boxSelector);
+            return box?.getAttribute('data-annotation-id') === annotationId && box.checkVisibility()
+                && !box.classList.contains('is-editing')
+                && box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Fill probe';
+        }, {}, selector, originalAnnotationId);
         await originalPaint('text-undo-before-save');
         await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
         await saveViaVisibleToolbar(page, 12_000, saved);
@@ -849,6 +856,12 @@ describe('Electron E2E - annotation controls', () => {
         expect(annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Core61 edited text');
         await originalPaint('saved-edit-stale-proxy', readFileSync(saved));
         await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await page.waitForFunction((boxSelector, annotationId) => {
+            const box = document.querySelector(boxSelector);
+            return box?.getAttribute('data-annotation-id') === annotationId && box.checkVisibility()
+                && !box.classList.contains('is-editing')
+                && box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Fill probe';
+        }, {}, selector, originalAnnotationId);
         await originalPaint('text-undo-after-save');
         await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
         await originalPaint('text-redo-after-save', readFileSync(saved));

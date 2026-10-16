@@ -882,7 +882,7 @@ function trackWindowForMenu(window: BrowserWindow) {
         trackedWindowIds.delete(window.id);
         menuDocumentStateByWindow.delete(window.id);
         menuTabCountByWindow.delete(window.id);
-        rebuildMenu();
+        rebuildMenu(true);
     });
 }
 

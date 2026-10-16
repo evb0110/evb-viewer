@@ -281,7 +281,7 @@ describe('menu per-window document state', () => {
         mocks.focusWindow(null);
     });
 
-    it('uses focused window document state independently', () => {
+    it('uses focused and surviving window document state independently', () => {
         const firstWindow = mocks.createWindow(1, 'First Window');
         const secondWindow = mocks.createWindow(2, 'Second Window');
 
@@ -314,6 +314,18 @@ describe('menu per-window document state', () => {
 
         template = getLastMenuTemplate();
         expect(isSaveEnabled(template)).toBe(true);
+
+        setMenuDocumentState(1, false);
+        expect(isSaveEnabled(getLastMenuTemplate())).toBe(false);
+        mocks.windows.splice(0, 1);
+        mocks.focusWindow(null);
+        firstWindow.close();
+        expect(isSaveEnabled(getLastMenuTemplate())).toBe(true);
+        expect(isSaveAsEnabled(getLastMenuTemplate())).toBe(true);
+        expect(activateApplicationMenuItem({accelerator: 'CmdOrCtrl+S'})).toMatchObject({
+            activated: true,
+            windowId: secondWindow.id,
+        });
     });
 
     it('disables save while keeping document actions enabled when a document is clean', () => {
