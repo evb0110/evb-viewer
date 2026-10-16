@@ -955,9 +955,21 @@ describe('PdfViewportSession behavior', () => {
     });
 
     it.each([
-        false,
-        true,
-    ])('settles exhausted annotation rendering while retaining existing canvas=%s', async retained => {
+        {
+            retained: false,
+            publication: false,
+        },
+        {
+            retained: true,
+            publication: false,
+        },
+        {
+            retained: true,
+            publication: true,
+        },
+    ])('settles exhausted annotation rendering with retained=$retained and publication=$publication', async ({
+        retained, publication,
+    }) => {
         const projectionReady = ref(!retained);
         let failRender = !retained;
         let failedAttempts = 0;
@@ -1053,7 +1065,21 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.container.querySelector('canvas')).toBe(oldCanvas);
             if (oldCanvas) expect(oldCanvas.width * oldCanvas.height).toBeGreaterThan(0);
             failRender = false;
-            await rendering.renderVisiblePages({
+            if (publication) {
+                await expect(rendering.publishAnnotationPaint(requirePageNumber(1), {
+                    signature: 'fixture',
+                    prepare: async () => ({
+                        document: fixture.documentSession.pdfDocument.value!,
+                        original: null,
+                        annotations: [],
+                        semanticInputs: [],
+                        excludedIds: new Set<string>(),
+                        signature: 'fixture',
+                    }),
+                    isCurrent: () => true,
+                    commit: input => input,
+                })).resolves.toBe(true);
+            } else await rendering.renderVisiblePages({
                 start: 1,
                 end: 1,
             }, {forceRerender: true});

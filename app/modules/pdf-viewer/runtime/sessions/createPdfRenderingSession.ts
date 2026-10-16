@@ -420,10 +420,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const committedRasterState = getPageRasterState(pageNumber);
             // A forced rerender replaces current pixels after content changes; it and a
             // deliberate navigation target also retry a page whose earlier raster failed.
-            const rasterState = committedRasterState === 'current' && (renderOptions.forceRerender === true || renderOptions.annotationCommit)
-                || committedRasterState === 'failed' && (renderOptions.forceRerender === true || lane === 'navigation-target')
-                ? 'stale-scale'
-                : committedRasterState;
+            const rasterState = (committedRasterState === 'current' || committedRasterState === 'failed')
+                && (renderOptions.forceRerender === true || renderOptions.annotationCommit) || committedRasterState === 'failed' && lane === 'navigation-target'
+                ? 'stale-scale' : committedRasterState;
             const rasterIdentity = [
                 renderVersion,
                 pageNumber,

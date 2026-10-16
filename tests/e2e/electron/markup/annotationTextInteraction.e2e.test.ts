@@ -543,21 +543,32 @@ describe('Electron E2E - text interaction contract', () => {
         onTestFinished(async () => {
             try {
                 await sessions.getSession().page.evaluate(async () => {
-                    interface IViewerComponent {
-                        parent?: IViewerComponent | null;
-                        exposed?: {commitPdfEditorsForSave?: () => Promise<void>} | null;
+                    interface IViewerVNode {
+                        component?: {
+                            subTree?: IViewerVNode;
+                            exposed?: {commitPdfEditorsForSave?: () => Promise<void>} | null;
+                        };
+                        children?: IViewerVNode[] | string;
+                        ssContent?: IViewerVNode;
+                        ssFallback?: IViewerVNode;
                     }
-                    const element = document.querySelector<HTMLElement & {__vueParentComponent?: IViewerComponent}>('.editor-pane.is-active .page_container');
-                    let component = element?.__vueParentComponent;
-                    while (component) {
-                        const complete = component.exposed?.commitPdfEditorsForSave;
-                        if (complete) {
-                            await complete();
-                            return;
+                    let complete: (() => Promise<void>) | undefined;
+                    const seen = new Set<IViewerVNode>();
+                    const visit = (vnode: IViewerVNode | undefined) => {
+                        if (!vnode || seen.has(vnode) || complete) return;
+                        seen.add(vnode);
+                        const owner = vnode.component;
+                        if (owner) {
+                            complete = owner.exposed?.commitPdfEditorsForSave;
+                            visit(owner.subTree);
                         }
-                        component = component.parent ?? undefined;
-                    }
-                    throw new Error('The loaded viewer must settle its editors before fixture cleanup');
+                        if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                        visit(vnode.ssContent);
+                        visit(vnode.ssFallback);
+                    };
+                    visit(document.querySelector<HTMLElement & {_vnode?: IViewerVNode}>('#__nuxt')?._vnode);
+                    if (!complete) throw new Error('The loaded viewer must settle its editors before fixture cleanup');
+                    await complete();
                 });
             } finally {
                 rmSync(generated, {force: true});
