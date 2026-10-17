@@ -593,7 +593,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             options: {
                 bufferOverride: 0,
                 contentIntent: 'layers-only-promotion' as const,
-                preserveInFlightRequiredPages: true,
                 preserveRenderedPages: true,
                 rasterDemandPages: promotionPages,
                 renderWindowOverride: range,

@@ -532,7 +532,7 @@ describe('PdfViewportSession behavior', () => {
             const republished = rendering.renderVisiblePages({
                 start: 1,
                 end: 1,
-            }, {preserveInFlightRequiredPages: true});
+            });
             await nextTick();
             await Promise.resolve();
             expect(signals[0]!.aborted).toBe(false);

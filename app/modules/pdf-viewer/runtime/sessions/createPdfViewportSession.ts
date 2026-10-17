@@ -601,7 +601,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                     // visible raster remains resident until the target paints.
                     suppressResidentRasterDemand: renderOptions.suppressResidentRasterDemand ?? true,
                     bufferOverride: renderOptions.bufferOverride ?? 0,
-                    preserveInFlightRequiredPages: renderOptions.preserveInFlightRequiredPages ?? true,
                     preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,
                 },
             };

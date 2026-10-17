@@ -55,7 +55,6 @@ export interface IRenderVisiblePagesOptions {
     forceRerender?: boolean;
     suppressResidentRasterDemand?: boolean;
     retainOnlyCurrentResidentRaster?: boolean;
-    preserveInFlightRequiredPages?: boolean;
     prioritizeTextLayer?: boolean;
     continuationPriority?: TPdfRenderContinuationPriority;
     contentIntent?: TPdfPageRenderContentIntent;

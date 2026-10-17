@@ -19,7 +19,6 @@ import type {
 } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
@@ -51,7 +50,6 @@ export interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
     document: TPdfDocumentView;
     viewport: TPdfViewportSession;
-    viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     isActive?: MaybeRefOrGetter<boolean>;
     outputScale?: MaybeRefOrGetter<number>;
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
@@ -117,15 +115,6 @@ export interface IPdfLayerRenderResult {
         separateAnnots: unknown;
         ownCanvases: ReadonlyArray<readonly [string, HTMLCanvasElement]>;
     }> | undefined;
-}
-
-export interface IPdfPageLayerRenderContext {
-    container: HTMLElement;
-    pdfPage: IPdfPage;
-    renderResult: IPdfLayerRenderResult;
-    textLayerDiv: HTMLDivElement | null;
-    annotationLayerInstance: unknown;
-    preserveCanvasOnStale?: boolean;
 }
 
 export type TPdfTextLayerCleanup = () => void;

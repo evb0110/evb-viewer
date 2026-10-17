@@ -72,9 +72,6 @@ export const usePdfOpeningGeometryLifecycle = (
                         openingGeometry.pageCount,
                     ),
                     pageCount: openingGeometry.pageCount,
-                    width: openingGeometry.width,
-                    height: openingGeometry.height,
-                    rotation: openingGeometry.rotation,
                     pages: openingGeometry.pages ?? undefined,
                 });
             }

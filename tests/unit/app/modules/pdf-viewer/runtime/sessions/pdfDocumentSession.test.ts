@@ -274,8 +274,6 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.seedTrustedPageGeometry({
             pageNumber: requirePageNumber(7),
             pageCount: 431,
-            width: 478.8,
-            height: 765.3,
         })).toBe(false);
         expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
         expect(documentState.hasExactPageGeometry(requirePageNumber(1))).toBe(false);
@@ -320,8 +318,6 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.seedTrustedPageGeometry({
             pageNumber: requirePageNumber(1),
             pageCount: 2,
-            width: 600,
-            height: 780,
             pages: [
                 {
                     widthPoints: 600,
@@ -613,8 +609,6 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.seedTrustedPageGeometry({
             pageNumber: requirePageNumber(1),
             pageCount: 1,
-            width: 640,
-            height: 900,
         })).toBe(false);
 
         const result = await documentState.loadPdf(new Blob(['pdf'], {type: 'application/pdf'}));

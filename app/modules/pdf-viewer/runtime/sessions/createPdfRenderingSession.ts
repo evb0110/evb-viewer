@@ -586,7 +586,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         container: options.viewerContainer,
         document: documentSession,
         viewport,
-        ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         isActive: rasterOperational,
         outputScale: options.outputScale,
         searchPageMatches: options.searchPageMatches,
