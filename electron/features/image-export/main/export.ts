@@ -300,7 +300,9 @@ async function tryConvertRenderedPpmToPngNative(
     dpi = DEFAULT_RENDER_DPI,
 ) {
     const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
-    if (!binaryPath) return false;
+    if (!binaryPath) {
+        return false;
+    }
 
     try {
         await runNativeToolCommand(binaryPath, [
@@ -640,7 +642,9 @@ async function detectExportRenderDpi(
 ) {
     // A cancelled probe also falls back once its reader stops: the source outlives both readers.
     const fallBack = <T>(value: T) => (error: unknown) => {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
         logger.debug(`Export probe failed: ${getErrorMessage(error)}`);
         return value;
     };
@@ -892,8 +896,12 @@ export function* createPageRanges(
     pageCount: number,
     chunkPages = PDF_EXPORT_RENDER_CHUNK_PAGES,
 ): Generator<IExportPageRange> {
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error('pageCount must be a positive safe integer');
-    if (!Number.isSafeInteger(chunkPages) || chunkPages < 1) throw new Error('chunkPages must be a positive safe integer');
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('pageCount must be a positive safe integer');
+    }
+    if (!Number.isSafeInteger(chunkPages) || chunkPages < 1) {
+        throw new Error('chunkPages must be a positive safe integer');
+    }
 
     let firstPage = 1;
     while (firstPage <= pageCount) {

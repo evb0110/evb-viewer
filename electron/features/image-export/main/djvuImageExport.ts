@@ -54,7 +54,9 @@ const DJVU_EXPORT_MAX_BATCH_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
 const DJVU_TIFF_BATCH_MAX_PAGES = 8;
 
 function throwIfAborted(signal?: AbortSignal) {
-    if (signal?.aborted) throw abortErrorFromSignal(signal);
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
 }
 
 function usingDjvuScratch<T>(
@@ -167,7 +169,10 @@ async function renderDjvuImagePages(
         const totalPages = getExportPageCount(pageCount, pages);
         const format = options.format ?? 'png';
         const exportPages = [...iterateExportPages(pageCount, pages)];
-        const outputPaths = exportPages.map(page => resolveOutputPathConflicts([buildImageOutputPath(outputTemplatePath, page, totalPages, format)], totalPages === 1)[0]!);
+        const outputPaths = exportPages.map(page => resolveOutputPathConflicts(
+            [buildImageOutputPath(outputTemplatePath, page, totalPages, format)],
+            totalPages === 1,
+        )[0]!);
         const siblings = outputPaths.map(outputPath => makeSiblingTempPath(outputPath));
         const promoteBatch = async () => {
             if (stagedFiles.length === 0) {
@@ -217,7 +222,11 @@ async function renderDjvuImagePages(
                             ...(options.signal ? {signal: options.signal} : {}),
                         },
                     );
-                    if (!render.success) throw render.cause instanceof Error ? render.cause : new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                    if (!render.success) {
+                        throw render.cause instanceof Error
+                            ? render.cause
+                            : new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                    }
                     if (
                         stagedFiles.length > 0
                         && stagedBytes + render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES
@@ -380,7 +389,11 @@ export async function exportDjvuAsMultiPageTiff(
                     format: 'ppm',
                     ...(options.signal ? {signal: options.signal} : {}),
                 }).finally(() => brokerLease.release());
-                if (!render.success) throw render.cause instanceof Error ? render.cause : new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                if (!render.success) {
+                    throw render.cause instanceof Error
+                        ? render.cause
+                        : new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                }
                 if (
                     pagePaths.length > 0
                     && (
