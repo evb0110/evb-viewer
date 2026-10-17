@@ -567,4 +567,42 @@ describe('search service coverage', () => {
             await service.shutdown();
         }
     });
+
+    // A reloaded page starts with no search state, so its old requests have no reader.
+    it.each([
+        'did-start-navigation',
+        'render-process-gone',
+        'destroyed',
+    ])('stops the searches of a page that goes away (%s)', async (end) => {
+        const sender = Object.assign(new EventEmitter(), {
+            id: 73,
+            send: vi.fn(),
+            isDestroyed: () => false,
+        });
+        const started = Promise.withResolvers<AbortSignal>();
+        const {createSearchService} = await import('@electron/features/search/main/searchService');
+        const service = createSearchService();
+        try {
+            const search = service.run({sender: sender as never}, {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+                requestId: requireRequestId('reloaded-page'),
+                requestIdPrefix: 'search',
+                query: 'needle',
+                resolveDocument: signal => new Promise((_resolve, reject) => {
+                    started.resolve(signal);
+                    signal.addEventListener('abort', () => reject(new Error('Search canceled')), {once: true});
+                }),
+            });
+            const signal = await started.promise;
+
+            sender.emit(end, {}, 'app://renderer/', false, true);
+
+            expect(signal.aborted).toBe(true);
+            await expect(search).resolves.toMatchObject({canceled: true});
+        } finally {
+            await service.shutdown();
+        }
+    });
 });
