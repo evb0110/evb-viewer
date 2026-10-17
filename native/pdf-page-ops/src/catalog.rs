@@ -1,4 +1,7 @@
 use super::*;
+pub(crate) use evb_native_support::pdf_catalog::{
+    is_implicit_default_page_labels, normalize_page_label_range, normalize_page_label_ranges,
+};
 use serde::Serialize;
 
 pub(super) const CATALOG_WALK_DEPTH_LIMIT: usize = 256;
@@ -390,49 +393,6 @@ pub(crate) fn read_number_tree(
     Ok(())
 }
 
-pub(crate) fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
-    value.max(min).min(max)
-}
-
-pub(crate) fn normalize_page_label_style(style: Option<&str>) -> Option<String> {
-    match style {
-        Some("D" | "R" | "r" | "A" | "a") => style.map(ToOwned::to_owned),
-        Some(_) => Some("D".to_string()),
-        None => None,
-    }
-}
-
-pub(crate) fn normalize_page_label_ranges(
-    ranges: &[PageLabelRange],
-    total_pages: u32,
-) -> Vec<PageLabelRange> {
-    if total_pages == 0 {
-        return Vec::new();
-    }
-
-    let mut deduped = std::collections::BTreeMap::new();
-    for range in ranges {
-        let normalized = normalize_page_label_range_for_continuation(range, total_pages);
-        deduped.insert(normalized.start_page, normalized);
-    }
-    deduped.entry(1).or_insert_with(|| PageLabelRange {
-        start_page: 1,
-        style: Some("D".to_string()),
-        prefix: String::new(),
-        start_number: 1,
-    });
-    deduped.into_values().collect()
-}
-
-pub(crate) fn is_implicit_default_page_labels(ranges: &[PageLabelRange], total_pages: u32) -> bool {
-    let normalized = normalize_page_label_ranges(ranges, total_pages);
-    normalized.len() == 1
-        && normalized[0].start_page == 1
-        && normalized[0].style.as_deref() == Some("D")
-        && normalized[0].prefix.is_empty()
-        && normalized[0].start_number == 1
-}
-
 pub(crate) fn assert_mutation_page_count(
     document: &impl PdfObjectSource,
     total_pages: u32,
@@ -501,18 +461,6 @@ fn page_label_dictionary(range: &PageLabelRange) -> Object {
     Object::Dictionary(label_dict)
 }
 
-fn normalize_page_label_range_for_continuation(
-    range: &PageLabelRange,
-    total_pages: u32,
-) -> PageLabelRange {
-    PageLabelRange {
-        start_page: clamp_u32(range.start_page.max(1), 1, total_pages),
-        style: normalize_page_label_style(range.style.as_deref()),
-        prefix: range.prefix.clone(),
-        start_number: range.start_number.max(1),
-    }
-}
-
 fn collect_existing_page_label_entries(
     document: &Document,
     catalog: &Dictionary,
@@ -569,8 +517,7 @@ pub(crate) fn set_page_labels_incremental(
             }
         } else {
             for range in &page_labels.ranges {
-                let normalized =
-                    normalize_page_label_range_for_continuation(range, page_labels.total_pages);
+                let normalized = normalize_page_label_range(range, page_labels.total_pages);
                 entries.insert(
                     i64::from(normalized.start_page.saturating_sub(1)),
                     page_label_dictionary(&normalized),
