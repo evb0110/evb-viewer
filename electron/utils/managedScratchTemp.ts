@@ -27,6 +27,7 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import {
+    fileIdentitySchema,
     isSameFileIdentity,
     readFileIdentity,
     type IFileIdentity,
@@ -138,12 +139,6 @@ export async function removeManagedScratchTempDir(
 
 const absolutePathSchema = v.pipe(v.string(), v.check(isAbsolute));
 const tempPathSchema = v.pipe(absolutePathSchema, v.check(path => MANAGED_SCRATCH_TEMP_NAME_PATTERN.test(basename(path))));
-const fileIdentitySchema = v.object({
-    dev: v.number(),
-    ino: v.number(),
-    size: v.number(),
-    mtimeMs: v.number(),
-});
 
 // One line per record. Each entry is written before the file it names is
 // created or replaced, so a crash leaves it for the next startup sweep. A null

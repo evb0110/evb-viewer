@@ -460,8 +460,7 @@ describe('image export', () => {
             await rm(sourcePath, { force: true });
         });
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, { force: true });
+            await realFs.rename(sourcePath, targetPath);
         });
         mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
             if (command === '/mock/qpdf' && args[0] === '--show-npages') {
@@ -1474,8 +1473,7 @@ describe('image export', () => {
         await writeFile(secondStagedPath, 'page two');
         const abortController = new AbortController();
         mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
-            await writeFile(target, await readFile(source));
-            await rm(source);
+            await realFs.rename(source, target);
             if (source === (cancelAfterPage === 1 ? firstStagedPath : secondStagedPath)) {
                 abortController.abort();
             }
@@ -1911,8 +1909,7 @@ describe('image export', () => {
                 throw new Error('second promotion failed');
             }
 
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, { force: true });
+            await realFs.rename(sourcePath, targetPath);
         });
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
@@ -1941,8 +1938,7 @@ describe('image export', () => {
             if (sourcePath === `${firstTargetPath}.tmp`) {
                 throw new Error('first restore failed');
             }
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, {force: true});
+            await realFs.rename(sourcePath, targetPath);
         });
 
         const failure = await promoteStagedFiles([
@@ -2002,8 +1998,7 @@ describe('image export', () => {
             if (sourcePath === secondStagedPath) {
                 throw new Error('second promotion failed');
             }
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, {force: true});
+            await realFs.rename(sourcePath, targetPath);
         });
 
         await expect(promoteStagedFiles([
@@ -2018,6 +2013,43 @@ describe('image export', () => {
         ])).rejects.toThrow('second promotion failed');
 
         expect(await readFile(firstTargetPath, 'utf8')).toBe('concurrent-first');
+    });
+
+    it('keeps a file another program saves over a published image when a later promotion fails', async () => {
+        const firstTargetPath = join(tempDir, 'external-first.png');
+        const secondTargetPath = join(tempDir, 'external-second.png');
+        const firstStagedPath = join(tempDir, 'external-first.staged');
+        const secondStagedPath = join(tempDir, 'external-second.staged');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(firstStagedPath, 'new-first'),
+            writeFile(secondStagedPath, 'new-second'),
+        ]);
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (sourcePath === secondStagedPath) {
+                throw new Error('second promotion failed');
+            }
+            await realFs.rename(sourcePath, targetPath);
+            if (sourcePath === firstStagedPath) {
+                // Another program saves its own file over the image the export has just published.
+                await writeFile(join(tempDir, 'external.part'), 'external-first');
+                await realFs.rename(join(tempDir, 'external.part'), targetPath);
+            }
+        });
+
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: firstStagedPath,
+                targetPath: firstTargetPath,
+            },
+            {
+                stagedPath: secondStagedPath,
+                targetPath: secondTargetPath,
+            },
+        ])).rejects.toThrow();
+
+        expect(await readFile(firstTargetPath, 'utf8')).toBe('external-first');
+        expect(await readFile(join(tempDir, 'external-first (original).png'), 'utf8')).toBe('old-first');
     });
 
     it('keeps an existing image target when source validation fails before promotion', async () => {
