@@ -54,7 +54,6 @@ export {
     assembleSearchablePageText,
     assembleSearchablePageTextItems,
     collapseRepeatedPdfSearchPageText,
-    escapeSearchRegex,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
     mapAssembledSearchablePageTextRange,
