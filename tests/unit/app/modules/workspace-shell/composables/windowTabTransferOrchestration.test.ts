@@ -283,6 +283,89 @@ describe('window tab transfer orchestration helpers', () => {
         expect(tracker.has('source')).toBe(false);
     });
 
+    it.each([
+        'waits for its source to open',
+        'completes its accepted text',
+    ] as const)('writes no notes once a move times out while it %s', async (stage) => {
+        vi.useFakeTimers();
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        onTestFinished(() => {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        });
+        const failures: string[] = [];
+        const source = createWorkspaceDocumentController({
+            tabId: 'source',
+            reportFailure: failure => failures.push(failure.message),
+        });
+        const path = requireDocumentRef('/docs/source.pdf');
+        source.commitDocument({
+            fileName: 'source.pdf',
+            originalPath: path,
+            isDjvu: false,
+            revisionInfo: null,
+        });
+        if (stage === 'waits for its source to open') {
+            source.claimOpen({
+                kind: 'restore',
+                target: {
+                    fileName: 'source.pdf',
+                    originalPath: path,
+                    isDjvu: false,
+                },
+            });
+        }
+        const held = Promise.withResolvers<undefined>();
+        // Preparing a move completes accepted text, then writes the document's
+        // notes, which makes it dirty.
+        source.bindMutationFrontier(() => 'frontier', async (assertCurrent) => {
+            if (stage === 'completes its accepted text') {
+                await held.promise.then(assertCurrent);
+            }
+            source.setDirty(true);
+        }, async () => {});
+        source.attachWorkspace('source', createWorkspaceExposeFixture({waitForDocumentOpenSettled: () => held.promise}));
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'source',
+            tabIds: ['source'],
+        };
+        const tabs = ref<ITab[]>([{id: 'source'}]);
+        const transfers = useWindowTabTransfers({
+            activePaneId: ref<string | null>(pane.paneId),
+            panes: ref([pane]),
+            tabs,
+            layout: ref(null),
+            createTab: () => {throw new Error('No incoming tab');},
+            getPaneById: () => pane,
+            getTabById: id => tabs.value.find(tab => tab.id === id) ?? null,
+            getPaneByTabId: () => pane,
+            activatePane: () => undefined,
+            activateTab: () => undefined,
+            removeTabFromState: () => undefined,
+            cleanupEmptyPanes: () => undefined,
+            closeTabInState: () => undefined,
+            documentSessions: cast({getSession: (id: string) => (id === 'source' ? source : null)}),
+            workspaceRestoreTracker: {
+                start: () => undefined,
+                finish: () => undefined,
+            },
+            handleCloseTab: async () => undefined,
+            handoffActiveTabBeforeClose: async () => undefined,
+        });
+
+        const moving = transfers.moveTabToNewWindow('source');
+        await vi.advanceTimersByTimeAsync(4_000);
+        await moving;
+        expect(failures).toEqual(['tabs.transferErrors.rolledBack']);
+        expect(source.operationLease.isBusy.value).toBe(false);
+
+        held.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(source.snapshot.value.dirty).toBe(false);
+    });
+
     it('rejects each failed target without making another transfer wait for its mount', async () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         onTestFinished(() => {

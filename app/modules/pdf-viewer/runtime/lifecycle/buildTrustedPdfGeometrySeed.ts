@@ -6,9 +6,6 @@ import type { IPdfPageMetric } from '@app/types/pdfUi';
 export function buildTrustedPdfGeometrySeed(input: {
     pageNumber: TPageNumber;
     pageCount: number;
-    width?: number;
-    height?: number;
-    rotation?: number;
     pages?: NonNullable<IDocumentOpenSurfaceSnapshot['openingPageGeometry']>['pages'];
 }) {
     if (

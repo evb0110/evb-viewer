@@ -86,8 +86,24 @@ impl BookmarkDestinationKind {
         }
     }
 
-    pub fn pdf_name(self) -> Vec<u8> {
-        serde_json::json!(self).as_str().unwrap_or_default().into()
+    pub fn pdf_name(self) -> &'static [u8] {
+        match self {
+            Self::XYZ => b"XYZ",
+            Self::Fit => b"Fit",
+            Self::FitH => b"FitH",
+            Self::FitV => b"FitV",
+            Self::FitR => b"FitR",
+            Self::FitB => b"FitB",
+            Self::FitBH => b"FitBH",
+            Self::FitBV => b"FitBV",
+        }
+    }
+
+    pub fn from_pdf_name(name: &[u8]) -> Option<Self> {
+        use BookmarkDestinationKind::*;
+        [XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV]
+            .into_iter()
+            .find(|kind| kind.pdf_name() == name)
     }
 }
 
@@ -416,15 +432,24 @@ where
     .deserialize(deserializer)
 }
 
-pub fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
+fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
     value.max(min).min(max)
 }
 
-pub fn normalize_page_label_style(style: Option<&str>) -> Option<String> {
+fn normalize_page_label_style(style: Option<&str>) -> Option<String> {
     match style {
         Some("D" | "R" | "r" | "A" | "a") => style.map(ToOwned::to_owned),
         Some(_) => Some("D".to_string()),
         None => None,
+    }
+}
+
+pub fn normalize_page_label_range(range: &PageLabelRange, total_pages: u32) -> PageLabelRange {
+    PageLabelRange {
+        start_page: clamp_u32(range.start_page.max(1), 1, total_pages),
+        style: normalize_page_label_style(range.style.as_deref()),
+        prefix: range.prefix.clone(),
+        start_number: range.start_number.max(1),
     }
 }
 
@@ -438,16 +463,8 @@ pub fn normalize_page_label_ranges(
 
     let mut deduped = std::collections::BTreeMap::new();
     for range in ranges {
-        let start_page = clamp_u32(range.start_page.max(1), 1, total_pages);
-        deduped.insert(
-            start_page,
-            PageLabelRange {
-                start_page,
-                style: normalize_page_label_style(range.style.as_deref()),
-                prefix: range.prefix.clone(),
-                start_number: range.start_number.max(1),
-            },
-        );
+        let normalized = normalize_page_label_range(range, total_pages);
+        deduped.insert(normalized.start_page, normalized);
     }
     deduped.entry(1).or_insert_with(|| PageLabelRange {
         start_page: 1,

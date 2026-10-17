@@ -322,6 +322,9 @@ describe('recent history and retained PDF tabs', () => {
             const before = await readViewportPageObservation(session.page);
             await activate(a);
             await waitForToolbarCurrentPage(session.page, 27);
+            const closingTabId = await session.page.$eval('.editor-pane.is-active .tab.is-active[data-tab-id]', tab => (
+                (tab as HTMLElement).dataset.tabId!
+            ));
             await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
             if (dirty) {
                 await clickFoundAsUser(session.page, () => Array.from(
@@ -329,6 +332,9 @@ describe('recent history and retained PDF tabs', () => {
                 ).find(button => button.textContent?.trim() === 'Save changes'),
                 null, {description: 'save changes and close'});
             }
+            // Closing saves, empties the tab and tears its document down before
+            // it removes the tab, so the tab's removal is where the close ends.
+            await session.page.waitForSelector(`.tab[data-tab-id="${closingTabId}"]`, {hidden: true});
             await expect.poll(() => session.page.$$eval('.tab[data-tab-id]', tabs => tabs.map(tab => tab.textContent)))
                 .toEqual([basename(b)]);
             await waitForPdfLoaded(session.page);

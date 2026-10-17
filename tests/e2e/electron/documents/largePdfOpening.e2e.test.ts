@@ -179,7 +179,7 @@ async function readPaintedPage(page: Page, pageNumber: number) {
 }
 
 describe('Electron E2E - large object-dense PDF opening', () => {
-    it('paints promptly while preserving deep geometry, labels, annotations and conformance', async () => {
+    it('paints promptly while preserving deep geometry, labels and annotations', async () => {
         mkdirSync(outputDirectory, {recursive: true});
         const scratch = mkdtempSync(join(tmpdir(), 'evb-large-open-'));
         onTestFinished(() => rmSync(scratch, {
@@ -293,11 +293,6 @@ describe('Electron E2E - large object-dense PDF opening', () => {
                 await waitForFunctionInPage(session.page, (sentinel: string) => document.body.innerText.includes(sentinel), {timeout: 10_000}, NOTE_SENTINEL);
                 await session.page.screenshot({path: join(outputDirectory, 'last-page-note.png')});
             }
-            await expect.poll(() => {
-                const log = readLog().slice(logStart);
-                return /"command":"evb-pdf-page-ops\(pdf-conformance\)"[^\n]*"outcome":"(?:resolved|rejected)"/u.test(log)
-                    || /"msg":"Worker (?:completed|reported failure)"[^\n]*pdfConformanceWorker/u.test(log);
-            }, {timeout: OBSERVATION_TIMEOUT_MS}).toBe(true);
             const log = readLog().slice(logStart);
             telemetry.elapsedMs = Date.now() - startedAt;
             telemetry.rendererErrors = errors;

@@ -36,10 +36,7 @@ import {
 } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
-import {
-    aggregateErrorsKeepingUnprovenTermination,
-    getUnprovenNativeTerminationDetail,
-} from '@electron/utils/nativeTerminationProof';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 const ALLOWED_READ_EXTENSIONS = new Set([
     '.json',
@@ -446,7 +443,7 @@ export async function withContentReadLease<T>(
         try {
             await lease.release(retain(), error);
         } catch (closeError) {
-            if (closeError !== error) throw aggregateErrorsKeepingUnprovenTermination(
+            if (closeError !== error) throw new AggregateError(
                 [
                     error,
                     closeError,
@@ -560,7 +557,7 @@ export function resolveOriginalBackedReadTransport(
                         await assertOriginalBackingSnapshot(backing);
                     } catch (snapshotError) {
                         if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
-                        throw aggregateErrorsKeepingUnprovenTermination(
+                        throw new AggregateError(
                             [
                                 error,
                                 snapshotError,

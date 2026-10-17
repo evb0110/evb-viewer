@@ -10,7 +10,10 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
-import { reconcileVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import {
+    markVisualMatchesWithCurrent,
+    reconcileVisualMatches,
+} from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import {
     clearTextLayerTextMapping,
@@ -21,6 +24,7 @@ import {
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import type { IAssembledSearchablePageText } from '@contracts/search';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import {
     assembleSearchablePageText, findPdfSearchMatches,
@@ -35,6 +39,15 @@ vi.mock('@app/platform/browser-api/public', () => ({matchBrowserSearchPageWindow
     maxMatches,
     resultOffset,
 ]: Parameters<typeof matchPdfSearchPageWindow>) => matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset))}));
+
+async function reconcileVisualMatchesWithCurrent(
+    pageMatches: IPdfPageMatches,
+    currentMatch: IPdfSearchMatch | null,
+    layerText: string,
+    assembledLayerText?: IAssembledSearchablePageText,
+) {
+    return markVisualMatchesWithCurrent(await reconcileVisualMatches(pageMatches, layerText, assembledLayerText), pageMatches, currentMatch);
+}
 
 describe('usePdfSearchHighlight', () => {
     it('bounds drifted visual matches to the supplied window and preserves a later page ordinal', async () => {

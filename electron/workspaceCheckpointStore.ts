@@ -28,7 +28,10 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {isErrnoException} from '@contracts/runtimeGuards';
-import { writeJsonAtomic } from '@electron/utils/atomicReplace';
+import {
+    recoverWindowsAtomicReplace,
+    writeJsonAtomic,
+} from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
@@ -45,10 +48,6 @@ import {
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
-import {
-    isWorkingCopyMaterializationWithheld,
-    withholdWorkingCopyMaterialization,
-} from '@electron/file-access/withheldWorkingCopies';
 import {repairEndedTransition} from '@electron/file-access/documentRevisionStore';
 import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {
@@ -178,6 +177,8 @@ const storedJournalSchema = v.union([
     }))),
 ]);
 type IStoredWorkspaceJournal = v.InferOutput<typeof storedJournalSchema>;
+const storedCheckpointFileSchema = v.pipe(v.string(), v.parseJson(), storedCheckpointSchema);
+const storedJournalFileSchema = v.pipe(v.string(), v.parseJson(), storedJournalSchema);
 
 const WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS = 500;
 
@@ -219,13 +220,11 @@ const restoresInFlight = new Map<string, {
 class WorkspaceCheckpointReadError extends Error {
     public readonly code = 'WORKSPACE_CHECKPOINT_READ_FAILED' as const;
     public readonly checkpointPath: string;
-    public override readonly cause: unknown;
 
     public constructor(checkpointPath: string, cause: unknown) {
-        super(`Workspace checkpoint could not be read: ${checkpointPath}`);
+        super(`Workspace checkpoint could not be read: ${checkpointPath}`, {cause});
         this.name = 'WorkspaceCheckpointReadError';
         this.checkpointPath = checkpointPath;
-        this.cause = cause;
     }
 }
 
@@ -275,16 +274,10 @@ async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotatio
 }
 
 function getAnnotationRecoveryRefs(checkpoint: IWorkspaceCheckpoint | null) {
-    if (!checkpoint) {
-        return [];
-    }
-    return checkpoint.tabs.flatMap(tab => tab.annotationRecovery ? [tab.annotationRecovery] : []);
+    return checkpoint?.tabs.flatMap(tab => tab.annotationRecovery ? [tab.annotationRecovery] : []) ?? [];
 }
 
 async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoint | null) {
-    if (!checkpoint) {
-        return;
-    }
     await Promise.all(getAnnotationRecoveryRefs(checkpoint).map(ref => (
         rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})
     )));
@@ -295,13 +288,13 @@ async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoin
 // ended, the claims its identity still holds came from the ended load, so the
 // new load takes that session over instead of finding it held. A repeated
 // claim within one load keeps its claim, so a checkpoint is delivered once.
-function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | null {
-    const result = v.safeParse(storedCheckpointSchema, value, {abortEarly: true});
+function decodeStoredCheckpoint(raw: string): IStoredWorkspaceCheckpoint | null {
+    const result = v.safeParse(storedCheckpointFileSchema, raw, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
-function decodeStoredJournal(value: unknown): IStoredWorkspaceJournal | null {
-    const result = v.safeParse(storedJournalSchema, value, {abortEarly: true});
+function decodeStoredJournal(raw: string): IStoredWorkspaceJournal | null {
+    const result = v.safeParse(storedJournalFileSchema, raw, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
@@ -318,7 +311,7 @@ function collectWorkingCopies(
             continue;
         }
         // A withheld stand-in is recorded as the missing copy it stands for, so a start that finds the copy recovers it.
-        const missing = isWorkingCopyMaterializationWithheld(workingCopyRef, ownerWebContentsId);
+        const missing = entry.withheld === true;
         const recorded = {
             ...(entry.admissionSnapshot && !missing ? {admissionSnapshot: {
                 mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
@@ -686,12 +679,7 @@ async function migrateLegacyJournal() {
         blockStaleWorkingCopyDirectoryCleanup(`workspace checkpoint read failed at ${getLegacyJournalPath()}`);
         throw new WorkspaceCheckpointReadError(getLegacyJournalPath(), error);
     }
-    let journal: IStoredWorkspaceJournal | null = null;
-    try {
-        journal = decodeStoredJournal(JSON.parse(raw));
-    } catch {
-        journal = null;
-    }
+    const journal = decodeStoredJournal(raw);
     if (!journal) {
         await quarantineCorruptWorkspaceCheckpoint(getLegacyJournalPath(), 'schema decode returned no checkpoint');
     } else {
@@ -718,12 +706,7 @@ async function readRecordFile(recoveryId: string): Promise<IStoredWorkspaceCheck
         });
         throw new WorkspaceCheckpointReadError(path, error);
     }
-    let record: IStoredWorkspaceCheckpoint | null = null;
-    try {
-        record = decodeStoredCheckpoint(JSON.parse(raw));
-    } catch {
-        record = null;
-    }
+    const record = decodeStoredCheckpoint(raw);
     if (!record) {
         await quarantineCorruptWorkspaceCheckpoint(path, 'schema decode returned no checkpoint');
         return null;
@@ -773,12 +756,7 @@ function readDurableRecordForSave(recoveryId: string) {
         }
         throw new WorkspaceCheckpointReadError(getRecordPath(recoveryId), error);
     }
-    let record: IStoredWorkspaceCheckpoint | null;
-    try {
-        record = decodeStoredCheckpoint(JSON.parse(raw));
-    } catch (error) {
-        throw new WorkspaceCheckpointReadError(getRecordPath(recoveryId), error);
-    }
+    const record = decodeStoredCheckpoint(raw);
     if (!record) {
         throw new WorkspaceCheckpointReadError(
             getRecordPath(recoveryId),
@@ -1194,9 +1172,16 @@ export async function claimWorkspaceCheckpoint(
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                // A dirty tab's unsaved bytes live only in its working copy, which is missing when, for example, a
-                // roaming profile came without it. The tab reads its original in the copy's place, withheld.
-                const standIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty && !existsSync(tab.workingCopyRef)
+                // A dirty tab's unsaved bytes live only in its working copy, which a Windows replace a crash cut short
+                // may have left under its backup name, so that replace is undone first. A copy still missing (a roaming
+                // profile came without it, say) leaves the tab reading its original instead, withheld.
+                const mayStandIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty;
+                if (mayStandIn) {
+                    await recoverWindowsAtomicReplace(tab.workingCopyRef).catch((error: unknown) => {
+                        log.warn(`Could not undo a restored working copy's interrupted replace: ${getErrorMessage(error)}`);
+                    });
+                }
+                const standIn = mayStandIn && !existsSync(tab.workingCopyRef)
                     ? await captureWorkingCopyAdmissionSnapshot(storedWorkingCopy.originalPath).catch(() => null)
                     : null;
                 const lazyOriginal = lazyWorkingCopy ?? (standIn ? {
@@ -1217,9 +1202,9 @@ export async function claimWorkspaceCheckpoint(
                         deferOriginalFileExpectation: true,
                         ...(registered.originalFileExpectation ? {originalFileExpectation: registered.originalFileExpectation} : {}),
                         role: registered.role,
+                        withheld: standIn !== null,
                     });
                     const restoredEntry = getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId);
-                    if (standIn && restoredEntry) withholdWorkingCopyMaterialization(tab.workingCopyRef, restoredEntry.registrationId);
                     if (registered.sourceBackingErrorCode && restoredEntry) {
                         transitionWorkingCopyBackingState(tab.workingCopyRef, restoredEntry.registrationId, registered.backingState, {sourceBackingErrorCode: registered.sourceBackingErrorCode});
                     }
@@ -1240,7 +1225,7 @@ export async function claimWorkspaceCheckpoint(
                 log.warn(`Could not finish an interrupted save of a restored document: ${getErrorMessage(error)}`);
             }));
             const keptOriginalPath = tab.sourceRef && await findKeptOriginal(tab.sourceRef);
-            const workingCopyLost = tab.workingCopyRef !== null && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, newOwnerWebContentsId);
+            const workingCopyLost = tab.workingCopyRef !== null && getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId)?.withheld === true;
             return {
                 ...tab,
                 ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
@@ -1309,7 +1294,10 @@ export function acknowledgeWorkspaceCheckpoint(
         }
         restoresInFlight.delete(ownerRecoveryId);
         const record = await readRecordFile(ownerRecoveryId);
-        if (record && !record.checkpoint.tabs.some(tab => tab.workingCopyRef && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, ownerWebContentsId))) {
+        const holdsStandIn = record?.checkpoint.tabs.some(tab => (
+            tab.workingCopyRef !== null && getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId)?.withheld === true
+        ));
+        if (record && !holdsStandIn) {
             await removeRecordAndArtifacts(ownerRecoveryId, record);
         }
         return record !== null;

@@ -13,7 +13,6 @@ import {
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     createMainJobRegistry,
-    type IMainJobHandle,
     type TMainJobErrorKind,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import {
@@ -47,8 +46,6 @@ export interface ISearchJobRequest extends ISearchQueryOptions {
     resolveDocument: (signal: AbortSignal) => Promise<ISearchIndexedDocument>;
 }
 
-type TSearchJobHandle = IMainJobHandle<IPdfSearchProgress, IPdfSearchResponse, ISearchErrorEnvelope>;
-
 function toSearchRegistryError(cause: unknown, kind: TMainJobErrorKind) {
     if (isSearchErrorEnvelope(cause)) {
         return cause;
@@ -64,9 +61,9 @@ function getSearchPdfPathKey(pdfPath: string) {
 }
 
 /**
- * Runs document searches as main jobs: one job per request, progress and
- * cancellation through the job registry, and a newer search from the same
- * renderer superseding the older one.
+ * Runs document searches as main jobs: one job per request, with progress and
+ * cancellation through the job registry. Split panes share one renderer, so a
+ * search ends only through its own request or its document's revision moving on.
  */
 export function createSearchService() {
     const replay = SEARCH_PLATFORM_FEATURE.events.onProgress.subscription.replay;
@@ -105,10 +102,7 @@ export function createSearchService() {
             }),
         },
     });
-    const activeSearchBySender = new Map<number, TSearchJobHandle>();
-
     async function runSearch(context: ISearchSenderContext, request: ISearchJobRequest) {
-        const senderId = context.senderId ?? context.sender.id;
         const requestId = request.requestId ?? createRequestId(request.requestIdPrefix);
         const total = request.pageCount ?? 0;
         const handle = jobs.start({
@@ -118,10 +112,11 @@ export function createSearchService() {
                 kind: 'abortable-work',
                 ...(request.workingCopyPath ? {workingCopyPath: request.workingCopyPath} : {}),
             },
+            // A page that goes away keeps no reader for its results; a shared index build continues.
             ownerLifecycle: {
-                destroyed: 'detach',
-                renderProcessGone: 'detach',
-                mainFrameNavigation: 'detach',
+                destroyed: 'cancel',
+                renderProcessGone: 'cancel',
+                mainFrameNavigation: 'cancel',
             },
             initialProgress: {
                 requestId,
@@ -168,16 +163,6 @@ export function createSearchService() {
                 };
             },
         });
-        if (!request.warmup) {
-            const previous = activeSearchBySender.get(senderId);
-            activeSearchBySender.set(senderId, handle);
-            previous?.cancel('Superseded by a newer search request');
-            void handle.settled.finally(() => {
-                if (activeSearchBySender.get(senderId) === handle) {
-                    activeSearchBySender.delete(senderId);
-                }
-            });
-        }
         const terminal = await handle.terminal;
         if (terminal.status === 'completed') {
             return terminal.result;
@@ -197,10 +182,11 @@ export function createSearchService() {
         subscribeProgress(context: ISearchSenderContext) {
             jobs.subscribeOwner({sender: context.sender});
         },
+        /** Without a request id, cancels every search the renderer still runs. */
         cancel(context: ISearchSenderContext, requestId?: TRequestId) {
-            const targetRequestId = requestId ?? activeSearchBySender.get(context.senderId ?? context.sender.id)?.jobId;
-            return {canceled: targetRequestId !== undefined
-                    && jobs.cancel(targetRequestId, {sender: context.sender}, 'explicit cancel request')};
+            return {canceled: requestId === undefined
+                ? jobs.cancelWhere(snapshot => snapshot.owner.webContentsId === context.sender.id, 'explicit cancel request') > 0
+                : jobs.cancel(requestId, {sender: context.sender}, 'explicit cancel request')};
         },
         /** Cancels searches and index builds for a document whose revision moved on. */
         cancelRequestsForPdfPath(pdfPath: string, reason: string) {

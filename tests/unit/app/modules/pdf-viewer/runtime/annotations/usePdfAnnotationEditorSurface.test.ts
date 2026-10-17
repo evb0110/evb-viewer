@@ -584,6 +584,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             onHistoryReplay: () => {},
             commitPendingDraftsForSave: surface.commitPendingTextBoxDraftsForSave,
             getPendingTextCompletion: surface.getPendingTextCompletion,
+            isEditing: annotationId => surface.editingId.value === annotationId,
             getTextBoxDraftRect: () => null,
         });
         const box = left.createTextBoxAt(0, rect, {text: 'Original'});
@@ -658,7 +659,31 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
     });
 
-    it('rejects font and geometry together when text cannot fit the page', () => {
+    it('lets the native fit admit a resting text box size the browser cannot grow into', async () => {
+        const {
+            surface,
+            annotationApplication,
+        } = createSurfaceHarness({fitTextBox: async (_entity, proposal) => ({
+            rect: proposal.rect,
+            fontSize: 40,
+        })});
+        const box = surface.createTextBoxAt(0, rect);
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+            fitTextBox: () => null,
+        });
+        surface.select([box.identity.id]);
+        await expect(surface.updateSelectedAnnotationProperties({fontSize: 72})).resolves.toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            fontSize: 40,
+            rect,
+        });
+    });
+
+    it('rejects font and geometry together when the open editor text cannot fit the page', async () => {
         const {
             surface,
             annotationApplication,
@@ -673,6 +698,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             fitTextBox: () => null,
         });
         surface.select([box.identity.id]);
+        await surface.beginTextEditing(box.identity.id);
         emitAnnotationModified.mockClear();
         expect(surface.updateSelectedAnnotationProperties({fontSize: 72})).toBe(false);
         expect(annotationApplication.value.store.get(box.identity.id)).toEqual(box);
@@ -1308,12 +1334,6 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.surface.setTextBoxDraftPending(annotationId);
         expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(true);
 
-        harness.surface.clearTextBoxDraftPending(annotationId);
-        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
-        harness.surface.clearTextBoxDraftPending(annotationId);
-        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
-
-        harness.surface.setTextBoxDraftPending(annotationId);
         harness.annotationApplication.value = new AnnotationApplication('surface-next-document');
         expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
 
@@ -1349,8 +1369,6 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(harness.surface.discardUnsavedAnnotation(discarded.identity.id)).toBe(true);
         expect(harness.surface.hasTextBoxDraftPending(discarded.identity.id)).toBe(false);
         expect(harness.surface.hasTextBoxDraftPending(discardUnrelated.identity.id)).toBe(true);
-        harness.surface.clearTextBoxDraftPending(discardUnrelated.identity.id);
-        expect(harness.surface.hasTextBoxDraftPending(discardUnrelated.identity.id)).toBe(false);
 
         const deleted = createTextBox('deleted-pending-text-box');
         const deleteUnrelated = createTextBox('delete-unrelated-pending-text-box');
@@ -1359,8 +1377,6 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(harness.surface.deleteAnnotation(deleted.identity.id)).toBe(true);
         expect(harness.surface.hasTextBoxDraftPending(deleted.identity.id)).toBe(false);
         expect(harness.surface.hasTextBoxDraftPending(deleteUnrelated.identity.id)).toBe(true);
-        harness.surface.clearTextBoxDraftPending(deleteUnrelated.identity.id);
-        expect(harness.surface.hasTextBoxDraftPending(deleteUnrelated.identity.id)).toBe(false);
 
         const selected = createTextBox('selection-pending-text-box');
         const selectionUnrelated = createTextBox('selection-unrelated-pending-text-box');
@@ -1370,8 +1386,6 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.surface.deleteSelection();
         expect(harness.surface.hasTextBoxDraftPending(selected.identity.id)).toBe(false);
         expect(harness.surface.hasTextBoxDraftPending(selectionUnrelated.identity.id)).toBe(true);
-        harness.surface.clearTextBoxDraftPending(selectionUnrelated.identity.id);
-        expect(harness.surface.hasTextBoxDraftPending(selectionUnrelated.identity.id)).toBe(false);
 
         harness.stop();
     });

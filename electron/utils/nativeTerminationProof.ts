@@ -24,23 +24,17 @@ export function markUnprovenNativeTermination<T>(error: T, detail: string): T {
     return error;
 }
 
-export function getUnprovenNativeTerminationDetail(error: unknown) {
+// An AggregateError answers with the first mark among its members, so code that
+// cannot import this module, such as the scan-cleanup package, can join failures in one.
+export function getUnprovenNativeTerminationDetail(error: unknown): string | undefined {
     if (typeof error !== 'object' || error === null) {
         return undefined;
     }
     const detail = (error as IUnprovenNativeTerminationCarrier)[UNPROVEN_NATIVE_TERMINATION];
-    return typeof detail === 'string' ? detail : undefined;
-}
-
-// A wrapper that drops the mark would let a cleanup owner delete files a native writer still uses,
-// so every AggregateError built around failures goes through here and keeps the first mark among them.
-export function aggregateErrorsKeepingUnprovenTermination(errors: readonly unknown[], message: string) {
-    const aggregate = new AggregateError(errors, message);
-    for (const error of errors) {
-        const detail = getUnprovenNativeTerminationDetail(error);
-        if (detail !== undefined) {
-            return markUnprovenNativeTermination(aggregate, detail);
-        }
+    if (typeof detail === 'string') {
+        return detail;
     }
-    return aggregate;
+    return error instanceof AggregateError
+        ? error.errors.map(getUnprovenNativeTerminationDetail).find(memberDetail => memberDetail !== undefined)
+        : undefined;
 }

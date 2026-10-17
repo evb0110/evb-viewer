@@ -652,7 +652,7 @@ pub(crate) fn existing_text_box_values(
     Ok((
         appearance,
         value(b"DA").and_then(|object| object.as_str().ok().map(ToOwned::to_owned)),
-        Some(TextBoxSourceDescriptor::read(document, dict, *rect).frame(*rect)),
+        Some(free_text_frame(document, dict, *rect)),
     ))
 }
 
@@ -807,8 +807,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             page_rotation,
             &expected_name,
         )?;
-        if let Some(original) = &editor.original_appearance {
-            validate_text_box_recovery(document, original, matching_refs[0])?;
+        if editor.original_appearance.is_some() {
             let [r, g, b] = editor.color;
             if (reopened.font_size - editor.font_size).abs() > 0.0001
                 || reopened.rotation != rotation

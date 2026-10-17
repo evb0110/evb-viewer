@@ -237,33 +237,42 @@ export class BrowserWorkerClient<
     }
 }
 
-/** Admission and cancellation for synchronous engines, one request per worker. */
+/**
+ * Admission and cancellation for synchronous engines, one request per worker.
+ * Each slot keeps its worker until the worker's idle lifetime ends.
+ */
 export class BrowserWorkerRequestOwner<TPendingRequest extends {
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }> {
-    private readonly primary: BrowserWorkerClient<TPendingRequest>;
+    private readonly clients: Array<BrowserWorkerClient<TPendingRequest>>;
     private readonly lifecycle = new BrowserWorkerClientLifecycle();
     private readonly requests = new Map<number, {
         client: BrowserWorkerClient<TPendingRequest> | null;
         start: (client: BrowserWorkerClient<TPendingRequest>) => void;
         reject: (error: Error) => void;
     }>();
-    private readonly concurrency = Math.min(2, Math.max(1, Math.floor(
-        (typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2,
-    )));
 
-    public constructor(private readonly createClient: () => BrowserWorkerClient<TPendingRequest>) {
-        this.primary = createClient();
+    public constructor(
+        createClient: () => BrowserWorkerClient<TPendingRequest>,
+        slots = Math.min(2, Math.max(1, Math.floor(
+            (typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2,
+        ))),
+    ) {
+        this.clients = Array.from({length: slots}, () => createClient());
+    }
+
+    public get waitingCount() {
+        return [...this.requests.values()].filter(request => !request.client).length;
     }
 
     public createRequestId() {
-        return this.primary.createRequestId();
+        return this.clients[0]!.createRequestId();
     }
 
     public run<TResult>(
         requestId: number,
-        run: (client: BrowserWorkerClient<TPendingRequest>) => Promise<TResult>,
+        run: (client: BrowserWorkerClient<TPendingRequest>, isAdmitted: () => boolean) => Promise<TResult>,
     ): Promise<TResult> {
         const request: {
             client: BrowserWorkerClient<TPendingRequest> | null;
@@ -279,7 +288,9 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             request.start = client => {
                 request.client = client;
                 try {
-                    void run(client).then(resolve, reject);
+                    // A reset or cancellation frees the entry; a run that resumes
+                    // after one reads that before it starts more work.
+                    void run(client, () => this.requests.get(requestId) === request).then(resolve, reject);
                 } catch (error) {
                     reject(error);
                 }
@@ -289,7 +300,6 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             this.admitWaitingRequests();
         });
         return promise.finally(() => {
-            if (request.client && request.client !== this.primary) request.client.resetWorker();
             this.requests.delete(requestId);
             if (this.requests.size === 0) this.lifecycle.clear();
             this.admitWaitingRequests();
@@ -324,8 +334,8 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         const admitted = [...this.requests.values()].flatMap(entry => entry.client ? [entry.client] : []);
         for (const request of this.requests.values()) {
             if (request.client) continue;
-            if (admitted.length >= this.concurrency) return;
-            const client = admitted.includes(this.primary) ? this.createClient() : this.primary;
+            const client = this.clients.find(candidate => !admitted.includes(candidate));
+            if (!client) return;
             request.start(client);
             admitted.push(client);
         }

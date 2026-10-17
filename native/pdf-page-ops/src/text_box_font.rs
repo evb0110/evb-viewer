@@ -40,16 +40,30 @@ fn face() -> FontRef<'static> {
 }
 
 fn invisible(character: char) -> bool {
-    matches!(character, '\n' | '\r' | '\t' | '\u{00ad}' | '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}')
+    matches!(
+        character,
+        '\n' | '\r'
+            | '\t'
+            | '\u{00ad}'
+            | '\u{061c}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{fe00}'..='\u{fe0f}'
+            | '\u{feff}'
+    )
 }
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
-    let fonts = FONTS.map(|bytes| FontRef::from_index(bytes, 0).expect("bundled font"));
-    for character in text.chars().filter(|c| !invisible(*c)) {
-        let covered = fonts
+    let faces = FONTS.map(|p| (FontRef::from_index(p, 0).unwrap(), face_range(p)));
+    for cluster in unicode_segmentation::UnicodeSegmentation::graphemes(text, true) {
+        let drawn = faces
             .iter()
-            .any(|font| font.charmap().map(character).is_some());
-        if character.is_control() || !covered {
+            .any(|(f, r)| text_layout::claims(f, *r, cluster));
+        let refused = cluster.chars().find(|c| {
+            c.is_control() && !invisible(*c) || !drawn && !text_layout::covers(&face(), *c)
+        });
+        if let Some(character) = refused {
             return Err(format!(
                 "Text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support U+{:04X}",
                 u32::from(character)
@@ -76,9 +90,10 @@ pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts, Line};
 mod text_font_program;
 pub(crate) use text_font_program::simple_font_advances;
 
-/// Fonts shared by the text boxes of one save. Each appearance names the
-/// subsets it draws with; `embed` then writes one subset per program with the
-/// glyphs of every appearance, and widths and Unicode mappings for those only.
+/// Fonts shared by the text boxes of one save or the labels of one print job.
+/// Each appearance names the subsets it draws with; `embed` then writes one
+/// subset per program with the glyphs of every appearance, and widths and
+/// Unicode mappings for those only.
 #[derive(Default)]
 pub(crate) struct SharedFonts(BTreeMap<usize, (ObjectId, std::collections::BTreeSet<u16>)>);
 
@@ -115,17 +130,6 @@ impl SharedFonts {
         }
         Ok(())
     }
-}
-
-pub(crate) fn embed_fonts(
-    document: &mut Document,
-    lines: &[Line],
-    programs: &[&[u8]],
-) -> Result<Dictionary> {
-    let mut fonts = SharedFonts::default();
-    let resources = fonts.resources(document, lines);
-    fonts.embed(document, programs)?;
-    Ok(resources)
 }
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
@@ -206,7 +210,10 @@ pub(crate) fn write_editor_geometry(
     annotation.set(
         "EVBTextGeometry",
         dictionary! {
-            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation, "Rect" => stored,
+            "Version" => 1,
+            "Rotation" => rotation,
+            "PageRotation" => page_rotation,
+            "Rect" => stored,
         },
     );
 }
@@ -484,9 +491,12 @@ mod tests {
                     .unwrap();
                     let edited =
                         collect_parsed_annotations(&document, "D:20261010000100Z").unwrap();
-                    assert!(
-                        matches!(&edited[0], PdfAnnotationParseEntry::TextBox(value) if value.rect == parsed.rect && value.rotation == parsed.rotation && value.text.ends_with(" edited"))
-                    );
+                    let PdfAnnotationParseEntry::TextBox(value) = &edited[0] else {
+                        panic!("expected text box, got {:?}", edited[0]);
+                    };
+                    assert_eq!(value.rect, parsed.rect);
+                    assert_eq!(value.rotation, parsed.rotation);
+                    assert!(value.text.ends_with(" edited"));
                 }
             }
         }
@@ -504,13 +514,24 @@ mod tests {
         );
         for sample in expected["layouts"].as_array().unwrap() {
             let text = sample["input"].as_str().unwrap();
-            let lines: Vec<_> = layout(text, sample["width"].as_f64().unwrap(), 16.0)
-                .into_iter().map(|line| {
-                    let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
-                        serde_json::json!([glyph.font, glyph.id, glyph.x, glyph.y])
-                    }).collect();
-                    serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
-                }).collect();
+            let width = sample["width"].as_f64().unwrap();
+            let line_json = |line: Line| {
+                let glyphs: Vec<_> = line
+                    .glyphs
+                    .into_iter()
+                    .map(|glyph| serde_json::json!([glyph.font, glyph.id, glyph.x, glyph.y]))
+                    .collect();
+                serde_json::json!({
+                    "text": line.text,
+                    "width": line.width,
+                    "rtl": line.rtl,
+                    "glyphs": glyphs,
+                })
+            };
+            let lines: Vec<_> = layout(text, width, 16.0)
+                .into_iter()
+                .map(line_json)
+                .collect();
             // Parse both sides alike: serde_json's default float parsing is not exact.
             let lines: serde_json::Value =
                 serde_json::from_str(&serde_json::json!(lines).to_string()).unwrap();
@@ -565,23 +586,11 @@ mod tests {
             "../../../packages/contracts/annotationFontCoverage.json"
         ))
         .unwrap();
-        let expected: std::collections::BTreeSet<_> = contract["ranges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|range| range[0].as_u64().unwrap() as u32..=range[1].as_u64().unwrap() as u32)
-            .collect();
-        let actual: std::collections::BTreeSet<_> = FONTS
-            .into_iter()
-            .flat_map(|program| {
-                FontRef::from_index(program, 0)
-                    .unwrap()
-                    .charmap()
-                    .mappings()
-                    .map(|(codepoint, _)| codepoint)
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let ranges: Vec<[u32; 2]> = serde_json::from_value(contract["ranges"].clone()).unwrap();
+        let expected: std::collections::BTreeSet<_> =
+            ranges.iter().flat_map(|r| r[0]..=r[1]).collect();
+        let actual: std::collections::BTreeSet<_> =
+            face().charmap().mappings().map(|m| m.0).collect();
         assert_eq!(
             actual, expected,
             "regenerate coverage from the shipped font programs"

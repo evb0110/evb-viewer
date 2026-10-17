@@ -1,16 +1,22 @@
 use super::*;
+use std::borrow::Cow;
 
 pub(crate) const MAX_RECOVERY_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_RECOVERY_OBJECTS: usize = 1024;
 
 /// A bounded, native-owned snapshot lives in annotation undo history. No
 /// deleted content is added to the output PDF until the user restores it.
+/// Each reply keeps its page, as an offset from the note's page.
 pub(crate) fn capture_note_recovery(
     source: &impl PdfObjectSource,
-    root: ObjectId,
-    related_notes: &[ObjectId],
+    (root, page): (ObjectId, u64),
+    replies: &BTreeMap<ObjectId, u64>,
 ) -> Result<String> {
-    capture_annotation_recovery(source, root, related_notes, false, MAX_RECOVERY_BYTES)
+    let replies: Vec<_> = replies
+        .iter()
+        .map(|(&id, &at)| (id, at as i64 - page as i64))
+        .collect();
+    capture_annotation_recovery(source, root, &replies, false, MAX_RECOVERY_BYTES)
 }
 
 pub(crate) fn capture_text_box_recovery(
@@ -35,7 +41,7 @@ pub(crate) fn capture_text_box_recovery(
 fn capture_annotation_recovery(
     source: &impl PdfObjectSource,
     root: ObjectId,
-    related_notes: &[ObjectId],
+    related_notes: &[(ObjectId, i64)],
     appearance_only: bool,
     max_bytes: usize,
 ) -> Result<String> {
@@ -60,30 +66,28 @@ fn capture_annotation_recovery(
 fn capture_annotation_graph(
     source: &impl PdfObjectSource,
     root: ObjectId,
-    related_notes: &[ObjectId],
+    related_notes: &[(ObjectId, i64)],
     appearance_only: bool,
     max_bytes: usize,
     max_objects: usize,
     allow_unavailable: bool,
 ) -> Result<Document> {
-    // The parser already owns the page-local reply index. Visit only this
-    // note's descendants instead of rescanning every annotation per note.
+    // The parser already owns the document's reply index. Visit only this
+    // note's descendants instead of rescanning every annotation per note. A
+    // popup sits on its annotation's page.
     let mut annotation_refs = Vec::new();
     let mut annotation_seen = HashSet::new();
-    for id in std::iter::once(root).chain(related_notes.iter().copied()) {
-        if annotation_seen.insert(id) {
-            annotation_refs.push(id);
-        }
-        if let Some(popup) = (!appearance_only)
+    for (id, page) in std::iter::once((root, 0)).chain(related_notes.iter().copied()) {
+        let popup = (!appearance_only)
             .then(|| annotation_related_ref(source.dictionary(id).ok()?, b"Popup"))
-            .flatten()
-        {
-            if annotation_seen.insert(popup) {
-                annotation_refs.push(popup);
+            .flatten();
+        for id in std::iter::once(id).chain(popup) {
+            if annotation_seen.insert(id) {
+                annotation_refs.push((id, page));
             }
         }
     }
-    let mut pending = annotation_refs.to_vec();
+    let mut pending: Vec<_> = annotation_refs.iter().map(|(id, _)| *id).collect();
     let mut graph = Document::with_version("1.7");
     let mut budget = 0usize;
     while let Some(reference) = pending.pop() {
@@ -109,15 +113,11 @@ fn capture_annotation_graph(
         }
         let mut object = source_object.clone();
         if let Object::Dictionary(dict) = &mut object {
-            if matches!(
-                dict.get(b"Type")
-                    .ok()
-                    .and_then(|value| value.as_name().ok()),
-                Some(b"Page" | b"Pages" | b"Catalog")
-            ) {
+            let kind = dict.get(b"Type").and_then(Object::as_name);
+            if matches!(kind, Ok(b"Page" | b"Pages" | b"Catalog")) {
                 return Err("Note recovery graph crosses into the page tree".into());
             }
-            if annotation_refs.contains(&reference) {
+            if annotation_seen.contains(&reference) {
                 dict.remove(b"P");
             }
             if appearance_only && reference == root {
@@ -131,17 +131,31 @@ fn capture_annotation_graph(
         })?;
         graph.set_object(reference, object);
     }
+    let (annots, pages): (Vec<_>, Vec<_>) = annotation_refs
+        .into_iter()
+        .map(|(id, page)| (Object::Reference(id), Object::Integer(page)))
+        .unzip();
     graph.trailer.set("Root", Object::Reference(root));
-    graph.trailer.set(
-        "EVBAnnots",
-        Object::Array(
-            annotation_refs
-                .iter()
-                .map(|id| Object::Reference(*id))
-                .collect(),
-        ),
-    );
+    graph.trailer.set("EVBAnnots", annots);
+    graph.trailer.set("EVBPages", pages);
     Ok(graph)
+}
+
+/// Each recovered annotation and its page's offset from the root's page.
+fn recovery_members(graph: &Document) -> Result<Vec<(ObjectId, i64)>> {
+    let annots = graph.trailer.get(b"EVBAnnots")?.as_array()?;
+    // Older graphs have no offsets: all sat on the root's page.
+    let zeros = vec![Object::Integer(0); annots.len()];
+    let pages = graph
+        .trailer
+        .get(b"EVBPages")
+        .map_or(Ok(&zeros), Object::as_array)?;
+    if annots.len() != pages.len() {
+        return Err("Note recovery pages do not match its annotations".into());
+    }
+    let member =
+        |(id, page): (&Object, &Object)| -> Result<_> { Ok((id.as_reference()?, page.as_i64()?)) };
+    annots.iter().zip(pages).map(member).collect()
 }
 
 /// Source extraction is used only at Save, from the parent's immutable lease.
@@ -233,21 +247,21 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
     hydrate_text_box_original_appearances(mutations, &AppendedRevision::new(&source))
 }
 
-fn original_text_box_graph(
+pub(crate) fn original_text_box_graph(
     original: &TextBoxOriginalAppearance,
-) -> Result<std::borrow::Cow<'_, Document>> {
+) -> Result<Cow<'_, Document>> {
     if let Some(graph) = &original.source_graph {
-        return Ok(std::borrow::Cow::Borrowed(graph));
+        return Ok(Cow::Borrowed(graph));
     }
     if let Some(data) = &original.recovery_data {
-        return Ok(std::borrow::Cow::Owned(decode_note_recovery(data)?));
+        return Ok(Cow::Owned(decode_note_recovery(data)?));
     }
     Err("Original appearance requires its retained immutable source".into())
 }
 
 // Appearance restoration owns the original painting/geometry wrapper and text
 // encoding. Identity, thread links and descriptive metadata belong to Save.
-const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
+pub(crate) const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
     b"NM",
     b"T",
     b"CreationDate",
@@ -272,7 +286,7 @@ pub(crate) fn restore_text_box_recovery(
 ) -> Result<()> {
     let popup = document.new_object_id();
     let graph = original_text_box_graph(original)?;
-    restore_recovery_graph(document, &graph, root, popup, page)?;
+    restore_recovery_graph(document, &graph, root, popup, |_, _| Ok(page))?;
     let contents = document
         .get_dictionary(root)?
         .get(b"Contents")
@@ -306,41 +320,6 @@ pub(crate) fn restore_text_box_recovery(
         dict.set(
             "CreationDate",
             Object::string_literal(shape_pdf_date(Some(created), modified_at)),
-        );
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_text_box_recovery(
-    source: &impl PdfObjectSource,
-    original: &TextBoxOriginalAppearance,
-    root: ObjectId,
-) -> Result<()> {
-    let expected = original_text_box_graph(original)?;
-    let expected_root = expected.trailer.get(b"Root")?.as_reference()?;
-    let without_metadata = |dict: &Dictionary| {
-        let mut dict = dict.clone();
-        dict.remove(b"Contents");
-        for key in TEXT_BOX_METADATA_FIELDS {
-            dict.remove(key);
-        }
-        Object::Dictionary(dict)
-    };
-    let a = recovery_semantic_object(
-        expected.as_ref(),
-        &without_metadata(expected.get_dictionary(expected_root)?),
-        &mut HashSet::new(),
-        0,
-    )?;
-    let b = recovery_semantic_object(
-        source,
-        &without_metadata(source.dictionary(root)?),
-        &mut HashSet::new(),
-        0,
-    )?;
-    if a != b {
-        return Err(
-            "Restored text box appearance differs from its original wrapper/resources".into(),
         );
     }
     Ok(())
@@ -431,13 +410,8 @@ pub(crate) fn decode_note_recovery(data: &str) -> Result<Document> {
     ) {
         return Err("Note recovery root is not a note".into());
     }
-    let annotation_refs = graph
-        .trailer
-        .get(b"EVBAnnots")?
-        .as_array()?
-        .iter()
-        .map(Object::as_reference)
-        .collect::<std::result::Result<HashSet<_>, _>>()?;
+    let members = recovery_members(&graph)?;
+    let annotation_refs: HashSet<_> = members.iter().map(|(id, _)| *id).collect();
     let mut budget = 0;
     for (id, object) in &graph.objects {
         let mut missing = false;
@@ -448,21 +422,16 @@ pub(crate) fn decode_note_recovery(data: &str) -> Result<Document> {
             return Err("Note recovery graph has an external reference".into());
         }
         if let Object::Dictionary(dict) = object {
+            let kind = dict.get(b"Type").and_then(Object::as_name);
             if (annotation_refs.contains(id) && dict.has(b"P"))
-                || matches!(
-                    dict.get(b"Type")
-                        .ok()
-                        .and_then(|value| value.as_name().ok()),
-                    Some(b"Page" | b"Pages" | b"Catalog")
-                )
+                || matches!(kind, Ok(b"Page" | b"Pages" | b"Catalog"))
             {
                 return Err("Note recovery graph contains page ownership".into());
             }
         }
     }
-    for object in graph.trailer.get(b"EVBAnnots")?.as_array()? {
-        let dict = graph.get_dictionary(object.as_reference()?)?;
-        if annotation_subtype(dict).is_empty() {
+    for (id, _) in members {
+        if annotation_subtype(graph.get_dictionary(id)?).is_empty() {
             return Err("Note recovery annotation is missing its subtype".into());
         }
     }
@@ -477,13 +446,8 @@ fn remap_recovery_object(object: &mut Object, refs: &HashMap<ObjectId, ObjectId>
                 remap_recovery_object(value, refs);
             }
         }
-        Object::Dictionary(dict) => {
+        Object::Dictionary(dict) | Object::Stream(Stream { dict, .. }) => {
             for (_, value) in dict.iter_mut() {
-                remap_recovery_object(value, refs);
-            }
-        }
-        Object::Stream(stream) => {
-            for (_, value) in stream.dict.iter_mut() {
                 remap_recovery_object(value, refs);
             }
         }
@@ -493,15 +457,20 @@ fn remap_recovery_object(object: &mut Object, refs: &HashMap<ObjectId, ObjectId>
 
 /// Clone every object to fresh references, including reply /IRT and popup
 /// /Parent links. Retired PDF references are never resurrected as identities.
+/// Each annotation returns to its own page, as far from the note's page as it
+/// was; `page_id` resolves a page number in the document being written.
 pub(crate) fn restore_note_recovery(
     document: &mut Document,
     data: &str,
-    root: ObjectId,
-    popup: ObjectId,
-    page: ObjectId,
-) -> Result<Vec<ObjectId>> {
+    (root, popup): (ObjectId, ObjectId),
+    page_number: u32,
+    mut page_id: impl FnMut(&Document, u32) -> Result<ObjectId>,
+) -> Result<Vec<(ObjectId, ObjectId)>> {
     let graph = decode_note_recovery(data)?;
-    restore_recovery_graph(document, &graph, root, popup, page)
+    restore_recovery_graph(document, &graph, root, popup, |document, offset| {
+        let number = u32::try_from(i64::from(page_number) + offset).unwrap_or(0);
+        page_id(document, number)
+    })
 }
 
 fn restore_recovery_graph(
@@ -509,146 +478,26 @@ fn restore_recovery_graph(
     graph: &Document,
     root: ObjectId,
     popup: ObjectId,
-    page: ObjectId,
-) -> Result<Vec<ObjectId>> {
+    mut page_of: impl FnMut(&Document, i64) -> Result<ObjectId>,
+) -> Result<Vec<(ObjectId, ObjectId)>> {
     let old_root = graph.trailer.get(b"Root")?.as_reference()?;
     let old_popup = annotation_related_ref(graph.get_dictionary(old_root)?, b"Popup");
-    let mut refs = HashMap::new();
-    refs.insert(old_root, root);
-    if let Some(old_popup) = old_popup {
-        refs.insert(old_popup, popup);
-    }
+    let mut refs = HashMap::from([(old_root, root)]);
+    refs.extend(old_popup.map(|old_popup| (old_popup, popup)));
     for id in graph.objects.keys() {
         refs.entry(*id).or_insert_with(|| document.new_object_id());
     }
-    let annots = graph
-        .trailer
-        .get(b"EVBAnnots")?
-        .as_array()?
-        .iter()
-        .map(|object| object.as_reference().map(|id| refs[&id]))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut members = Vec::new();
+    for (id, offset) in recovery_members(graph)? {
+        members.push((refs[&id], page_of(document, offset)?));
+    }
     for (id, source_object) in &graph.objects {
         let mut object = source_object.clone();
         remap_recovery_object(&mut object, &refs);
-        if annots.contains(&refs[id]) {
-            object.as_dict_mut()?.set("P", Object::Reference(page));
+        if let Some((_, page)) = members.iter().find(|(member, _)| *member == refs[id]) {
+            object.as_dict_mut()?.set("P", Object::Reference(*page));
         }
         document.set_object(refs[id], object);
     }
-    Ok(annots)
-}
-
-pub(crate) fn validate_note_recovery(
-    document: &impl PdfObjectSource,
-    data: &str,
-    root: ObjectId,
-    annots: &[Object],
-) -> Result<()> {
-    let graph = decode_note_recovery(data)?;
-    let expected_root = graph.trailer.get(b"Root")?.as_reference()?;
-    let expected_annots = graph.trailer.get(b"EVBAnnots")?.as_array()?;
-    let expected =
-        recovery_reply_signatures(&graph, expected_root, expected_annots, &mut HashSet::new())?;
-    let actual = recovery_reply_signatures(document, root, annots, &mut HashSet::new())?;
-    if expected != actual {
-        return Err("Restored note reply graph differs from its source".into());
-    }
-    Ok(())
-}
-
-fn recovery_reply_signatures(
-    source: &impl PdfObjectSource,
-    parent: ObjectId,
-    annots: &[Object],
-    seen: &mut HashSet<ObjectId>,
-) -> Result<Vec<String>> {
-    if !seen.insert(parent) || seen.len() > MAX_RECOVERY_OBJECTS {
-        return Err("Note reply graph contains a cycle or exceeds its ceiling".into());
-    }
-    let mut signatures = Vec::new();
-    for reference in annots
-        .iter()
-        .filter_map(|object| object.as_reference().ok())
-    {
-        let dict = source.dictionary(reference)?;
-        if annotation_related_ref(dict, b"IRT") != Some(parent) {
-            continue;
-        }
-        if let Some(popup) = annotation_related_ref(dict, b"Popup") {
-            if annotation_related_ref(source.dictionary(popup)?, b"Parent") != Some(reference) {
-                return Err("Restored reply popup parent differs from its source".into());
-            }
-        }
-        let normalized = recovery_semantic_object(
-            source,
-            &Object::Dictionary(dict.clone()),
-            &mut HashSet::new(),
-            0,
-        )?;
-        let children = recovery_reply_signatures(source, reference, annots, seen)?;
-        signatures.push(format!("{normalized:?}:{children:?}"));
-    }
-    signatures.sort();
-    Ok(signatures)
-}
-
-fn recovery_semantic_object(
-    source: &impl PdfObjectSource,
-    object: &Object,
-    seen: &mut HashSet<ObjectId>,
-    depth: usize,
-) -> Result<Object> {
-    if depth > 64 {
-        return Err("Note graph semantic validation exceeds nesting ceiling".into());
-    }
-    Ok(match object {
-        Object::Reference(id) => {
-            if !seen.insert(*id) {
-                return Ok(Object::Name(b"EVBCycle".to_vec()));
-            }
-            let result = recovery_semantic_object(source, source.object(*id)?, seen, depth + 1)?;
-            seen.remove(id);
-            result
-        }
-        Object::Dictionary(dict) => {
-            let mut result = Dictionary::new();
-            for (key, value) in dict.iter() {
-                let annotation = dict.get(b"Type").ok().and_then(|v| v.as_name().ok())
-                    == Some(b"Annot")
-                    || matches!(
-                        annotation_subtype(dict).as_str(),
-                        "text" | "freetext" | "popup"
-                    );
-                if key.as_slice() == b"Length"
-                    || (annotation && matches!(key.as_slice(), b"P" | b"IRT" | b"Parent"))
-                {
-                    continue;
-                }
-                result.set(
-                    key.clone(),
-                    recovery_semantic_object(source, value, seen, depth + 1)?,
-                );
-            }
-            Object::Dictionary(result)
-        }
-        Object::Array(values) => Object::Array(
-            values
-                .iter()
-                .map(|value| recovery_semantic_object(source, value, seen, depth + 1))
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        Object::Stream(stream) => {
-            let dict = recovery_semantic_object(
-                source,
-                &Object::Dictionary(stream.dict.clone()),
-                seen,
-                depth + 1,
-            )?
-            .as_dict()?
-            .clone();
-            Object::Stream(Stream::new(dict, stream.content.clone()))
-        }
-        value => value.clone(),
-    })
+    Ok(members)
 }

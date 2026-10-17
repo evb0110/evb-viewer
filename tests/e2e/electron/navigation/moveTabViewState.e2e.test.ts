@@ -18,6 +18,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
+import {splitActiveTabFromTabMenu} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     activateMenuItemAsUser,
     clickAsUser,
@@ -176,6 +177,49 @@ async function waitForTransferredViewSettled(page: Page) {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
+type TMovingLoadWindow = Window & {__movingMenuLoad?: {
+    held: boolean;
+    restore: () => void;
+}};
+
+// Holds the ordinary first geometry answer in the destination, so a move into
+// it stays pending until the test releases it.
+async function holdIncomingOpen(target: Page) {
+    await target.evaluate(() => {
+        const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
+        const then = Promise.prototype.then;
+        let release: () => void = () => {};
+        const gate = new Promise<void>(resolve => {release = resolve;});
+        const state = {
+            held: false,
+            restore: () => {Object.defineProperty(Promise.prototype, 'catch', descriptor); release();},
+        };
+        Object.defineProperty(Promise.prototype, 'catch', {
+            ...descriptor,
+            value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
+                return then.call(this, (value: unknown) => {
+                    if (value && typeof value === 'object' && 'pageNumber' in value
+                        && 'width' in value && 'height' in value && 'pageCount' in value) {
+                        state.held = true;
+                        Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                        return gate.then(() => value);
+                    }
+                    return value;
+                }, onRejected);
+            },
+        });
+        (window as TMovingLoadWindow).__movingMenuLoad = state;
+    });
+}
+
+async function waitForHeldIncomingOpen(target: Page) {
+    await waitForFunctionInPage(target, () => (window as TMovingLoadWindow).__movingMenuLoad?.held === true);
+}
+
+async function releaseIncomingOpen(target: Page) {
+    if (!target.isClosed()) await target.evaluate(() => (window as TMovingLoadWindow).__movingMenuLoad?.restore());
+}
+
 describe('Move Tab to New Window view state', () => {
 
     it.each([
@@ -188,9 +232,7 @@ describe('Move Tab to New Window view state', () => {
         const replacement = join(home, 'replacement.pdf');
         let destination: Page | null = null;
         onTestFinished(async () => {
-            if (destination && !destination.isClosed()) await destination.evaluate(() => (
-                (window as Window & {__movingMenuLoad?: {restore: () => void}}).__movingMenuLoad?.restore()
-            ));
+            if (destination) await releaseIncomingOpen(destination);
             await sessions.restart({
                 clean: true,
                 hard: true,
@@ -229,36 +271,10 @@ describe('Move Tab to New Window view state', () => {
         }, 1);
         // The review holds the ordinary first geometry answer while the real
         // tab menu moves the document. Replacement uses the real file picker.
-        await target.evaluate(() => {
-            const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
-            const then = Promise.prototype.then;
-            let release: () => void = () => {};
-            const gate = new Promise<void>(resolve => {release = resolve;});
-            const state = {
-                held: false,
-                restore: () => {Object.defineProperty(Promise.prototype, 'catch', descriptor); release();},
-            };
-            Object.defineProperty(Promise.prototype, 'catch', {
-                ...descriptor,
-                value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
-                    return then.call(this, (value: unknown) => {
-                        if (value && typeof value === 'object' && 'pageNumber' in value
-                            && 'width' in value && 'height' in value && 'pageCount' in value) {
-                            state.held = true;
-                            Object.defineProperty(Promise.prototype, 'catch', descriptor);
-                            return gate.then(() => value);
-                        }
-                        return value;
-                    }, onRejected);
-                },
-            });
-            (window as Window & {__movingMenuLoad?: typeof state}).__movingMenuLoad = state;
-        });
+        await holdIncomingOpen(target);
         await clickAsUser(source, '.tab.is-active', {button: 'right'});
         await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetId}"]`);
-        await waitForFunctionInPage(target, () => (
-            (window as Window & {__movingMenuLoad?: {held: boolean}}).__movingMenuLoad?.held === true
-        ));
+        await waitForHeldIncomingOpen(target);
         await source.waitForSelector('.workspace-transfer-state', {visible: true});
         const movingSave = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+S'});
         const movingSaveAs = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+Shift+S'});
@@ -284,7 +300,7 @@ describe('Move Tab to New Window view state', () => {
             await waitForFunctionInPage(source, () => document.querySelector('.workspace-transfer-state') === null);
             await waitForPdfLoaded(source);
         } else {
-            await target.evaluate(() => (window as Window & {__movingMenuLoad?: {restore: () => void}}).__movingMenuLoad?.restore());
+            await releaseIncomingOpen(target);
             await waitForPdfLoaded(target);
             await waitForFunctionInPage(target, () => document.querySelector('.workspace-transfer-state') === null);
             await vi.waitFor(async () => expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
@@ -313,6 +329,77 @@ describe('Move Tab to New Window view state', () => {
         if (process.env.EVB_R3_EVIDENCE_DIR) {
             await survivor.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}.png`)});
             copyFileSync(savedAs, join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}-saved.pdf`));
+        }
+    }, 120_000);
+
+    // Behavior contract T1 and I1: a moving document shields only its own
+    // surface and commands. The pane beside it still takes a person's input.
+    it('lets the pane beside a moving document take clicks and keys', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'moving-neighbour-'));
+        let destination: Page | null = null;
+        onTestFinished(async () => {
+            if (destination) await releaseIncomingOpen(destination);
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
+        await sessions.restart({
+            clean: true,
+            hard: true,
+        });
+        const moving = join(home, 'moving.pdf');
+        const neighbour = join(home, 'neighbour.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), join(home, 'seed.pdf'));
+        copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), moving);
+        await createTwelvePageFixture(neighbour);
+        const {page: source} = sessions.getSession();
+        await openPdfInApp(source, join(home, 'seed.pdf'));
+        destination = await moveTabToNewWindow(source);
+        await installPageEvaluationShims(destination);
+        const target = destination;
+        const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.listTargetWindows()))[0]!.windowId;
+        await openPdfInApp(source, moving);
+        // An edited document moves as its working-copy snapshot, whose page
+        // shape the destination reads first; the hold below keeps that read.
+        await createFreeTextAnnotationWithPointer(source, 'Moving edit', {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        await clickAsUser(source, '.tab-new');
+        await openPdfInApp(source, neighbour);
+        const movingPane = await source.$eval('.editor-pane.is-active', element => (element as HTMLElement).dataset.editorPaneId!);
+        await splitActiveTabFromTabMenu(source, 'right');
+        const neighbourPane = (await source.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId!)))
+            .find(id => id !== movingPane)!;
+        await clickFoundAsUser(source, (paneId: string) => Array.from(document.querySelectorAll<HTMLElement>(`.editor-pane[data-editor-pane-id="${paneId}"] .tab[data-tab-id]`))
+            .find(tab => tab.textContent?.includes('moving.pdf')), movingPane, {description: 'moving.pdf tab'});
+        await waitForFunctionInPage(source, (paneId: string) => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === paneId
+        ), {timeout: 15_000}, movingPane);
+        await waitForViewerInteractive(source);
+        await holdIncomingOpen(target);
+        await clickAsUser(source, '.editor-pane.is-active .tab.is-active', {button: 'right'});
+        await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetId}"]`);
+        await waitForHeldIncomingOpen(target);
+        await source.waitForSelector('.workspace-transfer-state', {visible: true});
+        await clickAsUser(source, `.editor-pane[data-editor-pane-id="${neighbourPane}"] #pdf-viewer`);
+        await waitForFunctionInPage(source, (paneId: string) => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === paneId
+        ), {timeout: 5_000}, neighbourPane);
+        await source.keyboard.press('PageDown');
+        await waitForToolbarCurrentPage(source, 2);
+        expect(await source.$eval('.workspace-transfer-state', node => node.textContent?.trim())).toBe(LOCALE_MESSAGES.en.tabs.moving);
+        await releaseIncomingOpen(target);
+        await waitForPdfLoaded(target);
+        await vi.waitFor(async () => expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
+            .not.toContain('moving.pdf'), {timeout: 30_000});
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'moving-neighbour-source.png')});
         }
     }, 120_000);
 

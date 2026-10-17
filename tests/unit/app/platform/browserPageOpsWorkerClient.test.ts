@@ -6,6 +6,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -13,6 +14,8 @@ import {
     ref,
 } from 'vue';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
+import {cast} from '@tests/helpers/cast';
 import {useWorkspacePrint} from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 
 const failureReceipt = vi.hoisted(() => ({
@@ -57,7 +60,11 @@ function appearanceRequest() {
 }
 
 vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => undefined}));
+// A test can hold the browser yield that page operations take before they start.
+const browserYield = vi.hoisted(() => ({held: null as Promise<unknown> | null}));
+vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => {
+    await browserYield.held;
+}}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -168,6 +175,7 @@ describe('browserPageOpsWorkerClient', () => {
         FakeWorker.autoRespond = true;
         FakeWorker.onPostMessage = null;
         failureReporter.capture.mockClear();
+        browserYield.held = null;
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -474,6 +482,97 @@ describe('browserPageOpsWorkerClient', () => {
             5,
             6,
         ]));
+    });
+
+    it('starts no worker for an operation a page reset rejected while it yielded', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        const yielded = Promise.withResolvers<undefined>();
+        browserYield.held = yielded.promise;
+        const outcome = runBrowserPageOpsWorkerRequest('decrypt', {
+            data: Uint8Array.of(1),
+            password: '',
+        }).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        expect(await outcome).toMatchObject({
+            name: 'AbortError',
+            code: 'BROWSER_WORKER_RESET',
+        });
+        browserYield.held = null;
+        yielded.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(FakeWorker.instances).toEqual([]);
+    });
+
+    it('enters no direct engine for an operation a page reset rejected while its module loaded', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        vi.stubGlobal('Worker', undefined);
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        const response = Promise.withResolvers<Response>();
+        vi.stubGlobal('fetch', vi.fn(() => response.promise));
+        const engineRuns = vi.fn(() => 1);
+        const instantiate = vi.spyOn(WebAssembly, 'instantiate').mockResolvedValue(cast({instance: {exports: {
+            memory: new WebAssembly.Memory({initial: 2}),
+            evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
+            evb_pdf_page_ops_alloc: () => 8,
+            evb_pdf_page_ops_free: () => undefined,
+            evb_pdf_page_ops_run: engineRuns,
+            evb_pdf_page_ops_output_ptr: () => 0,
+            evb_pdf_page_ops_output_len: () => 0,
+            evb_pdf_page_ops_error_ptr: () => 0,
+            evb_pdf_page_ops_error_len: () => 0,
+        }}}));
+        onTestFinished(() => instantiate.mockRestore());
+        // A fresh module has not loaded the engine yet.
+        vi.resetModules();
+        const {runBrowserPageOpsWorkerRequest: runColdRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
+        const outcome = runColdRequest('decrypt', {
+            data: Uint8Array.of(1),
+            password: '',
+        }).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        expect(await outcome).toMatchObject({
+            name: 'AbortError',
+            code: 'BROWSER_WORKER_RESET',
+        });
+        response.resolve(new Response(Uint8Array.of(1), {headers: {'content-type': 'application/octet-stream'}}));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(engineRuns).not.toHaveBeenCalled();
+    });
+
+    it('rejects admitted and waiting parses on a page reset and admits a later parse', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        FakeWorker.autoRespond = false;
+        const outcomes = [
+            1,
+            2,
+            3,
+        ].map(byte => runBrowserPageOpsWorkerRequest('parseAnnotations', {data: Uint8Array.of(byte)}, {dedicated: true})
+            .catch((error: unknown) => error));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(FakeWorker.instances).toHaveLength(2);
+
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(FakeWorker.instances).toHaveLength(2);
+        for (const outcome of outcomes) {
+            expect(await outcome).toMatchObject({
+                name: 'AbortError',
+                code: 'BROWSER_WORKER_RESET',
+            });
+        }
+        FakeWorker.autoRespond = true;
+        await expect(runBrowserPageOpsWorkerRequest('parseAnnotations', {data: Uint8Array.of(4)}, {dedicated: true}))
+            .resolves.toEqual({data: Uint8Array.of(2)});
     });
 
     it('ignores a late result from a canceled dedicated parse generation', async () => {

@@ -147,29 +147,20 @@ export function readAddsChecksTrailer(message) {
     return TRAILER_PATTERN.exec(message)?.[1]?.trim() ?? null;
 }
 
-// A title follows `it(`/`test(`, a one-line `it.each(...)(`, or the `])(` that
-// closes a multi-line `it.each([...])` table.
-const TEST_TITLE_PATTERN = /(?:\b(?:it|test)(?:\.each\([^)]*\))?|^\s*\]\))\(\s*(['"`])((?:\\.|(?!\1).)+)\1/gu;
-
-/** @param {string[]} lines @returns {string[]} */
-function testTitlesOf(lines) {
-    return lines.flatMap(line => Array.from(line.matchAll(TEST_TITLE_PATTERN), match => match[2] ?? ''));
-}
-
-// Moving a test between files edits an existing check: a new test file whose
-// every test title the same change removes elsewhere is a move, and a moved
-// line (an existing timeout, say) is not a new tolerance.
+// A diff cannot prove that a test moved unchanged, so moves fail closed. A
+// new test file that repeats, byte for byte, a test file the same change
+// deletes is a rename, and each deleted file excuses one copy. Any other
+// relocation needs the trailer, and every added line counts even when the
+// change removes the same text elsewhere.
 /** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @param {TReadAddedLines} [readRemovedLines] returns its `-` lines @returns {string[]} */
 export function findAddedChecks(entries, readAddedLines, readRemovedLines = () => []) {
     /** @type {string[]} */
     const found = [];
-    const removedTestLines = entries
+    const deletedTestFiles = entries
         .filter(({
             path, status,
-        }) => status !== 'A' && TEST_FILE_PATTERN.test(path))
-        .flatMap(({path}) => readRemovedLines(path));
-    const movedLines = new Set(removedTestLines.map(line => line.trim()));
-    const movedTitles = new Set(testTitlesOf(removedTestLines));
+        }) => status === 'D' && TEST_FILE_PATTERN.test(path))
+        .map(({path}) => readRemovedLines(path).join('\n'));
     for (const {
         path,
         status,
@@ -177,14 +168,15 @@ export function findAddedChecks(entries, readAddedLines, readRemovedLines = () =
         if (status === 'D') {
             continue;
         }
-        const isTestFile = TEST_FILE_PATTERN.test(path);
-        const rawAddedLines = readAddedLines(path);
-        const addedLines = rawAddedLines.filter(line => !isTestFile || !movedLines.has(line.trim()));
+        const addedLines = readAddedLines(path);
+        const renamedFrom = deletedTestFiles.indexOf(addedLines.join('\n'));
+        if (status === 'A' && TEST_FILE_PATTERN.test(path) && renamedFrom >= 0) {
+            deletedTestFiles.splice(renamedFrom, 1);
+            continue;
+        }
         if (status === 'A') {
-            const titles = isTestFile ? testTitlesOf(rawAddedLines) : [];
-            const moved = titles.length > 0 && titles.every(title => movedTitles.has(title));
             const rule = ADDED_CHECK_FILE_PATTERNS.find(candidate => candidate.pattern.test(path));
-            if (rule && !moved) {
+            if (rule) {
                 found.push(`${rule.label}: ${path}`);
                 continue;
             }

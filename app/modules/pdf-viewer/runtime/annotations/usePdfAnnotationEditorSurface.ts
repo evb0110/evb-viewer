@@ -34,6 +34,9 @@ import {
 import {createEpochMs} from '@contracts/timestamps';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type {
+    INativeTextBoxAppearance, TNativeTextBoxFit,
+} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 
 type TAnnotationHistoryAction = () => boolean | Promise<boolean>;
 
@@ -120,8 +123,9 @@ export interface IAnnotationEditorSurface {
     getPaintInput(entity: AnnotationEntity): AnnotationEntity;
     isOriginalAppearance(entity: AnnotationEntity): boolean;
     isNativeTextBoxAppearance(entity: ITextBoxEntity): boolean;
-    fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity): Pick<ITextBoxEntity, 'rect' | 'fontSize'> | Promise<Pick<ITextBoxEntity, 'rect' | 'fontSize'>>;
-    publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void): void | Promise<void>;
+    fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity): TNativeTextBoxFit | Promise<TNativeTextBoxFit>;
+    /** Paints the accepted text box, reusing the appearance its fit produced, before handing it off. */
+    publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance): void | Promise<void>;
     select(ids: readonly AnnotationId[], options?: { additive?: boolean }): void;
     clearSelection(): void;
     getSelectedTextBox(): ITextBoxEntity | null;
@@ -131,7 +135,6 @@ export interface IAnnotationEditorSurface {
     protectTextBoxDraft(annotationId: AnnotationId): void | Promise<void>;
     setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
     restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
-    clearTextBoxDraftPending(annotationId: AnnotationId): void;
     hasTextBoxDraftPending(annotationId: AnnotationId): boolean;
     getTextBoxDraftText(annotationId: AnnotationId): string | null;
     getTextBoxDraftRect(annotationId: AnnotationId): IAnnotationMarkerRect | null;
@@ -205,8 +208,8 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     textBoxDraftRects?: Map<string, IAnnotationMarkerRect>;
     isOriginalAppearance?: (entity: AnnotationEntity) => boolean;
     isNativeTextBoxAppearance?: (entity: ITextBoxEntity) => boolean;
-    fitTextBox?: (entity: ITextBoxEntity, proposal: ITextBoxEntity) => Promise<Pick<ITextBoxEntity, 'rect' | 'fontSize'>>;
-    publishTextBoxAppearance?: (entity: ITextBoxEntity, handoff: () => void) => Promise<void>;
+    fitTextBox?: (entity: ITextBoxEntity, proposal: ITextBoxEntity) => Promise<TNativeTextBoxFit>;
+    publishTextBoxAppearance?: (entity: ITextBoxEntity, handoff: () => void, isInputCurrent: () => boolean, appearance?: INativeTextBoxAppearance) => Promise<void>;
     getTextBoxDraftGeneration?: (annotationId: AnnotationId) => number | undefined;
     beforeTextBoxEdit?: (annotationId: AnnotationId) => void | Promise<void>;
     getPendingTextCompletion?: () => undefined | Promise<unknown>;
@@ -223,11 +226,7 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
         clientX: number;
         clientY: number;
     }) => void;
-    getPageGeometry?: (pageIndex: number) => {
-        pageView: number[];
-        rotation: 0 | 90 | 180 | 270
-        viewRotation?: 0 | 90 | 180 | 270
-    } | null;
+    getPageGeometry?: IAnnotationEditorSurface['getPageGeometry'];
 }
 
 function baseEntityFields(author: string | null) {
@@ -545,7 +544,7 @@ export const usePdfAnnotationEditorSurface = (
                     ...entity,
                     fontSize: updates.fontSize,
                 });
-                if (fittedRect !== null) {
+                if (fittedRect !== null || entity.identity.id !== editingId.value) {
                     patch.fontSize = updates.fontSize;
                     if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
                 }
@@ -637,7 +636,12 @@ export const usePdfAnnotationEditorSurface = (
                 ...entity,
                 ...entry.patch,
                 text: getTextBoxDraftText(entry.id) ?? entity.text,
-            })).then(fitted => {Object.assign(entry.patch, fitted);})];
+            })).then((fitted) => {
+                Object.assign(entry.patch, {
+                    rect: fitted.rect,
+                    fontSize: fitted.fontSize,
+                });
+            })];
         }) : [];
         if (!fitting.length) return commit();
         return commitTextSession(() => {
@@ -703,15 +707,17 @@ export const usePdfAnnotationEditorSurface = (
         const generation = options.getTextBoxDraftGeneration?.(annotationId);
         const text = getTextBoxDraftText(annotationId);
         const geometry = getTextBoxDraftRect(annotationId);
-        return () => {
+        return (assert = true) => {
             const currentGeometry = getTextBoxDraftRect(annotationId);
-            if (options.annotationApplication.value !== application || editingId.value !== editor
+            const changed = options.annotationApplication.value !== application || editingId.value !== editor
                 || store().get(annotationId)?.revision !== entity?.revision
                 || options.getTextBoxDraftGeneration?.(annotationId) !== generation
                 || getTextBoxDraftText(annotationId) !== text
-                || (geometry ? !currentGeometry || !annotationRectsEqual(currentGeometry, geometry) : currentGeometry !== null)) {
+                || (geometry ? !currentGeometry || !annotationRectsEqual(currentGeometry, geometry) : currentGeometry !== null);
+            if (changed && assert) {
                 throw new DOMException('The text draft changed while completion was pending', 'AbortError');
             }
+            return !changed;
         };
     }
 
@@ -720,7 +726,9 @@ export const usePdfAnnotationEditorSurface = (
         const assertCurrent = captureTextBoxInput(annotationId);
         const geometry = getTextBoxDraftRect(annotationId);
         if (geometry) restoredTextBoxDraftRects.set(annotationId, geometry);
-        return options.protectTextBoxDraft(assertCurrent).then(assertCurrent);
+        return options.protectTextBoxDraft(assertCurrent).then(() => {
+            assertCurrent();
+        });
     }
 
     function fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity) {
@@ -729,13 +737,16 @@ export const usePdfAnnotationEditorSurface = (
             fontSize: proposal.fontSize,
         };
         const assertCurrent = captureTextBoxInput(entity.identity.id);
-        return options.fitTextBox(entity, proposal).then(fitted => {assertCurrent(); return fitted;});
+        return options.fitTextBox(entity, proposal).then((fitted) => {
+            assertCurrent();
+            return fitted;
+        });
     }
 
-    function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void) {
+    function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance) {
         if (!options.publishTextBoxAppearance) return handoff();
         const assertCurrent = captureTextBoxInput(entity.identity.id);
-        return options.publishTextBoxAppearance(entity, () => {assertCurrent(); handoff();}).catch(error => {assertCurrent(); throw error;});
+        return options.publishTextBoxAppearance(entity, handoff, () => assertCurrent(false), appearance);
     }
 
     function setTextBoxDraftPending(annotationId: AnnotationId, text?: string) {
@@ -1137,7 +1148,6 @@ export const usePdfAnnotationEditorSurface = (
         protectTextBoxDraft,
         setTextBoxDraftPending,
         restoreTextBoxDraftPending,
-        clearTextBoxDraftPending,
         hasTextBoxDraftPending,
         getTextBoxDraftText,
         getTextBoxDraftRect,

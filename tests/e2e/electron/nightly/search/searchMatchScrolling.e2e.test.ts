@@ -1,7 +1,8 @@
 import {resolve} from 'node:path';
 import {
-    mkdirSync, writeFileSync,
+    mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
+import {PDFDocument} from 'pdf-lib';
 import {
     describe,
     expect,
@@ -9,13 +10,16 @@ import {
     vi,
 } from 'vitest';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     createCroppedSearchFixturePdf,
+    createDenseTextFixturePdf,
     createMultiPageTextFixturePdf,
     createPhraseSearchFixturePdf,
+    DENSE_TEXT_FIXTURE_LINES_PER_PAGE,
     createSearchMatchScrollFixturePdf,
     SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
     SEARCH_MATCH_SCROLL_FIXTURE_QUERY,
@@ -23,6 +27,7 @@ import {
     SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     ensureSidebarOpen,
     openDocumentSidebarTab,
@@ -191,6 +196,36 @@ describe('Electron E2E - PDF search match scrolling', () => {
             expect(failures).toEqual([]);
         }
     }, 120_000);
+
+    it('finishes a running search after a page rotation interrupts it', async () => {
+        const {page} = sessionFixture.getSession();
+        // Indexing this many pages takes seconds; the rotation commits within a fraction of one.
+        const pageCount = 4_000;
+        const lastPageWord = `p${pageCount}l${DENSE_TEXT_FIXTURE_LINES_PER_PAGE - 1}w0`;
+        await openPdfInApp(page, createDenseTextFixturePdf(
+            'rotation-running-search.pdf',
+            pageCount,
+            (pageNumber, line, word) => `p${pageNumber}l${line}w${word}`,
+        ), 120_000);
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle');
+        await page.waitForSelector('[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle[aria-pressed="true"]');
+        await openDocumentSidebarTab(page, 'search');
+        await clickAsUser(page, '.document-search-bar input');
+        await page.keyboard.type(lastPageWord);
+        await page.keyboard.press('Enter');
+        await page.waitForSelector('.document-search-results-header-spinner');
+        await activateMenuItemAsUser(page, {id: 'rotate-pages-clockwise'});
+        const found = `1 result for “${lastPageWord}”`;
+        await page.waitForFunction(text => document.querySelector('.document-search-results')?.textContent?.replaceAll(/\s+/g, ' ').includes(text), {timeout: 120_000}, found)
+            .catch(() => undefined);
+        expect(await page.$eval('.document-search-results', element => element.textContent?.replaceAll(/\s+/g, ' ').trim()))
+            .toContain(found);
+        const rotated = await PDFDocument.load(readFileSync(await getActiveWorkspaceWorkingCopyPath(page)), {updateMetadata: false});
+        expect(rotated.getPage(0).getRotation().angle).toBe(90);
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
 
     it('keeps every normalized ligature result inside the settled viewport', async () => {
         const {page} = sessionFixture.getSession();

@@ -483,6 +483,9 @@ fn metadata_command(operation: &str, input: &Path, output: Option<&Path>) -> Val
     if operation == "page-sizes" {
         command.arg("--metadata-only");
     }
+    if operation == "page-geometry" {
+        command.args(["--page", "1"]);
+    }
     if operation == "parse-annotations" {
         command.args(["--modified-at", "D:20260830130000Z"]);
     }
@@ -733,6 +736,15 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
     assert_eq!(geometry[1]["pages"][0]["rotation"], 90);
     assert_eq!(geometry[1]["pages"][0]["userUnit"], 2.0);
     assert_eq!(geometry[1]["pages"][1]["widthPoints"], 400.0);
+    let crop_geometry = metadata_command("page-geometry", &input, None);
+    assert_eq!(
+        crop_geometry,
+        serde_json::json!({
+            "mediaBox": {"x": -10.0, "y": -20.0, "width": 210.0, "height": 120.0},
+            "cropBox": {"x": 0.0, "y": 0.0, "width": 190.0, "height": 90.0},
+            "rotation": 90,
+        })
+    );
     let catalog = metadata_command("read-document-catalog", &input, None);
     assert_eq!(catalog["bookmarks"][1]["title"], "Direct sibling");
     assert_eq!(catalog["bookmarks"][1]["pageIndex"], 1);
@@ -1025,8 +1037,8 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
 }
 
 #[test]
-fn selected_metadata_fields_keep_object_resource_limits() {
-    for elements in [false, true] {
+fn selected_and_complete_metadata_values_keep_object_resource_limits() {
+    for (elements, managed) in [(false, false), (true, false), (false, true), (true, true)] {
         let input = temporary_path("metadata-limits", "pdf");
         let output = temporary_path("metadata-limits", "jsonl");
         let _cleanup = RemoveOnDrop(vec![input.clone(), output.clone()]);
@@ -1042,7 +1054,14 @@ fn selected_metadata_fields_keep_object_resource_limits() {
                 Object::String(bytes, StringFormat::Literal),
             )
         };
-        let annotation = document.add_object(dictionary! {"Subtype" => subtype, "NM" => name});
+        // A managed note keeps its complete graph, so its private values take
+        // the general conversion instead of the selected annotation fields.
+        let annotation = if managed {
+            document
+                .add_object(dictionary! {"Subtype" => "Text", "Vendor" => subtype, "NM" => name})
+        } else {
+            document.add_object(dictionary! {"Subtype" => subtype, "NM" => name})
+        };
         let page = document.add_object(dictionary! {
             "Type" => "Page", "Parent" => pages,
             "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
@@ -1069,6 +1088,138 @@ fn selected_metadata_fields_keep_object_resource_limits() {
         let error: Value = serde_json::from_slice(&result.stderr).unwrap();
         assert_eq!(error["code"], "too-large");
         assert!(!output.exists());
+    }
+}
+
+/// qpdf reads a name written with #00 as a bad token: a key becomes a
+/// QPDFFake key and a value becomes null. Below the structural ceiling that
+/// warning returns the read to lopdf, which keeps the NUL byte. Above it qpdf's
+/// reading is the only one, and no literal #00 reaches a key or a name.
+#[test]
+fn nul_escaped_names_in_a_managed_note_keep_their_reader_view_through_save_and_undo() {
+    fn read_note(input: &Path, output: &Path) -> (u64, String, lopdf::Dictionary) {
+        let parsed = metadata_command("parse-annotations", input, Some(output));
+        let note = parsed[1]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["kind"] == "note")
+            .unwrap()
+            .clone();
+        let recovery = note["recoveryData"].as_str().unwrap().to_string();
+        let bytes: Vec<u8> = recovery
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        let graph = Document::load_mem(&bytes).unwrap();
+        let root = graph.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let dictionary = graph.get_dictionary(root).unwrap().clone();
+        (note["objectNumber"].as_u64().unwrap(), recovery, dictionary)
+    }
+    fn save(input: &Path, mutations: &Path, json: Value) {
+        fs::write(mutations, serde_json::to_vec(&json).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["save-mutations", "--append", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(input)
+            .arg("--mutations-file")
+            .arg(mutations)
+            .arg("--qpdf")
+            .arg(metadata_qpdf_path())
+            .args(["--modified-at", "D:20260830140000Z"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    for stream_bytes in [0, 20 * 1024 * 1024, 512 * 1024 * 1024 + 1] {
+        let input = temporary_path("nul-name-note", "pdf");
+        let output = temporary_path("nul-name-note", "jsonl");
+        let mutations = temporary_path("nul-name-note", "json");
+        let _cleanup = RemoveOnDrop(vec![input.clone(), output.clone(), mutations.clone()]);
+        let mut document = Document::with_version("1.7");
+        let pages = document.new_object_id();
+        let page = document.new_object_id();
+        let mut note = dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "NM" => Object::string_literal("nul-name-note"),
+            "Contents" => Object::string_literal("A note with NUL names"),
+            "Vendor" => Object::Name(b"A\0B".to_vec()),
+        };
+        note.set(b"Managed\0Key".to_vec(), Object::string_literal("kept"));
+        let note = document.add_object(note);
+        document.set_object(
+            page,
+            dictionary! {
+                "Type" => "Page", "Parent" => pages, "Annots" => vec![Object::Reference(note)],
+                "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            },
+        );
+        document.set_object(
+            pages,
+            dictionary! {"Type" => "Pages", "Kids" => vec![Object::Reference(page)], "Count" => 1},
+        );
+        let root = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+        document.trailer.set("Root", root);
+        if stream_bytes == 0 {
+            document.save(&input).unwrap();
+        } else {
+            save_metadata_fixture(&mut document, &input, stream_bytes);
+        }
+        let assert_reader_view = |dictionary: &lopdf::Dictionary| {
+            let keys = dictionary
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            assert!(
+                keys.iter()
+                    .all(|key| !key.windows(3).any(|part| part == b"#00")),
+                "{keys:?}"
+            );
+            if stream_bytes < 512 * 1024 * 1024 {
+                assert_eq!(
+                    dictionary.get(b"Managed\0Key").unwrap(),
+                    &Object::string_literal("kept")
+                );
+                assert_eq!(
+                    dictionary.get(b"Vendor").unwrap().as_name().unwrap(),
+                    b"A\0B"
+                );
+            } else {
+                let fake = keys
+                    .iter()
+                    .find(|key| key.starts_with(b"QPDFFake"))
+                    .unwrap();
+                assert_eq!(dictionary.get(fake).unwrap().as_str().unwrap(), b"kept");
+                assert!(dictionary.get(b"Vendor").is_err(), "{keys:?}");
+            }
+        };
+        let (object_number, recovery, source) = read_note(&input, &output);
+        assert_reader_view(&source);
+
+        save(
+            &input,
+            &mutations,
+            serde_json::json!({"deletes": [{"pageIndex": 0, "objectNumber": object_number, "generationNumber": 0}]}),
+        );
+        save(
+            &input,
+            &mutations,
+            serde_json::json!({"notes": [{
+                "recoveryData": recovery, "pageIndex": 0, "stableKey": "nul-name-note",
+                "text": "A note with NUL names", "author": null, "color": null, "createdAt": null,
+                "markerRect": {"left": 0.2, "top": 0.6, "width": 0.2, "height": 0.2},
+            }]}),
+        );
+        let (restored_number, _, restored) = read_note(&input, &output);
+        assert_ne!(restored_number, object_number);
+        assert_reader_view(&restored);
     }
 }
 

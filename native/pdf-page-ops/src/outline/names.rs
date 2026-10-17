@@ -141,47 +141,43 @@ pub(crate) fn resolve_bookmark_source_targets(
     items: &mut [BookmarkEntry],
 ) -> Result<()> {
     use evb_native_support::pdf_catalog::BookmarkSourceTarget;
-    let catalog = document.dictionary(document.root_id()?)?;
-    let mut indices = HashMap::new();
-    let mut index = 0_u32;
-    PageTreeResolver::new(document)?.for_each_page_id(document, |id| {
-        indices.insert(id, index);
-        index = index.checked_add(1).ok_or("Invalid bookmark page index")?;
-        Ok(())
-    })?;
-    fn resolve<'a>(
-        document: &'a impl PdfObjectSource,
-        catalog: &'a Dictionary,
-        names: &mut Option<HashMap<String, &'a Object>>,
-        indices: &HashMap<ObjectId, u32>,
-        items: &mut [BookmarkEntry],
-    ) -> Result<()> {
+    fn each(items: &mut [BookmarkEntry], visit: &mut impl FnMut(&mut BookmarkEntry)) {
         for item in items {
-            let target = if let Some(name) = item.named_dest.as_deref() {
-                destination_page_target(
-                    document,
-                    catalog,
-                    names,
-                    &named_dest_object(name, item.original_named_dest.as_ref()),
-                )
-                .map(|target| target.0)
-            } else if item.page_index.is_none() {
-                match item.original_destination.as_ref().map(|d| &d.source_target) {
-                    Some(BookmarkSourceTarget::Reference { num, gen }) => Some((*num, *gen)),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-            if let Some(index) = target.and_then(|id| indices.get(&id)) {
-                item.page_index = Some(*index);
-                if let Some(destination) = &mut item.original_destination {
-                    destination.source_target = BookmarkSourceTarget::PageIndex(*index);
-                }
-            }
-            resolve(document, catalog, names, indices, &mut item.items)?;
+            visit(item);
+            each(&mut item.items, visit);
         }
-        Ok(())
     }
-    resolve(document, catalog, &mut None, &indices, items)
+    let catalog = document.dictionary(document.root_id()?)?;
+    let mut names = None;
+    let mut targets = Vec::new();
+    each(items, &mut |item| {
+        targets.push(if let Some(name) = item.named_dest.as_deref() {
+            destination_page_target(
+                document,
+                catalog,
+                &mut names,
+                &named_dest_object(name, item.original_named_dest.as_ref()),
+            )
+            .map(|target| target.0)
+        } else if item.page_index.is_none() {
+            match item.original_destination.as_ref().map(|d| &d.source_target) {
+                Some(BookmarkSourceTarget::Reference { num, gen }) => Some((*num, *gen)),
+                _ => None,
+            }
+        } else {
+            None
+        });
+    });
+    let indices =
+        collect_catalog_page_indices(document, &targets.iter().flatten().copied().collect())?;
+    let mut targets = targets.into_iter();
+    each(items, &mut |item| {
+        if let Some(index) = targets.next().flatten().and_then(|id| indices.get(&id)) {
+            item.page_index = Some(*index);
+            if let Some(destination) = &mut item.original_destination {
+                destination.source_target = BookmarkSourceTarget::PageIndex(*index);
+            }
+        }
+    });
+    Ok(())
 }

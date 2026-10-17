@@ -20,6 +20,7 @@ import type * as TWorkerTaskModule from '@electron/utils/workerTask';
 import {SEARCH_INDEX_TEXT_BUDGET} from '@contracts/searchIndexWire';
 import {MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH} from '@contracts/documentTextCatalog';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireRequestId} from '@contracts/shared';
 
 
 const fake = vi.hoisted(() => ({
@@ -508,6 +509,98 @@ describe('search service coverage', () => {
                 status: 'success',
                 coverage: fake.indexCoverage,
             }));
+        } finally {
+            await service.shutdown();
+        }
+    });
+
+    // Split panes in one window share one renderer; each pane owns its own search.
+    it('keeps one pane searching while another pane of the same window searches', async () => {
+        fake.indexCoverage = {
+            pageCount: 1,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: false,
+            missingTextPageSample: [],
+        };
+        const sender = Object.assign(new EventEmitter(), {
+            id: 72,
+            send: vi.fn(),
+            isDestroyed: () => false,
+        });
+        const document = {
+            indexPath: '/unused/index',
+            documentRevision: 'revision',
+            async* readPages() {},
+        };
+        const firstPaneDocument = Promise.withResolvers<typeof document>();
+        const request = (requestId: string, resolveDocument: (signal: AbortSignal) => Promise<typeof document>) => ({
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            requestId: requireRequestId(requestId),
+            requestIdPrefix: 'search',
+            query: 'needle',
+            resolveDocument,
+        });
+        const {createSearchService} = await import('@electron/features/search/main/searchService');
+        const service = createSearchService();
+        try {
+            const firstPane = service.run({sender: sender as never}, request('first-pane', () => firstPaneDocument.promise));
+            const found = {
+                results: [],
+                truncated: false,
+                coverage: fake.indexCoverage,
+            };
+            await expect(service.run({sender: sender as never}, request('second-pane', async () => document))).resolves.toEqual(found);
+            firstPaneDocument.resolve(document);
+            await expect(firstPane).resolves.toEqual(found);
+
+            const unnamed = service.run({sender: sender as never}, request('canceled-pane', signal => new Promise((_resolve, reject) => {
+                const abort = () => reject(new Error('Search canceled'));
+                if (signal.aborted) abort();
+                signal.addEventListener('abort', abort, {once: true});
+            })));
+            expect(service.cancel({sender: sender as never})).toEqual({canceled: true});
+            await expect(unnamed).resolves.toMatchObject({canceled: true});
+        } finally {
+            await service.shutdown();
+        }
+    });
+
+    // A reloaded page starts with no search state, so its old requests have no reader.
+    it.each([
+        'did-start-navigation',
+        'render-process-gone',
+        'destroyed',
+    ])('stops the searches of a page that goes away (%s)', async (end) => {
+        const sender = Object.assign(new EventEmitter(), {
+            id: 73,
+            send: vi.fn(),
+            isDestroyed: () => false,
+        });
+        const started = Promise.withResolvers<AbortSignal>();
+        const {createSearchService} = await import('@electron/features/search/main/searchService');
+        const service = createSearchService();
+        try {
+            const search = service.run({sender: sender as never}, {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+                requestId: requireRequestId('reloaded-page'),
+                requestIdPrefix: 'search',
+                query: 'needle',
+                resolveDocument: signal => new Promise((_resolve, reject) => {
+                    started.resolve(signal);
+                    signal.addEventListener('abort', () => reject(new Error('Search canceled')), {once: true});
+                }),
+            });
+            const signal = await started.promise;
+
+            sender.emit(end, {}, 'app://renderer/', false, true);
+
+            expect(signal.aborted).toBe(true);
+            await expect(search).resolves.toMatchObject({canceled: true});
         } finally {
             await service.shutdown();
         }

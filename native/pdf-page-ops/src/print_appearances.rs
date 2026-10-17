@@ -6,6 +6,7 @@ use super::*;
 #[path = "print_free_text.rs"]
 mod free_text;
 use free_text::missing_free_text_appearance;
+pub(crate) use free_text::PrintFonts;
 
 /// The stored normal appearance print draws. Structural sources keep stream
 /// dictionaries without reading their bytes.
@@ -202,11 +203,13 @@ fn read_font_programs(
 /// `every_subtype` only the subtypes EVB draws get one; composition flattens
 /// every subtype and draws the rest as a plain rectangle. Returns the objects it
 /// rewrote: indirect annotations, or the page or /Annots array holding a direct
-/// one. An annotation with no drawable geometry is unchanged.
+/// one. An annotation with no drawable geometry is unchanged. A FreeText draws
+/// with the print job's fonts, which the caller embeds after its last page.
 pub(crate) fn materialize_print_appearances(
     document: &mut Document,
     page_id: ObjectId,
     every_subtype: bool,
+    fonts: &mut PrintFonts,
 ) -> Result<Vec<ObjectId>> {
     let Ok(annots) = document.get_dictionary(page_id)?.get(b"Annots").cloned() else {
         return Ok(Vec::new());
@@ -234,7 +237,7 @@ pub(crate) fn materialize_print_appearances(
         let free_text =
             annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText");
         let Some(appearance) = free_text
-            .then(|| missing_free_text_appearance(document, &annotation, page_id).ok())
+            .then(|| missing_free_text_appearance(document, &annotation, page_id, fonts).ok())
             .flatten()
             .or_else(|| synthesized_appearance(document, &mut annotation))
         else {
@@ -298,13 +301,16 @@ pub(crate) fn write_print_appearances_path(
     if let Some(qpdf_path) = qpdf_path {
         read_font_programs(&mut incremental, input_path, qpdf_path, &page_ids);
     }
+    let mut fonts = PrintFonts::default();
     for page_id in page_ids.into_values() {
         changed.extend(materialize_print_appearances(
             &mut incremental.previous_document,
             page_id,
             false,
+            &mut fonts,
         )?);
     }
+    fonts.embed(&mut incremental.previous_document)?;
     if changed.is_empty() {
         return Ok(());
     }

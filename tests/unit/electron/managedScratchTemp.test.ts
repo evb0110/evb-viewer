@@ -23,6 +23,7 @@ import {
 import { spawn } from 'child_process';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import type * as FsPromises from 'fs/promises';
 
 const mocks = vi.hoisted(() => ({
     appTempDir: '',
@@ -30,9 +31,23 @@ const mocks = vi.hoisted(() => ({
         info: vi.fn(),
         warn: vi.fn(),
     },
+    // A file whose NTFS file ID is 2^53, which a Number cannot tell from 2^53 + 1.
+    largeIdPath: '',
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('fs/promises', async (importOriginal) => {
+    const actual = await importOriginal<typeof FsPromises>();
+    return {
+        ...actual,
+        lstat: async (...args: Parameters<typeof actual.lstat>) => {
+            const fileStat = await actual.lstat(...args);
+            return String(args[0]) === mocks.largeIdPath
+                ? Object.assign(fileStat, {ino: typeof fileStat.ino === 'bigint' ? 9_007_199_254_740_992n : 2 ** 53})
+                : fileStat;
+        },
+    };
+});
 
 const {
     createManagedScratchTempDir,
@@ -47,6 +62,7 @@ const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 describe('managed scratch temp cleanup', () => {
     beforeEach(() => {
         mocks.appTempDir = mkdtempSync(join(tmpdir(), 'managed-scratch-test-'));
+        mocks.largeIdPath = '';
         vi.clearAllMocks();
     });
 
@@ -138,6 +154,39 @@ describe('managed scratch temp cleanup', () => {
         } finally {
             unrelated.kill('SIGKILL');
         }
+    });
+
+    it.each([
+        [
+            'a Number an older release rounded',
+            (stat: Awaited<ReturnType<typeof lstat>>) => `{"dev":${stat.dev},"ino":9007199254740993,"size":${stat.size},"mtimeMs":${stat.mtimeMs}}`,
+        ],
+        [
+            'another file ID above 2^53',
+            (stat: Awaited<ReturnType<typeof lstat>>, mtimeNs: bigint) => JSON.stringify({
+                dev: String(stat.dev),
+                ino: '9007199254740993',
+                size: String(stat.size),
+                mtimeNs: String(mtimeNs),
+            }),
+        ],
+    ])('keeps a file another program saved at an export target when the recorded identity is %s', async (_label, recordIdentity) => {
+        const target = join(mocks.appTempDir, 'page.png');
+        await writeFile(target, 'saved by another program');
+        mocks.largeIdPath = target;
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        await writeFile(join(ownerPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: 0,
+            pid: 2_147_483_647,
+            prefix: 'pdfExport-',
+        })}\n`, 'utf8');
+        // The export published a new file here with ID 2^53 + 1; the file there now has ID 2^53 and the same size and time.
+        const published = recordIdentity(await lstat(target), (await lstat(target, {bigint: true})).mtimeNs);
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `{"kind":"publish","target":${JSON.stringify(target)},"published":${published}}\n`, 'utf8');
+
+        await sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0);
+
+        await expect(readFile(target, 'utf8')).resolves.toBe('saved by another program');
     });
 
     it('leaves fresh marked scratch dirs inside the TTL window', async () => {

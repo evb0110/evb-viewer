@@ -128,7 +128,7 @@ describe('browser working-copy decryption', () => {
         expect(wasmRun).toHaveBeenCalledWith('decrypt', {
             data: ENCRYPTED_PDF,
             password: 'correct-password',
-        });
+        }, expect.any(Function));
         await expect(browserDocumentStore.read(workingPath)).resolves.toEqual(DECRYPTED_PDF);
     });
 

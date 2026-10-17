@@ -724,13 +724,20 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
     }
 }
 
+/**
+ * Runs a page operation in this thread's engine. `beforeRun` is awaited once
+ * the module has loaded and before any input enters the engine; a caller
+ * whose request has ended throws there, and the engine is not entered.
+ */
 export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
     payload: IBrowserPageOpsWasmRequestMap[K],
+    beforeRun?: () => Promise<void>,
 ): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure | null> {
     if (!canUsePdfPageOpsWasm()) return null;
     const exports = await loadPdfPageOpsWasm();
     if (!exports) return null;
+    await beforeRun?.();
 
     const request = {
         type,

@@ -548,6 +548,7 @@ function getPagesMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCon
                 label: te('menu.rotateClockwise'),
                 enabled: canOperateOnSelection,
                 channel: DOCUMENTS_EVENT_CHANNELS.onMenuRotateCw,
+                id: 'rotate-pages-clockwise',
             }),
             createWindowMenuAction({
                 label: te('menu.rotateCounterclockwise'),

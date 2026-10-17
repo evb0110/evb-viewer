@@ -29,7 +29,6 @@ import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
 import {
-    aggregateErrorsKeepingUnprovenTermination,
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
 } from '@electron/utils/nativeTerminationProof';
@@ -460,8 +459,7 @@ describe('image export', () => {
             await rm(sourcePath, { force: true });
         });
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, { force: true });
+            await realFs.rename(sourcePath, targetPath);
         });
         mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
             if (command === '/mock/qpdf' && args[0] === '--show-npages') {
@@ -1088,6 +1086,46 @@ describe('image export', () => {
         });
     });
 
+    it.each([
+        '/mock/pdfinfo',
+        '/mock/pdfimages',
+    ])('fails a scoped export and keeps its pages while %s may still read them', async (probe) => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 2;
+        const appTempRoot = join(tempDir, 'app-temp');
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        let probedPdfPath = '';
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                const subsetPdfPath = (await readFile(args[0].slice(1), 'utf8')).split('\n').at(-1)!;
+                await writeFile(subsetPdfPath, '%PDF-1.7 subset');
+                return {
+                    stdout: '',
+                    stderr: '',
+                    exitCode: 0,
+                };
+            }
+            if (command === probe) {
+                probedPdfPath = args.at(-1)!;
+                throw markUnprovenNativeTermination(new Error(`${probe} timed out`), `${probe} was not proven dead`);
+            }
+            return defaultRunCommand(command, args, options);
+        });
+        const outputPath = join(tempDir, 'scoped-probe.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath, {
+            pageNumbers: [2],
+            scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, appTempRoot, run)},
+        })).rejects.toThrow(`${probe} timed out`);
+
+        await expect(readFile(probedPdfPath, 'utf8')).resolves.toBe('%PDF-1.7 subset');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
     it('passes bundled Poppler runtime environment to export Poppler commands', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
         mocks.popplerDataDir = '/mock/poppler/share/poppler';
@@ -1474,8 +1512,7 @@ describe('image export', () => {
         await writeFile(secondStagedPath, 'page two');
         const abortController = new AbortController();
         mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
-            await writeFile(target, await readFile(source));
-            await rm(source);
+            await realFs.rename(source, target);
             if (source === (cancelAfterPage === 1 ? firstStagedPath : secondStagedPath)) {
                 abortController.abort();
             }
@@ -1546,7 +1583,7 @@ describe('image export', () => {
         const firstWriter = markUnprovenNativeTermination(new Error('first writer'), 'first writer still alive');
         const secondWriter = markUnprovenNativeTermination(new Error('second writer'), 'second writer still alive');
 
-        const combined = aggregateErrorsKeepingUnprovenTermination([
+        const combined = new AggregateError([
             rollbackFailure,
             firstWriter,
             secondWriter,
@@ -1560,7 +1597,7 @@ describe('image export', () => {
             secondWriter,
         ]);
         expect(getUnprovenNativeTerminationDetail(combined)).toBe('first writer still alive');
-        expect(getUnprovenNativeTerminationDetail(aggregateErrorsKeepingUnprovenTermination([rollbackFailure], 'export failed'))).toBeUndefined();
+        expect(getUnprovenNativeTerminationDetail(new AggregateError([rollbackFailure], 'export failed'))).toBeUndefined();
     });
 
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {
@@ -1911,8 +1948,7 @@ describe('image export', () => {
                 throw new Error('second promotion failed');
             }
 
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, { force: true });
+            await realFs.rename(sourcePath, targetPath);
         });
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
@@ -1941,8 +1977,7 @@ describe('image export', () => {
             if (sourcePath === `${firstTargetPath}.tmp`) {
                 throw new Error('first restore failed');
             }
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, {force: true});
+            await realFs.rename(sourcePath, targetPath);
         });
 
         const failure = await promoteStagedFiles([
@@ -2002,8 +2037,7 @@ describe('image export', () => {
             if (sourcePath === secondStagedPath) {
                 throw new Error('second promotion failed');
             }
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, {force: true});
+            await realFs.rename(sourcePath, targetPath);
         });
 
         await expect(promoteStagedFiles([
@@ -2018,6 +2052,43 @@ describe('image export', () => {
         ])).rejects.toThrow('second promotion failed');
 
         expect(await readFile(firstTargetPath, 'utf8')).toBe('concurrent-first');
+    });
+
+    it('keeps a file another program saves over a published image when a later promotion fails', async () => {
+        const firstTargetPath = join(tempDir, 'external-first.png');
+        const secondTargetPath = join(tempDir, 'external-second.png');
+        const firstStagedPath = join(tempDir, 'external-first.staged');
+        const secondStagedPath = join(tempDir, 'external-second.staged');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(firstStagedPath, 'new-first'),
+            writeFile(secondStagedPath, 'new-second'),
+        ]);
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (sourcePath === secondStagedPath) {
+                throw new Error('second promotion failed');
+            }
+            await realFs.rename(sourcePath, targetPath);
+            if (sourcePath === firstStagedPath) {
+                // Another program saves its own file over the image the export has just published.
+                await writeFile(join(tempDir, 'external.part'), 'external-first');
+                await realFs.rename(join(tempDir, 'external.part'), targetPath);
+            }
+        });
+
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: firstStagedPath,
+                targetPath: firstTargetPath,
+            },
+            {
+                stagedPath: secondStagedPath,
+                targetPath: secondTargetPath,
+            },
+        ])).rejects.toThrow();
+
+        expect(await readFile(firstTargetPath, 'utf8')).toBe('external-first');
+        expect(await readFile(join(tempDir, 'external-first (original).png'), 'utf8')).toBe('old-first');
     });
 
     it('keeps an existing image target when source validation fails before promotion', async () => {
@@ -2090,6 +2161,25 @@ describe('image export', () => {
 
         expect(existsSync(outputPath)).toBe(false);
         expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+    });
+
+    it('keeps the rendered TIFF pages of a window whose native writer may still read them', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.nativeTiffCombineEnabled = true;
+        mocks.nativeTiffCombineStopMidWrite = async () => {
+            throw markUnprovenNativeTermination(new Error('native TIFF writer timed out'), 'native TIFF writer was not proven dead');
+        };
+        const appTempRoot = join(tempDir, 'app-temp');
+        const outputPath = join(tempDir, 'unproven-writer.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, appTempRoot, run)}}))
+            .rejects.toThrow('native TIFF writer timed out');
+
+        const [pagePaths = []] = mocks.nativeTiffCombinePageGroups;
+        expect(pagePaths).toHaveLength(2);
+        expect(pagePaths.every(pagePath => existsSync(pagePath))).toBe(true);
+        expect(existsSync(outputPath)).toBe(false);
     });
 
     it('removes rendered TIFF page temps during multi-page TIFF combine before promotion', async () => {

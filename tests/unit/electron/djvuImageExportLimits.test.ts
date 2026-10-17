@@ -231,6 +231,67 @@ describe('DjVu image export limits', () => {
             8,
             1,
         ]);
+        expect((await readdir(tempDir)).filter(name => name.endsWith('.ppm'))).toEqual([]);
+    });
+
+    it('keeps the pages of a TIFF batch whose native writer may still read them', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-unproven-writer-test-'));
+        mocks.appTempDir = tempDir;
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 3,
+            };
+        });
+        let batchPaths: string[] = [];
+        mocks.combineTiff.mockImplementation(async (pagePaths: string[]) => {
+            batchPaths = pagePaths;
+            throw markUnprovenNativeTermination(new Error('native TIFF writer timed out'), 'native TIFF writer was not proven dead');
+        });
+        const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
+
+        await expect(exportDjvuAsMultiPageTiff('/books/book.djvu', join(tempDir, 'book.tif')))
+            .rejects.toThrow('native TIFF writer timed out');
+
+        expect(batchPaths).toHaveLength(1);
+        await expect(readFile(batchPaths[0]!, 'utf8')).resolves.toBe('ppm');
+    });
+
+    it.each([
+        [
+            'exportDjvuPagesAsPng',
+            'page.png',
+        ],
+        [
+            'exportDjvuAsMultiPageTiff',
+            'book.tif',
+        ],
+    ] as const)('%s keeps a page whose renderer may still write it', async (exportName, outputName) => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-unproven-render-test-'));
+        mocks.appTempDir = tempDir;
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.rollbackStagedFilePublications.mockResolvedValue(undefined);
+        let ppmPath = '';
+        mocks.convertPage.mockImplementation(async (_source: string, outputPath: string) => {
+            ppmPath = outputPath;
+            await writeFile(outputPath, 'partial ppm');
+            return {
+                success: false,
+                outputPath,
+                fileSize: 0,
+                error: 'ddjvu timed out',
+                cause: markUnprovenNativeTermination(new Error('ddjvu timed out'), 'ddjvu was not proven dead'),
+            };
+        });
+        const djvuImageExport = await import('@electron/features/image-export/main/djvuImageExport');
+
+        await expect(djvuImageExport[exportName]('/books/book.djvu', join(tempDir, outputName)))
+            .rejects.toThrow('ddjvu timed out');
+
+        await expect(readFile(ppmPath, 'utf8')).resolves.toBe('partial ppm');
     });
 
     it('does not promote an early PNG page when a later render fails', async () => {

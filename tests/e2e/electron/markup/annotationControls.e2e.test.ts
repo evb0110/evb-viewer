@@ -2088,7 +2088,19 @@ describe('Electron E2E - annotation controls', () => {
         const freeText = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
         expect.soft(borderEntries(freeText), 'the saved label keeps its border entries').toEqual(borderEntries(sourceText));
         if (Number(borderWidth ?? 0) > 0) {
-            expect.soft(freeText.lookup(PDFName.of('DA'), PDFString).decodeText(), 'the border keeps its colour').toMatch(/ RG$/u);
+            const strokeColour = (da: string) => {
+                const tokens = da.trim().split(/\s+/u);
+                const at = tokens.findLastIndex(token => token === 'G' || token === 'RG' || token === 'K');
+                return at < 0 ? null : tokens.slice(at - {
+                    G: 1,
+                    RG: 3,
+                    K: 4,
+                }[tokens[at] as 'G' | 'RG' | 'K'], at + 1).join(' ');
+            };
+            const sourceStroke = strokeColour(sourceText.lookup(PDFName.of('DA'), PDFString).decodeText());
+            const savedStroke = strokeColour(freeText.lookup(PDFName.of('DA'), PDFString).decodeText());
+            expect.soft(savedStroke, 'the border keeps its colour').toBe(sourceStroke ?? savedStroke);
+            expect.soft(savedStroke, 'the border has a stroking colour').not.toBeNull();
         }
         const normal = pdf.context.lookup(freeText.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
         const appearance = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');

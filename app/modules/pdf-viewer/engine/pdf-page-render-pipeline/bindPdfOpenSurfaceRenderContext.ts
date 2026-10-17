@@ -2,9 +2,8 @@ import type {
     IPdfPage,
     IPdfDocument,
     IPdfAnnotation,
-    IPdfRenderTask,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
+import type {TPdfPageOperationSettlementCapture} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import type {NativeAnnotationAppearance} from 'pdfjs-dist';
 
@@ -38,9 +37,9 @@ export type TPdfPageRenderContentIntent =
 export interface IRenderVisiblePagesOptions {
     annotationCommit?: {
         signature: string;
-        prepare(signal: AbortSignal, reserveAppearanceBytes: (bytes: number) => void): Promise<IPdfAnnotationRenderInput>;
+        prepare(page: IPdfPage, captureSettlement: TPdfPageOperationSettlementCapture, signal: AbortSignal, reserveAppearanceBytes: (bytes: number) => void): Promise<IPdfAnnotationRenderInput>;
         isCurrent(): boolean;
-        commit(input: IPdfAnnotationRenderInput): IPdfAnnotationRenderInput;
+        commit(): void;
     };
     authoritativeRaster?: boolean;
     openSurfaceGeneration?: number;
@@ -54,18 +53,9 @@ export interface IRenderVisiblePagesOptions {
     forceRerender?: boolean;
     suppressResidentRasterDemand?: boolean;
     retainOnlyCurrentResidentRaster?: boolean;
-    preserveInFlightRequiredPages?: boolean;
     prioritizeTextLayer?: boolean;
-    continuationPriority?: TPdfRenderContinuationPriority;
     contentIntent?: TPdfPageRenderContentIntent;
     maxCanvasPixels?: number;
-    preserveCommittedVisual?: boolean;
-    coordinatorDemand?: {
-        kind: 'required' | 'buffer' | 'prewarm';
-        renderGeneration: number;
-    };
-    rasterSchedulerTaskBridge?: {bind(task: IPdfRenderTask): void;};
-    rasterSchedulerPage?: IPdfPage;
     rasterDemandPages?: readonly number[];
     bufferMaxCanvasPixels?: number;
 }

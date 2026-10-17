@@ -3,13 +3,41 @@
 use super::*;
 use crate::annotations::line_origin;
 use crate::free_text_frame::{colour, default_appearance, free_text_frame, FreeTextFrame};
-use crate::text_box_font::{layout_simple, layout_with_fonts};
+use crate::text_box_font::{layout_simple, layout_with_fonts, SharedFonts, FONTS};
+
+/// The fonts of one print job: the bundled faces, then each document program
+/// a label draws with, decoded once. Each is embedded once, after the last
+/// label, as one subset with the glyphs every label draws with it.
+#[derive(Default)]
+pub(crate) struct PrintFonts {
+    programs: Vec<(ObjectId, Vec<u8>)>,
+    subsets: SharedFonts,
+}
+
+impl PrintFonts {
+    fn program(&self, index: usize) -> &[u8] {
+        FONTS
+            .get(index)
+            .copied()
+            .unwrap_or_else(|| &self.programs[index - FONTS.len()].1)
+    }
+
+    pub(crate) fn embed(self, document: &mut Document) -> Result<()> {
+        let Self { programs, subsets } = self;
+        let programs = programs.iter().map(|(_, program)| program.as_slice());
+        subsets.embed(
+            document,
+            &FONTS.into_iter().chain(programs).collect::<Vec<_>>(),
+        )
+    }
+}
 
 /// Synthesize foreign FreeText in PDF space; an empty text area retains its colors.
 pub(super) fn missing_free_text_appearance(
     document: &mut Document,
     annotation: &Dictionary,
     page_id: ObjectId,
+    job: &mut PrintFonts,
 ) -> Result<ObjectId> {
     let rect =
         read_box(document, annotation, b"Rect")?.ok_or("Invalid FreeText print rectangle")?;
@@ -56,54 +84,65 @@ pub(super) fn missing_free_text_appearance(
             }
             content.push_str("ET Q\n");
         } else {
-            let mut programs = Vec::new();
+            // The job's indexes of this label's programs: complete document
+            // programs precede the portable script fonts.
+            let mut order = Vec::new();
             for fonts in &font_resources {
-                // Complete document programs precede the portable script fonts.
                 for (_, font) in fonts
                     .iter()
                     .filter(|(name, _)| *name == &font_name)
                     .chain(fonts.iter().filter(|(name, _)| *name != &font_name))
                 {
-                    let program = (|| -> Result<Vec<u8>> {
-                        let id = font_program_id(document, font).ok_or("No font program")?;
-                        let stream = document.get_object(id)?.as_stream()?;
-                        let bytes =
-                            crate::decompressed_stream_with_limit(stream, FONT_PROGRAM_BYTES)?;
-                        use skrifa::{raw::TableProvider, MetadataProvider};
-                        let face = skrifa::FontRef::from_index(&bytes, 0)?;
-                        let metrics = face.metrics(
-                            skrifa::instance::Size::unscaled(),
-                            skrifa::instance::LocationRef::default(),
-                        );
-                        if face.glyf().is_err()
-                            || metrics.bounds.is_none()
-                            || metrics.units_per_em == 0
-                        {
-                            return Err("Unusable print font program".into());
-                        }
-                        Ok(bytes)
-                    })();
-                    if let Some(program) = program.ok().filter(|p| !programs.contains(p)) {
-                        programs.push(program);
-                    }
+                    let Some(id) = font_program_id(document, font) else {
+                        continue;
+                    };
+                    let known = job.programs.iter().position(|(known, _)| *known == id);
+                    let index = known.or_else(|| {
+                        job.programs
+                            .push((id, print_font_program(document, id).ok()?));
+                        Some(job.programs.len() - 1)
+                    });
+                    let index = index.map(|index| FONTS.len() + index);
+                    order.extend(index.filter(|index| !order.contains(index)));
                 }
             }
-            let programs: Vec<&[u8]> = programs
-                .iter()
-                .map(Vec::as_slice)
-                .chain(crate::text_box_font::FONTS)
-                .collect();
+            order.extend(0..FONTS.len());
+            let programs: Vec<&[u8]> = order.iter().map(|index| job.program(*index)).collect();
             let lay_out = |width, size| layout_with_fonts(&text, width, size, &programs, None);
-            let (size, lines) =
+            let (size, mut lines) =
                 crate::annotations::fit_text_box(size, &geometry, &programs, lay_out);
-            let fonts = crate::text_box_font::embed_fonts(document, &lines, &programs)?;
+            for glyph in lines.iter_mut().flat_map(|line| &mut line.glyphs) {
+                glyph.font = order[glyph.font];
+            }
+            resources.set("Font", job.subsets.resources(document, &lines));
             content.push_str(&crate::annotations::text_box_content(
                 &geometry, &color, &lines, size,
             ));
-            resources.set("Font", fonts);
         }
     }
-    Ok(document.add_object(Stream::new(lopdf::dictionary! {"Type"=>"XObject", "Subtype"=>"Form", "BBox"=>rect_object(rect), "Resources"=>resources},content.into_bytes())))
+    let form = lopdf::dictionary! {
+        "Type" => "XObject",
+        "Subtype" => "Form",
+        "BBox" => rect_object(rect),
+        "Resources" => resources
+    };
+    Ok(document.add_object(Stream::new(form, content.into_bytes())))
+}
+
+/// A document's TrueType program, when print can lay text out with it.
+fn print_font_program(document: &Document, id: ObjectId) -> Result<Vec<u8>> {
+    use skrifa::{raw::TableProvider, MetadataProvider};
+    let stream = document.get_object(id)?.as_stream()?;
+    let bytes = crate::decompressed_stream_with_limit(stream, FONT_PROGRAM_BYTES)?;
+    let face = skrifa::FontRef::from_index(&bytes, 0)?;
+    let metrics = face.metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    if face.glyf().is_err() || metrics.bounds.is_none() || metrics.units_per_em == 0 {
+        return Err("Unusable print font program".into());
+    }
+    Ok(bytes)
 }
 
 fn print_text_geometry(

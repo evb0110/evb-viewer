@@ -163,7 +163,6 @@
 </template>
 
 <script setup lang="ts">
-import {useEventListener} from '@vueuse/core';
 import '@app/assets/css/pdfjs-overrides.scss';
 import '@app/assets/css/pdf-comment-markers.scss';
 import '@app/assets/css/pdf-comment-ui.scss';
@@ -373,21 +372,6 @@ const {
         emitFirstPageRendered();
     },
 });
-// Inert covers the document surface; shortcuts listen above that surface.
-// The same operation owner refuses their input while this view is active.
-useEventListener(globalThis.window, [
-    'keydown',
-    'pointerdown',
-    'pointerup',
-    'click',
-    'dblclick',
-    'contextmenu',
-], (event) => {
-    if (isActive && documentContext.isMoving.value && !(event.target instanceof Element && event.target.closest('.tab-bar'))) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-    }
-}, {capture: true});
 const {mountedDocumentDriver} = documentContext.driver;
 // Start shows only the shell's own actions; document commands arrive with a document.
 const toolbarSurface = computed(() => (

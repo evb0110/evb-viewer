@@ -197,16 +197,24 @@ async function saveWithUnencryptedNoticeChoice(
     choice: 'cancel' | 'continue' | 'continue-and-suppress',
 ) {
     const savePromise = callWorkspaceCommand<boolean>(page, 'handleSave');
-    await page.waitForSelector('.unencrypted-save-dialog', {
+    // The previous request's dialog stays visible while it closes, so only an
+    // open dialog belongs to this save.
+    const dialog = '.unencrypted-save-dialog[data-state="open"]';
+    await page.waitForSelector(dialog, {
         timeout: SAVE_TIMEOUT_MS,
         visible: true,
     });
     if (choice === 'continue-and-suppress') {
-        await clickAsUser(page, '[data-testid="unencrypted-save-dont-show-again"]');
+        const dontShowAgain = `${dialog} [data-testid="unencrypted-save-dont-show-again"]`;
+        await clickAsUser(page, dontShowAgain);
+        await page.waitForSelector(`${dontShowAgain}[aria-checked="true"]`, {
+            timeout: SAVE_TIMEOUT_MS,
+            visible: true,
+        });
     }
     await clickAsUser(page, choice === 'cancel'
-        ? '[data-testid="unencrypted-save-cancel"]'
-        : '[data-testid="unencrypted-save-continue"]');
+        ? `${dialog} [data-testid="unencrypted-save-cancel"]`
+        : `${dialog} [data-testid="unencrypted-save-continue"]`);
     return savePromise;
 }
 

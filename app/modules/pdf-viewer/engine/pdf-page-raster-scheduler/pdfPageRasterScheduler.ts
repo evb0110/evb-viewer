@@ -74,6 +74,8 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     /** Every current demand settles when its bounded attempts run out. */
     onRenderExhausted?: ((outcome: TPdfRasterOutcome) => void) | undefined;
     release(pageNumber: TPageNumber, reason: string): void;
+    /** The target still shows this page, so its resident stays charged. */
+    retains?(pageNumber: TPageNumber): boolean;
 }
 
 export type TPdfRasterOutcome =
@@ -281,15 +283,9 @@ export function createPdfPageRasterScheduler(
         void settlement.then(() => work.coordinatedOperationSettlements.delete(settlement));
     }
 
-    function hasPendingReplacement(work: IRasterWork) {
-        return [
-            ...queued.values(),
-            ...inFlight.values(),
-            ...retryPending.values(),
-        ].some(candidate => candidate.key !== work.key
-            && candidate.target.id === work.target.id
-            && candidate.demand.pageNumber === work.demand.pageNumber
-            && isDemandCurrent(candidate));
+    function isPageVisiblyDemanded(work: IRasterWork) {
+        const lane = (currentDemandByIdentity.get(createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber)) ?? residents.get(work.key)?.demand)?.lane;
+        return lane === 'navigation-target' || lane === 'viewport-visible';
     }
 
     function hasCommittedResidentForPage(targetId: string, pageNumber: TPageNumber) {
@@ -307,10 +303,8 @@ export function createPdfPageRasterScheduler(
             return;
         }
         work.targetReleased = true;
-        // A committed raster for this page (any render key) remains the
-        // correct visual until its replacement commits; releasing the target
-        // here would blank a visible page mid-resize. The resident's own
-        // release path clears the page when it is truly evicted or replaced.
+        // A committed raster for this page (any render key) stays its visual
+        // until replaced; only the resident's own release may clear the page.
         if (hasCommittedResidentForPage(work.target.id, work.demand.pageNumber)) {
             return;
         }
@@ -522,15 +516,8 @@ export function createPdfPageRasterScheduler(
                 category,
                 bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
                 priority: LANE_ORDER[work.demand.lane],
-                // Current visible rasters keep their leases. A pending replacement
-                // supersedes its stale resident, so budget pressure can reclaim
-                // that lease instead of charging both canvases. The target keeps
-                // the old pixels on screen until the new raster commits.
-                canEvict: () => residents.has(work.key)
-                    && !(isDemandCurrent(work) && (
-                        work.demand.lane === 'navigation-target'
-                        || work.demand.lane === 'viewport-visible'
-                    ) && !hasPendingReplacement(work)),
+                // A raster on screen stays charged until replaced.
+                canEvict: () => residents.has(work.key) && !isPageVisiblyDemanded(work),
                 evict: () => {
                     const resident = residents.get(work.key);
                     if (resident) {
@@ -778,9 +765,8 @@ export function createPdfPageRasterScheduler(
             if (resident?.sourceId !== request.sourceId) {
                 continue;
             }
-            // A page demanded at another scale keeps its raster on screen
-            // until the replacement commits.
-            if (demandedPages.has(resident.demand.pageNumber)) {
+            // A demanded or retained page keeps its raster and charge.
+            if (demandedPages.has(resident.demand.pageNumber) || resident.target.retains?.(resident.demand.pageNumber)) {
                 nextKeys.add(key);
             } else {
                 releaseResident(resident, 'demand-replaced');

@@ -851,6 +851,7 @@ function findPageByPresentedLabel(input: string, labels: Exclude<TDocumentPageLa
         return match;
     }
     for (const segment of labels.segments) {
+        const lastNumber = segment.startNumber + segment.endPage - segment.startPage;
         function* candidates() {
             if (segment.style === null) {
                 yield segment.startPage;
@@ -870,22 +871,23 @@ function findPageByPresentedLabel(input: string, labels: Exclude<TDocumentPageLa
                 for (let residue = 0; residue < 26; residue += 1) {
                     const firstNumber = Math.max(26 * 32 + residue + 1,
                         segment.startNumber + (residue - (segment.startNumber - 1) % 26 + 26) % 26);
-                    for (let step = 0; step <= 65; step += 1) {
-                        yield segment.startPage + firstNumber + step * 26 - segment.startNumber;
+                    for (let number = firstNumber; number <= Math.min(firstNumber + 65 * 26, lastNumber); number += 26) {
+                        yield segment.startPage + number - segment.startNumber;
                     }
                 }
             } else if (segment.style === 'R' || segment.style === 'r') {
-                // Roman remainder repeats every thousand; the head stabilizes within 65 thousands.
-                for (let remainder = 0; remainder < 1000; remainder += 1) {
+                // Each remainder repeats every thousand from its first number here; the head stabilizes within 65 thousands.
+                for (let firstNumber = segment.startNumber; firstNumber <= Math.min(lastNumber, segment.startNumber + 999); firstNumber += 1) {
+                    const remainder = firstNumber % 1000;
                     const suffixLength = remainder === 0 ? 0
                         : getLabelForOffset({
                             ...segment,
                             prefix: '',
                             startNumber: remainder,
                         }, 0).length;
-                    const thousands = Math.max(0, 33 - suffixLength, Math.ceil((segment.startNumber - remainder) / 1000));
-                    for (let step = 0; step <= 65; step += 1) {
-                        yield segment.startPage + (thousands + step) * 1000 + remainder - segment.startNumber;
+                    const thousands = Math.max(Math.floor(firstNumber / 1000), 33 - suffixLength);
+                    for (let step = thousands; step <= Math.min(thousands + 65, Math.floor((lastNumber - remainder) / 1000)); step += 1) {
+                        yield segment.startPage + step * 1000 + remainder - segment.startNumber;
                     }
                 }
             }

@@ -192,8 +192,9 @@ describe('createDocumentConformance', () => {
 
         conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
         expect(state.pdfConformanceAnalysisState.value).toBe('on-demand-only');
-        expect(conformance.notifyPdfInitialVisualReady(path)).toBe(true);
-        expect(idle.callbacks.size).toBe(1);
+        expect(conformance.notifyPdfInitialVisualReady(path)).toBe(false);
+        expect(idle.callbacks.size).toBe(0);
+        expect(mockReadPdfConformanceProfile).not.toHaveBeenCalled();
 
         await expect(conformance.refreshPdfConformanceProfile(path)).rejects.toThrow(failure);
         expect(idle.callbacks.size).toBe(0);
@@ -203,7 +204,7 @@ describe('createDocumentConformance', () => {
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(2);
     });
 
-    it('primes the bounded save-restriction check after a large document becomes visible', async () => {
+    it('reads a large document\'s save restrictions when it saves, not when it becomes visible', async () => {
         mockReadPdfConformanceProfile.mockResolvedValue(unsignedProfile);
         const {
             conformance,
@@ -213,9 +214,9 @@ describe('createDocumentConformance', () => {
         } = createHarness();
 
         conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
-        expect(conformance.notifyPdfInitialVisualReady(path)).toBe(true);
+        conformance.notifyPdfInitialVisualReady(path);
         idle.flush();
-        await vi.waitFor(() => expect(mockReadPdfConformanceProfile).toHaveBeenCalledOnce());
+        expect(mockReadPdfConformanceProfile).not.toHaveBeenCalled();
 
         await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).resolves.toBe(false);
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledWith(path, {purpose: 'save-restrictions'});
@@ -223,9 +224,9 @@ describe('createDocumentConformance', () => {
         expect(state.pdfConformanceAnalysisState.value).toBe('on-demand-only');
     });
 
-    it('uses current-content restrictions after an unsigned idle result and full profile', async () => {
+    it('uses current-content restrictions over an unsigned full profile', async () => {
         const {
-            conformance, idle, path, state,
+            conformance, path, state,
         } = createHarness();
         const signedProfile = {
             ...unsignedProfile,
@@ -234,9 +235,6 @@ describe('createDocumentConformance', () => {
             saveRestrictions: ['signed'],
         };
         conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
-        conformance.notifyPdfInitialVisualReady(path);
-        idle.flush();
-        await vi.waitFor(() => expect(mockReadPdfConformanceProfile).toHaveBeenCalledOnce());
         state.pdfConformanceProfile.value = unsignedProfile;
         state.documentRevisionToken.value = requireDocumentRevisionToken('drt1:7:2:changed');
         mockReadPdfConformanceProfile.mockResolvedValue(signedProfile);

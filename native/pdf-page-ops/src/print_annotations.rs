@@ -5,7 +5,9 @@ use super::*;
 #[path = "print_appearances.rs"]
 mod appearances;
 use appearances::annotation_normal_appearance;
-pub(super) use appearances::{materialize_print_appearances, write_print_appearances_path};
+pub(super) use appearances::{
+    materialize_print_appearances, write_print_appearances_path, PrintFonts,
+};
 
 /// Printable, visible and not a popup: the annotations print draws.
 fn is_printed(document: &Document, annotation: &Dictionary) -> bool {

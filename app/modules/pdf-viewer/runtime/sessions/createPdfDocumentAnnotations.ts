@@ -35,7 +35,7 @@ export function annotationDocumentKey(source: TPdfSource | null) {
     return identity;
 }
 
-/** What one viewer of the document takes part in: its emits and its editor's pending drafts. */
+/** What one viewer of the document takes part in: its emits and its text editor. */
 export interface IPdfDocumentAnnotationsView {
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     emitAnnotationModified: () => void;
@@ -44,6 +44,7 @@ export interface IPdfDocumentAnnotationsView {
     /** Commits text-box drafts open in this view's editor. */
     commitPendingDraftsForSave: () => void | Promise<void>;
     getPendingTextCompletion?: () => undefined | Promise<unknown>;
+    isEditing: (annotationId: string) => boolean;
     /** Where this view's editor shows an open draft, or null when it holds none. */
     getTextBoxDraftRect: (annotationId: string) => IAnnotationMarkerRect | null;
 }
@@ -57,9 +58,9 @@ export interface ICreatePdfDocumentAnnotationsOptions {
 
 /**
  * One PDF document's canonical annotations: the application store, its undo
- * history, text-box drafts and markup subtype hints. Every viewer of the
- * document edits and renders this one owner; each viewer keeps its own editor
- * surface, tools and selection. The workspace document creates it; a viewer
+ * history and text-box drafts. Every viewer of the document edits and renders
+ * this one owner; each viewer keeps its own editor surface, tools and
+ * selection. The workspace document creates it; a viewer
  * used on its own creates one for itself.
  */
 export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotationsOptions) => {
@@ -246,10 +247,8 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     // Without revision tokens only a reload during a save keeps the store.
     function replaceLoadedDocument(loadedRevision: string | null, duringSave: boolean) {
         const currentRevision = options.documentRevisionToken.value;
-        if (currentRevision !== null) {
-            if (loadedRevision !== currentRevision || storeRevision === currentRevision) {
-                return;
-            }
+        if (currentRevision !== null && (loadedRevision !== currentRevision || storeRevision === currentRevision)) {
+            return;
         }
         if (!duringSave) {
             history.clear();
@@ -313,9 +312,9 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 ?? textBoxDraftRects.get(annotationId) ?? null;
         },
         // One editor per annotation: editing it in one viewer first commits the
-        // draft another viewer still has open, as clicking elsewhere does in one.
+        // editor another viewer holds open, as clicking elsewhere does in one.
         commitDraftIfOpen(annotationId: string, except: IPdfDocumentAnnotationsView) {
-            const others = [...views].filter(view => view !== except && view.getTextBoxDraftRect(annotationId) !== null);
+            const others = [...views].filter(view => view !== except && view.isEditing(annotationId));
             return others.length ? Promise.all(others.map(view => Promise.resolve(view.commitPendingDraftsForSave()))).then(() => {}) : undefined;
         },
         getPendingTextCompletion() {

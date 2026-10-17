@@ -18,12 +18,8 @@ import {
     setWorkingCopyOriginalPath, forgetWorkingCopyOriginalPath,
 } from '@electron/file-access/workingCopyStore';
 import type * as TAppTempDir from '@electron/utils/appTempDir';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
-    requirePageIndex, requirePageNumber,
-} from '@contracts/pageNumbers';
-import {requireEpochMs} from '@contracts/timestamps';
-import {
-    answerPdfPageShape,
     handlePdfOpeningGeometry,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
@@ -118,111 +114,6 @@ describe('native PDF metadata parsing', () => {
         ], expect.anything());
     });
 
-});
-
-describe('PDF page-shape store', () => {
-    const revision = {
-        size: 1_000,
-        modifiedAt: requireEpochMs(1_720_000_000_000),
-    };
-    const shapeAt = (identity: typeof revision, width: number) => ({
-        pageNumber: requirePageNumber(1),
-        pageCount: 3,
-        width,
-        height: 792,
-        rotation: 0 as const,
-        widestPageWidth: width,
-        tallestPageHeight: 792,
-        pages: Array.from({length: 3}, (_, index) => ({
-            pageNumber: requirePageNumber(index + 1, 3),
-            xPoints: 0,
-            yPoints: 0,
-            widthPoints: width,
-            heightPoints: 792,
-            rotation: 0 as const,
-            userUnit: 1,
-        })),
-        ...identity,
-    });
-
-    it('replaces a first-open shape without page metrics with a complete reopen shape', async () => {
-        const path = '/books/first-open-then-reopen.pdf';
-        await answerPdfPageShape(path, revision, async () => ({
-            ...shapeAt(revision, 612),
-            pages: null,
-        }));
-
-        await expect(answerPdfPageShape(path, revision, async () => shapeAt(revision, 500))).resolves.toMatchObject({
-            width: 500,
-            pages: [
-                {widthPoints: 500},
-                {widthPoints: 500},
-                {widthPoints: 500},
-            ],
-        });
-    });
-
-    it('answers a file it has read from memory while the file is unchanged', async () => {
-        const read = vi.fn(async () => shapeAt(revision, 612));
-
-        await expect(answerPdfPageShape('/books/unchanged.pdf', revision, read)).resolves.toMatchObject({width: 612});
-        await expect(answerPdfPageShape('/books/unchanged.pdf', revision, read)).resolves.toMatchObject({width: 612});
-
-        expect(read).toHaveBeenCalledTimes(1);
-    });
-
-    it('reads again when an open needs another page\'s shape of an unchanged file', async () => {
-        await answerPdfPageShape('/books/reread.pdf', revision, async () => shapeAt(revision, 612));
-
-        await expect(answerPdfPageShape('/books/reread.pdf', revision, async () => ({
-            ...shapeAt(revision, 500),
-            pageNumber: requirePageNumber(3),
-        }), 3)).resolves.toMatchObject({
-            pageNumber: 3,
-            width: 500,
-        });
-    });
-
-    it('evicts the file read longest ago, not the one answered most', async () => {
-        const hot = '/books/hot.pdf';
-        await answerPdfPageShape(hot, revision, async () => shapeAt(revision, 612));
-        for (let index = 0; index < 255; index += 1) {
-            await answerPdfPageShape(`/books/fill-${String(index)}.pdf`, revision, async () => shapeAt(revision, 612));
-        }
-        await answerPdfPageShape(hot, revision, async () => shapeAt(revision, 700));
-        await answerPdfPageShape('/books/one-more.pdf', revision, async () => shapeAt(revision, 612));
-        const reread = vi.fn(async () => shapeAt(revision, 800));
-
-        await expect(answerPdfPageShape(hot, revision, reread)).resolves.toMatchObject({width: 612});
-        expect(reread).not.toHaveBeenCalled();
-    });
-
-    it.each([
-        [
-            'size',
-            {
-                ...revision,
-                size: 1_001,
-            },
-        ],
-        [
-            'modification time',
-            {
-                ...revision,
-                modifiedAt: requireEpochMs(1_720_000_000_001),
-            },
-        ],
-    ])('reads the file again once its %s changes', async (_change, changed) => {
-        const path = `/books/changed-${String(changed.size)}-${String(changed.modifiedAt)}.pdf`;
-        await answerPdfPageShape(path, revision, async () => shapeAt(revision, 612));
-        const reread = vi.fn(async () => shapeAt(changed, 842));
-
-        await expect(answerPdfPageShape(path, changed, reread)).resolves.toMatchObject({width: 842});
-        // The new revision replaces the old one.
-        await expect(answerPdfPageShape(path, changed, reread)).resolves.toMatchObject({width: 842});
-
-        expect(reread).toHaveBeenCalledTimes(1);
-    });
 });
 
 describe('complete PDF opening geometry', () => {
