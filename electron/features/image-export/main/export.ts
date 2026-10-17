@@ -543,7 +543,6 @@ export async function promoteStagedFiles(
             }
             throwIfAborted(signal);
             await atomicReplace(stagedFiles[index]!.stagedPath, promotedFile.targetPath);
-            promotedFile.published = await readFileIdentity(promotedFile.targetPath);
         }
         throwIfAborted(signal);
         if (!sharedLedger) {

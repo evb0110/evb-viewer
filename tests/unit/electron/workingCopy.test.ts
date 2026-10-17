@@ -2244,6 +2244,29 @@ describe('workingCopy', () => {
         expect(existsSync(workDir)).toBe(false);
     });
 
+    it.each([
+        [
+            'holds null',
+            (journalPath: string) => writeFileSync(journalPath, 'null'),
+        ],
+        [
+            'cannot be read',
+            (journalPath: string) => mkdirSync(journalPath),
+        ],
+    ])('keeps a stale working-copy directory whose journal %s, with the backup it names', async (_label, writeJournal) => {
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-unreadable-journal');
+        mkdirSync(workDir, {recursive: true});
+        writeFileSync(join(workDir, 'document.pdf'), new Uint8Array([1]));
+        writeFileSync(join(workDir, 'journal-before-save.bak'), new Uint8Array([2]));
+        writeJournal(join(workDir, 'journal.json'));
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        utimesSync(workDir, staleDate, staleDate);
+
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 0});
+        expect(readFileSync(join(workDir, 'journal-before-save.bak'))).toEqual(Buffer.from([2]));
+    });
+
     it('removes a stale atomic-replace backup after a Windows promotion crash when its destination survived', async () => {
         setPlatform('win32');
         const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');

@@ -3,25 +3,38 @@ import {
     stat,
 } from 'fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
+// A bigint stat's fields as exact decimal strings: NTFS file IDs exceed 2^53, where a Number joins two files.
 export interface IFileIdentity {
-    dev: number;
-    ino: number;
-    size: number;
-    mtimeMs: number;
+    dev: string;
+    ino: string;
+    size: string;
+    mtimeNs: string;
 }
+
+// A recorded identity. One an older release recorded as Numbers proves nothing, so it reads as no identity.
+export const fileIdentitySchema = v.union([
+    v.object({
+        dev: v.string(),
+        ino: v.string(),
+        size: v.string(),
+        mtimeNs: v.string(),
+    }),
+    v.pipe(v.object({mtimeMs: v.number()}), v.transform(() => null)),
+]);
 
 // Null when nothing is at the path. A rename keeps this identity, so a file
 // published from a stage is recognizable at its target afterwards. The entry
 // itself is read, since a rename replaces the entry at the path.
 export async function readFileIdentity(filePath: string): Promise<IFileIdentity | null> {
     try {
-        const fileStat = await lstat(filePath);
+        const fileStat = await lstat(filePath, {bigint: true});
         return {
-            dev: fileStat.dev,
-            ino: fileStat.ino,
-            size: fileStat.size,
-            mtimeMs: fileStat.mtimeMs,
+            dev: fileStat.dev.toString(),
+            ino: fileStat.ino.toString(),
+            size: fileStat.size.toString(),
+            mtimeNs: fileStat.mtimeNs.toString(),
         };
     } catch (error) {
         if (isErrnoException(error) && error.code === 'ENOENT') {
@@ -45,5 +58,5 @@ export function isSameFileIdentity(first: IFileIdentity | null, second: IFileIde
         && first.dev === second.dev
         && first.ino === second.ino
         && first.size === second.size
-        && first.mtimeMs === second.mtimeMs;
+        && first.mtimeNs === second.mtimeNs;
 }

@@ -127,14 +127,15 @@ async function readJournaledPaths(workDir: string) {
         .then(text => JSON.parse(text) as {
             workingCopyPath?: unknown;
             original?: {path?: unknown}
-        } | null, () => null)
-        .catch(() => ({
-            workingCopyPath: null,
-            original: undefined,
-        }));
-    return journal && {
-        workingCopyPath: join(workDir, typeof journal.workingCopyPath === 'string' ? basename(journal.workingCopyPath) : 'document.pdf'),
-        originalPath: typeof journal.original?.path === 'string' ? journal.original.path : undefined,
+        } | null)
+        .catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? undefined : null);
+    if (journal === undefined) {
+        return false;
+    }
+    const workingCopyName = typeof journal?.workingCopyPath === 'string' ? basename(journal.workingCopyPath) : 'document.pdf';
+    return {
+        workingCopyPath: join(workDir, workingCopyName),
+        originalPath: typeof journal?.original?.path === 'string' ? journal.original.path : undefined,
     };
 }
 
@@ -146,15 +147,17 @@ async function readJournaledPaths(workDir: string) {
  */
 async function isRemovableWorkingCopyDirectory(workDir: string, now: number) {
     const workDirStat = await stat(workDir).catch(() => null);
-    const stale = workDirStat !== null && workDirStat.isDirectory() && now - workDirStat.mtimeMs >= STALE_WORK_DIR_MAX_AGE_MS;
+    const stale = workDirStat?.isDirectory() === true && now - workDirStat.mtimeMs >= STALE_WORK_DIR_MAX_AGE_MS;
     const journaled = await readJournaledPaths(workDir);
-    if (!journaled || !stale && existsSync(journaled.workingCopyPath)) return stale && !journaled;
+    if (!journaled || !stale && existsSync(journaled.workingCopyPath)) {
+        return stale && !journaled;
+    }
     const recover = () => recoverWorkingCopyTransition(journaled.workingCopyPath);
-    const held = await (journaled.originalPath ? withOriginalPathMutationLock(journaled.originalPath, recover) : recover()).catch((error: unknown) => {
+    const recovery = journaled.originalPath ? withOriginalPathMutationLock(journaled.originalPath, recover) : recover();
+    return recovery.then(held => typeof held !== 'object', (error: unknown) => {
         logger.warn('Could not finish a working-copy journal', {error: getErrorMessage(error)});
-        return {held: true};
+        return false;
     });
-    return typeof held !== 'object';
 }
 
 /**
@@ -312,10 +315,9 @@ async function cleanupWorkingCopyDirectory(
             // The journal names what a save left beside the original; finish it before its folder goes. While
             // another program holds that file, the journal stays for the next start, and only the document goes.
             const recover = () => recoverWorkingCopyTransition(normalizedPath);
-            // Recovery at close takes the same original-path lock a save holds, so it cannot interleave with one.
-            const held = await (originalPath ? withOriginalPathMutationLock(originalPath, recover) : recover()).catch((error: unknown) => {
-                logger.warn('Could not finish a working-copy journal before closing', {error: getErrorMessage(error)});
-            });
+            // Recovery at close takes the same original-path lock a save holds, so it cannot interleave with one. A
+            // recovery that fails keeps the whole folder.
+            const held = await (originalPath ? withOriginalPathMutationLock(originalPath, recover) : recover());
             if (typeof held === 'object') {
                 logger.warn('Kept a closed document\'s journal until its PDF or save leftover can be finished', {workDir});
                 await rm(normalizedPath, {force: true});
