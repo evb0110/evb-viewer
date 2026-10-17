@@ -47,11 +47,11 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => ({getDocumentRevision}),
 }));
 
-/** A view whose editor holds at most one open text-box draft. */
+/** A view whose editor holds at most one text box open; a clean editor shows no draft rectangle. */
 function createEditorView() {
     const open = ref<{
         annotationId: string;
-        rect: IAnnotationMarkerRect;
+        rect: IAnnotationMarkerRect | null;
     } | null>(null);
     const view: IPdfDocumentAnnotationsView = {
         emitAnnotationState: () => {},
@@ -60,6 +60,7 @@ function createEditorView() {
         commitPendingDraftsForSave: () => {
             open.value = null;
         },
+        isEditing: annotationId => open.value?.annotationId === annotationId,
         getTextBoxDraftRect: annotationId => (open.value?.annotationId === annotationId ? open.value.rect : null),
     };
     return {
@@ -139,6 +140,22 @@ describe('text-box drafts of a document shown in two views', () => {
         expect(left.open.value).toBeNull();
         expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
         expect(document.textBoxDrafts.get('box-1')).toBe('continued in the right view');
+    });
+
+    it('commits an unchanged editor another view has open before a second view edits the same box', async () => {
+        const document = createDocument();
+        const left = createEditorView();
+        const right = createEditorView();
+        document.attachView(left.view);
+        document.attachView(right.view);
+        left.open.value = {
+            annotationId: 'box-1',
+            rect: null,
+        };
+
+        await document.commitDraftIfOpen('box-1', right.view);
+
+        expect(left.open.value).toBeNull();
     });
 
     it('keeps a retiring editor responsible for its held draft until Save and a linked handoff can use it', async () => {

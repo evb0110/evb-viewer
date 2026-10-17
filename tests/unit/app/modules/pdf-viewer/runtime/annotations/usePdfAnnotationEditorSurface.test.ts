@@ -584,6 +584,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             onHistoryReplay: () => {},
             commitPendingDraftsForSave: surface.commitPendingTextBoxDraftsForSave,
             getPendingTextCompletion: surface.getPendingTextCompletion,
+            isEditing: annotationId => surface.editingId.value === annotationId,
             getTextBoxDraftRect: () => null,
         });
         const box = left.createTextBoxAt(0, rect, {text: 'Original'});

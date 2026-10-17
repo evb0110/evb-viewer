@@ -186,9 +186,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         ensurePdfAnnotationNameReconciliation: (
             _reason: 'annotations-ui-open' | 'existing-annotation-mutation',
         ) => Promise.resolve('already-reconciled' as const),
-        setActiveCommentStableKey: (key: string | null) => {
-            activeCommentStableKey.value = key;
-        },
     };
     // This viewer's part in the shared document: its emits, its re-projection
     // after an undo or redo, and the drafts open in its editor.
@@ -198,6 +195,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         onHistoryReplay: commentSync.scheduleAnnotationCommentsSync,
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
         getPendingTextCompletion: () => annotationEditorSurface.getPendingTextCompletion(),
+        isEditing: annotationId => annotationEditorSurface.editingId.value === annotationId,
         getTextBoxDraftRect: annotationId => annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))
             ? annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)) : null,
     };
@@ -1087,7 +1085,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getDeletedPersistedCanonicalAnnotationCount: () => annotationApplication.value.store
             .countDirtyPersistedDeletions(),
         annotationCommentModel,
-        clearAnnotationProjection: annotationCommentModel.clearProjection,
         annotationCommentsCache,
         activeCommentStableKey,
         annotationColorCommands,
