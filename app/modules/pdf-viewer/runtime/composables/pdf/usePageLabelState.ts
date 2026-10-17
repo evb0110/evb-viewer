@@ -238,7 +238,7 @@ export const usePageLabelState = (deps: {
         return pageLabelsDirty.value ? {
             revision: pageLabelRevision,
             dirty: true,
-            ranges: structuredClone(pageLabelRanges.value),
+            ranges: pageLabelRanges.value,
         } : undefined;
     }
 
