@@ -17,6 +17,7 @@ import {
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     createPdfPageSource,
+    projectPdfPageMetricForView,
     type IDocumentViewerRuntime,
     type IDocumentOpenSurfaceRenderOwner,
 } from '@app/modules/document-viewer/public';
@@ -152,36 +153,40 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         return Math.abs(targetScale - currentScale)
             <= Math.max(1, Math.abs(currentScale)) * PDF_RASTER_SCALE_RELATIVE_TOLERANCE;
     }
-    function isViewportRasterJobCurrent(job: IPdfViewportRasterJob) {
+    function isRasterTargetCurrent(job: IPdfViewportRasterJob | ReturnType<typeof pageRenderState.getSlot>) {
         return job.targetViewRotation === (options.viewRotation?.value ?? 0)
+            && job.targetScale !== null
             && isRasterScaleCurrent(job.targetScale, viewport.scale.effectiveScale.value)
+            && job.targetOutputScale !== null
             && isRasterScaleCurrent(job.targetOutputScale, options.outputScale.value);
     }
     function isCommittedVisual(pageNumber: TPageNumber, requireCurrent = true) {
         void renderedPageStateVersion.value;
         const target = getMountedRasterTarget(pageNumber);
         const slot = pageRenderState.getSlot(pageNumber);
-        const canvas = slot.committedRender?.canvas;
-        if (!target || !canvas) return false;
+        const render = slot.committedRender;
+        if (!target || !render) return false;
+        const {canvas} = render;
+        const metric = documentSession.pageMetrics.value[pageNumber - 1];
+        const geometry = metric && projectPdfPageMetricForView(metric, options.viewRotation?.value ?? 0);
         const presentable = slot.canvasReadiness === 'ready'
             && slot.container === target.container
-            && target.canvasHost.contains(canvas) && canvas.isConnected && canvas.width > 0 && canvas.height > 0;
+            && target.canvasHost.contains(canvas) && canvas.isConnected && canvas.width > 0 && canvas.height > 0
+            && (!geometry || rotationPreviewCanvases.has(pageNumber) || slot.targetScale !== null
+                && isRasterScaleCurrent(geometry.width * slot.targetScale, render.viewport.width)
+                && isRasterScaleCurrent(geometry.height * slot.targetScale, render.viewport.height));
         if (!presentable || !requireCurrent) return presentable;
-        return pageRenderer.isAnnotationInputCurrent(pageNumber, slot.committedRender?.annotationInput)
+        return pageRenderer.isAnnotationInputCurrent(pageNumber, render.annotationInput)
             && slot.documentToken === getRenderDocumentToken()
             && slot.contentVersion === renderVersion
-            && slot.targetViewRotation === (options.viewRotation?.value ?? 0)
-            && slot.targetScale !== null
-            && isRasterScaleCurrent(slot.targetScale, viewport.scale.effectiveScale.value)
-            && slot.targetOutputScale !== null
-            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value);
+            && isRasterTargetCurrent(slot);
     }
     function getPageRasterState(pageNumber: TPageNumber): TPdfPageRasterState {
         const pendingJob = [...viewportRasterJobs.values()].find(job => (
             job.demand.pageNumber === pageNumber
         ));
         if (pendingJob?.rasterState === 'in-flight' || pendingJob?.rasterState === 'failed') {
-            return isViewportRasterJobCurrent(pendingJob) ? pendingJob.rasterState : 'stale-scale';
+            return isRasterTargetCurrent(pendingJob) ? pendingJob.rasterState : 'stale-scale';
         }
         if (isCommittedVisual(pageNumber)) {
             return 'current';
@@ -200,7 +205,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     function isPreparedRasterCurrent(prepared: IPreparedViewportRaster) {
         return !prepared.signal.aborted && viewportRasterJobs.get(prepared.job.demand.renderKey) === prepared.job
-            && isViewportRasterJobCurrent(prepared.job)
+            && isRasterTargetCurrent(prepared.job)
             && prepared.job.demand.consumerGeneration === renderVersion
             && documentSession.pdfDocument.value !== null
             && (prepared.job.renderOptions.annotationCommit?.isCurrent() ?? pageRenderer.isAnnotationInputCurrent(prepared.job.demand.pageNumber, prepared.render.annotationInput))
@@ -237,7 +242,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 !job
                 || !target
                 || job.demand.consumerGeneration !== renderVersion
-                || !isViewportRasterJobCurrent(job)
+                || !isRasterTargetCurrent(job)
                 || documentSession.pdfDocument.value === null
             ) {
                 return null;
@@ -246,7 +251,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const shouldContinue = () => (
                 !signal.aborted && demand.consumerGeneration === renderVersion
                 && viewportRasterJobs.get(demand.renderKey) === job
-                && isViewportRasterJobCurrent(job)
+                && isRasterTargetCurrent(job)
                 && (job.renderOptions.annotationCommit?.isCurrent() ?? true)
                 && isViewportRasterDemanded(demand.pageNumber, job.demand.lane)
             );
@@ -409,7 +414,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     ? {maxCanvasPixels}
                     : {}),
             } : renderOptions.annotationCommit ? renderOptions : [...viewportRasterJobs.values()].find(job => (
-                job.demand.pageNumber === pageNumber && job.renderOptions.annotationCommit?.isCurrent() && isViewportRasterJobCurrent(job)
+                job.demand.pageNumber === pageNumber && job.renderOptions.annotationCommit?.isCurrent() && isRasterTargetCurrent(job)
             ))?.renderOptions ?? renderOptions;
             const committedRasterState = getPageRasterState(pageNumber);
             // A forced rerender replaces current pixels after content changes; it and a
@@ -661,17 +666,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 document,
                 token,
             };
-            if (document !== previous.document) {
-                if (previous.document !== null) {
-                    const isPreservedSelectiveReload = documentSession.activeLoadPlan.isSelectiveReload
-                        && documentSession.activeLoadPlan.preserveVisibleContent;
-                    const invalidatedPages = isPreservedSelectiveReload
-                        ? documentSession.activeLoadPlan.pagesToInvalidate ?? []
-                        : [];
-                    bumpRenderVersion(isPreservedSelectiveReload, invalidatedPages);
-                }
-            } else if (token !== previous.token) {
-                bumpRenderVersion(true, []);
+            if (document === previous.document) {
+                if (token !== previous.token) bumpRenderVersion(true, documentSession.pendingPageMutationRevisionSwap?.invalidatedPages ?? []);
+            } else if (previous.document !== null) {
+                const plan = documentSession.activeLoadPlan;
+                const preserved = plan.isSelectiveReload && plan.preserveVisibleContent;
+                bumpRenderVersion(preserved, preserved ? plan.pagesToInvalidate ?? [] : []);
             }
         },
         {flush: 'post'},
@@ -1172,8 +1172,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         preparePageRotationPreview,
         cancelPageRotationPreview,
         releaseUnmountedPage: (pageNumber: TPageNumber) => clearAuthoritativePage(pageNumber),
-        isPageRendered: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
-        isPageRendering: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         waitForPageTextLayerReady: pageTextLayerReadyWaiter.waitForPageTextLayerReady,
         renderedPageStateVersion,
         isPageVisualReady: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber),

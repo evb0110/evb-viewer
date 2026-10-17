@@ -13,7 +13,7 @@ import type { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtim
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
 
 interface IUsePdfOpeningGeometryLifecycleOptions {
-    acceptedSource: Readonly<Ref<TPdfSource | null>>;
+    geometrySource: Readonly<Ref<TPdfSource | null>>;
     chassisAuthority: IDocumentViewerRuntime | null;
     currentPage: ComputedRef<number>;
     documentId: ComputedRef<string | null>;
@@ -33,7 +33,7 @@ export const usePdfOpeningGeometryLifecycle = (
     options: IUsePdfOpeningGeometryLifecycleOptions,
 ) => {
     const {
-        acceptedSource,
+        geometrySource,
         chassisAuthority,
         currentPage,
         documentId,
@@ -91,7 +91,7 @@ export const usePdfOpeningGeometryLifecycle = (
             openingPage,
             numPages,
             pageMetricsVersion,
-            acceptedSource,
+            geometrySource,
             () => chassisAuthority?.openSurface.snapshot.value.generation ?? 0,
             () => chassisAuthority?.openSurface.snapshot.value.phase ?? 'idle',
             () => chassisAuthority?.openSurface.snapshot.value.identity?.documentId ?? null,
@@ -109,7 +109,7 @@ export const usePdfOpeningGeometryLifecycle = (
             commitPdfLoadedOpeningPageGeometry(chassisAuthority, {
                 expectedGeneration: snapshot.generation,
                 documentId: snapshot.identity.documentId,
-                metricSource: acceptedSource.value,
+                metricSource: geometrySource.value,
                 currentSource: src.value,
                 pageNumber: requirePageNumber(pageNumber, pageCount),
                 currentPage: requirePageNumber(openingPage.value, pageCount),

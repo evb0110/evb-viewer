@@ -127,13 +127,12 @@ function collectKnownMetricEntries(
     return entries;
 }
 
-function resolveNearestMetricEstimate(
+function resolveNearestMetricEntryIndex(
     entries: readonly IKnownMetricEntry[],
     targetIndex: number,
-    fallbackMetric: IPdfPageMetric,
 ) {
     if (entries.length === 0) {
-        return fallbackMetric;
+        return -1;
     }
 
     let low = 0;
@@ -157,50 +156,9 @@ function resolveNearestMetricEstimate(
     if (before && after) {
         const beforeDistance = targetIndex - before.index;
         const afterDistance = after.index - targetIndex;
-        return beforeDistance <= afterDistance ? before.metric : after.metric;
+        return beforeDistance <= afterDistance ? low - 1 : low;
     }
-    return before?.metric ?? after?.metric ?? fallbackMetric;
-}
-
-function sumNearestMetricEstimateRange(options: {
-    entries: readonly IKnownMetricEntry[];
-    totalPages: number;
-    fallbackMetric: IPdfPageMetric;
-    start: number;
-    end: number;
-    dimension: 'width' | 'height';
-}) {
-    const start = Math.max(0, Math.min(options.totalPages, Math.trunc(options.start)));
-    const end = Math.max(start, Math.min(options.totalPages, Math.trunc(options.end)));
-    if (start >= end) {
-        return 0;
-    }
-    if (options.entries.length === 0) {
-        return (end - start) * options.fallbackMetric[options.dimension];
-    }
-
-    let total = 0;
-    let segmentStart = 0;
-    for (let entryIndex = 0; entryIndex < options.entries.length; entryIndex += 1) {
-        const entry = options.entries[entryIndex];
-        if (!entry) {
-            continue;
-        }
-        const nextEntry = options.entries[entryIndex + 1];
-        const segmentEnd = nextEntry
-            ? Math.floor((entry.index + nextEntry.index) / 2) + 1
-            : options.totalPages;
-        const overlapStart = Math.max(start, segmentStart);
-        const overlapEnd = Math.min(end, segmentEnd);
-        if (overlapStart < overlapEnd) {
-            total += (overlapEnd - overlapStart) * entry.metric[options.dimension];
-        }
-        segmentStart = segmentEnd;
-        if (segmentStart >= end) {
-            break;
-        }
-    }
-    return total;
+    return before ? low - 1 : low;
 }
 
 function createSparsePageMetrics(options: {
@@ -217,28 +175,47 @@ function createSparsePageMetrics(options: {
     }));
     let maximumWidth = options.fallbackMetric.width;
     let maximumHeight = options.fallbackMetric.height;
-    for (const entry of projectedEntries) {
+    const estimatedWidthPrefixes = [0];
+    const estimatedHeightPrefixes = [0];
+    let segmentStart = 0;
+    for (const [
+        index,
+        entry,
+    ] of projectedEntries.entries()) {
         maximumWidth = Math.max(maximumWidth, entry.metric.width);
         maximumHeight = Math.max(maximumHeight, entry.metric.height);
+        const nextEntry = projectedEntries[index + 1];
+        const segmentEnd = nextEntry
+            ? Math.floor((entry.index + nextEntry.index) / 2) + 1
+            : options.totalPages;
+        const length = segmentEnd - segmentStart;
+        estimatedWidthPrefixes.push(estimatedWidthPrefixes[index]! + length * entry.metric.width);
+        estimatedHeightPrefixes.push(estimatedHeightPrefixes[index]! + length * entry.metric.height);
+        segmentStart = segmentEnd;
     }
 
-    const estimate = (index: number) => clonePageMetric(resolveNearestMetricEstimate(
-        projectedEntries,
-        index,
-        options.fallbackMetric,
-    ));
+    const estimate = (index: number) => projectedEntries[resolveNearestMetricEntryIndex(projectedEntries, index)]?.metric
+        ?? options.fallbackMetric;
+    const estimatePrefix = (end: number, dimension: 'width' | 'height') => {
+        const index = resolveNearestMetricEntryIndex(projectedEntries, end - 1);
+        const entry = projectedEntries[index];
+        if (!entry) {
+            return end * options.fallbackMetric[dimension];
+        }
+        const previous = projectedEntries[index - 1];
+        const start = previous ? Math.floor((previous.index + entry.index) / 2) + 1 : 0;
+        const prefixes = dimension === 'width' ? estimatedWidthPrefixes : estimatedHeightPrefixes;
+        return prefixes[index]! + (end - start) * entry.metric[dimension];
+    };
     const estimateRange = (
         start: number,
         end: number,
         dimension: 'width' | 'height',
-    ) => sumNearestMetricEstimateRange({
-        entries: projectedEntries,
-        totalPages: options.totalPages,
-        fallbackMetric: options.fallbackMetric,
-        start,
-        end,
-        dimension,
-    });
+    ) => {
+        const boundedStart = Math.max(0, Math.min(options.totalPages, Math.trunc(start)));
+        const boundedEnd = Math.max(boundedStart, Math.min(options.totalPages, Math.trunc(end)));
+        return estimatePrefix(boundedEnd, dimension) - estimatePrefix(boundedStart, dimension);
+    };
     const collection = createLazyIndexedCollection<IPdfPageMetric>({
         length: options.totalPages,
         getValue: index => {
@@ -246,7 +223,7 @@ function createSparsePageMetrics(options: {
             if (isValidPageMetric(exactMetric)) {
                 return projectPdfPageMetricForView(exactMetric, options.viewRotation);
             }
-            return estimate(index);
+            return clonePageMetric(estimate(index));
         },
     }) as IPdfPageMetricCollection;
 

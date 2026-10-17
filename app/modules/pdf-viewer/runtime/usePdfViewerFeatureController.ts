@@ -318,7 +318,6 @@ export const usePdfViewerFeatureController = (
             isPageNearVisibleAndUnrendered,
         ),
         visibleRange: viewportSession.visibleRange,
-        currentPage: viewportSession.currentPage,
         zoom,
         zoomMode,
         fitMode,

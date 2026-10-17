@@ -24,6 +24,7 @@ import {
     shallowRef,
     effectScope,
     isReactive,
+    watch,
 } from 'vue';
 import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -671,7 +672,7 @@ describe('PdfDocumentSession range loading', () => {
         }));
     });
 
-    it('keeps the native geometry table final when PDF.js disagrees with it', async () => {
+    it('publishes exact opening geometry before PDF.js loads and keeps it final', async () => {
         const pageCount = 6;
         const revision = requireDocumentRevisionToken('rev-native-geometry');
         const path = requireDocumentRef('/tmp/native-geometry.pdf');
@@ -685,12 +686,14 @@ describe('PdfDocumentSession range loading', () => {
             })
             // The single PDF.js worker is still rasterizing another page.
             : new Promise(() => {})));
+        const document = {
+            numPages: pageCount,
+            getPage,
+            loadingTask: {destroy: vi.fn()},
+        };
+        const ready = Promise.withResolvers<typeof document>();
         pdfjsState.getDocument.mockReturnValue({
-            promise: Promise.resolve({
-                numPages: pageCount,
-                getPage,
-                loadingTask: {destroy: vi.fn()},
-            }),
+            promise: ready.promise,
             destroy: vi.fn(),
         });
         electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
@@ -717,12 +720,20 @@ describe('PdfDocumentSession range loading', () => {
         Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', getPdfNativePageSizes);
         try {
             const documentState = createPdfDocumentSession();
-            const result = await documentState.loadPdf({
+            const loading = documentState.loadPdf({
                 kind: 'path',
                 path,
                 size: 2048,
                 revision,
             });
+            try {
+                await vi.waitFor(() => expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(Array(pageCount).fill(612)));
+                expect(documentState.pdfDocument.value).toBeNull();
+                expect(documentState.acceptedSource.value).toBeNull();
+            } finally {
+                ready.resolve(document);
+            }
+            const result = await loading;
             expect(result).not.toBeNull();
             expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(Array(pageCount).fill(612));
             expect(loggerWarn).toHaveBeenCalledWith(
@@ -733,6 +744,238 @@ describe('PdfDocumentSession range loading', () => {
             // A range request needs no PDF.js page while another page renders.
             await expect(documentState.ensurePageMetricsInRange(4, 5)).resolves.toBe(false);
         } finally {
+            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+        }
+    });
+
+    it('retains the presented page geometry until a preserved reload accepts its replacement proxy', async () => {
+        const documentState = createPdfDocumentSession();
+        await documentState.loadPdf(new Blob([new Uint8Array([1])]));
+        const previousMetrics = documentState.pageMetrics.value;
+        const path = requireDocumentRef('/tmp/preserved-native-geometry.pdf');
+        const revision = requireDocumentRevisionToken('rev-preserved-native-geometry');
+        const geometry = {
+            kind: 'exact' as const,
+            documentRef: path,
+            documentRevisionToken: revision,
+            pageCount: 2,
+            pages: Array.from({length: 2}, (_, index) => ({
+                pageNumber: requirePageNumber(index + 1),
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0 as const,
+                userUnit: 1,
+            })),
+        };
+        const document = {
+            numPages: 2,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: () => ({
+                    width: 612,
+                    height: 792,
+                    rotation: 0,
+                }),
+            })),
+            loadingTask: {destroy: vi.fn()},
+        };
+        const ready = Promise.withResolvers<typeof document>();
+        const native = Promise.withResolvers<typeof geometry>();
+        const reading = Promise.withResolvers<undefined>();
+        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', () => {
+            reading.resolve(undefined);
+            return native.promise;
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: ready.promise,
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1]));
+        const source = {
+            kind: 'path' as const,
+            path,
+            size: 2048,
+            revision,
+        };
+        const loading = documentState.loadPdf(source, {
+            preservePageStructure: true,
+            preservePageMetrics: false,
+        });
+        try {
+            await reading.promise;
+            native.resolve(geometry);
+            await native.promise;
+            await nextTick();
+            expect(documentState.pdfDocument.value).toBeNull();
+            expect(documentState.acceptedSource.value).toBeNull();
+            expect(documentState.numPages.value).toBe(1);
+            expect(documentState.pageMetrics.value).toEqual(previousMetrics);
+            expect(documentState.pageMetrics.value[0]).toMatchObject({
+                width: 100,
+                height: 200,
+            });
+        } finally {
+            native.resolve(geometry);
+            ready.resolve(document);
+            await loading;
+            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+        }
+        expect(documentState.acceptedSource.value).toBe(source);
+        expect(documentState.numPages.value).toBe(2);
+        expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual([
+            612,
+            612,
+        ]);
+    });
+
+    it('discards native geometry while the invalidated view is still cancelling', async () => {
+        const path = requireDocumentRef('/tmp/invalidated-native-geometry.pdf');
+        const revision = requireDocumentRevisionToken('rev-invalidated-native-geometry');
+        const geometry = {
+            kind: 'exact' as const,
+            documentRef: path,
+            documentRevisionToken: revision,
+            pageCount: 1,
+            pages: [{
+                pageNumber: requirePageNumber(1),
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0 as const,
+                userUnit: 1,
+            }],
+        };
+        const nativeStarted = Promise.withResolvers<undefined>();
+        const nativeResult = Promise.withResolvers<typeof geometry>();
+        const cancellation = Promise.withResolvers<undefined>();
+        const cancelling = Promise.withResolvers<undefined>();
+        const document = {
+            numPages: 1,
+            getPage: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
+        };
+        const ready = Promise.withResolvers<typeof document>();
+        pdfjsState.getDocument.mockReturnValue({
+            promise: ready.promise,
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', async () => {
+            nativeStarted.resolve(undefined);
+            return nativeResult.promise;
+        });
+        const documentState = createPdfDocumentSession();
+        const view = documentState.attachView();
+        view.subscribe(transition => {
+            if (transition.phase !== 'invalidated') return;
+            cancelling.resolve(undefined);
+            return cancellation.promise;
+        });
+        let invalidating: Promise<void> | null = null;
+        try {
+            const loading = documentState.loadPdf({
+                kind: 'path',
+                path,
+                size: 2048,
+                revision,
+            });
+            await nativeStarted.promise;
+            invalidating = documentState.invalidate('source-replaced');
+            await cancelling.promise;
+            nativeResult.resolve(geometry);
+            ready.resolve(document);
+            await expect(loading).resolves.toBeNull();
+            expect(documentState.pageMetrics.value).toEqual([]);
+            expect(documentState.numPages.value).toBe(0);
+            expect(documentState.pdfDocument.value).toBeNull();
+            expect(documentState.acceptedSource.value).toBeNull();
+        } finally {
+            cancellation.resolve(undefined);
+            nativeResult.resolve(geometry);
+            ready.resolve(document);
+            await invalidating;
+            await documentState.dispose();
+            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+        }
+    });
+
+    it('rejects a native page-count mismatch before publishing or admitting the PDF.js document', async () => {
+        const path = requireDocumentRef('/tmp/mismatched-native-count.pdf');
+        const revision = requireDocumentRevisionToken('rev-mismatched-native-count');
+        const pageCount = 2;
+        const countSeen = Promise.withResolvers<number | null>();
+        const document = {
+            numPages: 1,
+            getPage: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
+        };
+        const ready = Promise.withResolvers<typeof document>();
+        pdfjsState.getDocument.mockReturnValue({
+            promise: ready.promise,
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', async () => ({
+            kind: 'exact' as const,
+            documentRef: path,
+            documentRevisionToken: revision,
+            pageCount,
+            pages: Array.from({length: pageCount}, (_, index) => ({
+                pageNumber: requirePageNumber(index + 1),
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0 as const,
+                userUnit: 1,
+            })),
+        }));
+        const documentState = createPdfDocumentSession({
+            workingCopyPath: ref(path),
+            admitOpeningSource: async (_source, readCount) => {
+                countSeen.resolve(await readCount());
+            },
+        });
+        const publications: Array<{
+            hasDocument: boolean;
+            hasSource: boolean;
+        }> = [];
+        const stopWatching = watch([
+            documentState.pdfDocument,
+            documentState.acceptedSource,
+        ], ([
+            publishedDocument,
+            publishedSource,
+        ]) => {
+            if (publishedDocument || publishedSource) publications.push({
+                hasDocument: publishedDocument !== null,
+                hasSource: publishedSource !== null,
+            });
+        }, {flush: 'sync'});
+        try {
+            const loading = documentState.loadPdf({
+                kind: 'path',
+                path,
+                size: 2048,
+                revision,
+            });
+            await vi.waitFor(() => expect(documentState.pageMetrics.value).toHaveLength(pageCount));
+            ready.resolve(document);
+            await expect(loading).resolves.toBeNull();
+            await expect(countSeen.promise).resolves.toBeNull();
+            expect(publications).toEqual([]);
+            expect(documentState.loadError.value).toBeInstanceOf(RangeError);
+            expect(documentState.pdfDocument.value).toBeNull();
+            expect(documentState.acceptedSource.value).toBeNull();
+            expect(documentState.pageMetrics.value).toEqual([]);
+            expect(documentState.numPages.value).toBe(0);
+        } finally {
+            ready.resolve(document);
+            stopWatching();
+            await documentState.dispose();
             Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
         }
     });

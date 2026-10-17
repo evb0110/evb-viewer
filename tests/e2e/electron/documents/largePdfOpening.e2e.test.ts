@@ -29,7 +29,7 @@ import {
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
-    goToPageViaToolbar, openAnnotationsTab,
+    goToPageViaToolbar, openAnnotationsTab, scrollToPageWithWheel,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -55,7 +55,7 @@ const outputDirectory = resolve(process.env.EVB_E2E_LARGE_OPEN_ARTIFACT_DIR
 /** A real PDF graph, not a padded tiny graph: the old all-object JSON reader
  * charges over 256 MiB for 200,000 arrays of 24 integer values. The sparse
  * stream crosses the 512 MiB file switch without retaining a large buffer. */
-function createStructureDensePdf(directory: string) {
+function createStructureDensePdf(directory: string, includeScrollLink = false) {
     const path = join(directory, 'structure-dense-21601-pages.pdf');
     const fd = openSync(path, 'w');
     const offsets = [0];
@@ -83,15 +83,21 @@ function createStructureDensePdf(directory: string) {
             const shape = page === MIDDLE_PAGE
                 ? '/MediaBox [0 0 900 600] /CropBox [0 0 880 580] /Rotate 90 /UserUnit 1.25'
                 : page === PAGE_COUNT ? '/MediaBox [0 0 500 900] /CropBox [0 0 480 880] /Rotate 0 /UserUnit 1.5' : '';
-            object(pageId(page), `<< /Type /Page /Parent 2 0 R ${shape} /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId(page) + 1} 0 R${page === PAGE_COUNT ? ` /Annots [${annotationId} 0 R]` : ''} >>`);
+            const annotations = page === PAGE_COUNT ? ` /Annots [${annotationId} 0 R]`
+                : includeScrollLink && page === 2 ? ` /Annots [${annotationId + 1} 0 R]` : '';
+            object(pageId(page), `<< /Type /Page /Parent 2 0 R ${shape} /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId(page) + 1} 0 R${annotations} >>`);
             const content = `0.15 0.25 0.45 rg 50 100 300 350 re f\nBT /F1 24 Tf 50 500 Td (EVB visible page ${page}) Tj ET\n`;
             object(pageId(page) + 1, `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}endstream`);
         }
         object(annotationId, `<< /Type /Annot /Subtype /Text /Rect [80 600 104 624] /P ${pageId(PAGE_COUNT)} 0 R /Contents (${NOTE_SENTINEL}) /T (EVB regression) /NM (structure-dense-note) /Name /Comment /F 4 >>`);
-        for (let index = 0; index < 200_000; index += 1) {
-            object(annotationId + 1 + index, `[${Array.from({length: 24}, (_, value) => value).join(' ')}]`);
+        if (includeScrollLink) {
+            object(annotationId + 1, `<< /Type /Annot /Subtype /Link /Rect [50 480 350 525] /Border [0 0 0] /Dest [${pageId(4)} 0 R /Fit] >>`);
         }
-        const streamId = annotationId + 200_001;
+        const extraObjectCount = includeScrollLink ? 1 : 0;
+        for (let index = 0; index < 200_000; index += 1) {
+            object(annotationId + 1 + extraObjectCount + index, `[${Array.from({length: 24}, (_, value) => value).join(' ')}]`);
+        }
+        const streamId = annotationId + 200_001 + extraObjectCount;
         offsets[streamId] = position;
         const streamLength = 513 * 1024 * 1024;
         append(`${streamId} 0 obj\n<< /Length ${streamLength} >>\nstream\n`);
@@ -179,6 +185,72 @@ async function readPaintedPage(page: Page, pageNumber: number) {
 }
 
 describe('Electron E2E - large object-dense PDF opening', () => {
+    it('keeps painted pages and their links usable after free scrolling', async () => {
+        const artifacts = join(outputDirectory, 'free-scroll');
+        mkdirSync(artifacts, {recursive: true});
+        const scratch = mkdtempSync(join(tmpdir(), 'evb-large-scroll-'));
+        onTestFinished(() => rmSync(scratch, {
+            recursive: true,
+            force: true,
+        }));
+        const fixturePath = createStructureDensePdf(scratch, true);
+        const telemetry: Record<string, unknown> = {fixturePath};
+        const session = await startElectronE2ESession(`e2e-large-pdf-free-scroll-${Date.now()}`, {extraEnv: {
+            EVB_E2E_OPEN_DIALOG_PATH: fixturePath,
+            ...(process.env.EVB_E2E_LARGE_OPEN_RECORD === '1' ? {EVB_RECORD_SESSION: '1'} : {}),
+        }});
+        telemetry.sessionName = session.name;
+        try {
+            await session.page.waitForSelector('.editor-pane.is-active .start-open-panel .open-panel-cta', {visible: true});
+            await installCommittedSurfaceSampler(session.page, {sampleCanvasPixels: false});
+            await clickAsUser(session.page, '.editor-pane.is-active .start-open-panel .open-panel-cta');
+            await expect.poll(() => readPaintedPage(session.page, 1), {timeout: OBSERVATION_TIMEOUT_MS}).not.toBeNull();
+            const opening = await stopCommittedSurfaceSampler(session.page);
+            telemetry.openingTiming = summarizeCommittedSurfaceTiming(selectClaimedOpenTrace(opening));
+            writeFileSync(join(artifacts, 'opening-frames.json'), JSON.stringify(opening, null, 2));
+
+            await installCommittedSurfaceSampler(session.page, {sampleCanvasPixels: true});
+            // R2/L2: reaching a page by the wheel must leave its painted
+            // content usable. A settled canvas alone does not prove that
+            // its interactive layer survived the opening handoff.
+            await scrollToPageWithWheel(session.page, 2);
+            await expect.poll(() => readPaintedPage(session.page, 2), {timeout: 10_000}).not.toBeNull();
+            await session.page.screenshot({path: join(artifacts, 'scrolled-page-2.png')});
+            const scroll = await stopCommittedSurfaceSampler(session.page);
+            writeFileSync(join(artifacts, 'scroll-frames.json'), JSON.stringify(scroll, null, 2));
+            telemetry.scrollFrameIntervalsMs = scroll.frames.slice(1).map((frame, index) => frame.elapsedMs - scroll.frames[index]!.elapsedMs);
+            const competingSkeletons = scroll.frames.flatMap(frame => (frame.visiblePdfPageVisuals ?? [])
+                .filter(visual => visual.canonicalCanvasVisible && visual.canonicalCanvasNonblank && visual.skeletonVisible)
+                .map(visual => ({
+                    frame: frame.frame,
+                    page: visual.pageNumber,
+                })));
+            expect.soft(competingSkeletons, 'a painted visible page is never covered by a loading skeleton').toEqual([]);
+            const linkSelector = '.editor-pane.is-active .page_container[data-page="2"] .pdf-link-overlay';
+            await session.page.waitForSelector(linkSelector, {
+                visible: true,
+                timeout: 10_000,
+            });
+            await clickAsUser(session.page, linkSelector);
+            await expect.poll(async () => ({
+                painted: await readPaintedPage(session.page, 4) !== null,
+                indicator: (await readToolbarPageIndicator(session.page)).renderedPage,
+            }), {timeout: 10_000}).toEqual({
+                painted: true,
+                indicator: 4,
+            });
+            await session.page.screenshot({path: join(artifacts, 'link-destination-page-4.png')});
+        } catch (error) {
+            telemetry.error = String(error);
+            await session.captureFailureArtifacts('large-pdf-free-scroll');
+            throw error;
+        } finally {
+            writeFileSync(join(artifacts, 'result.json'), `${JSON.stringify(telemetry, null, 2)}\n`);
+            await session.browser.disconnect();
+            await session.stop({preserveArtifacts: true});
+        }
+    }, 4 * 60_000);
+
     it('paints promptly while preserving deep geometry, labels and annotations', async () => {
         mkdirSync(outputDirectory, {recursive: true});
         const scratch = mkdtempSync(join(tmpdir(), 'evb-large-open-'));

@@ -24,7 +24,7 @@ interface IUsePdfRenderViewModelOptions {
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<IPdfDocument | null>;
     getPage: (pageNumber: number) => Promise<IPdfPage>;
-    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     skeletonContentInsets: Ref<IContentInsets | null>;
     isPageBuffered: (page: number) => boolean;
@@ -35,7 +35,6 @@ interface IUsePdfRenderViewModelOptions {
         start: number;
         end: number;
     }>;
-    currentPage: Ref<number>;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
@@ -52,7 +51,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         src: options.src,
         isLoading: options.isLoading,
         pdfDocument: options.pdfDocument,
-        currentPage: options.currentPage,
         openSurface: options.openSurface,
         holdOverlayVisible: options.isVisualReloadTransitionActive,
     });
@@ -60,14 +58,8 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         Boolean(options.src.value)
         && Boolean(options.pdfDocument.value)
         && isViewerLoadingOverlayVisible.value
+        && options.openSurface.snapshot.value.phase !== 'ready'
         && options.skeletonContentInsets.value === null
-    ));
-    const shouldBlockPageSkeletons = computed(() => (
-        (
-            isViewerLoadingOverlayVisible.value
-            && options.isVisualReloadTransitionActive.value
-        )
-        || isInitialSkeletonGeometryPending.value
     ));
 
     const visibleLinksByPage = computed(() => (
@@ -88,7 +80,7 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         if (options.isPageRenderedForClass(page)) {
             return false;
         }
-        if (shouldBlockPageSkeletons.value) {
+        if (isInitialSkeletonGeometryPending.value) {
             return false;
         }
         return options.shouldShowSkeleton(page);

@@ -456,6 +456,125 @@ describe('pdfPageLayout', () => {
         expect(Object.keys(normalized).filter(key => /^\d+$/u.test(key))).toEqual([]);
     });
 
+    it('keeps sparse metric range sums aligned at nearest-page boundaries', () => {
+        const totalPages = 100_001;
+        const source: IPdfPageMetric[] = [];
+        source[0] = {
+            width: 300,
+            height: 500,
+        };
+        source[7] = {
+            width: 500,
+            height: 800,
+        };
+        source[100_000] = {
+            width: 320,
+            height: 600,
+        };
+        const normalized = normalizePageMetrics({
+            pageMetrics: source,
+            totalPages,
+            fallbackWidth: 640,
+            fallbackHeight: 920,
+        });
+        if (!isSparsePageMetricCollection(normalized)) {
+            throw new Error('Failed to create sparse page metrics');
+        }
+        for (const dimension of [
+            'width',
+            'height',
+        ] as const) {
+            for (const [
+                start,
+                end,
+            ] of [
+                    [
+                        0,
+                        0,
+                    ],
+                    [
+                        0,
+                        10,
+                    ],
+                    [
+                        3,
+                        11,
+                    ],
+                    [
+                        50_000,
+                        50_010,
+                    ],
+                    [
+                        99_990,
+                        totalPages,
+                    ],
+                    [
+                        -10,
+                        4,
+                    ],
+                    [
+                        totalPages,
+                        0,
+                    ],
+                ]) {
+                const boundedStart = Math.max(0, start!);
+                const boundedEnd = Math.max(boundedStart, Math.min(totalPages, end!));
+                let sum = 0;
+                for (let index = boundedStart; index < boundedEnd; index += 1) {
+                    sum += normalized[index]![dimension];
+                }
+                expect(normalized.estimateRange(start!, end!, dimension)).toBe(sum);
+            }
+        }
+    });
+
+    it.each([
+        'single',
+        'facing',
+        'facing-first-single',
+    ] as const)('keeps exact mixed page positions in a large %s layout', (viewMode) => {
+        const totalPages = PDF_PAGE_METRICS_DENSE_LIMIT + 1_601;
+        const source = Array.from({length: totalPages}, (_, index) => ({
+            width: 600 + index % 5,
+            height: 800 + (index % 7) * 20,
+        }));
+        const normalized = normalizePageMetrics({
+            pageMetrics: source,
+            totalPages,
+            fallbackWidth: 640,
+            fallbackHeight: 920,
+        });
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: normalized,
+            totalPages,
+            viewMode,
+            scale: 1.25,
+            gap: 20,
+            paddingTop: 12,
+            paddingBottom: 16,
+        });
+        if (!layout) {
+            throw new Error('Failed to create large mixed page layout');
+        }
+
+        let top = 12;
+        for (let index = 0; index < source.length;) {
+            const end = viewMode === 'single' || viewMode === 'facing-first-single' && index === 0
+                ? index + 1
+                : Math.min(source.length, index + 2);
+            const rowHeight = Math.max(...source.slice(index, end).map(metric => metric.height)) * 1.25;
+            if (index < 4 || index % 997 < 2 || end === source.length) {
+                for (let page = index; page < end; page += 1) {
+                    expect(getLayoutPageTop(layout, requirePageIndex(page))).toBe(top);
+                }
+            }
+            top += rowHeight + 20;
+            index = end;
+        }
+        expect(getLayoutContentHeight(layout)).toBe(top - 20 + 16);
+        expect(isSparsePageMetricCollection(normalized)).toBe(true);
+    });
+
     it('builds early million-page layout lookups from chunked rows and prefixes', () => {
         const totalPages = 1_000_000;
         const sparseMetrics: IPdfPageMetric[] = [];
@@ -517,16 +636,18 @@ describe('pdfPageLayout', () => {
     it('keeps exact prefix corrections after distant chunks are evicted', () => {
         const totalPages = 1_000_000;
         const sparseMetrics: IPdfPageMetric[] = [];
-        sparseMetrics[0] = {
+        const firstMetric = {
             width: 300,
             height: 100,
         };
+        sparseMetrics[0] = firstMetric;
         const normalized = normalizePageMetrics({
             pageMetrics: sparseMetrics,
             totalPages,
             fallbackWidth: 300,
             fallbackHeight: 100,
         });
+        firstMetric.height = 200;
         sparseMetrics[256] = {
             width: 300,
             height: 900,
@@ -542,12 +663,13 @@ describe('pdfPageLayout', () => {
             paddingBottom: 0,
         });
 
-        expect(layout?.base.pageHeightPrefixSums[256]).toBe(26_500);
+        expect(layout?.base.pageHeightPrefixSums[0]).toBe(200);
+        expect(layout?.base.pageHeightPrefixSums[256]).toBe(26_600);
         for (let block = 2; block < 80; block += 1) {
             void layout?.base.pageHeightPrefixSums[block * 256];
         }
         // Block one has left the 32-block value cache, but its sparse exact
         // correction remains in the prefix tree.
-        expect(layout?.base.pageHeightPrefixSums[512]).toBe(52_100);
+        expect(layout?.base.pageHeightPrefixSums[512]).toBe(52_200);
     });
 });
