@@ -10,6 +10,10 @@ import {
     detectSourceDpiDetails,
 } from '@electron/features/ocr/pipeline/dpiDetection';
 import {detectSourceDpiFromPageSizes} from '@electron/pdf/sourceDpiDetection';
+import {
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({runOcrCommand: vi.fn()}));
 
@@ -434,5 +438,30 @@ describe('ocr dpi detection', () => {
         mocks.runOcrCommand.mockRejectedValueOnce(new Error('pdfimages(-list) timed out'));
         await expect(detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn()))
             .rejects.toThrow('pdfimages(-list) timed out');
+    });
+
+    it('reports a probe whose process may still run when another probe failed first', async () => {
+        mocks.runOcrCommand
+            .mockRejectedValueOnce(new Error('pdfimages(-list) exited with code 1'))
+            .mockRejectedValueOnce(markUnprovenNativeTermination(
+                new Error('pdfimages(-list) timed out'),
+                'pdfimages process tree was not proven dead',
+            ));
+
+        const failure = await detectSourceDpiDetails(
+            '/tmp/input.pdf',
+            '/bin/pdfimages',
+            vi.fn(),
+            undefined,
+            undefined,
+            [
+                1,
+                9,
+            ],
+        ).catch((error: unknown) => error);
+
+        expect(getUnprovenNativeTerminationDetail(failure)).toBe('pdfimages process tree was not proven dead');
+        expect(failure).toMatchObject({message: expect.stringContaining('exited with code 1')});
+        expect(failure).toMatchObject({message: expect.stringContaining('timed out')});
     });
 });

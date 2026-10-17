@@ -621,8 +621,13 @@ async function buildOcrPageProcessingPlan(
             baseContext.signal,
             pages.map(page => page.pageNumber),
         ).catch((error: unknown) => {
-            baseContext.signal.throwIfAborted();
-            if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            if (
+                baseContext.signal.aborted
+                || isAbortError(error)
+                || getUnprovenNativeTerminationDetail(error) !== undefined
+            ) {
+                throw error;
+            }
             log('warn', 'Source DPI inspection failed; using default OCR resolution', {error: getErrorMessage(error)});
             return null;
         })
@@ -632,7 +637,9 @@ async function buildOcrPageProcessingPlan(
     if (detectedSourceDpi !== null) {
         for (const page of pages) {
             const raster = await detectedSourceDpi.getPageRaster(page.pageNumber);
-            if (raster !== undefined) pageSourceDpiByNumber.set(page.pageNumber, raster.dpi);
+            if (raster !== undefined) {
+                pageSourceDpiByNumber.set(page.pageNumber, raster.dpi);
+            }
         }
     }
     const extractionDpi = clampDpi(detectedDpi ?? 300);

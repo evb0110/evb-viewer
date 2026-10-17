@@ -300,7 +300,9 @@ async function tryConvertRenderedPpmToPngNative(
     dpi = DEFAULT_RENDER_DPI,
 ) {
     const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
-    if (!binaryPath) return false;
+    if (!binaryPath) {
+        return false;
+    }
 
     try {
         await runNativeToolCommand(binaryPath, [
@@ -573,58 +575,48 @@ async function readExportPageSizes(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
-    throwIfAborted(signal);
-    try {
-        const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
-        let longestSidePts = 0;
-        const trackPageSize = (pageSize: IExportPageSize) => {
-            longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
-        };
-        const onStdout = createPdfInfoPageSizeStreamScanner(trackPageSize);
-        const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
-            timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
-            commandLabel: 'pdfinfo(export-page-size)',
-            onStdout,
-            ...(signal ? { signal } : {}),
-            ...(cancelGroup ? { cancelGroup } : {}),
-        };
-        if (popplerEnv !== undefined) {
-            commandOptions.env = popplerEnv;
-        }
+    const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
+    let longestSidePts = 0;
+    const trackPageSize = (pageSize: IExportPageSize) => {
+        longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
+    };
+    const onStdout = createPdfInfoPageSizeStreamScanner(trackPageSize);
+    const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
+        timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
+        commandLabel: 'pdfinfo(export-page-size)',
+        onStdout,
+        ...(signal ? { signal } : {}),
+        ...(cancelGroup ? { cancelGroup } : {}),
+    };
+    if (popplerEnv !== undefined) {
+        commandOptions.env = popplerEnv;
+    }
 
-        const result = await runNativeToolCommand(popplerRuntimePaths.pdfinfo, [
-            '-f',
-            '1',
-            '-l',
-            String(pageCount),
-            pdfPath,
-        ], commandOptions);
-        // Streaming already sees every byte; also parse the bounded stdout
-        // buffer so command runners that never call onStdout still contribute.
-        for (const line of result.stdout.split(/\r?\n/u)) {
-            const pageSize = parsePdfInfoPageSizeLine(line);
-            if (pageSize) {
-                trackPageSize(pageSize);
-            }
+    const result = await runNativeToolCommand(popplerRuntimePaths.pdfinfo, [
+        '-f',
+        '1',
+        '-l',
+        String(pageCount),
+        pdfPath,
+    ], commandOptions);
+    // Streaming already sees every byte; also parse the bounded stdout
+    // buffer so command runners that never call onStdout still contribute.
+    for (const line of result.stdout.split(/\r?\n/u)) {
+        const pageSize = parsePdfInfoPageSizeLine(line);
+        if (pageSize) {
+            trackPageSize(pageSize);
         }
+    }
 
-        // DPI planning only needs the longest side, so complete per-page
-        // metadata is reduced while streaming instead of being kept dense.
-        if (longestSidePts <= 0) {
-            return [];
-        }
-        return [{
-            widthPts: longestSidePts,
-            heightPts: longestSidePts,
-        }];
-    } catch (error) {
-        if (signal?.aborted) {
-            throw signal.reason instanceof Error ? signal.reason : error;
-        }
-
-        logger.debug(`pdfinfo export page-size probe failed: ${getErrorMessage(error)}`);
+    // DPI planning only needs the longest side, so complete per-page
+    // metadata is reduced while streaming instead of being kept dense.
+    if (longestSidePts <= 0) {
         return [];
     }
+    return [{
+        widthPts: longestSidePts,
+        heightPts: longestSidePts,
+    }];
 }
 
 function selectDpiProbePages(pageCount: number) {
@@ -648,11 +640,19 @@ async function detectExportRenderDpi(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
+    // A cancelled probe also falls back once its reader stops: the source outlives both readers.
+    const fallBack = <T>(value: T) => (error: unknown) => {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
+        logger.debug(`Export probe failed: ${getErrorMessage(error)}`);
+        return value;
+    };
     const [
         pageSizes,
         sourceDpi,
     ] = await Promise.all([
-        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup),
+        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup).catch(fallBack([])),
         detectSourceDpiDetails(
             pdfPath,
             popplerRuntimePaths.pdfimages,
@@ -660,12 +660,9 @@ async function detectExportRenderDpi(
             buildPopplerEnv(popplerRuntimePaths),
             signal,
             selectDpiProbePages(pageCount),
-        ).then(result => result.documentDpi).catch(error => {
-            throwIfAborted(signal);
-            logger.debug(`pdfimages export resolution probe failed: ${getErrorMessage(error)}`);
-            return null;
-        }),
+        ).then(result => result.documentDpi).catch(fallBack(null)),
     ]);
+    throwIfAborted(signal);
 
     return {
         renderDpi: resolveExportRenderDpi(sourceDpi, pageSizes),
@@ -899,8 +896,12 @@ export function* createPageRanges(
     pageCount: number,
     chunkPages = PDF_EXPORT_RENDER_CHUNK_PAGES,
 ): Generator<IExportPageRange> {
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error('pageCount must be a positive safe integer');
-    if (!Number.isSafeInteger(chunkPages) || chunkPages < 1) throw new Error('chunkPages must be a positive safe integer');
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('pageCount must be a positive safe integer');
+    }
+    if (!Number.isSafeInteger(chunkPages) || chunkPages < 1) {
+        throw new Error('chunkPages must be a positive safe integer');
+    }
 
     let firstPage = 1;
     while (firstPage <= pageCount) {
@@ -1164,65 +1165,62 @@ export async function exportPdfAsMultiPageTiff(
                 for (const pageRange of createPageRanges(pageCount)) {
                     throwIfAborted(options.signal);
                     const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
-                    try {
-                        const renderedPageFiles = await renderPdfToTempPages(
-                            preparedSourcePdf,
-                            'tiff',
-                            pageRange,
-                            renderDir,
-                            renderDpi,
-                            options.signal,
-                            options.cancelGroup,
-                        );
-                        let stagedPageBytes = 0;
-                        for (const renderedPageFile of renderedPageFiles) {
-                            stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
-                                'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
-                        }
-                        renderedPageCount += renderedPageFiles.length;
-                        emitExportProgress(options, {
-                            phase: 'rendering',
-                            processed: renderedPageCount,
-                            total: pageCount,
-                            percent: (renderedPageCount / pageCount) * 90,
-                        });
-
-                        const tiffPageDescriptors = await readTiffPageDescriptors(
-                            renderedPageFiles.map(pageFile => pageFile.path),
-                            options.signal,
-                            renderDpi,
-                        );
-                        const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
-                        for (const tiffPageGroup of tiffPageGroups) {
-                            throwIfAborted(options.signal);
-                            const stagedPath = makeSiblingTempPath(targetPath);
-                            const writerPath = makeSiblingTempPath(stagedPath);
-                            await recordManagedScratchPaths(tempDir, [
-                                stagedPath,
-                                writerPath,
-                            ]);
-                            stagedGroupPaths.push(stagedPath);
-                            await combinePagesIntoMultiPageTiff(
-                                tiffPageGroup.map(page => page.path),
-                                stagedPath,
-                                writerPath,
-                                options.signal,
-                                true,
-                                renderDpi,
-                            );
-                            emitExportProgress(options, {
-                                phase: 'combining',
-                                processed: stagedGroupPaths.length,
-                                total: Math.max(expectedRenderWindowCount, stagedGroupPaths.length),
-                                percent: 90 + ((stagedGroupPaths.length / Math.max(expectedRenderWindowCount, stagedGroupPaths.length)) * 10),
-                            });
-                        }
-                    } finally {
-                        await rm(renderDir, {
-                            recursive: true,
-                            force: true,
-                        }).catch(() => undefined);
+                    const renderedPageFiles = await renderPdfToTempPages(
+                        preparedSourcePdf,
+                        'tiff',
+                        pageRange,
+                        renderDir,
+                        renderDpi,
+                        options.signal,
+                        options.cancelGroup,
+                    );
+                    let stagedPageBytes = 0;
+                    for (const renderedPageFile of renderedPageFiles) {
+                        stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
+                            'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
                     }
+                    renderedPageCount += renderedPageFiles.length;
+                    emitExportProgress(options, {
+                        phase: 'rendering',
+                        processed: renderedPageCount,
+                        total: pageCount,
+                        percent: (renderedPageCount / pageCount) * 90,
+                    });
+
+                    const tiffPageDescriptors = await readTiffPageDescriptors(
+                        renderedPageFiles.map(pageFile => pageFile.path),
+                        options.signal,
+                        renderDpi,
+                    );
+                    const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
+                    for (const tiffPageGroup of tiffPageGroups) {
+                        throwIfAborted(options.signal);
+                        const stagedPath = makeSiblingTempPath(targetPath);
+                        const writerPath = makeSiblingTempPath(stagedPath);
+                        await recordManagedScratchPaths(tempDir, [
+                            stagedPath,
+                            writerPath,
+                        ]);
+                        stagedGroupPaths.push(stagedPath);
+                        await combinePagesIntoMultiPageTiff(
+                            tiffPageGroup.map(page => page.path),
+                            stagedPath,
+                            writerPath,
+                            options.signal,
+                            true,
+                            renderDpi,
+                        );
+                        emitExportProgress(options, {
+                            phase: 'combining',
+                            processed: stagedGroupPaths.length,
+                            total: Math.max(expectedRenderWindowCount, stagedGroupPaths.length),
+                            percent: 90 + ((stagedGroupPaths.length / Math.max(expectedRenderWindowCount, stagedGroupPaths.length)) * 10),
+                        });
+                    }
+                    await rm(renderDir, {
+                        recursive: true,
+                        force: true,
+                    }).catch(() => undefined);
                 }
                 const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
                 const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {

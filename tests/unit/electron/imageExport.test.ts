@@ -1088,6 +1088,46 @@ describe('image export', () => {
         });
     });
 
+    it.each([
+        '/mock/pdfinfo',
+        '/mock/pdfimages',
+    ])('fails a scoped export and keeps its pages while %s may still read them', async (probe) => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 2;
+        const appTempRoot = join(tempDir, 'app-temp');
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        let probedPdfPath = '';
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                const subsetPdfPath = (await readFile(args[0].slice(1), 'utf8')).split('\n').at(-1)!;
+                await writeFile(subsetPdfPath, '%PDF-1.7 subset');
+                return {
+                    stdout: '',
+                    stderr: '',
+                    exitCode: 0,
+                };
+            }
+            if (command === probe) {
+                probedPdfPath = args.at(-1)!;
+                throw markUnprovenNativeTermination(new Error(`${probe} timed out`), `${probe} was not proven dead`);
+            }
+            return defaultRunCommand(command, args, options);
+        });
+        const outputPath = join(tempDir, 'scoped-probe.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath, {
+            pageNumbers: [2],
+            scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, appTempRoot, run)},
+        })).rejects.toThrow(`${probe} timed out`);
+
+        await expect(readFile(probedPdfPath, 'utf8')).resolves.toBe('%PDF-1.7 subset');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
     it('passes bundled Poppler runtime environment to export Poppler commands', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
         mocks.popplerDataDir = '/mock/poppler/share/poppler';
@@ -2090,6 +2130,25 @@ describe('image export', () => {
 
         expect(existsSync(outputPath)).toBe(false);
         expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+    });
+
+    it('keeps the rendered TIFF pages of a window whose native writer may still read them', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.nativeTiffCombineEnabled = true;
+        mocks.nativeTiffCombineStopMidWrite = async () => {
+            throw markUnprovenNativeTermination(new Error('native TIFF writer timed out'), 'native TIFF writer was not proven dead');
+        };
+        const appTempRoot = join(tempDir, 'app-temp');
+        const outputPath = join(tempDir, 'unproven-writer.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, appTempRoot, run)}}))
+            .rejects.toThrow('native TIFF writer timed out');
+
+        const [pagePaths = []] = mocks.nativeTiffCombinePageGroups;
+        expect(pagePaths).toHaveLength(2);
+        expect(pagePaths.every(pagePath => existsSync(pagePath))).toBe(true);
+        expect(existsSync(outputPath)).toBe(false);
     });
 
     it('removes rendered TIFF page temps during multi-page TIFF combine before promotion', async () => {

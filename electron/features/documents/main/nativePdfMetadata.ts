@@ -50,9 +50,6 @@ import * as v from 'valibot';
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const logger = createLogger('native-pdf-metadata');
-// Complete opening geometry, by source path; the oldest read leaves at capacity.
-const PAGE_SHAPE_STORE_LIMIT = 256;
-const pageShapes = new Map<string, IPdfOpeningGeometry>();
 
 function withPopplerEnv(
     env: NodeJS.ProcessEnv | undefined,
@@ -353,34 +350,6 @@ function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) 
         && getWorkingCopyBackingEntry(normalizedPath, senderId) === null;
 }
 
-/**
- * Reuses complete geometry while the source identity and opening page match.
- * Only complete native geometry enters the store.
- */
-export async function answerPdfPageShape(
-    path: string,
-    revision: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
-    read: () => Promise<IPdfOpeningGeometry | null>,
-    pageNumber = 1,
-): Promise<IPdfOpeningGeometry | null> {
-    const known = pageShapes.get(path);
-    if (known?.size === revision.size && known.modifiedAt === revision.modifiedAt && known.pageNumber === pageNumber) {
-        pageShapes.delete(path);
-        pageShapes.set(path, known);
-        return known;
-    }
-    const shape = await read();
-    pageShapes.delete(path);
-    if (shape?.pages) {
-        pageShapes.set(path, shape);
-        const [oldest] = pageShapes.keys();
-        if (pageShapes.size > PAGE_SHAPE_STORE_LIMIT && oldest !== undefined) {
-            pageShapes.delete(oldest);
-        }
-    }
-    return shape;
-}
-
 export async function handlePdfOpeningGeometry(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
@@ -425,12 +394,10 @@ export async function handlePdfOpeningGeometry(
     // layout. Managed-copy callers still need its count to admit a restore.
     if (readingView === null && !isWorkingCopyDocumentPath(resolvedPath)) return null;
     const readingPage = readingView?.anchor?.page ?? readingView?.currentPage ?? 1;
-    const shape = await answerPdfPageShape(resolvedPath, identityBefore,
-        () => readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage), readingPage);
+    const shape = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
     const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
     if (identityAfter?.size !== identityBefore.size || identityAfter.mtimeMs !== identityBefore.mtimeMs) {
-        pageShapes.delete(resolvedPath);
         return null;
     }
     return shape && (matched || shape.pageNumber === 1) ? {
