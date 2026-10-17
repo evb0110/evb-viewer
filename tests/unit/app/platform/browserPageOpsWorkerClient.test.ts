@@ -57,7 +57,11 @@ function appearanceRequest() {
 }
 
 vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => undefined}));
+// A test can hold the browser yield that page operations take before they start.
+const browserYield = vi.hoisted(() => ({held: null as Promise<unknown> | null}));
+vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => {
+    await browserYield.held;
+}}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -168,6 +172,7 @@ describe('browserPageOpsWorkerClient', () => {
         FakeWorker.autoRespond = true;
         FakeWorker.onPostMessage = null;
         failureReporter.capture.mockClear();
+        browserYield.held = null;
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -474,6 +479,29 @@ describe('browserPageOpsWorkerClient', () => {
             5,
             6,
         ]));
+    });
+
+    it('starts no worker for an operation a page reset rejected while it yielded', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        const yielded = Promise.withResolvers<undefined>();
+        browserYield.held = yielded.promise;
+        const outcome = runBrowserPageOpsWorkerRequest('decrypt', {
+            data: Uint8Array.of(1),
+            password: '',
+        }).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        expect(await outcome).toMatchObject({
+            name: 'AbortError',
+            code: 'BROWSER_WORKER_RESET',
+        });
+        browserYield.held = null;
+        yielded.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(FakeWorker.instances).toEqual([]);
     });
 
     it('rejects admitted and waiting parses on a page reset and admits a later parse', async () => {

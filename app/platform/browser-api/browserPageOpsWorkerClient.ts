@@ -12,6 +12,7 @@ import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/set
 import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
+    BrowserWorkerResetError,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
@@ -29,18 +30,8 @@ const WORKER_INPUT_COPY_CHUNK_BYTES = 512 * 1024;
 
 export {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 
-interface IBrowserPageOpsWorkerFailure extends Error {failure?: FailureReceipt;}
-
-function getWorkerFailureReceipt(error: unknown) {
-    if (!(error instanceof Error)) {
-        return undefined;
-    }
-    return (error as IBrowserPageOpsWorkerFailure).failure;
-}
-
-function reportWorkerFailure(error: Error) {
-    const existingReceipt = getWorkerFailureReceipt(error);
-    if (existingReceipt) {
+function reportWorkerFailure(error: Error & {failure?: FailureReceipt}) {
+    if (error.failure) {
         return error;
     }
 
@@ -178,7 +169,7 @@ const pageOpsWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPageOpsWor
 
 async function runAdmittedPageOperation<TResult>(
     signal: AbortSignal | undefined,
-    run: (client: BrowserWorkerClient<IPendingBrowserWorkerRequest>, requestId: number) => Promise<TResult>,
+    run: (client: BrowserWorkerClient<IPendingBrowserWorkerRequest>, requestId: number, yieldAdmitted: () => Promise<void>) => Promise<TResult>,
 ) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
@@ -190,7 +181,16 @@ async function runAdmittedPageOperation<TResult>(
     const abort = () => pageOpsWorkerOwner.cancel(requestId, abortErrorFromSignal(signal!));
     signal?.addEventListener('abort', abort, {once: true});
     try {
-        return await pageOpsWorkerOwner.run(requestId, client => run(client, requestId));
+        // An operation aborted or reset during a yield starts no more work.
+        return await pageOpsWorkerOwner.run(requestId, (client, isAdmitted) => run(client, requestId, async () => {
+            await yieldToBrowser();
+            if (signal?.aborted) {
+                throw abortErrorFromSignal(signal);
+            }
+            if (!isAdmitted()) {
+                throw new BrowserWorkerResetError();
+            }
+        }));
     } finally {
         signal?.removeEventListener('abort', abort);
     }
@@ -297,24 +297,18 @@ function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
 async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-    signal?: AbortSignal,
+    yieldAdmitted: () => Promise<void>,
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     if (type === 'textBoxAppearance') {
         throw new BrowserPageOpsWorkerUnavailableError('Text appearance generation requires a worker');
     }
     const data = (payload as IBrowserPageOpsWorkerRequestMap['decrypt']).data;
-    if (signal?.aborted) {
-        throw abortErrorFromSignal(signal);
-    }
     if (data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
         throw new BrowserPageOpsWorkerUnavailableError('Browser page operation exceeds the direct fallback byte budget');
     }
-    await yieldToBrowser();
+    await yieldAdmitted();
     const result = await tryRunBrowserPageOpsWithWasm(type, payload);
-    await yieldToBrowser();
-    if (signal?.aborted) {
-        throw abortErrorFromSignal(signal);
-    }
+    await yieldAdmitted();
     return result as IBrowserPageOpsWorkerResultMap[K];
 }
 
@@ -323,20 +317,20 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
     payload: IBrowserPageOpsWorkerRequestMap[K],
     signal?: AbortSignal,
 ) {
-    return runAdmittedPageOperation(signal, async (client, requestId) => {
+    return runAdmittedPageOperation(signal, async (client, requestId, yieldAdmitted) => {
         if (isCpuPageOperation(type)) {
             // Worker startup and the ownership-preserving copy must not extend
             // the input event's task. Use the same scheduler as the fallback.
-            await yieldToBrowser();
+            await yieldAdmitted();
             try {
                 client.getWorker();
             } catch (error) {
-                if (!(error instanceof BrowserPageOpsWorkerUnavailableError) || signal?.aborted) {
+                if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
                     throw error;
                 }
-                return runBrowserPageOpsWithoutWorker(type, payload, signal);
+                return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted);
             }
-            await yieldToBrowser();
+            await yieldAdmitted();
         }
         return runBrowserPageOpsWorkerRequestWithClient(client, requestId, type, payload, {
             ...(signal ? {signal} : {}),
@@ -354,8 +348,8 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         if (canUseBrowserPageOpsWorker()) {
             return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
         }
-        return runAdmittedPageOperation(options.signal, () => (
-            runBrowserPageOpsWithoutWorker(type, payload, options.signal)
+        return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) => (
+            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted)
         ));
     }
     if (options.dedicated) {

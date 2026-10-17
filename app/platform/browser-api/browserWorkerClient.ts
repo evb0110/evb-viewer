@@ -272,7 +272,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 
     public run<TResult>(
         requestId: number,
-        run: (client: BrowserWorkerClient<TPendingRequest>) => Promise<TResult>,
+        run: (client: BrowserWorkerClient<TPendingRequest>, isAdmitted: () => boolean) => Promise<TResult>,
     ): Promise<TResult> {
         const request: {
             client: BrowserWorkerClient<TPendingRequest> | null;
@@ -288,7 +288,9 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
             request.start = client => {
                 request.client = client;
                 try {
-                    void run(client).then(resolve, reject);
+                    // A reset or cancellation frees the entry; a run that resumes
+                    // after one reads that before it starts more work.
+                    void run(client, () => this.requests.get(requestId) === request).then(resolve, reject);
                 } catch (error) {
                     reject(error);
                 }
