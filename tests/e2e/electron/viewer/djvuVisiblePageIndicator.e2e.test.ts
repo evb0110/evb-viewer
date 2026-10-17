@@ -70,11 +70,18 @@ function readDjvuRaster(nativeWidth: number) {
     const width = image?.getBoundingClientRect().width ?? 0;
     const naturalWidth = image?.complete ? image.naturalWidth : 0;
     const needed = Math.round(Math.min(width * window.devicePixelRatio, nativeWidth));
+    // The wrapper slides over a panel that takes its open width at once.
+    const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper');
+    const sidebarWidth = sidebar?.getBoundingClientRect().width ?? 0;
+    const panelWidth = sidebar?.querySelector<HTMLElement>('.sidebar-wrapper__content')?.getBoundingClientRect().width ?? 0;
     return {
         width: Math.round(width),
         naturalWidth,
         needed,
         sharp: naturalWidth > 0 && naturalWidth >= needed - 2,
+        // A fresh raster has the pixels its display needs and no more.
+        fresh: naturalWidth > 0 && Math.abs(naturalWidth - needed) <= 2,
+        sidebar: sidebarWidth === 0 ? 'closed' : sidebarWidth >= panelWidth - 1 ? 'open' : 'sliding',
     };
 }
 
@@ -99,51 +106,41 @@ describe('Electron E2E - DjVu visible page indicator', () => {
         const readRaster = () => page.evaluate(readDjvuRaster, nativeWidth);
         const evidenceDirectory = resolve('.devkit/evidence/djvublur', session.name);
         mkdirSync(evidenceDirectory, {recursive: true});
-        const blurred: number[] = [];
+        let reached = 0;
         // Repeated real slides cover the race between resize settle and the
-        // anchor-restore frame. Shrinking first prevents a retained large raster
-        // from hiding a missing repaint on the next enlargement.
-        for (let cycle = 1; cycle <= 18; cycle += 1) {
-            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
-            await new Promise(resolve => setTimeout(resolve, 1_500));
-            for (let step = 0; step < 3; step += 1) {
-                await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+-'});
-            }
-            await new Promise(resolve => setTimeout(resolve, 1_500));
-            await requireWorkspaceCommand(page, 'handleFitWidth');
-            await new Promise(resolve => setTimeout(resolve, 1_500));
-            const narrow = await readRaster();
-            console.info('[djvublur-narrow]', JSON.stringify({
-                cycle,
-                narrow,
-            }));
-            expect(narrow.sharp, `cycle ${cycle}: narrow raster is ready: ${JSON.stringify(narrow)}`).toBe(true);
-            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
-            // The normal settle budget, rather than the old 8.5-second stall.
-            await new Promise(resolve => setTimeout(resolve, 2_500));
-            const closed = await readRaster();
-            expect(closed.width, `cycle ${cycle}: sidebar really enlarged the page`).toBeGreaterThan(narrow.width + 100);
-            console.info('[djvublur]', JSON.stringify({
-                cycle,
-                narrow,
-                closed,
-            }));
-            if (!closed.sharp) blurred.push(cycle);
-            if (!closed.sharp || cycle === 18) {
-                // Retain the actual painted pixels alongside raster/display
-                // geometry, including the final fixed view and every failure.
-                await page.screenshot({path: join(evidenceDirectory, `sidebar-close-${cycle}.png`)});
-            }
-            if (!closed.sharp) {
-                await new Promise(resolve => setTimeout(resolve, 6_000));
-                console.info('[djvublur-at8500ms]', JSON.stringify({
+        // anchor-restore frame. Shrinking first, and waiting for fresh rasters,
+        // keeps a retained large raster from hiding a missing repaint on the
+        // next enlargement.
+        try {
+            for (let cycle = 1; cycle <= 18; cycle += 1) {
+                reached = cycle;
+                await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+                await expect.poll(readRaster, {timeout: 10_000}).toMatchObject({sidebar: 'open'});
+                const opened = await readRaster();
+                for (let step = 0; step < 3; step += 1) {
+                    await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+-'});
+                }
+                await expect.poll(readRaster, {timeout: 10_000}).toSatisfy(raster => raster.fresh && raster.width < opened.width);
+                const zoomedOut = await readRaster();
+                await requireWorkspaceCommand(page, 'handleFitWidth');
+                await expect.poll(readRaster, {timeout: 10_000}).toSatisfy(raster => raster.fresh && raster.width > zoomedOut.width);
+                const narrow = await readRaster();
+                await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+                // The normal settle budget, rather than the old 8.5-second stall.
+                await expect.poll(readRaster, {
+                    message: `cycle ${cycle}: the closed sidebar's wider page paints at its display resolution`,
+                    timeout: 2_500,
+                }).toSatisfy(raster => raster.sidebar === 'closed' && raster.width > narrow.width + 100 && raster.sharp);
+                console.info('[djvublur]', JSON.stringify({
                     cycle,
-                    raster: await readRaster(),
+                    narrow,
+                    closed: await readRaster(),
                 }));
             }
+        } finally {
+            // The painted pixels of the final view, or of the first rejected cycle.
+            await page.screenshot({path: join(evidenceDirectory, `sidebar-close-${reached}.png`)});
         }
-        console.info('[djvublur-summary]', `${blurred.length}/18 cycles blurred at 2.5 s`);
-        expect(blurred, 'every sidebar close paints at its settled display resolution').toEqual([]);
     }, 360_000);
 
     // T5/L2: a replacement open must paint its page in the current opening.
