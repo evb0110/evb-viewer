@@ -87,6 +87,11 @@ describe('native PDF text-box mutation contracts', () => {
             'text\u0000',
             'U+0000',
         ],
+        // Each face maps one character of this cluster, none both.
+        [
+            'A֑',
+            'U+0591',
+        ],
     ])('rejects unavailable glyphs and malformed Unicode before save: %s', (text, codepoint) => {
         expect(() => normalizePdfNativeMutationSet({textBoxes: [{
             ...textBox,

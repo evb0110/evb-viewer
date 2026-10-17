@@ -44,12 +44,15 @@ fn invisible(character: char) -> bool {
 }
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
-    let fonts = FONTS.map(|bytes| FontRef::from_index(bytes, 0).expect("bundled font"));
-    for character in text.chars().filter(|c| !invisible(*c)) {
-        let covered = fonts
+    let faces = FONTS.map(|p| (FontRef::from_index(p, 0).unwrap(), face_range(p)));
+    for cluster in unicode_segmentation::UnicodeSegmentation::graphemes(text, true) {
+        let drawn = faces
             .iter()
-            .any(|font| font.charmap().map(character).is_some());
-        if character.is_control() || !covered {
+            .any(|(f, r)| text_layout::claims(f, *r, cluster));
+        let refused = cluster.chars().find(|c| {
+            c.is_control() && !invisible(*c) || !drawn && !text_layout::covers(&face(), *c)
+        });
+        if let Some(character) = refused {
             return Err(format!(
                 "Text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support U+{:04X}",
                 u32::from(character)
@@ -565,23 +568,11 @@ mod tests {
             "../../../packages/contracts/annotationFontCoverage.json"
         ))
         .unwrap();
-        let expected: std::collections::BTreeSet<_> = contract["ranges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|range| range[0].as_u64().unwrap() as u32..=range[1].as_u64().unwrap() as u32)
-            .collect();
-        let actual: std::collections::BTreeSet<_> = FONTS
-            .into_iter()
-            .flat_map(|program| {
-                FontRef::from_index(program, 0)
-                    .unwrap()
-                    .charmap()
-                    .mappings()
-                    .map(|(codepoint, _)| codepoint)
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let ranges: Vec<[u32; 2]> = serde_json::from_value(contract["ranges"].clone()).unwrap();
+        let expected: std::collections::BTreeSet<_> =
+            ranges.iter().flat_map(|r| r[0]..=r[1]).collect();
+        let actual: std::collections::BTreeSet<_> =
+            face().charmap().mappings().map(|m| m.0).collect();
         assert_eq!(
             actual, expected,
             "regenerate coverage from the shipped font programs"

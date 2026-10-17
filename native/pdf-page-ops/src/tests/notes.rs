@@ -3101,6 +3101,13 @@ fn unicode_text_boxes_append_reopen_with_verified_font_subsets() {
             assert!(!saved.resolved(descendant.get(b"CIDToGIDMap").unwrap()).unwrap().as_stream().unwrap().decompressed_content().unwrap().is_empty());
         }
     }
+    // Each face maps one of "A" and a Hebrew accent, none both: the layout would
+    // draw the cluster in DejaVu Sans with U+FFFD for the accent, so the request
+    // is refused before anything is written.
+    let editor = serde_json::json!({"pageIndex":0,"stableKey":"split-cluster","text":"A\u{591}","rect":[10,10,180,90],"rotation":0,"fontSize":16,"color":[0,0,0]});
+    let request = serde_json::to_vec(&serde_json::json!({"textBoxes": [editor]})).unwrap();
+    let error = read_native_mutations_bytes(&request).err().unwrap().to_string();
+    assert!(error.contains("U+0591"), "{error}");
 }
 
 #[test]
