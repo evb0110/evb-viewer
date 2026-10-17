@@ -1,4 +1,5 @@
 use super::*;
+use std::borrow::Cow;
 
 pub(crate) const MAX_RECOVERY_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_RECOVERY_OBJECTS: usize = 1024;
@@ -13,7 +14,7 @@ pub(crate) fn capture_note_recovery(
 ) -> Result<String> {
     let replies: Vec<_> = replies
         .iter()
-        .map(|(&id, &reply_page)| (id, reply_page as i64 - page as i64))
+        .map(|(&id, &at)| (id, at as i64 - page as i64))
         .collect();
     capture_annotation_recovery(source, root, &replies, false, MAX_RECOVERY_BYTES)
 }
@@ -112,12 +113,8 @@ fn capture_annotation_graph(
         }
         let mut object = source_object.clone();
         if let Object::Dictionary(dict) = &mut object {
-            if matches!(
-                dict.get(b"Type")
-                    .ok()
-                    .and_then(|value| value.as_name().ok()),
-                Some(b"Page" | b"Pages" | b"Catalog")
-            ) {
+            let kind = dict.get(b"Type").and_then(Object::as_name);
+            if matches!(kind, Ok(b"Page" | b"Pages" | b"Catalog")) {
                 return Err("Note recovery graph crosses into the page tree".into());
             }
             if annotation_seen.contains(&reference) {
@@ -147,7 +144,12 @@ fn capture_annotation_graph(
 /// Each recovered annotation and its page's offset from the root's page.
 fn recovery_members(graph: &Document) -> Result<Vec<(ObjectId, i64)>> {
     let annots = graph.trailer.get(b"EVBAnnots")?.as_array()?;
-    let pages = graph.trailer.get(b"EVBPages")?.as_array()?;
+    // Older graphs have no offsets: all sat on the root's page.
+    let zeros = vec![Object::Integer(0); annots.len()];
+    let pages = graph
+        .trailer
+        .get(b"EVBPages")
+        .map_or(Ok(&zeros), Object::as_array)?;
     if annots.len() != pages.len() {
         return Err("Note recovery pages do not match its annotations".into());
     }
@@ -247,12 +249,12 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
 
 pub(crate) fn original_text_box_graph(
     original: &TextBoxOriginalAppearance,
-) -> Result<std::borrow::Cow<'_, Document>> {
+) -> Result<Cow<'_, Document>> {
     if let Some(graph) = &original.source_graph {
-        return Ok(std::borrow::Cow::Borrowed(graph));
+        return Ok(Cow::Borrowed(graph));
     }
     if let Some(data) = &original.recovery_data {
-        return Ok(std::borrow::Cow::Owned(decode_note_recovery(data)?));
+        return Ok(Cow::Owned(decode_note_recovery(data)?));
     }
     Err("Original appearance requires its retained immutable source".into())
 }
@@ -420,13 +422,9 @@ pub(crate) fn decode_note_recovery(data: &str) -> Result<Document> {
             return Err("Note recovery graph has an external reference".into());
         }
         if let Object::Dictionary(dict) = object {
+            let kind = dict.get(b"Type").and_then(Object::as_name);
             if (annotation_refs.contains(id) && dict.has(b"P"))
-                || matches!(
-                    dict.get(b"Type")
-                        .ok()
-                        .and_then(|value| value.as_name().ok()),
-                    Some(b"Page" | b"Pages" | b"Catalog")
-                )
+                || matches!(kind, Ok(b"Page" | b"Pages" | b"Catalog"))
             {
                 return Err("Note recovery graph contains page ownership".into());
             }
@@ -448,13 +446,8 @@ fn remap_recovery_object(object: &mut Object, refs: &HashMap<ObjectId, ObjectId>
                 remap_recovery_object(value, refs);
             }
         }
-        Object::Dictionary(dict) => {
+        Object::Dictionary(dict) | Object::Stream(Stream { dict, .. }) => {
             for (_, value) in dict.iter_mut() {
-                remap_recovery_object(value, refs);
-            }
-        }
-        Object::Stream(stream) => {
-            for (_, value) in stream.dict.iter_mut() {
                 remap_recovery_object(value, refs);
             }
         }
@@ -489,11 +482,8 @@ fn restore_recovery_graph(
 ) -> Result<Vec<(ObjectId, ObjectId)>> {
     let old_root = graph.trailer.get(b"Root")?.as_reference()?;
     let old_popup = annotation_related_ref(graph.get_dictionary(old_root)?, b"Popup");
-    let mut refs = HashMap::new();
-    refs.insert(old_root, root);
-    if let Some(old_popup) = old_popup {
-        refs.insert(old_popup, popup);
-    }
+    let mut refs = HashMap::from([(old_root, root)]);
+    refs.extend(old_popup.map(|old_popup| (old_popup, popup)));
     for id in graph.objects.keys() {
         refs.entry(*id).or_insert_with(|| document.new_object_id());
     }
