@@ -744,6 +744,37 @@ describe('desktop crash checkpoint written now', () => {
         ]);
     });
 
+    it('resolves a queued checkpoint once it is saved, after the write before it failed', async () => {
+        vi.useFakeTimers();
+        const held = Promise.withResolvers<undefined>();
+        desktop.save = async (checkpoint) => {
+            desktop.saved.push(checkpoint);
+            if (desktop.saved.length === 1) {
+                await held.promise;
+                throw new Error('disk full');
+            }
+            return true;
+        };
+        const workspace = mountCrashCheckpoint();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(desktop.saved.map(savedSources)).toEqual([[null]]);
+
+        workspace.addBackgroundTab('/managed/output — cleaned.pdf');
+        const persisted = workspace.persistNow();
+        await nextTick();
+        await nextTick();
+        held.resolve(undefined);
+
+        await expect(persisted).resolves.toBeUndefined();
+        expect(desktop.saved.map(savedSources)).toEqual([
+            [null],
+            [
+                null,
+                '/managed/output — cleaned.pdf',
+            ],
+        ]);
+    });
+
     it('retains the protection warning until the replacement checkpoint is durable and clears it with its owner', async () => {
         vi.useFakeTimers();
         const workspace = mountCrashCheckpoint();

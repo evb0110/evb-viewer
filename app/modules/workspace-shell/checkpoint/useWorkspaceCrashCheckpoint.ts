@@ -90,6 +90,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
                             return undefined;
                         }
                         if (!disposed && options.enabled.value && !options.isStartupOpenClaimPending.value) reconcileRecoveryNotices(checkpoint);
+                        firstError = undefined;
                     } catch (error) {
                         firstError ??= error instanceof Error ? error : new Error(getErrorMessage(error));
                     }
