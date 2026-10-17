@@ -95,7 +95,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const searchError = ref<string | null>(null);
     const searchProgress = ref<IDocumentSearchProgress>();
     const isTruncated = ref(false);
-    const wasSearchCanceled = ref(false);
     let searchRunId = 0;
     let searchCommand: IScheduledPdfSearch | null = null;
     const scheduledResolvers = new Map<number, (applied: boolean) => void>();
@@ -403,7 +402,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
 
         try {
             isSearching.value = true;
-            wasSearchCanceled.value = false;
             searchError.value = null;
             submittedSearchQuery.value = query;
             if (!direction) {
@@ -435,7 +433,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                     ...(progress.coverage ? {coverage: progress.coverage} : {}),
                 };
                 if (progress.canceled) {
-                    wasSearchCanceled.value = true;
                     isSearching.value = false;
                     return;
                 }
@@ -476,7 +473,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 query,
             });
             if (response.canceled) {
-                wasSearchCanceled.value = true;
                 results.value = [];
                 pageMatches.value = new Map();
                 currentResultIndex.value = -1;
@@ -552,7 +548,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         // waiting for the debounce window / backend response.
         isSearching.value = true;
         isTruncated.value = false;
-        wasSearchCanceled.value = false;
         searchError.value = null;
 
         return new Promise<boolean>((resolve) => {
@@ -632,7 +627,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         pageMatches.value = new Map();
         currentResultIndex.value = -1;
         isTruncated.value = false;
-        wasSearchCanceled.value = false;
     }
 
     function getMatchesForPage(pageIndex: TPageIndex) {
@@ -716,7 +710,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         totalMatches,
         currentMatch,
         isTruncated,
-        wasSearchCanceled,
         minQueryLength: PDF_SEARCH_MIN_QUERY_LENGTH,
         search,
         setSearchOption,

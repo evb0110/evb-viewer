@@ -403,7 +403,7 @@ describe('usePdfSearch', () => {
         expect(search.hasPartialResults.value).toBe(false);
     });
 
-    it('preserves explicit backend cancellation state', async () => {
+    it('ends a backend-canceled search without results', async () => {
         mockSearch.run.mockResolvedValueOnce({
             results: [],
             truncated: false,
@@ -415,27 +415,9 @@ describe('usePdfSearch', () => {
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
         await expect(searchPromise).resolves.toBe(true);
 
-        expect(search.wasSearchCanceled.value).toBe(true);
         expect(search.results.value).toEqual([]);
         expect(search.isTruncated.value).toBe(false);
         expect(search.isSearching.value).toBe(false);
-    });
-
-    it('clears stale cancellation state when the search is cleared', async () => {
-        mockSearch.run.mockResolvedValueOnce({
-            results: [],
-            truncated: false,
-            canceled: true,
-        });
-        const search = await createPdfSearch();
-        const searchPromise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
-        await searchPromise;
-        expect(search.wasSearchCanceled.value).toBe(true);
-
-        search.clearSearch();
-
-        expect(search.wasSearchCanceled.value).toBe(false);
     });
 
     it('keeps match navigation stable while streamed result batches grow', async () => {
