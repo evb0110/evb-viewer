@@ -1091,6 +1091,138 @@ fn selected_and_complete_metadata_values_keep_object_resource_limits() {
     }
 }
 
+/// qpdf reads a name written with #00 as a bad token: a key becomes a
+/// QPDFFake key and a value becomes null. Below the structural ceiling that
+/// warning returns the read to lopdf, which keeps the NUL byte. Above it qpdf's
+/// reading is the only one, and no literal #00 reaches a key or a name.
+#[test]
+fn nul_escaped_names_in_a_managed_note_keep_their_reader_view_through_save_and_undo() {
+    fn read_note(input: &Path, output: &Path) -> (u64, String, lopdf::Dictionary) {
+        let parsed = metadata_command("parse-annotations", input, Some(output));
+        let note = parsed[1]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["kind"] == "note")
+            .unwrap()
+            .clone();
+        let recovery = note["recoveryData"].as_str().unwrap().to_string();
+        let bytes: Vec<u8> = recovery
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        let graph = Document::load_mem(&bytes).unwrap();
+        let root = graph.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let dictionary = graph.get_dictionary(root).unwrap().clone();
+        (note["objectNumber"].as_u64().unwrap(), recovery, dictionary)
+    }
+    fn save(input: &Path, mutations: &Path, json: Value) {
+        fs::write(mutations, serde_json::to_vec(&json).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["save-mutations", "--append", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(input)
+            .arg("--mutations-file")
+            .arg(mutations)
+            .arg("--qpdf")
+            .arg(metadata_qpdf_path())
+            .args(["--modified-at", "D:20260830140000Z"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    for stream_bytes in [0, 20 * 1024 * 1024, 512 * 1024 * 1024 + 1] {
+        let input = temporary_path("nul-name-note", "pdf");
+        let output = temporary_path("nul-name-note", "jsonl");
+        let mutations = temporary_path("nul-name-note", "json");
+        let _cleanup = RemoveOnDrop(vec![input.clone(), output.clone(), mutations.clone()]);
+        let mut document = Document::with_version("1.7");
+        let pages = document.new_object_id();
+        let page = document.new_object_id();
+        let mut note = dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "NM" => Object::string_literal("nul-name-note"),
+            "Contents" => Object::string_literal("A note with NUL names"),
+            "Vendor" => Object::Name(b"A\0B".to_vec()),
+        };
+        note.set(b"Managed\0Key".to_vec(), Object::string_literal("kept"));
+        let note = document.add_object(note);
+        document.set_object(
+            page,
+            dictionary! {
+                "Type" => "Page", "Parent" => pages, "Annots" => vec![Object::Reference(note)],
+                "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            },
+        );
+        document.set_object(
+            pages,
+            dictionary! {"Type" => "Pages", "Kids" => vec![Object::Reference(page)], "Count" => 1},
+        );
+        let root = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+        document.trailer.set("Root", root);
+        if stream_bytes == 0 {
+            document.save(&input).unwrap();
+        } else {
+            save_metadata_fixture(&mut document, &input, stream_bytes);
+        }
+        let assert_reader_view = |dictionary: &lopdf::Dictionary| {
+            let keys = dictionary
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            assert!(
+                keys.iter()
+                    .all(|key| !key.windows(3).any(|part| part == b"#00")),
+                "{keys:?}"
+            );
+            if stream_bytes < 512 * 1024 * 1024 {
+                assert_eq!(
+                    dictionary.get(b"Managed\0Key").unwrap(),
+                    &Object::string_literal("kept")
+                );
+                assert_eq!(
+                    dictionary.get(b"Vendor").unwrap().as_name().unwrap(),
+                    b"A\0B"
+                );
+            } else {
+                let fake = keys
+                    .iter()
+                    .find(|key| key.starts_with(b"QPDFFake"))
+                    .unwrap();
+                assert_eq!(dictionary.get(fake).unwrap().as_str().unwrap(), b"kept");
+                assert!(dictionary.get(b"Vendor").is_err(), "{keys:?}");
+            }
+        };
+        let (object_number, recovery, source) = read_note(&input, &output);
+        assert_reader_view(&source);
+
+        save(
+            &input,
+            &mutations,
+            serde_json::json!({"deletes": [{"pageIndex": 0, "objectNumber": object_number, "generationNumber": 0}]}),
+        );
+        save(
+            &input,
+            &mutations,
+            serde_json::json!({"notes": [{
+                "recoveryData": recovery, "pageIndex": 0, "stableKey": "nul-name-note",
+                "text": "A note with NUL names", "author": null, "color": null, "createdAt": null,
+                "markerRect": {"left": 0.2, "top": 0.6, "width": 0.2, "height": 0.2},
+            }]}),
+        );
+        let (restored_number, _, restored) = read_note(&input, &output);
+        assert_ne!(restored_number, object_number);
+        assert_reader_view(&restored);
+    }
+}
+
 #[test]
 fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dictionaries() {
     let input = temporary_path("metadata-conformance", "pdf");
