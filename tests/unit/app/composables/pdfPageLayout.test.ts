@@ -529,6 +529,70 @@ describe('pdfPageLayout', () => {
     });
 
     it.each([
+        'facing',
+        'facing-first-single',
+    ] as const)('keeps sparse %s row prefixes aligned across mixed boundary rows', (viewMode) => {
+        const totalPages = PDF_PAGE_METRICS_DENSE_LIMIT + 1;
+        for (const nextKnownIndex of [
+            5,
+            7,
+        ]) {
+            const source: IPdfPageMetric[] = [];
+            source[0] = {
+                width: 600,
+                height: 1_000,
+            };
+            source[nextKnownIndex] = {
+                width: 600,
+                height: 500,
+            };
+            const normalized = normalizePageMetrics({
+                pageMetrics: source,
+                totalPages,
+                fallbackWidth: 600,
+                fallbackHeight: 1_000,
+            });
+            const layout = buildPageLayoutMetrics({
+                pageMetrics: normalized,
+                totalPages,
+                viewMode,
+                scale: 1.25,
+                gap: 20,
+                paddingTop: 12,
+                paddingBottom: 16,
+            });
+            if (!layout) throw new Error('Failed to create sparse facing layout');
+
+            const expectedTops = new Map<number, number>();
+            const queryPages = new Set([
+                totalPages - 1,
+                1_024,
+                512,
+                0,
+                4,
+            ]);
+            let top = 12;
+            for (let start = 0; start < totalPages;) {
+                const end = Math.min(totalPages, start + (viewMode === 'facing-first-single' && start === 0 ? 1 : 2));
+                let height = 0;
+                for (let page = start; page < end; page += 1) {
+                    // Direct nearest-page distances, independent of layout run boundaries.
+                    height = Math.max(height, page <= Math.abs(page - nextKnownIndex) ? 1_000 : 500);
+                    if (queryPages.has(page)) expectedTops.set(page, top);
+                }
+                top += height * 1.25 + 20;
+                start = end;
+            }
+            const contentHeight = top - 20 + 16;
+            expect(getLayoutContentHeight(layout)).toBe(contentHeight);
+            for (const page of queryPages) {
+                expect(getLayoutPageTop(layout, requirePageIndex(page))).toBe(expectedTops.get(page));
+            }
+            expect(getLayoutContentHeight(layout)).toBe(contentHeight);
+        }
+    });
+
+    it.each([
         'single',
         'facing',
         'facing-first-single',

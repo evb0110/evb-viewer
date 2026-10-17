@@ -853,7 +853,7 @@ describe('PdfViewportSession behavior', () => {
 
     it('retains the wanted page while the measured visible range catches up', async () => {
         let pageDimensions = {
-            width: 600,
+            width: 590,
             height: 900,
         };
         const replacementRaster = Promise.withResolvers<undefined>();
@@ -927,6 +927,12 @@ describe('PdfViewportSession behavior', () => {
             const canvas = fixture.container.querySelector('canvas')!;
             expect(canvas.width * canvas.height).toBeGreaterThan(0);
             expect(presented.value).toBe(true);
+            expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            await fixture.rendering!.renderVisiblePages({
+                start: 1,
+                end: 1,
+            });
+            expect(fixture.container.querySelector('canvas')).toBe(canvas);
             documentRevisionToken.value = requireDocumentRevisionToken('after-save');
             expect(presented.value).toBe(true);
             expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(false);

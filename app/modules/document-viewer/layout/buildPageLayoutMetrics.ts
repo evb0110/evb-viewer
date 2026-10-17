@@ -134,52 +134,32 @@ function getRowHeight(
     return height;
 }
 
-function getEstimatedRowHeight(
-    pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
-    rowIndex: number,
-    totalPages: number,
-    viewMode: TPdfViewMode,
-) {
-    return getRowHeight(
-        rowIndex,
-        totalPages,
-        viewMode,
-        pageIndex => getMetricEstimateDimension(pageMetrics, pageIndex, 'height'),
-    );
-}
-
-function getEstimatedRowChangeIndexes(
+function getEstimatedRowStarts(
     pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
     totalPages: number,
     viewMode: TPdfViewMode,
 ) {
     if (!isSparsePageMetricCollection(pageMetrics)) {
-        return [];
+        return [0];
     }
 
     const rowCount = getLayoutRowCount(totalPages, viewMode);
     const knownIndices = pageMetrics.knownIndices;
-    const changes: number[] = [];
-    for (let index = 0; index < knownIndices.length - 1; index += 1) {
-        const currentIndex = knownIndices[index];
-        const nextIndex = knownIndices[index + 1];
-        if (currentIndex === undefined || nextIndex === undefined) {
-            continue;
-        }
-        const metricChangeIndex = Math.floor((currentIndex + nextIndex) / 2) + 1;
-        if (metricChangeIndex >= totalPages) {
-            continue;
-        }
+    const starts = new Set([0]);
+    for (let index = 1; index < knownIndices.length; index += 1) {
+        const metricChangeIndex = Math.floor((knownIndices[index - 1]! + knownIndices[index]!) / 2) + 1;
         const rowIndex = getLayoutRowIndex(
             requirePageIndex(metricChangeIndex),
             totalPages,
             viewMode,
         );
-        if (rowIndex > 0 && rowIndex < rowCount && changes.at(-1) !== rowIndex) {
-            changes.push(rowIndex);
+        starts.add(rowIndex);
+        // Isolate a mixed pair before following rows use only the new estimate.
+        if (getLayoutRowStart(rowIndex, totalPages, viewMode) !== metricChangeIndex + 1) {
+            starts.add(rowIndex + 1);
         }
     }
-    return changes;
+    return [...starts].filter(row => row < rowCount);
 }
 
 function findFirstAtOrAfter(values: readonly number[], target: number) {
@@ -564,16 +544,12 @@ function buildSparsePageLayoutBase(options: {
         estimatePageHeightRange,
         end => estimatePageHeightRange(0, end),
     );
-    const estimatedRowStarts = [
-        0,
-        ...getEstimatedRowChangeIndexes(
-            options.pageMetrics,
-            options.totalPages,
-            options.viewMode,
-        ),
-    ];
-    const estimatedRowHeights = estimatedRowStarts.map(row => getEstimatedRowHeight(
-        options.pageMetrics, row, options.totalPages, options.viewMode,
+    const estimatedRowStarts = getEstimatedRowStarts(
+        options.pageMetrics, options.totalPages, options.viewMode,
+    );
+    const estimatedRowHeights = estimatedRowStarts.map(row => getRowHeight(
+        row, options.totalPages, options.viewMode,
+        index => getMetricEstimateDimension(options.pageMetrics, index, 'height'),
     ));
     // The immutable layout owns these run totals. Re-reading a row's top
     // needs one prefix lookup, not another walk through every measured page.

@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
-    mkdtemp, readFile, readdir, rm, writeFile,
+    mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
@@ -127,9 +127,12 @@ describe('complete PDF opening geometry', () => {
     it.each([
         false,
         true,
-    ])('shares prepared opening geometry once and rejects it after a revision change: %s', async changed => {
+    ])('shares aliased prepared geometry once and rejects it after a revision change: %s', async changed => {
         const directory = await mkdtemp(join(tmpdir(), 'pdf-work-prepared-'));
+        const alias = `${directory}-alias`;
+        await symlink(directory, alias, 'junction');
         const input = join(directory, 'document.pdf');
+        const aliasedInput = join(alias, 'document.pdf');
         mocks.appTempDir = directory;
         await writeFile(input, '%PDF-1.7\n');
         await setWorkingCopyOriginalPath(input, '/books/original.pdf', 7, {deferOriginalFileExpectation: true});
@@ -146,12 +149,14 @@ describe('complete PDF opening geometry', () => {
         };
         entry.openingPageGeometry = {
             kind: 'exact',
-            documentRef: requireDocumentRef(input),
+            documentRef: requireDocumentRef(aliasedInput),
             documentRevisionToken: revision.token,
             pageCount: 1,
             pages: [page],
         };
-        mocks.resolveExistingReadablePdfPath.mockResolvedValue(input);
+        const resolved = await realpath(input);
+        expect(resolved).not.toBe(aliasedInput);
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue(resolved);
         mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
         mocks.readPdfNativePageGeometry.mockResolvedValue([{
             ...page,
@@ -167,12 +172,17 @@ describe('complete PDF opening geometry', () => {
                 expectedDocumentRevisionToken: current.token,
             };
             const first = await handlePdfNativePageSizes({senderId: 7}, input, options);
+            expect(first.documentRef).toBe(input);
             expect(first.pages[0]?.widthPoints).toBe(changed ? 700 : 612);
             expect(entry.openingPageGeometry).toBeUndefined();
             const next = await handlePdfNativePageSizes({senderId: 7}, input, options);
             expect(next.pages[0]?.widthPoints).toBe(700);
         } finally {
             forgetWorkingCopyOriginalPath(input);
+            await rm(alias, {
+                recursive: true,
+                force: true,
+            });
             await rm(directory, {
                 recursive: true,
                 force: true,

@@ -33,7 +33,9 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
-import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyBackingEntry, normalizePathForLookup,
+} from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
     readNativePdfCatalogPart,
@@ -275,7 +277,8 @@ function readPreparedPageGeometry(
     const entry = getWorkingCopyBackingEntry(path, senderId);
     const geometry = entry?.openingPageGeometry;
     if (!geometry) return null;
-    if (geometry.documentRef === path && geometry.documentRevisionToken === revision
+    if (normalizePathForLookup(geometry.documentRef) === normalizePathForLookup(path)
+        && geometry.documentRevisionToken === revision
         && geometry.pageCount > 0 && geometry.pages.length === geometry.pageCount) return geometry;
     delete entry.openingPageGeometry;
     return null;
