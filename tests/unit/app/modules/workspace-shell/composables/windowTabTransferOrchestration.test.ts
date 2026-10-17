@@ -283,6 +283,78 @@ describe('window tab transfer orchestration helpers', () => {
         expect(tracker.has('source')).toBe(false);
     });
 
+    it('leaves pending drafts uncommitted when a capture finishes waiting after its move timed out', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        onTestFinished(() => {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        });
+        const failures: string[] = [];
+        const source = createWorkspaceDocumentController({
+            tabId: 'source',
+            reportFailure: failure => failures.push(failure.message),
+        });
+        const path = requireDocumentRef('/docs/source.pdf');
+        source.commitDocument({
+            fileName: 'source.pdf',
+            originalPath: path,
+            isDjvu: false,
+            revisionInfo: null,
+        });
+        source.claimOpen({
+            kind: 'restore',
+            target: {
+                fileName: 'source.pdf',
+                originalPath: path,
+                isDjvu: false,
+            },
+        });
+        // Preparing a move commits the document's pending drafts, which makes it dirty.
+        source.bindMutationFrontier(() => 'frontier', async () => {source.setDirty(true);}, async () => {});
+        const openSettled = Promise.withResolvers<undefined>();
+        source.attachWorkspace('source', createWorkspaceExposeFixture({waitForDocumentOpenSettled: () => openSettled.promise}));
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'source',
+            tabIds: ['source'],
+        };
+        const tabs = ref<ITab[]>([{id: 'source'}]);
+        const transfers = useWindowTabTransfers({
+            activePaneId: ref<string | null>(pane.paneId),
+            panes: ref([pane]),
+            tabs,
+            layout: ref(null),
+            createTab: () => {throw new Error('No incoming tab');},
+            getPaneById: () => pane,
+            getTabById: id => tabs.value.find(tab => tab.id === id) ?? null,
+            getPaneByTabId: () => pane,
+            activatePane: () => undefined,
+            activateTab: () => undefined,
+            removeTabFromState: () => undefined,
+            cleanupEmptyPanes: () => undefined,
+            closeTabInState: () => undefined,
+            documentSessions: cast({getSession: (id: string) => (id === 'source' ? source : null)}),
+            workspaceRestoreTracker: {
+                start: () => undefined,
+                finish: () => undefined,
+            },
+            handleCloseTab: async () => undefined,
+            handoffActiveTabBeforeClose: async () => undefined,
+        });
+
+        const moving = transfers.moveTabToNewWindow('source');
+        await vi.advanceTimersByTimeAsync(4_000);
+        await moving;
+        expect(failures).toEqual(['tabs.transferErrors.rolledBack']);
+        expect(source.operationLease.isBusy.value).toBe(false);
+
+        openSettled.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(source.snapshot.value.dirty).toBe(false);
+    });
+
     it('rejects each failed target without making another transfer wait for its mount', async () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         onTestFinished(() => {

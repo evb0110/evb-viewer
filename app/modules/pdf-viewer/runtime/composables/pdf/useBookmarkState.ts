@@ -54,7 +54,7 @@ export const useBookmarkState = (deps: {
         return bookmarksDirty.value ? {
             revision: bookmarkRevision,
             dirty: true,
-            items: structuredClone(bookmarkItems.value),
+            items: bookmarkItems.value,
         } : undefined;
     }
 

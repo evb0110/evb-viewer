@@ -476,6 +476,34 @@ describe('browserPageOpsWorkerClient', () => {
         ]));
     });
 
+    it('rejects admitted and waiting parses on a page reset and admits a later parse', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        FakeWorker.autoRespond = false;
+        const outcomes = [
+            1,
+            2,
+            3,
+        ].map(byte => runBrowserPageOpsWorkerRequest('parseAnnotations', {data: Uint8Array.of(byte)}, {dedicated: true})
+            .catch((error: unknown) => error));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(FakeWorker.instances).toHaveLength(2);
+
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(FakeWorker.instances).toHaveLength(2);
+        for (const outcome of outcomes) {
+            expect(await outcome).toMatchObject({
+                name: 'AbortError',
+                code: 'BROWSER_WORKER_RESET',
+            });
+        }
+        FakeWorker.autoRespond = true;
+        await expect(runBrowserPageOpsWorkerRequest('parseAnnotations', {data: Uint8Array.of(4)}, {dedicated: true}))
+            .resolves.toEqual({data: Uint8Array.of(2)});
+    });
+
     it('ignores a late result from a canceled dedicated parse generation', async () => {
         FakeWorker.autoRespond = false;
         const staleController = new AbortController();

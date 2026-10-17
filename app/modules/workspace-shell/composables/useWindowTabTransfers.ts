@@ -302,7 +302,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<IPreparedTransferItem | null> {
         const session = getDocumentSession(tabId);
-        let captureResultClaimed = false;
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
             const workspace = await waitForWorkspace(tabId);
             if (!workspace) {
@@ -313,6 +312,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (session?.snapshot.value.activeTransaction) {
                 await workspace.waitForDocumentOpenSettled();
             }
+            ownership.assertCurrent();
             await session?.prepareTransfer();
             const commandTarget = session?.createCommandTarget(tabId) ?? null;
             const mutationFrontier = session?.readMutationFrontier() ?? null;
@@ -351,12 +351,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         })();
 
         try {
-            const result = await withTimeout(() => capturePromise, timeoutMs);
-            captureResultClaimed = true;
-            return result;
+            return await withTimeout(() => capturePromise, timeoutMs);
         } catch (error) {
             void capturePromise.then(async (lateResult) => {
-                if (!captureResultClaimed && lateResult) {
+                if (lateResult) {
                     await cleanupSplitPayloadSnapshot(lateResult.payload, {
                         logSection: 'tabs',
                         context: 'capture-workspace-payload-late-result',

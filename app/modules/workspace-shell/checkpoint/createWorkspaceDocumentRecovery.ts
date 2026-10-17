@@ -40,7 +40,7 @@ export function createWorkspaceDocumentRecovery(
                     ]));
                     return annotations.captureAnnotationNoteDrafts(id => revisions.get(id) ?? null);
                 }),
-                metadata: metadata.captureRecovery(),
+                metadata: structuredClone(metadata.captureRecovery()),
             };
         },
         restoreCanonicalAnnotationRecovery: (value: unknown) => {
