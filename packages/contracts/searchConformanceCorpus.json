@@ -2273,6 +2273,105 @@
           }
         }
       ]
+    },
+    {
+      "id": "literal-whitespace-matches-any-run",
+      "description": "A space in a literal query matches a line break, repeated spaces or a no-break space in the page, but never no space at all.",
+      "text": "alpha\nbeta, alpha  beta, alpha beta, alphabeta",
+      "query": "alpha beta",
+      "options": {},
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 10,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "alpha\nbeta",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 12,
+          "endOffset": 23,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "alpha  beta",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 25,
+          "endOffset": 35,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "alpha beta",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "literal-typographic-apostrophe",
+      "description": "A literal query with an ASCII apostrophe matches the typographic apostrophe and itself.",
+      "text": "the scholar’s note, the scholar's note, ba‘al and ba’al",
+      "query": "scholar's",
+      "options": {},
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 4,
+          "endOffset": 13,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "scholar’s",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 24,
+          "endOffset": 33,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "scholar's",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "literal-left-quote-stays-distinct",
+      "description": "The left single quote stays distinct from the apostrophe: transliteration writes ayin with it and aleph with the apostrophe.",
+      "text": "the scholar’s note, the scholar's note, ba‘al and ba’al",
+      "query": "ba'al",
+      "options": {},
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 50,
+          "endOffset": 55,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "ba’al",
+            "after": ""
+          }
+        }
+      ]
     }
   ],
   "geometryCase": {

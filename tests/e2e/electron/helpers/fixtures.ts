@@ -601,6 +601,34 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+/**
+ * One page whose phrases a literal search should find although the page
+ * separates their words with a line break or a no-break space, or spells an
+ * apostrophe typographically.
+ */
+export async function createPhraseSearchFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([
+        612,
+        792,
+    ]);
+    [
+        'The scholar\u2019s notes end with alpha',
+        'beta and gamma on the next line.',
+        'A red\u00A0blue swatch.',
+    ].forEach((line, index) => page.drawText(line, {
+        x: 72,
+        y: 700 - index * 28,
+        size: 18,
+        font,
+    }));
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
 export const NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY = '中文检索';
 
 /**

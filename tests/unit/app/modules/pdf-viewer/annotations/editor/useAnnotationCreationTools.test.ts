@@ -15,6 +15,7 @@ import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/a
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
 import {computed} from 'vue';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TDrawableShapeType} from '@app/types/annotations';
 
 const entity = {
     kind: 'text-box',
@@ -74,6 +75,23 @@ const stamp = {
     },
 } satisfies IPlacedImageEntity;
 
+function drawThrough(
+    tools: ReturnType<typeof useAnnotationCreationTools>,
+    tool: TDrawableShapeType,
+    [
+        origin,
+        ...points
+    ]: Array<{
+        x: number;
+        y: number
+    }
+    >,
+) {
+    let draft = tools.beginShape(0, tool, origin!)!;
+    for (const point of points) draft = tools.updateShape(draft, point, origin!);
+    return draft;
+}
+
 describe('useAnnotationCreationTools', () => {
     it.each([
         'rectangle',
@@ -114,9 +132,9 @@ describe('useAnnotationCreationTools', () => {
             x: 0.1,
             y: 0.72,
         };
-        let draft = tools.beginShape(0, tool, origin)!;
         // A captured pointer keeps reporting positions after it leaves the page.
-        for (const point of [
+        const created = tools.finishShape(drawThrough(tools, tool, [
+            origin,
             {
                 x: 0.5,
                 y: 0.9,
@@ -125,13 +143,125 @@ describe('useAnnotationCreationTools', () => {
                 x: 1.2,
                 y: 1.022,
             },
-        ]) draft = tools.updateShape(draft, point, origin);
-        const created = tools.finishShape(draft);
+        ]));
 
         expect(created).not.toBeNull();
         expect(created!.rect.left + created!.rect.width).toBeLessThanOrEqual(1);
         expect(created!.rect.top + created!.rect.height).toBeLessThanOrEqual(1);
         expect(isNativeShapeEligible(toLegacyShapeAnnotation(created!), 1)).toBe(true);
+    });
+
+    it('splits a freehand stroke at the page edge instead of drawing along it', () => {
+        const tools = useAnnotationCreationTools({surface: {settings: computed(() => null)} as IAnnotationEditorSurface});
+        const created = tools.finishShape(drawThrough(tools, 'draw', [
+            {
+                x: 0.2,
+                y: 0.7,
+            },
+            {
+                x: 0.6,
+                y: 1.2,
+            },
+            {
+                x: 0.8,
+                y: 1.2,
+            },
+            {
+                x: 0.8,
+                y: 0.7,
+            },
+        ]));
+
+        expect(created?.strokes).toHaveLength(2);
+        expect(created!.strokes![0]![0]).toEqual({
+            x: 0.2,
+            y: 0.7,
+        });
+        expect(created!.strokes![0]![1]!.x).toBeCloseTo(0.44);
+        expect(created!.strokes![0]![1]!.y).toBe(1);
+        expect(created!.strokes![1]).toEqual([
+            {
+                x: 0.8,
+                y: 1,
+            },
+            {
+                x: 0.8,
+                y: 0.7,
+            },
+        ]);
+        expect(created!.points).toEqual(created!.strokes![0]);
+        expect(created!.rect.left).toBeCloseTo(0.2);
+        expect(created!.rect.width).toBeCloseTo(0.6);
+        expect(created!.rect.top).toBeCloseTo(0.7);
+        expect(created!.rect.height).toBeCloseTo(0.3);
+        expect(isNativeShapeEligible(toLegacyShapeAnnotation(created!), 1)).toBe(true);
+    });
+
+    it('keeps a long reentry path when the stroke left the page almost at once', () => {
+        const tools = useAnnotationCreationTools({surface: {settings: computed(() => null)} as IAnnotationEditorSurface});
+        const created = tools.finishShape(drawThrough(tools, 'draw', [
+            {
+                x: 0.9999,
+                y: 0.5,
+            },
+            {
+                x: 1.1,
+                y: 0.5,
+            },
+            {
+                x: 1.1,
+                y: 0.3,
+            },
+            {
+                x: 0.5,
+                y: 0.3,
+            },
+        ]));
+
+        expect(created?.strokes).toHaveLength(2);
+        expect(created!.strokes![1]).toEqual([
+            {
+                x: 1,
+                y: 0.3,
+            },
+            {
+                x: 0.5,
+                y: 0.3,
+            },
+        ]);
+    });
+
+    it('draws nothing for pointer travel that stays off the page', () => {
+        const tools = useAnnotationCreationTools({surface: {settings: computed(() => null)} as IAnnotationEditorSurface});
+        const created = tools.finishShape(drawThrough(tools, 'draw', [
+            {
+                x: 0.5,
+                y: 0.5,
+            },
+            {
+                x: 0.5,
+                y: 1.2,
+            },
+            {
+                x: -0.2,
+                y: 0.5,
+            },
+            {
+                x: 0.5,
+                y: -0.2,
+            },
+        ]));
+
+        expect(created?.strokes).toEqual([[
+            {
+                x: 0.5,
+                y: 0.5,
+            },
+            {
+                x: 0.5,
+                y: 1,
+            },
+        ]]);
     });
 
     it('creates and selects only the text tool entity', () => {

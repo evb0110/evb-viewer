@@ -14,6 +14,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     createMultiPageTextFixturePdf,
+    createPhraseSearchFixturePdf,
     createSearchMatchScrollFixturePdf,
     SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
     SEARCH_MATCH_SCROLL_FIXTURE_QUERY,
@@ -250,6 +251,67 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 index,
                 ...current,
             })}`);
+        }
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+
+    it('finds and highlights phrases across line breaks, no-break spaces and typographic apostrophes', async () => {
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, await createPhraseSearchFixturePdf(`phrase-search-${Date.now()}.pdf`));
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'search');
+        const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
+        for (const {
+            query, highlighted,
+        } of [
+                {
+                    query: 'alpha beta',
+                    highlighted: 'alpha beta',
+                },
+                {
+                    query: 'red blue',
+                    highlighted: 'red blue',
+                },
+                {
+                    query: 'scholar\'s',
+                    highlighted: 'scholar\u2019s',
+                },
+            ]) {
+            await clickAsUser(page, '.document-search-bar input');
+            await page.keyboard.down(selectAll);
+            await page.keyboard.press('KeyA');
+            await page.keyboard.up(selectAll);
+            await page.keyboard.type(query);
+            await page.keyboard.press('Enter');
+            await page.waitForFunction((typed: string) => {
+                const summary = document.querySelector('.document-search-results')?.textContent ?? '';
+                const searching = [...document.querySelectorAll('.document-search-results-header-spinner')]
+                    .some(element => element.getBoundingClientRect().width > 0);
+                return !searching && (summary.includes(typed) || summary.includes('No results'));
+            }, {}, query);
+            expect(await page.$eval('.document-search-results', element => element.textContent ?? ''), query).toContain('1 result for');
+            await clickAsUser(page, '.document-search-result[data-result-index="0"]');
+            // The current match paints as CSS highlight ranges or as highlight elements.
+            const readCurrent = () => {
+                const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
+                    .filter((range): range is Range => range instanceof Range);
+                const elements = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-search-highlight--current')];
+                const rects = [
+                    ...ranges.flatMap(range => [...range.getClientRects()]),
+                    ...elements.map(element => element.getBoundingClientRect()),
+                ].filter(rect => rect.width > 0 && rect.height > 0);
+                return {
+                    text: [
+                        ...ranges.map(range => range.toString()),
+                        ...elements.map(element => element.textContent ?? ''),
+                    ].join(' '),
+                    lines: new Set(rects.map(rect => Math.round(rect.top))).size,
+                };
+            };
+            await page.waitForFunction(`(${readCurrent.toString()})().lines > 0`);
+            const current = await page.evaluate(readCurrent);
+            expect(normalizeMatchText(current.text), query).toBe(normalizeMatchText(highlighted));
+            expect(current.lines, query).toBe(query === 'alpha beta' ? 2 : 1);
         }
     }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
 
