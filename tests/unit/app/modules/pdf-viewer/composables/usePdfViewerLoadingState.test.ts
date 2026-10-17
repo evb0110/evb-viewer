@@ -20,14 +20,14 @@ function createHarness() {
     const src = shallowRef<Blob | null>(new Blob([new Uint8Array([1])], {type: 'application/pdf'}));
     const isLoading = ref(false);
     const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
-    const currentPage = ref(1);
+    const holdOverlayVisible = ref(false);
     const openSurface = createDocumentOpenSurfaceSession();
     const state = scope.run(() => usePdfViewerLoadingState({
         src: computed(() => src.value),
         isLoading,
         pdfDocument,
-        currentPage,
         openSurface,
+        holdOverlayVisible,
     }));
     if (!state) {
         throw new Error('Failed to create PDF viewer loading state');
@@ -37,7 +37,7 @@ function createHarness() {
         src,
         isLoading,
         pdfDocument,
-        currentPage,
+        holdOverlayVisible,
         openSurface,
         state,
     };
@@ -126,7 +126,6 @@ describe('usePdfViewerLoadingState', () => {
         const harness = createHarness();
         const generation = beginSurface(harness, 'load:1');
         expect(harness.openSurface.requestNavigation(2)).not.toBeNull();
-        harness.currentPage.value = 2;
 
         expect(harness.openSurface.createRenderFence({
             generation,
@@ -143,17 +142,39 @@ describe('usePdfViewerLoadingState', () => {
         harness.scope.stop();
     });
 
-    it('becomes pending again when navigation advances beyond the committed page', () => {
+    it('keeps opening feedback retired when scrolling or navigating beyond the opening page', () => {
         const harness = createHarness();
         const generation = beginSurface(harness, 'load:1');
         markReady(harness, commitPage(harness, generation, 'load:1', 1));
         expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
 
-        expect(harness.openSurface.requestNavigation(2)).not.toBeNull();
-        harness.currentPage.value = 2;
+        harness.openSurface.observeViewportPage(2);
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+
+        expect(harness.openSurface.requestNavigation(3)).not.toBeNull();
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+        expect(harness.openSurface.viewportSession.value.visual).toMatchObject({
+            pageNumber: 3,
+            presentation: 'skeleton',
+        });
+
+        markReady(harness, commitPage(harness, generation, 'load:1', 3, 2));
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+        harness.scope.stop();
+    });
+
+    it('keeps feedback while the document or its held visual reload is loading', () => {
+        const harness = createHarness();
+        const generation = beginSurface(harness, 'load:1');
+        markReady(harness, commitPage(harness, generation, 'load:1', 1));
+        harness.isLoading.value = true;
         expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
 
-        markReady(harness, commitPage(harness, generation, 'load:1', 2, 2));
+        harness.holdOverlayVisible.value = true;
+        harness.isLoading.value = false;
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
+
+        harness.holdOverlayVisible.value = false;
         expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
         harness.scope.stop();
     });

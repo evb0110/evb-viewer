@@ -131,6 +131,108 @@ describe('workingCopy', () => {
         });
     });
 
+    it('prepares final private PDF bytes before registration finishes and carries their initial revision', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const entered = Promise.withResolvers<undefined>();
+        const resume = Promise.withResolvers<undefined>();
+        vi.doMock('@electron/file-access/workingCopyStore', async importOriginal => {
+            const original = await importOriginal<typeof WorkingCopyStore>();
+            return {
+                ...original,
+                setWorkingCopyOriginalPath: async (...args: Parameters<typeof original.setWorkingCopyOriginalPath>) => {
+                    entered.resolve(undefined);
+                    await resume.promise;
+                    return original.setWorkingCopyOriginalPath(...args);
+                },
+            };
+        });
+        vi.resetModules();
+        try {
+            const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+            const originalPath = join(tempRoot, 'prepared.pdf');
+            writeFileSync(originalPath, '%PDF-original bytes');
+            vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_source, workingPath, options) => {
+                await options?.admitRewrite?.();
+                writeFileSync(workingPath, '%PDF-final normalized bytes');
+                return true;
+            });
+            let preparedPath = '';
+            const pending = createWorkingCopyWithOutcome(allowOpenPath(originalPath)!, 7, undefined, undefined, undefined, async path => {
+                preparedPath = path;
+                return undefined;
+            });
+            await entered.promise;
+            expect(preparedPath).not.toBe(originalPath);
+            expect(readFileSync(preparedPath, 'utf8')).toBe('%PDF-final normalized bytes');
+            resume.resolve(undefined);
+            const result = await pending;
+            expect(result.workingPath).toBe(preparedPath);
+            expect(result.revision.token).toBe((await getWorkingCopyRevision(preparedPath, 7)).token);
+        } finally {
+            resume.resolve(undefined);
+            vi.doUnmock('@electron/file-access/workingCopyStore');
+            vi.resetModules();
+        }
+    });
+
+    it.each([
+        false,
+        true,
+    ])('settles prepared readers before removing a failed private copy; preserve if unsafe: %s', async unsafe => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const entered = Promise.withResolvers<undefined>();
+        const resume = Promise.withResolvers<undefined>();
+        vi.doMock('@electron/file-access/workingCopyStore', async importOriginal => ({
+            ...await importOriginal<typeof WorkingCopyStore>(),
+            setWorkingCopyOriginalPath: async () => { throw new Error('Registration failed'); },
+        }));
+        vi.resetModules();
+        try {
+            const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const originalPath = join(tempRoot, 'failed-prepared.pdf');
+            writeFileSync(originalPath, '%PDF-private bytes');
+            let preparedPath = '';
+            const pending = createWorkingCopyWithOutcome(allowOpenPath(originalPath)!, 7, undefined, undefined, undefined, async path => {
+                preparedPath = path;
+                return async () => {
+                    entered.resolve(undefined);
+                    await resume.promise;
+                    if (unsafe) throw new Error('Native termination unproven');
+                };
+            });
+            const rejection = expect(pending).rejects.toThrow(unsafe ? 'Native termination unproven' : 'Registration failed');
+            await entered.promise;
+            expect(existsSync(preparedPath)).toBe(true);
+            resume.resolve(undefined);
+            await rejection;
+            expect(existsSync(dirname(preparedPath))).toBe(unsafe);
+        } finally {
+            resume.resolve(undefined);
+            vi.doUnmock('@electron/file-access/workingCopyStore');
+            vi.resetModules();
+        }
+    });
+
+    it('does not prepare a lazy copy that still reads the original', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        preventAutomaticWorkingCopyMaterialization();
+        const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const originalPath = join(tempRoot, 'lazy-prepared.pdf');
+        writeFileSync(originalPath, '%PDF-original bytes');
+        let preparedPath: string | null = null;
+        const result = await createWorkingCopyWithOutcome(allowOpenPath(originalPath)!, 7, undefined, undefined, undefined, async path => {
+            preparedPath = path;
+            return undefined;
+        });
+        expect(existsSync(result.workingPath)).toBe(false);
+        expect(preparedPath).toBeNull();
+    });
+
     it('uses the native writer for an unprovided password on protected PDFs', async () => {
         const previousCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
         const writer = vi.fn(async () => ({

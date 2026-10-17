@@ -26,7 +26,6 @@ import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdfUi';
-import type { IPdfNativePageGeometry } from '@contracts/electronApiDocuments';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
@@ -42,6 +41,7 @@ import {
 import { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
 import { usePdfOpeningGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfOpeningGeometryLifecycle';
+import { pdfSourcesMatch } from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfjsDocumentSourceLoader,
@@ -268,6 +268,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     const basePageWidth = ref<number | null>(null);
     const basePageHeight = ref<number | null>(null);
     const pageMetrics = shallowRef<IPdfPageMetric[]>([]);
+    const geometrySource = shallowRef<TPdfSource | null>(null);
     const pageMetricsVersion = ref(0);
     const loadError = computed(() => loadState.value.status === 'failed'
         ? loadState.value.error
@@ -401,18 +402,20 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pageMetricsVersion.value += 1;
     }
 
-    function seedTrustedPageGeometry(input: Parameters<typeof buildTrustedPdfGeometrySeed>[0]) {
-        const seed = buildTrustedPdfGeometrySeed(input);
-        if (!seed) {
-            return false;
-        }
+    function publishPageGeometry(seed: NonNullable<ReturnType<typeof buildTrustedPdfGeometrySeed>>, source: TPdfSource | null) {
         numPages.value = seed.numPages;
         basePageWidth.value = seed.basePageWidth;
         basePageHeight.value = seed.basePageHeight;
         pageMetrics.value = seed.pageMetrics;
-        trustedGeometrySeedPending = true;
+        geometrySource.value = source;
+        trustedGeometrySeedPending = source === null;
         bumpPageMetricsVersion();
         return true;
+    }
+
+    function seedTrustedPageGeometry(input: Parameters<typeof buildTrustedPdfGeometrySeed>[0]) {
+        const seed = buildTrustedPdfGeometrySeed(input);
+        return seed ? publishPageGeometry(seed, null) : false;
     }
 
     function hasExactPageGeometry(pageNumber: TPageNumber) {
@@ -549,6 +552,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function resetLoadMetadata() {
+        geometrySource.value = null;
         basePageWidth.value = null;
         basePageHeight.value = null;
         pageMetrics.value = [];
@@ -603,51 +607,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             : pageCache.leasePage(pageNumber, signal);
     }
 
-    async function readNativePageGeometry(source: TPdfSource, version: number): Promise<IPdfNativePageGeometry | null> {
-        const path = isPathPdfSource(source) ? source.path : options.workingCopyPath?.value;
-        const revision = (isPathPdfSource(source) ? source.revision : undefined) ?? options.documentRevisionToken?.value;
-        if (!path || !revision) return null;
-        try {
-            const read = getDocumentFilesCapability().getPdfNativePageSizes;
-            if (!read) return null;
-            const geometry = await read(path, {
-                mode: 'exact',
-                expectedDocumentRevisionToken: revision,
-            });
-            return geometry.kind === 'exact'
-                && geometry.documentRef === path
-                && geometry.documentRevisionToken === revision
-                ? geometry
-                : null;
-        } catch (error) {
-            // Browser sources and installations without the native reader
-            // retain PDF.js geometry discovery as their fallback.
-            if (version === getRenderVersion()) {
-                BrowserLogger.warn('pdf-document', 'Bulk PDF geometry unavailable; using PDF.js page metrics', error);
-            }
-            return null;
-        }
-    }
-
-    function installNativePageGeometry(geometry: IPdfNativePageGeometry, totalPages: number, source: TPdfSource) {
-        if (!isPathPdfSource(source) && (
-            geometry.documentRef !== options.workingCopyPath?.value
-            || geometry.documentRevisionToken !== options.documentRevisionToken?.value
-        )) return false;
-        if (geometry.pageCount !== totalPages || geometry.pages.length !== totalPages) return false;
-        const seed = buildTrustedPdfGeometrySeed({
-            pageNumber: requirePageNumber(1, totalPages),
-            pageCount: totalPages,
-            pages: geometry.pages,
-        });
-        if (!seed) return false;
-        pageMetrics.value = seed.pageMetrics;
-        basePageWidth.value = seed.basePageWidth;
-        basePageHeight.value = seed.basePageHeight;
-        bumpPageMetricsVersion();
-        return true;
-    }
-
     async function readPdfjsPageGeometry(document: IPdfDocument, version: number) {
         // Keep the established sparse path for exceptionally large browser
         // sources; native path-backed documents use the bulk reader above.
@@ -695,36 +654,25 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         bumpPageMetricsVersion();
     }
 
-    function preserveLoadState(shouldPreserve: boolean) {
-        return {
-            numPages: shouldPreserve ? numPages.value : 0,
-            basePageWidth: shouldPreserve ? basePageWidth.value : null,
-            basePageHeight: shouldPreserve ? basePageHeight.value : null,
-            pageMetrics: shouldPreserve
-                ? cloneSparsePageMetrics(pageMetrics.value)
-                : [],
-        };
-    }
-
-    function restorePreservedLoadState(state: ReturnType<typeof preserveLoadState>) {
-        numPages.value = state.numPages;
-        basePageWidth.value = state.basePageWidth;
-        basePageHeight.value = state.basePageHeight;
-        pageMetrics.value = state.pageMetrics;
-        bumpPageMetricsVersion();
-    }
-
     function startLoad(preservePageStructure: boolean) {
         const shouldPreservePageStructure = preservePageStructure || trustedGeometrySeedPending;
-        const savedState = preserveLoadState(shouldPreservePageStructure);
+        const savedState = shouldPreservePageStructure ? {
+            numPages: numPages.value,
+            basePageWidth: basePageWidth.value,
+            basePageHeight: basePageHeight.value,
+            pageMetrics: cloneSparsePageMetrics(pageMetrics.value),
+        } : null;
         trustedGeometrySeedPending = false;
-        pendingRangeReadFailure = null;
 
         // Cancel any in-progress load - latest wins
         cleanup();
 
-        if (shouldPreservePageStructure) {
-            restorePreservedLoadState(savedState);
+        if (savedState) {
+            numPages.value = savedState.numPages;
+            basePageWidth.value = savedState.basePageWidth;
+            basePageHeight.value = savedState.basePageHeight;
+            pageMetrics.value = savedState.pageMetrics;
+            bumpPageMetricsVersion();
         }
 
         const version = incrementRenderVersion();
@@ -734,9 +682,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             document: null,
             source: null,
         };
-        if (!shouldPreservePageStructure) {
-            resetLoadMetadata();
-        }
 
         return version;
     }
@@ -853,12 +798,43 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             fallbackLifecycleKey,
         );
         const loadToken = documentLoadToken;
+        const path = isPathPdfSource(src) ? src.path : options.workingCopyPath?.value;
+        const revision = (isPathPdfSource(src) ? src.revision : undefined) ?? options.documentRevisionToken?.value;
+        const sourceRef = options.reloadSrc?.value === src ? options.reloadSrc : options.src?.value === src ? options.src : null;
+        const isCurrent = () => version === getRenderVersion() && loadToken === documentLoadToken
+            && (!sourceRef || pdfSourcesMatch(sourceRef.value, src));
+        const isNativeGeometryCurrent = () => isCurrent()
+            && (isPathPdfSource(src) || path === options.workingCopyPath?.value && revision === options.documentRevisionToken?.value);
+        const readGeometry = async () => {
+            if (!path || !revision) return null;
+            try {
+                const read = getDocumentFilesCapability().getPdfNativePageSizes;
+                if (!read) return null;
+                const geometry = await read(path, {
+                    mode: 'exact',
+                    expectedDocumentRevisionToken: revision,
+                });
+                const seed = isNativeGeometryCurrent() && geometry.kind === 'exact'
+                    && geometry.documentRef === path
+                    && geometry.documentRevisionToken === revision
+                    ? buildTrustedPdfGeometrySeed({
+                        ...geometry,
+                        pageNumber: requirePageNumber(1),
+                    }) : null;
+                if (seed && !loadOptions?.preservePageStructure) publishPageGeometry(seed, src);
+                return seed;
+            } catch (error) {
+                if (version === getRenderVersion()) {
+                    BrowserLogger.warn('pdf-document', 'Bulk PDF geometry unavailable; using PDF.js page metrics', error);
+                }
+                return null;
+            }
+        };
         const pageCount = Promise.withResolvers<number | null>();
         const waitAbortController = new AbortController();
         teardownWaitAbortController = waitAbortController;
 
         try {
-            const path = isPathPdfSource(src) ? src.path : options.workingCopyPath?.value;
             // Bind this opening's reader before asynchronous loading; only the
             // accepted proxy resolves its count. No geometry query owns admission.
             const admission = Promise.allSettled(path && !activePlan.isReload && options.admitOpeningSource
@@ -872,7 +848,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             }
             sourceLoader.setLifecycleKey(lifecycleKey);
             const nativeGeometryRead = loadOptions?.preservePageMetrics !== true && isPathPdfSource(src)
-                ? readNativePageGeometry(src, version)
+                ? readGeometry()
                 : null;
             const document = await sourceLoader.open(src, version);
             if (!document) {
@@ -881,9 +857,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             const nativeGeometry = await (nativeGeometryRead ?? (loadOptions?.preservePageMetrics !== true
                 && document.numPages > PDF_BLOB_NATIVE_GEOMETRY_MIN_PAGES
                 && document.numPages <= PDF_PAGE_METRICS_DENSE_LIMIT
-                ? readNativePageGeometry(src, version)
+                ? readGeometry()
                 : null));
-            const isCurrent = () => version === getRenderVersion() && loadToken === documentLoadToken;
             const retire = (message: string) => {
                 if (version === getRenderVersion()) sourceLoader.clearLoadingTaskHandle();
                 destroyPdfDocument(document, message, lifecycleKey);
@@ -895,9 +870,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (
                 !Number.isSafeInteger(document.numPages)
                 || document.numPages < 1
+                || nativeGeometry && isNativeGeometryCurrent() && nativeGeometry.numPages !== document.numPages
             ) {
                 retire('Failed to destroy PDF document after page-count rejection');
-                throw new RangeError('PDF.js returned an invalid page count');
+                throw new RangeError('PDF.js returned an invalid or inconsistent page count');
             }
             try {
                 pageCount.resolve(document.numPages);
@@ -940,12 +916,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             });
             numPages.value = document.numPages;
             if (loadOptions?.preservePageMetrics !== true) {
-                if (nativeGeometry && installNativePageGeometry(nativeGeometry, document.numPages, src)) {
+                if (nativeGeometry && isNativeGeometryCurrent()) {
+                    if (loadOptions?.preservePageStructure) publishPageGeometry(nativeGeometry, src);
                     await verifyNativePageGeometry(document);
                 } else {
                     await readPdfjsPageGeometry(document, version);
                 }
             }
+            if (isCurrent()) geometrySource.value = src;
             if (!isValidPageMetric(pageMetrics.value[0])) {
                 await loadPageMetric(document, requirePageNumber(1, document.numPages), version);
                 if (version === getRenderVersion() && document === pdfDocument.value && !isValidPageMetric(pageMetrics.value[0])) {
@@ -996,7 +974,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             activeRasterScheduler = null;
         }
         pageCache.cleanupAll();
-        pageMetricLoads.clear();
         sourceLoader.cancelPendingOpen();
         sourceLoader.abortTransport('Failed to abort PDF range transport');
 
@@ -1014,10 +991,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         sourceLoader.revokeObjectUrl();
 
         numPages.value = 0;
-        basePageWidth.value = null;
-        basePageHeight.value = null;
-        pageMetrics.value = [];
-        bumpPageMetricsVersion();
+        resetLoadMetadata();
         loadState.value = {
             status: 'idle',
             version,
@@ -1863,7 +1837,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         if (viewOptions.originalDocumentId && viewOptions.currentPage && options.src) {
             usePdfOpeningGeometryLifecycle({
-                acceptedSource,
+                geometrySource,
                 chassisAuthority: viewOptions.chassisAuthority ?? null,
                 currentPage: viewOptions.currentPage,
                 documentId: viewOptions.originalDocumentId,

@@ -852,21 +852,27 @@ describe('PdfViewportSession behavior', () => {
     });
 
     it('retains the wanted page while the measured visible range catches up', async () => {
+        let pageDimensions = {
+            width: 590,
+            height: 900,
+        };
+        const replacementRaster = Promise.withResolvers<undefined>();
+        let rasterCompletion: Promise<unknown> = Promise.resolve();
         const page = cast<IPdfPage>({
             pageNumber: 1,
             rotate: 0,
             getAnnotations: async () => [],
             getViewport: ({scale}: {scale: number}) => ({
-                width: 600 * scale,
-                height: 900 * scale,
+                width: pageDimensions.width * scale,
+                height: pageDimensions.height * scale,
                 userUnit: 1,
                 rawDims: {
-                    pageWidth: 600,
-                    pageHeight: 900,
+                    pageWidth: pageDimensions.width,
+                    pageHeight: pageDimensions.height,
                 },
             }),
             render: () => ({
-                promise: Promise.resolve(),
+                promise: rasterCompletion,
                 cancel() {},
             }),
         });
@@ -921,11 +927,48 @@ describe('PdfViewportSession behavior', () => {
             const canvas = fixture.container.querySelector('canvas')!;
             expect(canvas.width * canvas.height).toBeGreaterThan(0);
             expect(presented.value).toBe(true);
+            expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            await fixture.rendering!.renderVisiblePages({
+                start: 1,
+                end: 1,
+            });
+            expect(fixture.container.querySelector('canvas')).toBe(canvas);
             documentRevisionToken.value = requireDocumentRevisionToken('after-save');
             expect(presented.value).toBe(true);
             expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(false);
             await nextTick();
             expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            fixture.documentSession.pendingPageMutationRevisionSwap = {
+                revision: 'staged-mutation',
+                invalidatedPages: [1],
+                preservePageMetrics: true,
+            };
+            documentRevisionToken.value = requireDocumentRevisionToken('staged-mutation');
+            await nextTick();
+            expect(presented.value).toBe(true);
+            expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(false);
+            fixture.documentSession.pendingPageMutationRevisionSwap = null;
+            rasterCompletion = replacementRaster.promise;
+            pageDimensions = {
+                width: 1_000,
+                height: 500,
+            };
+            documentRevisionToken.value = requireDocumentRevisionToken('after-delete');
+            fixture.documentSession.pageMetrics.value[0] = pageDimensions;
+            expect(presented.value).toBe(false);
+            expect(canvas.isConnected).toBe(true);
+            const replacement = fixture.rendering!.renderVisiblePages({
+                start: 1,
+                end: 1,
+            });
+            await nextTick();
+            expect(presented.value).toBe(false);
+            replacementRaster.resolve(undefined);
+            await replacement;
+            expect(presented.value).toBe(true);
+            const replacementCanvas = fixture.container.querySelector('canvas')!;
+            expect(replacementCanvas).not.toBe(canvas);
+            expect(replacementCanvas.width / replacementCanvas.height).toBeCloseTo(2, 1);
             // The same transient contract as the real paged First Page input:
             // the desired page is mounted before the measured range catches up.
             demand.value = {
@@ -946,10 +989,11 @@ describe('PdfViewportSession behavior', () => {
                 rasterDemandPages: [],
                 suppressResidentRasterDemand: true,
             });
-            expect(fixture.container.querySelector('canvas')).toBe(canvas);
-            expect(canvas.width * canvas.height).toBeGreaterThan(0);
+            expect(fixture.container.querySelector('canvas')).toBe(replacementCanvas);
+            expect(replacementCanvas.width * replacementCanvas.height).toBeGreaterThan(0);
             expect(fixture.rendering!.isPageRenderedForClass(requirePageNumber(1))).toBe(true);
         } finally {
+            replacementRaster.resolve(undefined);
             await fixture.dispose();
             await scheduler.dispose();
             fixture.container.remove();

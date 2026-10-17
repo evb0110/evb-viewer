@@ -44,7 +44,7 @@ function resolveSafeLayoutSpacing(options: {
 }
 
 function buildPrefixSums(values: readonly number[]) {
-    const prefixSums = Array.from({length: values.length}, () => 0);
+    const prefixSums = new Array<number>(values.length);
     for (let index = 0; index < values.length; index += 1) {
         prefixSums[index] = (values[index] ?? 0) + (prefixSums[index - 1] ?? 0);
     }
@@ -115,7 +115,6 @@ function getMetricEstimateDimension(
 }
 
 function getRowHeight(
-    pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
     rowIndex: number,
     totalPages: number,
     viewMode: TPdfViewMode,
@@ -135,53 +134,32 @@ function getRowHeight(
     return height;
 }
 
-function getEstimatedRowHeight(
-    pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
-    rowIndex: number,
-    totalPages: number,
-    viewMode: TPdfViewMode,
-) {
-    return getRowHeight(
-        pageMetrics,
-        rowIndex,
-        totalPages,
-        viewMode,
-        pageIndex => getMetricEstimateDimension(pageMetrics, pageIndex, 'height'),
-    );
-}
-
-function getEstimatedRowChangeIndexes(
+function getEstimatedRowStarts(
     pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
     totalPages: number,
     viewMode: TPdfViewMode,
 ) {
     if (!isSparsePageMetricCollection(pageMetrics)) {
-        return [];
+        return [0];
     }
 
     const rowCount = getLayoutRowCount(totalPages, viewMode);
     const knownIndices = pageMetrics.knownIndices;
-    const changes: number[] = [];
-    for (let index = 0; index < knownIndices.length - 1; index += 1) {
-        const currentIndex = knownIndices[index];
-        const nextIndex = knownIndices[index + 1];
-        if (currentIndex === undefined || nextIndex === undefined) {
-            continue;
-        }
-        const metricChangeIndex = Math.floor((currentIndex + nextIndex) / 2) + 1;
-        if (metricChangeIndex >= totalPages) {
-            continue;
-        }
+    const starts = new Set([0]);
+    for (let index = 1; index < knownIndices.length; index += 1) {
+        const metricChangeIndex = Math.floor((knownIndices[index - 1]! + knownIndices[index]!) / 2) + 1;
         const rowIndex = getLayoutRowIndex(
             requirePageIndex(metricChangeIndex),
             totalPages,
             viewMode,
         );
-        if (rowIndex > 0 && rowIndex < rowCount && changes.at(-1) !== rowIndex) {
-            changes.push(rowIndex);
+        starts.add(rowIndex);
+        // Isolate a mixed pair before following rows use only the new estimate.
+        if (getLayoutRowStart(rowIndex, totalPages, viewMode) !== metricChangeIndex + 1) {
+            starts.add(rowIndex + 1);
         }
     }
-    return changes;
+    return [...starts].filter(row => row < rowCount);
 }
 
 function findFirstAtOrAfter(values: readonly number[], target: number) {
@@ -364,9 +342,8 @@ function getSparsePrefixDeltaBefore(node: ISparsePrefixDeltaNode | null, key: nu
 function createChunkedPrefixSums(
     length: number,
     valueAt: (index: number) => number,
-    estimateValueAt: (index: number) => number = valueAt,
-    estimateBlockTotal?: (start: number, end: number) => number,
-    estimatePrefixAt?: (end: number) => number,
+    estimateBlockTotal: (start: number, end: number) => number,
+    estimatePrefixAt: (end: number) => number,
 ) {
     const blockSize = PDF_PAGE_METRICS_CHUNK_SIZE;
     const blockValues = new Map<number, number[]>();
@@ -412,24 +389,12 @@ function createChunkedPrefixSums(
     function getEstimatedBlockTotal(blockIndex: number) {
         const start = blockIndex * blockSize;
         const end = Math.min(length, start + blockSize);
-        if (estimateBlockTotal) {
-            return estimateBlockTotal(start, end);
-        }
-        const estimatedValue = estimateValueAt(start);
-        return estimatedValue * Math.max(0, end - start);
+        return estimateBlockTotal(start, end);
     }
 
     function getBlockPrefix(blockIndex: number) {
         const blockStart = blockIndex * blockSize;
-        let estimatedPrefix = 0;
-        if (estimatePrefixAt) {
-            estimatedPrefix = estimatePrefixAt(blockStart);
-        } else {
-            for (let currentBlock = 0; currentBlock < blockIndex; currentBlock += 1) {
-                estimatedPrefix += getEstimatedBlockTotal(currentBlock);
-            }
-        }
-        return estimatedPrefix + getSparsePrefixDeltaBefore(exactBlockDeltas, blockIndex);
+        return estimatePrefixAt(blockStart) + getSparsePrefixDeltaBefore(exactBlockDeltas, blockIndex);
     }
 
     return createLazyIndexedCollection<number>({
@@ -549,7 +514,6 @@ function buildSparsePageLayoutBase(options: {
         length: rowCount,
         getValue: rowIndex => {
             return getRowHeight(
-                options.pageMetrics,
                 rowIndex,
                 options.totalPages,
                 options.viewMode,
@@ -577,43 +541,29 @@ function buildSparsePageLayoutBase(options: {
             requirePageIndex(index),
             'height',
         ),
-        index => getMetricEstimateDimension(
-            options.pageMetrics,
-            requirePageIndex(index),
-            'height',
-        ),
         estimatePageHeightRange,
         end => estimatePageHeightRange(0, end),
     );
-    const estimatedRowChanges = getEstimatedRowChangeIndexes(
-        options.pageMetrics,
-        options.totalPages,
-        options.viewMode,
+    const estimatedRowStarts = getEstimatedRowStarts(
+        options.pageMetrics, options.totalPages, options.viewMode,
     );
-    const estimateRowHeightRange = (start: number, end: number) => {
-        let total = 0;
-        let cursor = start;
-        let changeIndex = findFirstAtOrAfter(estimatedRowChanges, start + 1);
-        while (cursor < end) {
-            const nextChange = estimatedRowChanges[changeIndex] ?? end;
-            const segmentEnd = Math.min(end, nextChange);
-            total += (segmentEnd - cursor) * getEstimatedRowHeight(
-                options.pageMetrics,
-                cursor,
-                options.totalPages,
-                options.viewMode,
-            );
-            cursor = segmentEnd;
-            if (nextChange <= cursor) {
-                changeIndex += 1;
-            }
-        }
-        return total;
+    const estimatedRowHeights = estimatedRowStarts.map(row => getRowHeight(
+        row, options.totalPages, options.viewMode,
+        index => getMetricEstimateDimension(options.pageMetrics, index, 'height'),
+    ));
+    // The immutable layout owns these run totals. Re-reading a row's top
+    // needs one prefix lookup, not another walk through every measured page.
+    const estimatedRowPrefixes = buildPrefixSums(estimatedRowStarts.map((start, index) => (
+        ((estimatedRowStarts[index + 1] ?? rowCount) - start) * estimatedRowHeights[index]!
+    )));
+    const estimateRowHeightPrefix = (end: number) => {
+        const index = Math.max(0, findFirstAtOrAfter(estimatedRowStarts, end) - 1);
+        return (estimatedRowPrefixes[index - 1] ?? 0)
+            + (end - estimatedRowStarts[index]!) * estimatedRowHeights[index]!;
     };
     const rowHeightPrefixSums = createChunkedPrefixSums(
         rowCount,
         rowIndex => getRowHeight(
-            options.pageMetrics,
             rowIndex,
             options.totalPages,
             options.viewMode,
@@ -623,14 +573,8 @@ function buildSparsePageLayoutBase(options: {
                 'height',
             ),
         ),
-        rowIndex => getEstimatedRowHeight(
-            options.pageMetrics,
-            rowIndex,
-            options.totalPages,
-            options.viewMode,
-        ),
-        estimateRowHeightRange,
-        end => estimateRowHeightRange(0, end),
+        (start, end) => estimateRowHeightPrefix(end) - estimateRowHeightPrefix(start),
+        estimateRowHeightPrefix,
     );
 
     return Object.freeze({

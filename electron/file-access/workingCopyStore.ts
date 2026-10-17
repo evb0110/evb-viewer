@@ -1,4 +1,5 @@
 import type {FileHandle} from 'node:fs/promises';
+import type {IPdfNativePageGeometry} from '@contracts/electronApiDocuments';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {
     createOriginalFileContentFingerprint,
@@ -48,6 +49,7 @@ export interface IWorkingCopyAdmissionSnapshot {
 
 
 export interface IWorkingCopyOriginalEntry {
+    openingPageGeometry?: IPdfNativePageGeometry;
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
     backingState: TWorkingCopyBackingState;
     originalPath: string;
@@ -600,7 +602,32 @@ export async function setWorkingCopyOriginalPath(
         delete entry.originalFileExpectationAbortController;
         return;
     }
-    await captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
+    if (!expectation || expectation.contentFingerprint) {
+        delete entry.originalFileExpectationAbortController;
+        return;
+    }
+    await createOriginalFileContentFingerprint(entry.originalPath, expectation, expectationAbortController.signal)
+        .then(contentFingerprint => {
+            const activeEntry = workingCopyMap.get(workingPath);
+            if (
+                !contentFingerprint
+                || expectationAbortController.signal.aborted
+                || activeEntry !== entry
+                || activeEntry.originalFileExpectationAbortController !== expectationAbortController
+                || !sameOriginalFileExpectation(activeEntry.originalFileExpectation, expectation)
+            ) {
+                return;
+            }
+            activeEntry.originalFileExpectation = {
+                ...expectation,
+                contentFingerprint,
+            };
+        })
+        .finally(() => {
+            if (entry.originalFileExpectationAbortController === expectationAbortController) {
+                delete entry.originalFileExpectationAbortController;
+            }
+        });
 }
 
 function applyOriginalFileExpectation(
@@ -618,40 +645,6 @@ function applyOriginalFileExpectation(
         delete activeEntry.originalFileExpectation;
     }
     return true;
-}
-
-function captureOriginalFileContentFingerprint(
-    entry: IWorkingCopyOriginalEntry,
-    workingPath: string,
-    expectation: IWorkingCopyOriginalFileExpectation | undefined,
-    controller: AbortController,
-) {
-    if (!expectation || expectation.contentFingerprint) {
-        delete entry.originalFileExpectationAbortController;
-        return;
-    }
-    return createOriginalFileContentFingerprint(entry.originalPath, expectation, controller.signal)
-        .then(contentFingerprint => {
-            const activeEntry = workingCopyMap.get(workingPath);
-            if (
-                !contentFingerprint
-                || controller.signal.aborted
-                || activeEntry !== entry
-                || activeEntry.originalFileExpectationAbortController !== controller
-                || !sameOriginalFileExpectation(activeEntry.originalFileExpectation, expectation)
-            ) {
-                return;
-            }
-            activeEntry.originalFileExpectation = {
-                ...expectation,
-                contentFingerprint,
-            };
-        })
-        .finally(() => {
-            if (entry.originalFileExpectationAbortController === controller) {
-                delete entry.originalFileExpectationAbortController;
-            }
-        });
 }
 
 export function rememberRetiredWorkingCopyOriginal(

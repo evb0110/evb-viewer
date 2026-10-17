@@ -21,6 +21,7 @@ import {
     PdfDecryptAttemptError,
     type TWorkingCopyDecryptionResult,
 } from '@electron/file-access/workingCopyDecryption';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {isPdfFileEncrypted} from '@electron/file-access/isPdfFileEncrypted';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
@@ -87,6 +88,7 @@ interface IWorkingCopyPhaseTiming {
 interface IWorkingCopyCreationResult {
     workingPath: string;
     wasEncrypted: true | undefined;
+    revision: IDocumentRevisionInfo;
 }
 
 async function measureWorkingCopyPhase<T>(
@@ -105,34 +107,9 @@ async function measureWorkingCopyPhase<T>(
     }
 }
 
-async function decryptPdfWorkingCopy(
-    workingPath: string,
-    password: string | undefined,
-    timings: IWorkingCopyPhaseTiming[],
-    signal?: AbortSignal,
-): Promise<TWorkingCopyDecryptionResult> {
-    const encrypted = await measureWorkingCopyPhase(timings, 'encryption-probe', () =>
-        isPdfFileEncrypted(workingPath));
-    if (!encrypted) {
-        return {
-            outcome: 'plain',
-            wasEncrypted: false,
-            revision: null,
-        };
-    }
-    const result = await measureWorkingCopyPhase(timings, 'decrypt', () =>
-        decryptWorkingCopyWithWriter(workingPath, password, signal));
-    assertWorkingCopyDecryptionSucceeded(result);
-    return result;
-}
-
 function assertWorkingCopyDecryptionSucceeded(result: TWorkingCopyDecryptionResult) {
     if (result.outcome === 'needs-password' || result.outcome === 'unsupported') {
-        throw new PdfDecryptAttemptError(
-            result.outcome === 'needs-password'
-                ? 'needs-password'
-                : 'unsupported-encryption',
-        );
+        throw new PdfDecryptAttemptError(result.outcome === 'needs-password' ? 'needs-password' : 'unsupported-encryption');
     }
 }
 
@@ -152,10 +129,12 @@ export async function createWorkingCopyWithOutcome(
     password?: string,
     signal?: AbortSignal,
     admitRewrite?: () => Promise<void>,
+    onPreparedPdf?: (workingPath: string) => Promise<(() => Promise<void>) | undefined>,
 ): Promise<IWorkingCopyCreationResult> {
     const operationStartedAt = performance.now();
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
+    let disposePreparedPdf: (() => Promise<void>) | undefined;
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
@@ -214,13 +193,16 @@ export async function createWorkingCopyWithOutcome(
             backingState = cloneOutcome === 'cloned' ? 'cloned' : 'eager';
         }
         if (isPdf && backingState !== 'lazy-original') {
-            if (await isPdfFileEncrypted(workingPath)) {
+            encrypted = await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () => isPdfFileEncrypted(workingPath));
+            if (encrypted) {
                 await retainRawCopyFingerprint();
+                const decryption = await measureWorkingCopyPhase(phaseTimings, 'decrypt', () => decryptWorkingCopyWithWriter(workingPath, password, signal));
+                assertWorkingCopyDecryptionSucceeded(decryption);
+                encrypted = decryption.wasEncrypted;
             }
-            const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
-            encrypted = decryption.wasEncrypted;
             const normalized = await normalizeWorkingCopyAppendBase(workingPath, workingPath, phaseTimings, normalizeOptions);
             if (encrypted || normalized) backingState = 'eager';
+            disposePreparedPdf = await onPreparedPdf?.(workingPath);
         }
 
         // When ctime moves, compare the raw clone with one fresh original read.
@@ -246,7 +228,7 @@ export async function createWorkingCopyWithOutcome(
                 backingState,
             },
         ));
-        await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
+        const revision = await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
             initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId));
         if (backingState === 'lazy-original') {
             const backgroundMaterialization = startBackgroundWorkingCopyMaterialization(
@@ -268,8 +250,10 @@ export async function createWorkingCopyWithOutcome(
         return {
             workingPath,
             wasEncrypted: encrypted || undefined,
+            revision,
         };
     } catch (error) {
+        await disposePreparedPdf?.();
         await safeRemoveDirectory(workDir);
         throw error instanceof OriginalPathSaveConflictError || (isRecord(error) && error.code === 'SOURCE_BACKING_CHANGED')
             ? new DocumentOpenRefusalError('source-changed', 'The original document changed while it was being opened', {cause: error})

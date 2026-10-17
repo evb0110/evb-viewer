@@ -33,7 +33,9 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
-import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyBackingEntry, normalizePathForLookup,
+} from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
     readNativePdfCatalogPart,
@@ -193,6 +195,14 @@ export async function handlePdfNativePageSizes(
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
+    const prepared = readPreparedPageGeometry(resolvedPath, context.senderId, expectedRevisionToken);
+    if (prepared) {
+        delete getWorkingCopyBackingEntry(resolvedPath, context.senderId)!.openingPageGeometry;
+        return {
+            ...prepared,
+            documentRef: requireDocumentRef(filePath),
+        };
+    }
 
     const pages = await runNativePdfRead(context, resolvedPath, {
         group: 'pdf-native-page-geometry',
@@ -215,7 +225,7 @@ export async function handlePdfNativePageSizes(
 }
 
 /** Every page's box, page rotation and UserUnit, from the same native reader. */
-async function readExactPageGeometry(physicalPath: string, signal: AbortSignal, cancelGroup: string) {
+export async function readExactPageGeometry(physicalPath: string, signal: AbortSignal, cancelGroup: string) {
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page operations are required for exact PDF geometry');
@@ -257,6 +267,21 @@ async function readExactPageGeometry(physicalPath: string, signal: AbortSignal, 
             userUnit: page.userUnit,
         };
     });
+}
+
+function readPreparedPageGeometry(
+    path: string,
+    senderId: number | undefined,
+    revision: NonNullable<ReturnType<typeof parseDocumentRevisionToken>>,
+) {
+    const entry = getWorkingCopyBackingEntry(path, senderId);
+    const geometry = entry?.openingPageGeometry;
+    if (!geometry) return null;
+    if (normalizePathForLookup(geometry.documentRef) === normalizePathForLookup(path)
+        && geometry.documentRevisionToken === revision
+        && geometry.pageCount > 0 && geometry.pages.length === geometry.pageCount) return geometry;
+    delete entry.openingPageGeometry;
+    return null;
 }
 
 const nativePdfPageLabelRangeSchema = v.pipe(v.object({
@@ -421,7 +446,13 @@ async function readPdfOpeningGeometry(
         const read = async (physicalPath: string): Promise<IPdfOpeningGeometry | null> => {
             let pages: Awaited<ReturnType<typeof readExactPageGeometry>>;
             try {
-                pages = await readExactPageGeometry(physicalPath, signal, cancelGroup);
+                let prepared: IPdfNativePageGeometry | null = null;
+                if (getWorkingCopyBackingEntry(resolvedPath, context.senderId)?.openingPageGeometry) {
+                    const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
+                    await assertWorkingCopyRevisionCurrent(resolvedPath, revision.token);
+                    prepared = readPreparedPageGeometry(resolvedPath, context.senderId, revision.token);
+                }
+                pages = prepared?.pages ?? await readExactPageGeometry(physicalPath, signal, cancelGroup);
             } catch (error) {
                 throwIfAborted(signal);
                 logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);

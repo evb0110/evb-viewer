@@ -99,6 +99,8 @@ export interface IPdfCanvasDomCommit {
 export interface IPdfLayerRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<IPdfPage['getViewport']>;
+    /** Layout occupied by this raster, captured before asynchronous rendering. */
+    layoutViewport?: Pick<IPdfLayerRenderResult['viewport'], 'width' | 'height'> | undefined;
     annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;

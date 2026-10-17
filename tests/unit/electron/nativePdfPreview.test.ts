@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
-    mkdtemp, readFile, readdir, rm, writeFile,
+    mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
@@ -15,12 +15,19 @@ import {
 import {webContents} from 'electron';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
-    setWorkingCopyOriginalPath, forgetWorkingCopyOriginalPath,
+    setWorkingCopyOriginalPath, forgetWorkingCopyOriginalPath, getWorkingCopyBackingEntry,
 } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyRevision, markWorkingCopyContentChanged,
+} from '@electron/file-access/documentRevisionStore';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type * as TAppTempDir from '@electron/utils/appTempDir';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import {
+    requirePageIndex, requirePageNumber,
+} from '@contracts/pageNumbers';
 import {
     handlePdfOpeningGeometry,
+    handlePdfNativePageSizes,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
 import { NativeProcessError } from '@electron/native-tools/processResult';
@@ -117,6 +124,72 @@ describe('native PDF metadata parsing', () => {
 });
 
 describe('complete PDF opening geometry', () => {
+    it.each([
+        false,
+        true,
+    ])('shares aliased prepared geometry once and rejects it after a revision change: %s', async changed => {
+        const directory = await mkdtemp(join(tmpdir(), 'pdf-work-prepared-'));
+        const alias = `${directory}-alias`;
+        await symlink(directory, alias, 'junction');
+        const input = join(directory, 'document.pdf');
+        const aliasedInput = join(alias, 'document.pdf');
+        mocks.appTempDir = directory;
+        await writeFile(input, '%PDF-1.7\n');
+        await setWorkingCopyOriginalPath(input, '/books/original.pdf', 7, {deferOriginalFileExpectation: true});
+        const revision = await getWorkingCopyRevision(input, 7);
+        const entry = getWorkingCopyBackingEntry(input, 7)!;
+        const page = {
+            pageNumber: requirePageNumber(1),
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0 as const,
+            userUnit: 1,
+        };
+        entry.openingPageGeometry = {
+            kind: 'exact',
+            documentRef: requireDocumentRef(aliasedInput),
+            documentRevisionToken: revision.token,
+            pageCount: 1,
+            pages: [page],
+        };
+        const resolved = await realpath(input);
+        expect(resolved).not.toBe(aliasedInput);
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue(resolved);
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
+        mocks.readPdfNativePageGeometry.mockResolvedValue([{
+            ...page,
+            widthPoints: 700,
+        }]);
+        try {
+            const current = changed ? await markWorkingCopyContentChanged(input, 'native-mutation', 7) : revision;
+            const opening = await handlePdfOpeningGeometry({senderId: 7}, input);
+            expect(opening?.width).toBe(changed ? 700 : 612);
+            if (!changed) expect(entry.openingPageGeometry?.pages[0]?.widthPoints).toBe(612);
+            const options = {
+                mode: 'exact' as const,
+                expectedDocumentRevisionToken: current.token,
+            };
+            const first = await handlePdfNativePageSizes({senderId: 7}, input, options);
+            expect(first.documentRef).toBe(input);
+            expect(first.pages[0]?.widthPoints).toBe(changed ? 700 : 612);
+            expect(entry.openingPageGeometry).toBeUndefined();
+            const next = await handlePdfNativePageSizes({senderId: 7}, input, options);
+            expect(next.pages[0]?.widthPoints).toBe(700);
+        } finally {
+            forgetWorkingCopyOriginalPath(input);
+            await rm(alias, {
+                recursive: true,
+                force: true,
+            });
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('leaves an original without a remembered view unshaped while admitted geometry is unavailable', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'opening-original-'));
         const input = join(directory, 'original.pdf');
