@@ -1,8 +1,9 @@
 // A file that keeps taking fixes has a design problem, and each extra fence,
 // flag, timer or retry makes the next fix more likely. After three fix commits
-// touch one product file within seven days, the next fix to that file must
-// remove lines from it or be a revert; it may not grow it. The rule is in
-// docs/internal/agents/fix-evidence.md ("Fix chains").
+// touch one product file within seven days, the next fix to that file must be
+// a revert or grow neither the file's line count nor its non-whitespace
+// character count, so code crammed onto fewer, longer lines still counts as
+// growth. The rule is in docs/internal/agents/fix-evidence.md ("Fix chains").
 //
 // A commit may override the rule only with the owner's words in a
 // `Fix-Chain-Override:` trailer. The pre-push hook and the CI publication-policy
@@ -22,6 +23,8 @@ const REVERT_SUBJECT_PATTERN = /^(?:revert(?:\([^)]*\))?!?:|revert\b)/iu;
 // alongside most fixes without being the thing that keeps breaking.
 const PRODUCT_PATH_PATTERN = /^(?:app|electron|packages|native|server|landing)\//u;
 const EXCLUDED_PATH_PATTERN = /^(?:packages\/i18n-app\/messages\/|landing\/app\/locales\/)|\/tests?\/|_tests?\.rs$|\.(?:test|spec)\.[cm]?[jt]s$/u;
+
+const SIGNED = new Intl.NumberFormat('en-US', {signDisplay: 'exceptZero'});
 
 /** @typedef {{matches: string[], subject: string}} IViolation */
 /** @typedef {{added: number, deleted: number, path: string}} INumstatEntry */
@@ -78,6 +81,45 @@ function parseNumstat(output) {
         });
 }
 
+// Raw records name each path's blob before and after the commit; an all-zero
+// id stands for the side where the commit adds or deletes the file.
+/** @param {string} commit @param {string} cwd @returns {Map<string, string[]>} */
+function readChangedBlobs(commit, cwd) {
+    const fields = git([
+        'diff-tree',
+        '--no-commit-id',
+        '--no-renames',
+        '-r',
+        '-z',
+        commit,
+    ], cwd).split('\0');
+    /** @type {Map<string, string[]>} */
+    const blobs = new Map();
+    for (let index = 0; index + 1 < fields.length; index += 2) {
+        const [
+            , , before = '',
+            after = '',
+        ] = (fields[index] ?? '').split(' ');
+        blobs.set(fields[index + 1] ?? '', [
+            before,
+            after,
+        ]);
+    }
+    return blobs;
+}
+
+/** @param {string} blob @param {string} cwd @returns {number} */
+function countNonWhitespaceCharacters(blob, cwd) {
+    if (/^0+$/u.test(blob)) {
+        return 0;
+    }
+    return git([
+        'cat-file',
+        'blob',
+        blob,
+    ], cwd).replace(/\s/gu, '').length;
+}
+
 /**
  * Counts fix commits that touched `path` in the window before `commit`,
  * excluding `commit` itself.
@@ -128,6 +170,7 @@ function findCommitFixChainViolations(commit, cwd) {
     if (readFixChainOverride(messageLines.join('\n')) !== null) {
         return [];
     }
+    const blobs = readChangedBlobs(commit, cwd);
     const grown = parseNumstat(git([
         'diff-tree',
         '--no-commit-id',
@@ -135,7 +178,20 @@ function findCommitFixChainViolations(commit, cwd) {
         '--numstat',
         '-z',
         commit,
-    ], cwd)).filter(entry => isFixChainProductPath(entry.path) && entry.added > entry.deleted);
+    ], cwd))
+        .filter(entry => isFixChainProductPath(entry.path))
+        .map((entry) => {
+            const [
+                before = '',
+                after = '',
+            ] = blobs.get(entry.path) ?? [];
+            return {
+                characters: countNonWhitespaceCharacters(after, cwd) - countNonWhitespaceCharacters(before, cwd),
+                lines: entry.added - entry.deleted,
+                path: entry.path,
+            };
+        })
+        .filter(entry => entry.lines > 0 || entry.characters > 0);
 
     /** @type {string[]} */
     const matches = [];
@@ -143,8 +199,9 @@ function findCommitFixChainViolations(commit, cwd) {
         const prior = priorFixCommits(commit, entry.path, Number(committedAt), cwd);
         if (prior.length >= FIX_CHAIN_LIMIT) {
             matches.push(
-                `${entry.path} grows by ${entry.added - entry.deleted} lines after ${prior.length} fix commits in `
-                + `${FIX_CHAIN_WINDOW_DAYS} days (${prior.slice(0, 5).map(oid => oid.slice(0, 9)).join(', ')})`,
+                `${entry.path} grows (${SIGNED.format(entry.lines)} lines, ${SIGNED.format(entry.characters)} `
+                + `non-whitespace characters) after ${prior.length} fix commits in ${FIX_CHAIN_WINDOW_DAYS} days `
+                + `(${prior.slice(0, 5).map(oid => oid.slice(0, 9)).join(', ')})`,
             );
         }
     }
@@ -162,6 +219,7 @@ export function findFixChainViolations(commits, cwd) {
 /** @returns {string} */
 export function describeFixChainRule() {
     return `A fix to a file that already took ${FIX_CHAIN_LIMIT} fix commits in ${FIX_CHAIN_WINDOW_DAYS} days must `
-        + 'shrink that file or revert: delete the redundant state or path instead of adding another fence, flag, '
-        + `timer or retry. Only the owner can waive this, quoted in a \`${FIX_CHAIN_OVERRIDE_TRAILER}:\` trailer.`;
+        + 'shrink that file or revert: neither its line count nor its non-whitespace character count may grow, so '
+        + 'cramming code onto fewer lines does not count. Delete the redundant state or path instead of adding '
+        + `another fence, flag, timer or retry. Only the owner can waive this, quoted in a \`${FIX_CHAIN_OVERRIDE_TRAILER}:\` trailer.`;
 }

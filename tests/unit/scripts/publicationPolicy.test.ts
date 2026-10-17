@@ -1259,13 +1259,35 @@ describe('fix chains', () => {
             const violations = checker.findPushPolicyViolations([head!], repository);
 
             expect(violationSubjects(violations)).toEqual([head]);
-            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows by 1 lines after 3 fix commits');
+            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows (+1 lines, +20 non-whitespace characters) after 3 fix commits');
         } finally {
             await removeRepository(repository);
         }
     });
 
-    it('accepts a fix that shrinks the file, a revert, a non-fix change, and an owner override', async () => {
+    it('blocks a fix that crams new code onto fewer lines', async () => {
+        const {
+            repository, commits: [head],
+        } = repositoryWithThreeFixes(() => [{
+            message: 'fix(viewer): fold the fences together',
+            files: {'app/viewport.ts': [
+                'export const state = 0;',
+                'export const fence1 = 1;',
+                'export const fence2 = 2; export const fence3 = 3; export const fence4 = 4;',
+                '',
+            ].join('\n')},
+        }]);
+        try {
+            const violations = checker.findPushPolicyViolations([head!], repository);
+
+            expect(violationSubjects(violations)).toEqual([head]);
+            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows (-1 lines, +20 non-whitespace characters) after 3 fix commits');
+        } finally {
+            await removeRepository(repository);
+        }
+    });
+
+    it('accepts a fix that shrinks the file, a revert, a non-fix change, a rejoined line, and an owner override', async () => {
         const {
             repository, commits,
         } = repositoryWithThreeFixes(body => [
@@ -1284,6 +1306,10 @@ describe('fix chains', () => {
             {
                 message: 'fix(viewer): hold the fence for the release\n\nFix-Chain-Override: ship the fence today, redesign next week',
                 files: {'app/viewport.ts': `${body}export const named = 1;\nexport const held = 1;\n`},
+            },
+            {
+                message: 'fix(viewer): keep the held fence beside its name',
+                files: {'app/viewport.ts': `${body}export const named = 1; export const held = 1;\n`},
             },
         ]);
         try {
