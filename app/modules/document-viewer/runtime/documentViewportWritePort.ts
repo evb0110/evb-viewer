@@ -538,6 +538,11 @@ export function observeDocumentViewportWheelInteraction(
     }
     const owner = port.observeWheelPacket(interaction.event);
     if (owner === 'command-residue') {
+        // Residue must not move the viewport the command owns. A cancelable
+        // packet is stopped here; the suppressed overflow holds the rest.
+        if (interaction.event.cancelable) {
+            interaction.event.preventDefault();
+        }
         return owner;
     }
     port.observeUserInteraction(container);

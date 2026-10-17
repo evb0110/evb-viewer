@@ -396,6 +396,34 @@ describe('document viewer chassis authority', () => {
             expect(container.scrollTop).toBe(780);
         });
 
+        it('cancels a cancelable residue packet without counting it as the reader\'s input', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+            const send = (timeStamp: number, cancelable: boolean) => {
+                const interaction = scrollInteraction(timeStamp, 40, 0, cancelable);
+                return {
+                    owner: observeDocumentViewportWheelInteraction(port, interaction, container),
+                    event: interaction.event,
+                };
+            };
+
+            send(0, true);
+            send(16, true);
+            port.fenceCommandAgainstLiveGesture(20);
+            const epoch = port.getInteractionEpoch();
+
+            const cancelableResidue = send(32, true);
+            expect(cancelableResidue.owner).toBe('command-residue');
+            expect(cancelableResidue.event.defaultPrevented).toBe(true);
+
+            // A tail Chromium scrolls natively stays held by the suppressed overflow.
+            expect(send(48, false).owner).toBe('command-residue');
+            expect(port.userScrollSuppressed.value).toBe(true);
+            expect(port.getInteractionEpoch()).toBe(epoch);
+            expect(container.scrollTop).toBe(0);
+        });
+
         it('restores a landing that a late residue delta displaced', () => {
             vi.useFakeTimers();
             vi.spyOn(performance, 'now').mockReturnValue(30);
