@@ -1254,6 +1254,87 @@ describe('usePdfSearch', () => {
         expect(search.currentResult.value?.pageIndex).toBe(3);
     });
 
+    it('resumes a result-window continuation the rotation rewrite canceled', async () => {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
+        const match = (matchIndex: number) => ({
+            pageNumber: matchIndex + 1,
+            pageMatchIndex: 0,
+            matchIndex,
+            startOffset: 0,
+            endOffset: 5,
+        });
+        const continuation = Promise.withResolvers<IPdfSearchRunResult>();
+        mockSearch.run.mockResolvedValueOnce({
+            results: [match(0)],
+            truncated: true,
+        }).mockReturnValueOnce(continuation.promise).mockResolvedValueOnce({
+            results: [match(1)],
+            truncated: false,
+        });
+        const search = await createPdfSearch({documentRevisionToken});
+        await expect(search.search('alpha', '/tmp/work.pdf', 2)).resolves.toBe(true);
+        const nextWindow = search.goToResult('next');
+        continuation.resolve({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        await nextWindow;
+        expect(search.results.value).toEqual([]);
+
+        search.adoptPageRotation(requireDocumentRevisionToken('revision-b'), [1], 90);
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
+        search.resetSearchCache();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockSearch.run.mock.calls.map(([
+            , , options,
+        ]) => [
+            options.documentRevision,
+            options.resultOffset,
+        ])).toEqual([
+            [
+                'revision-a',
+                undefined,
+            ],
+            [
+                'revision-a',
+                1,
+            ],
+            [
+                'revision-b',
+                1,
+            ],
+        ]);
+        expect(search.isSearching.value).toBe(false);
+        expect(search.currentResult.value?.matchIndex).toBe(1);
+    });
+
+    it('leaves a search the user canceled by leaving the search tab canceled through rotation', async () => {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
+        const abandoned = Promise.withResolvers<IPdfSearchRunResult>();
+        mockSearch.run.mockReturnValueOnce(abandoned.promise);
+        const search = await createPdfSearch({documentRevisionToken});
+        const searched = search.search('alpha', '/tmp/work.pdf', 1);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        search.cancelSearch();
+        abandoned.resolve({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        await searched;
+
+        search.adoptPageRotation(requireDocumentRevisionToken('revision-b'), [1], 90);
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
+        search.resetSearchCache();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockSearch.run).toHaveBeenCalledOnce();
+        expect(search.isSearching.value).toBe(false);
+        expect(search.submittedSearchQuery.value).toBe('alpha');
+    });
+
     it('keeps a completed search through rotation without searching again', async () => {
         const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
         mockSearch.run.mockResolvedValueOnce({
