@@ -414,8 +414,6 @@ describe('added check and flake tolerance detection', () => {
             '    expect(await readNotes()).toHaveLength(1);',
             '}, 120_000);',
         ];
-        const tableRow = '])(\'reads table row %s\', async row => {';
-
         function findInChange(statuses: Record<string, string>, added: Record<string, string[]>, removed: Record<string, string[]>) {
             return addedChecks.findAddedChecks(
                 Object.entries(statuses).map(([
@@ -430,33 +428,34 @@ describe('added check and flake tolerance detection', () => {
             );
         }
 
-        it('treats an unchanged move as an edit, not a new check', () => {
+        it('needs the trailer for a test moved out of a file that stays', () => {
             const statuses = {
                 'tests/a.test.ts': 'M',
                 'tests/b.test.ts': 'A',
             };
-            const removed = {'tests/a.test.ts': [
-                ...keepsNotes,
-                tableRow,
-            ]};
 
-            expect(findInChange(statuses, {'tests/b.test.ts': [
-                ...keepsNotes,
-                tableRow,
-            ].map(line => `    ${line}`)}, removed)).toEqual([]);
-            expect(findInChange(statuses, {'tests/b.test.ts': [
-                keepsNotes[0]!,
-                'it(\'adds a check\', async () => {',
-                '    }, 90_000);',
-            ]}, removed)).toEqual(['new test file: tests/b.test.ts']);
-        });
-
-        it('counts a moved title whose body changed as a new check', () => {
+            expect(findInChange(statuses, {'tests/b.test.ts': keepsNotes}, {'tests/a.test.ts': keepsNotes}))
+                .toEqual(['new test file: tests/b.test.ts']);
             expect(findInChange({
                 'tests/a.test.ts': 'M',
-                'tests/b.test.ts': 'A',
-            }, {'tests/b.test.ts': keepsNotes.map(line => line.replace('toHaveLength(1)', 'toHaveLength(2)'))}, {'tests/a.test.ts': keepsNotes}))
-                .toEqual(['new test file: tests/b.test.ts']);
+                'tests/b.test.ts': 'M',
+            }, {'tests/b.test.ts': keepsNotes}, {'tests/a.test.ts': keepsNotes}))
+                .toEqual(['test timeout override: tests/b.test.ts (}, 120_000);)']);
+        });
+
+        it('counts a moved test whose body changed as a new check', () => {
+            const moved = (expected: string) => [
+                'it(\'keeps notes\', () => {',
+                '    expect(\')\').toBe(\')\');',
+                `    expect(read()).toEqual(${expected});`,
+                '});',
+            ];
+
+            expect(findInChange({
+                'tests/old.test.ts': 'M',
+                'tests/new.test.ts': 'A',
+            }, {'tests/new.test.ts': moved('999')}, {'tests/old.test.ts': moved('1')}))
+                .toEqual(['new test file: tests/new.test.ts']);
         });
 
         it('counts every copy when one removed test reappears in several files', () => {
@@ -480,7 +479,7 @@ describe('added check and flake tolerance detection', () => {
             ]})).toEqual(['test timeout override: tests/a.test.ts (}, 120_000);)']);
         });
 
-        it('treats only an unchanged renamed test file as a move', () => {
+        it('treats only an exact copy of a deleted test file as a move, once', () => {
             const renamed = [
                 'beforeAll(async () => {',
                 '    await startNotes();',
@@ -496,7 +495,14 @@ describe('added check and flake tolerance detection', () => {
             expect(findInChange(statuses, {'tests/b.test.ts': [
                 'import {startNotes} from \'./notes\';',
                 ...renamed,
-            ]}, {'tests/a.test.ts': renamed})).toEqual(['test timeout override: tests/b.test.ts (}, 60_000);)']);
+            ]}, {'tests/a.test.ts': renamed})).toEqual(['new test file: tests/b.test.ts']);
+            expect(findInChange({
+                ...statuses,
+                'tests/c.test.ts': 'A',
+            }, {
+                'tests/b.test.ts': renamed,
+                'tests/c.test.ts': renamed,
+            }, {'tests/a.test.ts': renamed})).toEqual(['new test file: tests/c.test.ts']);
         });
     });
 });
