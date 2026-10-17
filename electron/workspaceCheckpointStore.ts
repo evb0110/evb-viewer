@@ -28,7 +28,10 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {isErrnoException} from '@contracts/runtimeGuards';
-import { writeJsonAtomic } from '@electron/utils/atomicReplace';
+import {
+    recoverWindowsAtomicReplace,
+    writeJsonAtomic,
+} from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
@@ -219,13 +222,11 @@ const restoresInFlight = new Map<string, {
 class WorkspaceCheckpointReadError extends Error {
     public readonly code = 'WORKSPACE_CHECKPOINT_READ_FAILED' as const;
     public readonly checkpointPath: string;
-    public override readonly cause: unknown;
 
     public constructor(checkpointPath: string, cause: unknown) {
-        super(`Workspace checkpoint could not be read: ${checkpointPath}`);
+        super(`Workspace checkpoint could not be read: ${checkpointPath}`, {cause});
         this.name = 'WorkspaceCheckpointReadError';
         this.checkpointPath = checkpointPath;
-        this.cause = cause;
     }
 }
 
@@ -275,16 +276,10 @@ async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotatio
 }
 
 function getAnnotationRecoveryRefs(checkpoint: IWorkspaceCheckpoint | null) {
-    if (!checkpoint) {
-        return [];
-    }
-    return checkpoint.tabs.flatMap(tab => tab.annotationRecovery ? [tab.annotationRecovery] : []);
+    return checkpoint?.tabs.flatMap(tab => tab.annotationRecovery ? [tab.annotationRecovery] : []) ?? [];
 }
 
 async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoint | null) {
-    if (!checkpoint) {
-        return;
-    }
     await Promise.all(getAnnotationRecoveryRefs(checkpoint).map(ref => (
         rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})
     )));
@@ -295,13 +290,13 @@ async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoin
 // ended, the claims its identity still holds came from the ended load, so the
 // new load takes that session over instead of finding it held. A repeated
 // claim within one load keeps its claim, so a checkpoint is delivered once.
-function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | null {
-    const result = v.safeParse(storedCheckpointSchema, value, {abortEarly: true});
+function decodeStoredCheckpoint(raw: string): IStoredWorkspaceCheckpoint | null {
+    const result = v.safeParse(v.pipe(v.string(), v.parseJson(), storedCheckpointSchema), raw, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
-function decodeStoredJournal(value: unknown): IStoredWorkspaceJournal | null {
-    const result = v.safeParse(storedJournalSchema, value, {abortEarly: true});
+function decodeStoredJournal(raw: string): IStoredWorkspaceJournal | null {
+    const result = v.safeParse(v.pipe(v.string(), v.parseJson(), storedJournalSchema), raw, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
@@ -686,12 +681,7 @@ async function migrateLegacyJournal() {
         blockStaleWorkingCopyDirectoryCleanup(`workspace checkpoint read failed at ${getLegacyJournalPath()}`);
         throw new WorkspaceCheckpointReadError(getLegacyJournalPath(), error);
     }
-    let journal: IStoredWorkspaceJournal | null = null;
-    try {
-        journal = decodeStoredJournal(JSON.parse(raw));
-    } catch {
-        journal = null;
-    }
+    const journal = decodeStoredJournal(raw);
     if (!journal) {
         await quarantineCorruptWorkspaceCheckpoint(getLegacyJournalPath(), 'schema decode returned no checkpoint');
     } else {
@@ -718,12 +708,7 @@ async function readRecordFile(recoveryId: string): Promise<IStoredWorkspaceCheck
         });
         throw new WorkspaceCheckpointReadError(path, error);
     }
-    let record: IStoredWorkspaceCheckpoint | null = null;
-    try {
-        record = decodeStoredCheckpoint(JSON.parse(raw));
-    } catch {
-        record = null;
-    }
+    const record = decodeStoredCheckpoint(raw);
     if (!record) {
         await quarantineCorruptWorkspaceCheckpoint(path, 'schema decode returned no checkpoint');
         return null;
@@ -773,12 +758,7 @@ function readDurableRecordForSave(recoveryId: string) {
         }
         throw new WorkspaceCheckpointReadError(getRecordPath(recoveryId), error);
     }
-    let record: IStoredWorkspaceCheckpoint | null;
-    try {
-        record = decodeStoredCheckpoint(JSON.parse(raw));
-    } catch (error) {
-        throw new WorkspaceCheckpointReadError(getRecordPath(recoveryId), error);
-    }
+    const record = decodeStoredCheckpoint(raw);
     if (!record) {
         throw new WorkspaceCheckpointReadError(
             getRecordPath(recoveryId),
@@ -1194,9 +1174,14 @@ export async function claimWorkspaceCheckpoint(
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                // A dirty tab's unsaved bytes live only in its working copy, which is missing when, for example, a
-                // roaming profile came without it. The tab reads its original in the copy's place, withheld.
-                const standIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty && !existsSync(tab.workingCopyRef)
+                // A dirty tab's unsaved bytes live only in its working copy, which a Windows replace a crash cut short
+                // may have left under its backup name, so that replace is undone first. A copy still missing (a roaming
+                // profile came without it, say) leaves the tab reading its original instead, withheld.
+                const mayStandIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty;
+                await (mayStandIn && recoverWindowsAtomicReplace(tab.workingCopyRef).catch((error: unknown) => {
+                    log.warn(`Could not undo a restored working copy's interrupted replace: ${getErrorMessage(error)}`);
+                }));
+                const standIn = mayStandIn && !existsSync(tab.workingCopyRef)
                     ? await captureWorkingCopyAdmissionSnapshot(storedWorkingCopy.originalPath).catch(() => null)
                     : null;
                 const lazyOriginal = lazyWorkingCopy ?? (standIn ? {

@@ -1126,6 +1126,58 @@ describe('workspace checkpoint store', () => {
         expect(record.workingCopies?.[0]).not.toHaveProperty('admissionSnapshot');
     });
 
+    it('reopens a dirty tab\'s unsaved changes that a crash left under a Windows replace\'s backup name', async () => {
+        const workDir = join(state.userDataPath, 'pdf-work-interrupted-replace');
+        const workingPath = join(workDir, 'draft.pdf');
+        const stagedPath = join(workDir, '.0123456789abcdef.tmp');
+        await mkdir(workDir, {recursive: true});
+        await writeFile(workingPath, 'unsaved changes');
+        await writeFile(stagedPath, 'the saved PDF');
+        const dirtyCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                workingCopyRef: requireDocumentRef(workingPath),
+            }],
+        };
+        state.owners.set(workingPath, 11);
+        state.originalPaths.set(workingPath, '/documents/draft.pdf');
+        state.backingEntries.set(workingPath, {
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+            originalPath: '/documents/draft.pdf',
+            ownerWebContentsId: 11,
+            registrationId: 41,
+            role: 'current',
+        });
+        await saveWorkspaceCheckpoint(dirtyCheckpoint, 11);
+        state.backingEntries.clear();
+        state.owners.clear();
+        state.originalPaths.clear();
+        // A save's sync into the working copy took the Windows fallback: it recorded the replace, moved the copy to its
+        // backup name, and EVB stopped before the saved bytes took its place.
+        const backupPath = `${workingPath}.bak-0123456789abcdef`;
+        await writeFile(`${workingPath}.evb-atomic-replace.json`, JSON.stringify({
+            version: 1,
+            sourcePath: stagedPath,
+            destinationPath: workingPath,
+            backupPath,
+            destinationSnapshot: (await capturePathSaveWitness(workingPath))!.getSnapshotForJournal(),
+            sourceSnapshot: (await capturePathSaveWitness(stagedPath))!.getSnapshotForJournal(),
+        }));
+        await rename(workingPath, backupPath);
+
+        const claimed = await claimWorkspaceCheckpoint(22);
+
+        expect(claimed?.tabs).toEqual(dirtyCheckpoint.tabs);
+        await expect(readFile(workingPath, 'utf8')).resolves.toBe('unsaved changes');
+        expect(state.restoredOptions.get(workingPath)).toMatchObject({backingState: 'materialized'});
+    });
+
     it('restores the durable materialized witness when a live registration drifted', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
