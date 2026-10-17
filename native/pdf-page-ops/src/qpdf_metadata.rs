@@ -553,14 +553,14 @@ mod platform {
             elements: &mut usize,
             max_bytes: usize,
         ) -> Result<Option<(Object, usize)>> {
-            if !(matches!(
+            if !matches!(
                 context,
                 Context::PageTree
                     | Context::AnnotationEntry
                     | Context::AnnotationIndex
                     | Context::Outline
-            ) || context == Context::Root && self.purpose == QpdfMetadataPurpose::Catalog)
-            {
+                    | Context::Root
+            ) {
                 return Ok(None);
             }
             let kind = unsafe { (self.api.object_type)(self.data, handle) };
@@ -672,16 +672,22 @@ mod platform {
                     ][..]
                 }
             } else if context == Context::Root {
-                &[
-                    c"/Type",
-                    c"/Pages",
-                    c"/Outlines",
-                    c"/PageLabels",
-                    c"/Dests",
-                    c"/Names",
-                    c"/AcroForm",
-                    c"/AF",
-                ][..]
+                match self.purpose {
+                    QpdfMetadataPurpose::Catalog => &[
+                        c"/Type",
+                        c"/Pages",
+                        c"/Outlines",
+                        c"/PageLabels",
+                        c"/Dests",
+                        c"/Names",
+                        c"/AcroForm",
+                        c"/AF",
+                    ][..],
+                    QpdfMetadataPurpose::Conformance => {
+                        &[c"/Type", c"/AcroForm", c"/StructTreeRoot"][..]
+                    }
+                    _ => &[c"/Type", c"/Pages"][..],
+                }
             } else if context == Context::Outline {
                 &[
                     c"/Title", c"/A", c"/Dest", c"/First", c"/Next", c"/F", c"/C",
@@ -1155,29 +1161,19 @@ mod platform {
                 return Ok(());
             }
             if context == Context::Root {
-                if self.reader.purpose == QpdfMetadataPurpose::Catalog {
-                    for key in [b"Outlines".as_slice(), b"PageLabels", b"Dests", b"Names"] {
-                        if let Ok(value) = dict.get(key) {
-                            self.enqueue(
-                                value,
-                                if key == b"Names" {
-                                    Context::Names
-                                } else if key == b"Outlines" {
-                                    Context::Outline
-                                } else {
-                                    Context::Catalog
-                                },
-                                depth,
-                            )?;
+                for (key, value) in dict.iter() {
+                    let child_context = match (self.reader.purpose, key.as_slice()) {
+                        (QpdfMetadataPurpose::Catalog, b"Outlines") => Context::Outline,
+                        (QpdfMetadataPurpose::Catalog, b"Names") => Context::Names,
+                        (QpdfMetadataPurpose::Catalog, b"PageLabels" | b"Dests") => {
+                            Context::Catalog
                         }
-                    }
-                }
-                if self.reader.purpose == QpdfMetadataPurpose::Conformance {
-                    for key in [b"AcroForm".as_slice(), b"StructTreeRoot"] {
-                        if let Ok(value) = dict.get(key) {
-                            self.enqueue(value, Context::Conformance, depth)?;
+                        (QpdfMetadataPurpose::Conformance, b"AcroForm" | b"StructTreeRoot") => {
+                            Context::Conformance
                         }
-                    }
+                        _ => continue,
+                    };
+                    self.enqueue(value, child_context, depth)?;
                 }
                 // Inline optional graphs may queue destination page values.
                 // Queue Pages last so physical identities are discovered first.
@@ -1377,14 +1373,21 @@ mod platform {
                 .split_once('/')
                 .ok_or_else(|| corrupt("Malformed qpdf xref reference"))?;
             let id = (number.parse::<u32>()?, generation.parse::<u16>()?);
-            if projection.reader.is_signature(id)? && !projection.document.objects.contains_key(&id)
-            {
-                // Keep a compact signature witness; the existing facts reader
-                // observes the exact global predicate without retaining all
-                // dictionaries or their unrelated contents.
-                let mut witness = Dictionary::new();
-                witness.set("Type", Object::Name(b"Sig".to_vec()));
-                projection.insert(id, Object::Dictionary(witness))?;
+            if projection.reader.is_signature(id)? {
+                // Keep the exact global predicate even on a selected Root,
+                // preserving its other facts without reading signature payloads.
+                let mut witness = Object::Dictionary(Dictionary::new());
+                if let Some(existing) = projection.document.objects.get(&id) {
+                    witness = existing.clone();
+                }
+                let dictionary = match &mut witness {
+                    Object::Dictionary(dictionary) => dictionary,
+                    Object::Stream(stream) => &mut stream.dict,
+                    _ => return Err(corrupt("Signature witness is not a dictionary")),
+                };
+                dictionary.set("ByteRange", Object::Null);
+                dictionary.set("Contents", Object::Null);
+                projection.insert(id, witness)?;
             }
             projection.reader.checkpoint()?;
         }

@@ -42,6 +42,8 @@ export function createNativeToolBuildPlan({
 }) {
     const manifestPath = `native/${tool.crateName}/Cargo.toml`;
     const binaryName = `${tool.binaryName}${target.binaryExtension}`;
+    // libqpdf's C++ exception handling needs the host's dynamic libc/TLS.
+    staticLinuxCrt &&= tool.crateName !== 'pdf-page-ops';
     return {
         binaryName,
         cargoArgs: [
@@ -125,10 +127,6 @@ function commandVersion(command) {
 export {getCargoBuildEnvironment} from './lib/build-environment.mjs';
 
 export {getCargoFingerprintEnvironment} from './lib/build-environment.mjs';
-
-function getReceiptPath(plan) {
-    return path.join(path.dirname(plan.destinationPath), '..', 'build-receipt.json');
-}
 
 async function writeNativeBuildManifest(plans, target) {
     const manifestPath = path.join(
@@ -229,7 +227,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             sourcePaths,
             toolchain,
         });
-        const receiptPath = getReceiptPath(plan);
+        const receiptPath = path.join(path.dirname(plan.destinationPath), '..', 'build-receipt.json');
         const receipt = await readValidCargoBuildReceipt({
             binaryPath: plan.destinationPath,
             fingerprint: input.fingerprint,

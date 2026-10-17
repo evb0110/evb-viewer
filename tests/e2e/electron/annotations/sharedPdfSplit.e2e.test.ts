@@ -1450,19 +1450,27 @@ describe('shared PDF split', () => {
             return await target.__allowRendererFileOpenForAutomation?.(path) === true
                 && await target.__openFileDirect?.(path) === true;
         }, pdfPath);
-        // The tab names the file and shows the page shape read from the source
-        // file; the rest of the open waits for the hold, so an open that settles
-        // first has failed.
+        // The new source has no remembered geometry. It must claim the file
+        // while showing bare viewer background, and remain unresolved until
+        // the split is made and the working-copy hold is released.
         const heldOpen = await Promise.race([
-            page.waitForFunction((name: string) => (
-                document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
-                && Array.from(document.querySelectorAll<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
-                )).some((skeleton) => {
-                    const rect = skeleton.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
-                })
-            ), {timeout: SETTLE_TIMEOUT_MS}, fileName).then(() => 'held', (error: unknown) => `no opening skeleton: ${String(error)}`),
+            page.waitForFunction((name: string) => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+                const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+                const rect = viewport?.getBoundingClientRect();
+                const visibleSurface = Array.from(host?.querySelectorAll<HTMLElement>(
+                    '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
+                ) ?? []).some(node => {
+                    const box = node.getBoundingClientRect();
+                    return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+                });
+                return document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
+                    && viewport?.dataset.openSurfacePhase === 'pending'
+                    && chassis?.dataset.openSurfaceHasOpeningGeometry === 'false'
+                    && Boolean(rect && rect.width > 0 && rect.height > 0)
+                    && !visibleSurface;
+            }, {timeout: SETTLE_TIMEOUT_MS}, fileName).then(() => 'held', (error: unknown) => `no claimed bare opening: ${String(error)}`),
             opened.then(result => `open settled while held: ${String(result)}`, (error: unknown) => `open failed: ${String(error)}`),
         ]);
         expect(heldOpen).toBe('held');

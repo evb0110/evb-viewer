@@ -947,6 +947,25 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
     save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
     let direct_outline = metadata_command("read-document-catalog", &input, None);
     assert_eq!(direct_outline["bookmarks"], catalog["bookmarks"]);
+    assert_eq!(
+        metadata_command("page-sizes", &input, Some(&sizes)),
+        geometry
+    );
+    assert_eq!(
+        metadata_command("parse-annotations", &input, Some(&annotations)),
+        parsed
+    );
+    assert_eq!(
+        metadata_command("annotation-name-index", &input, Some(&index)),
+        indexed
+    );
+    assert_eq!(
+        metadata_command("pdf-conformance", &input, None),
+        serde_json::json!({
+            "isSigned": false, "isEncrypted": false, "isTagged": false,
+            "hasAcroForm": false, "hasXfa": false,
+        })
+    );
     let next = document.add_object(dictionary! {"Title" => Object::string_literal("Alias sibling"), "Dest" => vec![Object::Reference(first), Object::Name(b"Fit".to_vec())]});
     let destinations = document.add_object(dictionary! {"Names" => vec![Object::string_literal("AliasTarget"), Object::Array(vec![Object::Reference(second), Object::Name(b"Fit".to_vec())])]});
     let shared_names = document.add_object(dictionary! {
@@ -1079,6 +1098,28 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
     assert_eq!(facts["hasXfa"], true);
     assert_eq!(facts["isTagged"], true);
     document.objects.remove(&signature);
+    for witness in [
+        dictionary! {"ByteRange" => vec![0.into(), 1.into(), 2.into(), 3.into()], "Contents" => Object::string_literal("root signature")},
+        dictionary! {"V" => dictionary! {"Type" => "Sig"}},
+    ] {
+        for (key, value) in witness.iter() {
+            document
+                .get_dictionary_mut(root)
+                .unwrap()
+                .set(key.as_slice(), value.clone());
+        }
+        document.save(&input).unwrap();
+        assert_eq!(
+            metadata_command("pdf-conformance", &input, None),
+            serde_json::json!({
+                "isSigned": true, "isEncrypted": false, "isTagged": true,
+                "hasAcroForm": true, "hasXfa": true,
+            })
+        );
+        for key in [b"ByteRange".as_slice(), b"Contents", b"V"] {
+            document.get_dictionary_mut(root).unwrap().remove(key);
+        }
+    }
     document.add_object(dictionary! {"FT" => "Sig"});
     document.add_object(dictionary! {"V" => Object::Reference((999_999, 0))});
     document.save(&input).unwrap();

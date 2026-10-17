@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import {
@@ -941,6 +942,12 @@ describe('Electron E2E - Recent Files', () => {
         'keyboard',
     ] as const)('opens a previously read Recent file to its page-shaped skeleton in the first frame, before the working copy is made (%s)', async (activation) => {
         const session = sessionFixture.getSession();
+        // A valid remembered view requests source geometry before the held
+        // working-copy open. An ordinary first open has no known shape yet.
+        await setRememberPlaceAsUser(session, true);
+        onTestFinished(async () => {
+            await setRememberPlaceAsUser(session, false);
+        });
 
         const fixturePath = await createScannedTextFixturePdf(
             `recent-file-${Date.now()}.pdf`,
@@ -1239,9 +1246,25 @@ describe('Electron E2E - Recent Files', () => {
         } finally {
             await cdp.detach();
         }
-        // The dropped file's page shape is read from the file itself, so its
-        // skeleton is on screen while the open is still held.
-        await waitForOpeningSkeletonWhileOpenHeld(session);
+        // This fresh source has no remembered geometry. While its copy is
+        // held, the claimed tab shows only the viewer background.
+        await waitForFunctionInPage(session.page, (fileName: string) => {
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const rect = viewport?.getBoundingClientRect();
+            const visibleSurface = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
+            ) ?? []).some(node => {
+                const box = node.getBoundingClientRect();
+                return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+            });
+            return document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName
+                && viewport?.dataset.openSurfacePhase === 'pending'
+                && chassis?.dataset.openSurfaceHasOpeningGeometry === 'false'
+                && Boolean(rect && rect.width > 0 && rect.height > 0)
+                && !visibleSurface;
+        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, basename(droppedPath));
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
         ), droppedDocumentRef)).toBe(true);
@@ -1282,9 +1305,23 @@ describe('Electron E2E - Recent Files', () => {
                 ? frame.openSurfacePhase !== null && !isOpeningBeforePageGeometry(frame)
                 : frame.kind !== 'committed-canvas'
         )), details).toEqual([]);
-        // The page's shape is read from the drop on, while the new tab mounts,
-        // so at most one frame after the tab claims the open is bare (#931).
-        expect(frames.slice(0, firstShellIndex).filter(isOpeningBeforePageGeometry).length, details)
+        // Unknown geometry may stay bare while the copy is held. Once the
+        // complete shape arrives, the existing one-frame shell budget applies.
+        const firstKnownGeometry = frames.findIndex(frame => (
+            frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true'
+        ));
+        expect(firstKnownGeometry, details).toBeGreaterThanOrEqual(0);
+        const claimIndex = frames.findIndex(frame => (
+            frame.openSurfacePhase === 'pending'
+            && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false'
+        ));
+        expect(claimIndex, details).toBeGreaterThanOrEqual(0);
+        expect(frames.slice(claimIndex, firstKnownGeometry).every(frame => (
+            isOpeningBeforePageGeometry(frame)
+            && frame.skeletonCount === 0
+            && !frame.outerPlaceholderVisible
+        )), details).toBe(true);
+        expect(frames[firstShellIndex]!.frame - frames[firstKnownGeometry]!.frame, details)
             .toBeLessThanOrEqual(1);
         const opening = frames.slice(firstShellIndex);
         const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
