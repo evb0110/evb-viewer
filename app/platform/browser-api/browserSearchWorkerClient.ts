@@ -270,9 +270,6 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
 }
 
 /** Canceling an admitted synchronous match terminates only its worker. */
-export function cancelBrowserSearchWorkerRequest(
-    requestId: number,
-    _options: {resetWorker?: boolean} = {},
-) {
+export function cancelBrowserSearchWorkerRequest(requestId: number) {
     browserSearchWorkerOwner.cancel(requestId, new Error('ERR_BROWSER_SEARCH_CANCELED'));
 }

@@ -15,7 +15,7 @@ import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
 import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
 import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
-interface IVisualSearchMatch {
+export interface IVisualSearchMatch {
     start: number;
     end: number;
     matchIndex: number;
@@ -67,8 +67,7 @@ function arePageMatchesInSearchOrder(pageMatches: IPdfPageMatches) {
 }
 
 function getFallbackCurrentMatchIndex(
-    matches: IVisualSearchMatch[],
-    pageMatches: IPdfPageMatches,
+    matches: readonly IVisualSearchMatch[],
     currentMatch: IPdfSearchMatch | null,
 ) {
     if (!currentMatch || matches.length === 0) {
@@ -87,8 +86,9 @@ function getFallbackCurrentMatchIndex(
     return 0;
 }
 
-function markVisualMatchesWithCurrent(
-    matches: IVisualSearchMatch[],
+/** Selects the current match among mapped matches; repainting the current result reuses the mapping. */
+export function markVisualMatchesWithCurrent(
+    matches: readonly IVisualSearchMatch[],
     pageMatches: IPdfPageMatches,
     currentMatch: IPdfSearchMatch | null,
 ): IHighlightMatchRange[] {
@@ -100,7 +100,7 @@ function markVisualMatchesWithCurrent(
 
     const shouldHaveCurrent = currentMatch?.pageIndex === pageMatches.pageIndex;
     if (shouldHaveCurrent && ranges.length > 0 && !ranges.some(match => match.isCurrent)) {
-        const fallbackIndex = getFallbackCurrentMatchIndex(matches, pageMatches, currentMatch);
+        const fallbackIndex = getFallbackCurrentMatchIndex(matches, currentMatch);
         if (fallbackIndex >= 0) {
             const fallbackRange = ranges[fallbackIndex];
             if (fallbackRange) {
@@ -115,34 +115,28 @@ function markVisualMatchesWithCurrent(
     return ranges;
 }
 
-export function buildVisualMatchesWithCurrent(
+export function buildVisualMatches(
     pageMatches: IPdfPageMatches,
-    currentMatch: IPdfSearchMatch | null,
     layerText: string,
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
-): IHighlightMatchRange[] {
+): IVisualSearchMatch[] {
     const verified = pageMatches.pageText === assembledLayerText.text
         ? assembledLayerText : assembleSearchablePageText([{text: layerText}]);
     if (pageMatches.pageText !== verified.text) return [];
-    return markVisualMatchesWithCurrent(
-        buildBackendVisualMatches(pageMatches, verified),
-        pageMatches,
-        currentMatch,
-    );
+    return buildBackendVisualMatches(pageMatches, verified);
 }
 
 /** Reconcile extraction drift through the existing interruptible match owner. */
-export async function reconcileVisualMatchesWithCurrent(
+export async function reconcileVisualMatches(
     pageMatches: IPdfPageMatches,
-    currentMatch: IPdfSearchMatch | null,
     layerText: string,
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
     signal = new AbortController().signal,
-): Promise<IHighlightMatchRange[]> {
+): Promise<IVisualSearchMatch[]> {
     if (pageMatches.matches.length === 0) return [];
     const contiguous = assembleSearchablePageText([{text: layerText}]);
     if (!pageMatches.searchQuery || pageMatches.pageText === contiguous.text || pageMatches.pageText === assembledLayerText.text) {
-        return buildVisualMatchesWithCurrent(pageMatches, currentMatch, layerText, assembledLayerText);
+        return buildVisualMatches(pageMatches, layerText, assembledLayerText);
     }
     const ordinals = pageMatches.matches.map((match, index) => match.pageMatchIndex ?? index);
     const firstOrdinal = Math.min(...ordinals);
@@ -211,5 +205,5 @@ export async function reconcileVisualMatchesWithCurrent(
             canUseBackendIdentity: ordered,
         });
     });
-    return markVisualMatchesWithCurrent(matches.sort((a, b) => a.pageMatchIndex - b.pageMatchIndex), pageMatches, currentMatch);
+    return matches.sort((a, b) => a.pageMatchIndex - b.pageMatchIndex);
 }

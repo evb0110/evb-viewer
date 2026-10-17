@@ -47,7 +47,6 @@ interface ISnipSession {
     plan?: ICapturePlan;
     target?: Element | undefined;
     assertCurrent?: () => void;
-    selection?: IClientRect;
     overlay?: IOverlayRect;
 }
 interface IBadgePosition {
@@ -249,7 +248,6 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
             const plan = freezePdfRegionCapture(container, selection);
             if (!plan.outputRect) {finish(value, false); return;}
             value.plan = plan;
-            value.selection = selection;
             value.overlay = overlay;
             const rect = toClientRect(container.getBoundingClientRect());
             const scroll = [
@@ -292,11 +290,10 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         } catch (error) {fail(value, error);}
     }
     async function readSelection(value: ISnipSession, assertRequestCurrent: () => void = () => {}) {
-        const container = options.viewerContainer.value;
         const {
-            plan, selection, overlay, target,
+            plan, overlay, target,
         } = value;
-        if (!container || !plan?.outputRect || !selection || !overlay || !target || !value.assertCurrent) throw new Error('The current capture target is unavailable');
+        if (!options.viewerContainer.value || !plan?.outputRect || !overlay || !target || !value.assertCurrent) throw new Error('The current capture target is unavailable');
         const rect = plan.outputRect;
         const assertCurrent = () => {
             value.assertCurrent?.();
@@ -338,7 +335,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
                         cancel: () => {void cancelCapture();},
                     });
             };
-            return await capturePdfRegionAsPngBlob(container, selection, {
+            return await capturePdfRegionAsPngBlob({
                 plan,
                 read,
                 assertCurrent,

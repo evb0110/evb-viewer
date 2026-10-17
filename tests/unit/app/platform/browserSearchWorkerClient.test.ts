@@ -6,6 +6,17 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as TDjvuWorkerModule from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {
+    matchPdfSearchPageWindow,
+    type IResolvedSearchMatchOptions,
+} from '@pdf-core/pdfSearchCore';
+import type { TSearchResultOffset } from '@contracts/search';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requireRequestId } from '@contracts/shared';
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
@@ -353,23 +364,6 @@ describe('browserSearchWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledOnce();
     });
 
-    it('terminates the worker when a cancel asks to reset it', async () => {
-        FakeWorker.responder = () => {};
-        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
-        const {
-            createBrowserSearchWorkerRequest,
-            cancelBrowserSearchWorkerRequest,
-        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
-
-        const workerRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('long regex'));
-        const rejection = expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-
-        cancelBrowserSearchWorkerRequest(workerRequest.requestId, {resetWorker: true});
-        await rejection;
-        expect(terminateSpy).toHaveBeenCalledOnce();
-        expect(failureReporter.capture).not.toHaveBeenCalled();
-    });
-
     it('ignores a late result from a canceled request before resolving its replacement', async () => {
         FakeWorker.responder = () => {};
         const {
@@ -490,7 +484,7 @@ describe('browserSearchWorkerClient', () => {
         const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
         const secondOutcome = second.promise.catch(error => error as Error);
         const worker = FakeWorker.lastInstance!;
-        cancelBrowserSearchWorkerRequest(first.requestId, {resetWorker: true});
+        cancelBrowserSearchWorkerRequest(first.requestId);
         const data = {
             matches: [{
                 pageMatchIndex: 0,
@@ -621,7 +615,7 @@ describe('browserSearchWorkerClient', () => {
         ];
         const queued = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('queued'));
         const rejected = expect(queued.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-        cancelBrowserSearchWorkerRequest(queued.requestId, {resetWorker: true});
+        cancelBrowserSearchWorkerRequest(queued.requestId);
         await rejected;
         const data = {
             matches: [],
@@ -702,4 +696,185 @@ describe('browserSearchWorkerClient', () => {
         expect(FakeWorker.instances).toHaveLength(1);
     });
 
+    describe('DjVu regex search through the search worker', () => {
+        const createDjvuWorker = vi.fn();
+
+        // Each test's fresh module graph binds the DjVu adapter to that test's search client.
+        beforeEach(() => {
+            vi.doMock('@app/platform/browser-api/createDjvuWorkerFromPath', async importOriginal => ({
+                ...await importOriginal<typeof TDjvuWorkerModule>(),
+                createDjvuWorkerFromPath: createDjvuWorker,
+            }));
+        });
+
+        afterEach(() => {
+            vi.doUnmock('@app/platform/browser-api/createDjvuWorkerFromPath');
+        });
+
+        interface IPageMatchRequestForTest {
+            id: number;
+            type: string;
+            payload: {
+                text: string;
+                query: string;
+                options: IResolvedSearchMatchOptions;
+                maxMatches: number;
+                resultOffset?: TSearchResultOffset;
+            };
+        }
+
+        // A catastrophic expression runs after the worker reports its start, and never returns.
+        function respondStarted(worker: FakeWorker, request: {id: number}) {
+            queueMicrotask(() => worker.dispatchMessage({
+                id: request.id,
+                started: true,
+            }));
+        }
+
+        function respondWithMatches(worker: FakeWorker, request: {id: number}) {
+            const {
+                id, type, payload,
+            } = request as IPageMatchRequestForTest;
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id,
+                    started: true,
+                });
+                worker.dispatchMessage({
+                    id,
+                    type,
+                    ok: true,
+                    data: {
+                        ...matchPdfSearchPageWindow(payload.text, payload.query, payload.options, payload.maxMatches, payload.resultOffset),
+                        matchingMs: 0,
+                    },
+                });
+            });
+        }
+
+        function createDjvuTextWorkerForTest(pages: readonly string[]) {
+            return {
+                doc: {
+                    getPagesQuantity: () => ({run: async () => pages.length}),
+                    getPagesSizes: () => ({run: async () => pages.map(() => ({
+                        width: 612,
+                        height: 792,
+                    }))}),
+                    getPage: (pageNumber: number) => ({
+                        getText: () => ({run: async () => pages[pageNumber - 1] ?? ''}),
+                        getNormalizedTextZones: () => ({run: async () => null}),
+                    }),
+                },
+                terminate: vi.fn(),
+            };
+        }
+
+        function regexSearchOptions(requestId: string) {
+            return {
+                requestId: requireRequestId(requestId),
+                pageCount: 1,
+                matchCase: false,
+                wholeWord: false,
+                useRegex: true,
+            };
+        }
+
+        const postedRequests = () => FakeWorker.instances.flatMap(worker => worker.postMessageCalls);
+
+        it('stops a catastrophic DjVu regex with the search budget error', async () => {
+            FakeWorker.responder = respondStarted;
+            createDjvuWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));
+            const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
+            const startedAt = performance.now();
+
+            await expect(browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/catastrophic.djvu'),
+                'a+$',
+                regexSearchOptions('catastrophic-djvu-regex'),
+            )).rejects.toMatchObject({
+                name: 'SearchRegexLimitError',
+                code: 'SEARCH_REGEX_LIMIT',
+            });
+            expect(performance.now() - startedAt).toBeLessThan(5_000);
+            expect(postedRequests()).toHaveLength(1);
+        });
+
+        it.each([
+            500,
+            'last',
+        ] as const)('returns the DjVu regex window at %s from the search worker', async (resultOffset) => {
+            FakeWorker.responder = respondWithMatches;
+            createDjvuWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['valve '.repeat(561)]));
+            const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
+
+            const response = await browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/dense-regex.djvu'),
+                'valve',
+                {
+                    ...regexSearchOptions('regex-window'),
+                    resultOffset,
+                },
+            );
+
+            expect(response.results).toHaveLength(resultOffset === 500 ? 61 : 500);
+            expect(response.results[0]?.matchIndex).toBe(resultOffset === 500 ? 500 : 61);
+            expect(response.results.at(-1)?.matchIndex).toBe(560);
+            expect(response.truncated).toBe(false);
+            expect(postedRequests()).toHaveLength(1);
+        });
+
+        it('keeps another document searching when a DjVu regex is canceled', async () => {
+            const pending: Array<{
+                worker: FakeWorker;
+                request: IPageMatchRequestForTest;
+            }> = [];
+            FakeWorker.responder = (worker, request) => pending.push({
+                worker,
+                request: request as IPageMatchRequestForTest,
+            });
+            createDjvuWorker.mockImplementation(async (source: TDocumentRef) => createDjvuTextWorkerForTest([source.includes('first') ? 'a'.repeat(250_000) + '!' : 'hello']));
+            const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
+            const first = browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/first.djvu'),
+                'a+.a+$',
+                regexSearchOptions('isolated-first-regex'),
+            ).catch((error: unknown) => error);
+            const second = browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/second.djvu'),
+                'hello',
+                regexSearchOptions('isolated-second-regex'),
+            );
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+            await browserDjvuTextSearchCapability.cancelTextSearch(requireRequestId('isolated-first-regex'));
+            expect(await first).toMatchObject({name: 'AbortError'});
+            const sibling = pending.find(entry => entry.request.payload.query === 'hello')!;
+            respondWithMatches(sibling.worker, sibling.request);
+            const response = await second;
+            expect(response.results.map(result => result.excerpt.match)).toEqual(['hello']);
+            expect(response.truncated).toBe(false);
+        });
+
+        it('cancels a stalled DjVu regex worker when its search is canceled', async () => {
+            FakeWorker.responder = respondStarted;
+            const terminate = vi.spyOn(FakeWorker.prototype, 'terminate');
+            createDjvuWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));
+            const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
+            const requestId = requireRequestId('canceled-djvu-regex');
+            const search = browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/canceled-regex.djvu'),
+                'a+$',
+                regexSearchOptions(requestId),
+            );
+            await vi.waitFor(() => expect(postedRequests()).toHaveLength(1));
+
+            const startedAt = performance.now();
+            await expect(browserDjvuTextSearchCapability.cancelTextSearch(requestId))
+                .resolves.toEqual({canceled: true});
+
+            await expect(search).rejects.toMatchObject({name: 'AbortError'});
+            expect(performance.now() - startedAt).toBeLessThan(1_000);
+            expect(terminate).toHaveBeenCalledOnce();
+        });
+    });
 });

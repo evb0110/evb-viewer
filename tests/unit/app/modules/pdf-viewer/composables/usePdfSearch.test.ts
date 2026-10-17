@@ -1140,6 +1140,163 @@ describe('usePdfSearch', () => {
         expect(search.isSearching.value).toBe(false);
     });
 
+    it('resumes a search a rotation interrupts once the rotated revision is published', async () => {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
+        const matches = [
+            0,
+            1,
+        ].map(matchIndex => ({
+            pageNumber: matchIndex + 1,
+            pageMatchIndex: 0,
+            matchIndex,
+            startOffset: 0,
+            endOffset: 5,
+        }));
+        let progressListener: (progress: IPdfSearchTestProgress) => void = () => {
+            throw new Error('Progress listener was not registered');
+        };
+        const interrupted = Promise.withResolvers<IPdfSearchRunResult>();
+        mockSearch.onProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return vi.fn();
+        });
+        mockSearch.run.mockReturnValueOnce(interrupted.promise).mockResolvedValueOnce({
+            results: matches,
+            truncated: false,
+        });
+        const search = await createPdfSearch({documentRevisionToken});
+        void search.search('alpha', '/tmp/work.pdf', 2);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        progressListener({
+            requestId: mockSearch.run.mock.calls[0]![2].requestId,
+            processed: 2,
+            total: 4,
+            results: matches,
+        });
+        search.setResultIndex(1);
+
+        // Page operations prepare every view, then publish the revision and reset search caches.
+        search.adoptPageRotation(requireDocumentRevisionToken('revision-b'), [1], 90);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(search.isSearching.value).toBe(true);
+        expect(search.results.value[0]?.rotation).toBe(90);
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
+        search.resetSearchCache();
+        await vi.advanceTimersByTimeAsync(0);
+        search.resetSearchCache();
+        interrupted.resolve({
+            results: [],
+            truncated: false,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockSearch.run.mock.calls.map(([
+            , , options,
+        ]) => options.documentRevision)).toEqual([
+            'revision-a',
+            'revision-b',
+        ]);
+        expect(search.isSearching.value).toBe(false);
+        expect(search.results.value.map(result => result.matchIndex)).toEqual([
+            0,
+            1,
+        ]);
+        expect(search.currentResult.value?.matchIndex).toBe(1);
+    });
+
+    it.each([
+        {
+            ending: 'canceled',
+            revisionWhenRunEnds: 'revision-a',
+            outcome: () => Promise.resolve<IPdfSearchRunResult>({
+                results: [],
+                truncated: false,
+                canceled: true,
+            }),
+        },
+        {
+            ending: 'failed',
+            revisionWhenRunEnds: 'revision-a',
+            outcome: () => Promise.reject(new Error('PDF source changed during text extraction')),
+        },
+        {
+            ending: 'left behind',
+            revisionWhenRunEnds: 'revision-b',
+            outcome: () => Promise.resolve<IPdfSearchRunResult>({
+                results: [],
+                truncated: false,
+            }),
+        },
+    ])('reruns a search the rotation rewrite $ending once the rotated revision is published', async ({
+        revisionWhenRunEnds, outcome,
+    }) => {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
+        const runEnds = Promise.withResolvers<undefined>();
+        mockSearch.run.mockImplementationOnce(async () => {
+            await runEnds.promise;
+            return outcome();
+        }).mockResolvedValueOnce({
+            results: [{
+                pageNumber: 4,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+        });
+        const search = await createPdfSearch({documentRevisionToken});
+        const searched = search.search('alpha', '/tmp/work.pdf', 4);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        // The main process can announce the new revision before the page operation returns.
+        documentRevisionToken.value = requireDocumentRevisionToken(revisionWhenRunEnds);
+        runEnds.resolve(undefined);
+        await searched;
+        expect(search.isSearching.value).toBe(false);
+        expect(search.results.value).toEqual([]);
+
+        search.adoptPageRotation(requireDocumentRevisionToken('revision-b'), [1], 90);
+        expect(search.isSearching.value).toBe(true);
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
+        search.resetSearchCache();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockSearch.run.mock.calls.map(([
+            , , options,
+        ]) => options.documentRevision)).toEqual([
+            'revision-a',
+            'revision-b',
+        ]);
+        expect(search.searchError.value).toBeNull();
+        expect(search.isSearching.value).toBe(false);
+        expect(search.currentResult.value?.pageIndex).toBe(3);
+    });
+
+    it('keeps a completed search through rotation without searching again', async () => {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
+        mockSearch.run.mockResolvedValueOnce({
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+        });
+        const search = await createPdfSearch({documentRevisionToken});
+        await expect(search.search('alpha', '/tmp/work.pdf', 1)).resolves.toBe(true);
+
+        search.adoptPageRotation(requireDocumentRevisionToken('revision-b'), [1], 90);
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
+        search.resetSearchCache();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockSearch.run).toHaveBeenCalledOnce();
+        expect(search.isSearching.value).toBe(false);
+        expect(search.currentResult.value?.rotation).toBe(90);
+    });
+
     it('drops a scheduled search before it reaches the backend when the search tab is left', async () => {
         const search = await createPdfSearch();
 

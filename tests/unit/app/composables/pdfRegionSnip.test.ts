@@ -86,6 +86,24 @@ describe('pdfRegionSnip geometry', () => {
         });
     });
 
+    it('leaves a page canvas without pixels out of the capture', () => {
+        const plan = buildCanvasCapturePlan(normalizeClientRect(0, 0, 400, 400), [{
+            canvas: {
+                width: 0,
+                height: 1000,
+            } as HTMLCanvasElement,
+            rect: {
+                left: 100,
+                top: 100,
+                right: 300,
+                bottom: 300,
+            },
+        }]);
+
+        expect(plan.outputRect).toBeNull();
+        expect(plan.fragments).toHaveLength(0);
+    });
+
     it('returns no output when selection does not intersect any rendered page canvas', () => {
         const selection = normalizeClientRect(10, 10, 40, 40);
         const plan = buildCanvasCapturePlan(selection, [{

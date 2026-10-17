@@ -20,8 +20,10 @@ import {
     updateHighlightAPI,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import {
-    buildVisualMatchesWithCurrent,
-    reconcileVisualMatchesWithCurrent,
+    buildVisualMatches,
+    markVisualMatchesWithCurrent,
+    reconcileVisualMatches,
+    type IVisualSearchMatch,
 } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
@@ -49,7 +51,7 @@ interface IPaintedLayer {
     matches: IHighlightMatchRange[];
     segments: IPaintedSegment[];
     result: IHighlightResult;
-    resolveCurrent: ((current: IPdfSearchMatch | null) => IHighlightMatchRange[]) | null;
+    visualMatches: IVisualSearchMatch[] | null;
     pending?: AbortController;
 }
 
@@ -166,30 +168,10 @@ export const usePdfSearchHighlight = () => {
         updateCurrent(textLayerDiv, painted, matches);
     }
 
-    function retainMatchIdentity(painted: IPaintedLayer, matches: IHighlightMatchRange[], verified: boolean) {
-        const backend = painted.pageMatches.matches;
-        // Reconciliation sorts by ordinal. Complete ordered windows retain each
-        // backend identity; incomplete or unordered drift keeps its resolver.
-        const ordered = backend.every((match, index) => index === 0 || match.start >= backend[index - 1]!.start);
-        if (matches.length !== backend.length || (!verified && !ordered)) return;
-        const identities = backend.map((match, index) => ({
-            match,
-            ordinal: match.pageMatchIndex ?? index,
-        }));
-        if (!verified) identities.sort((a, b) => a.ordinal - b.ordinal);
-        painted.resolveCurrent = current => {
-            const index = current?.pageIndex === painted.pageMatches.pageIndex
-                ? identities.findIndex(({
-                    match, ordinal,
-                }) => match.matchIndex === current.matchIndex
-                    || ordinal === current.pageMatchIndex)
-                : -1;
-            const selected = current?.pageIndex === painted.pageMatches.pageIndex ? Math.max(0, index) : -1;
-            return matches.map((match, ordinal) => ({
-                ...match,
-                isCurrent: ordinal === selected,
-            }));
-        };
+    /** The engine's mapped matches stay with the painted layer, so a new current result only moves current paint. */
+    function paintVisualMatches(textLayerDiv: HTMLElement, painted: IPaintedLayer, visualMatches: IVisualSearchMatch[], currentMatch: IPdfSearchMatch | null) {
+        painted.visualMatches = visualMatches;
+        paintMatches(textLayerDiv, painted, markVisualMatchesWithCurrent(visualMatches, painted.pageMatches, currentMatch));
     }
 
     function highlightPage(textLayerDiv: HTMLElement, pageMatches: IPdfPageMatches | null, currentMatch: IPdfSearchMatch | null): IHighlightResult {
@@ -216,30 +198,24 @@ export const usePdfSearchHighlight = () => {
                 matches: [],
                 segments: [],
                 result: createHighlightResult(),
-                resolveCurrent: null,
+                visualMatches: null,
             };
             paintedLayers.set(textLayerDiv, painted);
         }
         painted.pending?.abort();
-        if (painted.resolveCurrent) {
-            updateCurrent(textLayerDiv, painted, painted.resolveCurrent(currentMatch));
-            return painted.result;
-        }
-        const verified = buildVisualMatchesWithCurrent(pageMatches, currentMatch, painted.text, painted.assembled);
-        if (verified.length > 0) {
-            paintMatches(textLayerDiv, painted, verified);
-            retainMatchIdentity(painted, verified, true);
+        const visualMatches = painted.visualMatches ?? buildVisualMatches(pageMatches, painted.text, painted.assembled);
+        if (visualMatches.length > 0) {
+            paintVisualMatches(textLayerDiv, painted, visualMatches, currentMatch);
             return painted.result;
         }
         updateCurrent(textLayerDiv, painted, []);
         const controller = new AbortController();
         painted.pending = controller;
         const layer = painted;
-        void reconcileVisualMatchesWithCurrent(pageMatches, currentMatch, layer.text, layer.assembled, controller.signal)
+        void reconcileVisualMatches(pageMatches, layer.text, layer.assembled, controller.signal)
             .then(reconciled => {
                 if (controller.signal.aborted) return;
-                paintMatches(textLayerDiv, layer, reconciled);
-                retainMatchIdentity(layer, reconciled, false);
+                paintVisualMatches(textLayerDiv, layer, reconciled, currentMatch);
             }).catch(() => {
                 // Only text-verified ranges are painted before reconciliation.
             });

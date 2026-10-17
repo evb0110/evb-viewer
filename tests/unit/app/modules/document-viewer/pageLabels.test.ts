@@ -877,6 +877,18 @@ it('navigates long-prefix presentation across numbering styles and rejects hidde
     }
 });
 
+it('answers an unmatched shortened label promptly across many one-page numbering segments', () => {
+    const model = createPageLabelModel(1_000, Array.from({length: 1_000}, (_, index) => ({
+        startPage: index + 1,
+        style: 'R' as const,
+        prefix: `section-${index}-`,
+        startNumber: 1,
+    })));
+    const startedAt = performance.now();
+    expect(findPageByPageLabelInput('missing…', 1_000, model)).toBeNull();
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+});
+
 
 describe('viewer page-label presentation', () => {
     const hugeRange = {
