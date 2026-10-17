@@ -2132,6 +2132,25 @@ describe('image export', () => {
         expect(existsSync(`${outputPath}.tmp`)).toBe(false);
     });
 
+    it('keeps the rendered TIFF pages of a window whose native writer may still read them', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.nativeTiffCombineEnabled = true;
+        mocks.nativeTiffCombineStopMidWrite = async () => {
+            throw markUnprovenNativeTermination(new Error('native TIFF writer timed out'), 'native TIFF writer was not proven dead');
+        };
+        const appTempRoot = join(tempDir, 'app-temp');
+        const outputPath = join(tempDir, 'unproven-writer.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, appTempRoot, run)}}))
+            .rejects.toThrow('native TIFF writer timed out');
+
+        const [pagePaths = []] = mocks.nativeTiffCombinePageGroups;
+        expect(pagePaths).toHaveLength(2);
+        expect(pagePaths.every(pagePath => existsSync(pagePath))).toBe(true);
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
     it('removes rendered TIFF page temps during multi-page TIFF combine before promotion', async () => {
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;

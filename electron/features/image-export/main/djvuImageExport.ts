@@ -217,7 +217,7 @@ async function renderDjvuImagePages(
                             ...(options.signal ? {signal: options.signal} : {}),
                         },
                     );
-                    if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                    if (!render.success) throw render.cause instanceof Error ? render.cause : new Error(render.error ?? `Failed to render DjVu page ${page}`);
                     if (
                         stagedFiles.length > 0
                         && stagedBytes + render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES
@@ -244,9 +244,6 @@ async function renderDjvuImagePages(
                         stagedPath: sibling,
                         targetPath: outputPath,
                     });
-                } catch (error) {
-                    await rm(sibling, {force: true}).catch(() => undefined);
-                    throw error;
                 } finally {
                     await rm(ppmPath, {force: true}).catch(() => undefined);
                     await rm(imagePath, {force: true}).catch(() => undefined);
@@ -325,39 +322,36 @@ export async function exportDjvuAsMultiPageTiff(
             const currentBatchDpi = batchDpi;
             batchDpi = undefined;
             stagedBytes = 0;
-            try {
-                const stagedPath = makeSiblingTempPath(targetPath);
-                const nativeTempPath = makeSiblingTempPath(stagedPath);
-                await recordManagedScratchPaths(tempDirectory, [
-                    stagedPath,
-                    nativeTempPath,
-                ]);
-                stagedGroups.push({stagedPath});
-                const combineLease = await mainJobBroker.acquire({
-                    ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
-                    kind: 'djvu-tiff-combine',
-                    priority: 'user',
-                    resources: {
-                        cpuTokens: 1,
-                        estimatedResidentBytes: 128 * 1024 * 1024,
-                        nativeProcesses: 1,
-                        ioWeight: 3,
-                    },
-                    ...(options.signal ? {signal: options.signal} : {}),
-                });
-                const combined = await tryCombinePagesWithNativeTiffCombiner(
-                    batchPaths,
-                    stagedPath,
-                    nativeTempPath,
-                    options.signal,
-                    currentBatchDpi,
-                ).finally(() => combineLease.release());
-                if (!combined) {
-                    throw new Error('Native TIFF output service is unavailable for DjVu export');
-                }
-            } finally {
-                await Promise.all(batchPaths.map(batchPath => rm(batchPath, {force: true}).catch(() => undefined)));
+            const stagedPath = makeSiblingTempPath(targetPath);
+            const nativeTempPath = makeSiblingTempPath(stagedPath);
+            await recordManagedScratchPaths(tempDirectory, [
+                stagedPath,
+                nativeTempPath,
+            ]);
+            stagedGroups.push({stagedPath});
+            const combineLease = await mainJobBroker.acquire({
+                ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
+                kind: 'djvu-tiff-combine',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 3,
+                },
+                ...(options.signal ? {signal: options.signal} : {}),
+            });
+            const combined = await tryCombinePagesWithNativeTiffCombiner(
+                batchPaths,
+                stagedPath,
+                nativeTempPath,
+                options.signal,
+                currentBatchDpi,
+            ).finally(() => combineLease.release());
+            if (!combined) {
+                throw new Error('Native TIFF output service is unavailable for DjVu export');
             }
+            await Promise.all(batchPaths.map(batchPath => rm(batchPath, {force: true}).catch(() => undefined)));
         };
 
         let promoted = false;
@@ -386,7 +380,7 @@ export async function exportDjvuAsMultiPageTiff(
                     format: 'ppm',
                     ...(options.signal ? {signal: options.signal} : {}),
                 }).finally(() => brokerLease.release());
-                if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                if (!render.success) throw render.cause instanceof Error ? render.cause : new Error(render.error ?? `Failed to render DjVu page ${page}`);
                 if (
                     pagePaths.length > 0
                     && (
