@@ -64,8 +64,10 @@ fn saved_deleted_stamp_recreates_after_hard_parse_in_both_writers() {
 
 #[test]
 fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
-    for (append, malformed_name) in [false, true].into_iter().flat_map(|append| {
-        [None, Some("reply-one"), Some("reply-two")].map(|name| (append, name))
+    // A graph an earlier release captured has no page offsets: its thread
+    // returns to the note's page, as that release restored it.
+    for (append, malformed_name, earlier_release) in [false, true].into_iter().flat_map(|append| {
+        [(None, false), (Some("reply-one"), false), (Some("reply-two"), false), (None, true)].map(|(name, earlier)| (append, name, earlier))
     }) {
         let (document, page) = create_test_document();
         let note = binding_note();
@@ -104,6 +106,15 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
         }], ..Default::default() }, append);
         assert!(collect_parsed_annotations(&document, "").unwrap().is_empty());
         let mut note = binding_note(); note.recovery_data = saved_note.recovery_data;
+        if earlier_release {
+            let data = note.recovery_data.as_deref().unwrap();
+            let bytes: Vec<u8> = (0..data.len()).step_by(2).map(|at| u8::from_str_radix(&data[at..at + 2], 16).unwrap()).collect();
+            let mut graph = Document::load_mem(&bytes).unwrap();
+            assert!(graph.trailer.remove(b"EVBPages").is_some());
+            let mut bytes = Vec::new(); graph.save_to(&mut bytes).unwrap();
+            note.recovery_data = Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect());
+            decode_note_recovery(note.recovery_data.as_deref().unwrap()).unwrap();
+        }
         let mutations = NativeMutationsFile { notes: vec![note], ..Default::default() };
         document = recovery_save(document, &mutations, append);
         let parsed = collect_parsed_annotations(&document, "").unwrap();
