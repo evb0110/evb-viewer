@@ -206,8 +206,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
         metadata: metadata.captureRecovery(),
         operation: controller.operationLease.activeKind.value,
-    }), async () => {
-        await pdfDocumentAnnotations.commitPendingDraftsForSave();
+    }), async (assertCurrent) => {
+        await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
         if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
     }, async (assertCurrent) => {
         await file.handleDjvuCancel();
@@ -361,7 +361,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         nextRedoSource: metadata.workspaceUndoTimeline.nextRedoSource,
         workingCopyPath: file.workingCopyPath,
         resetSearchCache: resetSearchCaches,
-        clearOcrCache: path => clearOcrCache(path),
+        clearOcrCache,
         undoHistory: metadata.workspaceUndoTimeline.undoTimeline,
         redoHistory: metadata.workspaceUndoTimeline.redoTimeline,
     });
@@ -454,7 +454,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         openFileDirectBatch: paths => (sharesViews.value
             ? openInOwnDocument(workspace => workspace.handleOpenFileDirectBatchWithPersist(paths))
             : file.openFileDirectBatchWithViewerLifecycle(paths)),
-        runDocumentOpen: runDocumentOpen,
+        runDocumentOpen,
         closeFile: file.closeFileWithViewerLifecycle,
         closeAllDropdowns: viewPort.closeAllDropdowns,
         emitOpenInNewTab: result => commandView.value?.emitOpenInNewTab(result),

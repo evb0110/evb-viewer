@@ -312,8 +312,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (session?.snapshot.value.activeTransaction) {
                 await workspace.waitForDocumentOpenSettled();
             }
-            ownership.assertCurrent();
-            await session?.prepareTransfer();
+            await session?.prepareTransfer(ownership.assertCurrent);
             const commandTarget = session?.createCommandTarget(tabId) ?? null;
             const mutationFrontier = session?.readMutationFrontier() ?? null;
             const payload = await workspace.captureSplitPayload(undefined, ownership.assertCurrent);

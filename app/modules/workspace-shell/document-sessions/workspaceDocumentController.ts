@@ -52,6 +52,8 @@ interface IWorkspaceDocumentCloseRequest {
     assertCurrent?: () => void;
 }
 
+type TFrontierStep = (assertCurrent: () => void) => Promise<void>;
+
 export interface IDocumentOperationLease {
     activeKind: ComputedRef<TDocumentOperationKind | null>;
     isBusy: ComputedRef<boolean>;
@@ -105,9 +107,9 @@ export interface IWorkspaceDocumentController {
     reportFailure(failure: IWorkspaceOpenFailure): void;
     dismissFailure(): void;
     setDirty(dirty: boolean): void;
-    bindMutationFrontier(read: () => string, prepare: () => Promise<void>, close: (assertCurrent: () => void) => Promise<void>): void;
+    bindMutationFrontier(read: () => string, prepare: TFrontierStep, close: TFrontierStep): void;
     readMutationFrontier(): string | null;
-    prepareTransfer(): Promise<void>;
+    prepareTransfer: TFrontierStep;
     getView(tabId: string): IWorkspaceDocumentView | null;
     addView(tabId: string, seed?: IWorkspaceDocumentViewSeed): IWorkspaceDocumentView;
     /** Removes a tab's view and returns how many views remain. */
@@ -233,8 +235,8 @@ export function createWorkspaceDocumentController(options: {
     let activeClose: Promise<boolean> | null = null;
     let mutationFrontier: {
         read: () => string;
-        prepare: () => Promise<void>;
-        close: (assertCurrent: () => void) => Promise<void>
+        prepare: TFrontierStep;
+        close: TFrontierStep
     } | null = null;
 
     function update(patch: Partial<IWorkspaceDocumentSnapshot>, bumpRevision = false) {
@@ -508,12 +510,7 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function attachWorkspace(viewTabId: string, workspace: IWorkspaceExpose) {
-        if (snapshot.value.phase === 'failed') {
-            update({
-                phase: restingPhase(),
-                failure: null,
-            });
-        }
+        dismissFailure();
         const view = views.value.get(viewTabId);
         if (!view) {
             BrowserLogger.error('workspace', 'A workspace mounted for a tab that does not view its document', {
@@ -676,7 +673,10 @@ export function createWorkspaceDocumentController(options: {
             close,
         }; },
         readMutationFrontier: () => mutationFrontier?.read() ?? null,
-        prepareTransfer: async () => { await mutationFrontier?.prepare(); },
+        prepareTransfer: async (assertCurrent) => {
+            assertCurrent();
+            await mutationFrontier?.prepare(assertCurrent);
+        },
         getView: viewTabId => views.value.get(viewTabId) ?? null,
         addView,
         removeView,
