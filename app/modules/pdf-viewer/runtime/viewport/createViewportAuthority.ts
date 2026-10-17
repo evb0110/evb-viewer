@@ -371,7 +371,8 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 // it receives `failed` below and a later mount can replay it.
                 await awaitWithAbort(deps.awaitVisual(next, signal), signal);
                 assertCurrent(next, signal);
-                if (deps.refineAfterVisual) {
+                // A staged navigation already refined its placement after this wait.
+                if (deps.refineAfterVisual && !stagedNavigationVisual) {
                     const refined = await awaitWithAbort(deps.refineAfterVisual(next, commit, signal), signal);
                     assertCurrent(next, signal);
                     const refinedApplied = deps.apply(next, refined);

@@ -338,12 +338,16 @@ describe('ViewportAuthority', () => {
         expect(authority.currentPage.value).toBe(2);
     });
 
-    it('refines a staged navigation after visual readiness before its only viewport write', async () => {
+    it.each([
+        false,
+        true,
+    ])('refines a staged navigation after visual readiness before its only viewport write (ticket: %s)', async withTicket => {
         const writes: number[] = [];
         const events: string[] = [];
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
             getGeometryRevision: () => 1,
+            shouldStageNavigationVisual: () => true,
             resolve: async () => ({
                 anchor: {
                     ...anchor,
@@ -368,15 +372,31 @@ describe('ViewportAuthority', () => {
                 writes.push(commit.top);
             },
         });
+        const navigationTicket: IDocumentNavigationTicket = {
+            generation: 1,
+            documentRevision: 'revision-1',
+            id: 'after-visual-refine',
+            request: createPageNavigationRequest(2, 'search'),
+            signal: new AbortController().signal,
+            finished: Promise.resolve({
+                kind: 'arrived',
+                page: 2,
+            }),
+        };
 
-        await expect(authority.submit(intent('after-visual-refine', 2)))
+        await expect(authority.submit({
+            ...intent('after-visual-refine', 2),
+            ...(withTicket ? {navigationTicket} : {}),
+        }))
             .resolves
             .toMatchObject({outcome: 'settled'});
 
+        // A ticket still waits for its visible neighbors after placement.
         expect(events).toEqual([
             'visual',
             'refine-after-visual',
             'apply',
+            ...(withTicket ? ['visual'] : []),
         ]);
         expect(writes).toEqual([920]);
     });
