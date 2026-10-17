@@ -267,15 +267,12 @@ async function encodeCanvasAs(
     return format === 'png' ? addPngPhysicalResolution(bytes, dpi) : addJpegJfifDensity(bytes, dpi);
 }
 
-async function renderPdfPageToImageBytes(
+function renderPdfPageToImageBytes(
     pdfDocument: Pick<IPdfDocument, 'getPage'>,
     pageNumber: number,
     format: TBrowserImageExportFormat,
 ) {
-    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, async ({canvas}) => ({
-        bytes: await encodeCanvasAs(canvas, format, 72 * EXPORT_RENDER_SCALE),
-        mimeType: IMAGE_EXPORT_FORMATS[format].mimeType,
-    }));
+    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, ({canvas}) => encodeCanvasAs(canvas, format, 72 * EXPORT_RENDER_SCALE));
 }
 
 async function collectTiffPageDescriptors(
@@ -486,6 +483,56 @@ async function storeTiffAtHandle(
     return outputRef;
 }
 
+// Encodes one page in the format its chosen name selects, writes it there and
+// stores the transient output. A canceled download picker stores nothing.
+async function saveImageExport(
+    saveTarget: Pick<Awaited<ReturnType<typeof pickSaveTarget>>, 'fileName' | 'handle'>,
+    encode: (format: TBrowserImageExportFormat) => Promise<Uint8Array>,
+) {
+    const format = resolveImageExportFormat(saveTarget.fileName, 'jpeg');
+    const mimeType = IMAGE_EXPORT_FORMATS[format].mimeType;
+    const bytes = await encode(format);
+    let saveName = saveTarget.fileName;
+    let saveHandle = saveTarget.handle;
+    if (saveHandle) {
+        await writeBytesToHandle(saveHandle, bytes);
+    } else {
+        const downloadResult = await saveBytesToPickerOrDownload(bytes, {
+            suggestedName: normalizeImageExportFileName(saveName, format),
+            mimeType,
+            pickerTypes: buildImageExportPickerTypes(format),
+        });
+        if (downloadResult.canceled) {
+            return null;
+        }
+        saveName = downloadResult.fileName;
+        saveHandle = downloadResult.handle ?? null;
+    }
+    const outputRef = await browserDocumentStore.createStoredDocument(saveName, saveHandle ? new Uint8Array() : bytes, {
+        mimeType,
+        saveKind: 'generic',
+        kind: 'output',
+        retention: 'transient',
+        saveHandle,
+        storageMode: saveHandle ? 'handle' : 'inline',
+    });
+    if (saveHandle) {
+        await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {
+            fileSize: bytes.byteLength,
+            saveHandle,
+            saveName,
+        });
+    }
+    await browserDocumentStore.touchRecentFile(outputRef);
+    return outputRef;
+}
+
+// An export that does not finish releases the store entries it created.
+// The files already written at their chosen destinations stay.
+async function releaseImageExports(outputRefs: TDocumentRef[]) {
+    await Promise.allSettled(outputRefs.map(outputRef => browserDocumentStore.cleanupDetachedDocument(outputRef)));
+}
+
 async function loadPdfDocument(path: string) {
     const pdfDocument = await loadBrowserPdfjsDocument(path);
     return {
@@ -537,73 +584,42 @@ async function exportBrowserDjvuPagesAsImages(
                 suggestedName: `document-page-${String(pageNumber).padStart(3, '0')}.png`,
                 pickerTypes: buildImageExportPickerTypes(),
             });
-            if (saveTarget.canceled) {
+            // The decoder only produces PNG. The chosen name decides the encoding and the stored name.
+            const outputRef = saveTarget.canceled ? null : await saveImageExport(saveTarget, async (format) => {
+                const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+                try {
+                    const response = await fetch(rendered.url);
+                    if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
+                    const pngBytes = new Uint8Array(await response.arrayBuffer());
+                    return format === 'png'
+                        ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
+                        : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
+                } finally {
+                    worker.revokeObjectURL(rendered.url);
+                }
+            });
+            if (!outputRef) {
+                await releaseImageExports(outputRefs);
                 return {
                     success: false as const,
                     canceled: true as const,
                 };
             }
-            // The decoder only produces PNG. The chosen name decides the encoding and the stored name.
-            const format = resolveImageExportFormat(saveTarget.fileName, 'jpeg');
-            const mimeType = IMAGE_EXPORT_FORMATS[format].mimeType;
-            const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-            try {
-                const response = await fetch(rendered.url);
-                if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
-                const pngBytes = new Uint8Array(await response.arrayBuffer());
-                const bytes = format === 'png'
-                    ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
-                    : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
-                let saveName = saveTarget.fileName;
-                let saveHandle = saveTarget.handle ?? null;
-                if (saveTarget.handle) {
-                    await writeBytesToHandle(saveTarget.handle, bytes);
-                } else {
-                    const downloadResult = await saveBytesToPickerOrDownload(bytes, {
-                        suggestedName: normalizeImageExportFileName(saveName, format),
-                        mimeType,
-                        pickerTypes: buildImageExportPickerTypes(format),
-                    });
-                    if (downloadResult.canceled) {
-                        return {
-                            success: false as const,
-                            canceled: true as const,
-                        };
-                    }
-                    saveName = downloadResult.fileName;
-                    saveHandle = downloadResult.handle ?? null;
-                }
-                const outputRef = await browserDocumentStore.createStoredDocument(saveName, saveHandle ? new Uint8Array() : bytes, {
-                    mimeType,
-                    saveKind: 'generic',
-                    kind: 'output',
-                    retention: 'transient',
-                    saveHandle,
-                    storageMode: saveHandle ? 'handle' : 'inline',
-                });
-                if (saveHandle) {
-                    await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {
-                        fileSize: bytes.byteLength,
-                        saveHandle,
-                        saveName,
-                    });
-                }
-                await browserDocumentStore.touchRecentFile(outputRef);
-                outputRefs.push(outputRef);
-                emitBrowserImageExportProgress(requestId, 'images', {
-                    phase: 'rendering',
-                    processed: index + 1,
-                    total: targetPages.length,
-                    percent: ((index + 1) / targetPages.length) * 100,
-                });
-            } finally {
-                worker.revokeObjectURL(rendered.url);
-            }
+            outputRefs.push(outputRef);
+            emitBrowserImageExportProgress(requestId, 'images', {
+                phase: 'rendering',
+                processed: index + 1,
+                total: targetPages.length,
+                percent: ((index + 1) / targetPages.length) * 100,
+            });
         }
         return {
             success: true as const,
             outputPaths: outputRefs,
         };
+    } catch (error) {
+        await releaseImageExports(outputRefs);
+        throw error;
     } finally {
         worker.terminate();
     }
@@ -958,70 +974,16 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                             suggestedName: buildBrowserImageExportFileName(pageNumber),
                             pickerTypes: buildImageExportPickerTypes(),
                         });
-                    if (saveTarget.canceled) {
-                        await Promise.allSettled(
-                            outputRefs.map(async (outputRef) => {
-                                await browserDocumentStore.cleanupDetachedDocument(outputRef);
-                            }),
-                        );
+                    const outputRef = saveTarget.canceled ? null : await saveImageExport(saveTarget, format => (
+                        renderPdfPageToImageBytes(pdfDocument.pdfDocument, pageNumber, format)
+                    ));
+                    if (!outputRef) {
+                        await releaseImageExports(outputRefs);
                         return {
                             success: false,
                             canceled: true,
                         };
                     }
-
-                    const format = resolveImageExportFormat(saveTarget.fileName, 'jpeg');
-                    const renderedPage = await renderPdfPageToImageBytes(
-                        pdfDocument.pdfDocument,
-                        pageNumber,
-                        format,
-                    );
-                    let saveName = saveTarget.fileName;
-                    let saveHandle = saveTarget.handle ?? null;
-
-                    if (saveTarget.handle) {
-                        await writeBytesToHandle(saveTarget.handle, renderedPage.bytes);
-                    } else {
-                        const downloadResult = await saveBytesToPickerOrDownload(renderedPage.bytes, {
-                            suggestedName: normalizeImageExportFileName(saveName, format),
-                            mimeType: renderedPage.mimeType,
-                            pickerTypes: buildImageExportPickerTypes(format),
-                        });
-                        if (downloadResult.canceled) {
-                            await Promise.allSettled(
-                                outputRefs.map(async (outputRef) => {
-                                    await browserDocumentStore.cleanupDetachedDocument(outputRef);
-                                }),
-                            );
-                            return {
-                                success: false,
-                                canceled: true,
-                            };
-                        }
-                        saveName = downloadResult.fileName;
-                        saveHandle = downloadResult.handle ?? null;
-                    }
-
-                    const outputRef = await browserDocumentStore.createStoredDocument(
-                        saveName,
-                        saveHandle ? new Uint8Array() : renderedPage.bytes,
-                        {
-                            mimeType: renderedPage.mimeType,
-                            saveKind: 'generic',
-                            kind: 'output',
-                            retention: 'transient',
-                            saveHandle,
-                            ...(saveHandle ? { storageMode: 'handle' as const } : {}),
-                        },
-                    );
-                    if (saveHandle) {
-                        await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {
-                            fileSize: renderedPage.bytes.byteLength,
-                            saveHandle,
-                            saveName,
-                        });
-                    }
-                    await browserDocumentStore.touchRecentFile(outputRef);
                     outputRefs.push(outputRef);
                     emitBrowserImageExportProgress(requestId, 'images', {
                         phase: 'rendering',
@@ -1035,11 +997,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     }
                 }
             } catch (error) {
-                await Promise.allSettled(
-                    outputRefs.map(async (outputRef) => {
-                        await browserDocumentStore.cleanupDetachedDocument(outputRef);
-                    }),
-                );
+                await releaseImageExports(outputRefs);
                 throw error;
             } finally {
                 await pdfDocument.destroy();
