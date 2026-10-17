@@ -306,8 +306,7 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
     if (data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
         throw new BrowserPageOpsWorkerUnavailableError('Browser page operation exceeds the direct fallback byte budget');
     }
-    await yieldAdmitted();
-    const result = await tryRunBrowserPageOpsWithWasm(type, payload);
+    const result = await tryRunBrowserPageOpsWithWasm(type, payload, yieldAdmitted);
     await yieldAdmitted();
     return result as IBrowserPageOpsWorkerResultMap[K];
 }

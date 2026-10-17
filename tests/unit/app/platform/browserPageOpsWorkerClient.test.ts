@@ -6,6 +6,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -13,6 +14,8 @@ import {
     ref,
 } from 'vue';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
+import {cast} from '@tests/helpers/cast';
 import {useWorkspacePrint} from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 
 const failureReceipt = vi.hoisted(() => ({
@@ -502,6 +505,46 @@ describe('browserPageOpsWorkerClient', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(FakeWorker.instances).toEqual([]);
+    });
+
+    it('enters no direct engine for an operation a page reset rejected while its module loaded', async () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        vi.stubGlobal('Worker', undefined);
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        const response = Promise.withResolvers<Response>();
+        vi.stubGlobal('fetch', vi.fn(() => response.promise));
+        const engineRuns = vi.fn(() => 1);
+        const instantiate = vi.spyOn(WebAssembly, 'instantiate').mockResolvedValue(cast({instance: {exports: {
+            memory: new WebAssembly.Memory({initial: 2}),
+            evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
+            evb_pdf_page_ops_alloc: () => 8,
+            evb_pdf_page_ops_free: () => undefined,
+            evb_pdf_page_ops_run: engineRuns,
+            evb_pdf_page_ops_output_ptr: () => 0,
+            evb_pdf_page_ops_output_len: () => 0,
+            evb_pdf_page_ops_error_ptr: () => 0,
+            evb_pdf_page_ops_error_len: () => 0,
+        }}}));
+        onTestFinished(() => instantiate.mockRestore());
+        // A fresh module has not loaded the engine yet.
+        vi.resetModules();
+        const {runBrowserPageOpsWorkerRequest: runColdRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
+        const outcome = runColdRequest('decrypt', {
+            data: Uint8Array.of(1),
+            password: '',
+        }).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+
+        target.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        expect(await outcome).toMatchObject({
+            name: 'AbortError',
+            code: 'BROWSER_WORKER_RESET',
+        });
+        response.resolve(new Response(Uint8Array.of(1), {headers: {'content-type': 'application/octet-stream'}}));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(engineRuns).not.toHaveBeenCalled();
     });
 
     it('rejects admitted and waiting parses on a page reset and admits a later parse', async () => {
