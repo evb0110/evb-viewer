@@ -1307,15 +1307,17 @@ describe('Electron E2E - Recent Files', () => {
         )), details).toEqual([]);
         // Unknown geometry may stay bare while the copy is held. Once the
         // complete shape arrives, the existing one-frame shell budget applies.
-        const firstKnownGeometry = frames.findIndex(frame => (
-            frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true'
-        ));
-        expect(firstKnownGeometry, details).toBeGreaterThanOrEqual(0);
         const claimIndex = frames.findIndex(frame => (
             frame.openSurfacePhase === 'pending'
             && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false'
         ));
         expect(claimIndex, details).toBeGreaterThanOrEqual(0);
+        // The prefix can still show the prior document's ready canvas.
+        const firstKnownGeometry = frames.findIndex((frame, index) => (
+            index >= claimIndex
+            && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true'
+        ));
+        expect(firstKnownGeometry, details).toBeGreaterThanOrEqual(claimIndex);
         expect(frames.slice(claimIndex, firstKnownGeometry).every(frame => (
             isOpeningBeforePageGeometry(frame)
             && frame.skeletonCount === 0

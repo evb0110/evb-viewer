@@ -1116,13 +1116,21 @@ fn scanned_file_sidecars_match_the_eager_reader() {
     let geometry_command = &["page-sizes", "--metadata-only"];
     let qpdf = qpdf_path();
     let bin = qpdf.parent().unwrap();
-    // These are the exact shared-library files in the pinned shipped runtimes.
+    // The pinned Windows and macOS runtimes use these exact library names.
     #[cfg(windows)]
     let projected = bin.join("qpdf30.dll").is_file() || bin.join("libqpdf30.dll").is_file();
     #[cfg(target_os = "macos")]
     let projected = bin.join("../lib/libqpdf.30.dylib").is_file();
     #[cfg(all(not(windows), not(target_os = "macos")))]
-    let projected = bin.join("../lib/libqpdf.so.29").is_file();
+    let projected = match fs::read_dir(bin.join("../lib")) {
+        Ok(mut entries) => entries.any(|entry| {
+            let name = entry.unwrap().file_name();
+            let name = name.to_string_lossy();
+            name == "libqpdf.so" || name.starts_with("libqpdf.so.")
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => panic!("Cannot inspect adjacent qpdf runtime: {error}"),
+    };
     let geometry = page_ops_sidecar(&with_damaged_appearance, geometry_command, true);
     // Metadata-only geometry does not validate unread annotation appearances.
     // The absent-library full-JSON fallback retains its eager diagnostic.
