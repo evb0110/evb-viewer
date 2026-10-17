@@ -36,7 +36,6 @@ import {
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
-import { aggregateErrorsKeepingUnprovenTermination } from '@electron/utils/nativeTerminationProof';
 
 interface IDjvuImageExportOptions {
     format?: TImageExportFormat;
@@ -273,7 +272,7 @@ async function renderDjvuImagePages(
                 await rollbackStagedFilePublications(publicationLedger);
             } catch (rollbackError) {
                 // The managed scratch owner keeps a native writer's files only for a marked error.
-                throw aggregateErrorsKeepingUnprovenTermination([
+                throw new AggregateError([
                     error,
                     rollbackError,
                 ], 'DjVu PNG export failed and rollback was incomplete');

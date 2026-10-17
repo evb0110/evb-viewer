@@ -19,7 +19,6 @@ import {
 import {createEpochMs} from '@contracts/timestamps';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {aggregateErrorsKeepingUnprovenTermination} from '@electron/utils/nativeTerminationProof';
 import {
     readWorkingCopyRevision,
     readWorkingCopySyncRequired,
@@ -426,7 +425,7 @@ async function runWorkingCopyContentRevisionTransition(
         try {
             await rollbackWorkingCopyTransition(journal);
         } catch (rollbackError) {
-            throw aggregateErrorsKeepingUnprovenTermination([
+            throw new AggregateError([
                 error,
                 rollbackError,
             ],

@@ -29,7 +29,6 @@ import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
 import {
-    aggregateErrorsKeepingUnprovenTermination,
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
 } from '@electron/utils/nativeTerminationProof';
@@ -1584,7 +1583,7 @@ describe('image export', () => {
         const firstWriter = markUnprovenNativeTermination(new Error('first writer'), 'first writer still alive');
         const secondWriter = markUnprovenNativeTermination(new Error('second writer'), 'second writer still alive');
 
-        const combined = aggregateErrorsKeepingUnprovenTermination([
+        const combined = new AggregateError([
             rollbackFailure,
             firstWriter,
             secondWriter,
@@ -1598,7 +1597,7 @@ describe('image export', () => {
             secondWriter,
         ]);
         expect(getUnprovenNativeTerminationDetail(combined)).toBe('first writer still alive');
-        expect(getUnprovenNativeTerminationDetail(aggregateErrorsKeepingUnprovenTermination([rollbackFailure], 'export failed'))).toBeUndefined();
+        expect(getUnprovenNativeTerminationDetail(new AggregateError([rollbackFailure], 'export failed'))).toBeUndefined();
     });
 
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {

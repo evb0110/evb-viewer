@@ -38,8 +38,3 @@ export function getUnprovenNativeTerminationDetail(error: unknown): string | und
         ? error.errors.map(getUnprovenNativeTerminationDetail).find(memberDetail => memberDetail !== undefined)
         : undefined;
 }
-
-// The same as `new AggregateError`; kept until its callers construct one directly.
-export function aggregateErrorsKeepingUnprovenTermination(errors: readonly unknown[], message: string) {
-    return new AggregateError(errors, message);
-}

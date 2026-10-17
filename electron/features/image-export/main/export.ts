@@ -64,10 +64,7 @@ import {
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
 import {isAbortError} from '@electron/utils/abort';
-import {
-    aggregateErrorsKeepingUnprovenTermination,
-    getUnprovenNativeTerminationDetail,
-} from '@electron/utils/nativeTerminationProof';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     recordManagedScratchBackup,
@@ -477,7 +474,7 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
         }
     }
     if (rollbackFailures.length > 0) {
-        throw Object.assign(aggregateErrorsKeepingUnprovenTermination(rollbackFailures, [...outcomes].join(' ')), {name: IMAGE_EXPORT_ROLLBACK_ERROR_NAME});
+        throw Object.assign(new AggregateError(rollbackFailures, [...outcomes].join(' ')), {name: IMAGE_EXPORT_ROLLBACK_ERROR_NAME});
     }
 }
 
@@ -551,7 +548,7 @@ export async function promoteStagedFiles(
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
         await rollbackStagedFilePublications(batchLedger).catch((rollbackError: unknown) => {
-            throw aggregateErrorsKeepingUnprovenTermination([
+            throw new AggregateError([
                 error,
                 rollbackError,
             ], getErrorMessage(error));
