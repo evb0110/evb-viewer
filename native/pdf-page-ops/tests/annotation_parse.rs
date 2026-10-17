@@ -1037,8 +1037,8 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
 }
 
 #[test]
-fn selected_metadata_fields_keep_object_resource_limits() {
-    for elements in [false, true] {
+fn selected_and_complete_metadata_values_keep_object_resource_limits() {
+    for (elements, managed) in [(false, false), (true, false), (false, true), (true, true)] {
         let input = temporary_path("metadata-limits", "pdf");
         let output = temporary_path("metadata-limits", "jsonl");
         let _cleanup = RemoveOnDrop(vec![input.clone(), output.clone()]);
@@ -1054,7 +1054,14 @@ fn selected_metadata_fields_keep_object_resource_limits() {
                 Object::String(bytes, StringFormat::Literal),
             )
         };
-        let annotation = document.add_object(dictionary! {"Subtype" => subtype, "NM" => name});
+        // A managed note keeps its complete graph, so its private values take
+        // the general conversion instead of the selected annotation fields.
+        let annotation = if managed {
+            document
+                .add_object(dictionary! {"Subtype" => "Text", "Vendor" => subtype, "NM" => name})
+        } else {
+            document.add_object(dictionary! {"Subtype" => subtype, "NM" => name})
+        };
         let page = document.add_object(dictionary! {
             "Type" => "Page", "Parent" => pages,
             "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
