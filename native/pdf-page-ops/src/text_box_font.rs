@@ -79,9 +79,10 @@ pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts, Line};
 mod text_font_program;
 pub(crate) use text_font_program::simple_font_advances;
 
-/// Fonts shared by the text boxes of one save. Each appearance names the
-/// subsets it draws with; `embed` then writes one subset per program with the
-/// glyphs of every appearance, and widths and Unicode mappings for those only.
+/// Fonts shared by the text boxes of one save or the labels of one print job.
+/// Each appearance names the subsets it draws with; `embed` then writes one
+/// subset per program with the glyphs of every appearance, and widths and
+/// Unicode mappings for those only.
 #[derive(Default)]
 pub(crate) struct SharedFonts(BTreeMap<usize, (ObjectId, std::collections::BTreeSet<u16>)>);
 
@@ -118,17 +119,6 @@ impl SharedFonts {
         }
         Ok(())
     }
-}
-
-pub(crate) fn embed_fonts(
-    document: &mut Document,
-    lines: &[Line],
-    programs: &[&[u8]],
-) -> Result<Dictionary> {
-    let mut fonts = SharedFonts::default();
-    let resources = fonts.resources(document, lines);
-    fonts.embed(document, programs)?;
-    Ok(resources)
 }
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
