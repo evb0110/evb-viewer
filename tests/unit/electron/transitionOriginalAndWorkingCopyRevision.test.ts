@@ -1217,6 +1217,56 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         expect(JSON.parse(await readFile(join(tempRoot, 'kept-original-notices.json'), 'utf8'))).toEqual({});
     });
 
+    it('keeps the journal of the file it keeps beside the PDF until that file can be moved', async () => {
+        const fs = await import('node:fs/promises');
+        let holding = true;
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            // Windows refuses to move a file another program holds without delete sharing.
+            link: async (...args: Parameters<typeof fs.link>) => {
+                if (holding && String(args[0]).includes('.evb-transition-')) {
+                    throw Object.assign(new Error('EBUSY: resource busy or locked, link'), {code: 'EBUSY'});
+                }
+                return fs.link(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath,
+            } = await prepare('saved-by-evb', 'old-working');
+            const {
+                prepareWorkingCopyTransition, recoverWorkingCopyTransition,
+            } = await import('@electron/file-access/workingCopyJournal');
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+            const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:2:next'));
+            const backupPath = `${originalPath}.evb-transition-crash.bak`;
+            await writeFile(backupPath, 'other-program');
+            // A crash followed the conflict's record, before the displaced file moved to its kept name.
+            await writeFile(getWorkingCopyJournalPath(workingCopyPath), JSON.stringify({
+                ...journal,
+                original: {
+                    path: originalPath,
+                    backupPath,
+                    state: 'conflicted',
+                },
+            }));
+            const keptPath = join(tempRoot, 'original (original).pdf');
+
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toMatchObject({code: 'EBUSY'});
+            await expect(readFile(backupPath, 'utf8')).resolves.toBe('other-program');
+            expect(existsSync(keptPath)).toBe(false);
+
+            holding = false;
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+            await expect(readFile(keptPath, 'utf8')).resolves.toBe('other-program');
+            expect(existsSync(backupPath)).toBe(false);
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-by-evb');
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
+
     it.skipIf(process.platform === 'win32')('keeps every stored notice when the notices file cannot be read', async () => {
         const {
             findKeptOriginal, rememberKeptOriginal,
