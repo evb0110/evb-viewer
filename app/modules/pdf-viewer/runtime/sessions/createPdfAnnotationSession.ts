@@ -376,17 +376,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 throw error;
             });
         },
-        publishTextBoxAppearance: async (proposal, handoff) => {
-            const signature = paintSignature.value;
+        publishTextBoxAppearance: async (proposal, handoff, isInputCurrent) => {
             const documentIdentity = annotationDocumentIdentity.value;
             const document = documentSession.pdfDocument.value;
-            const entities = paintEntities.value;
+            const signature = nativeAnnotationPaintSignature(paintEntities.value.map(entity => entity.identity.id === proposal.identity.id ? proposal : entity), retiredPdfAnnotationIds.value, null, options.documentRevisionToken.value);
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
             const pageNumber = requirePageNumber(proposal.pageIndex + 1);
-            const isCurrent = () => annotationDocumentIdentity.value === documentIdentity && paintSignature.value === signature;
+            const isCurrent = () => annotationDocumentIdentity.value === documentIdentity && isInputCurrent();
             const accept = () => {if (!isCurrent()) throw new DOMException('Text appearance input changed', 'AbortError'); handoff();};
             if (!await rendering.publishAnnotationPaint(pageNumber, {
-                signature: nativeAnnotationPaintSignature(entities.map(entity => entity.identity.id === proposal.identity.id ? proposal : entity), retiredPdfAnnotationIds.value, null, options.documentRevisionToken.value),
+                signature,
                 async prepare(page, captureSettlement, signal, reserveAppearanceBytes) {
                     const input = await rendering.prepareCanvasAnnotations(page, captureSettlement, signal, reserveAppearanceBytes, proposal);
                     if (!input) throw new DOMException('Text appearance document closed', 'AbortError');
@@ -397,7 +396,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     accept();
                     return Object.freeze({
                         ...input,
-                        signature: paintSignature.value,
+                        signature,
                     });
                 },
             }).catch((error: unknown) => {
