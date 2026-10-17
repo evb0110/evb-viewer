@@ -283,7 +283,10 @@ describe('window tab transfer orchestration helpers', () => {
         expect(tracker.has('source')).toBe(false);
     });
 
-    it('leaves pending drafts uncommitted when a capture finishes waiting after its move timed out', async () => {
+    it.each([
+        'waits for its source to open',
+        'completes its accepted text',
+    ] as const)('writes no notes once a move times out while it %s', async (stage) => {
         vi.useFakeTimers();
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         onTestFinished(() => {
@@ -302,18 +305,26 @@ describe('window tab transfer orchestration helpers', () => {
             isDjvu: false,
             revisionInfo: null,
         });
-        source.claimOpen({
-            kind: 'restore',
-            target: {
-                fileName: 'source.pdf',
-                originalPath: path,
-                isDjvu: false,
-            },
-        });
-        // Preparing a move commits the document's pending drafts, which makes it dirty.
-        source.bindMutationFrontier(() => 'frontier', async () => {source.setDirty(true);}, async () => {});
-        const openSettled = Promise.withResolvers<undefined>();
-        source.attachWorkspace('source', createWorkspaceExposeFixture({waitForDocumentOpenSettled: () => openSettled.promise}));
+        if (stage === 'waits for its source to open') {
+            source.claimOpen({
+                kind: 'restore',
+                target: {
+                    fileName: 'source.pdf',
+                    originalPath: path,
+                    isDjvu: false,
+                },
+            });
+        }
+        const held = Promise.withResolvers<undefined>();
+        // Preparing a move completes accepted text, then writes the document's
+        // notes, which makes it dirty.
+        source.bindMutationFrontier(() => 'frontier', async (assertCurrent) => {
+            if (stage === 'completes its accepted text') {
+                await held.promise.then(assertCurrent);
+            }
+            source.setDirty(true);
+        }, async () => {});
+        source.attachWorkspace('source', createWorkspaceExposeFixture({waitForDocumentOpenSettled: () => held.promise}));
         const pane = {
             paneId: 'pane-1',
             activeTabId: 'source',
@@ -349,7 +360,7 @@ describe('window tab transfer orchestration helpers', () => {
         expect(failures).toEqual(['tabs.transferErrors.rolledBack']);
         expect(source.operationLease.isBusy.value).toBe(false);
 
-        openSettled.resolve(undefined);
+        held.resolve(undefined);
         await vi.advanceTimersByTimeAsync(0);
 
         expect(source.snapshot.value.dirty).toBe(false);

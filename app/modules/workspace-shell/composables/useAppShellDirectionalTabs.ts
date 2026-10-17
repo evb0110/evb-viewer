@@ -238,7 +238,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 return;
             }
 
-            await options.documentSessionsByTabId.value[sourceTabId]?.prepareTransfer();
+            // A move between panes holds no document lease that could end.
+            await options.documentSessionsByTabId.value[sourceTabId]?.prepareTransfer(() => undefined);
             moveTabToPane(sourceTabId, route.targetPaneId, true, targetIndex);
         });
     }
