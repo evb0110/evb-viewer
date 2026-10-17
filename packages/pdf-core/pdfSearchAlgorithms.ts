@@ -246,8 +246,9 @@ export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
     }))).text;
 }
 
-export function escapeSearchRegex(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Each run of whitespace in a literal query matches any run of page whitespace.
+function literalSearchPattern(query: string) {
+    return query.split(/\p{White_Space}+/u).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(String.raw`\p{White_Space}+`);
 }
 
 export class SearchRegexLimitError extends Error {
@@ -334,14 +335,9 @@ export function buildPdfSearchRegex(
     if (options.useRegex) {
         assertSafePdfSearchRegex(query, options);
     }
-    const basePattern = options.useRegex ? toUnicodeSearchRegex(query) : escapeSearchRegex(query);
-    const useBoundary = options.wholeWord
-        && (options.useRegex || !SEARCH_CJK_SCRIPT_PATTERN.test(query));
-    const pattern = useBoundary
-        ? applyWholeWordBoundary(basePattern)
-        : basePattern;
-    const flags = options.matchCase ? 'gu' : 'giu';
-    return new RegExp(pattern, flags);
+    const basePattern = options.useRegex ? toUnicodeSearchRegex(query) : literalSearchPattern(query);
+    const useBoundary = options.wholeWord && (options.useRegex || !SEARCH_CJK_SCRIPT_PATTERN.test(query));
+    return new RegExp(useBoundary ? applyWholeWordBoundary(basePattern) : basePattern, options.matchCase ? 'gu' : 'giu');
 }
 
 interface IRegexGroupSafety {
@@ -588,6 +584,7 @@ const SEARCH_LIGATURE_FOLDS: Readonly<Record<string, string>> = {
     '\uFB06': 'st',
     // Long s, as early printed books and their OCR spell it.
     '\u017F': 's',
+    '\u2019': '\'', // Typographic apostrophe; the left quote, ayin in transliteration, stays apart.
 };
 
 interface INormalizedSearchText {

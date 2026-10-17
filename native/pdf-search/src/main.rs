@@ -425,6 +425,9 @@ fn fold_search_ligature(character: char) -> Option<&'static str> {
         '\u{fb05}' | '\u{fb06}' => Some("st"),
         // Long s, as early printed books and their OCR spell it.
         '\u{17f}' => Some("s"),
+        // A typographic apostrophe is the ASCII one. The left quote stays apart:
+        // transliteration writes ayin with it and aleph with the apostrophe.
+        '\u{2019}' => Some("'"),
         _ => None,
     }
 }
@@ -528,10 +531,18 @@ struct Matcher {
 impl Matcher {
     fn new(options: &SearchOptions) -> Result<Self, NativeError> {
         let query = normalize_search_fragment(&options.query);
+        // Each run of whitespace in a literal query matches any run of
+        // whitespace in the page, across a line break or a no-break space.
         let pattern = if options.use_regex {
             query.clone()
         } else {
-            regex::escape(&query)
+            static WHITESPACE: OnceLock<Regex> = OnceLock::new();
+            WHITESPACE
+                .get_or_init(|| Regex::new(r"\s+").expect("whitespace pattern is valid"))
+                .split(&query)
+                .map(regex::escape)
+                .collect::<Vec<_>>()
+                .join(r"\s+")
         };
         let bounded =
             options.whole_word && (options.use_regex || !contains_unsegmented_script(&query));
