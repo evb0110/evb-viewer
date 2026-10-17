@@ -1470,7 +1470,10 @@ describe('PdfPageRasterScheduler', () => {
                 return true;
             },
             discard() {},
-            release() {},
+            // Like the viewport, a raster taken for budget is disposed with its charge.
+            release(pageNumber, reason) {
+                if (reason === 'surface-budget-eviction') painted.delete(pageNumber);
+            },
         };
         const publish = (demands: readonly IPdfRasterDemand[]) => scheduler.setDemand({
             sourceId: 'viewport',
@@ -1549,6 +1552,7 @@ describe('PdfPageRasterScheduler', () => {
             expect((await thumbnail).status).toBe('committed');
             expect(painted.get(3)).toBe(1);
             expect(painted.get(1)).toBe(1);
+            expect(painted.has(2)).toBe(false);
             expect(budget.getSnapshot().reservedBytes).toBe(700);
             replacement.resolve(undefined);
             await vi.waitFor(() => expect(painted.get(1)).toBe(2));

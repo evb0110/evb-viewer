@@ -145,11 +145,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     };
     const getRenderDocumentToken = () => `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
     const getMountedRasterTarget = (pageNumber: TPageNumber) => getMountedPdfRasterTarget(options.viewerContainer.value, pageNumber);
-    const pageTextLayerReadyWaiter = createPdfPageTextLayerReadyWaiter({isReady: pageNumber => (
-        pageRenderState.getSlot(pageNumber).textLayerReadiness === 'ready'
-        && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer, .textLayer')
-            ?.dataset.pdfTextLayerReady === 'true'
-    )});
+    const isTextLayerReady = (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).textLayerReadiness === 'ready'
+        && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true';
+    const pageTextLayerReadyWaiter = createPdfPageTextLayerReadyWaiter({isReady: isTextLayerReady});
     function isRasterScaleCurrent(targetScale: number, currentScale: number) {
         return Math.abs(targetScale - currentScale)
             <= Math.max(1, Math.abs(currentScale)) * PDF_RASTER_SCALE_RELATIVE_TOLERANCE;
@@ -375,8 +373,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const generation = prepared.job.demand.consumerGeneration;
             if (!isPreparedRasterCurrent(prepared)) pageRenderState.completeRender(pageNumber, generation, prepared.job.requestId);
         },
-        release(pageNumber) {
-            if (!isViewportRasterDemanded(pageNumber)) clearAuthoritativePage(pageNumber, false);
+        release(pageNumber, reason) {
+            if (reason === 'surface-budget-eviction' || !isViewportRasterDemanded(pageNumber)) clearAuthoritativePage(pageNumber, false);
         },
     };
     function buildViewportRasterJobs(range: PdfUi.IPageRange, renderOptions: IRenderVisiblePagesOptions, scheduler: IPdfPageRasterScheduler) {
@@ -406,7 +404,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const distance = Math.min(Math.abs(pageNumber - range.start), Math.abs(pageNumber - range.end));
             const lane: TPdfRasterLane = visible
                 ? renderOptions.authoritativeRaster === true ? 'navigation-target' : 'viewport-visible'
-                : distance <= 1 ? 'viewport-nearby' : 'prefetch';
+                : latestDemand.requiredPages.includes(pageNumber) ? 'viewport-visible' : distance <= 1 ? 'viewport-nearby' : 'prefetch';
             const maxCanvasPixels = renderOptions.bufferMaxCanvasPixels ?? renderOptions.maxCanvasPixels;
             const pageRenderOptions = lane === 'viewport-nearby' || lane === 'prefetch' ? {
                 ...renderOptions,
@@ -1187,8 +1185,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             ? pageRenderState.getSlot(pageNumber).targetScale
             : null,
         isPageRenderedForClass: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber, false)
-            && (!latestDemand.requiredPages.includes(pageNumber) || (pageRenderState.getSlot(pageNumber).textLayerReadiness === 'ready'
-                && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true')
+            && (!latestDemand.requiredPages.includes(pageNumber) || isTextLayerReady(pageNumber)
                 || (pageRenderState.getSlot(pageNumber).layerReadiness === 'canvas-only' && pageRenderState.getSlot(pageNumber).job === 'idle'
                     && pageRenderState.getSlot(pageNumber).committedRasterQuality?.intent === 'settled')),
         isOriginalAppearance: pageRenderState.isOriginalAppearance,
