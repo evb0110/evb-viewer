@@ -11,8 +11,13 @@ import {
 } from 'node:path';
 import { promisify } from 'node:util';
 import {
+    degrees,
     PDFDocument,
+    popGraphicsState,
+    pushGraphicsState,
+    setTextRenderingMode,
     StandardFonts,
+    TextRenderingMode,
 } from 'pdf-lib';
 import {
     describe,
@@ -136,6 +141,73 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
             document.getPages()[0]?.drawText('New revision', {font});
             await writeFile(pdfPath, await document.save());
             await expect(stale.next()).rejects.toThrow('PDF source changed during text extraction');
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, nativeToolContractTestTimeoutMs);
+
+    it('leaves text a CropBox hides out of search pages only', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-text-crop-'));
+        try {
+            const pdfPath = join(directory, 'search-text-crop.pdf');
+            const document = await PDFDocument.create();
+            const font = await document.embedFont(StandardFonts.Helvetica);
+            // Each cropped page shows CROP_SHOWN_<n> and hides CROP_HIDDEN_<n> above its CropBox.
+            for (const [
+                index,
+                setup,
+            ] of [
+                    {rotation: 0},
+                    {rotation: 90},
+                    {rotation: 180},
+                    {rotation: 270},
+                    {
+                        rotation: 0,
+                        invisible: true,
+                    },
+                    {
+                        rotation: 0,
+                        uncropped: true,
+                    },
+                ].entries()) {
+                const page = document.addPage([
+                    600,
+                    800,
+                ]);
+                if (!setup.uncropped) page.setCropBox(100, 100, 300, 400);
+                page.setRotation(degrees(setup.rotation));
+                if (setup.invisible) page.pushOperators(pushGraphicsState(), setTextRenderingMode(TextRenderingMode.Invisible));
+                page.drawText(`CROP_SHOWN_${index + 1}`, {
+                    font,
+                    size: 14,
+                    x: 150,
+                    y: 300,
+                });
+                page.drawText(`CROP_HIDDEN_${index + 1}`, {
+                    font,
+                    size: 14,
+                    x: 150,
+                    y: 650,
+                });
+                if (setup.invisible) page.pushOperators(popGraphicsState());
+            }
+            await writeFile(pdfPath, await document.save());
+
+            const readAll = async (visiblePageOnly: boolean) => {
+                const pages = [];
+                for await (const page of streamPdfPageTexts(pdfPath, {visiblePageOnly})) pages.push(page.text);
+                return pages;
+            };
+            const visible = await readAll(true);
+            expect(visible).toHaveLength(6);
+            visible.forEach((text, index) => expect(text).toContain(`CROP_SHOWN_${index + 1}`));
+            expect(visible.slice(0, 5).join('\n')).not.toContain('CROP_HIDDEN');
+            expect(visible[5]).toContain('CROP_HIDDEN_6');
+            // Export and assistant reads keep reading the whole page.
+            expect((await readAll(false)).join('\n')).toContain('CROP_HIDDEN_1');
         } finally {
             await rm(directory, {
                 recursive: true,

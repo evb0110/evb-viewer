@@ -54,7 +54,117 @@ function normalizePopplerPageText(text: string) {
     return normalizeSearchablePageText(text.replace(BIDI_FORMATTING_CONTROLS, '').trim());
 }
 
-type TStreamPdfPageTextsOptions = IPdfPageRange & {signal?: AbortSignal | undefined};
+type TStreamPdfPageTextsOptions = IPdfPageRange & {
+    signal?: AbortSignal | undefined;
+    /** Leaves out text a page's CropBox hides, as the viewer does. */
+    visiblePageOnly?: boolean;
+};
+
+/** A page area for pdftotext, in points from the top left of the rotated MediaBox. */
+interface IPopplerTextArea {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+const PDFINFO_PAGE_BOX = /^Page\s+(\d+)\s+(MediaBox|CropBox):\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/gmu;
+const PDFINFO_PAGE_ROTATION = /^Page\s+(\d+)\s+rot:\s+(-?\d+)\s*$/gmu;
+
+function popplerTextArea(media: number[], crop: number[], rotation: number): IPopplerTextArea {
+    const [
+        mx0 = 0,
+        my0 = 0,
+        mx1 = 0,
+        my1 = 0,
+    ] = media;
+    const [
+        x0 = 0,
+        y0 = 0,
+        x1 = 0,
+        y1 = 0,
+    ] = crop;
+    const [
+        x,
+        y,
+        width,
+        height,
+    ] = rotation === 90 ? [
+        y0 - my0,
+        x0 - mx0,
+        y1 - y0,
+        x1 - x0,
+    ]
+        : rotation === 180 ? [
+            mx1 - x1,
+            y0 - my0,
+            x1 - x0,
+            y1 - y0,
+        ]
+            : rotation === 270 ? [
+                my1 - y1,
+                mx1 - x1,
+                y1 - y0,
+                x1 - x0,
+            ]
+                : [
+                    x0 - mx0,
+                    my1 - y1,
+                    x1 - x0,
+                    y1 - y0,
+                ];
+    return {
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.max(1, Math.round(width)),
+        height: Math.max(1, Math.round(height)),
+    };
+}
+
+/**
+ * The visible area of every page in the window whose CropBox hides part of
+ * its MediaBox. pdftotext reads a whole MediaBox and ignores the CropBox, so
+ * its text would include words the viewer never shows. pdfinfo reports the
+ * CropBox already clipped to the MediaBox, inherited ones included.
+ */
+async function readCroppedPageAreas(pdfPath: string, window: Required<IPdfPageRange>, signal?: AbortSignal) {
+    const paths = getPdfNativeToolPaths();
+    const env = buildPopplerEnv(paths);
+    const result = await runNativeToolCommand(paths.pdfinfo, [
+        '-box',
+        '-f',
+        String(window.firstPage),
+        '-l',
+        String(window.lastPage),
+        pdfPath,
+    ], {
+        ...(env === undefined ? {} : {env}),
+        ...(signal === undefined ? {} : {signal}),
+        commandLabel: 'pdfinfo(page boxes)',
+        maxStdoutBytes: 4 * 1024 * 1024,
+    });
+    const mediaBoxes = new Map<number, number[]>();
+    const cropBoxes = new Map<number, number[]>();
+    for (const [
+        , page,
+        box,
+        ...values
+    ] of result.stdout.matchAll(PDFINFO_PAGE_BOX)) {
+        (box === 'CropBox' ? cropBoxes : mediaBoxes).set(Number(page), values.map(value => Number(value.replace(',', '.'))));
+    }
+    const areas = new Map<number, IPopplerTextArea>();
+    for (const [
+        , page,
+        rotation,
+    ] of result.stdout.matchAll(PDFINFO_PAGE_ROTATION)) {
+        const media = mediaBoxes.get(Number(page));
+        const crop = cropBoxes.get(Number(page));
+        if (media && crop && crop.some((value, index) => Math.abs(value - (media[index] ?? value)) >= 0.5)) {
+            areas.set(Number(page), popplerTextArea(media, crop, ((Number(rotation) % 360) + 360) % 360));
+        }
+    }
+    return areas;
+}
 
 export async function readPdfPageCount(pdfPath: string, signal?: AbortSignal) {
     const paths = getPdfNativeToolPaths();
@@ -83,6 +193,7 @@ async function readPopplerPageTexts(
     range: IPdfPageRange,
     signal?: AbortSignal,
     contentOrder = false,
+    area?: IPopplerTextArea,
 ) {
     const paths = getPdfNativeToolPaths();
     const env = buildPopplerEnv(paths);
@@ -91,6 +202,16 @@ async function readPopplerPageTexts(
     let pending = '';
     const result = await runNativeToolCommand(paths.pdftotext, [
         ...(contentOrder ? ['-raw'] : []),
+        ...(area === undefined ? [] : [
+            '-x',
+            String(area.x),
+            '-y',
+            String(area.y),
+            '-W',
+            String(area.width),
+            '-H',
+            String(area.height),
+        ]),
         ...(range.firstPage === undefined ? [] : [
             '-f',
             String(range.firstPage),
@@ -120,6 +241,32 @@ async function readPopplerPageTexts(
         },
     });
     return MISSING_POPPLER_DATA.test(result.stderr) ? null : pages;
+}
+
+/** Reads a range with one pdftotext per run of pages that share a visible area. */
+async function readVisiblePopplerPageTexts(
+    pdfPath: string,
+    range: Required<IPdfPageRange>,
+    areas: ReadonlyMap<number, IPopplerTextArea>,
+    signal?: AbortSignal,
+    contentOrder = false,
+) {
+    if (areas.size === 0) return readPopplerPageTexts(pdfPath, range, signal, contentOrder);
+    const areaKey = (pageNumber: number) => JSON.stringify(areas.get(pageNumber) ?? null);
+    const pages: IPageText[] = [];
+    for (let firstPage = range.firstPage; firstPage <= range.lastPage;) {
+        let lastPage = firstPage;
+        while (lastPage < range.lastPage && areaKey(lastPage + 1) === areaKey(firstPage)) lastPage += 1;
+        const run = await readPopplerPageTexts(pdfPath, {
+            firstPage,
+            lastPage,
+        }, signal, contentOrder, areas.get(firstPage));
+        if (run === null) return null;
+        pages.push(...run);
+        if (run.length < lastPage - firstPage + 1) break;
+        firstPage = lastPage + 1;
+    }
+    return pages;
 }
 
 /**
@@ -171,6 +318,7 @@ async function readOcrLayersInRecognitionOrder(
     pdfPath: string,
     pages: IPageText[],
     inspection: TOcrPdfTextVisibilityAnalysis,
+    areas: ReadonlyMap<number, IPopplerTextArea>,
     signal?: AbortSignal,
 ) {
     const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
@@ -179,7 +327,9 @@ async function readOcrLayersInRecognitionOrder(
     for (const pageNumber of textPageNumbers) {
         const page = inspection.visibility.get(pageNumber);
         if (page === undefined || page.paintedText) continue;
-        if (page.evbOcrLayer && page.evbOcrLines !== null) {
+        // Decoded lines carry no glyph positions to clip, so a cropped page
+        // rereads its layer in recognition order within the visible area.
+        if (page.evbOcrLayer && page.evbOcrLines !== null && !areas.has(pageNumber)) {
             ocrLayerTexts.set(pageNumber, {
                 pageNumber,
                 text: normalizePopplerPageText(page.evbOcrLines.map(line => line.text).join('\n')),
@@ -190,7 +340,7 @@ async function readOcrLayersInRecognitionOrder(
         }
     }
     for (const range of groupContiguousPages(foreignLayerPages)) {
-        for (const page of await readPopplerPageTexts(pdfPath, range, signal, true) ?? []) {
+        for (const page of await readVisiblePopplerPageTexts(pdfPath, range, areas, signal, true) ?? []) {
             ocrLayerTexts.set(page.pageNumber, page);
         }
     }
@@ -211,9 +361,10 @@ export function streamPdfPageTexts(
 ): AsyncGenerator<IPageText> {
     const {
         signal,
+        visiblePageOnly = false,
         ...range
     } = options;
-    return streamPdfPageTextRanges(pdfPath, [range], signal, onProgress);
+    return streamPdfPageTextRanges(pdfPath, [range], signal, onProgress, visiblePageOnly);
 }
 
 async function* streamPdfPageTextRanges(
@@ -221,6 +372,7 @@ async function* streamPdfPageTextRanges(
     ranges: Iterable<IPdfPageRange>,
     signal?: AbortSignal,
     onProgress?: (pageNumber: number) => void,
+    visiblePageOnly = false,
 ): AsyncGenerator<IPageText> {
     signal?.throwIfAborted();
     const source = await stat(pdfPath, {bigint: true});
@@ -252,7 +404,8 @@ async function* streamPdfPageTextRanges(
     ] of windows.entries()) {
         signal?.throwIfAborted();
         await assertSource();
-        const pages = await readPopplerPageTexts(pdfPath, window, signal);
+        const areas = visiblePageOnly ? await readCroppedPageAreas(pdfPath, window, signal) : new Map<number, IPopplerTextArea>();
+        const pages = await readVisiblePopplerPageTexts(pdfPath, window, areas, signal);
         if (pages === null) {
             await assertSource();
             yield* streamPdfjsPageTexts(pdfPath, window, signal);
@@ -288,7 +441,7 @@ async function* streamPdfPageTextRanges(
                 log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
             }
         }
-        const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, signal);
+        const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, areas, signal);
         await assertSource();
         for (const page of orderedPages) {
             signal?.throwIfAborted();
