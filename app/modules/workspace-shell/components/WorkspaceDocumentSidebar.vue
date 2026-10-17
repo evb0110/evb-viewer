@@ -1,6 +1,6 @@
 <template>
     <PdfSidebar
-        v-if="isReader && showsPdfSidebar"
+        v-if="hasReaderDocument && showsPdfSidebar"
         v-model:active-tab="view.sidebarTab.value"
         v-model:search-query="search.searchQuery.value"
         :submitted-search-query="search.submittedSearchQuery.value"
@@ -77,7 +77,7 @@
         @page-file-drop="pageOps.handlePageFileDrop"
     />
     <DocumentSourceSidebar
-        v-else-if="isReader"
+        v-else-if="hasReaderDocument"
         v-model:active-tab="view.sidebarTab.value"
         :is-active="isActive"
         :source="view.documentPageSource.value"
@@ -138,7 +138,11 @@ const {
     annotationToolState,
     bookmarkNavigationIntentVersion,
 } = context;
-const isReader = computed(() => context.scanCleanup.surfaceMode.value === 'reader');
+// The reader's active document driver owns whether a sidebar exists; an empty tab has none.
+const hasReaderDocument = computed(() => (
+    context.scanCleanup.surfaceMode.value === 'reader'
+    && document.driver.activeDocumentDriver.value !== null
+));
 const pdfViewer = computed(() => view.pdfViewerRef.value);
 const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
     const viewer = pdfViewer.value;
