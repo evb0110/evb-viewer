@@ -924,7 +924,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await clickAsUser(page, '[data-thumbnail-page="3"]', {button: 'right'});
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete named bookmark target'});
-        await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="3"]') === null, {timeout: 30_000});
+        // The old page 4 becomes thumbnail 3, so only the rendered total shows the deletion landed.
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 30_000}).toBe('3');
         await waitForPdfLoaded(page);
         await saveViaVisibleToolbar(page, 90_000, fixture);
         const saved = await PDFDocument.load(await readFile(fixture));
