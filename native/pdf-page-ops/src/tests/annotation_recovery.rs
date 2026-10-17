@@ -525,3 +525,40 @@ fn budget_omitted_text_box_recovery_still_restores_the_original_font_in_both_wri
         }
     }
 }
+
+/// The restored text box draws its original appearance: wrapper, resources
+/// and streams equal the source graph apart from identity and metadata.
+fn validate_text_box_recovery(
+    source: &impl PdfObjectSource,
+    original: &TextBoxOriginalAppearance,
+    root: ObjectId,
+) -> Result<()> {
+    let expected = original_text_box_graph(original)?;
+    let expected_root = expected.trailer.get(b"Root")?.as_reference()?;
+    let without_metadata = |dict: &Dictionary| {
+        let mut dict = dict.clone();
+        dict.remove(b"Contents");
+        for key in TEXT_BOX_METADATA_FIELDS {
+            dict.remove(key);
+        }
+        Object::Dictionary(dict)
+    };
+    let a = recovery_semantic_object(
+        expected.as_ref(),
+        &without_metadata(expected.get_dictionary(expected_root)?),
+        &mut HashSet::new(),
+        0,
+    )?;
+    let b = recovery_semantic_object(
+        source,
+        &without_metadata(source.dictionary(root)?),
+        &mut HashSet::new(),
+        0,
+    )?;
+    if a != b {
+        return Err(
+            "Restored text box appearance differs from its original wrapper/resources".into(),
+        );
+    }
+    Ok(())
+}

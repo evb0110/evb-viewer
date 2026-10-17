@@ -807,8 +807,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             page_rotation,
             &expected_name,
         )?;
-        if let Some(original) = &editor.original_appearance {
-            validate_text_box_recovery(document, original, matching_refs[0])?;
+        if editor.original_appearance.is_some() {
             let [r, g, b] = editor.color;
             if (reopened.font_size - editor.font_size).abs() > 0.0001
                 || reopened.rotation != rotation

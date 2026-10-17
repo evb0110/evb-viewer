@@ -233,7 +233,7 @@ pub(crate) fn hydrate_text_box_original_appearances_path(
     hydrate_text_box_original_appearances(mutations, &AppendedRevision::new(&source))
 }
 
-fn original_text_box_graph(
+pub(crate) fn original_text_box_graph(
     original: &TextBoxOriginalAppearance,
 ) -> Result<std::borrow::Cow<'_, Document>> {
     if let Some(graph) = &original.source_graph {
@@ -247,7 +247,7 @@ fn original_text_box_graph(
 
 // Appearance restoration owns the original painting/geometry wrapper and text
 // encoding. Identity, thread links and descriptive metadata belong to Save.
-const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
+pub(crate) const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
     b"NM",
     b"T",
     b"CreationDate",
@@ -306,41 +306,6 @@ pub(crate) fn restore_text_box_recovery(
         dict.set(
             "CreationDate",
             Object::string_literal(shape_pdf_date(Some(created), modified_at)),
-        );
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_text_box_recovery(
-    source: &impl PdfObjectSource,
-    original: &TextBoxOriginalAppearance,
-    root: ObjectId,
-) -> Result<()> {
-    let expected = original_text_box_graph(original)?;
-    let expected_root = expected.trailer.get(b"Root")?.as_reference()?;
-    let without_metadata = |dict: &Dictionary| {
-        let mut dict = dict.clone();
-        dict.remove(b"Contents");
-        for key in TEXT_BOX_METADATA_FIELDS {
-            dict.remove(key);
-        }
-        Object::Dictionary(dict)
-    };
-    let a = recovery_semantic_object(
-        expected.as_ref(),
-        &without_metadata(expected.get_dictionary(expected_root)?),
-        &mut HashSet::new(),
-        0,
-    )?;
-    let b = recovery_semantic_object(
-        source,
-        &without_metadata(source.dictionary(root)?),
-        &mut HashSet::new(),
-        0,
-    )?;
-    if a != b {
-        return Err(
-            "Restored text box appearance differs from its original wrapper/resources".into(),
         );
     }
     Ok(())
@@ -593,7 +558,7 @@ fn recovery_reply_signatures(
     Ok(signatures)
 }
 
-fn recovery_semantic_object(
+pub(crate) fn recovery_semantic_object(
     source: &impl PdfObjectSource,
     object: &Object,
     seen: &mut HashSet<ObjectId>,
