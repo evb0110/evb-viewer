@@ -345,6 +345,42 @@ describe('useAnnotationShapes', () => {
         });
     });
 
+    it('splits a draw stroke that leaves the page and returns into two paths of one shape', () => {
+        const projection = createShapeProjection();
+
+        projection.shapes.startDrawing(requirePageIndex(0), 'draw', 0.5, 0.5, DEFAULT_ANNOTATION_SETTINGS);
+        projection.shapes.continueDrawing(1.5, 0.5);
+        projection.shapes.continueDrawing(1.5, 0.3);
+        projection.shapes.continueDrawing(0.5, 0.3);
+
+        const created = projection.shapes.finishDrawing();
+        projection.application.value.store.createShape(toCanonicalShapeEntity(created!, asAnnotationId(created!.id)));
+
+        expect(projection.shapes.getAllShapes()).toHaveLength(1);
+        expect(projection.shapes.getAllShapes()[0]!.strokes).toEqual([
+            [
+                {
+                    x: 0.5,
+                    y: 0.5,
+                },
+                {
+                    x: 1,
+                    y: 0.5,
+                },
+            ],
+            [
+                {
+                    x: 1,
+                    y: 0.3,
+                },
+                {
+                    x: 0.5,
+                    y: 0.3,
+                },
+            ],
+        ]);
+    });
+
     it('timestamps created drawings and updates their modified time on canonical edits', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-25T10:00:00Z'));

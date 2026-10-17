@@ -22,7 +22,7 @@ import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import {
     buildShapeAnnotation,
     createDrawingShape,
-    isDrawableFinishedShape,
+    finishDrawingShape,
     updateDrawingShapeForPoint,
 } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
 
@@ -85,9 +85,15 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
     const drawingShape = ref<IShapeAnnotation | null>(null);
     const isDrawing = ref(false);
     const shapeEntities = shallowRef<readonly IShapeEntity[]>([]);
-    let drawOrigin: {
-        x: number;
-        y: number
+    let drawPointer: {
+        origin: {
+            x: number;
+            y: number
+        };
+        previous: {
+            x: number;
+            y: number
+        };
     } | null = null;
 
     function projectCanonicalShapes(snapshotIncludingDeleted: readonly AnnotationEntity[]) {
@@ -197,7 +203,7 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
     function resetDrawingState() {
         isDrawing.value = false;
         drawingShape.value = null;
-        drawOrigin = null;
+        drawPointer = null;
     }
 
     function startDrawing(
@@ -209,20 +215,30 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
     ) {
         selectedShapeId.value = null;
         focusedShapeId.value = null;
-        drawOrigin = {
-            x,
-            y,
+        drawPointer = {
+            origin: {
+                x,
+                y,
+            },
+            previous: {
+                x,
+                y,
+            },
         };
         drawingShape.value = createDrawingShape(pageIndex, tool, x, y, settings);
         isDrawing.value = true;
     }
 
     function continueDrawing(x: number, y: number) {
-        if (!drawingShape.value || !isDrawing.value || !drawOrigin) {
+        if (!drawingShape.value || !isDrawing.value || !drawPointer) {
             return;
         }
 
-        drawingShape.value = updateDrawingShapeForPoint(drawingShape.value, drawOrigin, x, y);
+        drawingShape.value = updateDrawingShapeForPoint(drawingShape.value, drawPointer.origin, x, y, drawPointer.previous);
+        drawPointer.previous = {
+            x,
+            y,
+        };
     }
 
     /** Returns the finished draft; the shape enters the store through its creator. */
@@ -236,7 +252,7 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
             modifiedAt: createEpochMs(),
         });
         resetDrawingState();
-        return isDrawableFinishedShape(shape) ? shape : null;
+        return finishDrawingShape(shape);
     }
 
     return {

@@ -169,6 +169,24 @@ async function waitForLineCountOnDisk(filePath: string, expectedCount: number, t
     return waitForAnnotationSubtypeCountOnDisk(filePath, 'Line', expectedCount, timeoutMs);
 }
 
+/** Counts the arrays directly inside the array that follows `key` in a QDF dictionary. */
+function countTopLevelArrays(dictionary: string, key: string) {
+    const start = dictionary.indexOf('[', dictionary.indexOf(key));
+    if (dictionary.indexOf(key) < 0 || start < 0) return 0;
+    let depth = 0;
+    let count = 0;
+    for (const character of dictionary.slice(start)) {
+        if (character === '[') {
+            depth += 1;
+            if (depth === 2) count += 1;
+        } else if (character === ']') {
+            depth -= 1;
+            if (depth === 0) break;
+        }
+    }
+    return count;
+}
+
 async function dragInkStroke(
     page: Page,
     points: ReadonlyArray<{
@@ -2398,6 +2416,106 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await clickToolbarButtonWhenEnabled(page, 'Redo');
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
+    });
+
+    it('leaves a gap where a freehand stroke leaves the page and comes back', async () => {
+        const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-ink-page-exit-'));
+        const session = await startDrawShapeSession();
+        const { page } = session;
+        const fixturePath = await createBlankFixturePdf(`draw-page-exit-${Date.now()}.pdf`, 1);
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await clickAnnotationTool(page, 'Draw');
+        await setAnnotationColor(page, '#111827');
+
+        // Out past the right edge, down outside the page, and back in.
+        await dragInkStroke(page, [
+            {
+                x: 0.55,
+                y: 0.4,
+            },
+            {
+                x: 1.03,
+                y: 0.42,
+            },
+            {
+                x: 1.03,
+                y: 0.62,
+            },
+            {
+                x: 0.55,
+                y: 0.64,
+            },
+        ]);
+        await waitForShapeCount(page, 1);
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
+
+        const layout = await page.evaluate(() => {
+            const overlay = document.querySelector<SVGElement>('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer');
+            const shape = overlay?.querySelector('g[data-annotation-kind="shape"]');
+            if (!overlay || !shape) return null;
+            const rect = overlay.getBoundingClientRect();
+            return {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height,
+                visualPaths: shape.querySelectorAll('[data-annotation-visual] polyline').length,
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+            };
+        });
+        expect(layout).not.toBeNull();
+
+        const screenshot = decode(await page.screenshot({path: join(outputDirectory, 'page-exit.png')}));
+        const scaleX = screenshot.width / layout!.viewportWidth;
+        const scaleY = screenshot.height / layout!.viewportHeight;
+        const isInkPixel = (cssX: number, cssY: number) => {
+            const index = (Math.round(cssY * scaleY) * screenshot.width + Math.round(cssX * scaleX)) * screenshot.channels;
+            // Antialiased 1 pt ink stays below 150 per channel; page and edge are lighter.
+            return (screenshot.data[index] ?? 255) < 150
+                && (screenshot.data[index + 1] ?? 255) < 150
+                && (screenshot.data[index + 2] ?? 255) < 150;
+        };
+        const countInkPixels = (fromX: number, toX: number, fromY: number, toY: number) => {
+            let count = 0;
+            for (let y = fromY; y <= toY; y += 1) {
+                for (let x = fromX; x <= toX; x += 1) {
+                    if (isInkPixel(x, y)) count += 1;
+                }
+            }
+            return count;
+        };
+        const pageRight = layout!.left + layout!.width;
+        const pageY = (ratio: number) => layout!.top + layout!.height * ratio;
+        const pageX = (ratio: number) => layout!.left + layout!.width * ratio;
+        expect(
+            countInkPixels(pageX(0.75) - 4, pageX(0.75) + 4, pageY(0.41) - 6, pageY(0.41) + 6),
+            'the stroke itself is painted',
+        ).toBeGreaterThan(0);
+        expect(
+            countInkPixels(pageRight - 6, pageRight + 6, pageY(0.46), pageY(0.58)),
+            'nothing is painted along the page edge between exit and reentry',
+        ).toBe(0);
+        expect(layout!.visualPaths, 'the stroke is drawn as two separate paths').toBe(2);
+
+        await saveViaWindowHandle(page);
+        await waitForInkCountOnDisk(fixturePath, 1);
+        const qdfPath = join(outputDirectory, 'page-exit.qdf.pdf');
+        execFileSync(getPdfNativeToolPaths().qpdf, [
+            '--qdf',
+            '--object-streams=disable',
+            fixturePath,
+            qdfPath,
+        ], { encoding: 'utf8' });
+        const inkDictionary = readFileSync(qdfPath, 'latin1').split('endobj')
+            .find(dictionary => dictionary.includes('/Subtype /Ink')) ?? '';
+        expect(countTopLevelArrays(inkDictionary, '/InkList'), 'one Ink annotation saves both paths').toBe(2);
+
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await waitForShapeCount(page, 0);
+        await clickToolbarButtonWhenEnabled(page, 'Redo');
+        await waitForShapeCount(page, 1);
     });
 
     it('saves a filled closed arrowhead for Poppler and PDF.js', async () => {

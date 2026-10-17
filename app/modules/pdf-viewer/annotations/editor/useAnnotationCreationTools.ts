@@ -16,7 +16,7 @@ import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     createDrawingShape,
-    isDrawableFinishedShape,
+    finishDrawingShape,
     updateDrawingShapeForPoint,
 } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
 import {toCanonicalShapeEntity} from '@app/modules/pdf-viewer/annotations/annotationApplication';
@@ -47,42 +47,52 @@ export interface IAnnotationCreationTools {
 
 export const useAnnotationCreationTools = (
     options: IUseAnnotationCreationToolsOptions,
-): IAnnotationCreationTools => ({
-    create(tool, pageIndex, rect, stampImage, rotation) {
-        if (tool === 'text') {
-            const entity = rotation === undefined || rotation === 0
-                ? options.surface.createTextBoxAt(pageIndex, rect)
-                : options.surface.createTextBoxAt(pageIndex, rect, {rotation});
-            options.surface.select([entity.identity.id]);
-            return entity;
-        }
+): IAnnotationCreationTools => {
+    // The unclamped pointer position each draft last took. A freehand stroke
+    // needs it to find where the pointer crossed the page edge.
+    const lastPointerPoints = new WeakMap<IShapeAnnotation, {
+        x: number;
+        y: number
+    }>();
+    return {
+        create(tool, pageIndex, rect, stampImage, rotation) {
+            if (tool === 'text') {
+                const entity = rotation === undefined || rotation === 0
+                    ? options.surface.createTextBoxAt(pageIndex, rect)
+                    : options.surface.createTextBoxAt(pageIndex, rect, {rotation});
+                options.surface.select([entity.identity.id]);
+                return entity;
+            }
 
-        if (tool === 'note') {
-            const entity = options.surface.createNoteAt(pageIndex, rect);
-            options.surface.select([entity.identity.id]);
-            return entity;
-        }
+            if (tool === 'note') {
+                const entity = options.surface.createNoteAt(pageIndex, rect);
+                options.surface.select([entity.identity.id]);
+                return entity;
+            }
 
-        if (tool === 'stamp' && stampImage) {
-            const entity = options.surface.createStampAt(pageIndex, rect, stampImage);
-            options.surface.select([entity.identity.id]);
-            return entity;
-        }
+            if (tool === 'stamp' && stampImage) {
+                const entity = options.surface.createStampAt(pageIndex, rect, stampImage);
+                options.surface.select([entity.identity.id]);
+                return entity;
+            }
 
-        return null;
-    },
-    beginShape(pageIndex, tool, point) {
-        const settings = options.surface.settings.value ?? DEFAULT_ANNOTATION_SETTINGS;
-        return createDrawingShape(requirePageIndex(pageIndex), tool, point.x, point.y, settings);
-    },
-    updateShape(draft, point, origin) {
-        const rawDraft = toRaw(draft);
-        return updateDrawingShapeForPoint(rawDraft, origin, point.x, point.y);
-    },
-    finishShape(draft) {
-        if (!isDrawableFinishedShape(draft)) {
             return null;
-        }
-        return toCanonicalShapeEntity(toRaw(draft), asAnnotationId(draft.id));
-    },
-});
+        },
+        beginShape(pageIndex, tool, point) {
+            const settings = options.surface.settings.value ?? DEFAULT_ANNOTATION_SETTINGS;
+            const draft = createDrawingShape(requirePageIndex(pageIndex), tool, point.x, point.y, settings);
+            lastPointerPoints.set(draft, point);
+            return draft;
+        },
+        updateShape(draft, point, origin) {
+            const rawDraft = toRaw(draft);
+            const updated = updateDrawingShapeForPoint(rawDraft, origin, point.x, point.y, lastPointerPoints.get(rawDraft) ?? origin);
+            lastPointerPoints.set(updated, point);
+            return updated;
+        },
+        finishShape(draft) {
+            const finished = finishDrawingShape(toRaw(draft));
+            return finished ? toCanonicalShapeEntity(finished, asAnnotationId(draft.id)) : null;
+        },
+    };
+};
