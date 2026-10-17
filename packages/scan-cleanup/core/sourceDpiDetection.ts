@@ -7,6 +7,7 @@ import type {
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
 
@@ -499,8 +500,14 @@ export async function detectSourceDpiDetails(
             }
         },
     ));
-    for (const outcome of outcomes) {
-        if (outcome.status === 'rejected') throw outcome.reason;
+    // Lanes a cancel stopped share the signal's reason. Distinct failures
+    // travel together, so none whose process may still run is dropped.
+    const failures = [...new Set(outcomes.flatMap(outcome => (outcome.status === 'rejected' ? [outcome.reason] : [])))];
+    if (failures.length > 1) {
+        throw new AggregateError(failures, `PDF DPI probes failed: ${failures.map(getErrorMessage).join('; ')}`);
+    }
+    if (failures.length === 1) {
+        throw failures[0];
     }
     return toPageRasterSource(combinedResult, pages === undefined);
 }
