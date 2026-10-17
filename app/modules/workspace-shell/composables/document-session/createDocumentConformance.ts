@@ -209,26 +209,9 @@ export function createDocumentConformance(
             || pending.path !== path
             || pending.requestId !== conformanceProfileRequestId
             || state.workingCopyPath.value !== path
-            || (
-                state.pdfConformanceAnalysisState.value !== 'waiting-initial-visual'
-                && state.pdfConformanceAnalysisState.value !== 'on-demand-only'
-            )
+            || state.pdfConformanceAnalysisState.value !== 'waiting-initial-visual'
         ) {
             return false;
-        }
-
-        if (state.pdfConformanceAnalysisState.value === 'on-demand-only') {
-            scheduledConformanceHandle = idleScheduler.schedule(() => {
-                scheduledConformanceHandle = null;
-                if (
-                    pendingConformanceProfile === pending
-                    && pending.requestId === conformanceProfileRequestId
-                    && state.workingCopyPath.value === pending.path
-                ) {
-                    void startPdfSaveRestrictionAnalysis(pending.path, pending.requestId).catch(() => {});
-                }
-            });
-            return true;
         }
 
         state.pdfConformanceAnalysisState.value = 'waiting-idle';
