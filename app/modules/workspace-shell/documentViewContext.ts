@@ -301,7 +301,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     }, {flush: 'sync'});
 
     usePageShortcuts({
-        isActive,
+        isActive: computed(() => isActive.value && !document.isMoving.value),
         hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? file.djvuSourcePath.value)),
         pdfSrc,
         canPrint: computed(() => (
@@ -332,13 +332,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
                 message: 'Failed to save document',
             });
         },
-        handlePrint: () => {
-            void runDetached(() => Promise.resolve(print.handlePrint()), {
-                category: 'user-visible-operation',
-                scope: 'workspace',
-                message: 'Failed to print document',
-            });
-        },
+        handlePrint: print.handlePrint,
         handleToggleSidebar: () => {
             view.showSidebar.value = !view.showSidebar.value;
         },
