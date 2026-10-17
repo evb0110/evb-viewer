@@ -1064,7 +1064,10 @@ async function commitTextBox(
         rect: draft.rect ?? entity.rect,
     };
     const fitting = surface.fitTextBox(entity, proposal);
-    const fitted = fitting instanceof Promise ? await fitting : fitting;
+    const {
+        appearance,
+        ...fitted
+    } = fitting instanceof Promise ? await fitting : fitting;
     await surface.publishTextBoxAppearance({
         ...proposal,
         ...fitted,
@@ -1074,7 +1077,7 @@ async function commitTextBox(
             ...fitted,
         });
         finish();
-    });
+    }, appearance);
 }
 
 onBeforeUnmount(() => {

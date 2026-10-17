@@ -84,6 +84,7 @@ import {
     nativeAnnotationPaintIdentity,
     originalAnnotationPaintRef,
     prepareNativeTextBoxPagePaint,
+    type IAcceptedNativeTextBox,
 } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolvePdfAnnotationSelectionGeometry } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
@@ -368,7 +369,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             await ensureAnnotationProjectionReady();
             const document = documentSession.pdfDocument.value;
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
-            return fitNativeTextBox(proposal, await document.getPage(proposal.pageIndex + 1), documentAnnotations.getWriterParseResult() ?? readPdfDocumentOriginalAnnotations(document), options.workingCopyPath.value).then(fitted => {
+            return fitNativeTextBox(proposal, await document.getPage(proposal.pageIndex + 1), documentAnnotations.getWriterParseResult(), readPdfDocumentOriginalAnnotations(document), options.workingCopyPath.value).then(fitted => {
                 if (annotationDocumentIdentity.value !== identity || options.documentRevisionToken.value !== revision) throw new DOMException('Text appearance source changed', 'AbortError');
                 return fitted;
             }).catch((error: unknown) => {
@@ -376,7 +377,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 throw error;
             });
         },
-        publishTextBoxAppearance: async (proposal, handoff, isInputCurrent) => {
+        publishTextBoxAppearance: async (proposal, handoff, isInputCurrent, appearance) => {
             const documentIdentity = annotationDocumentIdentity.value;
             const document = documentSession.pdfDocument.value;
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
@@ -386,7 +387,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (!await rendering.publishAnnotationPaint(pageNumber, {
                 signature: pagePaint(proposal.pageIndex, proposal).signature,
                 async prepare(page, captureSettlement, signal, reserveAppearanceBytes) {
-                    const input = await rendering.prepareCanvasAnnotations(page, captureSettlement, signal, reserveAppearanceBytes, proposal);
+                    const input = await rendering.prepareCanvasAnnotations(page, captureSettlement, signal, reserveAppearanceBytes, {
+                        entity: proposal,
+                        appearance,
+                    });
                     if (!input) throw new DOMException('Text appearance document closed', 'AbortError');
                     return input;
                 },
@@ -899,7 +903,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         pageIndex + 1,
         pagePaint(pageIndex).signature,
     ])));
-    async function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity) {
+    async function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
         await ensureAnnotationProjectionReady();
         const document = documentSession.pdfDocument.value;
         if (!document) return;
@@ -907,7 +911,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             document,
             page,
             annotations,
-            ...pagePaint(page.pageNumber - 1, acceptedProposal),
+            ...pagePaint(page.pageNumber - 1, accepted?.entity),
+            acceptedAppearance: accepted?.appearance,
             excludedIds: hiddenPdfAnnotationIds.value,
             writerParse: documentAnnotations.getWriterParseResult(),
             workingCopyPath: options.workingCopyPath.value,

@@ -19,7 +19,7 @@ import {
 import type {
     IPdfPage, IPdfAnnotation,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAcceptedNativeTextBox} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import type {TPdfPageOperationSettlementCapture} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
@@ -47,7 +47,7 @@ interface IPdfAnnotationProjection {
     readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     /** Each page's paint identity; a page that has none is absent. */
     readonly paintIdentities: Readonly<Ref<ReadonlyMap<number, string>>>;
-    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
+    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
 }
 
 interface ICommittedPdfPageRaster {
@@ -673,10 +673,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationPaintIdentities,
         isAnnotationInputCurrent: (pageNumber: TPageNumber, input: IPdfAnnotationRenderInput | undefined) => !input
             || input.document === pdfDocument.value && input.signature === (annotationPaintIdentities.value.get(pageNumber) ?? ''),
-        async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity) {
+        async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
             const parsed = getParsedPageAnnotations(page);
             captureSettlement?.(parsed.then(() => undefined, () => undefined));
-            return projection.value?.preparePagePaint(page, await parsed, signal, reserveAppearanceBytes, acceptedProposal);
+            return projection.value?.preparePagePaint(page, await parsed, signal, reserveAppearanceBytes, accepted);
         },
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         // The raster bakes pixels that survive until the page is re-rendered, so it

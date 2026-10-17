@@ -34,6 +34,9 @@ import {
 import {createEpochMs} from '@contracts/timestamps';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type {
+    INativeTextBoxAppearance, TNativeTextBoxFit,
+} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 
 type TAnnotationHistoryAction = () => boolean | Promise<boolean>;
 
@@ -120,8 +123,9 @@ export interface IAnnotationEditorSurface {
     getPaintInput(entity: AnnotationEntity): AnnotationEntity;
     isOriginalAppearance(entity: AnnotationEntity): boolean;
     isNativeTextBoxAppearance(entity: ITextBoxEntity): boolean;
-    fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity): Pick<ITextBoxEntity, 'rect' | 'fontSize'> | Promise<Pick<ITextBoxEntity, 'rect' | 'fontSize'>>;
-    publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void): void | Promise<void>;
+    fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity): TNativeTextBoxFit | Promise<TNativeTextBoxFit>;
+    /** Paints the accepted text box, reusing the appearance its fit produced, before handing it off. */
+    publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance): void | Promise<void>;
     select(ids: readonly AnnotationId[], options?: { additive?: boolean }): void;
     clearSelection(): void;
     getSelectedTextBox(): ITextBoxEntity | null;
@@ -205,8 +209,8 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     textBoxDraftRects?: Map<string, IAnnotationMarkerRect>;
     isOriginalAppearance?: (entity: AnnotationEntity) => boolean;
     isNativeTextBoxAppearance?: (entity: ITextBoxEntity) => boolean;
-    fitTextBox?: (entity: ITextBoxEntity, proposal: ITextBoxEntity) => Promise<Pick<ITextBoxEntity, 'rect' | 'fontSize'>>;
-    publishTextBoxAppearance?: (entity: ITextBoxEntity, handoff: () => void, isInputCurrent: () => boolean) => Promise<void>;
+    fitTextBox?: (entity: ITextBoxEntity, proposal: ITextBoxEntity) => Promise<TNativeTextBoxFit>;
+    publishTextBoxAppearance?: (entity: ITextBoxEntity, handoff: () => void, isInputCurrent: () => boolean, appearance?: INativeTextBoxAppearance) => Promise<void>;
     getTextBoxDraftGeneration?: (annotationId: AnnotationId) => number | undefined;
     beforeTextBoxEdit?: (annotationId: AnnotationId) => void | Promise<void>;
     getPendingTextCompletion?: () => undefined | Promise<unknown>;
@@ -633,7 +637,12 @@ export const usePdfAnnotationEditorSurface = (
                 ...entity,
                 ...entry.patch,
                 text: getTextBoxDraftText(entry.id) ?? entity.text,
-            })).then(fitted => {Object.assign(entry.patch, fitted);})];
+            })).then((fitted) => {
+                Object.assign(entry.patch, {
+                    rect: fitted.rect,
+                    fontSize: fitted.fontSize,
+                });
+            })];
         }) : [];
         if (!fitting.length) return commit();
         return commitTextSession(() => {
@@ -728,10 +737,10 @@ export const usePdfAnnotationEditorSurface = (
         return options.fitTextBox(entity, proposal).then(fitted => {assertCurrent(); return fitted;});
     }
 
-    function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void) {
+    function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance) {
         if (!options.publishTextBoxAppearance) return handoff();
         const assertCurrent = captureTextBoxInput(entity.identity.id);
-        return options.publishTextBoxAppearance(entity, handoff, () => assertCurrent(false));
+        return options.publishTextBoxAppearance(entity, handoff, () => assertCurrent(false), appearance);
     }
 
     function setTextBoxDraftPending(annotationId: AnnotationId, text?: string) {

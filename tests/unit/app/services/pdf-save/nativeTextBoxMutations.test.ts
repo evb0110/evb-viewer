@@ -1,4 +1,6 @@
-import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {
+    IPdfDocument, IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -10,10 +12,19 @@ import {
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import {collectNativeTextBoxMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
+import {
+    collectNativeTextBoxMutationsForSave,
+    fitNativeTextBox,
+    prepareNativeTextBoxPagePaint,
+    type INativeTextBoxAppearance,
+} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
+import {cast} from '@tests/helpers/cast';
+
+const {renderTextBoxAppearance} = vi.hoisted(() => ({renderTextBoxAppearance: vi.fn()}));
+vi.mock('@app/utils/platformDocuments', () => ({getPageOpsCapability: () => ({renderTextBoxAppearance})}));
 
 function textBox(
     id: string,
@@ -253,5 +264,87 @@ describe('rotated text-box native projection', () => {
         // Width remains 180pt. Clamping left to zero would silently move it.
         if (!result?.[0]) throw new Error('Native text mutation missing');
         expect(result[0].rect[2] - result[0].rect[0]).toBeCloseTo(180);
+    });
+});
+
+describe('accepted text-box appearance', () => {
+    const page = cast<IPdfPage>({
+        pageNumber: 1,
+        rotate: 0,
+        view: [
+            0,
+            0,
+            600,
+            800,
+        ],
+        getViewport: () => ({userUnit: 1}),
+    });
+
+    function writerAppearance(fittedFontSize: number, byte: number) {
+        return {
+            data: new Uint8Array([byte]),
+            textBoxes: [{
+                stableKey: 'accepted-box',
+                fittedFontSize,
+            }],
+        };
+    }
+
+    function paintAccepted(entity: ITextBoxEntity, appearance: INativeTextBoxAppearance | undefined) {
+        return prepareNativeTextBoxPagePaint({
+            document: cast<IPdfDocument>({}),
+            page,
+            annotations: [],
+            entities: [entity],
+            excludedIds: new Set(),
+            editingId: null,
+            editingDraft: false,
+            writerParse: null,
+            workingCopyPath: null,
+            acceptedAppearance: appearance,
+            signature: '',
+        });
+    }
+
+    it('paints an accepted text box with the appearance its fit produced', async () => {
+        renderTextBoxAppearance.mockReset().mockResolvedValueOnce(writerAppearance(16, 7));
+        const accepted = textBox('accepted-box', {text: 'Accepted text'});
+        const {
+            appearance,
+            ...fitted
+        } = await fitNativeTextBox(accepted, page, null, null, null);
+
+        const input = await paintAccepted({
+            ...accepted,
+            ...fitted,
+        }, appearance);
+
+        expect(renderTextBoxAppearance).toHaveBeenCalledOnce();
+        expect(input.nativeAnnotationAppearance?.pdf).toEqual([new Uint8Array([7])]);
+        expect(input.nativeAnnotationAppearance?.annotations).toEqual([{
+            action: 'append',
+            id: 'accepted-box',
+            appearanceDocument: 0,
+            appearanceIndex: 0,
+        }]);
+    });
+
+    it('asks the writer again when fitting changed the font size', async () => {
+        renderTextBoxAppearance.mockReset()
+            .mockResolvedValueOnce(writerAppearance(12, 7))
+            .mockResolvedValueOnce(writerAppearance(12, 9));
+        const accepted = textBox('accepted-box', {text: 'Accepted text that overflows its box'});
+        const {
+            appearance,
+            ...fitted
+        } = await fitNativeTextBox(accepted, page, null, null, null);
+
+        const input = await paintAccepted({
+            ...accepted,
+            ...fitted,
+        }, appearance);
+
+        expect(renderTextBoxAppearance).toHaveBeenCalledTimes(2);
+        expect(input.nativeAnnotationAppearance?.pdf).toEqual([new Uint8Array([9])]);
     });
 });
