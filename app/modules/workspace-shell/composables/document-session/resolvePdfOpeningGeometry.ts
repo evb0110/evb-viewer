@@ -16,10 +16,9 @@ const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 /**
  * One open's question to the main process for its first page's shape, asked
- * as soon as the open's input names the file. The main process owns the
- * shapes and answers a file it has read before from memory, after checking
- * that the file is unchanged. The open takes the answer before claiming its
- * surface.
+ * as soon as the open's input names the file. The main process reads the
+ * shapes from the file and checks that it stayed unchanged during the read.
+ * The open takes the answer before claiming its surface.
  */
 export interface IPdfPageShapeRead {
     readonly path: TDocumentRef;
