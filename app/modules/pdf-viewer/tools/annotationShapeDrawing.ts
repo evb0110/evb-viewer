@@ -12,6 +12,7 @@ import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/annotatio
 import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
 import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
 import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
+import { getShapeStrokePointSets } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getShapeStrokePointSets';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 const MIN_DRAWN_SHAPE_SIZE = 0.005;
@@ -49,17 +50,7 @@ function resolveShapeBounds(shape: Pick<IShapeAnnotation, 'x' | 'y' | 'width' | 
 
 function appendDrawPoint(points: IShapePoint[], x: number, y: number) {
     const lastPoint = points[points.length - 1];
-    if (!lastPoint) {
-        return [
-            ...points,
-            {
-                x,
-                y,
-            },
-        ];
-    }
-
-    if (Math.hypot(lastPoint.x - x, lastPoint.y - y) < 0.001) {
+    if (lastPoint && Math.hypot(lastPoint.x - x, lastPoint.y - y) < 0.001) {
         return points;
     }
 
@@ -70,6 +61,73 @@ function appendDrawPoint(points: IShapePoint[], x: number, y: number) {
             y,
         },
     ];
+}
+
+// A page-edge crossing is an exact endpoint, so the 0.001 sample filter must
+// not move it. Only an identical point is dropped.
+function appendBoundaryPoint(points: IShapePoint[], point: IShapePoint) {
+    const lastPoint = points[points.length - 1];
+    return lastPoint && lastPoint.x === point.x && lastPoint.y === point.y
+        ? points
+        : [
+            ...points,
+            point,
+        ];
+}
+
+function isInsidePage(point: IShapeDrawingOrigin) {
+    return point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+}
+
+/**
+ * Where the segment from an inside point to an outside point crosses the page
+ * edge, in normalized page coordinates. Scaling and quarter-turn rotation keep
+ * that crossing on the same segment, so no pixel-space correction is needed.
+ */
+function pageEdgeCrossing(inside: IShapeDrawingOrigin, outside: IShapeDrawingOrigin): IShapePoint {
+    const dx = outside.x - inside.x;
+    const dy = outside.y - inside.y;
+    const tx = dx > 0 ? (1 - inside.x) / dx : dx < 0 ? -inside.x / dx : Infinity;
+    const ty = dy > 0 ? (1 - inside.y) / dy : dy < 0 ? -inside.y / dy : Infinity;
+    const t = Math.min(tx, ty, 1);
+    return {
+        x: clampUnit(inside.x + t * dx),
+        y: clampUnit(inside.y + t * dy),
+    };
+}
+
+/**
+ * Extends a freehand stroke the way Chromium's PDF ink module does: samples
+ * off the page draw nothing, leaving the page ends the current path at the
+ * edge crossing, and coming back starts a new path at the reentry crossing.
+ * The paths stay one shape, so selection, undo and save treat the gesture as
+ * one mark instead of joining its pieces along the page edge.
+ */
+function extendInkStrokes(strokes: IShapePoint[][], previous: IShapeDrawingOrigin, current: IShapeDrawingOrigin) {
+    const wasInside = isInsidePage(previous);
+    const isInside = isInsidePage(current);
+    const head = strokes.slice(0, -1);
+    const last = strokes[strokes.length - 1] ?? [];
+    if (wasInside && isInside) {
+        return [
+            ...head,
+            appendDrawPoint(last, current.x, current.y),
+        ];
+    }
+    if (wasInside) {
+        return [
+            ...head,
+            appendBoundaryPoint(last, pageEdgeCrossing(previous, current)),
+        ];
+    }
+    if (isInside) {
+        const reentry = appendBoundaryPoint([], pageEdgeCrossing(current, previous));
+        return [
+            ...strokes,
+            appendDrawPoint(reentry, current.x, current.y),
+        ];
+    }
+    return strokes;
 }
 
 function getShapePathLength(points: IShapePoint[]) {
@@ -370,15 +428,15 @@ export function buildShapeAnnotation(
         return applyBoxGeometry(baseShape, options);
     })();
 
-    return isDrawableFinishedShape(shape)
-        ? shape
-        : null;
+    return finishDrawingShape(shape);
 }
 
-export function isDrawableFinishedShape(shape: IShapeAnnotation) {
+function isDrawableFinishedShape(shape: IShapeAnnotation) {
     if (shape.type === 'polyline') {
-        const points = shape.strokes?.[0] ?? shape.points ?? [];
-        return points.length >= 2 && getShapePathLength(points) >= MIN_DRAWN_SHAPE_SIZE;
+        const length = getShapeStrokePointSets(shape)
+            .filter(points => points.length >= 2)
+            .reduce((total, points) => total + getShapePathLength(points), 0);
+        return length >= MIN_DRAWN_SHAPE_SIZE;
     }
 
     if (isLineLikeShape(shape)) {
@@ -390,18 +448,55 @@ export function isDrawableFinishedShape(shape: IShapeAnnotation) {
     return shape.width >= MIN_DRAWN_SHAPE_SIZE && shape.height >= MIN_DRAWN_SHAPE_SIZE;
 }
 
+/**
+ * Returns the finished drawing, or null when it is too small to keep. A
+ * freehand stroke drops the single-point pieces a page exit can leave: they
+ * paint nothing and the PDF writer rejects them.
+ */
+export function finishDrawingShape(shape: IShapeAnnotation): IShapeAnnotation | null {
+    if (!isDrawableFinishedShape(shape)) {
+        return null;
+    }
+    if (shape.type !== 'polyline') {
+        return shape;
+    }
+    const strokes = getShapeStrokePointSets(shape).filter(points => getShapePathLength(points) > 0);
+    const points = strokes[0] ?? [];
+    return {
+        ...shape,
+        ...resolveShapeBounds({
+            ...shape,
+            points,
+            strokes,
+        }),
+        points,
+        strokes,
+    };
+}
+
+/**
+ * `previousRawPoint` is the pointer's previous unclamped position. Freehand
+ * strokes need it to find where the pointer crossed the page edge.
+ */
 export function updateDrawingShapeForPoint(
     shape: IShapeAnnotation,
     rawOrigin: IShapeDrawingOrigin,
     rawX: number,
     rawY: number,
+    previousRawPoint: IShapeDrawingOrigin,
 ): IShapeAnnotation {
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) {
+        return shape;
+    }
     const drawOrigin = normalizeGeometryPoint(rawOrigin);
     const x = clampUnit(rawX);
     const y = clampUnit(rawY);
     if (shape.type === 'polyline') {
-        const points = appendDrawPoint(shape.strokes?.[0] ?? shape.points ?? [], x, y);
-        const strokes = [points];
+        const strokes = extendInkStrokes(getShapeStrokePointSets(shape), previousRawPoint, {
+            x: rawX,
+            y: rawY,
+        });
+        const points = strokes[0] ?? [];
         return {
             ...shape,
             ...resolveShapeBounds({

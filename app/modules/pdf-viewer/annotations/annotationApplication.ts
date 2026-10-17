@@ -26,6 +26,7 @@ import {
 } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
+import {getAllShapePoints} from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 
 function normalizedPdfRef(value: string | null | undefined) {
     return normalizePdfJsAnnotationId(value);
@@ -93,7 +94,11 @@ export function toCanonicalShapeEntity(
         ]
         : null;
     const geometryPoints = shape.points ?? linePoints;
-    const allGeometryPoints = geometryPoints ?? shape.strokes?.flatMap(stroke => stroke) ?? [];
+    // A freehand stroke split at a page exit keeps its first path in `points`;
+    // its bounds cover every path.
+    const allGeometryPoints = shape.points
+        ? getAllShapePoints(shape)
+        : geometryPoints ?? shape.strokes?.flatMap(stroke => stroke) ?? [];
     const hasPointBounds = allGeometryPoints.length > 0;
     const geometryLeft = hasPointBounds
         ? Math.min(...allGeometryPoints.map(point => point.x))
