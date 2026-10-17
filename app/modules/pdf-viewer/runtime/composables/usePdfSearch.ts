@@ -44,16 +44,19 @@ import {
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
 
+/** The admitted run: a new query, or a result-window continuation with its direction. */
 interface IScheduledPdfSearch {
     resultOffset?: TSearchResultOffset;
+    direction?: TSearchDirection | undefined;
+    targetMatchIndex?: number | undefined;
     runId: number;
     query: string;
     pdfPath: string;
     documentRevisionToken: TDocumentRevisionToken | null;
     pageCount?: number;
     options: IResolvedSearchMatchOptions;
-    /** Set when a run of this command published its response. */
-    completed?: true;
+    /** Set when this run published its response. */
+    completed?: boolean;
 }
 
 function normalizeDocumentRevisionToken(token: TDocumentRevisionToken | null | undefined) {
@@ -300,11 +303,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return nextResults;
     }
 
-    async function runScheduledSearch(payload: IScheduledPdfSearch, resultOffset?: TSearchResultOffset, direction?: TSearchDirection, targetMatchIndex?: number) {
+    async function runScheduledSearch(payload: IScheduledPdfSearch) {
         const resolver = scheduledResolvers.get(payload.runId);
         scheduledResolvers.delete(payload.runId);
         try {
-            await performSearch(payload, resultOffset, direction, targetMatchIndex);
+            await performSearch(payload);
         } catch (error) {
             if (isCurrentSearchRun(payload.runId, payload.documentRevisionToken)) {
                 searchError.value = normalizeSearchError(error);
@@ -386,9 +389,9 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         isSearching.value = false;
     }
 
-    async function performSearch(payload: IScheduledPdfSearch, resultOffset?: TSearchResultOffset, direction?: TSearchDirection, targetMatchIndex?: number) {
+    async function performSearch(payload: IScheduledPdfSearch) {
         const {
-            runId, query, pdfPath, documentRevisionToken, pageCount, options,
+            runId, query, pdfPath, documentRevisionToken, pageCount, options, resultOffset, direction, targetMatchIndex,
         } = payload;
         if (query.length === 0) {
             return;
@@ -482,7 +485,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             }
             searchCommand = {
                 ...payload,
-                ...(resultOffset === undefined ? {} : {resultOffset}),
                 completed: true,
             };
             applySearchResponse(response, query, options, direction, targetMatchIndex);
@@ -596,11 +598,15 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         const resultOffset = direction === 'next'
             ? isTruncated.value ? results.value.at(-1)!.matchIndex + 1 : 0
             : firstOrdinal > 0 ? Math.max(0, firstOrdinal - SEARCH_RESULT_LIMIT) : 'last';
-        await runScheduledSearch({
+        searchCommand = {
             ...searchCommand,
             runId: ++searchRunId,
-        }, resultOffset, direction,
-        direction === 'previous' && firstOrdinal > 0 ? firstOrdinal - 1 : undefined);
+            resultOffset,
+            direction,
+            targetMatchIndex: direction === 'previous' && firstOrdinal > 0 ? firstOrdinal - 1 : undefined,
+            completed: false,
+        };
+        await runScheduledSearch(searchCommand);
     }
 
     function setResultIndex(index: number) {
@@ -634,14 +640,15 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     /**
-     * Runs while the rotated revision is being published, so a search that has
-     * not completed cannot rerun yet: `resetSearchCache` resumes it once that
-     * revision is current. The rewrite can end the running search first, as
-     * canceled, failed or stale. Only a started search owns the selected ordinal.
+     * Runs while the rotated revision is being published, so the current run, if
+     * it has not completed, cannot rerun yet: `resetSearchCache` resumes it once
+     * that revision is current. The rewrite can end the run first, as canceled,
+     * failed or stale; a run that leaving the search tab canceled is no longer
+     * current. A started new query keeps the ordinal it selected.
      */
     function adoptPageRotation(documentRevisionToken: TDocumentRevisionToken, pages: readonly number[], rotationDelta: 90 | 180 | 270) {
-        const interrupted = isSearching.value || searchError.value !== null || !searchCommand?.completed;
-        const ordinal = pendingSearchTimer === null ? currentResult.value?.matchIndex : undefined;
+        const interrupted = searchCommand?.runId === searchRunId && !searchCommand.completed;
+        const ordinal = pendingSearchTimer === null && !searchCommand?.direction ? currentResult.value?.matchIndex : undefined;
         cancelSearch();
         if (!searchCommand) return;
         const command = {
@@ -673,9 +680,12 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) currentResultNavigationId.value += 1;
         if (!interrupted) return;
         isSearching.value = true;
-        resumeInterruptedSearch = ordinal === undefined
-            ? () => void runScheduledSearch(command)
-            : () => void runScheduledSearch(command, command.resultOffset, 'next', ordinal);
+        const resumed = ordinal === undefined ? command : {
+            ...command,
+            direction: 'next' as const,
+            targetMatchIndex: ordinal,
+        };
+        resumeInterruptedSearch = () => void runScheduledSearch(resumed);
     }
 
     function resetSearchCache() {
