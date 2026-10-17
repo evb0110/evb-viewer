@@ -408,46 +408,96 @@ describe('added check and flake tolerance detection', () => {
             () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
         )).toEqual([]);
     });
-    it('treats tests moved between files as edits, not new checks', () => {
-        const removed: Record<string, string[]> = {'tests/a.test.ts': [
+    describe('tests moved between files', () => {
+        const keepsNotes = [
             'it(\'keeps notes\', async () => {',
-            '    }, 120_000);',
-            '    ])(\'reads table row %s\', async row => {',
-        ]};
-        const moved: Record<string, string[]> = {'tests/b.test.ts': [
-            'it(\'keeps notes\', async () => {',
-            '    }, 120_000);',
-            '    ])(\'reads table row %s\', async row => {',
-        ]};
-        const entries = [
-            {
-                path: 'tests/a.test.ts',
-                status: 'M',
-            },
-            {
-                path: 'tests/b.test.ts',
-                status: 'A',
-            },
+            '    expect(await readNotes()).toHaveLength(1);',
+            '}, 120_000);',
         ];
-        expect(addedChecks.findAddedChecks(entries, filePath => moved[filePath] ?? [], filePath => removed[filePath] ?? [])).toEqual([]);
-        const fresh: Record<string, string[]> = {'tests/b.test.ts': [
-            'it(\'keeps notes\', async () => {',
-            'it(\'adds a check\', async () => {',
-            '    }, 90_000);',
-        ]};
-        expect(addedChecks.findAddedChecks(entries, filePath => fresh[filePath] ?? [], filePath => removed[filePath] ?? []))
-            .toEqual(['new test file: tests/b.test.ts']);
-        expect(addedChecks.findAddedChecks(
-            [{
-                path: 'tests/a.test.ts',
-                status: 'M',
-            }],
-            () => [
-                '    }, 120_000);',
+        const tableRow = '])(\'reads table row %s\', async row => {';
+
+        function findInChange(statuses: Record<string, string>, added: Record<string, string[]>, removed: Record<string, string[]>) {
+            return addedChecks.findAddedChecks(
+                Object.entries(statuses).map(([
+                    filePath,
+                    status,
+                ]) => ({
+                    path: filePath,
+                    status,
+                })),
+                filePath => added[filePath] ?? [],
+                filePath => removed[filePath] ?? [],
+            );
+        }
+
+        it('treats an unchanged move as an edit, not a new check', () => {
+            const statuses = {
+                'tests/a.test.ts': 'M',
+                'tests/b.test.ts': 'A',
+            };
+            const removed = {'tests/a.test.ts': [
+                ...keepsNotes,
+                tableRow,
+            ]};
+
+            expect(findInChange(statuses, {'tests/b.test.ts': [
+                ...keepsNotes,
+                tableRow,
+            ].map(line => `    ${line}`)}, removed)).toEqual([]);
+            expect(findInChange(statuses, {'tests/b.test.ts': [
+                keepsNotes[0]!,
+                'it(\'adds a check\', async () => {',
                 '    }, 90_000);',
-            ],
-            () => ['    }, 120_000);'],
-        )).toEqual(['test timeout override: tests/a.test.ts (}, 90_000);)']);
+            ]}, removed)).toEqual(['new test file: tests/b.test.ts']);
+        });
+
+        it('counts a moved title whose body changed as a new check', () => {
+            expect(findInChange({
+                'tests/a.test.ts': 'M',
+                'tests/b.test.ts': 'A',
+            }, {'tests/b.test.ts': keepsNotes.map(line => line.replace('toHaveLength(1)', 'toHaveLength(2)'))}, {'tests/a.test.ts': keepsNotes}))
+                .toEqual(['new test file: tests/b.test.ts']);
+        });
+
+        it('counts every copy when one removed test reappears in several files', () => {
+            expect(findInChange({
+                'tests/a.test.ts': 'M',
+                'tests/b.test.ts': 'A',
+                'tests/c.test.ts': 'A',
+            }, {
+                'tests/b.test.ts': keepsNotes,
+                'tests/c.test.ts': keepsNotes,
+            }, {'tests/a.test.ts': keepsNotes})).toEqual([
+                'new test file: tests/b.test.ts',
+                'new test file: tests/c.test.ts',
+            ]);
+        });
+
+        it('keeps a raised timeout visible beside an unrelated deleted test', () => {
+            expect(findInChange({'tests/a.test.ts': 'M'}, {'tests/a.test.ts': ['}, 120_000);']}, {'tests/a.test.ts': [
+                ...keepsNotes,
+                '}, 30_000);',
+            ]})).toEqual(['test timeout override: tests/a.test.ts (}, 120_000);)']);
+        });
+
+        it('treats only an unchanged renamed test file as a move', () => {
+            const renamed = [
+                'beforeAll(async () => {',
+                '    await startNotes();',
+                '}, 60_000);',
+                ...keepsNotes,
+            ];
+            const statuses = {
+                'tests/a.test.ts': 'D',
+                'tests/b.test.ts': 'A',
+            };
+
+            expect(findInChange(statuses, {'tests/b.test.ts': renamed}, {'tests/a.test.ts': renamed})).toEqual([]);
+            expect(findInChange(statuses, {'tests/b.test.ts': [
+                'import {startNotes} from \'./notes\';',
+                ...renamed,
+            ]}, {'tests/a.test.ts': renamed})).toEqual(['test timeout override: tests/b.test.ts (}, 60_000);)']);
+        });
     });
 });
 
@@ -1259,13 +1309,35 @@ describe('fix chains', () => {
             const violations = checker.findPushPolicyViolations([head!], repository);
 
             expect(violationSubjects(violations)).toEqual([head]);
-            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows by 1 lines after 3 fix commits');
+            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows (+1 lines, +20 non-whitespace characters) after 3 fix commits');
         } finally {
             await removeRepository(repository);
         }
     });
 
-    it('accepts a fix that shrinks the file, a revert, a non-fix change, and an owner override', async () => {
+    it('blocks a fix that crams new code onto fewer lines', async () => {
+        const {
+            repository, commits: [head],
+        } = repositoryWithThreeFixes(() => [{
+            message: 'fix(viewer): fold the fences together',
+            files: {'app/viewport.ts': [
+                'export const state = 0;',
+                'export const fence1 = 1;',
+                'export const fence2 = 2; export const fence3 = 3; export const fence4 = 4;',
+                '',
+            ].join('\n')},
+        }]);
+        try {
+            const violations = checker.findPushPolicyViolations([head!], repository);
+
+            expect(violationSubjects(violations)).toEqual([head]);
+            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows (-1 lines, +20 non-whitespace characters) after 3 fix commits');
+        } finally {
+            await removeRepository(repository);
+        }
+    });
+
+    it('accepts a fix that shrinks the file, a revert, a non-fix change, a rejoined line, and an owner override', async () => {
         const {
             repository, commits,
         } = repositoryWithThreeFixes(body => [
@@ -1284,6 +1356,10 @@ describe('fix chains', () => {
             {
                 message: 'fix(viewer): hold the fence for the release\n\nFix-Chain-Override: ship the fence today, redesign next week',
                 files: {'app/viewport.ts': `${body}export const named = 1;\nexport const held = 1;\n`},
+            },
+            {
+                message: 'fix(viewer): keep the held fence beside its name',
+                files: {'app/viewport.ts': `${body}export const named = 1; export const held = 1;\n`},
             },
         ]);
         try {

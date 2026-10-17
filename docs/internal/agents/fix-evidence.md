@@ -51,8 +51,11 @@ another repair first. In the failing run, trace the user's intent, the owner of
 the state involved, the stale completion, and the point where the wrong value was
 committed. Then delete the redundant state or lifecycle path, or revert to the
 last good state. A fix that grows such a file is rejected on push and in CI by
-`scripts/lib/fix-chain.mjs`. Only the owner can waive it, quoted in a
-`Fix-Chain-Override:` trailer.
+`scripts/lib/fix-chain.mjs`. It compares the file before and after the commit,
+and the fix passes only when neither the line count nor the non-whitespace
+character count grows, so cramming code onto fewer, longer lines does not count
+as shrinking. Only the owner can waive it, quoted in a `Fix-Chain-Override:`
+trailer.
 
 Do not relax a test until it accepts either side of a race. Remove the race in
 the product, or leave the test red and report it.

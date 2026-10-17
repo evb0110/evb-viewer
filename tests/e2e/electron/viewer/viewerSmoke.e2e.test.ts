@@ -27,10 +27,8 @@ import {
 } from 'node:fs/promises';
 import { decode as decodePng } from 'fast-png';
 import {
-    decodePDFRawStream,
     PDFDict,
     PDFDocument,
-    PDFRawStream,
     PDFHexString,
     PDFName,
     PDFString,
@@ -6391,6 +6389,13 @@ describe('Electron E2E - Document Output', () => {
             DA: PDFString.of('/Helv 18 Tf 0 0 1 rg'),
         }))]));
         await writeFile(noMediaBoxPath, await noMediaBox.save({useObjectStreams: false}));
+        // Inside the note's rectangle and clear of any border, only its text paints.
+        const marginNoteText = [
+            64,
+            604,
+            396,
+            696,
+        ];
         // A filled form that relies on NeedAppearances, beside a FreeText without /AP.
         const formPath = join(printDirectory, 'form.pdf');
         const form = await PDFDocument.create();
@@ -6471,17 +6476,6 @@ describe('Electron E2E - Document Output', () => {
                 page.getRotation().angle,
             ]);
         const evidenceDirectory = process.env.EVB_PRINTAUTO_EVIDENCE_DIR;
-        const glyphCodes = async (path: string) => {
-            const pdf = await PDFDocument.load(await readFile(path));
-            return pdf.context.enumerateIndirectObjects().flatMap(([
-                , object,
-            ]) => {
-                if (!(object instanceof PDFRawStream)) return [];
-                const content = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
-                return [...content.matchAll(/<([\da-f]+)>\s*Tj/giu)]
-                    .flatMap(match => match[1]!.match(/.{4}/gu)?.map(code => Number.parseInt(code, 16)) ?? []);
-            }).sort((left, right) => left - right);
-        };
         // The byte control runs first so a missing Semitic print still records it.
         for (const name of [
             'control',
@@ -6523,11 +6517,20 @@ describe('Electron E2E - Document Output', () => {
                 continue;
             }
             if (name === 'noMediaBox') {
-                expect.soft((await glyphCodes(printedPath)).length, 'the note prints its text').toBeGreaterThanOrEqual(10);
+                await rasterizePrint(printedPath, join(printDirectory, 'no-media-box-printed'));
+                const printedPage = decodePng(await readFile(join(printDirectory, 'no-media-box-printed-1.png')));
+                expect.soft([
+                    printedPage.width,
+                    printedPage.height,
+                ], 'the page renders as Letter').toEqual([
+                    612,
+                    792,
+                ]);
+                const noteText = await renderedRegion(join(printDirectory, 'no-media-box-printed-1.png'), marginNoteText);
+                expect.soft(noteText.some(value => value < 128), 'the note prints its text').toBe(true);
                 continue;
             }
             if (name === 'devanagari') {
-                expect.soft(await glyphCodes(printedPath), 'the FreeText draws its embedded font').toEqual(await glyphCodes(devanagariExpectedPath));
                 await rasterizePrint(printedPath, join(printDirectory, 'devanagari-printed'));
                 await rasterizePrint(devanagariExpectedPath, join(printDirectory, 'devanagari-expected'));
                 const pagePixels = async (png: string) => createHash('sha256').update(decodePng(await readFile(join(printDirectory, png))).data).digest('hex');
@@ -6550,13 +6553,6 @@ describe('Electron E2E - Document Output', () => {
                 expect.soft(noteRegion.some(value => value < 128), 'the FreeText prints').toBe(true);
                 continue;
             }
-            const codes = await glyphCodes(printedPath);
-            const expectedCodes = await glyphCodes(join(fixtureDirectory, 'reference.pdf'));
-            console.info('[Auto print] glyph codes', JSON.stringify({
-                codes,
-                expectedCodes,
-            }));
-            expect.soft(codes).toEqual(expectedCodes);
             await rasterizePrint(printedPath, join(printDirectory, 'printed'));
             await rasterizePrint(join(fixtureDirectory, 'reference.pdf'), join(printDirectory, 'reference'));
             if (evidenceDirectory) {
