@@ -169,7 +169,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && slot.container === target.container
             && target.canvasHost.contains(canvas) && canvas.isConnected && canvas.width > 0 && canvas.height > 0;
         if (!presentable || !requireCurrent) return presentable;
-        return pageRenderer.isAnnotationInputCurrent(slot.committedRender?.annotationInput)
+        return pageRenderer.isAnnotationInputCurrent(pageNumber, slot.committedRender?.annotationInput)
             && slot.documentToken === getRenderDocumentToken()
             && slot.contentVersion === renderVersion
             && slot.targetViewRotation === (options.viewRotation?.value ?? 0)
@@ -205,7 +205,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && isViewportRasterJobCurrent(prepared.job)
             && prepared.job.demand.consumerGeneration === renderVersion
             && documentSession.pdfDocument.value !== null
-            && (prepared.job.renderOptions.annotationCommit?.isCurrent() ?? pageRenderer.isAnnotationInputCurrent(prepared.render.annotationInput))
+            && (prepared.job.renderOptions.annotationCommit?.isCurrent() ?? pageRenderer.isAnnotationInputCurrent(prepared.job.demand.pageNumber, prepared.render.annotationInput))
             && activeRasterScheduler === documentSession.rasterScheduler
             && prepared.job.demand.documentFence === activeRasterScheduler?.documentFence
             && prepared.container.isConnected !== false
@@ -329,7 +329,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 if (!isPreparedRasterCurrent(prepared)) return false;
                 const annotationCommit = prepared.job.renderOptions.annotationCommit;
                 if (annotationCommit) {
-                    prepared.render.annotationInput = annotationCommit.commit(prepared.render.annotationInput!);
+                    annotationCommit.commit();
                     delete prepared.job.renderOptions.annotationCommit;
                 }
                 if (!pageRenderState.commitVisual(
@@ -433,7 +433,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderOptions.maxCanvasPixels ?? '',
                 pageRenderOptions.openSurfaceGeneration ?? '',
                 pageRenderOptions.openSurfaceRevision ?? '',
-                pageRenderOptions.annotationCommit?.signature ?? pageRenderer.annotationPaintSignature.value,
+                pageRenderOptions.annotationCommit?.signature ?? pageRenderer.annotationPaintIdentities.value.get(pageNumber) ?? '',
             ].join(':');
             // An in-flight raster is already scale-current within tolerance.
             // Keep its key so float drift in a recomputed fit cannot orphan it.
@@ -644,7 +644,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         await cancellation;
     }
     let pendingRasterCancellation = Promise.resolve();
-    const stopAnnotationPaintWatch = watch(pageRenderer.annotationPaintSignature, queueFrame, {flush: 'post'});
+    const stopAnnotationPaintWatch = watch(pageRenderer.annotationPaintIdentities, queueFrame, {flush: 'post'});
     // Persist-only revisions reauthorize pixels; replacement documents do not.
     // The load path nulls the document first, so authority tracks the last loaded document instead of the watcher's previous value.
     let canvasAuthority = {

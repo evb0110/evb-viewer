@@ -151,13 +151,31 @@ export async function fitNativeTextBox(
     };
 }
 
-export function nativeAnnotationPaintSignature(entities: readonly AnnotationEntity[], retired: ReadonlySet<string>, editingId: string | null, revision: string | null, editingDraft = false) {
+/**
+ * What one page's annotation pixels depend on: each entity's saved-semantic
+ * fingerprint (images by digest), plus the identity, exact geometry and
+ * frame it omits, and the page's editor. A page without entities has none.
+ */
+export function nativeAnnotationPaintIdentity(entities: readonly AnnotationEntity[], editingId: string | null, revision: string | null, editingDraft: boolean) {
+    if (!entities.length) return '';
     return JSON.stringify([
-        entities,
-        [...retired],
-        editingId,
         revision,
-        editingDraft,
+        entities.map(entity => [
+            entity.identity,
+            semanticEntityFingerprint(entity),
+            entity.kind === 'note' ? entity.position : entity.kind === 'text-markup' ? entity.quadPoints : entity.rect,
+            entity.kind === 'shape' ? [
+                entity.points,
+                entity.strokes,
+            ] : entity.kind === 'text-box' ? [
+                entity.frame,
+                entity.readOnly,
+            ] : null,
+        ]),
+        entities.some(entity => entity.identity.id === editingId) ? [
+            editingId,
+            editingDraft,
+        ] : null,
     ]);
 }
 
@@ -166,11 +184,11 @@ export async function prepareNativeTextBoxPagePaint(options: {
     document: IPdfDocument;
     page: IPdfPage;
     annotations: readonly IPdfAnnotation[];
+    /** The page's paint inputs; an accepted text box is already in them and no longer the editor. */
     entities: readonly AnnotationEntity[];
     excludedIds: ReadonlySet<string>;
     editingId: string | null;
-    editingDraft?: boolean | undefined;
-    acceptedProposal?: ITextBoxEntity | undefined;
+    editingDraft: boolean;
     writerParse: IPdfAnnotationParseResult | null;
     workingCopyPath: string | null;
     currentInput?: IPdfAnnotationRenderInput | undefined;
@@ -179,11 +197,9 @@ export async function prepareNativeTextBoxPagePaint(options: {
     reserveAppearanceBytes?: ((bytes: number) => void) | undefined;
 }): Promise<IPdfAnnotationRenderInput> {
     const {
-        document, page, annotations, writerParse, signal,
+        document, page, annotations, entities, writerParse, signal,
     } = options;
     const original = readPdfDocumentOriginalAnnotations(document);
-    const entities = options.entities.filter(entity => !entity.deleted && entity.pageIndex + 1 === page.pageNumber)
-        .map(entity => entity.identity.id === options.acceptedProposal?.identity.id ? options.acceptedProposal : entity);
     const excludedIds = new Set(options.excludedIds);
     const loadedIds = new Set(annotations.flatMap(annotation => normalizePdfJsAnnotationId(annotation.id) ?? []));
     const originalEntries = original?.entities.filter(entry => entry.pageIndex + 1 === page.pageNumber) ?? [];
@@ -205,12 +221,12 @@ export async function prepareNativeTextBoxPagePaint(options: {
         return ref && loadedIds.has(ref) ? ref : null;
     };
     const retained = entities.filter(entity => entity.kind !== 'note' && sourceId(entity)
-        && !(entity.identity.id === options.editingId && options.editingDraft && entity.identity.id !== options.acceptedProposal?.identity.id)
+        && !(entity.identity.id === options.editingId && options.editingDraft)
         && matchesParsed(entity, entryFor(entity)));
     // Flatten unchanged source siblings with text boxes so PDF order/blending stays in one canvas.
     if (entities.some(entity => entity.kind === 'text-box')) retained.forEach(entity => excludedIds.delete(sourceId(entity)!));
     const derived = entities.filter((entity): entity is ITextBoxEntity => entity.kind === 'text-box' && !entity.readOnly
-        && !retained.includes(entity) && (entity.identity.id !== options.editingId || entity.identity.id === options.acceptedProposal?.identity.id));
+        && !retained.includes(entity) && entity.identity.id !== options.editingId);
     const pageInput = appearancePage(page);
     const requests = derived.map(entity => {
         const input = appearanceInput(entity, page, writerParse, true, original);

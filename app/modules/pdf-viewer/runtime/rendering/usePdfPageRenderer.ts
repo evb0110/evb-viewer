@@ -45,7 +45,8 @@ interface IPdfAnnotationProjection {
     readonly annotationProjectionReady: Readonly<Ref<boolean>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
-    readonly paintSignature: Readonly<Ref<string>>;
+    /** Each page's paint identity; a page that has none is absent. */
+    readonly paintIdentities: Readonly<Ref<ReadonlyMap<number, string>>>;
     preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
 }
 
@@ -107,7 +108,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
     });
     const pageRenderState = options.pageRenderState;
-    const annotationPaintSignature = computed(() => projection.value?.paintSignature.value ?? '');
+    const annotationPaintIdentities = computed(() => projection.value?.paintIdentities.value ?? new Map<number, string>());
     const textLayerCleanupFns = new Map<TPageNumber, () => void>();
     const activeTextLayerAbortControllers = new Map<TPageNumber, {
         version: number;
@@ -669,9 +670,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         applySearchHighlights: searchController.applySearchHighlights,
         requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,
         annotationProjectionReady,
-        annotationPaintSignature,
-        isAnnotationInputCurrent: (input: IPdfAnnotationRenderInput | undefined) => !input
-            || input.document === pdfDocument.value && input.signature === annotationPaintSignature.value,
+        annotationPaintIdentities,
+        isAnnotationInputCurrent: (pageNumber: TPageNumber, input: IPdfAnnotationRenderInput | undefined) => !input
+            || input.document === pdfDocument.value && input.signature === (annotationPaintIdentities.value.get(pageNumber) ?? ''),
         async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity) {
             const parsed = getParsedPageAnnotations(page);
             captureSettlement?.(parsed.then(() => undefined, () => undefined));

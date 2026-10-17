@@ -813,7 +813,7 @@ describe('PdfViewportSession behavior', () => {
             hiddenAnnotationIds: ref(new Set<string>()),
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
-            paintSignature: ref('fixture'),
+            paintIdentities: ref(new Map<number, string>()),
             async preparePagePaint() {
                 preparationStarted.resolve(undefined);
                 await ownership.promise;
@@ -1035,7 +1035,7 @@ describe('PdfViewportSession behavior', () => {
             hiddenAnnotationIds: ref(new Set<string>()),
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
-            paintSignature: ref('fixture'),
+            paintIdentities: ref(new Map<number, string>()),
             preparePagePaint: () => undefined,
         };
         rendering.attachAnnotationProjection(projection);
@@ -1070,17 +1070,17 @@ describe('PdfViewportSession behavior', () => {
             failRender = false;
             if (publication) {
                 await expect(rendering.publishAnnotationPaint(requirePageNumber(1), {
-                    signature: 'fixture',
+                    signature: '',
                     prepare: async () => ({
                         document: fixture.documentSession.pdfDocument.value!,
                         original: null,
                         annotations: [],
                         semanticInputs: [],
                         excludedIds: new Set<string>(),
-                        signature: 'fixture',
+                        signature: '',
                     }),
                     isCurrent: () => true,
-                    commit: input => input,
+                    commit: () => undefined,
                 })).resolves.toBe(true);
             } else await rendering.renderVisiblePages({
                 start: 1,
@@ -1091,6 +1091,137 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.container.querySelector('canvas')).not.toBe(oldCanvas);
         } finally {
             rejectPendingAttempt?.(new Error('test cleanup'));
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            animation.mockRestore();
+        }
+    });
+
+    it('keeps a page current when only another page changes its annotation paint', async () => {
+        const pages = [
+            1,
+            2,
+        ].map(pageNumber => cast<IPdfPage>({
+            pageNumber,
+            rotate: 0,
+            getAnnotations: async () => [],
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 600 * scale,
+                height: 900 * scale,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 600,
+                    pageHeight: 900,
+                },
+            }),
+            render: () => ({
+                promise: Promise.resolve(),
+                cancel() {},
+            }),
+        }));
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            leasePage: async pageNumber => ({
+                page: pages[pageNumber - 1]!,
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+        });
+        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            rasterDemand: shallowRef<IPdfViewportDemand>({
+                revision: 1,
+                visibleRange: {
+                    start: 1,
+                    end: 2,
+                },
+                requiredPages: [
+                    1,
+                    2,
+                ],
+                nearbyPages: [],
+                residentPages: [
+                    1,
+                    2,
+                ],
+                mountedPages: [
+                    1,
+                    2,
+                ],
+                currentPage: 1,
+                destinationPage: null,
+                operational: true,
+                mandatoryRaster: null,
+            }),
+            pageCount: 2,
+            bufferPages: 0,
+            rasterScheduler: scheduler,
+        });
+        document.body.append(fixture.container);
+        appendRasterTarget(fixture.container, 1);
+        appendRasterTarget(fixture.container, 2);
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        const rendering = fixture.rendering!;
+        const paintIdentities = ref(new Map([
+            [
+                1,
+                'first page note',
+            ],
+            [
+                2,
+                'second page note',
+            ],
+        ]));
+        rendering.attachAnnotationProjection({
+            annotationProjectionReady: ref(true),
+            hiddenAnnotationIds: ref(new Set<string>()),
+            canvasHiddenAnnotationIds: ref(new Set<string>()),
+            thumbnailHiddenAnnotationIds: ref(new Set<string>()),
+            paintIdentities,
+            preparePagePaint: page => ({
+                document: fixture.documentSession.pdfDocument.value!,
+                original: null,
+                annotations: [],
+                semanticInputs: [],
+                excludedIds: new Set<string>(),
+                signature: paintIdentities.value.get(page.pageNumber) ?? '',
+            }),
+        });
+        try {
+            await rendering.renderVisiblePages({
+                start: 1,
+                end: 2,
+            });
+            const secondCanvas = fixture.container.querySelector('[data-page="2"] canvas');
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            expect(rendering.isPageVisualReady(requirePageNumber(2))).toBe(true);
+            paintIdentities.value = new Map([
+                [
+                    1,
+                    'first page note, moved',
+                ],
+                [
+                    2,
+                    'second page note',
+                ],
+            ]);
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(false);
+            expect(rendering.isPageVisualReady(requirePageNumber(2))).toBe(true);
+            await rendering.renderVisiblePages({
+                start: 1,
+                end: 2,
+            });
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            expect(secondCanvas).not.toBeNull();
+            expect(fixture.container.querySelector('[data-page="2"] canvas')).toBe(secondCanvas);
+        } finally {
             await fixture.dispose();
             await scheduler.dispose();
             fixture.container.remove();

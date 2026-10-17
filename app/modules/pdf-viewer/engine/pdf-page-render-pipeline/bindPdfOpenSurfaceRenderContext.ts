@@ -41,7 +41,7 @@ export interface IRenderVisiblePagesOptions {
         signature: string;
         prepare(page: IPdfPage, captureSettlement: TPdfPageOperationSettlementCapture, signal: AbortSignal, reserveAppearanceBytes: (bytes: number) => void): Promise<IPdfAnnotationRenderInput>;
         isCurrent(): boolean;
-        commit(input: IPdfAnnotationRenderInput): IPdfAnnotationRenderInput;
+        commit(): void;
     };
     authoritativeRaster?: boolean;
     openSurfaceGeneration?: number;
