@@ -48,6 +48,19 @@ fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
 
 type Face<'a> = (Shaper<'a>, FontRef<'a>, Option<&'a [[u32; 2]]>);
 
+pub(super) fn covers(face: &FontRef<'_>, c: char) -> bool {
+    let c = if c == '\t' { ' ' } else { c };
+    invisible(c) || face.charmap().map(c).is_some()
+}
+
+/// As on screen, a grapheme cluster takes the first bundled face claiming it.
+pub(super) fn claims(face: &FontRef<'_>, range: Option<&[[u32; 2]]>, cluster: &str) -> bool {
+    let claimed = |c| range.is_some_and(|r| r.iter().any(|r| (r[0]..=r[1]).contains(&c)));
+    cluster
+        .chars()
+        .all(|c| claimed(c as u32) && covers(face, c))
+}
+
 fn shape_line(
     fonts: &[Face<'_>],
     text: &str,
@@ -93,34 +106,21 @@ fn shape_line(
             scripts.reverse();
         }
         for script in scripts {
-            // As on screen, each grapheme cluster takes the first bundled face
-            // whose range claims it. A document program (printing) claims only
-            // complete joining words, so a partial program never splits a word.
-            let covers = |(_, face, _): &Face<'_>, c| {
-                let c = if c == '\t' { ' ' } else { c };
-                invisible(c) || face.charmap().map(c).is_some()
-            };
-            let claims = |font: &Face<'_>, c| {
-                let claimed =
-                    |r: &[[u32; 2]]| r.iter().any(|r| (r[0]..=r[1]).contains(&(c as u32)));
-                font.2.is_some_and(claimed) && covers(font, c)
-            };
+            // A document program (printing) claims only complete joining
+            // words, so a partial program never splits a word.
             let joining = |(_, g): &(usize, &str)| {
                 g.starts_with(|c: char| c.is_alphabetic() || "\u{00ad}\u{200c}\u{200d}".contains(c))
             };
             let clusters: Vec<_> = text[script.clone()].grapheme_indices(true).collect();
             let mut font_runs: Vec<(usize, Range<usize>)> = Vec::new();
             for word in clusters.chunk_by(|a, b| joining(a) && joining(b)) {
-                let whole = fonts.iter().position(|font| {
-                    font.2.is_none() && word.iter().all(|(_, g)| g.chars().all(|c| covers(font, c)))
+                let whole = fonts.iter().position(|(_, face, range)| {
+                    range.is_none() && word.iter().all(|(_, g)| g.chars().all(|c| covers(face, c)))
                 });
                 for (offset, cluster) in word {
+                    let claimed = |(_, face, range): &Face<'_>| claims(face, *range, cluster);
                     let index = whole
-                        .or_else(|| {
-                            fonts
-                                .iter()
-                                .position(|f| cluster.chars().all(|c| claims(f, c)))
-                        })
+                        .or_else(|| fonts.iter().position(claimed))
                         .unwrap_or(fonts.len() - 1);
                     let end = script.start + offset + cluster.len();
                     match font_runs.last_mut() {
@@ -141,7 +141,7 @@ fn shape_line(
                 buffer.set_post_context(&text[run.end..script.end]);
                 let segment: String = text[run]
                     .chars()
-                    .map(|c| if covers(&fonts[index], c) { c } else { '�' })
+                    .map(|c| if covers(face, c) { c } else { '�' })
                     .collect();
                 buffer.push_str(&segment);
                 buffer.guess_segment_properties();
