@@ -1439,7 +1439,7 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(800);
     });
 
-    it('reclaims stale visible rasters so their replacements do not starve thumbnails', async () => {
+    function createReplacementHarness() {
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const replacement = Promise.withResolvers<undefined>();
         const painted = new Map<number, number>();
@@ -1456,7 +1456,7 @@ describe('PdfPageRasterScheduler', () => {
             pageNumber: number;
             generation: number
         }> = {
-            id: 'stale-visible-replacement',
+            id: 'held-visible-replacement',
             prepare: async demand => {
                 if (demand.consumerGeneration === 2) await replacement.promise;
                 return {
@@ -1472,47 +1472,86 @@ describe('PdfPageRasterScheduler', () => {
             discard() {},
             release() {},
         };
-        const publish = (generation: number, pixels: number) => scheduler.setDemand({
+        const publish = (demands: readonly IPdfRasterDemand[]) => scheduler.setDemand({
             sourceId: 'viewport',
-            input: [
-                1,
-                2,
-            ].map(page => ({
-                ...createDemand(page, 'viewport-visible', generation),
-                estimatedPixels: pixels,
-            })),
+            input: demands,
             policy: {
                 expand: input => input,
                 compareWithinLane: (left, right) => left.ordinal - right.ordinal,
             },
             target,
         });
+        const sized = (demand: IPdfRasterDemand, estimatedPixels: number) => ({
+            ...demand,
+            estimatedPixels,
+        });
+        return {
+            budget,
+            painted,
+            publish,
+            replacement,
+            scheduler,
+            sized,
+            target,
+        };
+    }
+
+    it('keeps a replaced visible raster charged until its replacement commits', async () => {
+        const {
+            budget, painted, publish, replacement, scheduler, sized,
+        } = createReplacementHarness();
         try {
-            publish(1, 100);
-            await vi.waitFor(() => expect([...painted.values()]).toEqual([
-                1,
-                1,
-            ]));
-            publish(2, 50);
-            const thumbnail = scheduler.request({
-                sourceId: 'thumbnails',
-                demand: {
-                    ...createDemand(3, 'thumbnail-visible'),
-                    estimatedPixels: 25,
-                },
-                target,
-            });
-            await vi.waitFor(() => expect(painted.get(3)).toBe(1));
-            expect(budget.getSnapshot().reservedBytes).toBeLessThanOrEqual(1_000);
+            publish([sized(createDemand(1, 'viewport-visible', 1), 100)]);
+            await vi.waitFor(() => expect(painted.get(1)).toBe(1));
+            publish([sized(createDemand(1, 'viewport-visible', 2), 50)]);
+            await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(600));
+            expect(budget.tryReserve({
+                scopeId: 'other-surface',
+                category: 'pdf-thumbnail-canvas',
+                bytes: 600,
+            })).toBeNull();
+            expect(budget.getSnapshot().reservedBytes).toBe(600);
             replacement.resolve(undefined);
-            expect((await thumbnail).status).toBe('committed');
+            await vi.waitFor(() => expect(painted.get(1)).toBe(2));
+            await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(200));
+        } finally {
+            replacement.resolve(undefined);
+            await scheduler.dispose();
+        }
+    });
+
+    it('admits a thumbnail by reclaiming a nearby raster while a visible replacement stays charged', async () => {
+        const {
+            budget, painted, publish, replacement, scheduler, sized, target,
+        } = createReplacementHarness();
+        try {
+            publish([
+                sized(createDemand(1, 'viewport-visible', 1), 100),
+                sized(createDemand(2, 'viewport-nearby', 1), 100),
+            ]);
             await vi.waitFor(() => expect([
                 painted.get(1),
                 painted.get(2),
             ]).toEqual([
-                2,
-                2,
+                1,
+                1,
             ]));
+            publish([
+                sized(createDemand(1, 'viewport-visible', 2), 50),
+                sized(createDemand(2, 'viewport-nearby', 1), 100),
+            ]);
+            await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(1_000));
+            const thumbnail = scheduler.request({
+                sourceId: 'thumbnails',
+                demand: sized(createDemand(3, 'thumbnail-visible'), 25),
+                target,
+            });
+            expect((await thumbnail).status).toBe('committed');
+            expect(painted.get(3)).toBe(1);
+            expect(painted.get(1)).toBe(1);
+            expect(budget.getSnapshot().reservedBytes).toBe(700);
+            replacement.resolve(undefined);
+            await vi.waitFor(() => expect(painted.get(1)).toBe(2));
         } finally {
             replacement.resolve(undefined);
             await scheduler.dispose();

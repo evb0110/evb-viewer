@@ -134,30 +134,83 @@ function appearancePage(page: IPdfPage): IPdfNativeTextBoxAppearanceRequest['pag
     };
 }
 
+/** Fit and page paint build their native requests alike, so a fit answers the paint of the same request key. */
+function appearanceRequest(entity: ITextBoxEntity, page: IPdfPage, writerParse: IPdfAnnotationParseResult | null, preserveSavedAppearance: boolean, original: IPdfAnnotationParseResult | null) {
+    const input = appearanceInput(entity, page, writerParse, preserveSavedAppearance, original);
+    return {
+        id: entity.identity.id,
+        input,
+        key: JSON.stringify([
+            writerParse?.documentRevisionToken ?? null,
+            appearancePage(page),
+            input,
+        ]),
+    };
+}
+
+/** A native text-box appearance PDF and the request key it answers. */
+export interface INativeTextBoxAppearance {
+    readonly key: string;
+    readonly data: Uint8Array;
+}
+
+/** A fitted text box and, when the native writer fitted it, the appearance it produced. */
+export type TNativeTextBoxFit = Pick<ITextBoxEntity, 'rect' | 'fontSize'> & {readonly appearance?: INativeTextBoxAppearance | undefined};
+
+/** An accepted text box and the appearance its fit already produced. */
+export interface IAcceptedNativeTextBox {
+    readonly entity: ITextBoxEntity;
+    readonly appearance?: INativeTextBoxAppearance | undefined;
+}
+
 export async function fitNativeTextBox(
     entity: ITextBoxEntity,
     page: IPdfPage,
-    parsed: IPdfAnnotationParseResult | null,
+    writerParse: IPdfAnnotationParseResult | null,
+    original: IPdfAnnotationParseResult | null,
     workingCopyPath: string | null,
     signal?: AbortSignal,
-) {
+): Promise<TNativeTextBoxFit> {
+    const request = appearanceRequest(entity, page, writerParse, false, original);
     const result = await getPageOpsCapability().renderTextBoxAppearance(workingCopyPath, {
         page: appearancePage(page),
-        textBoxes: [appearanceInput(entity, page, parsed, false)],
+        textBoxes: [request.input],
     }, signal ? {signal} : {});
     return {
         rect: entity.rect,
         fontSize: result.textBoxes[0]!.fittedFontSize,
+        appearance: {
+            key: request.key,
+            data: result.data,
+        },
     };
 }
 
-export function nativeAnnotationPaintSignature(entities: readonly AnnotationEntity[], retired: ReadonlySet<string>, editingId: string | null, revision: string | null, editingDraft = false) {
+/**
+ * What one page's annotation pixels depend on: each entity's saved-semantic
+ * fingerprint (images by digest), plus the identity, exact geometry and
+ * frame it omits, and the page's editor. A page without entities has none.
+ */
+export function nativeAnnotationPaintIdentity(entities: readonly AnnotationEntity[], editingId: string | null, revision: string | null, editingDraft: boolean) {
+    if (!entities.length) return '';
     return JSON.stringify([
-        entities,
-        [...retired],
-        editingId,
         revision,
-        editingDraft,
+        entities.map(entity => [
+            entity.identity,
+            semanticEntityFingerprint(entity),
+            entity.kind === 'note' ? entity.position : entity.kind === 'text-markup' ? entity.quadPoints : entity.rect,
+            entity.kind === 'shape' ? [
+                entity.points,
+                entity.strokes,
+            ] : entity.kind === 'text-box' ? [
+                entity.frame,
+                entity.readOnly,
+            ] : null,
+        ]),
+        entities.some(entity => entity.identity.id === editingId) ? [
+            editingId,
+            editingDraft,
+        ] : null,
     ]);
 }
 
@@ -166,24 +219,23 @@ export async function prepareNativeTextBoxPagePaint(options: {
     document: IPdfDocument;
     page: IPdfPage;
     annotations: readonly IPdfAnnotation[];
+    /** The page's paint inputs; an accepted text box is already in them and no longer the editor. */
     entities: readonly AnnotationEntity[];
     excludedIds: ReadonlySet<string>;
     editingId: string | null;
-    editingDraft?: boolean | undefined;
-    acceptedProposal?: ITextBoxEntity | undefined;
+    editingDraft: boolean;
     writerParse: IPdfAnnotationParseResult | null;
     workingCopyPath: string | null;
     currentInput?: IPdfAnnotationRenderInput | undefined;
+    acceptedAppearance?: INativeTextBoxAppearance | undefined;
     signature: string;
     signal?: AbortSignal | undefined;
     reserveAppearanceBytes?: ((bytes: number) => void) | undefined;
 }): Promise<IPdfAnnotationRenderInput> {
     const {
-        document, page, annotations, writerParse, signal,
+        document, page, annotations, entities, writerParse, signal,
     } = options;
     const original = readPdfDocumentOriginalAnnotations(document);
-    const entities = options.entities.filter(entity => !entity.deleted && entity.pageIndex + 1 === page.pageNumber)
-        .map(entity => entity.identity.id === options.acceptedProposal?.identity.id ? options.acceptedProposal : entity);
     const excludedIds = new Set(options.excludedIds);
     const loadedIds = new Set(annotations.flatMap(annotation => normalizePdfJsAnnotationId(annotation.id) ?? []));
     const originalEntries = original?.entities.filter(entry => entry.pageIndex + 1 === page.pageNumber) ?? [];
@@ -205,76 +257,81 @@ export async function prepareNativeTextBoxPagePaint(options: {
         return ref && loadedIds.has(ref) ? ref : null;
     };
     const retained = entities.filter(entity => entity.kind !== 'note' && sourceId(entity)
-        && !(entity.identity.id === options.editingId && options.editingDraft && entity.identity.id !== options.acceptedProposal?.identity.id)
+        && !(entity.identity.id === options.editingId && options.editingDraft)
         && matchesParsed(entity, entryFor(entity)));
     // Flatten unchanged source siblings with text boxes so PDF order/blending stays in one canvas.
     if (entities.some(entity => entity.kind === 'text-box')) retained.forEach(entity => excludedIds.delete(sourceId(entity)!));
     const derived = entities.filter((entity): entity is ITextBoxEntity => entity.kind === 'text-box' && !entity.readOnly
-        && !retained.includes(entity) && (entity.identity.id !== options.editingId || entity.identity.id === options.acceptedProposal?.identity.id));
+        && !retained.includes(entity) && entity.identity.id !== options.editingId);
     const pageInput = appearancePage(page);
-    const requests = derived.map(entity => {
-        const input = appearanceInput(entity, page, writerParse, true, original);
-        return {
-            id: entity.identity.id,
-            input,
-            key: JSON.stringify([
-                writerParse?.documentRevisionToken ?? null,
-                pageInput,
-                input,
-            ]),
-        };
-    });
+    const requests = derived.map(entity => appearanceRequest(entity, page, writerParse, true, original));
     const previous = options.currentInput?.nativeAnnotationAppearance?.pdf;
-    const reusable = requests.map(request => options.currentInput?.nativeTextBoxInputs?.find(input => input.id === request.id && input.key === request.key));
-    let pdfs: readonly Uint8Array[] = [];
-    let nativeTextBoxInputs: NonNullable<IPdfAnnotationRenderInput['nativeTextBoxInputs']> = [];
-    if (requests.length && previous && reusable.every(input => input !== undefined)) {
-        pdfs = previous instanceof Uint8Array ? [previous] : previous;
-        options.reserveAppearanceBytes?.(pdfs.reduce((sum, pdf) => sum + pdf.byteLength, 0));
-        nativeTextBoxInputs = reusable.filter(input => input !== undefined);
-    } else if (requests.length) {
-        const output: Uint8Array[] = [];
-        let outputBytes = 0;
-        const inputs: Array<NonNullable<IPdfAnnotationRenderInput['nativeTextBoxInputs']>[number]> = [];
-        const batches: Array<typeof requests> = [];
-        let batch: typeof requests = [];
-        let textBytes = 0;
-        let requestBytes = 1024;
-        const encoder = new TextEncoder();
-        for (const request of requests) {
-            const text = encoder.encode(request.input.textBox.text).byteLength;
-            const bytes = encoder.encode(JSON.stringify(request.input)).byteLength;
-            if (batch.length && (batch.length === PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes
-                || textBytes + text > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.totalTextBytes
-                || requestBytes + bytes > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.requestBytes)) {
-                batches.push(batch); batch = []; textBytes = 0; requestBytes = 1024;
-            }
-            batch.push(request); textBytes += text; requestBytes += bytes;
+    const previousPdfs = previous instanceof Uint8Array ? [previous] : previous ?? [];
+    // A request the committed render or the accepted text box's fit already answered keeps that appearance.
+    const answers = requests.map((request) => {
+        const committed = options.currentInput?.nativeTextBoxInputs?.find(input => input.id === request.id && input.key === request.key);
+        const pdf = committed && previousPdfs[committed.appearanceDocument];
+        if (committed && pdf) {
+            return {
+                pdf,
+                appearanceIndex: committed.appearanceIndex,
+            };
         }
-        if (batch.length) batches.push(batch);
-        for (const chunk of batches) {
-            signal?.throwIfAborted();
-            const result = await getPageOpsCapability().renderTextBoxAppearance(options.workingCopyPath, {
-                page: pageInput,
-                textBoxes: chunk.map(request => request.input),
-            }, signal ? {signal} : {});
-            signal?.throwIfAborted();
-            if (result.textBoxes.length !== chunk.length || result.textBoxes.some((entry, index) => entry.stableKey !== chunk[index]!.id)) {
-                throw new Error('Native text appearance identities do not match the captured page');
-            }
-            const appearanceDocument = output.length;
-            outputBytes += result.data.byteLength;
-            options.reserveAppearanceBytes?.(outputBytes);
-            output.push(result.data);
-            chunk.forEach((request, appearanceIndex) => inputs.push({
-                id: request.id,
-                key: request.key,
-                appearanceDocument,
-                appearanceIndex,
-            }));
+        return options.acceptedAppearance?.key === request.key ? {
+            pdf: options.acceptedAppearance.data,
+            appearanceIndex: 0,
+        } : null;
+    });
+    const pdfs = [...new Set(answers.flatMap(answer => answer?.pdf ?? []))];
+    let outputBytes = pdfs.reduce((sum, pdf) => sum + pdf.byteLength, 0);
+    if (outputBytes) options.reserveAppearanceBytes?.(outputBytes);
+    const batches: Array<typeof requests> = [];
+    let batch: typeof requests = [];
+    let textBytes = 0;
+    let requestBytes = 1024;
+    const encoder = new TextEncoder();
+    for (const request of requests.filter((_, index) => !answers[index])) {
+        const text = encoder.encode(request.input.textBox.text).byteLength;
+        const bytes = encoder.encode(JSON.stringify(request.input)).byteLength;
+        if (batch.length && (batch.length === PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes
+            || textBytes + text > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.totalTextBytes
+            || requestBytes + bytes > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.requestBytes)) {
+            batches.push(batch);
+            batch = [];
+            textBytes = 0;
+            requestBytes = 1024;
         }
-        pdfs = output; nativeTextBoxInputs = inputs;
+        batch.push(request);
+        textBytes += text;
+        requestBytes += bytes;
     }
+    if (batch.length) batches.push(batch);
+    for (const chunk of batches) {
+        signal?.throwIfAborted();
+        const result = await getPageOpsCapability().renderTextBoxAppearance(options.workingCopyPath, {
+            page: pageInput,
+            textBoxes: chunk.map(request => request.input),
+        }, signal ? {signal} : {});
+        signal?.throwIfAborted();
+        if (result.textBoxes.length !== chunk.length || result.textBoxes.some((entry, index) => entry.stableKey !== chunk[index]!.id)) {
+            throw new Error('Native text appearance identities do not match the captured page');
+        }
+        outputBytes += result.data.byteLength;
+        options.reserveAppearanceBytes?.(outputBytes);
+        pdfs.push(result.data);
+        chunk.forEach((request, appearanceIndex) => {
+            answers[requests.indexOf(request)] = {
+                pdf: result.data,
+                appearanceIndex,
+            };
+        });
+    }
+    const nativeTextBoxInputs = requests.map((request, index) => ({
+        id: request.id,
+        key: request.key,
+        appearanceDocument: pdfs.indexOf(answers[index]!.pdf),
+        appearanceIndex: answers[index]!.appearanceIndex,
+    }));
     const derivedById = new Map<string, ITextBoxEntity>(derived.map(entity => [
         entity.identity.id,
         entity,
