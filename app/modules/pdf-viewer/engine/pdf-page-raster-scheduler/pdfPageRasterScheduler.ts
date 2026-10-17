@@ -281,15 +281,9 @@ export function createPdfPageRasterScheduler(
         void settlement.then(() => work.coordinatedOperationSettlements.delete(settlement));
     }
 
-    function hasPendingReplacement(work: IRasterWork) {
-        return [
-            ...queued.values(),
-            ...inFlight.values(),
-            ...retryPending.values(),
-        ].some(candidate => candidate.key !== work.key
-            && candidate.target.id === work.target.id
-            && candidate.demand.pageNumber === work.demand.pageNumber
-            && isDemandCurrent(candidate));
+    function isPageVisiblyDemanded(work: IRasterWork) {
+        const lane = currentDemandByIdentity.get(createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber))?.lane;
+        return lane === 'navigation-target' || lane === 'viewport-visible';
     }
 
     function hasCommittedResidentForPage(targetId: string, pageNumber: TPageNumber) {
@@ -522,15 +516,9 @@ export function createPdfPageRasterScheduler(
                 category,
                 bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
                 priority: LANE_ORDER[work.demand.lane],
-                // Current visible rasters keep their leases. A pending replacement
-                // supersedes its stale resident, so budget pressure can reclaim
-                // that lease instead of charging both canvases. The target keeps
-                // the old pixels on screen until the new raster commits.
-                canEvict: () => residents.has(work.key)
-                    && !(isDemandCurrent(work) && (
-                        work.demand.lane === 'navigation-target'
-                        || work.demand.lane === 'viewport-visible'
-                    ) && !hasPendingReplacement(work)),
+                // A page on screen keeps its raster, and that raster's charge,
+                // until a replacement commits: the target does not unmount it.
+                canEvict: () => residents.has(work.key) && !isPageVisiblyDemanded(work),
                 evict: () => {
                     const resident = residents.get(work.key);
                     if (resident) {
