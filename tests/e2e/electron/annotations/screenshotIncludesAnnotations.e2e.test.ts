@@ -14,6 +14,7 @@ import {
     PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFHexString,
 } from 'pdf-lib';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {E2E_CONTENT_SIZE} from '@tests/e2e/electron/helpers/userEnvironment';
 import {
     createMultiPageTextFixturePdf, createCanonicalAnnotationSurfaceFixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -398,10 +399,6 @@ describe('Electron E2E - screenshot annotation output', () => {
             extraEnv: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--disable-blink-features=ReadClipboardDataOnClipboardItemGetType'},
         });
         const {page} = session;
-        await session.command('windowResize', [
-            1100,
-            1050,
-        ]);
         await openPdfInApp(page, path);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
@@ -539,20 +536,45 @@ describe('Electron E2E - screenshot annotation output', () => {
                 full.height,
                 cleanState.dpr,
             ]).toEqual([
-                1100,
-                1050,
+                E2E_CONTENT_SIZE.width,
+                E2E_CONTENT_SIZE.height,
                 1,
             ]);
             expect(Object.values(clip).every(Number.isInteger)).toBe(true);
-            const crop = createCanvas(clip.width, clip.height);
-            crop.getContext('2d').drawImage(await loadImage(Buffer.from(fullScreen)), -clip.x, -clip.y);
-            screen = crop.toBuffer('image/png');
+            // The product decodes its capture in Chromium, so the reference is
+            // decoded there too; Node canvas rounds ICC conversion differently.
+            const browserReference = await page.evaluate(async ({
+                bytes,
+                rect,
+            }) => {
+                const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], {type: 'image/png'}));
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = bitmap.width;
+                    canvas.height = bitmap.height;
+                    const context = canvas.getContext('2d')!;
+                    context.drawImage(bitmap, 0, 0);
+                    const region = context.getImageData(rect.x, rect.y, rect.width, rect.height);
+                    const crop = document.createElement('canvas');
+                    crop.width = rect.width;
+                    crop.height = rect.height;
+                    crop.getContext('2d')!.putImageData(region, 0, 0);
+                    const png = await new Promise<Blob>(resolve => crop.toBlob(value => resolve(value!), 'image/png'));
+                    return {
+                        png: Array.from(new Uint8Array(await png.arrayBuffer())),
+                        rgba: Array.from(region.data),
+                    };
+                } finally {
+                    bitmap.close();
+                }
+            }, {
+                bytes: Array.from(fullScreen),
+                rect: clip,
+            });
+            screen = Buffer.from(browserReference.png);
             await retainEvidence({'clean-screen.png': screen});
             expected = await decode(screen);
-            const fullCrop = Buffer.concat(Array.from({length: clip.height}, (_, row) => {
-                const start = ((clip.y + row) * full.width + clip.x) * 4;
-                return full.pixels.subarray(start, start + clip.width * 4);
-            }));
+            const fullCrop = Buffer.from(browserReference.rgba);
             await retainEvidence({'reference-crop.json': JSON.stringify({
                 full: {
                     width: full.width,
