@@ -386,9 +386,6 @@ pub(crate) fn validate_text_note_document_postconditions(
         }
 
         let annot_ref = matching_refs[0];
-        if let Some(data) = note.recovery_data.as_deref() {
-            validate_note_recovery(document, data, annot_ref, &annots)?;
-        }
         let annot_dict = document.dictionary(annot_ref)?;
         if annotation_subtype(annot_dict) != "text" {
             return Err("Text note annotation has the wrong subtype".into());
@@ -478,16 +475,7 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
         if let (Some(object_number), Some(generation_number)) =
             (delete.object_number, delete.generation_number)
         {
-            let target_id = (object_number, generation_number);
-            refs_to_delete.insert(target_id);
-            if document.dictionary(target_id).is_ok() {
-                let page_annots = get_page_annots(document, page_id)?;
-                for object_id in
-                    collect_annotation_refs_to_delete(document, target_id, Some(&page_annots))?
-                {
-                    refs_to_delete.insert(object_id);
-                }
-            }
+            refs_to_delete.insert((object_number, generation_number));
         }
     }
     for object_id in &refs_to_delete {

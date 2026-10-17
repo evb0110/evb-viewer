@@ -850,18 +850,6 @@ pub(crate) fn collect_deleted_shape_refs(shapes: &ShapesMutation) -> DeletedShap
     }
 }
 
-pub(crate) fn collect_shape_annotation_refs_to_delete(
-    document: &Document,
-    refs_to_delete: &mut HashSet<ObjectId>,
-    object_id: ObjectId,
-    page_annots_hint: Option<&[Object]>,
-) -> Result<()> {
-    for delete_ref in collect_annotation_refs_to_delete(document, object_id, page_annots_hint)? {
-        refs_to_delete.insert(delete_ref);
-    }
-    Ok(())
-}
-
 #[derive(Clone, Copy)]
 pub(crate) struct ShapePageContext {
     page_id: ObjectId,
@@ -876,7 +864,7 @@ pub(crate) fn apply_shape_annotation_decision(
     refs_to_delete: &mut HashSet<ObjectId>,
     rewrite_shape_state: bool,
     page: ShapePageContext,
-    page_annots: &[Object],
+    replies: &HashMap<ObjectId, Vec<ObjectId>>,
     object_id: ObjectId,
     modified_at: &str,
 ) -> Result<bool> {
@@ -899,12 +887,9 @@ pub(crate) fn apply_shape_annotation_decision(
             .as_deref()
             .is_some_and(|stable_key| deleted_refs.stable_keys.contains(stable_key))
     {
-        collect_shape_annotation_refs_to_delete(
-            document,
-            refs_to_delete,
-            object_id,
-            Some(page_annots),
-        )?;
+        refs_to_delete.extend(collect_annotation_refs_to_delete(
+            document, object_id, replies,
+        )?);
         return Ok(true);
     }
     if let Some(stable_key) = annotation_stable_key.as_deref() {
@@ -920,12 +905,9 @@ pub(crate) fn apply_shape_annotation_decision(
             );
         }
         if rewrite_shape_state {
-            collect_shape_annotation_refs_to_delete(
-                document,
-                refs_to_delete,
-                object_id,
-                Some(page_annots),
-            )?;
+            refs_to_delete.extend(collect_annotation_refs_to_delete(
+                document, object_id, replies,
+            )?);
             return Ok(true);
         }
         return Ok(false);
@@ -1023,7 +1005,7 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     refs_to_delete: &mut HashSet<ObjectId>,
     rewrite_shape_state: bool,
     page: ShapePageContext,
-    page_annots: &[Object],
+    replies: &HashMap<ObjectId, Vec<ObjectId>>,
     object_id: ObjectId,
     modified_at: &str,
 ) -> Result<bool> {
@@ -1046,12 +1028,10 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             .as_deref()
             .is_some_and(|stable_key| deleted_refs.stable_keys.contains(stable_key))
     {
-        collect_shape_annotation_refs_to_delete(
-            incremental.get_prev_documents(),
-            refs_to_delete,
-            object_id,
-            Some(page_annots),
-        )?;
+        let document = incremental.get_prev_documents();
+        refs_to_delete.extend(collect_annotation_refs_to_delete(
+            document, object_id, replies,
+        )?);
         return Ok(true);
     }
     let shape_index = annotation_stable_key
@@ -1101,12 +1081,10 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         return Ok(modified);
     }
     if annotation_stable_key.is_some() && rewrite_shape_state {
-        collect_shape_annotation_refs_to_delete(
-            incremental.get_prev_documents(),
-            refs_to_delete,
-            object_id,
-            Some(page_annots),
-        )?;
+        let document = incremental.get_prev_documents();
+        refs_to_delete.extend(collect_annotation_refs_to_delete(
+            document, object_id, replies,
+        )?);
         return Ok(true);
     }
     Ok(false)
@@ -1120,6 +1098,7 @@ struct ShapeDeleteTargets {
 fn collect_known_shape_delete_targets(
     document: &Document,
     deleted_refs: &DeletedShapeRefs,
+    replies: &HashMap<ObjectId, Vec<ObjectId>>,
 ) -> Result<ShapeDeleteTargets> {
     let mut refs_to_delete = HashSet::new();
     let mut page_ids = HashSet::new();
@@ -1130,33 +1109,18 @@ fn collect_known_shape_delete_targets(
         if document.dictionary(object_id).is_err() {
             continue;
         }
-        let (owner_page_id, owner_page_annots) = shape_delete_owner_page(document, object_id)?
-            .map_or((None, None), |(page_id, annots)| {
-                (Some(page_id), Some(annots))
-            });
-        if let Some(page_id) = owner_page_id {
-            page_ids.insert(page_id);
-        }
-        for related_id in
-            collect_annotation_refs_to_delete(document, object_id, owner_page_annots.as_deref())?
-        {
-            refs_to_delete.insert(related_id);
-        }
+        page_ids.extend(shape_delete_owner_page(document, object_id)?);
+        refs_to_delete.extend(collect_annotation_refs_to_delete(
+            document, object_id, replies,
+        )?);
     }
     let stable_lookup = lookup_embedded_shape_delete_targets(document, &deleted_refs.stable_keys);
     page_ids.extend(stable_lookup.page_ids);
     for object_id in stable_lookup.object_ids {
-        let owner = shape_delete_owner_page(document, object_id)?;
-        if let Some((page_id, _)) = owner.as_ref() {
-            page_ids.insert(*page_id);
-        }
-        for related_id in collect_annotation_refs_to_delete(
-            document,
-            object_id,
-            owner.as_ref().map(|(_, annots)| annots.as_slice()),
-        )? {
-            refs_to_delete.insert(related_id);
-        }
+        page_ids.extend(shape_delete_owner_page(document, object_id)?);
+        refs_to_delete.extend(collect_annotation_refs_to_delete(
+            document, object_id, replies,
+        )?);
     }
     extend_shape_page_ids_from_refs(document, &refs_to_delete, &mut page_ids);
     Ok(ShapeDeleteTargets {
@@ -1165,23 +1129,18 @@ fn collect_known_shape_delete_targets(
     })
 }
 
-/// Resolve a shape's page-local annotation list before collecting related
-/// popup/reply references. Imported PDFs may omit `/P`, so explicit object
-/// deletes need this bounded fallback to remove the object from `/Annots`.
-fn shape_delete_owner_page(
-    document: &Document,
-    object_id: ObjectId,
-) -> Result<Option<(ObjectId, Vec<Object>)>> {
+/// The page whose /Annots lists a shape. Imported PDFs may omit `/P`, so
+/// explicit object deletes need this bounded fallback to remove the object.
+fn shape_delete_owner_page(document: &Document, object_id: ObjectId) -> Result<Option<ObjectId>> {
     if let Some(page_id) = shape_annotation_page_id(document, object_id) {
-        return Ok(Some((page_id, get_page_annots(document, page_id)?)));
+        return Ok(Some(page_id));
     }
     for page_id in document.page_ids().into_values() {
-        let annots = get_page_annots(document, page_id)?;
-        if annots
+        if get_page_annots(document, page_id)?
             .iter()
             .any(|object| object.as_reference().ok() == Some(object_id))
         {
-            return Ok(Some((page_id, annots)));
+            return Ok(Some(page_id));
         }
     }
     Ok(None)
@@ -1391,7 +1350,8 @@ pub(crate) fn apply_shape_annotations(
     let page_resolver = PageTreeResolver::new(document)?;
     let mut state = ShapeConsumptionState::new(&shapes.shapes);
     let deleted_refs = collect_deleted_shape_refs(shapes);
-    let delete_targets = collect_known_shape_delete_targets(document, &deleted_refs)?;
+    let replies = document_replies(document);
+    let delete_targets = collect_known_shape_delete_targets(document, &deleted_refs, &replies)?;
     let mut refs_to_delete = delete_targets.refs_to_delete;
     let mut page_ids = resolve_shape_page_ids(document, &page_resolver, shapes, &refs_to_delete)?;
     page_ids.extend(delete_targets.page_ids);
@@ -1415,13 +1375,14 @@ pub(crate) fn apply_shape_annotations(
                     page_view,
                     page_rotation,
                 },
-                &annots,
+                &replies,
                 object_id,
                 modified_at,
             )? || modified;
         }
     }
     extend_shape_page_ids_from_refs(document, &refs_to_delete, &mut page_ids);
+    add_listing_pages(document, &page_resolver, &refs_to_delete, &mut page_ids)?;
     modified = remove_shape_refs_from_pages(document, &page_ids, &refs_to_delete)? || modified;
     let remaining = state.remaining().cloned().collect::<Vec<_>>();
     modified = append_remaining_shape_annotations(
@@ -1456,8 +1417,12 @@ pub(crate) fn apply_shape_annotations_incremental(
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut state = ShapeConsumptionState::new(&shapes.shapes);
     let deleted_refs = collect_deleted_shape_refs(shapes);
-    let delete_targets =
-        collect_known_shape_delete_targets(incremental.get_prev_documents(), &deleted_refs)?;
+    let replies = document_replies(incremental.get_prev_documents());
+    let delete_targets = collect_known_shape_delete_targets(
+        incremental.get_prev_documents(),
+        &deleted_refs,
+        &replies,
+    )?;
     let mut refs_to_delete = delete_targets.refs_to_delete;
     let mut page_ids = resolve_shape_page_ids(
         incremental.get_prev_documents(),
@@ -1486,17 +1451,15 @@ pub(crate) fn apply_shape_annotations_incremental(
                     page_view,
                     page_rotation,
                 },
-                &annots,
+                &replies,
                 object_id,
                 modified_at,
             )? || modified;
         }
     }
-    extend_shape_page_ids_from_refs(
-        incremental.get_prev_documents(),
-        &refs_to_delete,
-        &mut page_ids,
-    );
+    let document = incremental.get_prev_documents();
+    extend_shape_page_ids_from_refs(document, &refs_to_delete, &mut page_ids);
+    add_listing_pages(document, &page_resolver, &refs_to_delete, &mut page_ids)?;
     modified = remove_shape_refs_from_pages_incremental(incremental, &page_ids, &refs_to_delete)?
         || modified;
     let remaining = state.remaining().cloned().collect::<Vec<_>>();

@@ -125,8 +125,64 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
                 &Object::Name(b"Marked".to_vec()));
         }
         assert_eq!(pdf_string_to_text(document.get_dictionary(reply_ref).unwrap().get(b"PrivateField").unwrap()).unwrap(), "preserve me");
+        let data = mutations.notes[0].recovery_data.as_deref().unwrap();
+        let root = (restored.object_number as u32, restored.generation_number as u16);
+        let annots = get_page_annots(&document, page).unwrap();
+        validate_note_recovery(&document, data, root, &annots).unwrap();
         document.get_dictionary_mut(reply_ref).unwrap().set("Contents", Object::string_literal("corrupted reply"));
-        assert!(validate_appended_revision_postconditions(&document, &mutations, "D:20260908120000Z").is_err());
+        assert!(validate_note_recovery(&document, data, root, &annots).is_err());
+    }
+}
+
+#[test]
+fn saved_deleted_note_returns_cross_page_replies_to_their_own_page_in_both_writers() {
+    // A note on the second page answered on the first: Delete takes the
+    // thread from both pages, and Undo puts each reply back on the first. A
+    // reply without /P is found where its page lists it.
+    for (append, reply_names_its_page) in [(false, true), (false, false), (true, true), (true, false)] {
+        let (mut document, first) = create_test_document();
+        let pages = document.get_dictionary(first).unwrap().get(b"Parent").unwrap().as_reference().unwrap();
+        let second = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages});
+        let tree = document.get_dictionary_mut(pages).unwrap();
+        tree.set("Kids", vec![Object::Reference(first), Object::Reference(second)]);
+        tree.set("Count", 2);
+        let note = || FreeTextNote { page_index: 1, ..binding_note() };
+        let mut document = recovery_save(document, &NativeMutationsFile { notes: vec![note()], ..Default::default() }, append);
+        let root = get_page_annots(&document, second).unwrap().into_iter().filter_map(|object| object.as_reference().ok()).find(|id| annotation_subtype(document.get_dictionary(*id).unwrap()) == "text").unwrap();
+        let mut reply = dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "IRT" => root, "NM" => Object::string_literal("reply-one"),
+            "Contents" => Object::string_literal("cross-page reply"), "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
+        };
+        if reply_names_its_page {
+            reply.set("P", first);
+        }
+        let reply = document.add_object(reply);
+        let child = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "IRT" => reply, "NM" => Object::string_literal("reply-two"),
+            "Contents" => Object::string_literal("nested reply"), "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
+        });
+        document.get_dictionary_mut(first).unwrap().set("Annots", vec![Object::Reference(reply), Object::Reference(child)]);
+        let mut bytes = Vec::new(); document.save_to(&mut bytes).unwrap();
+        document = Document::load_mem(&bytes).unwrap();
+        let parsed_note = |document: &Document| collect_parsed_annotations(document, "").unwrap().into_iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value), _ => None });
+        let saved_note = parsed_note(&document).unwrap();
+        assert_eq!(saved_note.replies.len(), 2);
+        let delete = AnnotationDelete { page_index: 1, object_number: Some(root.0), generation_number: Some(root.1), stable_key: None, created_at: None };
+        document = recovery_save(document, &NativeMutationsFile { deletes: vec![delete], ..Default::default() }, append);
+        assert_eq!(get_page_annots(&document, first).unwrap(), Vec::<Object>::new(), "the replies leave their own page");
+        assert!(parsed_note(&document).is_none());
+        let mutations = NativeMutationsFile { notes: vec![FreeTextNote { recovery_data: saved_note.recovery_data, ..note() }], ..Default::default() };
+        document = recovery_save(document, &mutations, append);
+        let restored = parsed_note(&document).unwrap();
+        assert_eq!(restored.replies.len(), 2);
+        let on_page = |page| get_page_annots(&document, page).unwrap().into_iter().filter_map(|object| object.as_reference().ok()).filter(|id| document.get_dictionary(*id).unwrap().has(b"IRT")).collect::<Vec<_>>();
+        assert!(on_page(second).is_empty(), "no reply moves to the note's page");
+        let returned = on_page(first);
+        assert_eq!(returned.len(), 2, "both replies return to the first page");
+        assert!(returned.iter().all(|id| annotation_page_id(&document, *id) == Some(first)));
+        let annots = [get_page_annots(&document, first).unwrap(), get_page_annots(&document, second).unwrap()].concat();
+        let root = (restored.object_number as u32, restored.generation_number as u16);
+        validate_note_recovery(&document, mutations.notes[0].recovery_data.as_deref().unwrap(), root, &annots).unwrap();
     }
 }
 
@@ -561,4 +617,119 @@ fn validate_text_box_recovery(
         );
     }
     Ok(())
+}
+
+/// The restored thread equals its source graph apart from fresh identities.
+fn validate_note_recovery(
+    document: &impl PdfObjectSource,
+    data: &str,
+    root: ObjectId,
+    annots: &[Object],
+) -> Result<()> {
+    let graph = decode_note_recovery(data)?;
+    let expected_root = graph.trailer.get(b"Root")?.as_reference()?;
+    let expected_annots = graph.trailer.get(b"EVBAnnots")?.as_array()?;
+    let expected =
+        recovery_reply_signatures(&graph, expected_root, expected_annots, &mut HashSet::new())?;
+    let actual = recovery_reply_signatures(document, root, annots, &mut HashSet::new())?;
+    if expected != actual {
+        return Err("Restored note reply graph differs from its source".into());
+    }
+    Ok(())
+}
+
+fn recovery_reply_signatures(
+    source: &impl PdfObjectSource,
+    parent: ObjectId,
+    annots: &[Object],
+    seen: &mut HashSet<ObjectId>,
+) -> Result<Vec<String>> {
+    if !seen.insert(parent) || seen.len() > MAX_RECOVERY_OBJECTS {
+        return Err("Note reply graph contains a cycle or exceeds its ceiling".into());
+    }
+    let mut signatures = Vec::new();
+    for reference in annots
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+    {
+        let dict = source.dictionary(reference)?;
+        if annotation_related_ref(dict, b"IRT") != Some(parent) {
+            continue;
+        }
+        if let Some(popup) = annotation_related_ref(dict, b"Popup") {
+            if annotation_related_ref(source.dictionary(popup)?, b"Parent") != Some(reference) {
+                return Err("Restored reply popup parent differs from its source".into());
+            }
+        }
+        let normalized = recovery_semantic_object(
+            source,
+            &Object::Dictionary(dict.clone()),
+            &mut HashSet::new(),
+            0,
+        )?;
+        let children = recovery_reply_signatures(source, reference, annots, seen)?;
+        signatures.push(format!("{normalized:?}:{children:?}"));
+    }
+    signatures.sort();
+    Ok(signatures)
+}
+
+fn recovery_semantic_object(
+    source: &impl PdfObjectSource,
+    object: &Object,
+    seen: &mut HashSet<ObjectId>,
+    depth: usize,
+) -> Result<Object> {
+    if depth > 64 {
+        return Err("Note graph semantic validation exceeds nesting ceiling".into());
+    }
+    Ok(match object {
+        Object::Reference(id) => {
+            if !seen.insert(*id) {
+                return Ok(Object::Name(b"EVBCycle".to_vec()));
+            }
+            let result = recovery_semantic_object(source, source.object(*id)?, seen, depth + 1)?;
+            seen.remove(id);
+            result
+        }
+        Object::Dictionary(dict) => {
+            let mut result = Dictionary::new();
+            for (key, value) in dict.iter() {
+                let annotation = dict.get(b"Type").ok().and_then(|v| v.as_name().ok())
+                    == Some(b"Annot")
+                    || matches!(
+                        annotation_subtype(dict).as_str(),
+                        "text" | "freetext" | "popup"
+                    );
+                if key.as_slice() == b"Length"
+                    || (annotation && matches!(key.as_slice(), b"P" | b"IRT" | b"Parent"))
+                {
+                    continue;
+                }
+                result.set(
+                    key.clone(),
+                    recovery_semantic_object(source, value, seen, depth + 1)?,
+                );
+            }
+            Object::Dictionary(result)
+        }
+        Object::Array(values) => Object::Array(
+            values
+                .iter()
+                .map(|value| recovery_semantic_object(source, value, seen, depth + 1))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        Object::Stream(stream) => {
+            let dict = recovery_semantic_object(
+                source,
+                &Object::Dictionary(stream.dict.clone()),
+                seen,
+                depth + 1,
+            )?
+            .as_dict()?
+            .clone();
+            Object::Stream(Stream::new(dict, stream.content.clone()))
+        }
+        value => value.clone(),
+    })
 }
