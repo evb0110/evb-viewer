@@ -131,7 +131,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         runDocumentOpen,
         assignDocument: controller.assign,
     });
-    const loadRecentFiles = () => void file.loadRecentFiles();
     const {
         settings: appSettings,
         save: saveSettings,
@@ -266,7 +265,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         trySaveEmbeddedNoteTextUpdates: file.trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs: file.saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
-        loadRecentFiles,
+        loadRecentFiles: () => void file.loadRecentFiles(),
         currentPage,
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
@@ -599,7 +598,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         closeAnnotationContextMenu: views.closeAnnotationContextMenus,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
-        loadRecentFiles,
+        loadRecentFiles: () => void file.loadRecentFiles(),
         isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value),
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
@@ -622,13 +621,13 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         metadata,
         annotations,
         pdfDocumentAnnotations,
-        // The one PDF.js document every view of this document shows.
         pdfDocumentSessionSlot: createPdfDocumentSessionSlot({
+            documentRevisionToken: file.documentRevisionToken,
+            workingCopyPath: file.workingCopyPath,
+            admitOpeningSource: file.admitOpeningSource,
             src: file.pdfSrc,
             reloadSrc: file.pdfReloadSrc,
             documentLifecycleKey: computed(() => file.originalPath.value ?? pendingDocumentPath.value),
-            documentRevisionToken: file.documentRevisionToken,
-            workingCopyPath: file.workingCopyPath,
         }),
         saveService,
         save,

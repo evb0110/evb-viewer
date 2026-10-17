@@ -30,11 +30,12 @@ function createHarness(surfaceDocumentId = '/tmp/scan.pdf') {
         pageNumber: requirePageNumber(1),
         currentPage: 1,
         pageCount: 431,
-        metric: {
+        pageMetrics: Array.from({length: 431}, () => ({
             width: 860,
             height: 1112.94,
             rotation: 0,
-        },
+            userUnit: 1,
+        })),
     };
     return {
         authority,
@@ -58,6 +59,42 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             height: 1112.94,
             rotation: 0,
         });
+    });
+
+    it('retains the complete displayed page table for Fit Width, including rotation and UserUnit', () => {
+        const harness = createHarness();
+        harness.input.pageMetrics[300] = {
+            width: 725,
+            height: 1100,
+            rotation: 90,
+            userUnit: 1.25,
+        };
+        harness.input.pageMetrics[430] = {
+            width: 900,
+            height: 1200,
+            rotation: 0,
+            userUnit: 1,
+        };
+
+        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, harness.input)).toBe(true);
+        expect(harness.openingPageGeometry()).toMatchObject({
+            widestPageWidth: 900,
+            tallestPageHeight: 1200,
+        });
+        expect(harness.openingPageGeometry()?.pages?.[300]).toEqual({
+            widthPoints: 880,
+            heightPoints: 580,
+            rotation: 90,
+            userUnit: 1.25,
+        });
+    });
+
+    it('keeps a bare opening surface while the page table is incomplete', () => {
+        const harness = createHarness();
+        Reflect.deleteProperty(harness.input.pageMetrics, 300);
+
+        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, harness.input)).toBe(false);
+        expect(harness.openingPageGeometry()).toBeNull();
     });
 
     it('accepts an equivalent reconstructed path descriptor', () => {
@@ -115,7 +152,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
         ],
         [
             'missing metric',
-            {metric: undefined},
+            {pageMetrics: []},
         ],
     ])('rejects %s evidence', (_label, override) => {
         const harness = createHarness();

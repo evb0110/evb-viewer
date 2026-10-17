@@ -97,7 +97,7 @@ describe('seeding a normal open from its reading view', () => {
     it('starts at defaults when Recent admits no opening seed', async () => {
         recent.readingView.mockResolvedValue(null);
         const opening = createOpeningView();
-        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, () => Promise.resolve(40));
         expect(opening.readTarget()).toEqual(openingPageOne);
         expect(opening.view).toMatchObject({
             zoom: 1,
@@ -109,7 +109,7 @@ describe('seeding a normal open from its reading view', () => {
     it('seeds the remembered place into the view its open began in', async () => {
         const opening = createOpeningView();
 
-        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, () => Promise.resolve(40));
 
         expect(opening.readTarget().target).toEqual({
             kind: 'page',
@@ -121,7 +121,7 @@ describe('seeding a normal open from its reading view', () => {
     it('opens at the remembered page and view, as the opening\'s own restore', async () => {
         const opening = createOpeningView();
 
-        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, () => Promise.resolve(40));
 
         expect(opening.readTarget()).toEqual({
             source: 'restore',
@@ -138,10 +138,28 @@ describe('seeding a normal open from its reading view', () => {
         });
     });
 
+    it('waits for the admitted source page count before restoring the remembered view', async () => {
+        const opening = createOpeningView();
+        const count = Promise.withResolvers<number | null>();
+
+        const seeding = seedOpeningSource(opening.controller, source, () => count.promise);
+        await Promise.resolve();
+        expect(opening.readTarget()).toEqual(openingPageOne);
+        expect(opening.view.zoomMode).toBe('fit-width');
+
+        count.resolve(40);
+        await seeding;
+        expect(opening.readTarget().target).toEqual({
+            kind: 'page',
+            page: 27,
+        });
+        expect(opening.view.zoom).toBe(1.85);
+    });
+
     it('keeps the defaults when the admitted source has another page count', async () => {
         const opening = createOpeningView();
 
-        await seedOpeningSource(opening.controller, source, Promise.resolve(41));
+        await seedOpeningSource(opening.controller, source, () => Promise.resolve(41));
 
         expect(opening.readTarget()).toEqual(openingPageOne);
         expect(opening.view.zoomMode).toBe('fit-width');
@@ -150,7 +168,7 @@ describe('seeding a normal open from its reading view', () => {
     it('keeps the view of a reader who moved it while the open ran', async () => {
         const opening = createOpeningView(() => true);
 
-        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, () => Promise.resolve(40));
 
         expect(opening.readTarget()).toEqual(openingPageOne);
         expect(opening.view.zoomMode).toBe('fit-width');
@@ -162,7 +180,7 @@ describe('seeding a normal open from its reading view', () => {
             anchor,
         });
         const opening = createOpeningView();
-        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, () => Promise.resolve(40));
         finishOpeningReader(opening.controller, opening.opening);
 
         expect(opening.readTarget()).toEqual({

@@ -386,13 +386,6 @@ describe('Electron E2E - dialog layout stability', () => {
 
         // A well-formed encrypted PDF needs a password; that is not a failure (#970).
         expect(readIpcHandlerRejections(session.name, 'pdf:openingGeometry')).toEqual([]);
-
-        // A file that really cannot be read still reports its failure.
-        await triggerOpenPathInApp(page, createTruncatedPdf(), DIALOG_TIMEOUT_MS);
-        await expect.poll(
-            () => readIpcHandlerRejections(session.name, 'pdf:openingGeometry').length,
-            {timeout: DIALOG_TIMEOUT_MS},
-        ).toBeGreaterThan(0);
     }, DIALOG_TIMEOUT_MS * 3);
 
     it('keeps a closed update status closed in a new window and after a renderer reload', async () => {

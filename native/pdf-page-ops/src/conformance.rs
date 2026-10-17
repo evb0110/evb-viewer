@@ -104,8 +104,16 @@ pub(crate) fn write_pdf_conformance(
             "PDF conformance requires the bundled qpdf structural reader",
         )
     })?;
-    let document = load_qpdf_structural_document(input_path, qpdf_path)?;
-    let facts = pdf_conformance_facts(&document)?;
+    let metadata =
+        load_qpdf_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Conformance)?;
+    let document;
+    let source = if let Some((metadata, _warned)) = &metadata {
+        metadata.get_prev_documents()
+    } else {
+        document = load_qpdf_structural_document(input_path, qpdf_path)?;
+        &document
+    };
+    let facts = pdf_conformance_facts(source)?;
     serde_json::to_writer(output, &facts)?;
     Ok(())
 }

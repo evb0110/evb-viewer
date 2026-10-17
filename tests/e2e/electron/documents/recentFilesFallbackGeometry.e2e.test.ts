@@ -20,6 +20,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
@@ -49,6 +50,11 @@ import {
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import { requireWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    installCommittedSurfaceSampler,
+    isOpeningBeforePageGeometry,
+    stopCommittedSurfaceSampler,
+} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 
 const TIMEOUT_MS = 15_000;
 const ARTIFACT_DIR = join(process.cwd(), '.devkit', 'e2e-artifacts', 'recent-fallback-geometry');
@@ -65,7 +71,11 @@ const sha256 = (path: string) => createHash('sha256').update(readFileSync(path))
 // continuous Fit Width, turned a quarter, reopens from Recent with its held
 // page shell on the rect the drawn page takes. Fit Width fits the widest
 // turned page, 900 wide, not the current page's 820.
-async function expectQuarterTurnedFitWidthReopenOnDrawnRect(session: IElectronE2ESession, label: string) {
+async function expectQuarterTurnedFitWidthReopenOnDrawnRect(
+    session: IElectronE2ESession,
+    label: string,
+    expectedOpeningGeometry: 'exact' | 'unavailable',
+) {
     await setRememberPlaceAsUser(session, true);
     const fixturePath = await createMixedPageSizeTextFixturePdf(`recent-fallback-${label}-${Date.now()}.pdf`);
     const fixtureDocumentRef = requireDocumentRef(fixturePath);
@@ -93,16 +103,43 @@ async function expectQuarterTurnedFitWidthReopenOnDrawnRect(session: IElectronE2
     expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
         window.__deferDocumentOpenForAutomation?.(path) ?? false
     ), fixtureDocumentRef)).toBe(true);
+    if (expectedOpeningGeometry === 'unavailable') {
+        await installCommittedSurfaceSampler(session.page);
+    }
     await clickFoundAsUser(session.page, (target: string) => Array.from(
         document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'),
     ).find(row => row.dataset.recentSource === target)
         ?.querySelector<HTMLButtonElement>('button.recent-open'), fixturePath, {description: 'recent open button'});
-    await waitForFunctionInPage(session.page, () => Boolean(
-        document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]'),
-    ), {timeout: TIMEOUT_MS});
-    const held = await readHeldShell(session);
+    let openingShell: Awaited<ReturnType<typeof readHeldShell>> = null;
+    if (expectedOpeningGeometry === 'exact') {
+        await waitForFunctionInPage(session.page, () => Boolean(
+            document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]'),
+        ), {timeout: TIMEOUT_MS});
+        openingShell = await readHeldShell(session);
+        expect(openingShell?.page).toBe(3);
+    } else {
+        // A rejected exact table cannot size a UserUnit-correct placeholder.
+        // The claimed reopen remains bare until PDF.js supplies full geometry.
+        await waitForFunctionInPage(session.page, (fileName: string) => {
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const rect = viewport?.getBoundingClientRect();
+            const visibleSurface = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
+            ) ?? []).some(node => {
+                const box = node.getBoundingClientRect();
+                return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+            });
+            return document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName
+                && viewport?.dataset.openSurfacePhase === 'pending'
+                && chassis?.dataset.openSurfaceHasOpeningGeometry === 'false'
+                && Boolean(rect && rect.width > 0 && rect.height > 0)
+                && !visibleSurface;
+        }, {timeout: TIMEOUT_MS}, basename(fixturePath));
+        expect(await readHeldShell(session)).toBeNull();
+    }
     await session.page.screenshot({path: join(ARTIFACT_DIR, `${label}-held.png`)});
-    expect(held?.page).toBe(3);
 
     expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
         window.__releaseDocumentOpenForAutomation?.(path) ?? false
@@ -113,26 +150,55 @@ async function expectQuarterTurnedFitWidthReopenOnDrawnRect(session: IElectronE2
         '.editor-pane.is-active #pdf-viewer .page_container[data-page="3"] canvas',
     )), {timeout: TIMEOUT_MS});
     const drawn = await readDrawnPage(session, 3);
+    if (expectedOpeningGeometry === 'unavailable') {
+        const trace = await stopCommittedSurfaceSampler(session.page);
+        writeFileSync(join(ARTIFACT_DIR, `${label}-opening-frames.json`), JSON.stringify(trace, null, 2));
+        const claimIndex = trace.frames.findIndex(frame => frame.openSurfacePhase === 'pending');
+        expect(claimIndex, JSON.stringify(trace)).toBeGreaterThanOrEqual(0);
+        const frames = trace.frames.slice(claimIndex);
+        const shellIndex = frames.findIndex(frame => frame.kind === 'page-shell');
+        const canvasIndex = frames.findIndex(frame => frame.kind === 'committed-canvas');
+        expect(trace.errors ?? [], JSON.stringify(trace)).toEqual([]);
+        expect(shellIndex, JSON.stringify(frames)).toBeGreaterThan(0);
+        expect(canvasIndex, JSON.stringify(frames)).toBeGreaterThan(shellIndex);
+        expect(frames.slice(0, shellIndex).every(frame => (
+            isOpeningBeforePageGeometry(frame)
+            && frame.skeletonCount === 0
+            && !frame.outerPlaceholderVisible
+            && (frame.visibleWorkspaceHostCount ?? 0) === 1
+        )), JSON.stringify(frames)).toBe(true);
+        expect(frames.slice(shellIndex, canvasIndex).every(frame => (
+            frame.kind === 'page-shell' && frame.pageNumber === 3
+            && frame.skeletonCount === 1 && frame.skeletonSharesShell
+        )), JSON.stringify(frames)).toBe(true);
+        expect(frames.slice(canvasIndex).every(frame => frame.kind === 'committed-canvas' && frame.pageNumber === 3), JSON.stringify(frames)).toBe(true);
+        const firstShell = frames[shellIndex]!;
+        expect(firstShell.shellRect).not.toBeNull();
+        openingShell = firstShell.shellRect ? {
+            page: 3,
+            ...firstShell.shellRect,
+        } : null;
+    }
     await session.page.screenshot({path: join(ARTIFACT_DIR, `${label}-drawn.png`)});
     console.log(`[fallback-geometry] ${label} ${JSON.stringify({
         sourceHash,
         left,
         liveBeforeClose,
-        held,
+        expectedOpeningGeometry,
+        openingShell,
         drawn,
-        widthRatio: held && drawn ? held.width / drawn.width : null,
+        widthRatio: openingShell && drawn ? openingShell.width / drawn.width : null,
     })}`);
 
     expect(sha256(fixturePath), 'the source bytes are unchanged').toBe(sourceHash);
-    // Fit Width scale, within the committed surface contract's one CSS pixel.
-    // The held position is reported but not asserted: without every page's
-    // shape the opening frame cannot know the offset of page 3.
+    // The first exact shell and drawn page use the same Fit Width scale,
+    // within the committed surface contract's one CSS pixel.
     for (const key of [
         'width',
         'height',
     ] as const) {
-        expect(Math.abs((drawn?.[key] ?? Number.NaN) - (held?.[key] ?? Number.NaN)), `${label} ${key}: ${JSON.stringify({
-            held,
+        expect(Math.abs((drawn?.[key] ?? Number.NaN) - (openingShell?.[key] ?? Number.NaN)), `${label} ${key}: ${JSON.stringify({
+            openingShell,
             drawn,
         })}`).toBeLessThanOrEqual(1);
     }
@@ -228,11 +294,11 @@ describe('Electron E2E - Recent reopen geometry without exact page shapes', () =
             clean: true,
             sessionName: () => `e2e-recent-fallback-exact-${Date.now()}`,
         });
-        await expectQuarterTurnedFitWidthReopenOnDrawnRect(session, 'exact');
+        await expectQuarterTurnedFitWidthReopenOnDrawnRect(session, 'exact', 'exact');
     });
 
-    // Only the page operations metadata read fails, so the open keeps Poppler's
-    // opening geometry and a working copy but has no list of every page.
+    // Only the exact native table fails. The open stays bare while held, then
+    // PDF.js's complete geometry owns its first shell and restored scale.
     it.skipIf(process.platform === 'win32')('reopens a quarter-turned Fit Width mixed-size PDF at its drawn scale when the page-size metadata read fails', async () => {
         const pageOps = createMetadataRejectingPageOps();
         const session = await sessionFixture.restart({
@@ -242,7 +308,7 @@ describe('Electron E2E - Recent reopen geometry without exact page shapes', () =
         });
         let pageOpsCalls = '';
         try {
-            await expectQuarterTurnedFitWidthReopenOnDrawnRect(session, 'forced-metadata-failure');
+            await expectQuarterTurnedFitWidthReopenOnDrawnRect(session, 'forced-metadata-failure', 'unavailable');
         } finally {
             pageOpsCalls = existsSync(pageOps.callLog) ? readFileSync(pageOps.callLog, 'utf8') : '';
             console.log(existsSync(pageOps.callLog)

@@ -6,10 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    ref,
-    watch,
-} from 'vue';
+import { ref } from 'vue';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -59,7 +56,10 @@ const mocks = vi.hoisted(() => ({
     },
     documentPdf: {validatePdfPath: vi.fn()},
     documentPicker: { openDocumentDialog: vi.fn() },
-    documentRecentFiles: {recentFiles: {get: vi.fn()}},
+    documentRecentFiles: {recentFiles: {
+        get: vi.fn(),
+        readingView: vi.fn(),
+    }},
     performanceProfile: {
         tier: 'medium',
         lowCpu: false,
@@ -154,6 +154,7 @@ describe('createDocumentOpenFlow', () => {
             warnings: [],
         });
         mocks.documentRecentFiles.recentFiles.get.mockResolvedValue([]);
+        mocks.documentRecentFiles.recentFiles.readingView.mockResolvedValue(null);
         mocks.documentFiles.getDocumentRevision.mockImplementation(async (path: string) => ({
             version: 1,
             token: `revision:${path}`,
@@ -484,54 +485,6 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentOpen.forgetKeptOriginal).not.toHaveBeenCalled();
         (notice['onUpdate:open'] as (open: boolean) => void)(false);
         expect(mocks.documentOpen.forgetKeptOriginal).toHaveBeenCalledWith('/documents/book.pdf');
-    });
-
-    it('shows an opening working copy only once its admission ends, changing the shown source once', async () => {
-        const harness = createOpenFlowHarness();
-        const admissionReached = Promise.withResolvers<undefined>();
-        const admission = Promise.withResolvers<undefined>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
-            pageNumber: 1,
-            pageCount: 40,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            widestPageWidth: 612,
-            tallestPageHeight: 792,
-            size: 1,
-            modifiedAt: 1,
-        });
-        const openFlow = createDocumentOpenFlow(harness.state, {
-            ...harness.deps,
-            // Admission is held, as a slow Recent read holds it.
-            admitOpeningSource: async () => {
-                admissionReached.resolve(undefined);
-                await admission.promise;
-            },
-        });
-        const result: TOpenFileResult = {
-            kind: 'pdf',
-            originalPath: requireDocumentRef('/documents/remembered.pdf'),
-            workingPath: requireDocumentRef('/tmp/remembered-working.pdf'),
-            isGenerated: false,
-        };
-
-        const opening = openFlow.openFile(result);
-        await admissionReached.promise;
-        await Promise.resolve();
-        // While admission is held, no source is shown yet.
-        expect(harness.state.pdfSrc.value).toBeNull();
-
-        // The source a view shows changes once, to the admitted copy, through
-        // the commit's awaits: its view defaults run against that one source.
-        const shownSources: unknown[] = [];
-        watch(() => harness.state.openedWorkingCopyPath.value ?? harness.state.pdfSrc.value, (shown) => {
-            shownSources.push(shown);
-        }, {flush: 'sync'});
-        admission.resolve(undefined);
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
-        expect(harness.state.pdfSrc.value).not.toBeNull();
-        expect(shownSources).toEqual([result.workingPath]);
     });
 
     it('does not request cleanup when a recovered PDF fails before adoption', async () => {

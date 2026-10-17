@@ -774,34 +774,38 @@ describe('Move Tab to New Window view state', () => {
         await clickAsUser(source, '.tab-new');
         await clickAsUser(source, '.tab-list [role="tab"]:first-child');
 
-        // Hold the next opening-geometry answer before A can load its source.
+        // Hold the first page's raster before A can present its source.
         // The transfer and replacement still use the real tab menu and picker.
-        await target.evaluate(() => {
-            const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
-            const then = Promise.prototype.then;
+        await target.evaluate(async () => {
+            const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
+            if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+            pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
+            const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+            const proxy = await (await probe.promise).getPage(1);
+            const prototype = Object.getPrototypeOf(proxy) as typeof proxy;
+            await probe.destroy();
+            const render = prototype.render;
             let release: () => void = () => {};
-            const gate = new Promise<void>(resolve => {release = resolve;});
             const state = {
                 held: false,
                 restore: () => {
-                    Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                    prototype.render = render;
                     release();
                 },
             };
-            Object.defineProperty(Promise.prototype, 'catch', {
-                ...descriptor,
-                value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
-                    return then.call(this, (value: unknown) => {
-                        if (value && typeof value === 'object' && 'pageNumber' in value
-                            && 'width' in value && 'height' in value && 'pageCount' in value) {
-                            state.held = true;
-                            Object.defineProperty(Promise.prototype, 'catch', descriptor);
-                            return gate.then(() => value);
-                        }
-                        return value;
-                    }, onRejected);
-                },
-            });
+            prototype.render = function (...args: Parameters<typeof render>) {
+                const task = render.apply(this, args);
+                if (this.pageNumber === 1) Object.defineProperty(task, 'onContinue', {
+                    configurable: true,
+                    get: () => (continueRender: () => void) => {
+                        release = continueRender;
+                        state.held = true;
+                        prototype.render = render;
+                    },
+                    set: () => {},
+                });
+                return task;
+            };
             (window as Window & {__cancelledTransferLoad?: typeof state}).__cancelledTransferLoad = state;
         });
         const rejected = Promise.withResolvers<undefined>();

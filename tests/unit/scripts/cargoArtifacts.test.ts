@@ -322,14 +322,18 @@ describe('Cargo artifact staging', () => {
         });
     });
 
-    it('applies static CRT only to a release native binary, not its proc-macro dependencies', () => {
+    it.each([
+        'pdf-search',
+        'scan-cleanup',
+        'pdf-image-combine',
+    ] as const)('applies static CRT only to the %s release binary, not its proc-macro dependencies', (toolId) => {
         const target = {
             binaryExtension: '',
             cargoTargetArgs: [],
             platform: 'linux',
             platformArch: 'linux-x64',
         };
-        const tool = getGeneratedNativeToolResource('pdf-page-ops');
+        const tool = getGeneratedNativeToolResource(toolId);
         const normal = createNativeToolBuildPlan({
             projectRoot: '/repo',
             target,
@@ -347,14 +351,35 @@ describe('Cargo artifact staging', () => {
         expect(release.cargoArgs).toEqual([
             'rustc',
             '--manifest-path',
-            'native/pdf-page-ops/Cargo.toml',
+            `native/${toolId}/Cargo.toml`,
             '--release',
             '--locked',
             '--bin',
-            'evb-pdf-page-ops',
+            `evb-${toolId}`,
             '--',
             '-C',
             'target-feature=+crt-static',
+        ]);
+    });
+
+    it('keeps the PDF metadata host dynamically linked for qpdf exception recovery', () => {
+        const plan = createNativeToolBuildPlan({
+            projectRoot: '/repo',
+            staticLinuxCrt: true,
+            target: {
+                binaryExtension: '',
+                cargoTargetArgs: [],
+                platform: 'linux',
+                platformArch: 'linux-x64',
+            },
+            tool: getGeneratedNativeToolResource('pdf-page-ops'),
+        });
+        expect(plan.cargoArgs).toEqual([
+            'build',
+            '--manifest-path',
+            'native/pdf-page-ops/Cargo.toml',
+            '--release',
+            '--locked',
         ]);
     });
 

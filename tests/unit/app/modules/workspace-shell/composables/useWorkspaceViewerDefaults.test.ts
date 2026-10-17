@@ -176,6 +176,27 @@ describe('useWorkspaceViewerDefaults', () => {
         }
     });
 
+    it('applies an admitted reading view to its current source before pages are exposed', () => {
+        const source = '/docs/admitted.pdf';
+        const setup = createDefaultsSetup({}, {initialDocumentSourceKey: source});
+        try {
+            setup.defaults.seedViewForSource({
+                zoom: 1.4,
+                zoomMode: 'fit-width',
+                viewMode: 'single',
+                continuousScroll: true,
+                viewRotation: 90,
+            }, source);
+            expect(setup.zoomMode.value).toBe('fit-width');
+            expect(setup.fitMode.value).toBe('width');
+            expect(setup.viewRotation.value).toBe(90);
+            expect(setup.continuousScroll.value).toBe(true);
+            expect(setup.viewMode.value).toBe('single');
+        } finally {
+            setup.stop();
+        }
+    });
+
     it('shows a seed at once when nothing is shown, and keeps the reader\'s later zoom when the source arrives', async () => {
         const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
 

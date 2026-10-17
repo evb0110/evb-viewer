@@ -1087,7 +1087,7 @@ fn scanned_file_sidecars_match_the_eager_reader() {
 
     // An appearance declaring /Length 5 over no data: qpdf reads the object as
     // null and only warns, while the eager load rejects the file. Below the
-    // ceiling both readers must report it the eager way.
+    // ceiling annotation parsing must report it the eager way.
     write_scanned_annotation_pdf(
         &with_damaged_appearance,
         IMAGE_BYTES,
@@ -1099,12 +1099,7 @@ fn scanned_file_sidecars_match_the_eager_reader() {
         &[5, 6],
     );
 
-    for pdf in [
-        &with_note,
-        &with_text_box,
-        &with_flate_empty_marker,
-        &with_damaged_appearance,
-    ] {
+    for pdf in [&with_note, &with_text_box, &with_flate_empty_marker] {
         for command in [
             &["page-sizes", "--metadata-only"][..],
             &["parse-annotations", "--modified-at", "D:20261009120000Z"][..],
@@ -1117,6 +1112,54 @@ fn scanned_file_sidecars_match_the_eager_reader() {
                 pdf.display()
             );
         }
+    }
+    let geometry_command = &["page-sizes", "--metadata-only"];
+    let qpdf = qpdf_path();
+    let bin = qpdf.parent().unwrap();
+    // The pinned Windows and macOS runtimes use these exact library names.
+    #[cfg(windows)]
+    let projected = bin.join("qpdf30.dll").is_file() || bin.join("libqpdf30.dll").is_file();
+    #[cfg(target_os = "macos")]
+    let projected = bin.join("../lib/libqpdf.30.dylib").is_file();
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    let projected = match fs::read_dir(bin.join("../lib")) {
+        Ok(mut entries) => entries.any(|entry| {
+            let name = entry.unwrap().file_name();
+            let name = name.to_string_lossy();
+            name == "libqpdf.so" || name.starts_with("libqpdf.so.")
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => panic!("Cannot inspect adjacent qpdf runtime: {error}"),
+    };
+    let geometry = page_ops_sidecar(&with_damaged_appearance, geometry_command, true);
+    // Metadata-only geometry does not validate unread annotation appearances.
+    // The absent-library full-JSON fallback retains its eager diagnostic.
+    if projected {
+        let geometry = geometry.unwrap();
+        assert_eq!(
+            geometry,
+            page_ops_sidecar(&with_note, geometry_command, true).unwrap()
+        );
+        let rows = geometry
+            .split(|byte| *byte == b'\n')
+            .filter(|row| !row.is_empty())
+            .map(|row| serde_json::from_slice::<Value>(row).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rows[0]["pageCount"], 1);
+        assert_eq!(rows[1]["pages"][0]["widthPoints"], 200.0);
+        assert_eq!(rows[1]["pages"][0]["heightPoints"], 100.0);
+    } else {
+        assert_eq!(geometry, Err("too-large".to_string()));
+    }
+    for with_qpdf in [false, true] {
+        assert_eq!(
+            page_ops_sidecar(
+                &with_damaged_appearance,
+                &["parse-annotations", "--modified-at", "D:20261009120000Z"],
+                with_qpdf
+            ),
+            Err("too-large".to_string())
+        );
     }
 }
 

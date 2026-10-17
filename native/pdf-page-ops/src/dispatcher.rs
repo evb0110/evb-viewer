@@ -255,9 +255,10 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             )
         }
         Operation::ReadCatalog | Operation::ReadDocumentCatalog(..) => {
-            let incremental = load_dictionary_incremental_pdf_path(
+            let incremental = load_readonly_metadata_pdf_path(
                 &config.input_path,
                 config.qpdf_path.as_deref(),
+                QpdfMetadataPurpose::Catalog,
             )?;
             let source = AppendedRevision::new(&incremental);
             let catalog = match &config.operation {

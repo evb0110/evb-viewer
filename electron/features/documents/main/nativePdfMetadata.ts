@@ -47,28 +47,12 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
 import * as v from 'valibot';
 
-type IPdfNativePageSize = Pick<IPdfOpeningGeometry, 'width' | 'height'>;
-
 const PDFINFO_TIMEOUT_MS = 20_000;
-// The opening skeleton reads every page of an ordinary document to find its
-// widest page; beyond this many pages the first pages stand in for the rest.
-const PDFINFO_OPENING_GEOMETRY_PAGE_LIMIT = 5_000;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
-const PDFINFO_PER_PAGE_STDOUT_BYTES = 128;
 const logger = createLogger('native-pdf-metadata');
-// Complete reading-view geometry, by source path; the oldest read leaves at capacity.
+// Complete opening geometry, by source path; the oldest read leaves at capacity.
 const PAGE_SHAPE_STORE_LIMIT = 256;
 const pageShapes = new Map<string, IPdfOpeningGeometry>();
-
-const PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/imu;
-const DEFAULT_PAGE_SIZE_RE = /^Page size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/imu;
-const PAGE_SIZE_RE = /^Page\s+(\d+)\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/gimu;
-const PAGE_ROTATION_RE = /^Page\s+(\d+)\s+rot:\s+(-?\d+)\s*$/gimu;
-
-function parsePositiveFiniteNumber(value: string | undefined) {
-    const parsed = Number.parseFloat(value ?? '');
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
 
 function withPopplerEnv(
     env: NodeJS.ProcessEnv | undefined,
@@ -80,52 +64,6 @@ function withPopplerEnv(
     } : options;
 }
 
-function normalizePageCount(pdfInfoOutput: string) {
-    const count = Number.parseInt(PAGE_COUNT_RE.exec(pdfInfoOutput)?.[1] ?? '', 10);
-    if (!Number.isSafeInteger(count) || count < 1) {
-        throw new Error('Unable to determine PDF page count');
-    }
-    return count;
-}
-
-function parseDefaultPageSize(pdfInfoOutput: string): IPdfNativePageSize | null {
-    const match = DEFAULT_PAGE_SIZE_RE.exec(pdfInfoOutput);
-    const width = parsePositiveFiniteNumber(match?.[1]);
-    const height = parsePositiveFiniteNumber(match?.[2]);
-    return width && height ? {
-        width,
-        height,
-    } : null;
-}
-
-function isQuarterTurn(rawRotation: string | undefined) {
-    return rawRotation !== undefined && Math.abs(Number.parseInt(rawRotation, 10) % 180) === 90;
-}
-
-function displayedPageSize(width: number, height: number, quarterTurned: boolean): IPdfNativePageSize {
-    return quarterTurned
-        ? {
-            width: height,
-            height: width,
-        }
-        : {
-            width,
-            height,
-        };
-}
-
-function normalizeRightAngleRotation(rawRotation: string | undefined): 0 | 90 | 180 | 270 {
-    const parsed = Number.parseInt(rawRotation ?? '0', 10);
-    if (!Number.isSafeInteger(parsed)) {
-        throw new Error('Unable to determine PDF opening page rotation');
-    }
-    const normalized = ((parsed % 360) + 360) % 360;
-    if (normalized !== 0 && normalized !== 90 && normalized !== 180 && normalized !== 270) {
-        throw new Error('PDF opening page has an unsupported rotation');
-    }
-    return normalized;
-}
-
 function normalizePdfOpeningIdentity(value: {
     size: number;
     modifiedAt: unknown
@@ -134,61 +72,6 @@ function normalizePdfOpeningIdentity(value: {
         size: value.size,
         modifiedAt: requireEpochMs(value.modifiedAt),
     } satisfies Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>;
-}
-
-/**
- * Reads the opening page (the first unless named) and the widest and tallest
- * pages from `pdfinfo -f 1 -l N` output. They set PDF.js's document-wide Fit
- * Width in either view turn, so the opening skeleton matches its first layout.
- */
-export function parsePdfOpeningGeometryMetadata(
-    pdfInfoOutput: string,
-    identity: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
-    openingPage = 1,
-): IPdfOpeningGeometry {
-    const pageCount = normalizePageCount(pdfInfoOutput);
-    const rawRotations = new Map<number, string | undefined>();
-    PAGE_ROTATION_RE.lastIndex = 0;
-    for (const match of pdfInfoOutput.matchAll(PAGE_ROTATION_RE)) {
-        rawRotations.set(Number.parseInt(match[1] ?? '', 10), match[2]);
-    }
-    const fallbackPageSize = parseDefaultPageSize(pdfInfoOutput);
-    let firstPage: IPdfNativePageSize | null = null;
-    let widestPageWidth = 0;
-    let tallestPageHeight = 0;
-    PAGE_SIZE_RE.lastIndex = 0;
-    for (const match of pdfInfoOutput.matchAll(PAGE_SIZE_RE)) {
-        const pageNumber = Number.parseInt(match[1] ?? '', 10);
-        const width = parsePositiveFiniteNumber(match[2]);
-        const height = parsePositiveFiniteNumber(match[3]);
-        if (width === null || height === null) {
-            continue;
-        }
-        const displayed = displayedPageSize(width, height, isQuarterTurn(rawRotations.get(pageNumber)));
-        widestPageWidth = Math.max(widestPageWidth, displayed.width);
-        tallestPageHeight = Math.max(tallestPageHeight, displayed.height);
-        if (pageNumber === openingPage) {
-            firstPage = displayed;
-        }
-    }
-    const rotation = normalizeRightAngleRotation(rawRotations.get(openingPage));
-    firstPage ??= fallbackPageSize
-        ? displayedPageSize(fallbackPageSize.width, fallbackPageSize.height, rotation === 90 || rotation === 270)
-        : null;
-    if (firstPage === null) {
-        throw new Error('Unable to determine PDF opening page dimensions');
-    }
-    return {
-        pageNumber: requirePageNumber(openingPage, pageCount),
-        pageCount,
-        width: firstPage.width,
-        height: firstPage.height,
-        rotation,
-        widestPageWidth: Math.max(widestPageWidth, firstPage.width),
-        tallestPageHeight: Math.max(tallestPageHeight, firstPage.height),
-        size: identity.size,
-        modifiedAt: identity.modifiedAt,
-    };
 }
 
 async function resolvePdfPath(context: IDocumentsSenderIdContext, filePath: unknown) {
@@ -314,11 +197,17 @@ export async function handlePdfNativePageSizes(
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const pages = await readExactPageGeometry(context, resolvedPath, originalBackedRead, {
+    const pages = await runNativePdfRead(context, resolvedPath, {
         group: 'pdf-native-page-geometry',
         canceled: 'Native PDF exact page geometry canceled',
         navigation: 'Renderer navigation canceled native PDF exact page geometry',
-    }, () => assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken));
+    }, async (signal, cancelGroup) => {
+        const read = (physicalPath: string) => readExactPageGeometry(physicalPath, signal, cancelGroup);
+        const pages = originalBackedRead ? await originalBackedRead.read(read) : await read(resolvedPath);
+        throwIfAborted(signal);
+        await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
+        return pages;
+    });
     return {
         kind: 'exact',
         documentRef: requireDocumentRef(filePath),
@@ -328,65 +217,48 @@ export async function handlePdfNativePageSizes(
     };
 }
 
-/**
- * Every page's exact shape, in order, by the native reader: its box, page
- * rotation and UserUnit. `confirm` runs once the read is done and before the
- * pages are trusted.
- */
-async function readExactPageGeometry(
-    context: IDocumentsSenderIdContext,
-    resolvedPath: string,
-    originalBackedRead: ReturnType<typeof resolveOriginalBackedReadTransport>,
-    labels: Parameters<typeof runNativePdfRead>[2],
-    confirm?: () => Promise<void>,
-) {
+/** Every page's box, page rotation and UserUnit, from the same native reader. */
+async function readExactPageGeometry(physicalPath: string, signal: AbortSignal, cancelGroup: string) {
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page operations are required for exact PDF geometry');
     }
-    const tools = getPdfNativeToolPaths();
-    return runNativePdfRead(context, resolvedPath, labels, async (signal, cancelGroup) => {
-        const readGeometry = (physicalPath: string) => readPdfNativePageGeometry(physicalPath, {
-            pdfPageOpsBinary: binaryPath,
-            qpdfBinary: tools.qpdf,
-            tempDir: getAppTempDir(),
-            signal,
-            cancelGroup,
-            log: (level, message) => {
-                if (level === 'debug') {
-                    logger.debug(message);
-                } else {
-                    logger.warn(message);
-                }
-            },
-        });
-        const pages = originalBackedRead
-            ? await originalBackedRead.read(readGeometry)
-            : await readGeometry(resolvedPath);
-        throwIfAborted(signal);
-        await confirm?.();
-        if (pages.length < 1) {
-            throw new Error('Native exact geometry returned no pages');
-        }
-        return pages.map((page) => {
-            if (![
-                0,
-                90,
-                180,
-                270,
-            ].includes(page.rotation) || page.userUnit === undefined) {
-                throw new Error(`Native exact geometry returned invalid page ${String(page.pageNumber)}`);
+    const pages = await readPdfNativePageGeometry(physicalPath, {
+        pdfPageOpsBinary: binaryPath,
+        qpdfBinary: getPdfNativeToolPaths().qpdf,
+        tempDir: getAppTempDir(),
+        signal,
+        cancelGroup,
+        log: (level, message) => {
+            if (level === 'debug') {
+                logger.debug(message);
+            } else {
+                logger.warn(message);
             }
-            return {
-                pageNumber: requirePageNumber(page.pageNumber, pages.length),
-                xPoints: page.xPoints,
-                yPoints: page.yPoints,
-                widthPoints: page.widthPoints,
-                heightPoints: page.heightPoints,
-                rotation: page.rotation as 0 | 90 | 180 | 270,
-                userUnit: page.userUnit,
-            };
-        });
+        },
+    });
+    throwIfAborted(signal);
+    if (pages.length < 1) {
+        throw new Error('Native exact geometry returned no pages');
+    }
+    return pages.map((page) => {
+        if (![
+            0,
+            90,
+            180,
+            270,
+        ].includes(page.rotation) || page.userUnit === undefined) {
+            throw new Error(`Native exact geometry returned invalid page ${String(page.pageNumber)}`);
+        }
+        return {
+            pageNumber: requirePageNumber(page.pageNumber, pages.length),
+            xPoints: page.xPoints,
+            yPoints: page.yPoints,
+            widthPoints: page.widthPoints,
+            heightPoints: page.heightPoints,
+            rotation: page.rotation as 0 | 90 | 180 | 270,
+            userUnit: page.userUnit,
+        };
     });
 }
 
@@ -483,8 +355,7 @@ function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) 
 
 /**
  * Reuses complete geometry while the source identity and opening page match.
- * First-open and fallback shapes answer their caller without entering the
- * store, so a later restoration still reads all the page metrics it needs.
+ * Only complete native geometry enters the store.
  */
 export async function answerPdfPageShape(
     path: string,
@@ -550,26 +421,12 @@ export async function handlePdfOpeningGeometry(
             sourceModifiedAtMs: identityBefore.mtimeMs,
         })
         : null;
+    // With no reading view, the admitted copy's exact table owns the first
+    // layout. Managed-copy callers still need its count to admit a restore.
+    if (readingView === null && !isWorkingCopyDocumentPath(resolvedPath)) return null;
     const readingPage = readingView?.anchor?.page ?? readingView?.currentPage ?? 1;
-    // First opens need only their page shape. Restoration needs every page's
-    // geometry, and only complete answers enter the store for subsequent opens.
-    const shape = await answerPdfPageShape(resolvedPath, identityBefore, async () => {
-        const read = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
-        if (!read || !readingView || read.pageCount !== readingView.pageCount) {
-            return read;
-        }
-        return {
-            ...read,
-            pages: await readExactPageGeometry(context, resolvedPath, null, {
-                group: 'pdf-opening-pages',
-                canceled: 'PDF opening page geometry canceled',
-                navigation: 'Renderer navigation canceled PDF opening page geometry',
-            }).catch((error: unknown) => {
-                logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
-                return null;
-            }),
-        };
-    }, readingPage);
+    const shape = await answerPdfPageShape(resolvedPath, identityBefore,
+        () => readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage), readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
     const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
     if (identityAfter?.size !== identityBefore.size || identityAfter.mtimeMs !== identityBefore.mtimeMs) {
@@ -589,51 +446,65 @@ async function readPdfOpeningGeometry(
     identityBefore: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
     openingPage = 1,
 ): Promise<IPdfOpeningGeometry | null> {
-    const tools = getPdfNativeToolPaths();
-    const env = buildPopplerEnv(tools);
     return runNativePdfRead(context, resolvedPath, {
         group: 'pdf-opening-geometry',
         canceled: 'PDF opening geometry discovery canceled',
         navigation: 'Renderer navigation canceled PDF opening geometry discovery',
     }, async (signal, cancelGroup) => {
-        const readPages = (physicalPath: string, first: number, last: number) => runNativeToolCommand(
-            tools.pdfinfo,
-            [
-                '-f',
-                String(first),
-                '-l',
-                String(last),
-                physicalPath,
-            ],
-            withPopplerEnv(env, {
-                timeoutMs: PDFINFO_TIMEOUT_MS,
-                maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES
-                    + (last - first + 1) * PDFINFO_PER_PAGE_STDOUT_BYTES,
-                rejectOnStdoutTruncation: true,
-                commandLabel: 'pdfinfo-opening-geometry',
-                signal,
-                cancelGroup,
-            }),
-        ).catch((error: unknown) => {
-            if (isPasswordRequiredPdfInfoFailure(error)) {
+        const read = async (physicalPath: string): Promise<IPdfOpeningGeometry | null> => {
+            let pages: Awaited<ReturnType<typeof readExactPageGeometry>>;
+            try {
+                pages = await readExactPageGeometry(physicalPath, signal, cancelGroup);
+            } catch (error) {
+                throwIfAborted(signal);
+                logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
+                // Preserve password prompting and Poppler's malformed/recovery
+                // handling. Its dimensions omit UserUnit, so only a complete
+                // exact table may size the opening skeleton.
+                const tools = getPdfNativeToolPaths();
+                await runNativeToolCommand(tools.pdfinfo, [
+                    '-f',
+                    '1',
+                    '-l',
+                    '1',
+                    physicalPath,
+                ], withPopplerEnv(buildPopplerEnv(tools), {
+                    timeoutMs: PDFINFO_TIMEOUT_MS,
+                    maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
+                    rejectOnStdoutTruncation: true,
+                    commandLabel: 'pdfinfo-opening-geometry',
+                    signal,
+                    cancelGroup,
+                })).catch((error: unknown) => {
+                    if (!isPasswordRequiredPdfInfoFailure(error)) throw error;
+                });
+                throwIfAborted(signal);
                 return null;
             }
-            throw error;
-        });
-        // A page past the widest-page pass is read on its own, from the same file.
-        const readGeometry = async (physicalPath: string) => {
-            const pages = await readPages(physicalPath, 1, PDFINFO_OPENING_GEOMETRY_PAGE_LIMIT);
-            const openingPageInfo = pages && openingPage > PDFINFO_OPENING_GEOMETRY_PAGE_LIMIT
-                ? await readPages(physicalPath, openingPage, openingPage)
-                : null;
-            return pages && {stdout: `${pages.stdout}\n${openingPageInfo?.stdout ?? ''}`};
+            const pageNumber = requirePageNumber(openingPage, pages.length);
+            const opening = pages[pageNumber - 1]!;
+            const displayed = pages.map((page) => {
+                const turned = page.rotation === 90 || page.rotation === 270;
+                return {
+                    width: (turned ? page.heightPoints : page.widthPoints) * page.userUnit,
+                    height: (turned ? page.widthPoints : page.heightPoints) * page.userUnit,
+                };
+            });
+            return {
+                size: identityBefore.size,
+                modifiedAt: identityBefore.modifiedAt,
+                pageNumber,
+                pageCount: pages.length,
+                width: displayed[pageNumber - 1]!.width,
+                height: displayed[pageNumber - 1]!.height,
+                rotation: opening.rotation,
+                widestPageWidth: displayed.reduce((width, page) => Math.max(width, page.width), 0),
+                tallestPageHeight: displayed.reduce((height, page) => Math.max(height, page.height), 0),
+                pages,
+            };
         };
-        const result = originalBackedRead
-            ? await originalBackedRead.read(readGeometry)
-            : await readGeometry(resolvedPath);
+        const shape = originalBackedRead ? await originalBackedRead.read(read) : await read(resolvedPath);
         throwIfAborted(signal);
-        // The caller checks the file after the read; a working copy reading its
-        // original keeps the identity it was admitted with.
-        return result && parsePdfOpeningGeometryMetadata(result.stdout, identityBefore, openingPage);
+        return shape;
     });
 }

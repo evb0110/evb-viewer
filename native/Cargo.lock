@@ -299,6 +299,7 @@ dependencies = [
  "evb-native-support",
  "getrandom",
  "harfrust",
+ "libc",
  "lopdf",
  "png",
  "serde",

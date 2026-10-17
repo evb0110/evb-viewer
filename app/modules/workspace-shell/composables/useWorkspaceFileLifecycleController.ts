@@ -120,7 +120,7 @@ export const useWorkspaceFileLifecycleController = (
 ) => {
     const { t } = useTypedI18n();
     // An open's admitted source, before any page of it is drawn.
-    async function admitOpeningSource(source: TDocumentRef, pageCount: Promise<number | null>) {
+    async function admitOpeningSource(source: TDocumentRef, pageCount: () => Promise<number | null>) {
         for (const hooks of getViewerLifecycleHooks()) {
             await hooks.beforeSourcePresented?.(source, pageCount);
         }
@@ -173,7 +173,7 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile({admitOpeningSource});
+    } = usePdfFile();
 
     const {
         isDjvuMode,
@@ -269,7 +269,7 @@ export const useWorkspaceFileLifecycleController = (
                 // After main accepts the DjVu and before its pages are shown.
                 closeActiveDocument: async (pageCount) => {
                     await closeFile();
-                    return admitOpeningSource(djvuPath, Promise.resolve(pageCount));
+                    return admitOpeningSource(djvuPath, () => Promise.resolve(pageCount));
                 },
                 setOriginalPath: (path) => {
                     originalPath.value = path;
@@ -412,6 +412,9 @@ export const useWorkspaceFileLifecycleController = (
     ));
 
     return {
+        admitOpeningSource: (source: TDocumentRef, pageCount: () => Promise<number | null>) => recoveryDirtyBaseline.value
+            ? Promise.resolve()
+            : admitOpeningSource(source, pageCount),
         pdfSrc,
         pdfReloadSrc,
         pdfData,

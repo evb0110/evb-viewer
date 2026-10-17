@@ -673,7 +673,7 @@ describe('DocumentWorkspace navigation command', () => {
             },
         }, () => Promise.reject(new Error('admission refused')))).rejects.toThrow('admission refused');
         // A late source admission for the open that ended reaches no open.
-        await seedOpeningSource(documentSession, requireDocumentRef('/tmp/remembered-working.pdf'), Promise.resolve(40));
+        await seedOpeningSource(documentSession, requireDocumentRef('/tmp/remembered-working.pdf'), () => Promise.resolve(40));
 
         await nextTick();
         expect(expose.getToolbarSnapshot()).toMatchObject({
