@@ -222,7 +222,11 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     runHistoryTransaction?: <T>(action: () => T) => T;
     undo?: TAnnotationHistoryAction;
     redo?: TAnnotationHistoryAction;
-    emitShapeContextMenu?: IAnnotationEditorSurface['openShapeContextMenu'];
+    emitShapeContextMenu?: (payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }) => void;
     getPageGeometry?: IAnnotationEditorSurface['getPageGeometry'];
 }
 
@@ -528,10 +532,8 @@ export const usePdfAnnotationEditorSurface = (
         for (const entity of entities) {
             const patch: {-readonly [K in keyof TAnnotationGesturePatch]: TAnnotationGesturePatch[K]} = {};
             let imageRotation: number | undefined;
-            // Only the open editor fits to its own text.
-            const editor = entity.identity.id === editingId.value ? pageInteractions.get(entity.pageIndex) : undefined;
-            if (includeTextDraft && editor) {
-                const draftRect = editor.getTextBoxDraftRect?.(entity.identity.id);
+            if (includeTextDraft && entity.kind === 'text-box' && entity.identity.id === editingId.value) {
+                const draftRect = pageInteractions.get(entity.pageIndex)?.getTextBoxDraftRect?.(entity.identity.id);
                 if (draftRect) patch.rect = {...draftRect};
             }
             if (updates.color !== undefined) {
@@ -539,7 +541,7 @@ export const usePdfAnnotationEditorSurface = (
                 else if (entity.kind !== 'placed-image') patch.color = updates.color;
             }
             if (updates.fontSize !== undefined && entity.kind === 'text-box') {
-                const fittedRect = editor?.fitTextBox?.({
+                const fittedRect = pageInteractions.get(entity.pageIndex)?.fitTextBox?.({
                     ...entity,
                     fontSize: updates.fontSize,
                 });

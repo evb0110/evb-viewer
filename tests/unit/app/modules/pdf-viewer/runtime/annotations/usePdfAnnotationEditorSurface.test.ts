@@ -233,12 +233,19 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.settings.value).toEqual(DEFAULT_ANNOTATION_SETTINGS);
     });
 
-    it('does not mark an unchanged font size as modified', () => {
+    it('does not mark unchanged font size and equal measured geometry as modified', () => {
         const {
             surface,
             emitAnnotationModified,
         } = createSurfaceHarness();
         const box = surface.createTextBoxAt(0, rect);
+        surface.registerPageInteraction(0, {
+            commitTextDraft: vi.fn(),
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+            fitTextBox: entity => ({...entity.rect}),
+        });
         surface.select([box.identity.id]);
         emitAnnotationModified.mockClear();
         expect(surface.updateSelectedAnnotationProperties({fontSize: box.fontSize})).toBe(false);
@@ -652,31 +659,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
     });
 
-    it('lets native fitting admit a resting text box style the browser layout would refuse', async () => {
-        const {
-            surface,
-            annotationApplication,
-        } = createSurfaceHarness({fitTextBox: async (_entity, proposal) => ({
-            rect: proposal.rect,
-            fontSize: 40,
-        })});
-        const box = surface.createTextBoxAt(0, rect);
-        surface.registerPageInteraction(0, {
-            commitTextDraft: vi.fn(),
-            cancelTextDraft: vi.fn(),
-            cancelPointerGesture: vi.fn(),
-            focus: vi.fn(),
-            fitTextBox: () => null,
-        });
-        surface.select([box.identity.id]);
-        await expect(surface.updateSelectedAnnotationProperties({fontSize: 72})).resolves.toBe(true);
-        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
-            fontSize: 40,
-            rect,
-        });
-    });
-
-    it('rejects font and geometry together when the open editor text cannot fit the page', async () => {
+    it('rejects font and geometry together when text cannot fit the page', () => {
         const {
             surface,
             annotationApplication,
@@ -691,14 +674,13 @@ describe('usePdfAnnotationEditorSurface', () => {
             fitTextBox: () => null,
         });
         surface.select([box.identity.id]);
-        await surface.beginTextEditing(box.identity.id);
         emitAnnotationModified.mockClear();
         expect(surface.updateSelectedAnnotationProperties({fontSize: 72})).toBe(false);
         expect(annotationApplication.value.store.get(box.identity.id)).toEqual(box);
         expect(emitAnnotationModified).not.toHaveBeenCalled();
     });
 
-    it('fits the open editor to a new font size before one canonical update', async () => {
+    it('fits selected text to a new font size before one canonical update', () => {
         const {
             surface,
             annotationApplication,
@@ -716,7 +698,6 @@ describe('usePdfAnnotationEditorSurface', () => {
             fitTextBox,
         });
         surface.select([box.identity.id]);
-        await surface.beginTextEditing(box.identity.id);
         const before = annotationApplication.value.store.get(box.identity.id)!.revision;
         surface.updateSelectedAnnotationProperties({fontSize: 32});
         expect(fitTextBox).toHaveBeenCalledWith(expect.objectContaining({fontSize: 32}));
