@@ -1,8 +1,8 @@
 use super::*;
 pub(crate) use evb_native_support::pdf_catalog::normalize_bookmark_entries;
 use evb_native_support::pdf_catalog::{
-    BookmarkActionTag, BookmarkActionValue, BookmarkOriginalDestination, BookmarkSourceTarget,
-    MAX_BOOKMARK_ACTION_SIZE,
+    BookmarkActionTag, BookmarkActionValue, BookmarkDestinationKind, BookmarkOriginalDestination,
+    BookmarkSourceTarget, MAX_BOOKMARK_ACTION_SIZE,
 };
 use lopdf::dictionary;
 
@@ -142,15 +142,34 @@ fn destination_page_target<'a>(
     let ratio = destination_page_y_ratio(document, page_id, array)
         .ok()
         .flatten();
-    let original_destination = if array.len() > 6 {
-        None
-    } else {
-        serde_json::from_value(serde_json::json!({
-        "sourceTarget": {"num": page_id.0, "gen": page_id.1},
-        "kind": array.get(1).and_then(|value| value.as_name().ok()).and_then(|value| std::str::from_utf8(value).ok()),
-        "coordinates": array.iter().skip(2).map(|value| if value.is_null() { Ok(None) } else { value.as_float().map(|number| Some(f64::from(number))) }).collect::<std::result::Result<Vec<_>, _>>().ok(),
-    })).ok()
-    };
+    // An unsupported kind, a wrong coordinate count or a non-finite
+    // coordinate omits only the original destination, not the bookmark.
+    let original_destination = array
+        .get(1)
+        .and_then(|value| value.as_name().ok())
+        .and_then(BookmarkDestinationKind::from_pdf_name)
+        .filter(|kind| array.len() == 2 + kind.coordinate_count())
+        .and_then(|kind| {
+            let coordinates = array[2..]
+                .iter()
+                .map(|value| match value {
+                    Object::Null => Some(None),
+                    value => value
+                        .as_float()
+                        .ok()
+                        .filter(|number| number.is_finite())
+                        .map(|number| Some(f64::from(number))),
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(BookmarkOriginalDestination {
+                kind,
+                source_target: BookmarkSourceTarget::Reference {
+                    num: page_id.0,
+                    gen: page_id.1,
+                },
+                coordinates,
+            })
+        });
     Some((page_id, ratio, original_destination))
 }
 
@@ -353,7 +372,7 @@ fn source_bookmark_destination(
     };
     let mut destination = vec![
         Object::Reference(page_id),
-        Object::Name(original.kind.pdf_name()),
+        Object::Name(original.kind.pdf_name().to_vec()),
     ];
     destination.extend(
         original

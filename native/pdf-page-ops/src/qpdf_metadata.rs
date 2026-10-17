@@ -203,8 +203,6 @@ mod platform {
         more_keys: unsafe extern "C" fn(Data) -> c_int,
         next_key: unsafe extern "C" fn(Data) -> *const c_char,
         dictionary: unsafe extern "C" fn(Data, Handle) -> Handle,
-        unparse: unsafe extern "C" fn(Data, Handle) -> *const c_char,
-        string_length: unsafe extern "C" fn(Data) -> usize,
         release: unsafe extern "C" fn(Data, Handle),
         _library: Library,
     }
@@ -261,8 +259,6 @@ mod platform {
                 more_keys: symbol!(c"qpdf_oh_dict_more_keys"),
                 next_key: symbol!(c"qpdf_oh_dict_next_key"),
                 dictionary: symbol!(c"qpdf_oh_get_dict"),
-                unparse: symbol!(c"qpdf_oh_unparse_resolved"),
-                string_length: symbol!(c"qpdf_get_last_string_length"),
                 release: symbol!(c"qpdf_oh_release"),
                 _library: library,
             })
@@ -473,72 +469,31 @@ mod platform {
             }
         }
 
-        fn encoded(&self, value: Handle) -> Result<&[u8]> {
-            let pointer = unsafe { (self.api.unparse)(self.data, value) };
-            self.check()?;
-            let length = unsafe { (self.api.string_length)(self.data) };
-            if length > MAX_QPDF_OBJECT_BYTES {
-                return Err(limited("qpdf object exceeds its structural byte ceiling"));
-            }
-            if pointer.is_null() {
-                return Err(corrupt(
-                    "Bundled qpdf did not return the selected object's value",
-                ));
-            }
-            Ok(unsafe { std::slice::from_raw_parts(pointer.cast::<u8>(), length) })
-        }
-
+        /// The typed traversal admits each direct value against the object's
+        /// element, nesting and byte ceilings before it copies the value.
         fn convert(&self, handle: &ObjectHandle<'_>, context: Context) -> Result<Object> {
             let is_stream = unsafe { (self.api.is_stream)(self.data, handle.value) } != 0;
             self.check()?;
-            let dictionary;
-            let value = if is_stream {
-                dictionary =
-                    self.handle(unsafe { (self.api.dictionary)(self.data, handle.value) })?;
-                dictionary.value
-            } else {
-                handle.value
-            };
             if !is_stream {
-                if let Some((object, _)) =
-                    self.selected_dictionary(value, context, 0, &mut 1, MAX_QPDF_OBJECT_BYTES)?
-                {
-                    return Ok(object);
-                }
+                return self.typed(handle.value, true, 0, &mut 0, &mut 0, context);
             }
-            let bytes = self.encoded(value)?;
-            // A PDF name cannot contain NUL, but preserve a tolerated foreign
-            // name through the existing codec when possible. C's dictionary
-            // iterator cannot represent such keys. Normal objects use typed,
-            // length-aware values and keep the existing structural depth limit.
-            let object = if contains_nul_name(bytes)
-                && !matches!(context, Context::AnnotationEntry | Context::AnnotationIndex)
-            {
-                parse_selected_object(bytes)?
-            } else {
-                self.typed(
-                    value,
-                    true,
-                    0,
-                    &mut 0,
-                    if is_stream { Context::Value } else { context },
-                )?
-            };
-            if is_stream {
-                Ok(Object::Stream(Stream::with_position(
-                    object.as_dict()?.clone(),
-                    0,
-                )))
-            } else {
-                Ok(object)
-            }
+            let dictionary =
+                self.handle(unsafe { (self.api.dictionary)(self.data, handle.value) })?;
+            let object = self.typed(dictionary.value, true, 0, &mut 0, &mut 0, Context::Value)?;
+            Ok(Object::Stream(Stream::with_position(
+                object.as_dict()?.clone(),
+                0,
+            )))
         }
 
-        fn value_bytes(&self, pointer: *const c_char, length: usize) -> Result<&[u8]> {
+        fn value_bytes(
+            &self,
+            pointer: *const c_char,
+            length: usize,
+            encoded: &mut usize,
+        ) -> Result<&[u8]> {
             self.check()?;
-            if length > MAX_QPDF_OBJECT_BYTES {
-                return Err(limited("qpdf value exceeds its structural byte ceiling"));
-            }
+            charge_bytes(length, encoded)?;
             if pointer.is_null() {
                 return Err(corrupt("Bundled qpdf returned a null value buffer"));
             }
@@ -551,8 +506,8 @@ mod platform {
             context: Context,
             depth: usize,
             elements: &mut usize,
-            max_bytes: usize,
-        ) -> Result<Option<(Object, usize)>> {
+            encoded: &mut usize,
+        ) -> Result<Option<Object>> {
             if !matches!(
                 context,
                 Context::PageTree
@@ -569,11 +524,6 @@ mod platform {
                 return Ok(None);
             }
             let index = context == Context::AnnotationIndex;
-            let mut dictionary = Dictionary::new();
-            let mut encoded_bytes = 5usize;
-            if encoded_bytes > max_bytes {
-                return Err(limited("qpdf object exceeds its structural byte ceiling"));
-            }
             if context == Context::AnnotationEntry {
                 let reply = unsafe { (self.api.has_key)(self.data, handle, c"/IRT".as_ptr()) } != 0;
                 self.check()?;
@@ -583,8 +533,6 @@ mod platform {
                 let subtype = self.handle(unsafe {
                     (self.api.get_key)(self.data, handle, c"/Subtype".as_ptr())
                 })?;
-                let indirect = unsafe { (self.api.is_indirect)(self.data, subtype.value) } != 0;
-                let allowance = max_bytes - encoded_bytes - c"/Subtype".to_bytes().len() - 2;
                 let mut pointer = std::ptr::null();
                 let mut length = 0;
                 let name =
@@ -592,7 +540,7 @@ mod platform {
                         != 0;
                 self.check()?;
                 if name {
-                    let bytes = self.value_bytes(pointer, length)?;
+                    let bytes = self.value_bytes(pointer, length, &mut 0)?;
                     let name = bytes
                         .strip_prefix(b"/")
                         .ok_or_else(|| corrupt("PDF name is missing its slash"))?;
@@ -603,42 +551,6 @@ mod platform {
                     {
                         return Ok(None);
                     }
-                    let (object, length) = if !indirect
-                        && name.iter().all(u8::is_ascii_alphanumeric)
-                    {
-                        let length = name.len() + 1;
-                        if length > allowance {
-                            return Err(limited("qpdf object exceeds its structural byte ceiling"));
-                        }
-                        charge_element(depth + 1, elements)?;
-                        (Object::Name(name.to_vec()), length)
-                    } else {
-                        self.selected_value(
-                            &subtype,
-                            depth + 1,
-                            elements,
-                            Context::Value,
-                            allowance,
-                        )?
-                    };
-                    encoded_bytes += c"/Subtype".to_bytes().len() + length + 2;
-                    dictionary.set("Subtype", object);
-                } else if unsafe { (self.api.has_key)(self.data, handle, c"/Subtype".as_ptr()) }
-                    != 0
-                {
-                    let (object, length) = self.selected_value(
-                        &subtype,
-                        depth + 1,
-                        elements,
-                        Context::Value,
-                        allowance,
-                    )?;
-                    encoded_bytes += c"/Subtype".to_bytes().len() + length + 2;
-                    dictionary.set("Subtype", object);
-                }
-                self.check()?;
-                if encoded_bytes > max_bytes {
-                    return Err(limited("qpdf object exceeds its structural byte ceiling"));
                 }
             }
             // Select only through the actual page-tree or Annots ownership
@@ -695,8 +607,9 @@ mod platform {
             } else if index {
                 &[c"/Subtype", c"/NM", c"/IRT", c"/Popup", c"/Parent"][..]
             } else {
-                &[c"/NM"][..]
+                &[c"/Subtype", c"/NM"][..]
             };
+            let mut dictionary = Dictionary::new();
             for key in keys {
                 if unsafe { (self.api.has_key)(self.data, handle, key.as_ptr()) } == 0 {
                     self.check()?;
@@ -718,83 +631,18 @@ mod platform {
                 } else {
                     Context::Value
                 };
-                let allowance = max_bytes
-                    .checked_sub(encoded_bytes + key.to_bytes().len() + 2)
-                    .ok_or_else(|| limited("qpdf object exceeds its structural byte ceiling"))?;
-                let (object, length) =
-                    self.selected_value(&value, depth + 1, elements, child_context, allowance)?;
-                encoded_bytes = encoded_bytes
-                    .checked_add(key.to_bytes().len() + length + 2)
-                    .ok_or_else(|| limited("PDF metadata object byte count overflow"))?;
-                if encoded_bytes > max_bytes {
-                    return Err(limited("qpdf object exceeds its structural byte ceiling"));
-                }
+                charge_bytes(key.to_bytes().len(), encoded)?;
+                let object = self.typed(
+                    value.value,
+                    false,
+                    depth + 1,
+                    elements,
+                    encoded,
+                    child_context,
+                )?;
                 dictionary.set(&key.to_bytes()[1..], object);
             }
-            Ok(Some((Object::Dictionary(dictionary), encoded_bytes)))
-        }
-
-        fn selected_value(
-            &self,
-            value: &ObjectHandle<'_>,
-            depth: usize,
-            elements: &mut usize,
-            context: Context,
-            allowance: usize,
-        ) -> Result<(Object, usize)> {
-            if unsafe { (self.api.is_indirect)(self.data, value.value) } != 0 {
-                let object = self.typed(value.value, false, depth, elements, context)?;
-                let id = object.as_reference()?;
-                let length = format!("{} {} R", id.0, id.1).len();
-                if length > allowance {
-                    return Err(limited("qpdf object exceeds its structural byte ceiling"));
-                }
-                return Ok((object, length));
-            }
-            let kind = unsafe { (self.api.object_type)(self.data, value.value) };
-            self.check()?;
-            if context == Context::Outline && kind == 9 {
-                charge_element(depth, elements)?;
-                return self
-                    .selected_dictionary(value.value, context, depth, elements, allowance)?
-                    .ok_or_else(|| corrupt("Outline dictionary could not be selected"));
-            }
-            if kind == 6 {
-                let mut length = 0usize;
-                let pointer = unsafe { (self.api.string)(self.data, value.value, &mut length) };
-                let bytes = self.value_bytes(pointer, length)?;
-                // qpdf emits printable ASCII without these three escapes as
-                // a literal string. Other bytes retain qpdf's exact codec.
-                if bytes
-                    .iter()
-                    .all(|byte| (32..=126).contains(byte) && !b"()\\".contains(byte))
-                {
-                    let length = bytes.len() + 2;
-                    if length > allowance {
-                        return Err(limited("qpdf object exceeds its structural byte ceiling"));
-                    }
-                    charge_element(depth, elements)?;
-                    return Ok((
-                        Object::String(bytes.to_vec(), StringFormat::Hexadecimal),
-                        length,
-                    ));
-                }
-            }
-            let bytes = self.encoded(value.value)?;
-            let length = bytes.len();
-            if length > allowance {
-                return Err(limited("qpdf object exceeds its structural byte ceiling"));
-            }
-            let object = if contains_nul_name(bytes)
-                && !matches!(context, Context::AnnotationEntry | Context::AnnotationIndex)
-            {
-                let object = parse_selected_object(bytes)?;
-                charge_elements(&object, depth, elements, 0)?;
-                object
-            } else {
-                self.typed(value.value, false, depth, elements, context)?
-            };
-            Ok((object, length))
+            Ok(Some(Object::Dictionary(dictionary)))
         }
 
         fn typed(
@@ -803,6 +651,7 @@ mod platform {
             top: bool,
             depth: usize,
             elements: &mut usize,
+            encoded: &mut usize,
             context: Context,
         ) -> Result<Object> {
             charge_element(depth, elements)?;
@@ -840,7 +689,7 @@ mod platform {
                         self.check()?;
                         return Err(corrupt("Bundled qpdf returned an invalid scalar value"));
                     }
-                    let bytes = self.value_bytes(pointer, length)?;
+                    let bytes = self.value_bytes(pointer, length, encoded)?;
                     if kind == 7 {
                         let name = bytes
                             .strip_prefix(b"/")
@@ -865,7 +714,7 @@ mod platform {
                     let mut length = 0usize;
                     let pointer = unsafe { (self.api.string)(self.data, handle, &mut length) };
                     Object::String(
-                        self.value_bytes(pointer, length)?.to_vec(),
+                        self.value_bytes(pointer, length, encoded)?.to_vec(),
                         StringFormat::Hexadecimal,
                     )
                 }
@@ -881,27 +730,22 @@ mod platform {
                         let item = self.handle(unsafe {
                             (self.api.array_item)(self.data, handle, c_int::try_from(index)?)
                         })?;
-                        values.push(self.typed(item.value, false, depth + 1, elements, context)?);
+                        values.push(self.typed(
+                            item.value,
+                            false,
+                            depth + 1,
+                            elements,
+                            encoded,
+                            context,
+                        )?);
                     }
                     Object::Array(values)
                 }
                 9 => {
-                    if let Some((object, _)) = self.selected_dictionary(
-                        handle,
-                        context,
-                        depth,
-                        elements,
-                        MAX_QPDF_OBJECT_BYTES,
-                    )? {
+                    if let Some(object) =
+                        self.selected_dictionary(handle, context, depth, elements, encoded)?
+                    {
                         return Ok(object);
-                    }
-                    if matches!(context, Context::AnnotationEntry | Context::AnnotationIndex) {
-                        let bytes = self.encoded(handle)?;
-                        if contains_nul_name(bytes) {
-                            let object = parse_selected_object(bytes)?;
-                            charge_elements(&object, depth, elements, 1)?;
-                            return Ok(object);
-                        }
                     }
                     // qpdf supports only one C dictionary iterator at a time.
                     // Copy its keys before descending into any child dictionary.
@@ -918,8 +762,9 @@ mod platform {
                                 "Selected qpdf dictionary exceeds its element ceiling",
                             ));
                         }
-                        let key = unsafe { CStr::from_ptr(pointer) }.to_bytes().to_vec();
-                        keys.push(key);
+                        let key = unsafe { CStr::from_ptr(pointer) }.to_bytes();
+                        charge_bytes(key.len(), encoded)?;
+                        keys.push(key.to_vec());
                     }
                     let mut dictionary = Dictionary::new();
                     for key in keys {
@@ -933,7 +778,14 @@ mod platform {
                             .ok_or_else(|| corrupt("PDF dictionary key is missing its slash"))?;
                         dictionary.set(
                             name,
-                            self.typed(value.value, false, depth + 1, elements, Context::Value)?,
+                            self.typed(
+                                value.value,
+                                false,
+                                depth + 1,
+                                elements,
+                                encoded,
+                                Context::Value,
+                            )?,
                         );
                     }
                     Object::Dictionary(dictionary)
@@ -947,72 +799,6 @@ mod platform {
             self.check()?;
             Ok(object)
         }
-    }
-
-    fn contains_nul_name(bytes: &[u8]) -> bool {
-        let mut index = 0usize;
-        while index < bytes.len() {
-            match bytes[index] {
-                b'(' => {
-                    let mut depth = 1usize;
-                    index += 1;
-                    while index < bytes.len() && depth > 0 {
-                        match bytes[index] {
-                            b'\\' => index += 1,
-                            b'(' => depth += 1,
-                            b')' => depth -= 1,
-                            _ => {}
-                        }
-                        index += 1;
-                    }
-                }
-                b'<' if bytes.get(index + 1) == Some(&b'<') => index += 2,
-                b'<' => {
-                    index += 1;
-                    while index < bytes.len() && bytes[index] != b'>' {
-                        index += 1;
-                    }
-                    index += 1;
-                }
-                b'/' => {
-                    let start = index;
-                    index += 1;
-                    while index < bytes.len()
-                        && !bytes[index].is_ascii_whitespace()
-                        && !b"()<>[]{}/%".contains(&bytes[index])
-                    {
-                        index += 1;
-                    }
-                    if bytes[start..index].windows(3).any(|value| value == b"#00") {
-                        return true;
-                    }
-                }
-                _ => index += 1,
-            }
-        }
-        false
-    }
-
-    fn parse_selected_object(value: &[u8]) -> Result<Object> {
-        let mut bytes = b"%PDF-1.7\n1 0 obj\n<< /EVBValue ".to_vec();
-        bytes.extend_from_slice(value);
-        bytes.extend_from_slice(b" >>\nendobj\n");
-        let xref = bytes.len();
-        bytes.extend_from_slice(
-            b"xref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n",
-        );
-        bytes.extend_from_slice(format!("{xref}\n%%EOF\n").as_bytes());
-        preflight_pdf_object_graph(
-            &bytes,
-            MAX_QPDF_OBJECT_BYTES + 256,
-            MAX_QPDF_OBJECT_ELEMENTS,
-        )?;
-        let document = Document::load_mem_with_options(
-            &bytes,
-            lopdf::LoadOptions::with_max_decompressed_size(MAX_DECOMPRESSED_PDF_STREAM_BYTES),
-        )
-        .map_err(|error| corrupt(format!("Cannot decode selected qpdf object: {error}")))?;
-        Ok(document.get_dictionary((1, 0))?.get(b"EVBValue")?.clone())
     }
 
     fn adjacent_library(qpdf_path: &Path) -> Result<Option<PathBuf>> {
@@ -1291,27 +1077,18 @@ mod platform {
         Ok(())
     }
 
-    fn charge_elements(
-        object: &Object,
-        depth: usize,
-        elements: &mut usize,
-        counted: usize,
-    ) -> Result<()> {
-        *elements = elements
-            .checked_add(object_cost(object, depth)?.1 - counted)
-            .ok_or_else(|| limited("PDF metadata element count overflow"))?;
-        if *elements > MAX_QPDF_OBJECT_ELEMENTS {
-            return Err(limited("Selected qpdf object exceeds its element ceiling"));
+    /// Names, strings, reals and dictionary keys charge their bytes before
+    /// they are copied, so one object's values cannot exceed its byte ceiling.
+    fn charge_bytes(count: usize, encoded: &mut usize) -> Result<()> {
+        *encoded = encoded.saturating_add(count);
+        if *encoded > MAX_QPDF_OBJECT_BYTES {
+            return Err(limited("qpdf object exceeds its structural byte ceiling"));
         }
         Ok(())
     }
 
     fn retained_cost(object: &Object) -> Result<usize> {
-        Ok(object_cost(object, 0)?.0)
-    }
-
-    fn object_cost(object: &Object, initial_depth: usize) -> Result<(usize, usize)> {
-        let mut pending = vec![(object, initial_depth)];
+        let mut pending = vec![(object, 0)];
         let mut elements = 0usize;
         let mut bytes = 0usize;
         while let Some((object, depth)) = pending.pop() {
@@ -1352,7 +1129,7 @@ mod platform {
                 _ => {}
             }
         }
-        Ok((bytes, elements))
+        Ok(bytes)
     }
 
     fn read_signatures(projection: &mut Projection<'_>, path: &Path, qpdf: &Path) -> Result<()> {
@@ -1451,43 +1228,5 @@ mod platform {
             IncrementalDocument::from_document(projection.document, initial.len(), last);
         incremental.unavailable_base_streams = unavailable;
         Ok(Some((incremental, reader.diagnostic_bytes.get() != 0)))
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn selected_object_codec_preserves_binary_keys_strings_and_foreign_references() {
-            let object = parse_selected_object(
-                b"<< /Vendor#00Key <00ff8081> /Name /A#00B /Text <feff05d005d1> /Target 900 7 R >>",
-            )
-            .unwrap();
-            let dict = object.as_dict().unwrap();
-            assert_eq!(
-                dict.get(b"Vendor\0Key").unwrap().as_str().unwrap(),
-                &[0, 255, 128, 129]
-            );
-            assert_eq!(dict.get(b"Name").unwrap().as_name().unwrap(), b"A\0B");
-            assert_eq!(
-                dict.get(b"Text").unwrap().as_str().unwrap(),
-                &[254, 255, 5, 208, 5, 209]
-            );
-            assert_eq!(
-                dict.get(b"Target").unwrap().as_reference().unwrap(),
-                (900, 7)
-            );
-        }
-
-        #[test]
-        fn selected_object_codec_does_not_resolve_a_foreign_reference() {
-            assert_eq!(
-                parse_selected_object(b"900 7 R")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-                (900, 7)
-            );
-        }
     }
 }
