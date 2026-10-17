@@ -1529,20 +1529,59 @@ pub(crate) fn append_annots_to_page_incremental(
     Ok(())
 }
 
-/// Every annotation that answers another, by the one it answers, on any page
-/// as the parse and Undo find them, without walking the page tree.
-pub(crate) fn document_replies(document: &Document) -> HashMap<ObjectId, Vec<ObjectId>> {
-    let mut replies: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
-    for (id, object) in &document.objects {
-        if let Some(parent) = object
-            .as_dict()
-            .ok()
-            .and_then(|d| annotation_related_ref(d, b"IRT"))
-        {
-            replies.entry(parent).or_default().push(*id);
+/// The annotations the pages list, as the parse and Undo admit them: the pages
+/// listing each, and the listed annotations that answer each one. It reads
+/// page dictionaries among the objects, never walking the page tree.
+#[derive(Default)]
+pub(crate) struct AnnotationListing {
+    pub(crate) pages: HashMap<ObjectId, Vec<ObjectId>>,
+    pub(crate) replies: HashMap<ObjectId, Vec<ObjectId>>,
+}
+
+impl AnnotationListing {
+    pub(crate) fn new(document: &Document) -> Self {
+        let mut listing = Self::default();
+        for (page, object) in &document.objects {
+            let Ok(dict) = object.as_dict() else {
+                continue;
+            };
+            // One pass over a dictionary's few entries: hashing two keys of
+            // every object costs a dense file several times more.
+            let (mut page_type, mut annots) = (None, None);
+            for (key, value) in dict.iter() {
+                match key.as_slice() {
+                    b"Type" => page_type = value.as_name().ok(),
+                    b"Annots" => annots = document.dereference(value).ok(),
+                    _ => {}
+                }
+            }
+            let annots = annots.filter(|_| page_type == Some(b"Page"));
+            let annots = annots.and_then(|(_, annots)| annots.as_array().ok());
+            for id in annots
+                .into_iter()
+                .flatten()
+                .filter_map(|a| a.as_reference().ok())
+            {
+                listing.pages.entry(id).or_default().push(*page);
+            }
         }
+        for id in listing.pages.keys() {
+            let dict = document.get_dictionary(*id).ok();
+            if let Some(parent) = dict.and_then(|dict| annotation_related_ref(dict, b"IRT")) {
+                listing.replies.entry(parent).or_default().push(*id);
+            }
+        }
+        listing
     }
-    replies
+
+    /// Every page whose /Annots lists one of `refs`.
+    pub(crate) fn pages_of(&self, refs: &HashSet<ObjectId>) -> HashSet<ObjectId> {
+        refs.iter()
+            .filter_map(|id| self.pages.get(id))
+            .flatten()
+            .copied()
+            .collect()
+    }
 }
 
 pub(crate) fn collect_annotation_refs_to_delete(
@@ -1596,17 +1635,19 @@ pub(crate) fn collect_annotation_refs_to_delete(
     Ok(refs)
 }
 
-/// Return the page that owns an annotation when the annotation carries the
-/// optional PDF `/P` back-reference. This is the authoritative owner for
-/// explicit object-reference deletes, even when the request's page hint is
-/// stale or points at another page.
+/// The page an annotation's optional `/P` names, when the file holds it.
 pub(crate) fn annotation_page_id(
     document: &impl PdfObjectSource,
     annotation_id: ObjectId,
 ) -> Option<ObjectId> {
-    let annotation = document.dictionary(annotation_id).ok()?;
-    let page = annotation.get(b"P").ok()?;
-    page.as_reference().ok()
+    let page = document
+        .dictionary(annotation_id)
+        .ok()?
+        .get(b"P")
+        .ok()?
+        .as_reference()
+        .ok()?;
+    document.dictionary(page).is_ok().then_some(page)
 }
 
 pub(crate) fn annotation_matches_stable_delete_name(
@@ -1660,64 +1701,14 @@ fn resolve_annotation_delete_target_refs_from_index(
     }
 }
 
-fn resolve_annotation_delete_page_ids(
-    document: &impl PdfObjectSource,
-    deletes: &[AnnotationDelete],
-    refs_to_delete: &HashSet<ObjectId>,
-    page_resolver: &PageTreeResolver,
-) -> Result<Vec<ObjectId>> {
-    let mut page_ids = HashSet::new();
-    for delete in deletes {
-        let page_number = mutation_page_number(delete.page_index)?;
-        page_ids.insert(page_resolver.page_id(document, page_number)?);
-    }
-
-    // Related popup/parent annotations can carry their own page reference.
-    // Include those pages when the source provides one, while keeping the
-    // mutation bounded by the object references already named by the delete.
-    for object_id in refs_to_delete {
-        if let Some(page_id) = annotation_page_id(document, *object_id) {
-            page_ids.insert(page_id);
-        }
-    }
-    add_listing_pages(document, page_resolver, refs_to_delete, &mut page_ids)?;
-    Ok(page_ids.into_iter().collect())
-}
-
-/// Adds every page when `page_ids` do not list each of `refs`: a reply on
-/// another page that its /P does not name leaves wherever a page lists it.
-pub(crate) fn add_listing_pages(
-    document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
-    refs: &HashSet<ObjectId>,
-    page_ids: &mut HashSet<ObjectId>,
-) -> Result<()> {
-    let mut listed = HashSet::new();
-    for page_id in page_ids.iter() {
-        let annots = get_page_annots(document, *page_id)?;
-        listed.extend(
-            annots
-                .iter()
-                .filter_map(|object| object.as_reference().ok()),
-        );
-    }
-    if refs.is_subset(&listed) {
-        return Ok(());
-    }
-    page_resolver.for_each_page_id(document, |page_id| {
-        page_ids.insert(page_id);
-        Ok(())
-    })
-}
-
 pub(crate) fn collect_delete_refs(
     document: &Document,
     deletes: &[AnnotationDelete],
-    page_resolver: &PageTreeResolver,
+    replies: &HashMap<ObjectId, Vec<ObjectId>>,
 ) -> Result<HashSet<ObjectId>> {
+    let page_resolver = PageTreeResolver::new(document)?;
     let mut refs_to_delete = HashSet::new();
     let mut annotation_indexes = HashMap::new();
-    let replies = document_replies(document);
     for delete in deletes {
         let page_number = mutation_page_number(delete.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
@@ -1736,7 +1727,7 @@ pub(crate) fn collect_delete_refs(
         };
         for target_id in target_refs {
             refs_to_delete.extend(collect_annotation_refs_to_delete(
-                document, target_id, &replies,
+                document, target_id, replies,
             )?);
         }
     }
@@ -1772,12 +1763,10 @@ pub(crate) fn delete_annotations(
         return Ok(());
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
-    let refs_to_delete = collect_delete_refs(document, deletes, &page_resolver)?;
-    let page_ids =
-        resolve_annotation_delete_page_ids(document, deletes, &refs_to_delete, &page_resolver)?;
+    let listing = AnnotationListing::new(document);
+    let refs_to_delete = collect_delete_refs(document, deletes, &listing.replies)?;
     let mut removed_any = false;
-    for page_id in page_ids {
+    for page_id in listing.pages_of(&refs_to_delete) {
         let annots = get_page_annots(document, page_id)?;
         let (filtered_annots, removed) = filter_annots_without_refs(annots, &refs_to_delete);
         if !removed {
@@ -1805,19 +1794,12 @@ pub(crate) fn delete_annotations_incremental(
         return Ok(());
     }
 
-    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    let listing = AnnotationListing::new(incremental.get_prev_documents());
     let refs_to_delete =
-        collect_delete_refs(incremental.get_prev_documents(), deletes, &page_resolver)?;
-    let page_ids = resolve_annotation_delete_page_ids(
-        incremental.get_prev_documents(),
-        deletes,
-        &refs_to_delete,
-        &page_resolver,
-    )?;
+        collect_delete_refs(incremental.get_prev_documents(), deletes, &listing.replies)?;
     let mut removed_any = false;
-    for page_id in page_ids {
-        let annots = get_page_annots(&incremental.new_document, page_id)
-            .or_else(|_| get_page_annots(incremental.get_prev_documents(), page_id))?;
+    for page_id in listing.pages_of(&refs_to_delete) {
+        let annots = get_incremental_page_annots(incremental, page_id)?;
         let (filtered_annots, removed) = filter_annots_without_refs(annots, &refs_to_delete);
         if !removed {
             continue;
