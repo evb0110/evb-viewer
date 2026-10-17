@@ -387,9 +387,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             const accept = () => {if (!isCurrent()) throw new DOMException('Text appearance input changed', 'AbortError'); handoff();};
             if (!await rendering.publishAnnotationPaint(pageNumber, {
                 signature: nativeAnnotationPaintSignature(entities.map(entity => entity.identity.id === proposal.identity.id ? proposal : entity), retiredPdfAnnotationIds.value, null, options.documentRevisionToken.value),
-                async prepare(signal, reserveAppearanceBytes) {
-                    const page = await document.getPage(pageNumber);
-                    const input = await preparePagePaint(page, await page.getAnnotations({intent: 'display'}), signal, reserveAppearanceBytes, proposal, entities);
+                async prepare(page, captureSettlement, signal, reserveAppearanceBytes) {
+                    const input = await rendering.prepareCanvasAnnotations(page, captureSettlement, signal, reserveAppearanceBytes, proposal);
                     if (!input) throw new DOMException('Text appearance document closed', 'AbortError');
                     return input;
                 },
@@ -917,7 +916,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const detachProjection = rendering.attachAnnotationProjection({
         hiddenAnnotationIds: hiddenPdfAnnotationIds,
         annotationProjectionReady,
-        ensureAnnotationProjectionReady,
         canvasHiddenAnnotationIds: hiddenPdfAnnotationIds,
         thumbnailHiddenAnnotationIds,
         paintSignature,

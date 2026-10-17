@@ -15,11 +15,11 @@ import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composa
 import {
     usePdfAnnotationLayerRenderer,
     getParsedPageAnnotations,
-    isLinkAnnotation,
 } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import type {
     IPdfPage, IPdfAnnotation,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {TPdfPageOperationSettlementCapture} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
@@ -45,9 +45,8 @@ interface IPdfAnnotationProjection {
     readonly annotationProjectionReady: Readonly<Ref<boolean>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
-    ensureAnnotationProjectionReady?: () => Promise<void>;
     readonly paintSignature: Readonly<Ref<string>>;
-    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
+    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
 }
 
 interface ICommittedPdfPageRaster {
@@ -673,12 +672,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationPaintSignature,
         isAnnotationInputCurrent: (input: IPdfAnnotationRenderInput | undefined) => !input
             || input.document === pdfDocument.value && input.signature === annotationPaintSignature.value,
-        async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void) {
+        async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity) {
             const parsed = getParsedPageAnnotations(page);
             captureSettlement?.(parsed.then(() => undefined, () => undefined));
-            const annotations = await parsed;
-            if (annotations.some(annotation => !isLinkAnnotation(annotation))) await projection.value?.ensureAnnotationProjectionReady?.();
-            return projection.value?.preparePagePaint(page, annotations, signal, reserveAppearanceBytes);
+            return projection.value?.preparePagePaint(page, await parsed, signal, reserveAppearanceBytes, acceptedProposal);
         },
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         // The raster bakes pixels that survive until the page is re-rendered, so it

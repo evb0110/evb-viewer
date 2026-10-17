@@ -249,7 +249,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const reserveAppearanceBytes = (bytes: number) => reserveAdditionalBytes(3 * bytes);
             const render = await canvasRenderer.prepareCanvasRender(page, job.targetScale, {
                 ...job.renderOptions,
-                ...(job.renderOptions.annotationCommit ? {annotationInput: () => job.renderOptions.annotationCommit!.prepare(signal, reserveAppearanceBytes)} : {}),
+                ...(job.renderOptions.annotationCommit ? {annotationInput: () => job.renderOptions.annotationCommit!.prepare(page, captureSettlement, signal, reserveAppearanceBytes)} : {}),
                 hiddenAnnotationIds: () => pageRenderer.canvasHiddenAnnotationIds.value,
                 ...(sourceMaxPixels === null ? {} : {sourceMaxPixels}),
                 onRenderStall: payload => handlePageRenderStall(payload),
@@ -572,11 +572,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             target: viewportRasterTarget,
         })));
         const failed = outcomes.find(outcome => outcome.status === 'failed');
-        if (requestedRenderOptions.annotationCommit) {
-            if (failed?.status === 'failed') throw failed.error;
-            await nextTick();
-            return outcomes;
-        }
+        if (requestedRenderOptions.annotationCommit && failed?.status === 'failed') throw failed.error;
         await promotePrioritizedTextLayers(pageRenderer, [...requestedPages].filter(page => page >= range.start && page <= range.end), renderOptions);
         // The committed canvas is mounted synchronously, but the page
         // container's rendered class controls its visibility through Vue.
