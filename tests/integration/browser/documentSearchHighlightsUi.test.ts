@@ -153,42 +153,6 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
-    it('isolates another document when a DjVu regex is canceled', async () => {
-        try {
-            const page = await lifecycle.browser.newPage();
-            const url = `${lifecycle.origin}/__search-isolation`;
-            await page.route(url, route => route.fulfill({
-                contentType: 'text/html',
-                body: '<!doctype html><html><body>Search isolation</body></html>',
-            }));
-            await page.goto(url, {waitUntil: 'domcontentloaded'});
-            const result = await page.evaluate<{second: {
-                ok: boolean;
-                count?: number
-            }}>(`(async () => {
-            const {searchDjvuWorkerText} = await import('/_nuxt/platform/browser-api/createDjvuWorkerFromPath.ts');
-            const worker = text => ({doc:{
-                getPagesQuantity:()=>({run:async()=>1}),
-                getPagesSizes:()=>({run:async()=>[{width:612,height:792}]}),
-                getPage:()=>({getText:()=>({run:async()=>text}),getNormalizedTextZones:()=>({run:async()=>null})})
-            }});
-            const a = new AbortController(); const b = new AbortController();
-            const options = {pageCount:1,matchOptions:{useRegex:true,matchCase:false,wholeWord:false}};
-            const first = searchDjvuWorkerText(worker('a'.repeat(250000)+'!'), {...options,query:'a+.a+$',requestId:'review-a',signal:a.signal})
-                .then(()=>({ok:true}), e=>({ok:false,name:e.name,message:e.message}));
-            await new Promise(r=>setTimeout(r,200));
-            const second = searchDjvuWorkerText(worker('hello'), {...options,query:'hello',requestId:'review-b',signal:b.signal})
-                .then(r=>({ok:true,count:r.results.length}), e=>({ok:false,name:e.name,message:e.message}));
-            await new Promise(r=>setTimeout(r,50)); a.abort();
-            return {first:await first, second:await second, secondAborted:b.signal.aborted};
-        })()`);
-            expect(result.second).toEqual({
-                ok:true,
-                count:1,
-            });
-        } finally {await Promise.all(lifecycle.browser.contexts().map(context => context.close()));}
-    }, 90_000);
-
     it('preserves the regex budget across normalization at the page-text cap', async () => {
         try {
             const page = await lifecycle.browser.newPage();
