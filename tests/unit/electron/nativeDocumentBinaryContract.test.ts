@@ -162,6 +162,8 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
             ] of [
                     {rotation: 0},
                     {rotation: 90},
+                    {rotation: 180},
+                    {rotation: 270},
                     {
                         rotation: 0,
                         invisible: true,
@@ -200,10 +202,10 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
                 return pages;
             };
             const visible = await readAll(true);
-            expect(visible).toHaveLength(4);
+            expect(visible).toHaveLength(6);
             visible.forEach((text, index) => expect(text).toContain(`CROP_SHOWN_${index + 1}`));
-            expect(visible.slice(0, 3).join('\n')).not.toContain('CROP_HIDDEN');
-            expect(visible[3]).toContain('CROP_HIDDEN_4');
+            expect(visible.slice(0, 5).join('\n')).not.toContain('CROP_HIDDEN');
+            expect(visible[5]).toContain('CROP_HIDDEN_6');
             // Export and assistant reads keep reading the whole page.
             expect((await readAll(false)).join('\n')).toContain('CROP_HIDDEN_1');
         } finally {
