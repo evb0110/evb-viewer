@@ -74,6 +74,8 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     /** Every current demand settles when its bounded attempts run out. */
     onRenderExhausted?: ((outcome: TPdfRasterOutcome) => void) | undefined;
     release(pageNumber: TPageNumber, reason: string): void;
+    /** The target still shows this page, so its resident stays charged. */
+    retains?(pageNumber: TPageNumber): boolean;
 }
 
 export type TPdfRasterOutcome =
@@ -282,7 +284,7 @@ export function createPdfPageRasterScheduler(
     }
 
     function isPageVisiblyDemanded(work: IRasterWork) {
-        const lane = currentDemandByIdentity.get(createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber))?.lane;
+        const lane = (currentDemandByIdentity.get(createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber)) ?? residents.get(work.key)?.demand)?.lane;
         return lane === 'navigation-target' || lane === 'viewport-visible';
     }
 
@@ -301,10 +303,8 @@ export function createPdfPageRasterScheduler(
             return;
         }
         work.targetReleased = true;
-        // A committed raster for this page (any render key) remains the
-        // correct visual until its replacement commits; releasing the target
-        // here would blank a visible page mid-resize. The resident's own
-        // release path clears the page when it is truly evicted or replaced.
+        // A committed raster for this page (any render key) stays its visual
+        // until replaced; only the resident's own release may clear the page.
         if (hasCommittedResidentForPage(work.target.id, work.demand.pageNumber)) {
             return;
         }
@@ -516,8 +516,7 @@ export function createPdfPageRasterScheduler(
                 category,
                 bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
                 priority: LANE_ORDER[work.demand.lane],
-                // A page on screen keeps its raster, and that raster's charge,
-                // until a replacement commits: the target does not unmount it.
+                // A raster on screen stays charged until replaced.
                 canEvict: () => residents.has(work.key) && !isPageVisiblyDemanded(work),
                 evict: () => {
                     const resident = residents.get(work.key);
@@ -766,9 +765,8 @@ export function createPdfPageRasterScheduler(
             if (resident?.sourceId !== request.sourceId) {
                 continue;
             }
-            // A page demanded at another scale keeps its raster on screen
-            // until the replacement commits.
-            if (demandedPages.has(resident.demand.pageNumber)) {
+            // A demanded or retained page keeps its raster and charge.
+            if (demandedPages.has(resident.demand.pageNumber) || resident.target.retains?.(resident.demand.pageNumber)) {
                 nextKeys.add(key);
             } else {
                 releaseResident(resident, 'demand-replaced');
