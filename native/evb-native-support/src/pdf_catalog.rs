@@ -86,8 +86,24 @@ impl BookmarkDestinationKind {
         }
     }
 
-    pub fn pdf_name(self) -> Vec<u8> {
-        serde_json::json!(self).as_str().unwrap_or_default().into()
+    pub fn pdf_name(self) -> &'static [u8] {
+        match self {
+            Self::XYZ => b"XYZ",
+            Self::Fit => b"Fit",
+            Self::FitH => b"FitH",
+            Self::FitV => b"FitV",
+            Self::FitR => b"FitR",
+            Self::FitB => b"FitB",
+            Self::FitBH => b"FitBH",
+            Self::FitBV => b"FitBV",
+        }
+    }
+
+    pub fn from_pdf_name(name: &[u8]) -> Option<Self> {
+        use BookmarkDestinationKind::*;
+        [XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV]
+            .into_iter()
+            .find(|kind| kind.pdf_name() == name)
     }
 }
 

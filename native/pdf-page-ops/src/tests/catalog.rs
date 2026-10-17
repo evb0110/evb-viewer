@@ -1605,6 +1605,51 @@ fn read_outline_keeps_source_names_and_actions_other_than_go_to() {
 }
 
 #[test]
+fn read_outline_keeps_each_destination_kind_and_omits_only_malformed_originals() {
+    use evb_native_support::pdf_catalog::BookmarkDestinationKind::{FitBV, FitR, XYZ};
+    let (mut document, page_id) = create_test_document();
+    let name = |kind: &str| Object::Name(kind.as_bytes().to_vec());
+    let destinations = [
+        vec![name("XYZ"), Object::Null, 700.into(), Object::Null],
+        vec![name("FitR"), 10.into(), 20.into(), Object::Real(30.5), 40.into()],
+        vec![name("FitBV"), Object::Null],
+        vec![name("FitH")],
+        vec![name("FitH"), Object::string_literal("top")],
+        vec![name("FitH"), Object::Real(f32::INFINITY)],
+        vec![name("Zoom"), 1.into()],
+    ];
+    let outlines_id = document.new_object_id();
+    let ids = destinations.iter().map(|_| document.new_object_id()).collect::<Vec<_>>();
+    for (index, destination) in destinations.into_iter().enumerate() {
+        let mut item = dictionary! {"Title" => Object::string_literal(format!("Item {index}")), "Parent" => outlines_id};
+        item.set("Dest", [vec![Object::Reference(page_id)], destination].concat());
+        if let Some(next) = ids.get(index + 1) {
+            item.set("Next", *next);
+        }
+        document.set_object(ids[index], item);
+    }
+    document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => ids[0], "Last" => *ids.last().unwrap()});
+    let catalog_id = document.root_id().unwrap();
+    document.get_dictionary_mut(catalog_id).unwrap().set("Outlines", outlines_id);
+
+    let outline = read_pdf_outline(&document, true).unwrap();
+    let originals = outline
+        .iter()
+        .map(|item| item.original_destination.as_ref().map(|destination| (destination.kind, destination.coordinates.clone())))
+        .collect::<Vec<_>>();
+    assert_eq!(originals, [
+        Some((XYZ, vec![None, Some(700.0), None])),
+        Some((FitR, vec![Some(10.0), Some(20.0), Some(30.5), Some(40.0)])),
+        Some((FitBV, vec![None])),
+        None,
+        None,
+        None,
+        None,
+    ]);
+    assert!(outline.iter().all(|item| item.page_index == Some(0)), "a malformed original keeps its bookmark");
+}
+
+#[test]
 fn saved_outline_writes_untouched_actions_and_names_back_unchanged() {
     for append in [false, true] {
         let (mut document, _page_id) = create_source_intent_outline();
