@@ -1817,7 +1817,10 @@ fn accepted_named_and_pending_targets_resolve_without_dropping_unknown_entries()
     });
     let mut items: Vec<BookmarkEntry> = serde_json::from_value(serde_json::json!([
         {"title":"Accepted name", "pageIndex":null, "namedDest":"é", "items":[]},
-        {"title":"Pending", "pageIndex":null, "originalDestination":{"kind":"Fit", "sourceTarget":{"num":page_id.0,"gen":page_id.1},"coordinates":[]},"items":[]},
+        {"title":"Pending", "pageIndex":null, "originalDestination":{"kind":"Fit", "sourceTarget":{"num":page_id.0,"gen":page_id.1},"coordinates":[]},"items":[
+            {"title":"Nested missing", "pageIndex":null, "originalDestination":{"kind":"Fit","sourceTarget":{"num":9999,"gen":0},"coordinates":[]},"items":[]},
+            {"title":"Nested pending", "pageIndex":null, "originalDestination":{"kind":"Fit","sourceTarget":{"num":page_id.0,"gen":page_id.1},"coordinates":[]},"items":[]}
+        ]},
         {"title":"Unknown", "pageIndex":null, "namedDest":"missing", "items":[]},
         {"title":"Missing ref", "pageIndex":null, "originalDestination":{"kind":"Fit","sourceTarget":{"num":9999,"gen":0},"coordinates":[]},"items":[]}
     ])).unwrap();
@@ -1834,6 +1837,8 @@ fn accepted_named_and_pending_targets_resolve_without_dropping_unknown_entries()
             .source_target,
         BookmarkSourceTarget::PageIndex(0)
     );
+    assert_eq!(items[1].items[0].page_index, None);
+    assert_eq!(items[1].items[1].page_index, Some(0));
     assert_eq!(items[2..], unknown);
     document
         .get_dictionary_mut(root_id)
