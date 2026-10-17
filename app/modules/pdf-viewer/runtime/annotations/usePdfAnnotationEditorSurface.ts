@@ -135,7 +135,6 @@ export interface IAnnotationEditorSurface {
     protectTextBoxDraft(annotationId: AnnotationId): void | Promise<void>;
     setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
     restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
-    clearTextBoxDraftPending(annotationId: AnnotationId): void;
     hasTextBoxDraftPending(annotationId: AnnotationId): boolean;
     getTextBoxDraftText(annotationId: AnnotationId): string | null;
     getTextBoxDraftRect(annotationId: AnnotationId): IAnnotationMarkerRect | null;
@@ -545,7 +544,7 @@ export const usePdfAnnotationEditorSurface = (
                     ...entity,
                     fontSize: updates.fontSize,
                 });
-                if (fittedRect !== null) {
+                if (fittedRect !== null || entity.identity.id !== editingId.value) {
                     patch.fontSize = updates.fontSize;
                     if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
                 }
@@ -1149,7 +1148,6 @@ export const usePdfAnnotationEditorSurface = (
         protectTextBoxDraft,
         setTextBoxDraftPending,
         restoreTextBoxDraftPending,
-        clearTextBoxDraftPending,
         hasTextBoxDraftPending,
         getTextBoxDraftText,
         getTextBoxDraftRect,
