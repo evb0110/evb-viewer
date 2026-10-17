@@ -264,53 +264,6 @@ function withDerivedPageDpi(
     };
 }
 
-/**
- * Derive raster resolution from the page metadata pass when every page is a
- * full-page scan. `evb-pdf-page-ops` only exposes these image fields after
- * proving from the PDF content matrix that the image covers the page view, so
- * this is equivalent to pdfimages' dominant-raster answer without decoding or
- * walking every image stream in a second process. A mixed/vector document
- * returns null and keeps the conservative pdfimages fallback.
- */
-function mergeDpiDetectionResults(
-    target: IPageRasterDetectionResult,
-    source: IPageRasterDetectionResult,
-) {
-    target.documentDpi = Math.max(target.documentDpi ?? 0, source.documentDpi ?? 0) || null;
-    for (const [
-        pageNumber,
-        raster,
-    ] of source.rasterByPage) {
-        const existing = target.rasterByPage.get(pageNumber);
-        const existingArea = existing === undefined ? 0 : existing.width * existing.height;
-        const incomingArea = raster.width * raster.height;
-        if (incomingArea > existingArea || (incomingArea === existingArea && raster.dpi > (existing?.dpi ?? 0))) {
-            const backgroundDpi = raster.backgroundDpi ?? existing?.backgroundDpi;
-            const hasBilevelLayer = raster.hasBilevelLayer === true || existing?.hasBilevelLayer === true;
-            const hasDominantBilevelLayer = raster.hasDominantBilevelLayer === true
-                || existing?.hasDominantBilevelLayer === true;
-            target.rasterByPage.set(pageNumber, {
-                dpi: raster.dpi,
-                width: raster.width,
-                height: raster.height,
-                ...(hasBilevelLayer ? {hasBilevelLayer: true} : {}),
-                ...(hasDominantBilevelLayer ? {hasDominantBilevelLayer: true} : {}),
-                ...(backgroundDpi === undefined ? {} : {backgroundDpi}),
-            });
-        } else if (existing) {
-            if (raster.hasBilevelLayer && !existing.hasBilevelLayer) {
-                existing.hasBilevelLayer = true;
-            }
-            if (raster.hasDominantBilevelLayer && !existing.hasDominantBilevelLayer) {
-                existing.hasDominantBilevelLayer = true;
-            }
-            if (existing.backgroundDpi === undefined && raster.backgroundDpi !== undefined) {
-                existing.backgroundDpi = raster.backgroundDpi;
-            }
-        }
-    }
-}
-
 function toPageRasterSource(
     result: IPageRasterDetectionResult,
     compactLayeredPageCountComplete: boolean,
@@ -484,7 +437,14 @@ export async function detectSourceDpiDetails(
                 commandOptions,
             );
             const probeResult = parsePdfImagesListOutput(result.stdout);
-            mergeDpiDetectionResults(combinedResult, probeResult);
+            // Probes cover disjoint page ranges, so each page has one raster.
+            combinedResult.documentDpi = Math.max(combinedResult.documentDpi ?? 0, probeResult.documentDpi ?? 0) || null;
+            for (const [
+                pageNumber,
+                raster,
+            ] of probeResult.rasterByPage) {
+                combinedResult.rasterByPage.set(pageNumber, raster);
+            }
         } finally {
             completedPages += probe.pageUnits;
             onProgress?.(completedPages, totalPages);
