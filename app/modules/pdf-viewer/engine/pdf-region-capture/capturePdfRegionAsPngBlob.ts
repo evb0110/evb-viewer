@@ -35,7 +35,6 @@ export function freezePdfRegionCapture(viewerContainer: HTMLElement, selection: 
         fragments: [],
     };
     const sources = [...viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas')]
-        .filter(canvas => canvas.width > 0 && canvas.height > 0)
         .map(canvas => ({
             canvas,
             rect: toClientRect(canvas.getBoundingClientRect()),
@@ -54,12 +53,7 @@ export function freezePdfRegionCapture(viewerContainer: HTMLElement, selection: 
 }
 
 /** One composed frame supplies every fragment. A missing reader never falls back to PDF canvases. */
-export async function capturePdfRegionAsPngBlob(
-    _viewerContainer: HTMLElement,
-    _selection: IClientRect,
-    request?: IPdfRegionPaintCapture,
-) {
-    if (!request) throw new Error('Current-view composed capture requires its initiating viewer lifetime');
+export async function capturePdfRegionAsPngBlob(request: IPdfRegionPaintCapture) {
     const {
         plan, assertCurrent,
     } = request;
