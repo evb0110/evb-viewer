@@ -364,6 +364,12 @@ describe('Move Tab to New Window view state', () => {
         const target = destination;
         const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.listTargetWindows()))[0]!.windowId;
         await openPdfInApp(source, moving);
+        // An edited document moves as its working-copy snapshot, whose page
+        // shape the destination reads first; the hold below keeps that read.
+        await createFreeTextAnnotationWithPointer(source, 'Moving edit', {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
         await clickAsUser(source, '.tab-new');
         await openPdfInApp(source, neighbour);
         const movingPane = await source.$eval('.editor-pane.is-active', element => (element as HTMLElement).dataset.editorPaneId!);
