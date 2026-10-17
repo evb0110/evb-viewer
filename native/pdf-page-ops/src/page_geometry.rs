@@ -34,14 +34,6 @@ fn page_geometry_box_output(rect: PdfRect) -> PageGeometryBoxOutput {
     }
 }
 
-fn page_geometry_output(geometry: PageGeometry) -> PageGeometryOutput {
-    PageGeometryOutput {
-        media_box: page_geometry_box_output(geometry.media_box),
-        crop_box: geometry.crop_box.map(page_geometry_box_output),
-        rotation: geometry.rotation,
-    }
-}
-
 pub(crate) fn get_page_geometry(
     document: &impl PdfObjectSource,
     page_number: u32,
@@ -67,15 +59,21 @@ pub(crate) fn write_page_geometry(
     qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let incremental =
+        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Geometry)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
 
     let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
-    serde_json::to_writer(output, &page_geometry_output(geometry))?;
+    let output_geometry = PageGeometryOutput {
+        media_box: page_geometry_box_output(geometry.media_box),
+        crop_box: geometry.crop_box.map(page_geometry_box_output),
+        rotation: geometry.rotation,
+    };
+    serde_json::to_writer(output, &output_geometry)?;
     Ok(())
 }
 
