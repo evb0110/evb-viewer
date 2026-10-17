@@ -79,6 +79,7 @@ const state = vi.hoisted(() => ({
         registrationId: number;
         role: 'current' | 'snapshot';
         sourceBackingErrorCode?: 'SOURCE_BACKING_CHANGED';
+        withheld?: boolean;
     }>(),
     userDataPath: '',
     owners: new Map<string, number>(),
@@ -167,6 +168,7 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
                 size: number;
             };
             role?: 'current' | 'snapshot';
+            withheld?: boolean;
         },
     ) => {
         state.owners.set(path, owner);
@@ -182,6 +184,7 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
                 : {}),
             registrationId: ++state.lastRegistrationId,
             role: options?.role ?? 'current',
+            ...(options?.withheld ? {withheld: true} : {}),
         });
         return Promise.resolve();
     },

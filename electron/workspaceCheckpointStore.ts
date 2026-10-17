@@ -48,10 +48,6 @@ import {
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
-import {
-    isWorkingCopyMaterializationWithheld,
-    withholdWorkingCopyMaterialization,
-} from '@electron/file-access/withheldWorkingCopies';
 import {repairEndedTransition} from '@electron/file-access/documentRevisionStore';
 import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {
@@ -313,7 +309,7 @@ function collectWorkingCopies(
             continue;
         }
         // A withheld stand-in is recorded as the missing copy it stands for, so a start that finds the copy recovers it.
-        const missing = isWorkingCopyMaterializationWithheld(workingCopyRef, ownerWebContentsId);
+        const missing = entry.withheld === true;
         const recorded = {
             ...(entry.admissionSnapshot && !missing ? {admissionSnapshot: {
                 mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
@@ -1202,9 +1198,9 @@ export async function claimWorkspaceCheckpoint(
                         deferOriginalFileExpectation: true,
                         ...(registered.originalFileExpectation ? {originalFileExpectation: registered.originalFileExpectation} : {}),
                         role: registered.role,
+                        withheld: standIn !== null,
                     });
                     const restoredEntry = getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId);
-                    if (standIn && restoredEntry) withholdWorkingCopyMaterialization(tab.workingCopyRef, restoredEntry.registrationId);
                     if (registered.sourceBackingErrorCode && restoredEntry) {
                         transitionWorkingCopyBackingState(tab.workingCopyRef, restoredEntry.registrationId, registered.backingState, {sourceBackingErrorCode: registered.sourceBackingErrorCode});
                     }
@@ -1225,7 +1221,7 @@ export async function claimWorkspaceCheckpoint(
                 log.warn(`Could not finish an interrupted save of a restored document: ${getErrorMessage(error)}`);
             }));
             const keptOriginalPath = tab.sourceRef && await findKeptOriginal(tab.sourceRef);
-            const workingCopyLost = tab.workingCopyRef !== null && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, newOwnerWebContentsId);
+            const workingCopyLost = tab.workingCopyRef !== null && getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId)?.withheld === true;
             return {
                 ...tab,
                 ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
@@ -1294,7 +1290,7 @@ export function acknowledgeWorkspaceCheckpoint(
         }
         restoresInFlight.delete(ownerRecoveryId);
         const record = await readRecordFile(ownerRecoveryId);
-        if (record && !record.checkpoint.tabs.some(tab => tab.workingCopyRef && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, ownerWebContentsId))) {
+        if (record && !record.checkpoint.tabs.some(tab => tab.workingCopyRef && getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId)?.withheld)) {
             await removeRecordAndArtifacts(ownerRecoveryId, record);
         }
         return record !== null;

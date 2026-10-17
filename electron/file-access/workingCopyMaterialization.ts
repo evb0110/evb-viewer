@@ -21,7 +21,7 @@ import {
     type IWorkingCopyOriginalFileExpectation,
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
-import {assertWorkingCopyMaterializationAllowed} from '@electron/file-access/withheldWorkingCopies';
+import {WorkingCopyMissingError} from '@electron/file-access/workingCopyMissingError';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { mainJobBroker } from '@electron/resources/jobBroker';
@@ -572,7 +572,9 @@ function getOrCreateFlight(
     if (!entry) {
         throw new Error('Working copy path is not managed by this owner');
     }
-    assertWorkingCopyMaterializationAllowed(logicalRef, entry.registrationId);
+    if (entry.withheld) {
+        throw new WorkingCopyMissingError('The unsaved changes of this document are in a working copy missing on this computer');
+    }
     if (
         entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
         || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'

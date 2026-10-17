@@ -59,6 +59,12 @@ export interface IWorkingCopyOriginalEntry {
     registrationId: number;
     role: TWorkingCopyRole;
     sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
+    /**
+     * A recovered working copy whose unsaved bytes are not on this computer reads its original in their place but never
+     * becomes a copy of it: nothing saves or edits that stand-in, a later start that finds the real copy still recovers
+     * it, and only a discard ends it. A new registration of the path ends it too.
+     */
+    withheld?: boolean;
 }
 
 /** A fingerprint a copy took of every source byte it read, and the source identity that held throughout. */
@@ -74,6 +80,7 @@ interface ISetWorkingCopyOriginalPathOptions {
     deferOriginalFileExpectation?: boolean;
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
     role?: TWorkingCopyRole;
+    withheld?: boolean;
 }
 
 interface IRememberRetiredWorkingCopyOriginalOptions {
@@ -553,6 +560,7 @@ export async function setWorkingCopyOriginalPath(
             registeredAtMs: Date.now(),
             registrationId: nextWorkingCopyRegistrationId += 1,
             role,
+            ...(options.withheld ? {withheld: true} : {}),
         };
         workingCopyMap.set(workingPath, entry);
         retiredWorkingCopyOriginalMap.delete(workingPath);
