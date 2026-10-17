@@ -344,16 +344,6 @@ pub(crate) fn write_annotation_parse_path(
     let mut incremental =
         load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Annotations)
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    // Notes and FreeText retain original recovery objects; stamps read streams.
-    // Keep the small-file eager fallback until those bytes are in hand.
-    if incremental.has_unavailable_base_streams()
-        && incremental.previous_len() <= MAX_ENCODED_PDF_BYTES as u64
-        && needs_eager_parse(&AppendedRevision::new(&incremental))
-    {
-        drop(incremental);
-        incremental = load_incremental_pdf_path(input_path, qpdf_path)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    }
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
             NativeErrorCode::Encrypted,
@@ -394,7 +384,7 @@ pub(crate) fn write_annotation_parse_path(
 /// A page annotation with recovery objects or stamp streams,
 /// or a page tree or /Annots the scan cannot read, which the eager parse
 /// reports as it always has.
-fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
+pub(crate) fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
     let Ok(page_resolver) = PageTreeResolver::new(document) else {
         return true;
     };

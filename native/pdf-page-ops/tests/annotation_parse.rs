@@ -3,7 +3,7 @@ mod external_tool;
 
 use std::{
     fs::{self, OpenOptions},
-    io::{Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -21,6 +21,17 @@ fn temporary_path(label: &str, extension: &str) -> PathBuf {
         "evb-pdf-page-ops-{label}-{}-{nonce}.{extension}",
         std::process::id()
     ))
+}
+
+struct RemoveOnDrop(Vec<PathBuf>);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = fs::remove_file(path);
+            let _ = fs::remove_dir_all(path);
+        }
+    }
 }
 
 #[test]
@@ -493,9 +504,9 @@ fn metadata_command(operation: &str, input: &Path, output: Option<&Path>) -> Val
     }
 }
 
-/// A valid sparse stream keeps this fixture above the eager-load ceiling
-/// without allocating or writing half a GiB of bytes in the test process.
-fn save_large_metadata_fixture(document: &mut Document, input: &Path) {
+/// A valid sparse stream selects structural admission without allocating or
+/// writing its payload in the test process.
+fn save_metadata_fixture(document: &mut Document, input: &Path, stream_bytes: i64) {
     document.save(input).unwrap();
     let bytes = fs::read(input).unwrap();
     let marker = b"startxref\n";
@@ -519,7 +530,6 @@ fn save_large_metadata_fixture(document: &mut Document, input: &Path) {
     let padding_id = document.max_id + 1;
     let mut file = OpenOptions::new().write(true).open(input).unwrap();
     let object_offset = file.seek(SeekFrom::End(0)).unwrap();
-    let stream_bytes = 512 * 1024 * 1024 + 1;
     write!(
         file,
         "{padding_id} 0 obj\n<< /Length {stream_bytes} >>\nstream\n"
@@ -537,6 +547,12 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
     let sizes = temporary_path("metadata-geometry", "jsonl");
     let annotations = temporary_path("metadata-annotations", "jsonl");
     let index = temporary_path("metadata-index", "jsonl");
+    let _cleanup = RemoveOnDrop(vec![
+        input.clone(),
+        sizes.clone(),
+        annotations.clone(),
+        index.clone(),
+    ]);
     let mut document = Document::with_version("1.7");
     let pages = document.new_object_id();
     let first = document.new_object_id();
@@ -591,7 +607,11 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
     let vendor_child = document.add_object(dictionary! {
         "Payload" => Object::String(vec![0xaa, 0, 0x55], StringFormat::Hexadecimal),
     });
+    let shared_outline = document.add_object(dictionary! {
+        "Title" => Object::string_literal("Shared action record"), "VendorChild" => vendor_child,
+    });
     let private_value = document.add_object(dictionary! {
+        "VendorOutline" => shared_outline,
         "VendorValue" => Object::String(vec![0xff, 0, 0x41], StringFormat::Hexadecimal),
         "Nested" => dictionary! {"Type" => "Catalog", "VendorChild" => vendor_child, "P" => vendor_child},
         "NestedPage" => dictionary! {"Type" => "Page", "VendorChild" => vendor_child},
@@ -690,13 +710,21 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
         "VendorDetails" => private_value,
     });
     let action = document.add_object(dictionary! {"S" => "GoToR", "F" => file_spec, "D" => vec![0.into(), Object::Name(b"Fit".to_vec())]});
+    let structure = document
+        .add_object(dictionary! {"Type" => "StructElem", "P" => irrelevant, "K" => irrelevant});
     let outline = document.add_object(
-        dictionary! {"Title" => Object::string_literal("External reference"), "A" => action},
+        dictionary! {"Title" => Object::string_literal("External reference"), "A" => action, "SE" => structure, "Parent" => structure,
+            "Next" => dictionary! {
+                "Title" => Object::string_literal("Direct sibling"), "Dest" => vec![Object::Reference(second), Object::Name(b"Fit".to_vec())],
+                "F" => 3, "C" => vec![1.into(), 0.into(), 0.into()], "Next" => shared_outline,
+                "SE" => vec![Object::Integer(7); 1_000_000], "Parent" => structure,
+            },
+        },
     );
     let outlines = document.add_object(dictionary! {"First" => outline});
     let root = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages, "PageLabels" => labels, "Outlines" => outlines});
     document.trailer.set("Root", root);
-    save_large_metadata_fixture(&mut document, &input);
+    save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
 
     let geometry = metadata_command("page-sizes", &input, Some(&sizes));
     assert_eq!(geometry[0]["pageCount"], 2);
@@ -706,6 +734,11 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
     assert_eq!(geometry[1]["pages"][0]["userUnit"], 2.0);
     assert_eq!(geometry[1]["pages"][1]["widthPoints"], 400.0);
     let catalog = metadata_command("read-document-catalog", &input, None);
+    assert_eq!(catalog["bookmarks"][1]["title"], "Direct sibling");
+    assert_eq!(catalog["bookmarks"][1]["pageIndex"], 1);
+    assert_eq!(catalog["bookmarks"][1]["bold"], true);
+    assert_eq!(catalog["bookmarks"][1]["italic"], true);
+    assert_eq!(catalog["bookmarks"][1]["color"], "#ff0000");
     assert_eq!(catalog["pageLabels"][0]["prefix"], "Part-");
     assert_eq!(catalog["pageLabels"][0]["start"], 3);
     assert!(
@@ -726,6 +759,14 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
         filename.get("literal").or_else(|| filename.get("hex")),
         Some(&serde_json::json!(b"reference.pdf"))
     );
+    let shared_payload = member(
+        member(
+            member(member(file_spec, "VendorDetails"), "VendorOutline"),
+            "VendorChild",
+        ),
+        "Payload",
+    );
+    assert_eq!(shared_payload["hex"], serde_json::json!([170, 0, 85]));
     let vendor_value = member(member(file_spec, "VendorDetails"), "VendorValue");
     assert_eq!(
         vendor_value
@@ -878,7 +919,7 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
         .get_dictionary_mut(root)
         .unwrap()
         .set("Outlines", 7);
-    save_large_metadata_fixture(&mut document, &input);
+    save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
     let broken_outline = metadata_command("read-document-catalog", &input, None);
     assert!(broken_outline["bookmarksError"].is_string());
     assert_eq!(broken_outline["pageLabels"][0]["prefix"], "Part-");
@@ -890,12 +931,77 @@ fn large_metadata_reads_keep_inherited_geometry_catalog_and_note_recovery_depend
         .get_dictionary_mut(label)
         .unwrap()
         .set("S", "invalid");
-    save_large_metadata_fixture(&mut document, &input);
+    save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
     let broken_labels = metadata_command("read-document-catalog", &input, None);
     assert!(broken_labels["pageLabelsError"].is_string());
     assert_eq!(broken_labels["bookmarks"][0]["title"], "External reference");
-    for path in [input, sizes, annotations, index] {
-        fs::remove_file(path).unwrap();
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("PageLabels", labels);
+    let direct_outline = dictionary! {"First" => Object::Dictionary(document.get_dictionary(outline).unwrap().clone())};
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Outlines", direct_outline);
+    save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
+    let direct_outline = metadata_command("read-document-catalog", &input, None);
+    assert_eq!(direct_outline["bookmarks"], catalog["bookmarks"]);
+    let next = document.add_object(dictionary! {"Title" => Object::string_literal("Alias sibling"), "Dest" => vec![Object::Reference(first), Object::Name(b"Fit".to_vec())]});
+    let destinations = document.add_object(dictionary! {"Names" => vec![Object::string_literal("AliasTarget"), Object::Array(vec![Object::Reference(second), Object::Name(b"Fit".to_vec())])]});
+    let shared_names = document.add_object(dictionary! {
+        "Dests" => destinations, "Title" => Object::string_literal("Alias target"),
+        "Dest" => Object::Name(b"AliasTarget".to_vec()), "Next" => next,
+    });
+    let alias_outlines = document.add_object(dictionary! {"First" => shared_names});
+    for outlines in [
+        Object::Reference(alias_outlines),
+        Object::Dictionary(dictionary! {"First" => shared_names}),
+    ] {
+        document
+            .get_dictionary_mut(root)
+            .unwrap()
+            .set("Outlines", outlines);
+        document
+            .get_dictionary_mut(root)
+            .unwrap()
+            .set("Names", shared_names);
+        save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
+        let catalog = metadata_command("read-document-catalog", &input, None);
+        assert_eq!(catalog["bookmarks"][0]["title"], "Alias target");
+        assert_eq!(catalog["bookmarks"][0]["pageIndex"], 1);
+        assert_eq!(catalog["bookmarks"][1]["title"], "Alias sibling");
+        assert_eq!(catalog["bookmarks"][1]["pageIndex"], 0);
+    }
+    for (key, value, reason) in [
+        ("AcroForm", Object::Integer(1), "source forms"),
+        ("AF", Object::Integer(1), "source attachments"),
+        (
+            "Names",
+            Object::Dictionary(dictionary! {"EmbeddedFiles" => 1}),
+            "source attachments",
+        ),
+        (
+            "Names",
+            Object::Dictionary(dictionary! {"JavaScript" => 1}),
+            "source JavaScript",
+        ),
+    ] {
+        document.get_dictionary_mut(root).unwrap().set(key, value);
+        save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["read-catalog", "--input"])
+            .arg(&input)
+            .arg("--qpdf")
+            .arg(metadata_qpdf_path())
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains(reason));
+        document
+            .get_dictionary_mut(root)
+            .unwrap()
+            .remove(key.as_bytes());
     }
 }
 
@@ -904,6 +1010,7 @@ fn selected_metadata_fields_keep_object_resource_limits() {
     for elements in [false, true] {
         let input = temporary_path("metadata-limits", "pdf");
         let output = temporary_path("metadata-limits", "jsonl");
+        let _cleanup = RemoveOnDrop(vec![input.clone(), output.clone()]);
         let mut document = Document::with_version("1.7");
         let pages = document.new_object_id();
         let (subtype, name) = if elements {
@@ -928,7 +1035,7 @@ fn selected_metadata_fields_keep_object_resource_limits() {
         );
         let root = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
         document.trailer.set("Root", root);
-        save_large_metadata_fixture(&mut document, &input);
+        save_metadata_fixture(&mut document, &input, 512 * 1024 * 1024 + 1);
         let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["parse-annotations", "--input"])
             .arg(&input)
@@ -943,13 +1050,13 @@ fn selected_metadata_fields_keep_object_resource_limits() {
         let error: Value = serde_json::from_slice(&result.stderr).unwrap();
         assert_eq!(error["code"], "too-large");
         assert!(!output.exists());
-        fs::remove_file(input).unwrap();
     }
 }
 
 #[test]
 fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dictionaries() {
     let input = temporary_path("metadata-conformance", "pdf");
+    let mut cleanup = RemoveOnDrop(vec![input.clone()]);
     let mut document = Document::with_version("1.7");
     let pages = document.new_object_id();
     let page = document.add_object(dictionary! {
@@ -999,6 +1106,7 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
         .remove(b"AcroForm");
     document.save(&input).unwrap();
     let bundle = temporary_path("metadata-invalid-runtime", "dir");
+    cleanup.0.push(bundle.clone());
     let bin = bundle.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let qpdf = bin.join(format!("qpdf{}", std::env::consts::EXE_SUFFIX));
@@ -1025,6 +1133,63 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
         .as_str()
         .unwrap()
         .contains("Cannot load bundled qpdf library"));
-    fs::remove_dir_all(bundle).unwrap();
-    fs::remove_file(input).unwrap();
+
+    let damaged_title = document.add_object(Stream::new(dictionary! {}, Vec::new()));
+    let outline = document.add_object(dictionary! {"Title" => damaged_title, "Dest" => vec![Object::Reference(page), Object::Name(b"Fit".to_vec())]});
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Outlines", dictionary! {"First" => outline});
+    for stream_bytes in [20 * 1024 * 1024, 512 * 1024 * 1024 + 1] {
+        save_metadata_fixture(&mut document, &input, stream_bytes);
+        let mut bytes = Vec::new();
+        fs::File::open(&input)
+            .unwrap()
+            .take(64 * 1024)
+            .read_to_end(&mut bytes)
+            .unwrap();
+        let length = bytes
+            .windows(b"/Length 0".len())
+            .position(|part| part == b"/Length 0")
+            .unwrap();
+        // Keep the xref offsets valid while making this relevant stream damaged.
+        let mut file = OpenOptions::new().write(true).open(&input).unwrap();
+        file.seek(SeekFrom::Start(length as u64)).unwrap();
+        file.write_all(b"/Length 5").unwrap();
+        drop(file);
+        drop(bytes);
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["read-document-catalog", "--input"])
+            .arg(&input)
+            .arg("--qpdf")
+            .arg(metadata_qpdf_path())
+            .output()
+            .unwrap();
+        if stream_bytes < 512 * 1024 * 1024 {
+            assert!(
+                !result.status.success(),
+                "A warned projection must preserve the eager input diagnostic: {}",
+                String::from_utf8_lossy(&result.stdout)
+            );
+            let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+            assert_eq!(error["code"], "too-large");
+            assert!(error["message"]
+                .as_str()
+                .unwrap()
+                .contains("stream body exceeds its declared bounds"));
+        } else {
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let catalog: Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(catalog["bookmarks"][0]["title"], "Untitled");
+        }
+        // Conformance intentionally uses qpdf recovery, including above the
+        // eager ceiling, and keeps the facts available despite this warning.
+        let facts = metadata_command("pdf-conformance", &input, None);
+        assert_eq!(facts["isSigned"], false);
+        assert_eq!(facts["isTagged"], true);
+    }
 }

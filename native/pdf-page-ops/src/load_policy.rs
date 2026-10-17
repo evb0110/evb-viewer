@@ -310,7 +310,7 @@ pub(crate) fn load_incremental_pdf_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, false)
+    load_incremental_pdf_path_with_policy(path, qpdf_path, false, None)
 }
 
 pub(crate) use load_incremental_pdf_path as load_annotation_index_pdf_path;
@@ -322,7 +322,7 @@ pub(crate) fn load_dictionary_incremental_pdf_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, true)
+    load_incremental_pdf_path_with_policy(path, qpdf_path, true, None)
 }
 
 /// Read-only projections share dictionary admission, while writers keep the
@@ -332,14 +332,7 @@ pub(crate) fn load_readonly_metadata_pdf_path(
     qpdf_path: Option<&Path>,
     purpose: QpdfMetadataPurpose,
 ) -> Result<IncrementalDocument> {
-    let (_, structural) = incremental_path_admission(path, qpdf_path, PDF_PATH_LOAD_POLICY, true)?;
-    if let Some(qpdf_path) = qpdf_path.filter(|_| structural) {
-        if let Some(document) = load_qpdf_metadata_pdf_path(path, qpdf_path, purpose)? {
-            validate_loaded_document(document.get_prev_documents(), PDF_PATH_LOAD_POLICY)?;
-            return Ok(document);
-        }
-    }
-    load_dictionary_incremental_pdf_path(path, qpdf_path)
+    load_incremental_pdf_path_with_policy(path, qpdf_path, true, Some(purpose))
 }
 
 /// Below this size an eager load is cheap in both memory and time.
@@ -381,42 +374,43 @@ fn incremental_path_admission(
 fn load_incremental_pdf_path_with_policy(
     path: &Path,
     qpdf_path: Option<&Path>,
-    policy: PdfLoadPolicy,
     dictionaries_only: bool,
+    purpose: Option<QpdfMetadataPurpose>,
 ) -> Result<IncrementalDocument> {
+    let policy = PDF_PATH_LOAD_POLICY;
     let (encoded_len, structural) =
         incremental_path_admission(path, qpdf_path, policy, dictionaries_only)?;
-    let load_eagerly = || -> Result<IncrementalDocument> {
-        let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
-            .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-        let document = load_pdf_bytes_with_policy(&bytes, policy)?;
-        Ok(IncrementalDocument::from_document(
-            document,
-            u64::try_from(bytes.len())?,
-            bytes.last().copied(),
-        ))
-    };
-    let incremental = if !structural {
-        load_eagerly()?
-    } else {
+    if structural {
         let qpdf_path = qpdf_path.ok_or_else(|| {
             domain_error(
                 NativeErrorCode::TooLarge,
                 "Large incremental PDF input requires the bundled qpdf structural reader",
             )
         })?;
-        let (incremental, qpdf_warned) = load_qpdf_structural_incremental_pdf(path, qpdf_path)?;
-        // qpdf reads a damaged object as null and only warns. Below the
-        // ceiling the eager load reports such a file as it always has.
-        if qpdf_warned && encoded_len <= policy.max_encoded_bytes as u64 {
-            drop(incremental);
-            load_eagerly()?
-        } else {
-            incremental
+        let projection = purpose
+            .map(|purpose| load_qpdf_metadata_pdf_path(path, qpdf_path, purpose))
+            .transpose()?
+            .flatten();
+        let (incremental, qpdf_warned) = projection
+            .map(Ok)
+            .unwrap_or_else(|| load_qpdf_structural_incremental_pdf(path, qpdf_path))?;
+        // Below the ceiling, retain eager diagnostics and original annotation
+        // recovery objects. Both structural backends share this one fallback.
+        if encoded_len > policy.max_encoded_bytes as u64
+            || !(qpdf_warned
+                || (purpose == Some(QpdfMetadataPurpose::Annotations)
+                    && needs_eager_parse(&AppendedRevision::new(&incremental))))
+        {
+            validate_loaded_document(incremental.get_prev_documents(), policy)?;
+            return Ok(incremental);
         }
-    };
-    validate_loaded_document(incremental.get_prev_documents(), policy)?;
-    Ok(incremental)
+    }
+    let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")?;
+    Ok(IncrementalDocument::from_document(
+        load_pdf_bytes_with_policy(&bytes, policy)?,
+        u64::try_from(bytes.len())?,
+        bytes.last().copied(),
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

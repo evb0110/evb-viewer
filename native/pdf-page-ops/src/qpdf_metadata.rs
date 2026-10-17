@@ -14,11 +14,12 @@ pub(crate) enum QpdfMetadataPurpose {
 
 /// None means only that the supplied qpdf executable has no adjacent library.
 /// A present but unusable library, or an unreadable PDF, is an error.
+/// The boolean reports bounded qpdf warnings to the load-policy owner.
 pub(crate) fn load_qpdf_metadata_pdf_path(
     path: &Path,
     qpdf_path: &Path,
     purpose: QpdfMetadataPurpose,
-) -> Result<Option<IncrementalDocument>> {
+) -> Result<Option<(IncrementalDocument, bool)>> {
     #[cfg(not(target_family = "wasm"))]
     {
         platform::load(path, qpdf_path, purpose)
@@ -499,7 +500,9 @@ mod platform {
                 handle.value
             };
             if !is_stream {
-                if let Some(object) = self.selected_dictionary(value, context, 0, &mut 1)? {
+                if let Some((object, _)) =
+                    self.selected_dictionary(value, context, 0, &mut 1, MAX_QPDF_OBJECT_BYTES)?
+                {
                     return Ok(object);
                 }
             }
@@ -548,11 +551,16 @@ mod platform {
             context: Context,
             depth: usize,
             elements: &mut usize,
-        ) -> Result<Option<Object>> {
-            if !matches!(
+            max_bytes: usize,
+        ) -> Result<Option<(Object, usize)>> {
+            if !(matches!(
                 context,
-                Context::PageTree | Context::AnnotationEntry | Context::AnnotationIndex
-            ) {
+                Context::PageTree
+                    | Context::AnnotationEntry
+                    | Context::AnnotationIndex
+                    | Context::Outline
+            ) || context == Context::Root && self.purpose == QpdfMetadataPurpose::Catalog)
+            {
                 return Ok(None);
             }
             let kind = unsafe { (self.api.object_type)(self.data, handle) };
@@ -563,6 +571,9 @@ mod platform {
             let index = context == Context::AnnotationIndex;
             let mut dictionary = Dictionary::new();
             let mut encoded_bytes = 5usize;
+            if encoded_bytes > max_bytes {
+                return Err(limited("qpdf object exceeds its structural byte ceiling"));
+            }
             if context == Context::AnnotationEntry {
                 let reply = unsafe { (self.api.has_key)(self.data, handle, c"/IRT".as_ptr()) } != 0;
                 self.check()?;
@@ -573,8 +584,7 @@ mod platform {
                     (self.api.get_key)(self.data, handle, c"/Subtype".as_ptr())
                 })?;
                 let indirect = unsafe { (self.api.is_indirect)(self.data, subtype.value) } != 0;
-                let allowance =
-                    MAX_QPDF_OBJECT_BYTES - encoded_bytes - c"/Subtype".to_bytes().len() - 2;
+                let allowance = max_bytes - encoded_bytes - c"/Subtype".to_bytes().len() - 2;
                 let mut pointer = std::ptr::null();
                 let mut length = 0;
                 let name =
@@ -627,7 +637,7 @@ mod platform {
                     dictionary.set("Subtype", object);
                 }
                 self.check()?;
-                if encoded_bytes > MAX_QPDF_OBJECT_BYTES {
+                if encoded_bytes > max_bytes {
                     return Err(limited("qpdf object exceeds its structural byte ceiling"));
                 }
             }
@@ -661,6 +671,21 @@ mod platform {
                         c"/UserUnit",
                     ][..]
                 }
+            } else if context == Context::Root {
+                &[
+                    c"/Type",
+                    c"/Pages",
+                    c"/Outlines",
+                    c"/PageLabels",
+                    c"/Dests",
+                    c"/Names",
+                    c"/AcroForm",
+                    c"/AF",
+                ][..]
+            } else if context == Context::Outline {
+                &[
+                    c"/Title", c"/A", c"/Dest", c"/First", c"/Next", c"/F", c"/C",
+                ][..]
             } else if index {
                 &[c"/Subtype", c"/NM", c"/IRT", c"/Popup", c"/Parent"][..]
             } else {
@@ -679,10 +704,15 @@ mod platform {
                     } else {
                         Context::AnnotationEntry
                     }
+                } else if (context == Context::Root && *key == c"/Outlines")
+                    || (context == Context::Outline
+                        && matches!(key.to_bytes(), b"/First" | b"/Next"))
+                {
+                    Context::Outline
                 } else {
                     Context::Value
                 };
-                let allowance = MAX_QPDF_OBJECT_BYTES
+                let allowance = max_bytes
                     .checked_sub(encoded_bytes + key.to_bytes().len() + 2)
                     .ok_or_else(|| limited("qpdf object exceeds its structural byte ceiling"))?;
                 let (object, length) =
@@ -690,12 +720,12 @@ mod platform {
                 encoded_bytes = encoded_bytes
                     .checked_add(key.to_bytes().len() + length + 2)
                     .ok_or_else(|| limited("PDF metadata object byte count overflow"))?;
-                if encoded_bytes > MAX_QPDF_OBJECT_BYTES {
+                if encoded_bytes > max_bytes {
                     return Err(limited("qpdf object exceeds its structural byte ceiling"));
                 }
                 dictionary.set(&key.to_bytes()[1..], object);
             }
-            Ok(Some(Object::Dictionary(dictionary)))
+            Ok(Some((Object::Dictionary(dictionary), encoded_bytes)))
         }
 
         fn selected_value(
@@ -717,6 +747,12 @@ mod platform {
             }
             let kind = unsafe { (self.api.object_type)(self.data, value.value) };
             self.check()?;
+            if context == Context::Outline && kind == 9 {
+                charge_element(depth, elements)?;
+                return self
+                    .selected_dictionary(value.value, context, depth, elements, allowance)?
+                    .ok_or_else(|| corrupt("Outline dictionary could not be selected"));
+            }
             if kind == 6 {
                 let mut length = 0usize;
                 let pointer = unsafe { (self.api.string)(self.data, value.value, &mut length) };
@@ -844,9 +880,13 @@ mod platform {
                     Object::Array(values)
                 }
                 9 => {
-                    if let Some(object) =
-                        self.selected_dictionary(handle, context, depth, elements)?
-                    {
+                    if let Some((object, _)) = self.selected_dictionary(
+                        handle,
+                        context,
+                        depth,
+                        elements,
+                        MAX_QPDF_OBJECT_BYTES,
+                    )? {
                         return Ok(object);
                     }
                     if matches!(context, Context::AnnotationEntry | Context::AnnotationIndex) {
@@ -1017,6 +1057,7 @@ mod platform {
         Annotation,
         AnnotationIndex,
         Catalog,
+        Outline,
         Names,
         Conformance,
     }
@@ -1114,11 +1155,6 @@ mod platform {
                 return Ok(());
             }
             if context == Context::Root {
-                if self.reader.purpose != QpdfMetadataPurpose::Conformance {
-                    if let Ok(pages) = dict.get(b"Pages") {
-                        self.enqueue(pages, Context::PageTree, depth)?;
-                    }
-                }
                 if self.reader.purpose == QpdfMetadataPurpose::Catalog {
                     for key in [b"Outlines".as_slice(), b"PageLabels", b"Dests", b"Names"] {
                         if let Ok(value) = dict.get(key) {
@@ -1126,6 +1162,8 @@ mod platform {
                                 value,
                                 if key == b"Names" {
                                     Context::Names
+                                } else if key == b"Outlines" {
+                                    Context::Outline
                                 } else {
                                     Context::Catalog
                                 },
@@ -1139,6 +1177,13 @@ mod platform {
                         if let Ok(value) = dict.get(key) {
                             self.enqueue(value, Context::Conformance, depth)?;
                         }
+                    }
+                }
+                // Inline optional graphs may queue destination page values.
+                // Queue Pages last so physical identities are discovered first.
+                if self.reader.purpose != QpdfMetadataPurpose::Conformance {
+                    if let Ok(pages) = dict.get(b"Pages") {
+                        self.enqueue(pages, Context::PageTree, depth)?;
                     }
                 }
                 return Ok(());
@@ -1163,6 +1208,10 @@ mod platform {
                         Context::Value
                     } else if context == Context::Names {
                         Context::Catalog
+                    } else if context == Context::Outline
+                        && !matches!(key.as_slice(), b"First" | b"Next")
+                    {
+                        Context::Value
                     } else {
                         context
                     },
@@ -1212,9 +1261,12 @@ mod platform {
                 }
                 // Entry projections may have been read before a note's full
                 // recovery graph reaches the same object. Full reads dominate.
-                if context == Context::AnnotationEntry
+                if (context == Context::AnnotationEntry
                     && (self.visited.contains(&(id, Context::Annotation))
-                        || self.visited.contains(&(id, Context::Value)))
+                        || self.visited.contains(&(id, Context::Value))))
+                    || (context == Context::Outline
+                        && (self.visited.contains(&(id, Context::Catalog))
+                            || self.visited.contains(&(id, Context::Value))))
                 {
                     continue;
                 }
@@ -1223,7 +1275,11 @@ mod platform {
                 }
                 let object = self.reader.object(id, context)?;
                 self.enqueue(&object, context, 0)?;
-                self.insert(id, object)?;
+                // Names keeps a full dictionary but follows only Dests. Retain
+                // it after walking this same object's selected outline edges.
+                if context != Context::Outline || !self.visited.contains(&(id, Context::Names)) {
+                    self.insert(id, object)?;
+                }
             }
             Ok(())
         }
@@ -1339,7 +1395,7 @@ mod platform {
         path: &Path,
         qpdf: &Path,
         purpose: QpdfMetadataPurpose,
-    ) -> Result<Option<IncrementalDocument>> {
+    ) -> Result<Option<(IncrementalDocument, bool)>> {
         let Some(library) = adjacent_library(qpdf)? else {
             return Ok(None);
         };
@@ -1375,11 +1431,6 @@ mod platform {
         projection.drain()?;
         if recovered {
             read_signatures(&mut projection, path, qpdf)?;
-        } else {
-            let resolver = PageTreeResolver::new(&projection.document)?;
-            if u64::from(resolver.page_count()) > MAX_PATH_INPUT_PDF_PAGES as u64 {
-                return Err(limited("PDF page count exceeds the native path-load limit"));
-            }
         }
         let current = fs::metadata(path).map_err(io_domain_error)?;
         if current.len() != initial.len() || current.modified().ok() != initial.modified().ok() {
@@ -1396,7 +1447,7 @@ mod platform {
         let mut incremental =
             IncrementalDocument::from_document(projection.document, initial.len(), last);
         incremental.unavailable_base_streams = unavailable;
-        Ok(Some(incremental))
+        Ok(Some((incremental, reader.diagnostic_bytes.get() != 0)))
     }
 
     #[cfg(test)]

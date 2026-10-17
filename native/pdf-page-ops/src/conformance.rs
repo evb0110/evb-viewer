@@ -107,7 +107,7 @@ pub(crate) fn write_pdf_conformance(
     let metadata =
         load_qpdf_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Conformance)?;
     let document;
-    let source = if let Some(metadata) = &metadata {
+    let source = if let Some((metadata, _warned)) = &metadata {
         metadata.get_prev_documents()
     } else {
         document = load_qpdf_structural_document(input_path, qpdf_path)?;
