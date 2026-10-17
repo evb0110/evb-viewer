@@ -1230,7 +1230,7 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('disposes a nearby raster when budget pressure takes its charge and keeps the visible one', async () => {
+    it('keeps a shown nearby raster charged when demand narrows and disposes it under budget pressure', async () => {
         const pages = [
             1,
             2,
@@ -1307,6 +1307,16 @@ describe('PdfViewportSession behavior', () => {
             const visibleCanvas = fixture.container.querySelector('[data-page="1"] canvas');
             const nearbyCanvas = fixture.container.querySelector<HTMLCanvasElement>('[data-page="2"] canvas')!;
             const charged = budget.getSnapshot().reservedBytes;
+            // A narrower raster request drops the nearby page from the scheduler's demand, not the view's.
+            await rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            }, {
+                bufferOverride: 0,
+                suppressResidentRasterDemand: true,
+            });
+            expect(fixture.container.querySelector('[data-page="2"] canvas')).toBe(nearbyCanvas);
+            expect(budget.getSnapshot().reservedBytes).toBe(charged);
             expect(budget.tryReserve({
                 scopeId: 'pressure',
                 category: 'pdf-thumbnail-canvas',
