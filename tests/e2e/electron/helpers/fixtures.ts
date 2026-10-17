@@ -768,6 +768,33 @@ export async function createNonEmbeddedCjkSearchFixturePdf(filename: string) {
     return filePath;
 }
 
+/** One page whose CropBox shows CROP_SHOWN and hides CROP_HIDDEN above it. */
+export async function createCroppedSearchFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([
+        600,
+        800,
+    ]);
+    page.setCropBox(100, 100, 300, 400);
+    page.drawText('CROP_SHOWN', {
+        x: 150,
+        y: 300,
+        size: 18,
+        font,
+    });
+    page.drawText('CROP_HIDDEN', {
+        x: 150,
+        y: 650,
+        size: 18,
+        font,
+    });
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
 export async function createMixedPageSizeTextFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

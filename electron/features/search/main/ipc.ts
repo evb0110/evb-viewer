@@ -77,6 +77,7 @@ export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRe
         readPageCount: (signal: AbortSignal) => readPdfPageCount(pdfPath, signal),
         readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) => streamPdfPageTexts(pdfPath, {
             signal,
+            visiblePageOnly: true,
             ...(pageCount === undefined ? {} : {lastPage: pageCount}),
         }, onProgress),
     };

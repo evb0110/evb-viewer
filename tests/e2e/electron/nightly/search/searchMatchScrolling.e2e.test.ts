@@ -15,6 +15,7 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
+    createCroppedSearchFixturePdf,
     createDenseTextFixturePdf,
     createMultiPageTextFixturePdf,
     createPhraseSearchFixturePdf,
@@ -1247,6 +1248,42 @@ describe('Electron E2E - PDF search match scrolling', () => {
             } finally {
                 await paintCapture?.stop();
             }
+        }
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+
+    it('finds only text the page CropBox shows', async () => {
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, await createCroppedSearchFixturePdf(`cropped-search-${Date.now()}.pdf`));
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'search');
+        const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
+        for (const [
+            query,
+            summary,
+        ] of [
+                [
+                    'CROP_SHOWN',
+                    '1 result for',
+                ],
+                [
+                    'CROP_HIDDEN',
+                    'No results',
+                ],
+            ] as const) {
+            await clickAsUser(page, '.document-search-bar input');
+            await page.keyboard.down(selectAll);
+            await page.keyboard.press('KeyA');
+            await page.keyboard.up(selectAll);
+            await page.keyboard.type(query);
+            await page.keyboard.press('Enter');
+            await page.waitForFunction((typed: string) => {
+                const text = document.querySelector('.document-search-results')?.textContent ?? '';
+                const searching = [...document.querySelectorAll('.document-search-results-header-spinner')]
+                    .some(element => element.getBoundingClientRect().width > 0);
+                return !searching && (text.includes(typed) || text.includes('No results'));
+            }, {}, query);
+            expect(await page.$eval('.document-search-results', element => element.textContent ?? ''), query).toContain(summary);
         }
     }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
 });
