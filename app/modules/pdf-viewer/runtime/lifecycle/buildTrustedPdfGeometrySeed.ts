@@ -14,7 +14,7 @@ export function buildTrustedPdfGeometrySeed(input: {
     if (
         !Number.isSafeInteger(input.pageNumber) || input.pageNumber < 1
         || !Number.isSafeInteger(input.pageCount) || input.pageCount < input.pageNumber
-        || (input.pages && input.pages.length !== input.pageCount)
+        || !input.pages || input.pages.length !== input.pageCount
     ) {
         return null;
     }
@@ -22,7 +22,7 @@ export function buildTrustedPdfGeometrySeed(input: {
     for (const [
         index,
         page,
-    ] of (input.pages ?? []).entries()) {
+    ] of input.pages.entries()) {
         if ('pageNumber' in page && page.pageNumber !== index + 1 || ![
             0,
             90,
@@ -41,16 +41,10 @@ export function buildTrustedPdfGeometrySeed(input: {
         }
         pageMetrics.push(metric);
     }
-    const width = pageMetrics.length ? pageMetrics.reduce((width, page) => Math.max(width, page.width), 0) : input.width;
-    const height = pageMetrics.length ? pageMetrics.reduce((height, page) => Math.max(height, page.height), 0) : input.height;
-    if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0
-        || typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return null;
     return {
         numPages: input.pageCount,
-        basePageWidth: width,
-        basePageHeight: height,
-        // A full native table seeds the layout. A lone page only stages its
-        // fallback baseline until the revision-fenced load measures the file.
+        basePageWidth: pageMetrics.reduce((width, page) => Math.max(width, page.width), 0),
+        basePageHeight: pageMetrics.reduce((height, page) => Math.max(height, page.height), 0),
         pageMetrics,
     };
 }

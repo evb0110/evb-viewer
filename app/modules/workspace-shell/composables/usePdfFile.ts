@@ -8,10 +8,7 @@ import {
 } from '@app/utils/platformDocuments';
 import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { createDocumentHistory } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import {
-    createDocumentOpenFlow,
-    type ICreateDocumentOpenFlowDeps,
-} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import {
     createDocumentSessionState,
@@ -19,7 +16,7 @@ import {
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 
-export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpeningSource'> = {}) => {
+export const usePdfFile = () => {
     const { t } = useTypedI18n();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -111,7 +108,6 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         resetHistory,
         syncDirtyFromHistory,
         t,
-        ...options,
     });
     const {
         loadPdfFromData,

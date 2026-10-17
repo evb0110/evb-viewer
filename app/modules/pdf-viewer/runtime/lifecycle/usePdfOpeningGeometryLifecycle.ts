@@ -58,7 +58,7 @@ export const usePdfOpeningGeometryLifecycle = (
                 openingGeometry?.documentId === documentId
                 && openingGeometry.pageNumber === currentPage.value
             ) {
-                // The opening geometry stands in until PDF.js measures the page.
+                // Only a complete table may seed the opening layout.
                 // A later source of the same document, such as the file a page
                 // rotation writes, keeps the geometry already measured for it:
                 // the seed would empty it, and the outgoing file would refill it

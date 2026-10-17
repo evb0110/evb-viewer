@@ -176,7 +176,98 @@ describe('PdfDocumentSession range loading', () => {
         });
     });
 
-    it('distinguishes an exact trusted target-page seed from normalized fallback pages', () => {
+    it('waits for reading admission before exposing the accepted document and geometry', async () => {
+        const countSeen = Promise.withResolvers<number | null>();
+        const admitted = Promise.withResolvers<undefined>();
+        const documentState = createPdfDocumentSession({
+            workingCopyPath: ref(requireDocumentRef('/tmp/admitted-count.pdf')),
+            admitOpeningSource: async (_source, readCount) => {
+                countSeen.resolve(await readCount());
+                await admitted.promise;
+            },
+        });
+        const loading = documentState.loadPdf(new Blob(['pdf']));
+        try {
+            expect(await countSeen.promise).toBe(1);
+            expect(documentState.pdfDocument.value).toBeNull();
+            expect(documentState.acceptedSource.value).toBeNull();
+            expect(documentState.numPages.value).toBe(0);
+            expect(documentState.pageMetrics.value).toEqual([]);
+            admitted.resolve(undefined);
+            await expect(loading).resolves.not.toBeNull();
+            expect(documentState.pageMetrics.value).toEqual([{
+                width: 100,
+                height: 200,
+            }]);
+        } finally {
+            admitted.resolve(undefined);
+            await loading;
+            await documentState.dispose();
+        }
+    });
+
+    it('retires an unpublished Blob when reading admission rejects', async () => {
+        const retired = Promise.withResolvers<undefined>();
+        pdfjsState.getDocument.mockReturnValue(originalSourceDocumentTask(async () => retired.resolve(undefined)));
+        const failure = new Error('Reading admission rejected');
+        const documentState = createPdfDocumentSession({
+            workingCopyPath: ref(requireDocumentRef('/tmp/rejected-count.pdf')),
+            admitOpeningSource: async (_source, readCount) => {
+                await readCount();
+                throw failure;
+            },
+        });
+        try {
+            await expect(documentState.loadPdf(new Blob(['pdf']))).resolves.toBeNull();
+            await retired.promise;
+            expect(documentState.acceptedSource.value).toBeNull();
+            expect(documentState.pageMetrics.value).toEqual([]);
+            expect(documentState.loadError.value).toBe(failure);
+        } finally {
+            await documentState.dispose();
+        }
+    });
+
+    it('keeps a replacement when an older reading admission finishes late', async () => {
+        const oldPath = requireDocumentRef('/tmp/older-count.pdf');
+        const path = ref(oldPath);
+        const reached = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const retired = Promise.withResolvers<undefined>();
+        pdfjsState.getDocument.mockReturnValueOnce(originalSourceDocumentTask(async () => retired.resolve(undefined)));
+        const documentState = createPdfDocumentSession({
+            workingCopyPath: path,
+            admitOpeningSource: async (source, readCount) => {
+                await readCount();
+                if (source === oldPath) {
+                    reached.resolve(undefined);
+                    await release.promise;
+                }
+            },
+        });
+        const older = documentState.loadPdf(new Blob(['old']));
+        try {
+            await reached.promise;
+            path.value = requireDocumentRef('/tmp/replacement-count.pdf');
+            const replacement = new Blob(['new']);
+            await expect(documentState.loadPdf(replacement)).resolves.not.toBeNull();
+            release.resolve(undefined);
+            await expect(older).resolves.toBeNull();
+            await retired.promise;
+            expect(documentState.acceptedSource.value).toBe(replacement);
+            expect(documentState.loadError.value).toBeNull();
+            expect(documentState.pageMetrics.value).toEqual([{
+                width: 100,
+                height: 200,
+            }]);
+        } finally {
+            release.resolve(undefined);
+            await older;
+            await documentState.dispose();
+        }
+    });
+
+    it('declines a lone target-page seed without a complete geometry table', () => {
         const documentState = createPdfDocumentSession();
 
         expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
@@ -185,8 +276,8 @@ describe('PdfDocumentSession range loading', () => {
             pageCount: 431,
             width: 478.8,
             height: 765.3,
-        })).toBe(true);
-        expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(true);
+        })).toBe(false);
+        expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
         expect(documentState.hasExactPageGeometry(requirePageNumber(1))).toBe(false);
 
         documentState.cleanup();
@@ -517,14 +608,14 @@ describe('PdfDocumentSession range loading', () => {
         expect(isReactive(documentState.pageMetrics.value[0])).toBe(false);
     });
 
-    it('replaces a provisional trusted baseline with authoritative PDF.js geometry', async () => {
+    it('uses authoritative PDF.js geometry after declining a provisional baseline', async () => {
         const documentState = createPdfDocumentSession();
         expect(documentState.seedTrustedPageGeometry({
             pageNumber: requirePageNumber(1),
             pageCount: 1,
             width: 640,
             height: 900,
-        })).toBe(true);
+        })).toBe(false);
 
         const result = await documentState.loadPdf(new Blob(['pdf'], {type: 'application/pdf'}));
 

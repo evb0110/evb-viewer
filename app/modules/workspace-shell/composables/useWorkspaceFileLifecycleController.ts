@@ -173,7 +173,7 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile({admitOpeningSource});
+    } = usePdfFile();
 
     const {
         isDjvuMode,
@@ -412,6 +412,9 @@ export const useWorkspaceFileLifecycleController = (
     ));
 
     return {
+        admitOpeningSource: (source: TDocumentRef, pageCount: () => Promise<number | null>) => recoveryDirtyBaseline.value
+            ? Promise.resolve()
+            : admitOpeningSource(source, pageCount),
         pdfSrc,
         pdfReloadSrc,
         pdfData,

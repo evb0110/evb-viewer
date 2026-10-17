@@ -161,20 +161,19 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         setCustomZoomFromDisplay,
         applyView,
         /**
-         * Keeps an open's reading seed for the source it is about to show
-         * (null: whichever it shows), shown at once when nothing is shown.
-         * Being that document's own view, all of it applies when it is shown.
+         * Applies a seed to its current source or an empty view; otherwise
+         * keeps it for the source's activation (null: whichever comes next).
          * Returns the withdrawal for when the open ends: an unshown seed is
          * dropped; a later open's seed stays.
          */
         seedViewForSource: (view: TSavedView, source: unknown) => {
-            const showsNothing = defaultsSourceKey.value === null;
-            if (showsNothing) {
+            const shown = defaultsSourceKey.value === null || defaultsSourceKey.value === source;
+            if (shown) {
                 applyView(view);
             }
             const seed = {
                 source,
-                view: showsNothing ? KEEP_SHOWN_VIEW : view,
+                view: shown ? KEEP_SHOWN_VIEW : view,
             };
             seededView = seed;
             return () => {

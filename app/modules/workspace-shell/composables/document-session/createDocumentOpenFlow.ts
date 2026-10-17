@@ -1,5 +1,4 @@
 import { clamp } from 'es-toolkit/math';
-import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import { trackWebEvent } from '@app/utils/trackWebEvent';
 import type { TTranslateFn } from '@i18n-app';
 import {
@@ -92,8 +91,6 @@ export interface ICreateDocumentOpenFlowDeps {
     ) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
-    /** An open's admitted working copy and its page count, awaited before its pages are drawn. */
-    admitOpeningSource?: ((source: TDocumentRef, pageCount: () => Promise<number | null>) => Promise<void>) | undefined;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
@@ -372,18 +369,12 @@ export function createDocumentOpenFlow(
                         modifiedAt,
                     };
             }, () => null);
-        // Admission checks the copy's page count only for a remembered view.
-        // A recovered copy reopens at its checkpoint's view instead.
-        const {admitOpeningSource} = deps;
-        const admit = !admitOpeningSource || result.recoveryDirtyBaseline === true ? undefined
-            : () => admitOpeningSource(result.workingPath, () => readPdfPageShape(result.workingPath)?.answer.then(shape => shape?.pageCount ?? null) ?? Promise.resolve(null));
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
                 validationRevision,
-                admit,
                 resetSourceBeforeCommit: true,
             });
         } catch (error) {
@@ -848,7 +839,6 @@ export function createDocumentOpenFlow(
         openRequestId?: number;
         resetSourceBeforeCommit?: boolean;
         validationRevision?: Promise<IPdfValidationSourceRevision | null>;
-        admit?: (() => Promise<void>) | undefined;
     }) {
         const requestId = deps.loadEpoch.begin();
         const traceContext = {
@@ -936,11 +926,6 @@ export function createDocumentOpenFlow(
             });
             throw new DocumentOpenRefusalError('invalid-pdf', `Staged PDF failed ${validation.tool} validation`);
         }
-        await opts?.admit?.();
-        if (!isCurrent()) {
-            return;
-        }
-
         if (opts?.resetSourceBeforeCommit && state.pdfSrc.value) {
             state.pdfSrc.value = null;
             state.pdfReloadSrc.value = null;
