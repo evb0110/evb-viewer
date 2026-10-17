@@ -18,7 +18,6 @@ import {spawnSync} from 'node:child_process';
 /** @typedef {{file: RegExp, label: string, pattern: RegExp}} IAddedCheckLinePattern */
 /** @typedef {{label: string, pattern: RegExp}} IAddedCheckFilePattern */
 /** @typedef {{path: string, status: string}} INameStatusEntry */
-/** @typedef {{body: string, end: number, path: string, start: number, title: string}} ITestBlock */
 /** @typedef {(path: string) => string[]} TReadAddedLines */
 
 const ADDS_CHECKS_TRAILER = 'Adds-Checks';
@@ -148,70 +147,19 @@ export function readAddsChecksTrailer(message) {
     return TRAILER_PATTERN.exec(message)?.[1]?.trim() ?? null;
 }
 
-// A title follows `it(`/`test(`, a one-line `it.each(...)(`, or the `])(` that
-// closes a multi-line `it.each([...])` table.
-const TEST_TITLE_PATTERN = /(?:\b(?:it|test)(?:\.each\([^)]*\))?|^\s*\]\))\(\s*(['"`])((?:\\.|(?!\1).)+)\1/u;
-
-/** @param {string} text @returns {number} */
-function bracketBalance(text) {
-    return (text.match(/[([{]/gu)?.length ?? 0) - (text.match(/[)\]}]/gu)?.length ?? 0);
-}
-
-// A test spans its title line through the line that closes its call. A
-// bracket inside a string can only stretch it, and the next title ends it.
-/** @param {string} path @param {string[]} lines @returns {ITestBlock[]} */
-function testBlocksOf(path, lines) {
-    /** @type {ITestBlock[]} */
-    const blocks = [];
-    let depth = 0;
-    for (const [
-        index,
-        line,
-    ] of lines.entries()) {
-        const title = TEST_TITLE_PATTERN.exec(line);
-        const block = blocks.at(-1);
-        if (title) {
-            depth = 1 + bracketBalance(line.slice(title.index + title[0].length));
-            blocks.push({
-                body: line.trim(),
-                end: index + 1,
-                path,
-                start: index,
-                title: title[2] ?? '',
-            });
-        } else if (block && depth > 0) {
-            depth += bracketBalance(line);
-            block.body += `\n${line.trim()}`;
-            block.end = index + 1;
-        }
-    }
-    return blocks;
-}
-
-// Moving a test edits an existing check. A test counts as moved only when the
-// change removes and adds its title once each with the same body, and a new
-// test file is a move when every test in it moved or it repeats a deleted test
-// file exactly. Every other added line counts, even when the change removes
-// the same text elsewhere, so a changed body, a second copy, or a timeout
-// raised beside an unrelated deletion stays visible.
+// A diff cannot prove that a test moved unchanged, so moves fail closed. A
+// new test file that repeats, byte for byte, a test file the same change
+// deletes is a rename, and each deleted file excuses one copy. Any other
+// relocation needs the trailer, and every added line counts even when the
+// change removes the same text elsewhere.
 /** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @param {TReadAddedLines} [readRemovedLines] returns its `-` lines @returns {string[]} */
 export function findAddedChecks(entries, readAddedLines, readRemovedLines = () => []) {
     /** @type {string[]} */
     const found = [];
-    const testEntries = entries.filter(({path}) => TEST_FILE_PATTERN.test(path));
-    const removedBlocks = testEntries
-        .filter(({status}) => status !== 'A')
-        .flatMap(({path}) => testBlocksOf(path, readRemovedLines(path)));
-    const addedBlocks = testEntries
-        .filter(({status}) => status !== 'D')
-        .flatMap(({path}) => testBlocksOf(path, readAddedLines(path)));
-    const movedBlocks = addedBlocks.filter((block) => {
-        const sources = removedBlocks.filter(candidate => candidate.title === block.title);
-        const copies = addedBlocks.filter(candidate => candidate.title === block.title);
-        return sources.length === 1 && copies.length === 1 && sources[0]?.body === block.body;
-    });
-    const deletedTestFiles = testEntries
-        .filter(({status}) => status === 'D')
+    const deletedTestFiles = entries
+        .filter(({
+            path, status,
+        }) => status === 'D' && TEST_FILE_PATTERN.test(path))
         .map(({path}) => readRemovedLines(path).join('\n'));
     for (const {
         path,
@@ -220,19 +168,15 @@ export function findAddedChecks(entries, readAddedLines, readRemovedLines = () =
         if (status === 'D') {
             continue;
         }
-        const rawAddedLines = readAddedLines(path);
-        const renamedFrom = deletedTestFiles.indexOf(rawAddedLines.join('\n'));
+        const addedLines = readAddedLines(path);
+        const renamedFrom = deletedTestFiles.indexOf(addedLines.join('\n'));
         if (status === 'A' && TEST_FILE_PATTERN.test(path) && renamedFrom >= 0) {
             deletedTestFiles.splice(renamedFrom, 1);
             continue;
         }
-        const blocks = addedBlocks.filter(block => block.path === path);
-        const moved = movedBlocks.filter(block => block.path === path);
-        const addedLines = rawAddedLines
-            .filter((_line, index) => !moved.some(block => index >= block.start && index < block.end));
         if (status === 'A') {
             const rule = ADDED_CHECK_FILE_PATTERNS.find(candidate => candidate.pattern.test(path));
-            if (rule && (blocks.length === 0 || moved.length < blocks.length)) {
+            if (rule) {
                 found.push(`${rule.label}: ${path}`);
                 continue;
             }
