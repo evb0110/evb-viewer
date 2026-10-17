@@ -112,10 +112,11 @@ export function createSearchService() {
                 kind: 'abortable-work',
                 ...(request.workingCopyPath ? {workingCopyPath: request.workingCopyPath} : {}),
             },
+            // A page that goes away keeps no reader for its results; a shared index build continues.
             ownerLifecycle: {
-                destroyed: 'detach',
-                renderProcessGone: 'detach',
-                mainFrameNavigation: 'detach',
+                destroyed: 'cancel',
+                renderProcessGone: 'cancel',
+                mainFrameNavigation: 'cancel',
             },
             initialProgress: {
                 requestId,
