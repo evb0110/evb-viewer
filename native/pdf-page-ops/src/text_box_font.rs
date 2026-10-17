@@ -40,7 +40,18 @@ fn face() -> FontRef<'static> {
 }
 
 fn invisible(character: char) -> bool {
-    matches!(character, '\n' | '\r' | '\t' | '\u{00ad}' | '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}')
+    matches!(
+        character,
+        '\n' | '\r'
+            | '\t'
+            | '\u{00ad}'
+            | '\u{061c}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{fe00}'..='\u{fe0f}'
+            | '\u{feff}'
+    )
 }
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
@@ -199,7 +210,10 @@ pub(crate) fn write_editor_geometry(
     annotation.set(
         "EVBTextGeometry",
         dictionary! {
-            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation, "Rect" => stored,
+            "Version" => 1,
+            "Rotation" => rotation,
+            "PageRotation" => page_rotation,
+            "Rect" => stored,
         },
     );
 }
@@ -477,9 +491,12 @@ mod tests {
                     .unwrap();
                     let edited =
                         collect_parsed_annotations(&document, "D:20261010000100Z").unwrap();
-                    assert!(
-                        matches!(&edited[0], PdfAnnotationParseEntry::TextBox(value) if value.rect == parsed.rect && value.rotation == parsed.rotation && value.text.ends_with(" edited"))
-                    );
+                    let PdfAnnotationParseEntry::TextBox(value) = &edited[0] else {
+                        panic!("expected text box, got {:?}", edited[0]);
+                    };
+                    assert_eq!(value.rect, parsed.rect);
+                    assert_eq!(value.rotation, parsed.rotation);
+                    assert!(value.text.ends_with(" edited"));
                 }
             }
         }
@@ -497,13 +514,24 @@ mod tests {
         );
         for sample in expected["layouts"].as_array().unwrap() {
             let text = sample["input"].as_str().unwrap();
-            let lines: Vec<_> = layout(text, sample["width"].as_f64().unwrap(), 16.0)
-                .into_iter().map(|line| {
-                    let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
-                        serde_json::json!([glyph.font, glyph.id, glyph.x, glyph.y])
-                    }).collect();
-                    serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
-                }).collect();
+            let width = sample["width"].as_f64().unwrap();
+            let line_json = |line: Line| {
+                let glyphs: Vec<_> = line
+                    .glyphs
+                    .into_iter()
+                    .map(|glyph| serde_json::json!([glyph.font, glyph.id, glyph.x, glyph.y]))
+                    .collect();
+                serde_json::json!({
+                    "text": line.text,
+                    "width": line.width,
+                    "rtl": line.rtl,
+                    "glyphs": glyphs,
+                })
+            };
+            let lines: Vec<_> = layout(text, width, 16.0)
+                .into_iter()
+                .map(line_json)
+                .collect();
             // Parse both sides alike: serde_json's default float parsing is not exact.
             let lines: serde_json::Value =
                 serde_json::from_str(&serde_json::json!(lines).to_string()).unwrap();

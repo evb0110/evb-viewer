@@ -120,7 +120,13 @@ pub(super) fn missing_free_text_appearance(
             ));
         }
     }
-    Ok(document.add_object(Stream::new(lopdf::dictionary! {"Type"=>"XObject", "Subtype"=>"Form", "BBox"=>rect_object(rect), "Resources"=>resources},content.into_bytes())))
+    let form = lopdf::dictionary! {
+        "Type" => "XObject",
+        "Subtype" => "Form",
+        "BBox" => rect_object(rect),
+        "Resources" => resources
+    };
+    Ok(document.add_object(Stream::new(form, content.into_bytes())))
 }
 
 /// A document's TrueType program, when print can lay text out with it.
