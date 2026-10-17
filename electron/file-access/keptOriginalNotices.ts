@@ -54,7 +54,8 @@ export async function rememberKeptOriginal(originalPath: string, keptPath: strin
 
 /** The file kept beside `originalPath`, while it is there to open. A notice recorded before its move stays for when it lands. */
 export async function findKeptOriginal(originalPath: string) {
-    const keptPath = (await readNotices().catch(() => new Map<string, string>())).get(normalizePathForLookup(originalPath));
+    const notices = await readNotices().catch(() => new Map<string, string>());
+    const keptPath = notices.get(normalizePathForLookup(originalPath));
     return keptPath !== undefined && existsSync(keptPath) ? keptPath : undefined;
 }
 

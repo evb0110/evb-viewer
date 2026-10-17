@@ -129,8 +129,12 @@ async function readJournaledPaths(workDir: string) {
             original?: {path?: unknown}
         } | null)
         .catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? undefined : null);
-    return journal !== undefined && {
-        workingCopyPath: join(workDir, typeof journal?.workingCopyPath === 'string' ? basename(journal.workingCopyPath) : 'document.pdf'),
+    if (journal === undefined) {
+        return false;
+    }
+    const workingCopyName = typeof journal?.workingCopyPath === 'string' ? basename(journal.workingCopyPath) : 'document.pdf';
+    return {
+        workingCopyPath: join(workDir, workingCopyName),
         originalPath: typeof journal?.original?.path === 'string' ? journal.original.path : undefined,
     };
 }
@@ -145,9 +149,12 @@ async function isRemovableWorkingCopyDirectory(workDir: string, now: number) {
     const workDirStat = await stat(workDir).catch(() => null);
     const stale = workDirStat?.isDirectory() === true && now - workDirStat.mtimeMs >= STALE_WORK_DIR_MAX_AGE_MS;
     const journaled = await readJournaledPaths(workDir);
-    if (!journaled || !stale && existsSync(journaled.workingCopyPath)) return stale && !journaled;
+    if (!journaled || !stale && existsSync(journaled.workingCopyPath)) {
+        return stale && !journaled;
+    }
     const recover = () => recoverWorkingCopyTransition(journaled.workingCopyPath);
-    return (journaled.originalPath ? withOriginalPathMutationLock(journaled.originalPath, recover) : recover()).then(held => typeof held !== 'object', (error: unknown) => {
+    const recovery = journaled.originalPath ? withOriginalPathMutationLock(journaled.originalPath, recover) : recover();
+    return recovery.then(held => typeof held !== 'object', (error: unknown) => {
         logger.warn('Could not finish a working-copy journal', {error: getErrorMessage(error)});
         return false;
     });

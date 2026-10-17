@@ -177,6 +177,8 @@ const storedJournalSchema = v.union([
     }))),
 ]);
 type IStoredWorkspaceJournal = v.InferOutput<typeof storedJournalSchema>;
+const storedCheckpointFileSchema = v.pipe(v.string(), v.parseJson(), storedCheckpointSchema);
+const storedJournalFileSchema = v.pipe(v.string(), v.parseJson(), storedJournalSchema);
 
 const WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS = 500;
 
@@ -287,12 +289,12 @@ async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoin
 // new load takes that session over instead of finding it held. A repeated
 // claim within one load keeps its claim, so a checkpoint is delivered once.
 function decodeStoredCheckpoint(raw: string): IStoredWorkspaceCheckpoint | null {
-    const result = v.safeParse(v.pipe(v.string(), v.parseJson(), storedCheckpointSchema), raw, {abortEarly: true});
+    const result = v.safeParse(storedCheckpointFileSchema, raw, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
 function decodeStoredJournal(raw: string): IStoredWorkspaceJournal | null {
-    const result = v.safeParse(v.pipe(v.string(), v.parseJson(), storedJournalSchema), raw, {abortEarly: true});
+    const result = v.safeParse(storedJournalFileSchema, raw, {abortEarly: true});
     return result.success ? result.output : null;
 }
 
@@ -1174,9 +1176,11 @@ export async function claimWorkspaceCheckpoint(
                 // may have left under its backup name, so that replace is undone first. A copy still missing (a roaming
                 // profile came without it, say) leaves the tab reading its original instead, withheld.
                 const mayStandIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty;
-                await (mayStandIn && recoverWindowsAtomicReplace(tab.workingCopyRef).catch((error: unknown) => {
-                    log.warn(`Could not undo a restored working copy's interrupted replace: ${getErrorMessage(error)}`);
-                }));
+                if (mayStandIn) {
+                    await recoverWindowsAtomicReplace(tab.workingCopyRef).catch((error: unknown) => {
+                        log.warn(`Could not undo a restored working copy's interrupted replace: ${getErrorMessage(error)}`);
+                    });
+                }
                 const standIn = mayStandIn && !existsSync(tab.workingCopyRef)
                     ? await captureWorkingCopyAdmissionSnapshot(storedWorkingCopy.originalPath).catch(() => null)
                     : null;
@@ -1290,7 +1294,10 @@ export function acknowledgeWorkspaceCheckpoint(
         }
         restoresInFlight.delete(ownerRecoveryId);
         const record = await readRecordFile(ownerRecoveryId);
-        if (record && !record.checkpoint.tabs.some(tab => tab.workingCopyRef && getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId)?.withheld)) {
+        const holdsStandIn = record?.checkpoint.tabs.some(tab => (
+            tab.workingCopyRef !== null && getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId)?.withheld === true
+        ));
+        if (record && !holdsStandIn) {
             await removeRecordAndArtifacts(ownerRecoveryId, record);
         }
         return record !== null;

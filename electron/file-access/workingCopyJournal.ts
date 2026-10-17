@@ -127,10 +127,15 @@ export async function recordWorkingCopyJournalOriginal(
     journal: IWorkingCopyJournal,
     original: IWorkingCopyJournalOriginal | undefined,
 ) {
-    if (journal.original && journal.original.backupPath !== original?.backupPath) await rm(journal.original.backupPath, {force: true});
+    if (journal.original && journal.original.backupPath !== original?.backupPath) {
+        await rm(journal.original.backupPath, {force: true});
+    }
     journal.original = original;
     await writeJsonAtomic(getWorkingCopyJournalPath(journal.workingCopyPath), journal, {markMutationCommitStarted: false});
-    if (original?.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path, keptPath => rememberKeptOriginal(original.path, keptPath));
+    if (original?.state === 'conflicted') {
+        const rememberKeptPath = (keptPath: string) => rememberKeptOriginal(original.path, keptPath);
+        original.backupPath = await keepOriginalBeside(original.backupPath, original.path, rememberKeptPath);
+    }
 }
 
 // A working copy that is still the backup's inode was never replaced; a replaced one gets the backup moved back, once:
