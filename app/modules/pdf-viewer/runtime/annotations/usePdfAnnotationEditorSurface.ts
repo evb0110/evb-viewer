@@ -713,7 +713,9 @@ export const usePdfAnnotationEditorSurface = (
                 || options.getTextBoxDraftGeneration?.(annotationId) !== generation
                 || getTextBoxDraftText(annotationId) !== text
                 || (geometry ? !currentGeometry || !annotationRectsEqual(currentGeometry, geometry) : currentGeometry !== null);
-            if (changed && assert) throw new DOMException('The text draft changed while completion was pending', 'AbortError');
+            if (changed && assert) {
+                throw new DOMException('The text draft changed while completion was pending', 'AbortError');
+            }
             return !changed;
         };
     }
@@ -723,7 +725,9 @@ export const usePdfAnnotationEditorSurface = (
         const assertCurrent = captureTextBoxInput(annotationId);
         const geometry = getTextBoxDraftRect(annotationId);
         if (geometry) restoredTextBoxDraftRects.set(annotationId, geometry);
-        return options.protectTextBoxDraft(assertCurrent).then(() => {assertCurrent();});
+        return options.protectTextBoxDraft(assertCurrent).then(() => {
+            assertCurrent();
+        });
     }
 
     function fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity) {
@@ -732,7 +736,10 @@ export const usePdfAnnotationEditorSurface = (
             fontSize: proposal.fontSize,
         };
         const assertCurrent = captureTextBoxInput(entity.identity.id);
-        return options.fitTextBox(entity, proposal).then(fitted => {assertCurrent(); return fitted;});
+        return options.fitTextBox(entity, proposal).then((fitted) => {
+            assertCurrent();
+            return fitted;
+        });
     }
 
     function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance) {

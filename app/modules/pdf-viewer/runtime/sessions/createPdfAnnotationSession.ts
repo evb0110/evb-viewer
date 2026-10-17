@@ -367,8 +367,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             await ensureAnnotationProjectionReady();
             const document = documentSession.pdfDocument.value;
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
-            return fitNativeTextBox(proposal, await document.getPage(proposal.pageIndex + 1), documentAnnotations.getWriterParseResult(), readPdfDocumentOriginalAnnotations(document), options.workingCopyPath.value).then(fitted => {
-                if (annotationDocumentIdentity.value !== identity || options.documentRevisionToken.value !== revision) throw new DOMException('Text appearance source changed', 'AbortError');
+            return fitNativeTextBox(
+                proposal,
+                await document.getPage(proposal.pageIndex + 1),
+                documentAnnotations.getWriterParseResult(),
+                readPdfDocumentOriginalAnnotations(document),
+                options.workingCopyPath.value,
+            ).then((fitted) => {
+                if (annotationDocumentIdentity.value !== identity || options.documentRevisionToken.value !== revision) {
+                    throw new DOMException('Text appearance source changed', 'AbortError');
+                }
                 return fitted;
             }).catch((error: unknown) => {
                 rendering.presentPageRenderFailure(requirePageNumber(proposal.pageIndex + 1), error);
@@ -381,8 +389,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
             const pageNumber = requirePageNumber(proposal.pageIndex + 1);
             const isCurrent = () => annotationDocumentIdentity.value === documentIdentity && isInputCurrent();
-            const accept = () => {if (!isCurrent()) throw new DOMException('Text appearance input changed', 'AbortError'); handoff();};
-            if (!await rendering.publishAnnotationPaint(pageNumber, {
+            const accept = () => {
+                if (!isCurrent()) {
+                    throw new DOMException('Text appearance input changed', 'AbortError');
+                }
+                handoff();
+            };
+            const published = await rendering.publishAnnotationPaint(pageNumber, {
                 signature: pagePaint(proposal.pageIndex, proposal).signature,
                 async prepare(page, captureSettlement, signal, reserveAppearanceBytes) {
                     const input = await rendering.prepareCanvasAnnotations(page, captureSettlement, signal, reserveAppearanceBytes, {
@@ -395,9 +408,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 isCurrent,
                 commit: accept,
             }).catch((error: unknown) => {
-                if (!(error instanceof DOMException && error.name === 'AbortError') || options.isActive.value && documentSession.pdfDocument.value === document) throw error;
+                if (!(error instanceof DOMException && error.name === 'AbortError') || options.isActive.value && documentSession.pdfDocument.value === document) {
+                    throw error;
+                }
                 return false;
-            })) accept();
+            });
+            if (!published) {
+                accept();
+            }
         },
         textBoxDraftRects: documentAnnotations.textBoxDraftRects,
         getTextBoxDraftGeneration: annotationId => textBoxDraftGenerations.get(annotationId),

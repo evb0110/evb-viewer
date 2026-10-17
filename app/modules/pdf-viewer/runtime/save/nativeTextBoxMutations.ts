@@ -296,9 +296,14 @@ export async function prepareNativeTextBoxPagePaint(options: {
         if (batch.length && (batch.length === PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes
             || textBytes + text > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.totalTextBytes
             || requestBytes + bytes > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.requestBytes)) {
-            batches.push(batch); batch = []; textBytes = 0; requestBytes = 1024;
+            batches.push(batch);
+            batch = [];
+            textBytes = 0;
+            requestBytes = 1024;
         }
-        batch.push(request); textBytes += text; requestBytes += bytes;
+        batch.push(request);
+        textBytes += text;
+        requestBytes += bytes;
     }
     if (batch.length) batches.push(batch);
     for (const chunk of batches) {
