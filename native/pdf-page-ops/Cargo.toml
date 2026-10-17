@@ -30,5 +30,5 @@ png = "0.18"
 base64 = "0.23.1"
 subsetter = { version = "0.2.6", default-features = false }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-libloading = "0.8.9"
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

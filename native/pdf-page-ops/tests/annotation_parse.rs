@@ -993,5 +993,38 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
         .unwrap();
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("AcroForm is not a dictionary"));
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .remove(b"AcroForm");
+    document.save(&input).unwrap();
+    let bundle = temporary_path("metadata-invalid-runtime", "dir");
+    let bin = bundle.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let qpdf = bin.join(format!("qpdf{}", std::env::consts::EXE_SUFFIX));
+    fs::write(&qpdf, b"invalid executable").unwrap();
+    #[cfg(windows)]
+    let library = bin.join("qpdf30.dll");
+    #[cfg(target_os = "macos")]
+    let library = bundle.join("lib/libqpdf.30.dylib");
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    let library = bundle.join("lib/libqpdf.so.30");
+    fs::create_dir_all(library.parent().unwrap()).unwrap();
+    fs::write(library, b"invalid shared library").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["pdf-conformance", "--input"])
+        .arg(&input)
+        .arg("--qpdf")
+        .arg(&qpdf)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "native-failure");
+    assert!(error["message"]
+        .as_str()
+        .unwrap()
+        .contains("Cannot load bundled qpdf library"));
+    fs::remove_dir_all(bundle).unwrap();
     fs::remove_file(input).unwrap();
 }

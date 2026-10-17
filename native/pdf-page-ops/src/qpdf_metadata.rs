@@ -37,7 +37,6 @@ mod platform {
         MAX_QPDF_DIAGNOSTIC_BYTES, MAX_QPDF_OBJECT_BYTES, MAX_QPDF_OBJECT_ELEMENTS,
         MAX_QPDF_RETAINED_STRUCTURE_BYTES, QPDF_ESTIMATED_BYTES_PER_VALUE,
     };
-    use libloading::Library;
     use std::{
         cell::Cell,
         collections::VecDeque,
@@ -59,6 +58,111 @@ mod platform {
 
     fn unavailable(message: impl Into<String>) -> Box<dyn Error> {
         domain_error(NativeErrorCode::NativeFailure, message)
+    }
+
+    struct Library(Data);
+
+    impl Library {
+        fn open(path: &Path) -> std::io::Result<Self> {
+            #[cfg(unix)]
+            {
+                use std::os::unix::ffi::OsStrExt;
+                let path = CString::new(path.as_os_str().as_bytes())?;
+                let handle =
+                    unsafe { libc::dlopen(path.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL) };
+                if handle.is_null() {
+                    Err(Self::last_error())
+                } else {
+                    Ok(Self(handle))
+                }
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::ffi::OsStrExt;
+                let mut path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+                if path.contains(&0) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Library path contains NUL",
+                    ));
+                }
+                path.push(0);
+                let mut previous = 0;
+                let changed = unsafe { loader_os::SetThreadErrorMode(1, &mut previous) } != 0;
+                let handle = unsafe {
+                    loader_os::LoadLibraryExW(path.as_ptr(), std::ptr::null_mut(), 0x100 | 0x1000)
+                };
+                // Capture the load error before restoring thread-local mode.
+                let result = if handle.is_null() {
+                    Err(Self::last_error())
+                } else {
+                    Ok(Self(handle))
+                };
+                if changed && previous != 1 {
+                    unsafe { loader_os::SetThreadErrorMode(previous, std::ptr::null_mut()) };
+                }
+                result
+            }
+        }
+
+        unsafe fn symbol<T: Copy>(&self, name: &CStr) -> std::io::Result<T> {
+            const { assert!(std::mem::size_of::<T>() == std::mem::size_of::<Data>()) };
+            #[cfg(unix)]
+            let pointer = unsafe {
+                libc::dlerror();
+                libc::dlsym(self.0, name.as_ptr())
+            };
+            #[cfg(windows)]
+            let pointer = unsafe { loader_os::GetProcAddress(self.0, name.as_ptr()) };
+            if pointer.is_null() {
+                Err(Self::last_error())
+            } else {
+                // Api supplies only the declared qpdf C function-pointer types.
+                Ok(unsafe { std::mem::transmute_copy(&pointer) })
+            }
+        }
+
+        fn last_error() -> std::io::Error {
+            #[cfg(unix)]
+            {
+                let pointer = unsafe { libc::dlerror() };
+                std::io::Error::other(if pointer.is_null() {
+                    "Dynamic library operation failed".to_string()
+                } else {
+                    unsafe { CStr::from_ptr(pointer) }
+                        .to_string_lossy()
+                        .into_owned()
+                })
+            }
+            #[cfg(windows)]
+            std::io::Error::last_os_error()
+        }
+    }
+
+    impl Drop for Library {
+        fn drop(&mut self) {
+            #[cfg(unix)]
+            unsafe {
+                libc::dlclose(self.0)
+            };
+            #[cfg(windows)]
+            unsafe {
+                loader_os::FreeLibrary(self.0)
+            };
+        }
+    }
+
+    #[cfg(windows)]
+    mod loader_os {
+        use super::*;
+
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            pub(super) fn LoadLibraryExW(path: *const u16, file: Data, flags: u32) -> Data;
+            pub(super) fn GetProcAddress(library: Data, name: *const c_char) -> Data;
+            pub(super) fn FreeLibrary(library: Data) -> c_int;
+            pub(super) fn SetThreadErrorMode(mode: u32, previous: *mut u32) -> c_int;
+        }
     }
 
     // All functions are the stable qpdf C interface from qpdf-c.h. The library
@@ -108,66 +212,57 @@ mod platform {
         fn open(path: &Path) -> Result<Self> {
             // The complete path is owned by the bundled executable's family;
             // no environment or system library search chooses libqpdf.
-            #[cfg(windows)]
-            let library: Library = unsafe {
-                libloading::os::windows::Library::load_with_flags(path, 0x100 | 0x1000)
-                    .map(Into::into)
-            }
-            .map_err(|error| unavailable(format!("Cannot load bundled qpdf library: {error}")))?;
-            #[cfg(not(windows))]
-            let library = unsafe { Library::new(path) }.map_err(|error| {
+            let library = Library::open(path).map_err(|error| {
                 unavailable(format!("Cannot load bundled qpdf library: {error}"))
             })?;
             macro_rules! symbol {
                 ($name:literal) => {
-                    unsafe { library.get(concat!($name, "\0").as_bytes()) }
-                        .map(|symbol| *symbol)
-                        .map_err(|error| {
-                            unavailable(format!(
-                                "Bundled qpdf library is missing {}: {error}",
-                                $name
-                            ))
-                        })?
+                    unsafe { library.symbol($name) }.map_err(|error| {
+                        unavailable(format!(
+                            "Bundled qpdf library is missing {}: {error}",
+                            $name.to_string_lossy()
+                        ))
+                    })?
                 };
             }
             Ok(Self {
-                init: symbol!("qpdf_init"),
-                cleanup: symbol!("qpdf_cleanup"),
-                read: symbol!("qpdf_read"),
-                silence_errors: symbol!("qpdf_silence_errors"),
-                suppress_warnings: symbol!("qpdf_set_suppress_warnings"),
-                attempt_recovery: symbol!("qpdf_set_attempt_recovery"),
-                has_error: symbol!("qpdf_has_error"),
-                get_error: symbol!("qpdf_get_error"),
-                error_text: symbol!("qpdf_get_error_full_text"),
-                error_code: symbol!("qpdf_get_error_code"),
-                more_warnings: symbol!("qpdf_more_warnings"),
-                next_warning: symbol!("qpdf_next_warning"),
-                version: symbol!("qpdf_get_pdf_version"),
-                trailer: symbol!("qpdf_get_trailer"),
-                object: symbol!("qpdf_get_object_by_id"),
-                is_stream: symbol!("qpdf_oh_is_stream"),
-                object_type: symbol!("qpdf_oh_get_type_code"),
-                is_indirect: symbol!("qpdf_oh_is_indirect"),
-                name_equals: symbol!("qpdf_oh_is_name_and_equals"),
-                has_key: symbol!("qpdf_oh_has_key"),
-                get_key: symbol!("qpdf_oh_get_key"),
-                object_id: symbol!("qpdf_oh_get_object_id"),
-                generation: symbol!("qpdf_oh_get_generation"),
-                boolean: symbol!("qpdf_oh_get_bool_value"),
-                integer: symbol!("qpdf_oh_get_value_as_longlong"),
-                real: symbol!("qpdf_oh_get_value_as_real"),
-                name: symbol!("qpdf_oh_get_value_as_name"),
-                string: symbol!("qpdf_oh_get_binary_string_value"),
-                array_length: symbol!("qpdf_oh_get_array_n_items"),
-                array_item: symbol!("qpdf_oh_get_array_item"),
-                begin_keys: symbol!("qpdf_oh_begin_dict_key_iter"),
-                more_keys: symbol!("qpdf_oh_dict_more_keys"),
-                next_key: symbol!("qpdf_oh_dict_next_key"),
-                dictionary: symbol!("qpdf_oh_get_dict"),
-                unparse: symbol!("qpdf_oh_unparse_resolved"),
-                string_length: symbol!("qpdf_get_last_string_length"),
-                release: symbol!("qpdf_oh_release"),
+                init: symbol!(c"qpdf_init"),
+                cleanup: symbol!(c"qpdf_cleanup"),
+                read: symbol!(c"qpdf_read"),
+                silence_errors: symbol!(c"qpdf_silence_errors"),
+                suppress_warnings: symbol!(c"qpdf_set_suppress_warnings"),
+                attempt_recovery: symbol!(c"qpdf_set_attempt_recovery"),
+                has_error: symbol!(c"qpdf_has_error"),
+                get_error: symbol!(c"qpdf_get_error"),
+                error_text: symbol!(c"qpdf_get_error_full_text"),
+                error_code: symbol!(c"qpdf_get_error_code"),
+                more_warnings: symbol!(c"qpdf_more_warnings"),
+                next_warning: symbol!(c"qpdf_next_warning"),
+                version: symbol!(c"qpdf_get_pdf_version"),
+                trailer: symbol!(c"qpdf_get_trailer"),
+                object: symbol!(c"qpdf_get_object_by_id"),
+                is_stream: symbol!(c"qpdf_oh_is_stream"),
+                object_type: symbol!(c"qpdf_oh_get_type_code"),
+                is_indirect: symbol!(c"qpdf_oh_is_indirect"),
+                name_equals: symbol!(c"qpdf_oh_is_name_and_equals"),
+                has_key: symbol!(c"qpdf_oh_has_key"),
+                get_key: symbol!(c"qpdf_oh_get_key"),
+                object_id: symbol!(c"qpdf_oh_get_object_id"),
+                generation: symbol!(c"qpdf_oh_get_generation"),
+                boolean: symbol!(c"qpdf_oh_get_bool_value"),
+                integer: symbol!(c"qpdf_oh_get_value_as_longlong"),
+                real: symbol!(c"qpdf_oh_get_value_as_real"),
+                name: symbol!(c"qpdf_oh_get_value_as_name"),
+                string: symbol!(c"qpdf_oh_get_binary_string_value"),
+                array_length: symbol!(c"qpdf_oh_get_array_n_items"),
+                array_item: symbol!(c"qpdf_oh_get_array_item"),
+                begin_keys: symbol!(c"qpdf_oh_begin_dict_key_iter"),
+                more_keys: symbol!(c"qpdf_oh_dict_more_keys"),
+                next_key: symbol!(c"qpdf_oh_dict_next_key"),
+                dictionary: symbol!(c"qpdf_oh_get_dict"),
+                unparse: symbol!(c"qpdf_oh_unparse_resolved"),
+                string_length: symbol!(c"qpdf_get_last_string_length"),
+                release: symbol!(c"qpdf_oh_release"),
                 _library: library,
             })
         }
