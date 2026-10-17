@@ -1211,10 +1211,13 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(findKeptOriginal(originalPath)).resolves.toBe(keptPath);
         await forgetKeptOriginal(originalPath);
         await expect(findKeptOriginal(originalPath)).resolves.toBeUndefined();
+        // A notice is recorded before its file moves into place. An open that looks before the move lands shows
+        // nothing, and the next open after it shows the kept file.
+        await rename(keptPath, `${keptPath}.moving`);
         await rememberKeptOriginal(originalPath, keptPath);
-        await rm(keptPath);
         await expect(findKeptOriginal(originalPath)).resolves.toBeUndefined();
-        expect(JSON.parse(await readFile(join(tempRoot, 'kept-original-notices.json'), 'utf8'))).toEqual({});
+        await rename(`${keptPath}.moving`, keptPath);
+        await expect(findKeptOriginal(originalPath)).resolves.toBe(keptPath);
     });
 
     it('keeps the journal of the file it keeps beside the PDF until that file can be moved', async () => {
