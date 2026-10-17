@@ -180,7 +180,9 @@ async function runAdmittedPageOperation<TResult>(
     signal: AbortSignal | undefined,
     run: (client: BrowserWorkerClient<IPendingBrowserWorkerRequest>, requestId: number) => Promise<TResult>,
 ) {
-    if (signal?.aborted) throw abortErrorFromSignal(signal);
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
     if (pageOpsWorkerOwner.waitingCount >= 8) {
         throw new BrowserPageOpsWorkerUnavailableError('Browser annotation parse worker queue is full');
     }

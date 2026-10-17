@@ -578,7 +578,9 @@ async function exportBrowserDjvuPagesAsImages(
             pageNumber,
         ] of targetPages.entries()) {
             const pageSize = sizes[pageNumber - 1];
-            if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            if (!pageSize) {
+                throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            }
             assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
             const saveTarget = await pickSaveTarget({
                 suggestedName: `document-page-${String(pageNumber).padStart(3, '0')}.png`,
@@ -589,7 +591,9 @@ async function exportBrowserDjvuPagesAsImages(
                 const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
                 try {
                     const response = await fetch(rendered.url);
-                    if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
+                    if (!response.ok) {
+                        throw new Error(`Failed to render DjVu page ${pageNumber}`);
+                    }
                     const pngBytes = new Uint8Array(await response.arrayBuffer());
                     return format === 'png'
                         ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
