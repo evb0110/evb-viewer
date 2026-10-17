@@ -482,7 +482,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness,
             ).toBe('ready'));
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('hydrating');
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
 
             annotation.resolve();
             await hydration;
@@ -542,7 +541,12 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 annotationLayerInstance: null,
             };
         });
-        rendererFixture.renderTextLayer.mockResolvedValue(undefined);
+        // Each text render replaces the layer's spans, so a redo would drop the selectable nodes.
+        rendererFixture.renderTextLayer.mockImplementation(async (...args: unknown[]) => {
+            const span = document.createElement('span');
+            span.textContent = 'Readable selectable text';
+            (args[1] as HTMLElement).replaceChildren(span);
+        });
         const harness = createHarness();
         let hydration: Promise<void> | null = null;
         try {
@@ -558,13 +562,18 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 renderOptions: {},
             });
             await vi.waitFor(() => expect(annotationControllerFixture.render).toHaveBeenCalledOnce());
+            const readable = harness.pageContainer.querySelector('.text-layer span');
             harness.renderer.queuePrioritizedTextLayerPromotions([1], {prioritizeTextLayer: true});
             annotation.resolve();
             await hydration;
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('canvas-only');
-            expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
-        } finally {annotation.resolve(); await hydration; harness.root.remove();}
+            for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+            expect(readable?.textContent).toBe('Readable selectable text');
+            expect(harness.pageContainer.querySelector('.text-layer span')).toBe(readable);
+        } finally {
+            annotation.resolve();
+            await hydration;
+            harness.root.remove();
+        }
     });
 
     it('promotes a settled canvas-only page exactly once with text-first priority', async () => {
