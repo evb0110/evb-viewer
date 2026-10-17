@@ -1027,9 +1027,12 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
     let tokens = tokenize_default_appearance(&bytes);
     let mut replacements = Vec::<(usize, usize, Vec<u8>)>::new();
     let mut replaced_tf = false;
-    let mut replaced_rg = false;
     for (index, &(start, end)) in tokens.iter().enumerate() {
         let token = &bytes[start..end];
+        // A fill operator's index is one less than its operand count.
+        let fill = [b"g".as_slice(), b"", b"rg", b"k"]
+            .iter()
+            .position(|o| *o == token);
         if token == b"Tf" {
             // A malformed size operand is replaced too, so readers take the
             // size the appearance draws rather than an earlier number.
@@ -1042,21 +1045,19 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
                 ));
                 replaced_tf = true;
             }
-        } else if token == b"rg" {
-            if let Some(first) = index.checked_sub(3) {
-                let operands_are_numbers = tokens[first..index].iter().all(|&(start, end)| {
-                    std::str::from_utf8(&bytes[start..end])
-                        .ok()
-                        .and_then(|value| value.parse::<f64>().ok())
-                        .is_some_and(f64::is_finite)
-                });
-                if operands_are_numbers {
-                    for (component, token_index) in color.into_iter().zip(first..index) {
-                        let (start, end) = tokens[token_index];
-                        replacements.push((start, end, number_to_content(component).into_bytes()));
-                    }
-                    replaced_rg = true;
-                }
+        } else if let Some(first) = fill.and_then(|count| index.checked_sub(count + 1)) {
+            // Every fill colour goes: the one appended below is the one drawn.
+            let operands_are_numbers = tokens[first..index].iter().all(|&(start, end)| {
+                std::str::from_utf8(&bytes[start..end])
+                    .ok()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .is_some_and(f64::is_finite)
+            });
+            if operands_are_numbers {
+                let from = first
+                    .checked_sub(1)
+                    .map_or(0, |previous| tokens[previous].1);
+                replacements.push((from, end, Vec::new()));
             }
         }
     }
@@ -1067,9 +1068,7 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
     if !replaced_tf {
         bytes.extend_from_slice(format!(" /Helv {} Tf", number_to_content(font_size)).as_bytes());
     }
-    if !replaced_rg {
-        bytes.extend_from_slice(format!(" {} rg", format_operands(&color)).as_bytes());
-    }
+    bytes.extend_from_slice(format!(" {} rg", format_operands(&color)).as_bytes());
     bytes.trim_ascii_start().to_vec()
 }
 
@@ -2306,7 +2305,7 @@ mod tests {
             16.0,
             [0.1, 0.2, 0.3],
         );
-        assert_eq!(patched, b"/Helv 16 Tf 0.1 0.2 0.3 rg /Helv 16 Tf");
+        assert_eq!(patched, b"/Helv 16 Tf /Helv 16 Tf 0.1 0.2 0.3 rg");
         let patched = patch_default_appearance(Some(b"/Helv Tf"), 16.0, [0.1, 0.2, 0.3]);
         assert_eq!(patched, b"/Helv Tf /Helv 16 Tf 0.1 0.2 0.3 rg");
     }
@@ -2314,10 +2313,6 @@ mod tests {
     #[test]
     fn patch_default_appearance_does_not_replace_a_malformed_color_operand() {
         let patched = patch_default_appearance(Some(b"/Helv 12 Tf 0 0 rg"), 16.0, [0.1, 0.2, 0.3]);
-        let patched = std::str::from_utf8(&patched).unwrap();
-
-        assert!(patched.contains("/Helv 16 Tf 0 0 rg"));
-        assert!(patched.contains("/Helv 16 Tf"));
-        assert!(patched.contains("0.1 0.2 0.3 rg"));
+        assert_eq!(patched, b"/Helv 16 Tf 0 0 rg 0.1 0.2 0.3 rg");
     }
 }
