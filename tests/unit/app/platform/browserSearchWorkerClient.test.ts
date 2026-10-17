@@ -353,23 +353,6 @@ describe('browserSearchWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledOnce();
     });
 
-    it('terminates the worker when a cancel asks to reset it', async () => {
-        FakeWorker.responder = () => {};
-        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
-        const {
-            createBrowserSearchWorkerRequest,
-            cancelBrowserSearchWorkerRequest,
-        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
-
-        const workerRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('long regex'));
-        const rejection = expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-
-        cancelBrowserSearchWorkerRequest(workerRequest.requestId, {resetWorker: true});
-        await rejection;
-        expect(terminateSpy).toHaveBeenCalledOnce();
-        expect(failureReporter.capture).not.toHaveBeenCalled();
-    });
-
     it('ignores a late result from a canceled request before resolving its replacement', async () => {
         FakeWorker.responder = () => {};
         const {
@@ -490,7 +473,7 @@ describe('browserSearchWorkerClient', () => {
         const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
         const secondOutcome = second.promise.catch(error => error as Error);
         const worker = FakeWorker.lastInstance!;
-        cancelBrowserSearchWorkerRequest(first.requestId, {resetWorker: true});
+        cancelBrowserSearchWorkerRequest(first.requestId);
         const data = {
             matches: [{
                 pageMatchIndex: 0,
@@ -621,7 +604,7 @@ describe('browserSearchWorkerClient', () => {
         ];
         const queued = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('queued'));
         const rejected = expect(queued.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-        cancelBrowserSearchWorkerRequest(queued.requestId, {resetWorker: true});
+        cancelBrowserSearchWorkerRequest(queued.requestId);
         await rejected;
         const data = {
             matches: [],

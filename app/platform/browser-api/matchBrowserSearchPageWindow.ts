@@ -78,10 +78,7 @@ export async function matchBrowserSearchPageWindowInWorker(
         },
         {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
     );
-    const cancelWorkerRequest = () => cancelBrowserSearchWorkerRequest(
-        workerRequest.requestId,
-        {resetWorker: true},
-    );
+    const cancelWorkerRequest = () => cancelBrowserSearchWorkerRequest(workerRequest.requestId);
     signal.addEventListener('abort', cancelWorkerRequest, {once: true});
     try {
         const {

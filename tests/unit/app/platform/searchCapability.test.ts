@@ -110,13 +110,10 @@ vi.mock('@app/platform/browser-api/browserSearchWorkerClient', () => ({
                 nextOptions: unknown,
             ) => unknown
         )(type, payload, options),
-    cancelBrowserSearchWorkerRequest: (requestId: unknown, options: unknown) =>
+    cancelBrowserSearchWorkerRequest: (requestId: unknown) =>
         (
-            browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest as (
-                nextRequestId: unknown,
-                nextOptions: unknown,
-            ) => unknown
-        )(requestId, options),
+            browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest as (nextRequestId: unknown) => unknown
+        )(requestId),
     BrowserSearchWorkerUnavailableError: browserSearchWorkerClientMock.BrowserSearchWorkerUnavailableError,
     BrowserSearchWorkerTimeoutError: browserSearchWorkerClientMock.BrowserSearchWorkerTimeoutError,
 }));
@@ -514,7 +511,7 @@ describe('createBrowserSearchCapability', () => {
             results: [],
             truncated: false,
         });
-        expect(browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest).toHaveBeenCalledWith(41, {resetWorker: true});
+        expect(browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest).toHaveBeenCalledWith(41);
     });
 
     // Regex queries run in the search worker, which this harness has not; the
