@@ -312,10 +312,9 @@ async function cleanupWorkingCopyDirectory(
             // The journal names what a save left beside the original; finish it before its folder goes. While
             // another program holds that file, the journal stays for the next start, and only the document goes.
             const recover = () => recoverWorkingCopyTransition(normalizedPath);
-            // Recovery at close takes the same original-path lock a save holds, so it cannot interleave with one.
-            const held = await (originalPath ? withOriginalPathMutationLock(originalPath, recover) : recover()).catch((error: unknown) => {
-                logger.warn('Could not finish a working-copy journal before closing', {error: getErrorMessage(error)});
-            });
+            // Recovery at close takes the same original-path lock a save holds, so it cannot interleave with one. A
+            // recovery that fails keeps the whole folder.
+            const held = await (originalPath ? withOriginalPathMutationLock(originalPath, recover) : recover());
             if (typeof held === 'object') {
                 logger.warn('Kept a closed document\'s journal until its PDF or save leftover can be finished', {workDir});
                 await rm(normalizedPath, {force: true});

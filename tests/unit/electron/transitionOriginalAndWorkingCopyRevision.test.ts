@@ -2337,6 +2337,21 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it('keeps a closed document\'s folder with its journal when that journal cannot be finished', async () => {
+        const {
+            workingCopyPath, saveAnnotations,
+        } = await prepareAnnotationSaves('pdf-work-unfinished-at-close');
+        await expect(saveAnnotations(Buffer.alloc(1024, 67))).resolves.toMatchObject({applied: true});
+        const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+        // A journal this release cannot read, as a damaged disk or a newer release leaves it.
+        await writeFile(getWorkingCopyJournalPath(workingCopyPath), '{"version":2}');
+
+        await (await import('@electron/file-access/workingCopyCleanup')).cleanupWorkingCopy(workingCopyPath, 7);
+
+        await expect(readFile(getWorkingCopyJournalPath(workingCopyPath), 'utf8')).resolves.toBe('{"version":2}');
+        expect(existsSync(workingCopyPath)).toBe(true);
+    });
+
     it('keeps an aged folder whose journal another program still holds, and removes it once that journal is finished', async () => {
         const fs = await import('node:fs/promises');
         let holding = false;

@@ -1,5 +1,6 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyStore';
+import type * as TWorkingCopyDirectoryModule from '@electron/file-access/workingCopyDirectory';
 
 import {
     existsSync,
@@ -175,7 +176,8 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
     cancelWorkingCopyMaterialization: vi.fn(() => false),
     ensureWorkingCopyMaterialized: mocks.ensureMaterialized,
 }));
-vi.mock('@electron/file-access/workingCopyDirectory', () => ({
+vi.mock('@electron/file-access/workingCopyDirectory', async importOriginal => ({
+    ...(await importOriginal<typeof TWorkingCopyDirectoryModule>()),
     isWorkingCopyDirectoryName: (name: string) => name.startsWith('pdf-work-'),
     safeRemoveDirectory: vi.fn(async () => false),
 }));
