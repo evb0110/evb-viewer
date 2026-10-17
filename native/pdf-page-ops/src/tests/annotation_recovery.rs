@@ -138,8 +138,9 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
 fn saved_deleted_note_returns_cross_page_replies_to_their_own_page_in_both_writers() {
     // A note on the second page answered on the first: Delete takes the
     // thread from both pages, and Undo puts each reply back on the first. A
-    // reply without /P is found where its page lists it.
-    for (append, reply_names_its_page) in [(false, true), (false, false), (true, true), (true, false)] {
+    // reply leaves the page that lists it whatever its /P names: its page, no
+    // page, or an object the file does not hold.
+    for (append, named_page) in [false, true].into_iter().flat_map(|append| ["own", "none", "missing"].map(|named| (append, named))) {
         let (mut document, first) = create_test_document();
         let pages = document.get_dictionary(first).unwrap().get(b"Parent").unwrap().as_reference().unwrap();
         let second = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages});
@@ -153,8 +154,10 @@ fn saved_deleted_note_returns_cross_page_replies_to_their_own_page_in_both_write
             "Type" => "Annot", "Subtype" => "Text", "IRT" => root, "NM" => Object::string_literal("reply-one"),
             "Contents" => Object::string_literal("cross-page reply"), "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
         };
-        if reply_names_its_page {
-            reply.set("P", first);
+        match named_page {
+            "own" => reply.set("P", first),
+            "missing" => reply.set("P", Object::Reference((999_999, 0))),
+            _ => {}
         }
         let reply = document.add_object(reply);
         let child = document.add_object(dictionary! {

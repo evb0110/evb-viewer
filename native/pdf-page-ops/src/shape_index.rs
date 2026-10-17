@@ -244,9 +244,9 @@ fn lookup_embedded_shape_delete_targets_inner(
             continue;
         }
         lookup.object_ids.insert(*object_id);
-        if let Some(page_id) = shape_annotation_page_id(document, *object_id) {
-            lookup.page_ids.insert(page_id);
-        }
+        lookup
+            .page_ids
+            .extend(annotation_page_id(document, *object_id));
     }
     (lookup, scanned_objects)
 }

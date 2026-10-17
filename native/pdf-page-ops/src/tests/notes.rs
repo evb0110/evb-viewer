@@ -923,7 +923,7 @@ fn deletes_popup_free_text_by_stable_key_when_page_geometry_is_unavailable() {
 
 #[test]
 fn deletes_a_note_popup_and_transitive_reply_chain() {
-    fn fixture() -> (Document, ObjectId, [ObjectId; 4], ObjectId) {
+    fn fixture() -> (Document, (ObjectId, ObjectId, ObjectId), [ObjectId; 4], ObjectId) {
         let (mut document, page_id) = create_test_document();
         let popup_id = document.add_object(dictionary! {
             "Type" => "Annot",
@@ -973,15 +973,24 @@ fn deletes_a_note_popup_and_transitive_reply_chain() {
                 Object::Reference(unrelated_id),
             ],
         );
+        // A second page lists the nested reply again, and document metadata
+        // names the note in /IRT without being an annotation any page lists.
+        let pages = document.get_dictionary(page_id).unwrap().get(b"Parent").unwrap().as_reference().unwrap();
+        let other_page = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages, "Annots" => vec![Object::Reference(reply_two_id)]});
+        let tree = document.get_dictionary_mut(pages).unwrap();
+        tree.set("Kids", vec![Object::Reference(page_id), Object::Reference(other_page)]);
+        tree.set("Count", 2);
+        let info = document.add_object(dictionary! {"Title" => Object::string_literal("kept"), "IRT" => note_id});
+        document.trailer.set("Info", info);
         (
             document,
-            page_id,
+            (page_id, other_page, info),
             [note_id, popup_id, reply_one_id, reply_two_id],
             unrelated_id,
         )
     }
 
-    let (mut document, page_id, deleted_ids, unrelated_id) = fixture();
+    let (mut document, (page_id, other_page, info), deleted_ids, unrelated_id) = fixture();
     delete_annotations(
         &mut document,
         &[AnnotationDelete {
@@ -1000,8 +1009,10 @@ fn deletes_a_note_popup_and_transitive_reply_chain() {
     for object_id in deleted_ids {
         assert!(!document.objects.contains_key(&object_id));
     }
+    assert_eq!(get_page_annots(&document, other_page).unwrap(), Vec::<Object>::new());
+    assert!(document.get_dictionary(info).unwrap().has(b"Title"), "metadata is no annotation");
 
-    let (document, page_id, deleted_ids, unrelated_id) = fixture();
+    let (document, (page_id, other_page, info), deleted_ids, unrelated_id) = fixture();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     delete_annotations_incremental(
         &mut incremental,
@@ -1022,6 +1033,8 @@ fn deletes_a_note_popup_and_transitive_reply_chain() {
     for object_id in deleted_ids {
         assert!(matches!(revision.object(object_id), Ok(Object::Null)));
     }
+    assert_eq!(get_page_annots(&revision, other_page).unwrap(), Vec::<Object>::new());
+    assert!(revision.dictionary(info).unwrap().has(b"Title"), "metadata is no annotation");
 }
 
 #[test]
