@@ -573,58 +573,48 @@ async function readExportPageSizes(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
-    throwIfAborted(signal);
-    try {
-        const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
-        let longestSidePts = 0;
-        const trackPageSize = (pageSize: IExportPageSize) => {
-            longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
-        };
-        const onStdout = createPdfInfoPageSizeStreamScanner(trackPageSize);
-        const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
-            timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
-            commandLabel: 'pdfinfo(export-page-size)',
-            onStdout,
-            ...(signal ? { signal } : {}),
-            ...(cancelGroup ? { cancelGroup } : {}),
-        };
-        if (popplerEnv !== undefined) {
-            commandOptions.env = popplerEnv;
-        }
+    const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
+    let longestSidePts = 0;
+    const trackPageSize = (pageSize: IExportPageSize) => {
+        longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
+    };
+    const onStdout = createPdfInfoPageSizeStreamScanner(trackPageSize);
+    const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
+        timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
+        commandLabel: 'pdfinfo(export-page-size)',
+        onStdout,
+        ...(signal ? { signal } : {}),
+        ...(cancelGroup ? { cancelGroup } : {}),
+    };
+    if (popplerEnv !== undefined) {
+        commandOptions.env = popplerEnv;
+    }
 
-        const result = await runNativeToolCommand(popplerRuntimePaths.pdfinfo, [
-            '-f',
-            '1',
-            '-l',
-            String(pageCount),
-            pdfPath,
-        ], commandOptions);
-        // Streaming already sees every byte; also parse the bounded stdout
-        // buffer so command runners that never call onStdout still contribute.
-        for (const line of result.stdout.split(/\r?\n/u)) {
-            const pageSize = parsePdfInfoPageSizeLine(line);
-            if (pageSize) {
-                trackPageSize(pageSize);
-            }
+    const result = await runNativeToolCommand(popplerRuntimePaths.pdfinfo, [
+        '-f',
+        '1',
+        '-l',
+        String(pageCount),
+        pdfPath,
+    ], commandOptions);
+    // Streaming already sees every byte; also parse the bounded stdout
+    // buffer so command runners that never call onStdout still contribute.
+    for (const line of result.stdout.split(/\r?\n/u)) {
+        const pageSize = parsePdfInfoPageSizeLine(line);
+        if (pageSize) {
+            trackPageSize(pageSize);
         }
+    }
 
-        // DPI planning only needs the longest side, so complete per-page
-        // metadata is reduced while streaming instead of being kept dense.
-        if (longestSidePts <= 0) {
-            return [];
-        }
-        return [{
-            widthPts: longestSidePts,
-            heightPts: longestSidePts,
-        }];
-    } catch (error) {
-        if (signal?.aborted) {
-            throw signal.reason instanceof Error ? signal.reason : error;
-        }
-
-        logger.debug(`pdfinfo export page-size probe failed: ${getErrorMessage(error)}`);
+    // DPI planning only needs the longest side, so complete per-page
+    // metadata is reduced while streaming instead of being kept dense.
+    if (longestSidePts <= 0) {
         return [];
     }
+    return [{
+        widthPts: longestSidePts,
+        heightPts: longestSidePts,
+    }];
 }
 
 function selectDpiProbePages(pageCount: number) {
@@ -648,11 +638,17 @@ async function detectExportRenderDpi(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
+    // A cancelled probe also falls back once its reader stops: the source outlives both readers.
+    const fallBack = <T>(value: T) => (error: unknown) => {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        logger.debug(`Export probe failed: ${getErrorMessage(error)}`);
+        return value;
+    };
     const [
         pageSizes,
         sourceDpi,
     ] = await Promise.all([
-        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup),
+        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup).catch(fallBack([])),
         detectSourceDpiDetails(
             pdfPath,
             popplerRuntimePaths.pdfimages,
@@ -660,12 +656,9 @@ async function detectExportRenderDpi(
             buildPopplerEnv(popplerRuntimePaths),
             signal,
             selectDpiProbePages(pageCount),
-        ).then(result => result.documentDpi).catch(error => {
-            throwIfAborted(signal);
-            logger.debug(`pdfimages export resolution probe failed: ${getErrorMessage(error)}`);
-            return null;
-        }),
+        ).then(result => result.documentDpi).catch(fallBack(null)),
     ]);
+    throwIfAborted(signal);
 
     return {
         renderDpi: resolveExportRenderDpi(sourceDpi, pageSizes),
