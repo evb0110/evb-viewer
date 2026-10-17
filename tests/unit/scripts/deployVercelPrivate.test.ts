@@ -32,6 +32,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 
 interface IPreparedPrivateDeploySource {
@@ -45,7 +46,6 @@ interface IPrivateDeployModule {
         env: Record<string, string | undefined>;
         projectId: string;
     }) => Promise<() => Promise<void>>;
-    buildVercelRollbackArgs: (deploymentUrl: string) => string[];
     buildPrivateDeployArgs: (
         sourceRoot: string,
         rawArgs?: string[],
@@ -56,7 +56,6 @@ interface IPrivateDeployModule {
     ) => string[];
     extractVercelDeploymentUrl: (output: string) => string | null;
     getProductionDeployLockPath: (projectId: string) => string;
-    extractVercelDeploymentIdentity: (output: string, options?: {expectedProjectName?: string;}) => string;
     parsePrivateDeployOptions: (rawArgs?: string[]) => {
         deployArgs: string[];
         deployTarget: string;
@@ -79,11 +78,9 @@ interface IPrivateDeployModule {
 
 const {
     acquireProductionDeployLock,
-    buildVercelRollbackArgs,
     buildPrivateDeployArgs,
     extractVercelDeploymentUrl,
     getProductionDeployLockPath,
-    extractVercelDeploymentIdentity,
     parsePrivateDeployOptions,
     promoteLandingVercelOutput,
     preparePrivateDeploySource,
@@ -1096,6 +1093,56 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         }
     });
 
+    it.skipIf(process.platform === 'win32').each([
+        {
+            status: '200',
+            succeeds: true,
+        },
+        {
+            status: '302',
+            succeeds: false,
+        },
+        {
+            status: '503',
+            succeeds: false,
+        },
+    ])('authenticates a protected deployment and accepts only successful responses ($status)', async ({
+        status, succeeds,
+    }) => {
+        const projectRoot = createProjectFixture();
+        const vercel = createVercelAlias({
+            id: 'dpl_previous',
+            url: 'previous.vercel.app',
+        });
+        const spawnVercel = vercel.spawnFor('protected');
+        const unauthenticatedFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, {status: 401}));
+
+        try {
+            const deploy = runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (command: string, args: string[]) => args[0] === 'curl'
+                    ? {
+                        status: 0,
+                        stdout: status,
+                        stderr: '',
+                    }
+                    : spawnVercel(command, args),
+            });
+            if (succeeds) await expect(deploy).resolves.toBe(0);
+            else await expect(deploy).rejects.toThrow(`responded with HTTP ${status}`);
+            expect(vercel.alias.production.id).toBe(succeeds ? 'dpl_protected' : 'dpl_previous');
+        } finally {
+            unauthenticatedFetch.mockRestore();
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it.skipIf(process.platform === 'win32')('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
         const projectRoot = createProjectFixture();
         const vercel = createVercelAlias({
@@ -1193,6 +1240,24 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             message: 'did not identify the current production deployment',
             name: 'inspect JSON without a deployment identity',
         },
+        {
+            inspectResult: {
+                stderr: '',
+                stdout: '{"id":"dpl_other","name":"other-project"}',
+                status: 0,
+            },
+            message: 'different project',
+            name: 'a deployment from another project',
+        },
+        {
+            inspectResult: {
+                stderr: '',
+                stdout: '{"url":"old.vercel.app","name":"fixture-project"}',
+                status: 0,
+            },
+            message: 'immutable deployment id',
+            name: 'a URL without an immutable identity',
+        },
     ])('refuses production before deploy for $name', async ({
         inspectResult,
         message,
@@ -1254,16 +1319,13 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         try {
             const firstDeploy = runPrivateVercelDeploy({
                 command: 'vercel-test',
-                env: {
-                    CI: 'true',
-                    VERCEL_AUTOMATION_BYPASS_SECRET: 'fixture-bypass',
-                },
-                fetchImpl: async (_url: string, options: RequestInit) => {
+                env: {CI: 'true'},
+                fetchImpl: async () => {
                     markFirstAcceptanceStarted();
                     await firstAcceptanceGate;
                     return {
-                        ok: new Headers(options.headers).get('x-vercel-protection-bypass') === 'fixture-bypass',
-                        status: 401,
+                        ok: true,
+                        status: 200,
                     };
                 },
                 projectRoot: firstProjectRoot,
@@ -1591,31 +1653,10 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         }); }
     });
 
-    it('extracts deployment identities and builds an explicit rollback command', () => {
+    it('extracts the deployment URL reported by the CLI', () => {
         expect(extractVercelDeploymentUrl('ready at https://viewer-abc.vercel.app')).toBe(
             'https://viewer-abc.vercel.app',
         );
-        expect(extractVercelDeploymentIdentity('{"id":"dpl_previous"}')).toBe('dpl_previous');
-        expect(extractVercelDeploymentIdentity('{"url":"viewer-old.vercel.app"}')).toBe(
-            'https://viewer-old.vercel.app',
-        );
-        expect(extractVercelDeploymentIdentity('{"url":"httpx://viewer-old.vercel.app"}')).toBe(
-            'https://httpx://viewer-old.vercel.app',
-        );
-        expect(() => extractVercelDeploymentIdentity(
-            '{"aliases":["other.example"],"id":"dpl_other","name":"other-project"}',
-            {expectedProjectName: 'fixture-project'},
-        )).toThrow('different project');
-        expect(extractVercelDeploymentIdentity(
-            '{"aliases":["other.example"],"id":"dpl_other","name":"fixture-project"}',
-            {expectedProjectName: 'fixture-project'},
-        )).toBe('dpl_other');
-        expect(buildVercelRollbackArgs('dpl_previous')).toEqual([
-            'promote',
-            'dpl_previous',
-            '--yes',
-        ]);
-        expect(() => buildVercelRollbackArgs('')).toThrow('previous deployment is required');
     });
 
     it('accepts production through public aliases unless an override is configured', () => {
