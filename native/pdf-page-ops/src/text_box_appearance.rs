@@ -652,7 +652,7 @@ pub(crate) fn existing_text_box_values(
     Ok((
         appearance,
         value(b"DA").and_then(|object| object.as_str().ok().map(ToOwned::to_owned)),
-        Some(TextBoxSourceDescriptor::read(document, dict, *rect).frame(*rect)),
+        Some(free_text_frame(document, dict, *rect)),
     ))
 }
 
