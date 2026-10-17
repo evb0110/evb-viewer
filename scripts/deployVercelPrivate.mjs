@@ -16,6 +16,7 @@ import {
     writeSync,
 } from 'node:fs';
 import {
+    devNull,
     homedir,
     hostname,
     tmpdir,
@@ -407,17 +408,6 @@ export function extractVercelDeploymentUrl(output) {
     return output.match(/https:\/\/[a-z0-9][a-z0-9.-]*\.vercel\.app(?:\/[^\s"'<>]*)?/iu)?.[0] ?? null;
 }
 
-export function buildVercelRollbackArgs(previousDeployment) {
-    if (!previousDeployment) {
-        throw new Error('A previous deployment is required before a production rollback can run.');
-    }
-    return [
-        'promote',
-        previousDeployment,
-        '--yes',
-    ];
-}
-
 const DEFAULT_PRODUCTION_ACCEPTANCE_URLS = Object.freeze({
     landing: 'https://evb-viewer.com/',
     viewer: 'https://web.evb-viewer.com/',
@@ -484,20 +474,6 @@ function parseVercelDeployment(output, {expectedProjectName} = {}) {
         id,
         url,
     };
-}
-
-function deploymentIdentity({
-    id,
-    url,
-}) {
-    if (id) {
-        return id;
-    }
-    return /^https?:\/\//iu.test(url) ? url : `https://${url}`;
-}
-
-export function extractVercelDeploymentIdentity(output, options) {
-    return deploymentIdentity(parseVercelDeployment(output, options));
 }
 
 function inspectDeployment({
@@ -658,20 +634,38 @@ async function runDeployAcceptanceChecks({
     deployTarget,
     env,
     fetchImpl,
+    runCommand,
     sourceRoot,
     spawnSyncImpl,
 }) {
+    fetchImpl ??= async (url) => {
+        const target = new URL(url);
+        const result = runCommand([
+            'curl',
+            `${target.pathname}${target.search}`,
+            '--deployment',
+            deploymentUrl,
+            '--',
+            '--silent',
+            '--show-error',
+            '--max-time',
+            '30',
+            '--output',
+            devNull,
+            '--write-out',
+            '%{http_code}',
+        ]);
+        if ((result.status ?? 1) !== 0) throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}.`);
+        const status = Number(result.stdout?.trim());
+        return {
+            ok: status >= 200 && status < 300,
+            status,
+        };
+    };
     for (const url of acceptanceUrls) {
         const acceptanceUrl = new URL(url);
         acceptanceUrl.host = new URL(deploymentUrl).host;
-        const response = await fetchImpl(acceptanceUrl.href, {
-            headers: {
-                accept: 'text/html,application/json',
-                ...(env.VERCEL_AUTOMATION_BYPASS_SECRET ? {'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET} : {}),
-            },
-            redirect: 'error',
-            signal: AbortSignal.timeout(30_000),
-        });
+        const response = await fetchImpl(acceptanceUrl.href);
         if (!response.ok) {
             throw new Error(`Deploy acceptance URL ${acceptanceUrl.href} responded with HTTP ${response.status}.`);
         }
@@ -734,7 +728,11 @@ function rollBackPromotedDeployment({
     // Vercel has no conditional promote: another host can win between this
     // authority read and the promote being applied remotely.
     try {
-        const result = runCommand(buildVercelRollbackArgs(previous.id));
+        const result = runCommand([
+            'promote',
+            previous.id,
+            '--yes',
+        ]);
         if ((result.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${result.status ?? 1}.`);
     } catch (error) {
         return `Rollback also failed: ${getCliErrorMessage(error)}`;
@@ -747,7 +745,7 @@ export async function runPrivateVercelDeploy({
     projectRoot = defaultProjectRoot,
     rawArgs = process.argv.slice(2),
     env = process.env,
-    fetchImpl = globalThis.fetch,
+    fetchImpl,
     spawnSyncImpl = spawnSync,
 } = {}) {
     const {
@@ -869,6 +867,7 @@ export async function runPrivateVercelDeploy({
                 deployTarget,
                 env,
                 fetchImpl,
+                runCommand,
                 sourceRoot: prepared.sourceRoot,
                 spawnSyncImpl,
             });
