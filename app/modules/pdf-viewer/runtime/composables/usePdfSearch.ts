@@ -52,6 +52,8 @@ interface IScheduledPdfSearch {
     documentRevisionToken: TDocumentRevisionToken | null;
     pageCount?: number;
     options: IResolvedSearchMatchOptions;
+    /** Set when a run of this command published its response. */
+    completed?: true;
 }
 
 function normalizeDocumentRevisionToken(token: TDocumentRevisionToken | null | undefined) {
@@ -100,6 +102,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: TRequestId | null = null;
     let pendingSearchTimer: ReturnType<typeof setTimeout> | null = null;
+    let resumeInterruptedSearch: (() => void) | null = null;
 
     const totalMatches = computed(() => results.value.length);
     const hasPartialResults = computed(() => isSearching.value && (results.value.length > 0 || isTruncated.value));
@@ -484,6 +487,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             searchCommand = {
                 ...payload,
                 ...(resultOffset === undefined ? {} : {resultOffset}),
+                completed: true,
             };
             applySearchResponse(response, query, options, direction, targetMatchIndex);
             isTruncated.value = response.truncated;
@@ -635,15 +639,23 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return pageMatches.value.get(pageIndex) ?? null;
     }
 
+    /**
+     * Runs while the rotated revision is being published, so a search that has
+     * not completed cannot rerun yet: `resetSearchCache` resumes it once that
+     * revision is current. The rewrite can end the running search first, as
+     * canceled, failed or stale. Only a started search owns the selected ordinal.
+     */
     function adoptPageRotation(documentRevisionToken: TDocumentRevisionToken, pages: readonly number[], rotationDelta: 90 | 180 | 270) {
-        const interrupted = isSearching.value;
+        const interrupted = isSearching.value || searchError.value !== null || !searchCommand?.completed;
+        const ordinal = pendingSearchTimer === null ? currentResult.value?.matchIndex : undefined;
         cancelSearch();
         if (!searchCommand) return;
-        searchCommand = {
+        const command = {
             ...searchCommand,
             runId: searchRunId,
             documentRevisionToken,
         };
+        searchCommand = command;
         const rotatedPages = new Set(pages.map(page => page - 1));
         const rotate = <T extends Pick<IPdfSearchMatch, 'rotation'>>(match: T): T => ({
             ...match,
@@ -665,7 +677,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
         pageMatches.value = rotatedMatches;
         if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) currentResultNavigationId.value += 1;
-        if (interrupted) void runScheduledSearch(searchCommand, searchCommand.resultOffset, 'next', currentResult.value?.matchIndex);
+        if (!interrupted) return;
+        isSearching.value = true;
+        resumeInterruptedSearch = ordinal === undefined
+            ? () => void runScheduledSearch(command)
+            : () => void runScheduledSearch(command, command.resultOffset, 'next', ordinal);
     }
 
     function resetSearchCache() {
@@ -677,6 +693,9 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 error,
             );
         });
+        const resume = resumeInterruptedSearch;
+        resumeInterruptedSearch = null;
+        resume?.();
     }
 
     tryOnScopeDispose(cancelSearch);
