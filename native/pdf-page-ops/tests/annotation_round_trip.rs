@@ -1748,6 +1748,29 @@ fn auto_print_draws_free_text_text_on_a_page_without_a_media_box() {
         String::from_utf8_lossy(content).matches("> Tj").count() >= "Margin note".len() - 1,
         "the note prints its text"
     );
+
+    // Labels across the job's pages draw from one subset of each font they use.
+    write_pdf_objects(
+        &temp.pdf,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /Annots [5 0 R 6 0 R] >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /Annots [7 0 R] >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [60 600 400 700] /F 4 /Contents (First label) /DA (/Helv 18 Tf 0 g) >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [60 400 400 500] /F 4 /Contents (Second label) /DA (/Helv 18 Tf 0 g) >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [60 600 400 700] /F 4 /Contents (Third label) /DA (/Helv 18 Tf 0 g) >>".to_string(),
+        ],
+    );
+    fs::remove_file(&printed).unwrap();
+    print_annotation_pdf(&temp.pdf, &printed);
+    let document = Document::load(&printed).unwrap();
+    let programs = document
+        .objects
+        .values()
+        .filter(|object| object.as_dict().is_ok_and(|dict| dict.has(b"FontFile2")))
+        .count();
+    assert_eq!(programs, 1, "three labels share one DejaVu Sans subset");
 }
 
 #[test]

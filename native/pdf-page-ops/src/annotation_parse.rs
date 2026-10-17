@@ -2,7 +2,7 @@ use super::*;
 use evb_native_support::output::AtomicOutput;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::Write,
     path::Path,
 };
@@ -576,7 +576,7 @@ where
             _ => Err(format!("Unsupported annotation subtype /{subtype}")),
         };
 
-        let mut reply_refs = Vec::new();
+        let mut reply_refs = BTreeMap::new();
         let replies = if entry.is_ok() && object_id != (0, 0) {
             parse_replies(
                 document,
@@ -606,7 +606,7 @@ where
                 PdfAnnotationParseEntry::Shape(parent) => &mut parent.replies,
                 PdfAnnotationParseEntry::Note(parent) => {
                     parent.recovery_data = Some(
-                        capture_note_recovery(document, object_id, &reply_refs)
+                        capture_note_recovery(document, (object_id, page_index), &reply_refs)
                             .map_err(|error| error.to_string())?,
                     );
                     &mut parent.replies
@@ -1093,17 +1093,16 @@ fn parse_replies(
     document: &impl PdfObjectSource,
     parent_id: ObjectId,
     reply_children: &HashMap<ObjectId, Vec<(ObjectId, u64)>>,
-    reply_refs: &mut Vec<ObjectId>,
+    reply_refs: &mut BTreeMap<ObjectId, u64>,
     mut on_unreadable: impl FnMut(ObjectId, u64, &str) -> Result<()>,
 ) -> Result<std::result::Result<Vec<PdfAnnotationParseReply>, String>> {
     let mut replies = Vec::new();
     let mut pending = VecDeque::from(reply_children.get(&parent_id).cloned().unwrap_or_default());
-    let mut seen = BTreeSet::new();
     while let Some((reply_id, page_index)) = pending.pop_front() {
-        if !seen.insert(reply_id) {
+        if reply_refs.insert(reply_id, page_index).is_some() {
             continue;
         }
-        if seen.len() > MAX_ANNOTATION_REPLIES {
+        if reply_refs.len() > MAX_ANNOTATION_REPLIES {
             return Ok(Err(
                 "Annotation reply chain exceeds the admission ceiling".to_string()
             ));
@@ -1130,7 +1129,6 @@ fn parse_replies(
             pending.extend(children.iter().copied());
         }
     }
-    reply_refs.extend(seen);
     Ok(Ok(replies))
 }
 

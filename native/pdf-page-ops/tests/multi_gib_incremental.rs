@@ -1792,10 +1792,16 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
     fs::write(&log, "").unwrap();
     // 18 MiB of image data makes the dictionary load structural.
     let structural = drawing(18 * 1024 * 1024);
+    // A print job's subsets follow its three bundled faces, so each label's
+    // own document program is TextFont3 or later, and no bundled face.
     for (fonts, glyphs) in &eager {
         assert!(!glyphs.is_empty());
+        let document_program = |font: &String| {
+            font.rsplit_once("+TextFont")
+                .is_some_and(|(_, index)| index.parse::<usize>().unwrap() >= 3)
+        };
         assert!(
-            matches!(&fonts[..], [font] if font.ends_with("+TextFont0")),
+            matches!(&fonts[..], [font] if document_program(font)),
             "{eager:?}"
         );
     }

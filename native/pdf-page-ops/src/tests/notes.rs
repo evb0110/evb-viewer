@@ -3101,6 +3101,13 @@ fn unicode_text_boxes_append_reopen_with_verified_font_subsets() {
             assert!(!saved.resolved(descendant.get(b"CIDToGIDMap").unwrap()).unwrap().as_stream().unwrap().decompressed_content().unwrap().is_empty());
         }
     }
+    // Each face maps one of "A" and a Hebrew accent, none both: the layout would
+    // draw the cluster in DejaVu Sans with U+FFFD for the accent, so the request
+    // is refused before anything is written.
+    let editor = serde_json::json!({"pageIndex":0,"stableKey":"split-cluster","text":"A\u{591}","rect":[10,10,180,90],"rotation":0,"fontSize":16,"color":[0,0,0]});
+    let request = serde_json::to_vec(&serde_json::json!({"textBoxes": [editor]})).unwrap();
+    let error = read_native_mutations_bytes(&request).err().unwrap().to_string();
+    assert!(error.contains("U+0591"), "{error}");
 }
 
 #[test]
@@ -3160,11 +3167,13 @@ fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
 fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
     // review-b6yw: a 25 x 45 pt foreign "W" at 22 pt, edited for color only,
     // and a foreign DA whose trailing Tf size is malformed. A tool that strips
-    // EVB's private keys, as PyMuPDF does, leaves their values null.
+    // EVB's private keys, as PyMuPDF does, leaves their values null. A DA whose
+    // last fill operator is CMYK after an RGB one takes the new colour too.
     for (da, rect, text, fits_at_22, stripped) in [
         ("/Helv 22 Tf 0 0 0 rg", [20.0, 20.0, 45.0, 65.0], "W", false, false),
         ("/Helv 22 Tf 0.2 0.4 0.6 rg /Helv invalid Tf", [20.0, 15.0, 180.0, 90.0], "Edited foreign text", true, false),
         ("/Helv 22 Tf 0 0 0 rg", [20.0, 15.0, 180.0, 90.0], "Stripped label", true, true),
+        ("/Helv 22 Tf 1 0 0 rg 0 0 0 1 k", [20.0, 15.0, 180.0, 90.0], "Mixed colour", true, false),
     ] {
         let (mut document, page_id) = create_test_document();
         let mut foreign = dictionary! {
@@ -3209,6 +3218,7 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         let content = String::from_utf8(normal.as_stream().unwrap().content.clone()).unwrap();
         let drawn: f64 = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap().parse().unwrap();
         assert_eq!((reopened.font_size, drawn == 22.0), (drawn, fits_at_22), "{content}");
+        assert_eq!(reopened.color, "#f59e0b", "{da}");
     }
 }
 

@@ -113,11 +113,13 @@ pub(crate) fn build_print_layout(
         return Err("PDF print layout produced no pages".into());
     }
     let mut placed = Vec::with_capacity(page_numbers.len());
+    let mut fonts = PrintFonts::default();
     for &page_number in &page_numbers {
         let page_id = resolve_page_id(&page_ids, page_number)?;
-        materialize_print_appearances(document, page_id, true)?;
+        materialize_print_appearances(document, page_id, true, &mut fonts)?;
         placed.push(embed_page_as_form(document, page_id, page_number)?);
     }
+    fonts.embed(document)?;
 
     let pages_id = document.new_object_id();
     let mut sheet_ids = Vec::new();

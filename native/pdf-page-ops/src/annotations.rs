@@ -3,6 +3,7 @@ pub(crate) use crate::text_box_appearance::{
     build_text_box_appearance, fit_text_box, line_origin, text_box_content,
 };
 use lopdf::dictionary;
+use std::collections::hash_map::Entry;
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -173,30 +174,6 @@ fn remove_annotation_refs_from_page(
     Ok(removed)
 }
 
-fn append_missing_annotation_refs_to_page(
-    document: &mut Document,
-    page_id: ObjectId,
-    refs: &[ObjectId],
-) -> Result<()> {
-    let mut annots = get_page_annots(document, page_id)?;
-    let initial_len = annots.len();
-    for object_id in refs {
-        if !annots
-            .iter()
-            .any(|object| object.as_reference().ok() == Some(*object_id))
-        {
-            annots.push(Object::Reference(*object_id));
-        }
-    }
-    if annots.len() == initial_len {
-        return Ok(());
-    }
-    document
-        .get_dictionary_mut(page_id)?
-        .set("Annots", Object::Array(annots));
-    Ok(())
-}
-
 pub(crate) fn update_note_geometry(
     document: &mut Document,
     updates: &[NoteGeometryUpdate],
@@ -251,7 +228,7 @@ pub(crate) fn update_note_geometry(
         if source_page_id != destination_page_id {
             remove_annotation_refs_from_page(document, source_page_id, &refs)?;
         }
-        append_missing_annotation_refs_to_page(document, destination_page_id, &refs)?;
+        append_annots_to_page(document, destination_page_id, &refs)?;
     }
     Ok(())
 }
@@ -280,32 +257,6 @@ fn remove_annotation_refs_from_page_incremental(
             .set("Annots", Object::Array(filtered));
     }
     Ok(removed)
-}
-
-fn append_missing_annotation_refs_to_page_incremental(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    refs: &[ObjectId],
-) -> Result<()> {
-    let mut annots = get_incremental_page_annots(incremental, page_id)?;
-    let initial_len = annots.len();
-    for object_id in refs {
-        if !annots
-            .iter()
-            .any(|object| object.as_reference().ok() == Some(*object_id))
-        {
-            annots.push(Object::Reference(*object_id));
-        }
-    }
-    if annots.len() == initial_len {
-        return Ok(());
-    }
-    incremental.opt_clone_object_to_new_document(page_id)?;
-    incremental
-        .new_document
-        .get_dictionary_mut(page_id)?
-        .set("Annots", Object::Array(annots));
-    Ok(())
 }
 
 pub(crate) fn update_note_geometry_incremental(
@@ -371,11 +322,7 @@ pub(crate) fn update_note_geometry_incremental(
         if source_page_id != destination_page_id {
             remove_annotation_refs_from_page_incremental(incremental, source_page_id, &refs)?;
         }
-        append_missing_annotation_refs_to_page_incremental(
-            incremental,
-            destination_page_id,
-            &refs,
-        )?;
+        append_annots_to_page_incremental(incremental, destination_page_id, &refs)?;
     }
     Ok(())
 }
@@ -401,12 +348,12 @@ where
     for note in &notes {
         let page_number = mutation_page_number(note.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
-        {
-            let (index, scanned) = build_page_annotation_index(document, page_id)?;
-            *annotation_visits = (*annotation_visits).saturating_add(scanned);
-            entry.insert(index);
-        }
+        page_index(
+            &mut annotation_indexes,
+            document,
+            page_id,
+            annotation_visits,
+        )?;
         note_pages.push(page_id);
     }
 
@@ -455,15 +402,16 @@ where
 
         let annot_ref = document.new_object_id();
         let popup_ref = document.new_object_id();
-        let recovered = if let Some(data) = note.recovery_data.as_deref() {
-            restore_note_recovery(document, data, annot_ref, popup_ref, page_id)?
-        } else {
-            Vec::new()
-        };
-        annotation_indexes
-            .get_mut(&page_id)
-            .expect("Text note page is indexed")
-            .append_missing_refs(&recovered);
+        if let Some(data) = note.recovery_data.as_deref() {
+            let number = mutation_page_number(note.page_index)?;
+            let page_of = |document: &Document, n| page_resolver.page_id(document, n);
+            let notes = (annot_ref, popup_ref);
+            let members = restore_note_recovery(document, data, notes, number, page_of)?;
+            for (member, page) in members {
+                page_index(&mut annotation_indexes, document, page, annotation_visits)?
+                    .append_missing_refs(&[member]);
+            }
+        }
         let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
         write_text_note_pair(document, note_fields, page_id, (annot_ref, popup_ref));
         report_annotation_identity_binding(identity_bindings, &note.stable_key, annot_ref);
@@ -490,6 +438,23 @@ fn report_annotation_identity_binding(
     append_annotation_identity_binding(identity_bindings, Some(stable_key), None, annot_ref);
 }
 
+/// The annotation index of a page, built and counted on first use.
+fn page_index<'a>(
+    indexes: &'a mut HashMap<ObjectId, PageAnnotationIndex>,
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+    visits: &mut usize,
+) -> Result<&'a mut PageAnnotationIndex> {
+    Ok(match indexes.entry(page_id) {
+        Entry::Occupied(index) => index.into_mut(),
+        Entry::Vacant(entry) => {
+            let (index, scanned) = build_page_annotation_index(document, page_id)?;
+            *visits = visits.saturating_add(scanned);
+            entry.insert(index)
+        }
+    })
+}
+
 pub(crate) fn upsert_text_notes_incremental_with_counter<'a, I>(
     incremental: &mut IncrementalDocument,
     notes: I,
@@ -511,12 +476,13 @@ where
     for note in &notes {
         let page_number = mutation_page_number(note.page_index)?;
         let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
-        {
-            let (index, scanned) = build_incremental_page_annotation_index(incremental, page_id)?;
-            *annotation_visits = (*annotation_visits).saturating_add(scanned);
-            entry.insert(index);
-        }
+        let revision = AppendedRevision::new(incremental);
+        page_index(
+            &mut annotation_indexes,
+            &revision,
+            page_id,
+            annotation_visits,
+        )?;
         note_pages.push(page_id);
     }
 
@@ -579,21 +545,19 @@ where
 
         let annot_ref = incremental.new_document.new_object_id();
         let popup_ref = incremental.new_document.new_object_id();
-        let recovered = if let Some(data) = note.recovery_data.as_deref() {
-            restore_note_recovery(
-                &mut incremental.new_document,
-                data,
-                annot_ref,
-                popup_ref,
-                page_id,
-            )?
-        } else {
-            Vec::new()
-        };
-        annotation_indexes
-            .get_mut(&page_id)
-            .expect("Text note page is indexed")
-            .append_missing_refs(&recovered);
+        if let Some(data) = note.recovery_data.as_deref() {
+            let number = mutation_page_number(note.page_index)?;
+            let pages = &incremental.previous_document;
+            let page_of = |_: &Document, n| page_resolver.page_id(pages, n);
+            let notes = (annot_ref, popup_ref);
+            let restored = &mut incremental.new_document;
+            let members = restore_note_recovery(restored, data, notes, number, page_of)?;
+            let revision = AppendedRevision::new(incremental);
+            for (member, page) in members {
+                page_index(&mut annotation_indexes, &revision, page, annotation_visits)?
+                    .append_missing_refs(&[member]);
+            }
+        }
         let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
         write_text_note_pair(
             &mut incremental.new_document,
@@ -629,12 +593,12 @@ pub(crate) fn upsert_text_boxes_with_counter(
     for editor in editors {
         let page_number = mutation_page_number(editor.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
-        {
-            let (index, scanned) = build_page_annotation_index(document, page_id)?;
-            *annotation_visits = (*annotation_visits).saturating_add(scanned);
-            entry.insert(index);
-        }
+        page_index(
+            &mut annotation_indexes,
+            document,
+            page_id,
+            annotation_visits,
+        )?;
         let page_view = resolve_page_view(document, page_id)?;
         let mut rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
@@ -733,12 +697,13 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     for editor in editors {
         let page_number = mutation_page_number(editor.page_index)?;
         let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
-        {
-            let (index, scanned) = build_incremental_page_annotation_index(incremental, page_id)?;
-            *annotation_visits = (*annotation_visits).saturating_add(scanned);
-            entry.insert(index);
-        }
+        let revision = AppendedRevision::new(incremental);
+        page_index(
+            &mut annotation_indexes,
+            &revision,
+            page_id,
+            annotation_visits,
+        )?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let mut rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
@@ -851,7 +816,7 @@ pub(crate) fn validate_text_box_targets(
     let mut indexes = HashMap::new();
     for editor in &mutations.text_boxes {
         let page_id = pages.page_id(document, mutation_page_number(editor.page_index)?)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = indexes.entry(page_id) {
+        if let Entry::Vacant(entry) = indexes.entry(page_id) {
             entry.insert(build_page_annotation_index(document, page_id)?.0);
         }
         let index = &indexes[&page_id];
@@ -1027,9 +992,12 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
     let tokens = tokenize_default_appearance(&bytes);
     let mut replacements = Vec::<(usize, usize, Vec<u8>)>::new();
     let mut replaced_tf = false;
-    let mut replaced_rg = false;
     for (index, &(start, end)) in tokens.iter().enumerate() {
         let token = &bytes[start..end];
+        // A fill operator's index is one less than its operand count.
+        let fill = [b"g".as_slice(), b"", b"rg", b"k"]
+            .iter()
+            .position(|o| *o == token);
         if token == b"Tf" {
             // A malformed size operand is replaced too, so readers take the
             // size the appearance draws rather than an earlier number.
@@ -1042,21 +1010,19 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
                 ));
                 replaced_tf = true;
             }
-        } else if token == b"rg" {
-            if let Some(first) = index.checked_sub(3) {
-                let operands_are_numbers = tokens[first..index].iter().all(|&(start, end)| {
-                    std::str::from_utf8(&bytes[start..end])
-                        .ok()
-                        .and_then(|value| value.parse::<f64>().ok())
-                        .is_some_and(f64::is_finite)
-                });
-                if operands_are_numbers {
-                    for (component, token_index) in color.into_iter().zip(first..index) {
-                        let (start, end) = tokens[token_index];
-                        replacements.push((start, end, number_to_content(component).into_bytes()));
-                    }
-                    replaced_rg = true;
-                }
+        } else if let Some(first) = fill.and_then(|count| index.checked_sub(count + 1)) {
+            // Every fill colour goes: the one appended below is the one drawn.
+            let operands_are_numbers = tokens[first..index].iter().all(|&(start, end)| {
+                std::str::from_utf8(&bytes[start..end])
+                    .ok()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .is_some_and(f64::is_finite)
+            });
+            if operands_are_numbers {
+                let from = first
+                    .checked_sub(1)
+                    .map_or(0, |previous| tokens[previous].1);
+                replacements.push((from, end, Vec::new()));
             }
         }
     }
@@ -1067,9 +1033,7 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
     if !replaced_tf {
         bytes.extend_from_slice(format!(" /Helv {} Tf", number_to_content(font_size)).as_bytes());
     }
-    if !replaced_rg {
-        bytes.extend_from_slice(format!(" {} rg", format_operands(&color)).as_bytes());
-    }
+    bytes.extend_from_slice(format!(" {} rg", format_operands(&color)).as_bytes());
     bytes.trim_ascii_start().to_vec()
 }
 
@@ -1527,15 +1491,27 @@ pub(crate) fn get_page_annots(
     Ok(resolved.as_array().cloned().unwrap_or_default())
 }
 
+/// Appends each of `refs` that `annots` does not list; whether any was.
+fn append_missing(annots: &mut Vec<Object>, refs: &[ObjectId]) -> bool {
+    let listed = annots.len();
+    for id in refs {
+        if !annots.contains(&Object::Reference(*id)) {
+            annots.push(Object::Reference(*id));
+        }
+    }
+    annots.len() > listed
+}
+
+/// Lists each of `refs` on the page once; a page that lists them all is unchanged.
 pub(crate) fn append_annots_to_page(
     document: &mut Document,
     page_id: ObjectId,
     refs: &[ObjectId],
 ) -> Result<()> {
     let mut annots = get_page_annots(document, page_id)?;
-    annots.extend(refs.iter().copied().map(Object::Reference));
-    let page = document.get_dictionary_mut(page_id)?;
-    page.set("Annots", Object::Array(annots));
+    if append_missing(&mut annots, refs) {
+        document.get_dictionary_mut(page_id)?.set("Annots", annots);
+    }
     Ok(())
 }
 
@@ -1544,24 +1520,35 @@ pub(crate) fn append_annots_to_page_incremental(
     page_id: ObjectId,
     refs: &[ObjectId],
 ) -> Result<()> {
-    incremental.opt_clone_object_to_new_document(page_id)?;
-    let mut annots = match get_page_annots(&incremental.new_document, page_id) {
-        Ok(annots) => annots,
-        Err(_) => get_page_annots(incremental.get_prev_documents(), page_id)?,
-    };
-    annots.extend(refs.iter().copied().map(Object::Reference));
-    let page = incremental.new_document.get_dictionary_mut(page_id)?;
-    page.set("Annots", Object::Array(annots));
+    let mut annots = get_incremental_page_annots(incremental, page_id)?;
+    if append_missing(&mut annots, refs) {
+        incremental.opt_clone_object_to_new_document(page_id)?;
+        let page = incremental.new_document.get_dictionary_mut(page_id)?;
+        page.set("Annots", annots);
+    }
     Ok(())
+}
+
+/// Every annotation that answers another, by the one it answers, on any page
+/// as the parse and Undo find them, without walking the page tree.
+pub(crate) fn document_replies(document: &Document) -> HashMap<ObjectId, Vec<ObjectId>> {
+    let mut replies: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
+    for (id, object) in &document.objects {
+        if let Some(parent) = object
+            .as_dict()
+            .ok()
+            .and_then(|d| annotation_related_ref(d, b"IRT"))
+        {
+            replies.entry(parent).or_default().push(*id);
+        }
+    }
+    replies
 }
 
 pub(crate) fn collect_annotation_refs_to_delete(
     document: &impl PdfObjectSource,
     target_id: ObjectId,
-    // Callers that already have the owning page's `/Annots` list provide it
-    // for annotations without a `/P` back-reference. This keeps reply
-    // discovery page-local without walking the document's page tree.
-    page_annots_hint: Option<&[Object]>,
+    replies_by_parent: &HashMap<ObjectId, Vec<ObjectId>>,
 ) -> Result<Vec<ObjectId>> {
     if document.dictionary(target_id).is_err() {
         return Err(format!(
@@ -1574,30 +1561,6 @@ pub(crate) fn collect_annotation_refs_to_delete(
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
     let mut pending = vec![target_id];
-    let owner_page_annots = annotation_page_id(document, target_id)
-        .map(|page_id| get_page_annots(document, page_id))
-        .transpose()?;
-    let page_annots = owner_page_annots.as_deref().or(page_annots_hint);
-    let replies_by_parent = page_annots.map(|page_annots| {
-        let mut replies_by_parent: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
-        for reply_id in page_annots
-            .iter()
-            .filter_map(|object| object.as_reference().ok())
-        {
-            let Ok(reply_dict) = document.dictionary(reply_id) else {
-                continue;
-            };
-            if annotation_subtype(reply_dict) != "popup" {
-                if let Some(parent_id) = annotation_related_ref(reply_dict, b"IRT") {
-                    replies_by_parent
-                        .entry(parent_id)
-                        .or_default()
-                        .push(reply_id);
-                }
-            }
-        }
-        replies_by_parent
-    });
     while let Some(object_id) = pending.pop() {
         if !seen.insert(object_id) {
             continue;
@@ -1625,10 +1588,7 @@ pub(crate) fn collect_annotation_refs_to_delete(
                 }
             }
         }
-        if let Some(reply_ids) = replies_by_parent
-            .as_ref()
-            .and_then(|replies| replies.get(&object_id))
-        {
+        if let Some(reply_ids) = replies_by_parent.get(&object_id) {
             pending.extend(reply_ids.iter().copied());
         }
     }
@@ -1720,8 +1680,34 @@ fn resolve_annotation_delete_page_ids(
             page_ids.insert(page_id);
         }
     }
-
+    add_listing_pages(document, page_resolver, refs_to_delete, &mut page_ids)?;
     Ok(page_ids.into_iter().collect())
+}
+
+/// Adds every page when `page_ids` do not list each of `refs`: a reply on
+/// another page that its /P does not name leaves wherever a page lists it.
+pub(crate) fn add_listing_pages(
+    document: &impl PdfObjectSource,
+    page_resolver: &PageTreeResolver,
+    refs: &HashSet<ObjectId>,
+    page_ids: &mut HashSet<ObjectId>,
+) -> Result<()> {
+    let mut listed = HashSet::new();
+    for page_id in page_ids.iter() {
+        let annots = get_page_annots(document, *page_id)?;
+        listed.extend(
+            annots
+                .iter()
+                .filter_map(|object| object.as_reference().ok()),
+        );
+    }
+    if refs.is_subset(&listed) {
+        return Ok(());
+    }
+    page_resolver.for_each_page_id(document, |page_id| {
+        page_ids.insert(page_id);
+        Ok(())
+    })
 }
 
 pub(crate) fn collect_delete_refs(
@@ -1731,11 +1717,11 @@ pub(crate) fn collect_delete_refs(
 ) -> Result<HashSet<ObjectId>> {
     let mut refs_to_delete = HashSet::new();
     let mut annotation_indexes = HashMap::new();
+    let replies = document_replies(document);
     for delete in deletes {
         let page_number = mutation_page_number(delete.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
-        {
+        if let Entry::Vacant(entry) = annotation_indexes.entry(page_id) {
             entry.insert(build_page_annotation_index(document, page_id)?.0);
         }
         let index = annotation_indexes
@@ -1749,11 +1735,9 @@ pub(crate) fn collect_delete_refs(
             resolve_annotation_delete_target_refs_from_index(index, delete)?
         };
         for target_id in target_refs {
-            for object_id in
-                collect_annotation_refs_to_delete(document, target_id, Some(&index.annots))?
-            {
-                refs_to_delete.insert(object_id);
-            }
+            refs_to_delete.extend(collect_annotation_refs_to_delete(
+                document, target_id, &replies,
+            )?);
         }
     }
     Ok(refs_to_delete)
@@ -2306,7 +2290,7 @@ mod tests {
             16.0,
             [0.1, 0.2, 0.3],
         );
-        assert_eq!(patched, b"/Helv 16 Tf 0.1 0.2 0.3 rg /Helv 16 Tf");
+        assert_eq!(patched, b"/Helv 16 Tf /Helv 16 Tf 0.1 0.2 0.3 rg");
         let patched = patch_default_appearance(Some(b"/Helv Tf"), 16.0, [0.1, 0.2, 0.3]);
         assert_eq!(patched, b"/Helv Tf /Helv 16 Tf 0.1 0.2 0.3 rg");
     }
@@ -2314,10 +2298,6 @@ mod tests {
     #[test]
     fn patch_default_appearance_does_not_replace_a_malformed_color_operand() {
         let patched = patch_default_appearance(Some(b"/Helv 12 Tf 0 0 rg"), 16.0, [0.1, 0.2, 0.3]);
-        let patched = std::str::from_utf8(&patched).unwrap();
-
-        assert!(patched.contains("/Helv 16 Tf 0 0 rg"));
-        assert!(patched.contains("/Helv 16 Tf"));
-        assert!(patched.contains("0.1 0.2 0.3 rg"));
+        assert_eq!(patched, b"/Helv 16 Tf 0 0 rg 0.1 0.2 0.3 rg");
     }
 }
