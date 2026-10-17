@@ -114,8 +114,13 @@ describe('Electron E2E - DjVu visible page indicator', () => {
         try {
             for (let cycle = 1; cycle <= 18; cycle += 1) {
                 reached = cycle;
+                const wide = await readRaster();
                 await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
-                await expect.poll(readRaster, {timeout: 10_000}).toMatchObject({sidebar: 'open'});
+                // Under Reduce Motion, as on macOS runners, the sidebar opens
+                // without a slide, before the viewer measures its narrower
+                // viewport. Zoom out from the repainted open Fit Width page,
+                // not from the stale wider scale.
+                await expect.poll(readRaster, {timeout: 10_000}).toSatisfy(raster => raster.sidebar === 'open' && raster.fresh && raster.width < wide.width);
                 const opened = await readRaster();
                 for (let step = 0; step < 3; step += 1) {
                     await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+-'});
