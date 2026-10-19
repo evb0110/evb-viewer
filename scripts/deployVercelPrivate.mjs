@@ -41,7 +41,7 @@ import {
     isRootVendorPath,
 } from './check-web-deploy-source.mjs';
 import { assertWasmArtifactsCurrent } from './ensure-wasm-artifacts.mjs';
-import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
+import { BROWSER_WASM_PUBLIC_PATHS } from './wasm-artifacts.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -185,13 +185,14 @@ function configureDeployManifest(sourceRoot, deployTarget) {
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
 }
 
-// public/wasm is built locally, not tracked, and the remote build has no Rust
-// toolchain, so a viewer upload carries the files `pnpm run build` produced.
-// assertWasmArtifactsCurrent has already checked them against the native sources.
+// public/wasm is built or fetched locally, not tracked, and the remote build
+// has no Rust toolchain, so a viewer upload carries the files `pnpm run build`
+// produced. assertWasmArtifactsCurrent has already checked them against the
+// native sources and the pinned downloads.
 function copyBrowserWasm(projectRoot, sourceRoot) {
-    for (const artifact of WASM_ARTIFACTS) {
-        mkdirSync(path.dirname(path.join(sourceRoot, artifact.publicRelativePath)), {recursive: true});
-        cpSync(path.join(projectRoot, artifact.publicRelativePath), path.join(sourceRoot, artifact.publicRelativePath));
+    for (const publicRelativePath of BROWSER_WASM_PUBLIC_PATHS) {
+        mkdirSync(path.dirname(path.join(sourceRoot, publicRelativePath)), {recursive: true});
+        cpSync(path.join(projectRoot, publicRelativePath), path.join(sourceRoot, publicRelativePath));
     }
 }
 

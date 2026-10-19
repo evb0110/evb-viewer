@@ -1,0 +1,23 @@
+--- src/arch/simddetect.cpp
++++ src/arch/simddetect.cpp
+@@ -40,7 +40,7 @@
+ 
+ #endif
+ 
+-#if defined(HAVE_AVX) || defined(HAVE_AVX2) || defined(HAVE_FMA) || defined(HAVE_SSE4_1)
++#if (defined(HAVE_AVX) || defined(HAVE_AVX2) || defined(HAVE_FMA) || defined(HAVE_SSE4_1)) && !defined(__EMSCRIPTEN__)
+ // See https://en.wikipedia.org/wiki/CPUID.
+ #  define HAS_CPUID
+ #endif
+@@ -223,6 +223,11 @@
+ #  endif
+ #endif
+ 
++#if defined(__EMSCRIPTEN__) && defined(HAVE_SSE4_1)
++  // WebAssembly SIMD128 implements the SSE4.1 intrinsics used by Tesseract.
++  sse_available_ = true;
++#endif
++
+ #if defined(HAVE_NEON) && !defined(__aarch64__)
+ #  if defined(HAVE_ANDROID_GETCPUFAMILY)
+   {
