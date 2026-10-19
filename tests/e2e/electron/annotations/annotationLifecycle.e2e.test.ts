@@ -1371,7 +1371,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             throw new Error(`View rotation did not reach ${target}`);
         }
         await rotateTo(rotation);
-        await waitForViewerInteractive(page);
+        await waitForPdfLoaded(page);
         await clickAnnotationTool(page, 'Rectangle');
         const bounds = await page.$eval(layer, element => element.getBoundingClientRect().toJSON());
         const start = {

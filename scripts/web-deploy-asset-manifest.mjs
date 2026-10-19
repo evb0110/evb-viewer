@@ -4,6 +4,7 @@ export { REQUIRED_WEB_WASM_ASSETS };
 
 const REQUIRED_WEB_FILE_ASSETS = [
     { relativePath: 'pdf/pdf.worker.min.mjs' },
+    { relativePath: 'wasm/evb-tesseract.mjs' },
     { relativePath: 'pdf/wasm/openjpeg.wasm' },
     { relativePath: 'pdf/wasm/jbig2.wasm' },
     { relativePath: 'pdf/wasm/qcms_bg.wasm' },

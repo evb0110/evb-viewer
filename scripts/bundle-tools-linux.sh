@@ -185,10 +185,8 @@ echo "=========================================="
 echo "1. Bundling Tesseract..."
 echo "=========================================="
 
-TESSERACT_VERSION="5.5.3"
-TESSERACT_SHA256="9218e62793116d42a9f6d14cd9348518b27f382096eea3d0f2d1a24616bb5884"
-LEPTONICA_VERSION="1.82.0"
-LEPTONICA_SHA256="40fa9ac1e815b91e0fa73f0737e60c9eec433a95fa123f95f2573dd3127dd669"
+# shellcheck source=scripts/tesseract-source-pins.sh
+. "$SCRIPT_DIR/tesseract-source-pins.sh"
 TESSERACT_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tesseract-linux-XXXXXX")"
 trap 'rm -rf -- "$TESSERACT_BUILD_DIR"' EXIT
 curl -fsSL -o "$TESSERACT_BUILD_DIR/tesseract.tar.gz" \
