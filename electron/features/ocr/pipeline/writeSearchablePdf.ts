@@ -22,7 +22,7 @@ export async function writeSearchablePdf(input: {
     for await (const page of input.pages) {
         instructions.push({
             pageNumber: page.pageData.pageNumber,
-            sourcePath: page.pdfPath,
+            source: page.pdfPath,
             normalizeGreekMicroSign: page.normalizeGreekMicroSign,
             ...(page.wordEdits.length === 0 ? {} : {wordEdits: page.wordEdits}),
             ...(page.preprocessInverse === undefined ? {} : {preprocessInverse: {

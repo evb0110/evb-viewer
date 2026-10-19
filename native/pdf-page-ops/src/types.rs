@@ -782,18 +782,22 @@ pub(crate) struct SplitPageOutput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct OcrTextLayerFile {
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) pages: Vec<OcrTextLayerPage>,
+pub(crate) struct OcrTextLayerFile<S> {
+    #[serde(
+        deserialize_with = "deserialize_collection",
+        bound(deserialize = "S: Deserialize<'de>")
+    )]
+    pub(crate) pages: Vec<OcrTextLayerPage<S>>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct OcrTextLayerPage {
+pub(crate) struct OcrTextLayerPage<S> {
     /// One-based page number in the target document.
     pub(crate) page_number: u32,
-    /// Tesseract's one-page text-only PDF for this page's raster.
-    pub(crate) source_path: PathBuf,
+    /// Tesseract's one-page text-only PDF for this page's raster: its path on
+    /// desktop, its index among the request's page PDFs in the browser.
+    pub(crate) source: S,
     /// Present when OCR ran on a preprocessed raster whose pixels moved.
     #[serde(default)]
     pub(crate) preprocess_inverse: Option<OcrPreprocessInverse>,

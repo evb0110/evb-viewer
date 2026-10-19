@@ -14,10 +14,11 @@ use crate::{
 use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
     delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
-    insert_browser_pdf_pages, load_browser_pdf, remove_crop_browser_pdf_bytes,
-    reorder_browser_pdf_pages, rotate_browser_pdf_bytes, serialize_annotation_parse,
-    validate_native_mutations, NativeMutationBytesResult, PageGeometry, PageMutationBytes, PdfRect,
-    Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    insert_browser_pdf_pages, load_browser_pdf, ocr_text_layer_increment_bytes,
+    ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
+    rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
+    NativeMutationBytesResult, PageGeometry, PageMutationBytes, PdfRect, Result,
+    PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
@@ -134,6 +135,22 @@ fn clear_last_result() {
 }
 
 fn run_request(request: &[u8]) -> Result<Vec<u8>> {
+    if request.len() >= OCR_TEXT_LAYER_HEADER.version + U32_BYTES
+        && &request[OCR_TEXT_LAYER_HEADER.magic..OCR_TEXT_LAYER_HEADER.version] == REQUEST_MAGIC
+        && read_u32_at(request, OCR_TEXT_LAYER_HEADER.version)? == REQUEST_VERSION_OCR_TEXT_LAYER
+    {
+        let parsed = parse_ocr_text_layer_request(request)?;
+        let increment =
+            ocr_text_layer_increment_bytes(parsed.data, parsed.instructions, &parsed.page_pdfs)?;
+        return encode_mutation_kind(
+            RESPONSE_INCREMENT,
+            PageMutationBytes {
+                data: increment.data,
+                page_count: increment.page_count,
+            },
+            PAGE_OP_WASM_MAX_OUTPUT_BYTES,
+        );
+    }
     if request.len() >= DOCUMENT_LIST_HEADER.version + U32_BYTES
         && &request[DOCUMENT_LIST_HEADER.magic..DOCUMENT_LIST_HEADER.version] == REQUEST_MAGIC
         && read_u32_at(request, DOCUMENT_LIST_HEADER.version)? == REQUEST_VERSION_DOCUMENT_LIST
@@ -225,6 +242,17 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 page_count: crate::page_count(&document),
                 data: save_document_to_bytes(&mut document)?,
             })
+        }
+        OP_OCR_TEXT_VISIBILITY => {
+            let with_evb_ocr_text = match parsed.insertion_data {
+                b"" => false,
+                b"with-evb-ocr-text" => true,
+                _ => return Err("OCR text visibility takes no option but with-evb-ocr-text".into()),
+            };
+            encode_bytes(
+                RESPONSE_JSON,
+                ocr_text_visibility_bytes(parsed.data, &parsed.pages, with_evb_ocr_text)?,
+            )
         }
         OP_SAVE_MUTATIONS => {
             let (mut mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
@@ -607,6 +635,14 @@ fn mutation_frame_len(data_len: usize, max_output_bytes: usize) -> Result<usize>
 }
 
 fn encode_mutation_with_limit(
+    result: PageMutationBytes,
+    max_output_bytes: usize,
+) -> Result<Vec<u8>> {
+    encode_mutation_kind(RESPONSE_MUTATION, result, max_output_bytes)
+}
+
+fn encode_mutation_kind(
+    kind: u32,
     mut result: PageMutationBytes,
     max_output_bytes: usize,
 ) -> Result<Vec<u8>> {
@@ -622,7 +658,7 @@ fn encode_mutation_with_limit(
         .data
         .copy_within(0..raw_len, PAGE_OP_WASM_MUTATION_HEADER_BYTES);
     result.data[MUTATION_HEADER.kind..MUTATION_HEADER.kind + U32_BYTES]
-        .copy_from_slice(&RESPONSE_MUTATION.to_le_bytes());
+        .copy_from_slice(&kind.to_le_bytes());
     result.data[MUTATION_HEADER.page_count..MUTATION_HEADER.page_count + U32_BYTES]
         .copy_from_slice(&result.page_count.to_le_bytes());
     result.data[MUTATION_HEADER.data_length..MUTATION_HEADER.data_length + U32_BYTES]
@@ -781,6 +817,218 @@ mod tests {
             assert_eq!(dest[1].as_name().unwrap(), b"FitH");
             assert_eq!(f64::from(dest[2].as_float().unwrap()), 75.0);
         }
+    }
+
+    /// A one-page text-only PDF shaped as Tesseract writes it: hidden
+    /// (`3 Tr`) UTF-16BE words over a page box the size of the raster.
+    fn tesseract_page_pdf(words: &str) -> Vec<u8> {
+        let mut document = Document::with_version("1.5");
+        let pages_id = document.new_object_id();
+        let hex: String = words
+            .encode_utf16()
+            .map(|unit| format!("{unit:04X}"))
+            .collect();
+        let content = format!("BT /F1 12 Tf 3 Tr 10 50 Td [<{hex}>] TJ ET").into_bytes();
+        let content_id = document.add_object(lopdf::Stream::new(dictionary! {}, content));
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            "Resources" => dictionary! {
+                "Font" => dictionary! {
+                    "F1" => dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" },
+                },
+            },
+            "Contents" => content_id,
+        });
+        document.set_object(
+            pages_id,
+            dictionary! { "Type" => "Pages", "Kids" => vec![Object::Reference(page_id)], "Count" => 1 },
+        );
+        let catalog_id =
+            document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    /// `test_pdf_bytes` with the (required, here empty) page resources the
+    /// OCR writer adds its font to; the page box stays inherited.
+    fn ocr_base_pdf() -> Vec<u8> {
+        let mut document = Document::load_mem(&test_pdf_bytes()).unwrap();
+        let page_id = *document.get_pages().get(&1).unwrap();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Resources", dictionary! {});
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    fn ocr_text_layer_request(data: &[u8], instructions: &str, page_pdfs: &[&[u8]]) -> Vec<u8> {
+        let mut request = REQUEST_MAGIC.to_vec();
+        for value in [
+            REQUEST_VERSION_OCR_TEXT_LAYER,
+            OP_OCR_TEXT_LAYER,
+            data.len() as u32,
+            instructions.len() as u32,
+            page_pdfs.len() as u32,
+        ] {
+            write_u32_le(&mut request, value);
+        }
+        request.extend_from_slice(data);
+        request.extend_from_slice(instructions.as_bytes());
+        for page in page_pdfs {
+            write_u32_le(&mut request, page.len() as u32);
+            request.extend_from_slice(page);
+        }
+        request
+    }
+
+    /// Page 1's EVB OCR text, as the visibility report reads it back.
+    fn evb_layer_text(saved: &[u8]) -> String {
+        let report: serde_json::Value =
+            serde_json::from_slice(&ocr_text_visibility_bytes(saved, &[1], true).unwrap()).unwrap();
+        report["pages"][0]["evbOcrLines"]
+            .as_array()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .map(|line| line["text"].as_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn ocr_text_layer_returns_only_the_appended_revision() {
+        let base = ocr_base_pdf();
+        let page = tesseract_page_pdf("Recognized");
+        let output = run_request(&ocr_text_layer_request(
+            &base,
+            r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
+            &[&page],
+        ))
+        .unwrap();
+        assert_eq!(&output[0..4], &RESPONSE_INCREMENT.to_le_bytes());
+        assert_eq!(read_u32_at(&output, MUTATION_HEADER.page_count).unwrap(), 1);
+        let increment = &output[MUTATION_HEADER.bytes..];
+        assert_eq!(
+            read_u32_at(&output, MUTATION_HEADER.data_length).unwrap() as usize,
+            increment.len()
+        );
+        assert!(!increment.starts_with(b"%PDF"));
+        let mut saved = base.clone();
+        saved.extend_from_slice(increment);
+        Document::load_mem(&saved).unwrap();
+        assert_eq!(evb_layer_text(&saved), "Recognized");
+    }
+
+    #[test]
+    fn ocr_text_layer_replaces_the_previous_evb_layer() {
+        let first = ocr_base_pdf();
+        let request = |base: &[u8], words: &str| {
+            let page = tesseract_page_pdf(words);
+            let output = run_request(&ocr_text_layer_request(
+                base,
+                r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
+                &[&page],
+            ))
+            .unwrap();
+            let mut saved = base.to_vec();
+            saved.extend_from_slice(&output[MUTATION_HEADER.bytes..]);
+            saved
+        };
+        let second = request(&request(&first, "Earlier"), "Later");
+        assert_eq!(evb_layer_text(&second), "Later");
+    }
+
+    #[test]
+    fn ocr_text_layer_framing_rejects_bad_sources_and_trailing_bytes() {
+        let base = ocr_base_pdf();
+        let page = tesseract_page_pdf("Word");
+        let missing = run_request(&ocr_text_layer_request(
+            &base,
+            r#"{"pages":[{"pageNumber":1,"source":1}]}"#,
+            &[&page],
+        ))
+        .unwrap_err();
+        assert!(missing.to_string().contains("does not carry"), "{missing}");
+        let duplicate = run_request(&ocr_text_layer_request(
+            &base,
+            r#"{"pages":[{"pageNumber":1,"source":0},{"pageNumber":1,"source":0}]}"#,
+            &[&page],
+        ))
+        .unwrap_err();
+        assert!(duplicate.to_string().contains("unique"), "{duplicate}");
+        let empty_page = run_request(&ocr_text_layer_request(
+            &base,
+            r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
+            &[b""],
+        ))
+        .unwrap_err();
+        assert!(
+            empty_page.to_string().contains("between 1 and"),
+            "{empty_page}"
+        );
+        let mut trailing = ocr_text_layer_request(
+            &base,
+            r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
+            &[&page],
+        );
+        trailing.push(0);
+        assert!(run_request(&trailing)
+            .unwrap_err()
+            .to_string()
+            .contains("Trailing bytes"));
+        let instructions = r#"{"pages":[{"pageNumber":1,"source":0}]}"#;
+        let mut truncated = ocr_text_layer_request(&base, instructions, &[&page]);
+        truncated.truncate(OCR_TEXT_LAYER_HEADER.bytes + base.len() + instructions.len() + 2);
+        assert!(run_request(&truncated)
+            .unwrap_err()
+            .to_string()
+            .contains("Truncated page-op WASM request"));
+        let no_pages = ocr_text_layer_request(&base, r#"{"pages":[]}"#, &[]);
+        assert!(run_request(&no_pages)
+            .unwrap_err()
+            .to_string()
+            .contains("page PDF count"));
+    }
+
+    #[test]
+    fn ocr_text_visibility_reports_the_layer_the_writer_added() {
+        let base = ocr_base_pdf();
+        let page = tesseract_page_pdf("Visible");
+        let output = run_request(&ocr_text_layer_request(
+            &base,
+            r#"{"pages":[{"pageNumber":1,"source":0}]}"#,
+            &[&page],
+        ))
+        .unwrap();
+        let mut saved = base.clone();
+        saved.extend_from_slice(&output[MUTATION_HEADER.bytes..]);
+        let flag = b"with-evb-ocr-text";
+        let mut request = request_header_with_password(
+            OP_OCR_TEXT_VISIBILITY,
+            1,
+            saved.len() as u32,
+            flag.len() as u32,
+            0,
+        );
+        write_u32_le(&mut request, 1);
+        request.extend_from_slice(&saved);
+        request.extend_from_slice(flag);
+        let output = run_request(&request).unwrap();
+        assert_eq!(&output[0..4], &RESPONSE_JSON.to_le_bytes());
+        let report: serde_json::Value =
+            serde_json::from_slice(&output[BYTES_HEADER.bytes..]).unwrap();
+        let page = &report["pages"][0];
+        assert_eq!(page["pageNumber"], 1);
+        assert_eq!(page["evbOcrLayer"], true);
+        assert_eq!(page["evbOcrLines"][0]["text"], "Visible");
     }
 
     fn crop_request(data: &[u8], top: f64) -> Vec<u8> {
