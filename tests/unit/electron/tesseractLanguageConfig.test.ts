@@ -13,7 +13,7 @@ import {
     isRtlOcrLanguage,
     EARLY_PRINT_MODEL_CODES,
 } from '@contracts/ocrLanguages';
-import { resolveTesseractLanguageConfig } from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
+import { resolveTesseractLanguageConfig } from '@ocr-core/resolveTesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
     it('ships English and Russian offline while retaining every supported on-demand language', () => {

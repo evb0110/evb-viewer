@@ -1,0 +1,12 @@
+{
+    "name": "@evb/ocr-core",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./*": "./*.ts"
+    },
+    "dependencies": {
+        "@evb/contracts": "workspace:*",
+        "es-toolkit": "^1.52.0"
+    }
+}

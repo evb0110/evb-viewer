@@ -454,6 +454,15 @@ importers:
         specifier: ^5.10.0
         version: 5.10.0
 
+  packages/ocr-core:
+    dependencies:
+      '@evb/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      es-toolkit:
+        specifier: ^1.52.0
+        version: 1.52.0
+
   packages/pdf-core:
     dependencies:
       es-toolkit:

@@ -133,7 +133,7 @@ async function loadProductionRunner() {
         stdin: {
             contents: `
                 export {runProductionOcrQualityCase} from './electron/features/ocr/pipeline/runProductionOcrQualityCase.ts';
-                export {shouldNormalizeGreekMicroSign} from './electron/features/ocr/pipeline/tesseractRunner.ts';
+                export {shouldNormalizeGreekMicroSign} from './packages/ocr-core/tesseractRecipe.ts';
                 export {DEFAULT_OCR_RECOGNITION_OPTIONS, POOR_SCAN_OCR_RECOGNITION_OPTIONS} from './packages/contracts/electronApiOcr.ts';
             `,
             resolveDir: repositoryRoot,

@@ -11,14 +11,14 @@ import {
     createEarlyPrintDictionary,
     hasLongSSignature,
     planEarlyPrintWordEdits,
-} from '@electron/features/ocr/pipeline/earlyPrintReading';
+} from '@ocr-core/earlyPrintReading';
 import {
     hocrWordText,
     readHocrLines,
     type IHocrLine,
-} from '@electron/features/ocr/pipeline/hocrReading';
-import {readTraineddataWordList} from '@electron/features/ocr/pipeline/traineddataWordList';
-import type {IOcrWordEdit} from '@electron/features/ocr/pipeline/types';
+} from '@ocr-core/hocrReading';
+import {readTraineddataWordList} from '@ocr-core/readTraineddataWordList';
+import type {IOcrWordEdit} from '@ocr-core/types';
 
 const FIXTURES = join(process.cwd(), 'tests/fixtures/electron/early-print');
 
@@ -134,7 +134,7 @@ describe('early-print reading', () => {
 describe('traineddata word lists', () => {
     it('reads the dictionary Tesseract packed into a model', async () => {
         // Built with wordlist2dawg and combine_tessdata from eight words.
-        expect((await readTraineddataWordList(join(FIXTURES, 'eight-latin-words.traineddata')))?.sort()).toEqual([
+        expect(readTraineddataWordList(readFileSync(join(FIXTURES, 'eight-latin-words.traineddata')))?.sort()).toEqual([
             'Domini',
             'Dominica',
             'Octava',

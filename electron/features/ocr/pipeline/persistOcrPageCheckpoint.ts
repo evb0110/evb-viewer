@@ -16,7 +16,7 @@ import {
     OCR_LANGUAGE_MODEL_SHA256,
     type TOcrModelCode,
 } from '@contracts/ocrLanguages';
-import {canReadEarlyPrint} from '@electron/features/ocr/pipeline/earlyPrintReading';
+import {canReadEarlyPrint} from '@ocr-core/earlyPrintReading';
 import {
     getNativeToolBuildIdentity,
     getRuntimeToolArchiveIdentity,

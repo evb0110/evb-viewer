@@ -12,8 +12,10 @@ import type {
 import {iterateOcrPageRequestBatches} from '@electron/features/ocr/contracts';
 import type {
     IOcrPageWithWords,
-    IOcrPdfPageRequest,
     IOcrWordEdit,
+} from '@ocr-core/types';
+import type {
+    IOcrPdfPageRequest,
     TOcrPdfPageSelection,
 } from '@electron/features/ocr/pipeline/types';
 
