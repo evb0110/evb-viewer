@@ -53,7 +53,7 @@ export default {
         },
         installers: {
             heading: 'Desktop downloads',
-            description: 'Desktop builds are for searchable-PDF OCR, native OS integration, and heavier workflows such as large merges. The recommended installer is based on your current device, but every build stays selectable.',
+            description: 'Desktop builds add scan cleanup, OCR in about 30 languages, native OS integration, and heavier workflows such as large merges. The recommended installer is based on your current device, but every build stays selectable.',
             loading: 'Loading latest release links...',
             error: 'Could not load release artifacts right now.',
             retry: 'Retry',
@@ -157,7 +157,7 @@ export default {
                 },
                 languages: {
                     question: 'Which languages can OCR read?',
-                    answer: 'About 30, including English, German, French, Russian, Greek, Hebrew, Arabic, and Syriac. English and Russian come with the app; other models download once, the first time you choose them.',
+                    answer: 'About 30, including English, German, French, Russian, Greek, Hebrew, Arabic, and Syriac. English and Russian come with the app; other models download once, the first time you choose them. The browser app reads English, Russian, French, German, Portuguese, Spanish, Dutch, and Italian.',
                 },
                 formats: {
                     question: 'Which files does it open?',
@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Can I use it without installing anything?',
-                    answer: 'Yes, at {webAppUrl}. The browser app opens local PDFs, DjVu files, and images; OCR and large merges need the desktop app.',
+                    answer: 'Yes, at {webAppUrl}. The browser app opens local PDFs, DjVu files, and images and runs OCR in eight European languages; scan cleanup, other OCR languages, files over 16 MB, and large merges need the desktop app.',
                 },
                 assistant: {
                     question: 'Does it use AI?',
@@ -175,19 +175,19 @@ export default {
         },
         entryPoints: {
             heading: 'Choose the right entry point',
-            description: 'Start in the browser for quick local PDF, DjVu, and image work, or choose the desktop app for searchable-PDF OCR, native OS integration, and larger merges.',
+            description: 'Start in the browser for quick local PDF, DjVu, and image work, including OCR, or choose the desktop app for scan cleanup, OCR in about 30 languages, native OS integration, and larger merges.',
             web: {
                 title: 'Web app',
                 description: 'Best for opening local PDFs, DjVu files, and common images immediately, then reviewing, marking up, and exporting without installing anything.',
                 point1: 'PDF, DjVu, and image workflows',
                 point2: 'No install or updater friction',
-                point3: 'Great for quick review, markup, page edits, and export',
+                point3: 'Great for quick review, markup, page edits, OCR, and export',
                 action: 'Open web app',
             },
             desktop: {
                 title: 'Desktop app',
-                description: 'Best for searchable-PDF OCR, native OS integration, larger merge jobs, and workflows that need more than browser memory limits.',
-                point1: 'Searchable-PDF OCR',
+                description: 'Best for scan cleanup, OCR in about 30 languages, native OS integration, larger merge jobs, and workflows that need more than browser memory limits.',
+                point1: 'Scan cleanup and OCR in about 30 languages',
                 point2: 'Larger merge and export jobs',
                 point3: 'Native desktop dialogs and OS integration',
                 action: 'Browse desktop builds',
@@ -204,7 +204,7 @@ export default {
         seo: {
             title: 'EVB Viewer features for browser and desktop',
             ogTitle: 'EVB Viewer feature overview',
-            ogDescription: 'See what EVB Viewer covers in the browser today and what the desktop app adds for searchable-PDF OCR, native OS integration, and larger jobs.',
+            ogDescription: 'See what EVB Viewer covers in the browser today and what the desktop app adds for scan cleanup, more OCR languages, native OS integration, and larger jobs.',
         },
         hero: {
             badge: 'Native scan cleanup and OCR',
@@ -218,11 +218,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, images, and DjVu where it fits',
-                description: 'Browser workflows open local PDFs, DjVu files, and common images. The desktop app adds searchable-PDF OCR and avoids browser memory caps on heavier jobs.',
+                description: 'Browser workflows open local PDFs, DjVu files, and common images. The desktop app adds scan cleanup and more OCR languages and avoids browser memory caps on heavier jobs.',
             },
             ocr: {
                 title: 'OCR with searchable output',
-                description: 'Desktop builds run searchable-PDF OCR locally and keep the result inside the edited document.',
+                description: 'OCR runs locally in the browser and in desktop builds and keeps the searchable result inside the edited document. The browser reads eight European languages; desktop builds read about 30.',
             },
             annotations: {
                 title: 'Deep annotation tools',
@@ -243,7 +243,7 @@ export default {
         },
         workflow: {
             heading: 'How the product fits real work',
-            description: 'A typical EVB Viewer session starts with quick browser work and moves to desktop when searchable-PDF OCR or scale requires it.',
+            description: 'A typical EVB Viewer session starts with quick browser work and moves to desktop when scan cleanup, more OCR languages, or scale requires it.',
             load: {
                 title: 'Start in the browser',
                 body: 'Open a local PDF, DjVu file, or image immediately when installation would slow the task down.',
@@ -253,8 +253,8 @@ export default {
                 body: 'Search, comment, highlight, compare, and reorganize pages without leaving the workspace.',
             },
             edit: {
-                title: 'Move to desktop for OCR or scale',
-                body: 'Install the desktop app for searchable-PDF OCR, native OS integration, and larger merge/export jobs.',
+                title: 'Move to desktop for cleanup or scale',
+                body: 'Install the desktop app for scan cleanup, OCR in about 30 languages, native OS integration, and larger merge/export jobs.',
             },
             export: {
                 title: 'Export the result',
@@ -283,22 +283,22 @@ export default {
     },
     docs: {
         seo: {
-            title: 'EVB Viewer docs for browser files and desktop OCR workflows',
+            title: 'EVB Viewer docs for browser and desktop workflows',
             ogTitle: 'EVB Viewer user guide',
-            ogDescription: 'Start with the browser app for local files, then install the desktop app when you need searchable-PDF OCR, native OS integration, or larger merge/export jobs.',
+            ogDescription: 'Start with the browser app for local files and OCR, then install the desktop app when you need scan cleanup, more OCR languages, native OS integration, or larger merge/export jobs.',
         },
         hero: {
-            title: 'Guides for browser files and desktop OCR',
-            subtitle: 'Start with the web app for quick local PDF, DjVu, and image work, then move to the desktop app for searchable-PDF OCR, native OS integration, or larger merge/export jobs.',
+            title: 'Guides for the browser and desktop apps',
+            subtitle: 'Start with the web app for quick local PDF, DjVu, and image work, including OCR, then move to the desktop app for scan cleanup, more OCR languages, native OS integration, or larger merge/export jobs.',
         },
         guideCardAction: 'Jump to section',
         browserQuickstart: {
             heading: 'Browser quick start',
             intro: 'Use the web app when the job starts with a local PDF, DjVu file, or common image and you want to move immediately.',
             li1: 'Open a PDF, DjVu file, or supported image directly in the browser workspace.',
-            li2: 'Use search, notes, highlights, page reordering, crop, and export without installing the desktop app. Keep very large merge batches for desktop.',
+            li2: 'Use search, notes, highlights, page reordering, crop, OCR, and export without installing the desktop app. Keep very large merge batches for desktop.',
             li3: 'Browser workflows are best for lighter files, quick review loops, and capped merge batches.',
-            li4: 'Searchable-PDF OCR stays desktop-first, so move to the desktop app when the task depends on it.',
+            li4: 'OCR in the browser reads English, Russian, French, German, Portuguese, Spanish, Dutch, and Italian; move to the desktop app for scan cleanup or other languages.',
         },
         bookmarks: {
             title: 'On this page',
@@ -319,7 +319,7 @@ export default {
         },
         workspace: {
             heading: 'Workspace overview',
-            intro: 'EVB Viewer is a document workspace that spans browser and desktop. The browser opens local PDFs, DjVu files, and images; desktop adds searchable-PDF OCR, native OS integration, and more headroom for large jobs.',
+            intro: 'EVB Viewer is a document workspace that spans browser and desktop. The browser opens local PDFs, DjVu files, and images and runs OCR; desktop adds scan cleanup, more OCR languages, native OS integration, and more headroom for large jobs.',
             li1: 'Top: tab bar for opening, reordering, splitting, and moving tabs.',
             li2: 'Under tabs: toolbar for save, export, OCR, zoom, selection/hand mode, and settings.',
             li3: 'Center: document viewer with single page or facing layouts.',
@@ -328,7 +328,7 @@ export default {
         },
         unsigned: {
             heading: 'Installing desktop builds',
-            intro: 'Use desktop builds for searchable-PDF OCR, native OS integration, and heavier workflows such as large merges. Download installers from the EVB Viewer download section or official releases.',
+            intro: 'Use desktop builds for scan cleanup, OCR in about 30 languages, native OS integration, and heavier workflows such as large merges. Download installers from the EVB Viewer download section or official releases.',
             li1: 'Always install files published under {repo} releases.',
             li2: 'If your OS shows a warning, use the per-platform override steps below.',
             macosHeading: 'macOS (DMG):',
@@ -346,7 +346,7 @@ export default {
         },
         openCombine: {
             heading: 'Open and combine files',
-            intro: 'Use {menuPath} to open supported files. Browser workflows cover PDFs, DjVu files, and common images; desktop is better for searchable-PDF OCR and larger merge jobs.',
+            intro: 'Use {menuPath} to open supported files. Browser workflows cover PDFs, DjVu files, and common images; desktop is better for scan cleanup and larger merge jobs.',
             li1: 'Supported file types include PDF, DjVu, PNG, JPG/JPEG, TIFF, BMP, WEBP, and GIF.',
             li2: 'You can select multiple PDFs, DjVu files, or images at once. Browser merge is memory-capped; use desktop for larger batches.',
             li3: 'Generated file naming follows the first selected file, for example {example}.',
@@ -408,7 +408,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR and exports',
-            intro: 'Exports are available across the product. Searchable-PDF OCR stays in the desktop runtime, where local processing and language assets are available.',
+            intro: 'Exports are available across the product. OCR runs locally in the browser for eight European languages and in desktop builds for about 30, where scan cleanup is also available.',
             li1: 'OCR pop-up supports all pages, current page, or custom range modes.',
             li2: 'Language selection is grouped by script families for faster setup.',
             li3: 'You can cancel running OCR and monitor progress page-by-page.',

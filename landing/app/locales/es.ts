@@ -53,7 +53,7 @@ export default {
         },
         installers: {
             heading: 'Descargas de escritorio',
-            description: 'Los builds de escritorio son para OCR de PDF con texto buscable, integración nativa con el sistema operativo y flujos más pesados, como combinaciones grandes. El instalador recomendado se basa en tu dispositivo actual, pero todos los builds siguen disponibles.',
+            description: 'Los builds de escritorio añaden limpieza de escaneos, OCR en unos 30 idiomas, integración nativa con el sistema operativo y flujos más pesados, como combinaciones grandes. El instalador recomendado se basa en tu dispositivo actual, pero todos los builds siguen disponibles.',
             loading: 'Cargando enlaces de la versión más reciente...',
             error: 'No se pudieron cargar los artefactos de la versión en este momento.',
             retry: 'Reintentar',
@@ -157,7 +157,7 @@ export default {
                 },
                 languages: {
                     question: '¿Qué idiomas reconoce el OCR?',
-                    answer: 'Unos 30, entre ellos inglés, alemán, francés, ruso, griego, hebreo, árabe y siríaco. El inglés y el ruso vienen con la aplicación; los demás modelos se descargan una vez, la primera vez que los eliges.',
+                    answer: 'Unos 30, entre ellos inglés, alemán, francés, ruso, griego, hebreo, árabe y siríaco. El inglés y el ruso vienen con la aplicación; los demás modelos se descargan una vez, la primera vez que los eliges. La aplicación web lee inglés, ruso, francés, alemán, portugués, español, neerlandés e italiano.',
                 },
                 formats: {
                     question: '¿Qué archivos abre?',
@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: '¿Puedo usarlo sin instalar nada?',
-                    answer: 'Sí, en {webAppUrl}. La aplicación web abre PDF, archivos DjVu e imágenes locales; el OCR y las combinaciones grandes necesitan la aplicación de escritorio.',
+                    answer: 'Sí, en {webAppUrl}. La aplicación web abre PDF, archivos DjVu e imágenes locales y hace OCR en ocho idiomas europeos; la limpieza de escaneos, los demás idiomas de OCR, los archivos de más de 16 MB y las combinaciones grandes necesitan la aplicación de escritorio.',
                 },
                 assistant: {
                     question: '¿Usa IA?',
@@ -175,19 +175,19 @@ export default {
         },
         entryPoints: {
             heading: 'Elige el punto de entrada correcto',
-            description: 'Empieza en el navegador para trabajo rápido con PDF, DjVu e imágenes locales, o elige la app de escritorio para OCR de PDF con texto buscable, integración nativa con el sistema y combinaciones más grandes.',
+            description: 'Empieza en el navegador para trabajo rápido con PDF, DjVu e imágenes locales, OCR incluido, o elige la app de escritorio para limpieza de escaneos, OCR en unos 30 idiomas, integración nativa con el sistema y combinaciones más grandes.',
             web: {
                 title: 'App web',
                 description: 'Ideal para abrir PDF locales, archivos DjVu e imágenes comunes de inmediato y luego revisar, marcar y exportar sin instalar nada.',
                 point1: 'Flujos de trabajo de PDF, DjVu e imágenes',
                 point2: 'Sin fricción de instalación ni actualizaciones',
-                point3: 'Genial para revisión rápida, marcado, edición de páginas y exportación',
+                point3: 'Genial para revisión rápida, marcado, edición de páginas, OCR y exportación',
                 action: 'Abrir app web',
             },
             desktop: {
                 title: 'App de escritorio',
-                description: 'Ideal para OCR de PDF con texto buscable, integración nativa con el sistema, trabajos de combinación más grandes y flujos que necesitan más que los límites de memoria del navegador.',
-                point1: 'OCR de PDF con texto buscable',
+                description: 'Ideal para limpieza de escaneos, OCR en unos 30 idiomas, integración nativa con el sistema, trabajos de combinación más grandes y flujos que necesitan más que los límites de memoria del navegador.',
+                point1: 'Limpieza de escaneos y OCR en unos 30 idiomas',
                 point2: 'Trabajos mayores de combinación y exportación',
                 point3: 'Diálogos nativos de escritorio e integración con el sistema',
                 action: 'Ver builds de escritorio',
@@ -204,7 +204,7 @@ export default {
         seo: {
             title: 'Funciones de EVB Viewer para navegador y escritorio',
             ogTitle: 'Vista general de funciones de EVB Viewer',
-            ogDescription: 'Mira qué cubre EVB Viewer en el navegador hoy y qué añade la app de escritorio para OCR de PDF con texto buscable, integración nativa con el sistema y trabajos más grandes.',
+            ogDescription: 'Mira qué cubre EVB Viewer en el navegador hoy y qué añade la app de escritorio para limpieza de escaneos, más idiomas de OCR, integración nativa con el sistema y trabajos más grandes.',
         },
         hero: {
             badge: 'Limpieza nativa de escaneos y OCR',
@@ -218,11 +218,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, imágenes y DjVu donde encajan',
-                description: 'Los flujos del navegador abren PDF locales, archivos DjVu e imágenes comunes. La app de escritorio añade OCR de PDF con texto buscable y evita los límites de memoria del navegador en trabajos más pesados.',
+                description: 'Los flujos del navegador abren PDF locales, archivos DjVu e imágenes comunes. La app de escritorio añade limpieza de escaneos y más idiomas de OCR y evita los límites de memoria del navegador en trabajos más pesados.',
             },
             ocr: {
                 title: 'OCR con salida buscable',
-                description: 'Los builds de escritorio ejecutan OCR de PDF con texto buscable localmente y conservan el resultado dentro del documento editado.',
+                description: 'El OCR se ejecuta localmente en el navegador y en los builds de escritorio y conserva el resultado buscable dentro del documento editado. El navegador lee ocho idiomas europeos; los builds de escritorio, unos 30.',
             },
             annotations: {
                 title: 'Herramientas de anotación profundas',
@@ -243,7 +243,7 @@ export default {
         },
         workflow: {
             heading: 'Cómo encaja el producto en el trabajo real',
-            description: 'Una sesión típica de EVB Viewer empieza con trabajo rápido en el navegador y pasa al escritorio cuando el OCR de PDF con texto buscable o la escala lo requieren.',
+            description: 'Una sesión típica de EVB Viewer empieza con trabajo rápido en el navegador y pasa al escritorio cuando la limpieza de escaneos, más idiomas de OCR o la escala lo requieren.',
             load: {
                 title: 'Empieza en el navegador',
                 body: 'Abre un PDF local, un archivo DjVu o una imagen de inmediato cuando una instalación retrasaría la tarea.',
@@ -253,8 +253,8 @@ export default {
                 body: 'Busca, comenta, resalta, compara y reorganiza páginas sin salir del espacio de trabajo.',
             },
             edit: {
-                title: 'Pasa al escritorio para OCR o escala',
-                body: 'Instala la app de escritorio para OCR de PDF con texto buscable, integración nativa con el sistema y trabajos mayores de combinación/exportación.',
+                title: 'Pasa al escritorio para limpieza o escala',
+                body: 'Instala la app de escritorio para limpieza de escaneos, OCR en unos 30 idiomas, integración nativa con el sistema y trabajos mayores de combinación/exportación.',
             },
             export: {
                 title: 'Exporta el resultado',
@@ -283,22 +283,22 @@ export default {
     },
     docs: {
         seo: {
-            title: 'Documentación de EVB Viewer para archivos en navegador y flujos OCR de escritorio',
+            title: 'Documentación de EVB Viewer para flujos en navegador y escritorio',
             ogTitle: 'Guía de usuario de EVB Viewer',
-            ogDescription: 'Empieza con la app del navegador para archivos locales y luego instala la app de escritorio cuando necesites OCR de PDF con texto buscable, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
+            ogDescription: 'Empieza con la app del navegador para archivos locales y OCR, y luego instala la app de escritorio cuando necesites limpieza de escaneos, más idiomas de OCR, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
         },
         hero: {
-            title: 'Guías para archivos en navegador y OCR de escritorio',
-            subtitle: 'Empieza con la app web para trabajo rápido con PDF, DjVu e imágenes locales, y luego pasa a la app de escritorio para OCR de PDF con texto buscable, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
+            title: 'Guías para la app del navegador y la de escritorio',
+            subtitle: 'Empieza con la app web para trabajo rápido con PDF, DjVu e imágenes locales, OCR incluido, y luego pasa a la app de escritorio para limpieza de escaneos, más idiomas de OCR, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
         },
         guideCardAction: 'Ir a la sección',
         browserQuickstart: {
             heading: 'Inicio rápido en navegador',
             intro: 'Usa la app web cuando el trabajo comienza con un PDF local, un archivo DjVu o una imagen común y quieres avanzar de inmediato.',
             li1: 'Abre un PDF, archivo DjVu o imagen compatible directamente en el espacio de trabajo del navegador.',
-            li2: 'Usa búsqueda, notas, resaltados, reordenación de páginas, recorte y exportación sin instalar la app de escritorio. Reserva los lotes de combinación muy grandes para escritorio.',
+            li2: 'Usa búsqueda, notas, resaltados, reordenación de páginas, recorte, OCR y exportación sin instalar la app de escritorio. Reserva los lotes de combinación muy grandes para escritorio.',
             li3: 'Los flujos del navegador son mejores para archivos ligeros, ciclos rápidos de revisión y lotes de combinación limitados.',
-            li4: 'El OCR de PDF con texto buscable sigue siendo primero de escritorio, así que pasa a la app de escritorio cuando la tarea dependa de él.',
+            li4: 'El OCR en el navegador lee inglés, ruso, francés, alemán, portugués, español, neerlandés e italiano; pasa a la app de escritorio para limpieza de escaneos u otros idiomas.',
         },
         bookmarks: {
             title: 'En esta página',
@@ -319,7 +319,7 @@ export default {
         },
         workspace: {
             heading: 'Vista general del espacio de trabajo',
-            intro: 'EVB Viewer es un espacio de trabajo documental que abarca navegador y escritorio. El navegador abre PDF locales, archivos DjVu e imágenes; el escritorio añade OCR de PDF con texto buscable, integración nativa con el sistema y más margen para trabajos grandes.',
+            intro: 'EVB Viewer es un espacio de trabajo documental que abarca navegador y escritorio. El navegador abre PDF locales, archivos DjVu e imágenes y hace OCR; el escritorio añade limpieza de escaneos, más idiomas de OCR, integración nativa con el sistema y más margen para trabajos grandes.',
             li1: 'Arriba: barra de pestañas para abrir, reordenar, dividir y mover pestañas.',
             li2: 'Debajo de las pestañas: barra de herramientas para guardar, exportar, OCR, zoom, modo selección/mano y configuración.',
             li3: 'Centro: visor de documentos con diseños de página única o enfrentadas.',
@@ -328,7 +328,7 @@ export default {
         },
         unsigned: {
             heading: 'Instalar builds de escritorio',
-            intro: 'Usa builds de escritorio para OCR de PDF con texto buscable, integración nativa con el sistema y flujos más pesados como combinaciones grandes. Descarga instaladores desde la sección de descargas de EVB Viewer o desde las versiones oficiales.',
+            intro: 'Usa builds de escritorio para limpieza de escaneos, OCR en unos 30 idiomas, integración nativa con el sistema y flujos más pesados como combinaciones grandes. Descarga instaladores desde la sección de descargas de EVB Viewer o desde las versiones oficiales.',
             li1: 'Instala siempre archivos publicados en las versiones de {repo}.',
             li2: 'Si tu sistema operativo muestra una advertencia, usa los pasos de anulación por plataforma a continuación.',
             macosHeading: 'macOS (DMG):',
@@ -346,7 +346,7 @@ export default {
         },
         openCombine: {
             heading: 'Abrir y combinar archivos',
-            intro: 'Usa {menuPath} para abrir archivos compatibles. Los flujos del navegador cubren PDF, archivos DjVu e imágenes comunes; escritorio es mejor para OCR de PDF con texto buscable y trabajos de combinación más grandes.',
+            intro: 'Usa {menuPath} para abrir archivos compatibles. Los flujos del navegador cubren PDF, archivos DjVu e imágenes comunes; escritorio es mejor para limpieza de escaneos y trabajos de combinación más grandes.',
             li1: 'Los tipos de archivo compatibles incluyen PDF, DjVu, PNG, JPG/JPEG, TIFF, BMP, WEBP y GIF.',
             li2: 'Puedes seleccionar varios PDF, archivos DjVu o imágenes a la vez. La combinación en navegador está limitada por memoria; usa escritorio para lotes mayores.',
             li3: 'El nombre del archivo generado sigue el primer archivo seleccionado, por ejemplo {example}.',
@@ -408,7 +408,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR y exportaciones',
-            intro: 'Las exportaciones están disponibles en todo el producto. El OCR de PDF con texto buscable permanece en el entorno de escritorio, donde hay procesamiento local y recursos de idioma.',
+            intro: 'Las exportaciones están disponibles en todo el producto. El OCR se ejecuta localmente en el navegador para ocho idiomas europeos y en los builds de escritorio para unos 30, donde también está disponible la limpieza de escaneos.',
             li1: 'La ventana de OCR admite modos de todas las páginas, página actual o rango personalizado.',
             li2: 'La selección de idioma se agrupa por familias de escritura para configurar más rápido.',
             li3: 'Puedes cancelar un OCR en curso y supervisar el progreso página por página.',
