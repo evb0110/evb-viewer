@@ -4,7 +4,6 @@
 
 use super::*;
 use lopdf::content::{Content, Operation as ContentOperation};
-use std::path::Path;
 
 pub(crate) const EVB_OCR_LAYER_BEGIN: &[u8] = b"% EVB_VIEWER_OCR_LAYER_BEGIN\n";
 pub(crate) const EVB_OCR_LAYER_END: &[u8] = b"\n% EVB_VIEWER_OCR_LAYER_END\n";
@@ -131,14 +130,12 @@ impl PageTextScan {
 
 pub(crate) fn read_content_stream(
     incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
+    structural: Option<StructuralSource<'_>>,
     object_id: ObjectId,
 ) -> Result<Option<Vec<u8>>> {
     if !incremental.new_document.has_object(object_id) {
         return incremental.read_base_stream_bounded(
-            input_path,
-            qpdf_path,
+            structural,
             object_id,
             MAX_OCR_CONTENT_STREAM_BYTES,
         );
@@ -173,8 +170,7 @@ fn state_left_by_show(operation: ContentOperation) -> Vec<ContentOperation> {
 /// without those show operators and otherwise unchanged.
 pub(crate) fn strip_previous_ocr_text(
     incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
+    structural: Option<StructuralSource<'_>>,
     page_id: ObjectId,
 ) -> Result<()> {
     let content_ids = incremental.new_document.get_page_contents(page_id);
@@ -182,8 +178,7 @@ pub(crate) fn strip_previous_ocr_text(
     let mut changed = false;
     let mut scan = PageTextScan::default();
     for content_id in content_ids {
-        let Some(bytes) = read_content_stream(incremental, input_path, qpdf_path, content_id)?
-        else {
+        let Some(bytes) = read_content_stream(incremental, structural, content_id)? else {
             kept.push(content_id);
             continue;
         };
@@ -245,15 +240,14 @@ pub(crate) fn strip_previous_ocr_text(
 /// the default state; the page's own streams keep their painting.
 pub(crate) fn replace_page_ocr_text(
     incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
+    structural: Option<StructuralSource<'_>>,
     source: &Document,
     source_page_id: ObjectId,
     page_id: ObjectId,
     matrix: [f64; 6],
     normalize_greek_micro_sign: bool,
 ) -> Result<()> {
-    strip_previous_ocr_text(incremental, input_path, qpdf_path, page_id)?;
+    strip_previous_ocr_text(incremental, structural, page_id)?;
     append_text_layer(
         &mut incremental.new_document,
         source,
