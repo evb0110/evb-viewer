@@ -1189,8 +1189,14 @@ it('finds words in an invisible text layer placed glyph by glyph', async () => {
             setFontAndSize(fontKey, 14),
             setTextRenderingMode(TextRenderingMode.Invisible),
         ];
+        // "Recognized" and "scan" are separated by a gap alone, as in
+        // Tesseract's layers; "scan" and "words" by a space glyph.
         let x = 72;
-        for (const character of 'Recognized scan words') {
+        for (const [
+            index,
+            character,
+        ] of [...'Recognizedscan words'].entries()) {
+            if (index === 'Recognized'.length) x += 14 * 0.3;
             operators.push(setTextMatrix(1, 0, 0, 1, x, 700), showText(font.encodeText(character)));
             x += font.widthOfTextAtSize(character, 14);
         }
@@ -1226,6 +1232,12 @@ it('finds words in an invisible text layer placed glyph by glyph', async () => {
         ).toMatch(/1 result/u);
         expect(await page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
             .toEqual(['Recognized scan']);
+        await searchInput.first().fill('Recognizedscan');
+        await searchInput.first().press('Enter');
+        await expect.poll(
+            () => page.locator('.document-search-results:visible').first().textContent(),
+            {timeout: 30_000},
+        ).toMatch(/No results found/u);
         expect(consoleProblems).toEqual([]);
     } finally {
         await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
