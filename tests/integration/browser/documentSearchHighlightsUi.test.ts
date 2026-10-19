@@ -3,7 +3,8 @@ import {
 } from 'node:fs';
 import {resolve} from 'node:path';
 import {
-    PDFDocument, PDFName, PDFString, StandardFonts,
+    PDFDict, PDFDocument, PDFName, PDFString, StandardFonts,
+    beginText, endText, setFontAndSize, setTextMatrix, setTextRenderingMode, showText, TextRenderingMode,
 } from 'pdf-lib';
 import type {Page} from 'playwright';
 import {
@@ -11,7 +12,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
+    lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, openPdfFromChooser,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -1166,3 +1167,79 @@ end
         await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
     }
 }, 120000);
+
+// OCR layers, EVB's own among them, place every glyph with its own text
+// matrix in invisible text. Search must read such a layer as words, as the
+// desktop's Poppler does, or no word of a recognized scan can be found.
+it('finds words in an invisible text layer placed glyph by glyph', async () => {
+    try {
+        const fixture = await PDFDocument.create();
+        const font = await fixture.embedFont(StandardFonts.Helvetica);
+        const pdfPage = fixture.addPage([
+            612,
+            792,
+        ]);
+        pdfPage.drawText(' ', {
+            font,
+            size: 1,
+        });
+        const fontKey = pdfPage.node.Resources()!.lookup(PDFName.of('Font'), PDFDict).keys()[0]!;
+        const operators = [
+            beginText(),
+            setFontAndSize(fontKey, 14),
+            setTextRenderingMode(TextRenderingMode.Invisible),
+        ];
+        // "Recognized" and "scan" are separated by a gap alone, as in
+        // Tesseract's layers; "scan" and "words" by a space glyph.
+        let x = 72;
+        for (const [
+            index,
+            character,
+        ] of [...'Recognizedscan words'].entries()) {
+            if (index === 'Recognized'.length) x += 14 * 0.3;
+            operators.push(setTextMatrix(1, 0, 0, 1, x, 700), showText(font.encodeText(character)));
+            x += font.widthOfTextAtSize(character, 14);
+        }
+        operators.push(endText());
+        pdfPage.pushOperators(...operators);
+
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const consoleProblems = collectConsoleProblems(page);
+        await openPdfFromChooser(page, {
+            name: 'glyph-placed-ocr-layer.pdf',
+            mimeType: 'application/pdf',
+            buffer: Buffer.from(await fixture.save()),
+        });
+        await page.locator('.page_container--rendered canvas').first().waitFor({
+            state: 'visible',
+            timeout: 30_000,
+        });
+        const searchInput = page.locator('.document-search-bar input:visible');
+        if (await searchInput.count() === 0) {
+            if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+            }
+            await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+        }
+        await searchInput.first().fill('Recognized scan');
+        await searchInput.first().press('Enter');
+        await expect.poll(
+            () => page.locator('.document-search-results:visible').first().textContent(),
+            {timeout: 30_000},
+        ).toMatch(/1 result/u);
+        expect(await page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
+            .toEqual(['Recognized scan']);
+        await searchInput.first().fill('Recognizedscan');
+        await searchInput.first().press('Enter');
+        await expect.poll(
+            () => page.locator('.document-search-results:visible').first().textContent(),
+            {timeout: 30_000},
+        ).toMatch(/No results found/u);
+        expect(consoleProblems).toEqual([]);
+    } finally {
+        await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+    }
+}, 120_000);

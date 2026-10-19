@@ -46,6 +46,8 @@ interface ITextState {
     wordSpacing: number;
     leading: number;
     textRise: number;
+    /** The text position moved by an operator since the last glyph was shown. */
+    repositioned: boolean;
 }
 
 interface IIndexedGlyphBox extends IOcrWord {
@@ -60,7 +62,21 @@ interface IActiveWord {
     maxX: number;
     maxY: number;
     chars: IIndexedGlyphBox[];
+    /** Where the pen stood after the word's last glyph, in page space. */
+    penX: number;
+    penY: number;
+    /** The last glyph's font size in page space. */
+    emSize: number;
 }
+
+/**
+ * A positioning operator ends a word only when the next glyph does not start
+ * where the previous one ended. OCR layers, EVB's among them, place every glyph
+ * with its own text matrix; reading each as a word would index "a m e r l i".
+ * Below this fraction of the font size the gap is letter spacing, as in
+ * Poppler's word segmentation.
+ */
+const MAX_WORD_GLYPH_GAP_EM = 0.15;
 
 export interface IPdfjsPageViewBox {
     xMin: number;
@@ -211,6 +227,7 @@ function createInitialTextState(): ITextState {
         wordSpacing: 0,
         leading: 0,
         textRise: 0,
+        repositioned: false,
     };
 }
 
@@ -298,6 +315,9 @@ function extendActiveWord(
         maxX: Number.NEGATIVE_INFINITY,
         maxY: Number.NEGATIVE_INFINITY,
         chars: [],
+        penX: 0,
+        penY: 0,
+        emSize: 0,
     };
 
     word.text += glyph.text;
@@ -397,6 +417,15 @@ function showGlyphArray(
         const text = getGlyphText(glyph);
         const glyphWidth = getGlyphWidth(glyph) / 1000 * fontSize * hScale;
         const spaceGlyph = isGlyphSpace(glyph, text);
+        const textToPage = multiplyMatrices(ctm, state.textMatrix);
+        if (state.repositioned && nextActiveWord) {
+            const origin = transformPoint(textToPage, 0, 0);
+            if (Math.hypot(origin.x - nextActiveWord.penX, origin.y - nextActiveWord.penY)
+                > MAX_WORD_GLYPH_GAP_EM * nextActiveWord.emSize) {
+                nextActiveWord = flushActiveWord(words, nextActiveWord);
+            }
+        }
+        state.repositioned = false;
         if (spaceGlyph) {
             nextActiveWord = flushActiveWord(words, nextActiveWord);
         } else if (text.length > 0) {
@@ -412,6 +441,12 @@ function showGlyphArray(
                     startOffset,
                     endOffset: startOffset + text.length,
                 });
+                const pen = transformPoint(textToPage, glyphWidth, 0);
+                const emTop = transformPoint(textToPage, 0, fontSize);
+                const emOrigin = transformPoint(textToPage, 0, 0);
+                nextActiveWord.penX = pen.x;
+                nextActiveWord.penY = pen.y;
+                nextActiveWord.emSize = Math.hypot(emTop.x - emOrigin.x, emTop.y - emOrigin.y);
             }
         }
 
@@ -522,23 +557,23 @@ export function extractPdfjsWordBoxesFromOperatorList(
                 state.textRise = finiteNumber(args[0], state.textRise);
                 break;
             case ops.setTextMatrix:
-                activeWord = flushActiveWord(words, activeWord);
                 setTextMatrixFromArgs(state, args);
+                state.repositioned = true;
                 break;
             case ops.moveText:
-                activeWord = flushActiveWord(words, activeWord);
                 moveText(state, finiteNumber(args[0], 0), finiteNumber(args[1], 0));
+                state.repositioned = true;
                 break;
             case ops.setLeadingMoveText: {
-                activeWord = flushActiveWord(words, activeWord);
                 const y = finiteNumber(args[1], 0);
                 state.leading = -y;
                 moveText(state, finiteNumber(args[0], 0), y);
+                state.repositioned = true;
                 break;
             }
             case ops.nextLine:
-                activeWord = flushActiveWord(words, activeWord);
                 nextLine(state);
+                state.repositioned = true;
                 break;
             case ops.showText:
             case ops.showSpacedText:
