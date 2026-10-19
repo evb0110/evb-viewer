@@ -42,9 +42,11 @@ WASM visibility report and PDF.js text. The page-ops WASM `ocrTextLayer`
 operation appends the searchable layer with the desktop writer and returns only
 the appended revision. The result is staged as a receipt bound to its job,
 document and revision; applying it (`replaceWorkingCopyFromPath`) verifies the
-digest and commits only while both revisions still match. Scan cleanup and
-early-print reading are not in the browser; documents are limited to the
-browser's 16 MB editing size for now.
+digest and commits only while both revisions still match. Early print reads
+as on desktop: a page with the long-s signature runs the selected models,
+`ita_old` and `fra` in one engine request on a fresh raster, and the planned
+word edits travel with the page to the writer. Scan cleanup is not in the
+browser; documents are limited to the browser's 16 MB editing size for now.
 
 ## Language models
 
