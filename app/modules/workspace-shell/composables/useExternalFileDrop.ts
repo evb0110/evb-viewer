@@ -1,7 +1,7 @@
 import { useEventListener } from '@vueuse/core';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {classifyDocumentOpenError} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {
     getDocumentPickerCapability,
     getDocumentWorkingCopyCapability,
@@ -139,7 +139,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         presentFailureToast({
             failure,
             title: t('errors.file.open'),
-            description: getErrorMessage(error),
+            description: classifyDocumentOpenError(error, null, t),
         });
     }
 
@@ -215,7 +215,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                 presentFailureToast({
                     failure,
                     title: t('errors.file.open'),
-                    description: getErrorMessage(error),
+                    description: classifyDocumentOpenError(error, null, t),
                 });
             });
     }

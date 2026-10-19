@@ -41,7 +41,6 @@ import {
     validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
-    isFileSystemAccessDeniedError,
     pickFiles,
     pickSaveTarget,
     pickSingleFile,
@@ -62,6 +61,7 @@ import {
 } from '@app/platform/browser-api/browserSaveTargets';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {
@@ -75,6 +75,7 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
 
@@ -172,7 +173,7 @@ export function createBrowserDocumentsFileCapability(
             });
 
             try {
-                return await openDocumentPaths([registered.ref], undefined, undefined, browserUseNativeAppMessageProvider());
+                return await openDocumentPaths([registered.ref]);
             } catch (error) {
                 if (registered.created) {
                     await cleanupTransientOpenRefs([registered.ref]);
@@ -205,7 +206,7 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await openDocumentPaths(refs, undefined, undefined, browserUseNativeAppMessageProvider());
+                return await openDocumentPaths(refs);
             } catch (error) {
                 await cleanupTransientOpenRefs(refs);
                 throw error;
@@ -233,13 +234,7 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await openDocumentPaths([path], undefined, password, browserUseNativeAppMessageProvider());
-            } catch (error) {
-                if (isFileSystemAccessDeniedError(error)) {
-                    return null;
-                }
-
-                throw error;
+                return await openDocumentPaths([path], undefined, password);
             } finally {
                 await retireBrowserDocumentWorkingCopy(path);
             }
@@ -253,15 +248,7 @@ export function createBrowserDocumentsFileCapability(
                 return await openDocumentPaths(
                     paths,
                     requestId ? { requestId } : undefined,
-                    undefined,
-                    browserUseNativeAppMessageProvider(),
                 );
-            } catch (error) {
-                if (isFileSystemAccessDeniedError(error)) {
-                    return null;
-                }
-
-                throw error;
             } finally {
                 await Promise.all(paths.map(retireBrowserDocumentWorkingCopy));
             }
@@ -458,12 +445,11 @@ export function createBrowserDocumentsFileCapability(
             } satisfies IPdfNativeSaveResult;
         },
         async parsePdfAnnotations(path, options) {
-            await assertBrowserPathWithinFullReadBudget(path, 'Parsing PDF annotations');
             await browserDocumentStore.assertDocumentRevisionCurrent(
                 path,
                 options.expectedDocumentRevisionToken,
             );
-            const data = await browserDocumentStore.read(path);
+            const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
             await browserDocumentStore.assertDocumentRevisionCurrent(
                 path,
                 options.expectedDocumentRevisionToken,

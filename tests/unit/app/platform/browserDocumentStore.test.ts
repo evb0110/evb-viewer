@@ -1821,6 +1821,22 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(ref)).rejects.toThrow('Browser document is too large to load fully into memory');
         await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(5));
         await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(8));
+
+        // The physical file may grow after its saved metadata was recorded.
+        const handle = createFileSystemFileHandle({
+            name: 'grown.pdf',
+            getFile: async () => new File([bytes], 'grown.pdf', {type: 'application/pdf'}),
+        });
+        const handleRef = await store.createStoredDocument('grown.pdf', new Uint8Array(), {
+            kind: 'output',
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+        });
+        await store.replaceWithHandleBackedDocument(handleRef, {
+            fileSize: 1,
+            saveHandle: handle,
+        });
+        await expect(store.read(handleRef)).rejects.toThrow('Browser document is too large to load fully into memory');
     });
 
     it('keeps an oversized picked file range-readable without reading the whole file in memory', async () => {

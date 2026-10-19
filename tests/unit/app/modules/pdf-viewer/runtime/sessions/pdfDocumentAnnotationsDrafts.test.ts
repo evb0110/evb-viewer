@@ -30,6 +30,8 @@ import {
     recordPdfDocumentLoadedRevision, readPdfDocumentOriginalAnnotationSource, releasePdfDocumentOriginalAnnotations,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
+
 const {
     parsePdfAnnotations, createWorkingCopyFromPath, cleanupFile, getDocumentRevision,
 } = vi.hoisted(() => ({

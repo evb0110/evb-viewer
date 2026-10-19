@@ -1779,6 +1779,13 @@ export default {
             'restoredOnNextStart': 'Some files the export replaced could not be put back yet. EVB Viewer puts them back the next time it starts.',
         },
         'browser': {
+            'documentTooLarge': 'This operation loads the whole file into memory and supports up to {limitMiB} MiB in the browser. Use the desktop app for this operation.',
+            'filePermissionDenied': 'The browser cannot read this file. Allow file access and select it again.',
+            'storageFull': 'Browser storage is full. Free space for this site and try again.',
+            'notEnoughMemory': 'The browser ran out of memory. Close other tabs and try again, or use the desktop app.',
+            'documentToolsUnavailable': 'The browser document tool could not start. Reload the page and try again.',
+            'annotationsUnavailable': 'Existing annotation editing is unavailable',
+            'annotationsTooLarge': 'The document is open for reading. Importing existing annotations exceeds the browser tool’s memory limit. Use the desktop app to edit them.',
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
             'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.',
             'imageExtensionMismatch': 'Export was not saved. Choose a file name ending in {extensions}.',

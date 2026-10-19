@@ -4,15 +4,17 @@ export type TBrowserDocumentReadErrorCode = typeof BROWSER_DOCUMENT_FULL_READ_TO
 
 export class BrowserDocumentReadError extends Error {
     public readonly code: TBrowserDocumentReadErrorCode;
+    public readonly maxBytes: number | undefined;
 
     public constructor(
         code: TBrowserDocumentReadErrorCode,
         message: string,
-        options?: ErrorOptions,
+        options?: ErrorOptions & {maxBytes?: number},
     ) {
         super(message, options);
         this.name = 'BrowserDocumentReadError';
         this.code = code;
+        this.maxBytes = options?.maxBytes;
     }
 }
 

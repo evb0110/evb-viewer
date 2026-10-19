@@ -17,10 +17,7 @@ import {
     isDjvuFileName,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
-import {
-    buildBrowserByteLimitError,
-    toBrowserOwnedArrayBuffer,
-} from '@app/platform/browser-api/browserPlatformHelpers';
+import {toBrowserOwnedArrayBuffer} from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     emitBatchOpenProgress,
     type IBrowserBatchOpenProgressOptions,
@@ -34,16 +31,9 @@ import {
     PDF_DECRYPT_PASSWORD_MAX_BYTES,
 } from '@contracts/pdfDecryptSchemas';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
-
-function buildBrowserLargeJobError(label: string, maxBytes: number, hint?: string) {
-    return buildBrowserByteLimitError(
-        label,
-        maxBytes,
-        'inputs',
-        hint,
-    );
-}
 
 async function touchRecentFileForOpen(ref: TDocumentRef) {
     if ((await browserDocumentStore.requireEntry(ref)).memoryOnly) {
@@ -82,15 +72,8 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         } as const;
     }
 
-    if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        throw buildBrowserLargeJobError(
-            'Opening encrypted documents',
-            BROWSER_MAX_FULL_READ_BYTES,
-        );
-    }
-
     const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-    const bytes = await browserDocumentStore.read(workingPath);
+    const bytes = await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes - new TextEncoder().encode(password ?? '').byteLength});
     const result = await runBrowserPageOpsWorkerRequest('decrypt', {
         data: bytes,
         password: password ?? '',
@@ -163,7 +146,6 @@ export async function openDocumentPaths(
     paths: string[],
     progressOptions?: IBrowserBatchOpenProgressOptions,
     password?: string,
-    largeDocumentMessage?: string,
 ) {
     const startedAt = Date.now();
     const normalizedPaths = normalizeNonEmptyStringPaths(paths).map((path) => {
@@ -202,13 +184,6 @@ export async function openDocumentPaths(
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
         const sourcePath = await browserDocumentStore.refreshSourceVersionIfChanged(firstPath);
         const { size } = await browserDocumentStore.stat(sourcePath);
-        if (size > BROWSER_MAX_FULL_READ_BYTES) {
-            throw buildBrowserLargeJobError(
-                'Opening documents',
-                BROWSER_MAX_FULL_READ_BYTES,
-                largeDocumentMessage ? `. ${largeDocumentMessage}` : undefined,
-            );
-        }
         if (size <= BROWSER_MAX_FULL_READ_BYTES) {
             await browserDocumentStore.ensureByteBackedSource(sourcePath);
         }
@@ -218,6 +193,7 @@ export async function openDocumentPaths(
             await browserDocumentStore.cloneAsWorkingCopy(sourcePath, undefined, workingPath);
             const decryption = await decryptBrowserWorkingCopy(workingPath, password);
             if (decryption.outcome === 'needs-password') {
+                await touchRecentFileForOpen(sourcePath);
                 return {
                     kind: 'pdf-needs-password',
                     originalPath: sourcePath,

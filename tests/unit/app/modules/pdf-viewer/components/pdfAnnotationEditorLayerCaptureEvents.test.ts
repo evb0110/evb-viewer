@@ -39,6 +39,8 @@ import {
     createdTextBox,
 } from '@tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures';
 
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
+
 describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     afterEach(() => {
         document.body.replaceChildren();
