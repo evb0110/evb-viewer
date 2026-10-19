@@ -97,7 +97,11 @@ describe('browser document lifecycle UI', () => {
         const releaseWorker = Promise.withResolvers<undefined>();
         try {
             const page = await lifecycle.browser.newPage();
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
             const bytes = [...readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'))];
             await page.evaluate(`(async () => {
                 const {browserDocumentStore} = await import('/_nuxt/platform/browserDocumentStore.ts');
