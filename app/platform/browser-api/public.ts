@@ -2,7 +2,10 @@ import type { layoutPdfForPrint } from '@app/platform/browser-api/browserPageOps
 export { browserAgentCapability } from '@app/platform/browser-api/browserAgentCapability';
 export { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
 export { browserHostCapability } from '@app/platform/browser-api/browserHostCapability';
-export { browserOcrCapability } from '@app/platform/browser-api/browserOcrCapability';
+export {
+    browserOcrCapability,
+    canUseBrowserOcr,
+} from '@app/platform/browser-api/browserOcrCapability';
 export { browserScanCleanupCapability } from '@app/platform/browser-api/browserScanCleanupCapability';
 export { browserSettingsCapability } from '@app/platform/browser-api/browserSettingsCapability';
 export { createBrowserDocumentsCapability } from '@app/platform/browser-api/createBrowserDocumentsCapability';

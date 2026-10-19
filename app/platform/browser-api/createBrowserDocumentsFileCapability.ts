@@ -64,7 +64,10 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
-import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
+import {
+    createBrowserStoreStagedArtifact,
+    sha256Hex,
+} from '@app/platform/browser/browserStagedArtifact';
 import {isBrowserStoreStagedArtifact} from '@contracts/stagedArtifacts';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
@@ -98,14 +101,6 @@ interface ICreateBrowserDocumentsFileCapabilityOptions {
     };
 }
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
-
-async function sha256Hex(bytes: Uint8Array) {
-    const digest = new Uint8Array(await crypto.subtle.digest(
-        'SHA-256',
-        bytes.slice(),
-    ));
-    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
-}
 
 function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
     return {
@@ -537,10 +532,17 @@ export function createBrowserDocumentsFileCapability(
             await clearSearchCaches();
             return browserDocumentStore.write(path, data, options);
         },
+        // Only an OCR result replaces a working copy; it is applied through
+        // the receipt staged for that document and revision.
         async replaceWorkingCopyFromPath(workingCopyPath, sourcePath, options) {
-            const bytes = await browserDocumentStore.read(sourcePath);
+            const {commitBrowserOcrResult} = await import('@app/platform/browser-api/browserOcrCapability');
+            const committed = await commitBrowserOcrResult(
+                workingCopyPath,
+                sourcePath,
+                options?.expectedDocumentRevisionToken,
+            );
             await clearSearchCaches(workingCopyPath);
-            return browserDocumentStore.write(workingCopyPath, bytes, options);
+            return committed;
         },
         async savePdfData(path, data, options, commitCallbacks) {
             const validation = await validateBrowserPdfData(data);

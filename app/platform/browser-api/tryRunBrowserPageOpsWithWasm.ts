@@ -9,6 +9,7 @@ import {
     MUTATION_HEADER,
     NATIVE_MUTATION_HEADER,
     NATIVE_MUTATION_POSTCONDITIONS_VERIFIED,
+    OCR_TEXT_LAYER_HEADER,
     TEXT_BOX_APPEARANCE_HEADER,
     RESPONSE_TEXT_BOX_APPEARANCE,
     OPERATION_CODES,
@@ -16,10 +17,12 @@ import {
     REQUEST_MAGIC,
     REQUEST_VERSION,
     REQUEST_VERSION_DOCUMENT_LIST,
+    REQUEST_VERSION_OCR_TEXT_LAYER,
     REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE,
     REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
     RESPONSE_ANNOTATION_PARSE,
     RESPONSE_GEOMETRY,
+    RESPONSE_INCREMENT,
     RESPONSE_JSON,
     RESPONSE_MUTATION,
     RESPONSE_NATIVE_MUTATIONS,
@@ -231,6 +234,9 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
             return request.payload.newOrder;
         case 'printLayout':
             return request.payload.pageNumbers;
+        case 'ocrTextVisibility':
+            return request.payload.pages;
+        case 'ocrTextLayer':
         case 'insertPages':
         case 'getPageGeometry':
         case 'decrypt':
@@ -261,6 +267,8 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'conformance':
         case 'saveMutations':
         case 'printLayout':
+        case 'ocrTextVisibility':
+        case 'ocrTextLayer':
             return request.payload.data;
         case 'mergePages':
         case 'textBoxAppearance':
@@ -286,6 +294,9 @@ function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     }
     if (request.type === 'printLayout') {
         return new TextEncoder().encode(`${request.payload.viewMode} ${request.payload.orientation}`);
+    }
+    if (request.type === 'ocrTextVisibility' && request.payload.withEvbOcrText) {
+        return new TextEncoder().encode('with-evb-ocr-text');
     }
     return new Uint8Array();
 }
@@ -347,8 +358,45 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'saveMutations':
         case 'printLayout':
         case 'textBoxAppearance':
+        case 'ocrTextVisibility':
+        case 'ocrTextLayer':
             return null;
     }
+}
+
+/** The document, its JSON instructions, then each Tesseract page PDF with its length. */
+function buildOcrTextLayerWasmRequest(payload: IBrowserPageOpsWasmRequestMap['ocrTextLayer']) {
+    const instructions = new TextEncoder().encode(JSON.stringify(payload.instructions));
+    const pageLengths = payload.pagePdfs.map(page => toWasmU32(page.byteLength));
+    const output: Uint8Array<ArrayBuffer> = new Uint8Array(pageLengths.reduce(
+        (total, length) => total + U32_BYTES + length,
+        OCR_TEXT_LAYER_HEADER.bytes + payload.data.byteLength + instructions.byteLength,
+    ));
+    const view = new DataView(output.buffer);
+    writeMagic(output, OCR_TEXT_LAYER_HEADER.magic);
+    writeU32(view, OCR_TEXT_LAYER_HEADER.version, REQUEST_VERSION_OCR_TEXT_LAYER);
+    writeU32(view, OCR_TEXT_LAYER_HEADER.operation, OPERATION_CODES.ocrTextLayer);
+    writeU32(view, OCR_TEXT_LAYER_HEADER.dataLength, toWasmU32(payload.data.byteLength));
+    writeU32(view, OCR_TEXT_LAYER_HEADER.instructionsLength, toWasmU32(instructions.byteLength));
+    writeU32(view, OCR_TEXT_LAYER_HEADER.pagePdfCount, toWasmU32(payload.pagePdfs.length));
+    let offset: number = OCR_TEXT_LAYER_HEADER.bytes;
+    output.set(payload.data, offset);
+    offset += payload.data.byteLength;
+    output.set(instructions, offset);
+    offset += instructions.byteLength;
+    for (const [
+        index,
+        page,
+    ] of payload.pagePdfs.entries()) {
+        offset = writeU32(view, offset, pageLengths[index]!);
+        output.set(page, offset);
+        offset += page.byteLength;
+    }
+    return {
+        data: output,
+        passwordOffset: 0,
+        passwordLength: 0,
+    };
 }
 
 function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
@@ -385,6 +433,9 @@ function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
 }
 
 function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
+    if (request.type === 'ocrTextLayer') {
+        return buildOcrTextLayerWasmRequest(request.payload);
+    }
     if (
         request.type === 'readCatalog'
         || request.type === 'conformance'
@@ -626,6 +677,20 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
             nativeMutationPostconditionsVerified: true,
         }, {abortEarly: true});
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
+    }
+
+    if (type === 'ocrTextVisibility') {
+        const parsed = kind === RESPONSE_JSON
+            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.ocrTextVisibility, readJsonResult(output), {abortEarly: true})
+            : null;
+        return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
+    }
+
+    if (type === 'ocrTextLayer') {
+        const parsed = kind === RESPONSE_INCREMENT
+            ? v.safeParse(wasmMutationResultSchema, readMutationResult(output), {abortEarly: true})
+            : null;
+        return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
     if (type === 'readCatalog' || type === 'conformance') {

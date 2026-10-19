@@ -898,6 +898,7 @@ export default {
                 'off': 'Usa a digitalização tal como está.',
                 'clean': 'Endireita e limpa primeiro a imagem da página.',
             },
+            'browserUnavailable': 'A limpeza de imagem requer a aplicação desktop; o navegador lê as páginas tal como foram digitalizadas.',
         },
         'pageSegmentation': {
             'label': 'Disposição do texto',
@@ -1821,6 +1822,9 @@ export default {
                 'workerUnavailable': 'O worker do OCR não está disponível',
                 'workerMessageError': 'O worker do OCR não conseguiu entregar um resultado',
                 'toolsValidationFailed': 'As ferramentas de OCR não estão prontas',
+                'browserUnsupported': 'Este navegador não consegue executar o OCR. Atualize o navegador ou use a aplicação desktop.',
+                'documentTooLarge': 'Este documento é demasiado grande para o OCR no navegador. Use a aplicação desktop.',
+                'modelDownloadFailed': 'Não foi possível transferir o modelo de idioma. Verifique a ligação e tente novamente.',
             },
         },
         'pageOps': {

@@ -48,18 +48,18 @@ import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrR
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 import {
     AVAILABLE_OCR_LANGUAGES,
-    getOcrModelSourcePath,
+    getOcrModelDownloadUrl,
     isAvailableOcrLanguageCode,
     OCR_LANGUAGE_MODEL_SHA256,
     OCR_LANGUAGE_MODEL_BYTES,
     OCR_MODEL_CODES,
+    TESSDATA_BEST_REF,
     type TOcrLanguageCode,
     type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
-export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
-const DOWNLOAD_BASE_URL = `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}`;
+export {TESSDATA_BEST_REF};
 // A download attempt fails after this long without receiving headers or body
 // bytes, however long a steady download takes in total.
 const DOWNLOAD_STALL_TIMEOUT_MS = 90_000;
@@ -898,8 +898,7 @@ async function downloadLanguageModel(
         return;
     }
 
-    const sourcePath = getOcrModelSourcePath(languageCode).split('/').map(encodeURIComponent).join('/');
-    const languageUrl = `${DOWNLOAD_BASE_URL}/${sourcePath}.traineddata`;
+    const languageUrl = getOcrModelDownloadUrl(languageCode);
     const tempPath = `${modelPath}.download-${randomUUID()}`;
     await precheckLanguageDownload(languageCode, languageUrl, options);
 

@@ -14,7 +14,7 @@ import {
     type IPdfOcrLayerLine,
     type IPdfOcrPageTextVisibility,
 } from '@contracts/pdfOcrTextVisibility';
-import {readOcrLayerLayout} from '@electron/features/search/readOcrLayerLayout';
+import {readOcrLayerLayout} from '@ocr-core/readOcrLayerLayout';
 import {
     classifyOcrPageText,
     shouldOcrClassifiedPage,

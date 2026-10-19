@@ -22,6 +22,7 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import {decodePdfOcrTextVisibilityReport} from '@contracts/pdfOcrTextVisibility';
 import * as v from 'valibot';
 
 const workerRequestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -60,6 +61,23 @@ const cropMarginsSchema = v.object({
     left: finiteNonNegativeSchema,
     right: finiteNonNegativeSchema,
 });
+
+/**
+ * What the Rust OCR writer appends for each recognized page: the target page,
+ * the index of its Tesseract page PDF in `pagePdfs`, and the edits early-print
+ * reading made to Tesseract's words.
+ */
+const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({pages: v.pipe(v.array(v.object({
+    pageNumber: positiveIntegerSchema,
+    source: nonNegativeIntegerSchema,
+    normalizeGreekMicroSign: v.optional(v.boolean()),
+    wordEdits: v.optional(v.array(v.object({
+        word: nonNegativeIntegerSchema,
+        from: v.string(),
+        to: v.string(),
+    }))),
+})), v.minLength(1))});
+export type IOcrTextLayerInstructions = v.InferOutput<typeof OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA>;
 
 const workerRequestPayloadSchemas = {
     textBoxAppearance: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
@@ -130,6 +148,16 @@ const workerRequestPayloadSchemas = {
         ]),
     }),
     mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1), v.maxLength(500))}),
+    ocrTextVisibility: v.object({
+        data: pdfBytesSchema,
+        pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
+        withEvbOcrText: v.boolean(),
+    }),
+    ocrTextLayer: v.object({
+        data: pdfBytesSchema,
+        instructions: OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA,
+        pagePdfs: v.pipe(v.array(pdfBytesSchema), v.minLength(1)),
+    }),
 };
 
 const workerRequestSchema = v.union([
@@ -213,6 +241,16 @@ const workerRequestSchema = v.union([
         type: v.literal('mergePages'),
         payload: workerRequestPayloadSchemas.mergePages,
     }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('ocrTextVisibility'),
+        payload: workerRequestPayloadSchemas.ocrTextVisibility,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('ocrTextLayer'),
+        payload: workerRequestPayloadSchemas.ocrTextLayer,
+    }),
 ]);
 
 const pageMutationResultSchema = v.object({
@@ -292,6 +330,15 @@ const workerResultSchemas = {
     readCatalog: catalogResultSchema,
     conformance: conformanceFactsSchema,
     mergePages: pageMutationResultSchema,
+    ocrTextVisibility: v.nullable(v.union([
+        v.pipe(v.unknown(), v.transform(value => decodePdfOcrTextVisibilityReport(value))),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ])),
+    // `data` is the revision the writer appends to the request's document.
+    ocrTextLayer: v.nullable(v.union([
+        pageMutationResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ])),
 };
 
 const workerSuccessResponseSchema = v.union([
@@ -390,6 +437,18 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('mergePages'),
         ok: v.literal(true),
         data: workerResultSchemas.mergePages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('ocrTextVisibility'),
+        ok: v.literal(true),
+        data: workerResultSchemas.ocrTextVisibility,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('ocrTextLayer'),
+        ok: v.literal(true),
+        data: workerResultSchemas.ocrTextLayer,
     }),
 ]);
 

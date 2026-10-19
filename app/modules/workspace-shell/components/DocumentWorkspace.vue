@@ -9,7 +9,7 @@
                 :snapshot="workspaceToolbarSnapshot"
                 :has-pdf="presentation.toolbarHasPdf.value"
                 :can-toggle-sidebar="presentation.canToggleSidebar.value"
-                :can-use-ocr="isDesktopRuntime"
+                :can-use-ocr="canUseOcr"
                 can-use-djvu
                 :is-desktop-runtime="isDesktopRuntime"
                 :surface="toolbarSurface"
@@ -247,6 +247,7 @@ const {
     statusHostId: 'editor-global-status-host',
 });
 const { isDesktopRuntime } = useRuntimeEnvironment();
+const canUseOcr = useCanUseOcr();
 // This mount is one view of the document its DocumentSessionHost holds.
 const context = createDocumentViewContext({
     tabId,

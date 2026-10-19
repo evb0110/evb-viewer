@@ -32,6 +32,11 @@ export const OCR_ERROR_CODES = [
     'OCR_WORKER_UNAVAILABLE',
     'OCR_WORKER_MESSAGE_ERROR',
     'OCR_TOOLS_VALIDATION_FAILED',
+    // The browser workspace's OCR: the browser lacks what the engine needs, the
+    // document is above the browser's limit, or a language model failed to download.
+    'OCR_BROWSER_UNSUPPORTED',
+    'OCR_DOCUMENT_TOO_LARGE',
+    'OCR_MODEL_DOWNLOAD_FAILED',
 ] as const;
 
 export type TOcrErrorCode = typeof OCR_ERROR_CODES[number];

@@ -898,6 +898,7 @@ export default {
                 'off': 'Utilise le scan tel quel.',
                 'clean': 'Redresse et nettoie d’abord l’image de la page.',
             },
+            'browserUnavailable': 'Le nettoyage d’image nécessite l’application de bureau ; le navigateur lit les pages telles qu’elles ont été numérisées.',
         },
         'pageSegmentation': {
             'label': 'Mise en page du texte',
@@ -1821,6 +1822,9 @@ export default {
                 'workerUnavailable': 'Le processus OCR n’est pas disponible',
                 'workerMessageError': 'Le processus OCR n’a pas pu transmettre le résultat',
                 'toolsValidationFailed': 'Les outils OCR ne sont pas prêts',
+                'browserUnsupported': 'Ce navigateur ne peut pas exécuter l’OCR. Mettez le navigateur à jour ou utilisez l’application de bureau.',
+                'documentTooLarge': 'Ce document est trop volumineux pour l’OCR dans le navigateur. Utilisez l’application de bureau.',
+                'modelDownloadFailed': 'Le modèle de langue n’a pas pu être téléchargé. Vérifiez la connexion et réessayez.',
             },
         },
         'pageOps': {

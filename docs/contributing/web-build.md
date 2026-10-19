@@ -32,9 +32,12 @@
   - `/electron` desktop-only shell entry
 - PDF-and-images-first browser runtime
 - Browser-backed open/save/recent-files/search/page-ops flows
-- OCR and searchable-PDF generation are desktop-only. Browser search uses
-  text extracted from the current PDF bytes and does not consume browser OCR
-  sidecar artifacts.
+- Browser OCR (`app/platform/browser-api/browserOcr*`) runs the WebAssembly
+  Tesseract in Web Workers on PDF.js rasters and writes the searchable layer
+  with the page-ops WASM; the result is applied through a staged receipt bound
+  to the document and its revision. Models download from GitHub at the pinned
+  tessdata_best revision into Cache Storage. Search and the text catalog read
+  the saved PDF's text, as on desktop.
 - DjVu viewing and explicit PDF conversion are available in browser runtime
   through the vendored DjVu.js worker path.
 - Desktop app updates unavailable in browser runtime

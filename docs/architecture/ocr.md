@@ -13,6 +13,39 @@ existing-text classifier, early-print reading and the dictionary decoder. The
 desktop main process supplies files, native processes and storage around them,
 so another host reading the same raster passes Tesseract the same arguments.
 
+## Browser OCR
+
+The browser workspace runs the same engine: `scripts/build-tesseract-wasm.sh`
+compiles the pinned Tesseract and Leptonica to WebAssembly as the stock
+command-line program, and each page runs it once in a fresh instance with the
+arguments `tesseractRecipe` builds, as desktop runs one process per page. On
+identical pixels it writes desktop's words, boxes and text-only PDF. Pages are
+rendered by PDF.js (`browserOcrRaster.ts`) at the resolution desktop's rule
+picks (`ocrRenderDpi`), in RGB on white with annotations, tiled below browser
+canvas limits and assembled into one raster. PDF.js and Poppler resample scans
+slightly differently, so difficult pages can read a few words differently;
+measured against reference text, the two rasters recognize equally well
+overall. Neither supersampling the PDF.js raster nor reading the embedded
+image directly improved on it.
+
+Recognition runs in a pool of engine workers sized from the device's cores and
+memory (`browserOcrEngineClient.ts`); canceling ends a busy worker, since a
+worker inside Tesseract cannot read messages. Models download from the pinned
+tessdata_best revision on GitHub into Cache Storage, are checked against the
+registry digests on arrival and when a worker loads them, and one download
+serves every caller in the tab and across tabs (`browserOcrModels.ts`). The
+browser offers English, Russian, French, German, Portuguese, Spanish, Dutch and
+Italian (`BROWSER_OCR_LANGUAGE_CODES`).
+
+Page selection uses the shared `selectOcrPagesByExistingText` with the page-ops
+WASM visibility report and PDF.js text. The page-ops WASM `ocrTextLayer`
+operation appends the searchable layer with the desktop writer and returns only
+the appended revision. The result is staged as a receipt bound to its job,
+document and revision; applying it (`replaceWorkingCopyFromPath`) verifies the
+digest and commits only while both revisions still match. Scan cleanup and
+early-print reading are not in the browser; documents are limited to the
+browser's 16 MB editing size for now.
+
 ## Language models
 
 Select the languages present in the document. The searchable picker keeps every

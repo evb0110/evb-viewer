@@ -1243,3 +1243,70 @@ it('finds words in an invisible text layer placed glyph by glyph', async () => {
         await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
     }
 }, 120_000);
+
+// Browser OCR end to end: the pinned English model downloads from GitHub, the
+// WebAssembly Tesseract reads the page and the searchable layer is written
+// into the document, so the app's own search finds what it recognized.
+it('recognizes a scanned page with browser OCR so search finds its words', async () => {
+    try {
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const consoleProblems = collectConsoleProblems(page);
+        await openPdfFromChooser(page, resolve(process.cwd(), 'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf'));
+        await page.locator('.page_container--rendered canvas').first().waitFor({
+            state: 'visible',
+            timeout: 30_000,
+        });
+        const searchInput = page.locator('.document-search-bar input:visible').first();
+        const searchFor = async (term: string) => {
+            if (await searchInput.count() === 0) {
+                if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                    await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+                }
+                await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            }
+            await searchInput.fill(term);
+            await searchInput.press('Enter');
+        };
+        await searchFor('survive');
+        await expect.poll(
+            () => page.locator('.document-search-results:visible').first().textContent(),
+            {timeout: 30_000},
+        ).toMatch(/No results/u);
+
+        const toolbar = page.locator('#editor-global-toolbar-host');
+        const ocrButton = toolbar.getByRole('button', {
+            name: 'OCR',
+            exact: true,
+        });
+        if (await ocrButton.isVisible()) {
+            await ocrButton.click();
+        } else {
+            await toolbar.getByRole('button', {name: 'More tools'}).first().click();
+            await page.getByRole('menuitem', {
+                name: 'OCR',
+                exact: true,
+            }).click();
+        }
+        const dialog = page.getByRole('dialog');
+        await dialog.getByText(/^Current page/u).first().click();
+        await dialog.getByRole('button', {name: /start OCR/u}).first().click();
+        await dialog.getByText('OCR complete').first().waitFor({timeout: 120_000});
+        await dialog.getByRole('button', {
+            name: 'Close',
+            exact: true,
+        }).first().click();
+
+        // The same query again would step to its next result; start a new search.
+        await searchInput.fill('');
+        await searchFor('survive');
+        await expect.poll(async () => Number(
+            /(\d+) results?/u.exec(await page.locator('.document-search-results:visible').first().textContent() ?? '')?.[1] ?? 0,
+        ), {timeout: 30_000}).toBeGreaterThanOrEqual(20);
+        expect(consoleProblems).toEqual([]);
+    } finally {
+        await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+    }
+}, 240_000);
