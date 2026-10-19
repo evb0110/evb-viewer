@@ -1599,7 +1599,7 @@ fn run_ocr_text_layer(input: &Path, output: &Path, source: &Path) -> std::proces
     let instructions = path("ocr-instructions", "json");
     fs::write(
         &instructions,
-        serde_json::json!({"pages": [{"pageNumber": 1, "sourcePath": source}]}).to_string(),
+        serde_json::json!({"pages": [{"pageNumber": 1, "source": source}]}).to_string(),
     )
     .unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))

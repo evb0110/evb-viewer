@@ -1559,7 +1559,7 @@ pub(crate) fn validate_incremental_append_output(
     )
 }
 
-fn validate_incremental_append_bytes(
+pub(crate) fn validate_incremental_append_bytes(
     appended_bytes: &[u8],
     previous_len: u64,
     previous_xref_start: usize,
