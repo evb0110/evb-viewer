@@ -232,10 +232,10 @@ holds for page, zoom, scroll and responsiveness; annotations are shared. Added
 
 **T5. An open shows one page shape.** Applies from the moment an open, a
 restore or a drop claims a tab until its first page is painted, on every
-platform and machine speed. The viewer area shows its bare background until
-the first page's size is known, then one page-shaped skeleton at the size and
-place that page will have, then the page in that place. No placeholder of
-another shape, no Start page and no other tab's surface appears in between,
+platform and machine speed. The viewer area explains loading with a progress
+indicator until the first page's size is known, then one page-shaped skeleton
+at the size and place that page will have, then the page in that place. No
+placeholder of another shape, no Start page and no other tab's surface appears in between,
 and the sequence never goes back a step. Added 2026-10-01 on the owner's
 request (#920).
 

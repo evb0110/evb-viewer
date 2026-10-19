@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {
+    chmodSync,
     closeSync,
     createReadStream,
     existsSync,
@@ -29,7 +30,7 @@ import {
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
-    goToPageViaToolbar, openAnnotationsTab, scrollToPageWithWheel,
+    goToPageViaToolbar, openAnnotationsTab, openPdfInApp, scrollToPageWithWheel,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -185,6 +186,82 @@ async function readPaintedPage(page: Page, pageNumber: number) {
 }
 
 describe('Electron E2E - large object-dense PDF opening', () => {
+    it.skipIf(process.platform === 'win32')('paints and navigates while the document annotation import is pending', async () => {
+        const artifacts = join(outputDirectory, 'pending-annotations');
+        mkdirSync(artifacts, {recursive: true});
+        const scratch = mkdtempSync(join(tmpdir(), 'evb-pending-annotations-'));
+        onTestFinished(() => rmSync(scratch, {
+            recursive: true,
+            force: true,
+        }));
+        const fixturePath = createStructureDensePdf(scratch, true);
+        const toolPath = join(scratch, 'page-ops.sh');
+        const realTool = join(process.cwd(), '.tmp/pdf-page-ops', `${process.platform}-${process.arch}`, 'bin/evb-pdf-page-ops');
+        const quote = (value: string) => `'${value.replaceAll('\'', '\'\\\'\'')}'`;
+        const gates = [
+            'page-sizes',
+            'parse-annotations',
+        ] as const;
+        writeFileSync(toolPath, [
+            '#!/bin/sh',
+            'case "$1" in page-sizes|parse-annotations)',
+            `  gate=${quote(scratch)}/"$1"`,
+            '  if [ -e "$gate.arm" ]; then',
+            '    : > "$gate.held"',
+            '    while [ -e "$gate.arm" ]; do sleep 0.05; done',
+            '  fi;;',
+            'esac',
+            `exec ${quote(realTool)} "$@"`,
+            '',
+        ].join('\n'));
+        chmodSync(toolPath, 0o700);
+        const release = (gate: typeof gates[number]) => rmSync(join(scratch, `${gate}.arm`), {force: true});
+        const session = await startElectronE2ESession(`e2e-pending-annotations-${Date.now()}`, {extraEnv: {
+            EVB_E2E_OPEN_DIALOG_PATH: fixturePath,
+            EVB_PDF_PAGE_OPS_PATH: toolPath,
+            EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2',
+            ...(process.env.EVB_E2E_LARGE_OPEN_RECORD === '1' ? {EVB_RECORD_SESSION: '1'} : {}),
+        }});
+        try {
+            await openPdfInApp(session.page, fixturePath, 30_000);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            const recent = '.editor-pane.is-active .recent-row--data button.recent-open';
+            await session.page.waitForSelector(recent, {visible: true});
+            for (const gate of gates) writeFileSync(join(scratch, `${gate}.arm`), '');
+            await clickAsUser(session.page, recent);
+            await expect.poll(() => evaluateInPage(session.page, () => {
+                const progress = document.querySelector('.workspace-host__opening-progress [role="progressbar"]');
+                const box = progress?.getBoundingClientRect();
+                return Boolean(box && box.width > 0 && box.height > 0 && getComputedStyle(progress!).visibility !== 'hidden');
+            }), {timeout: 1_000}).toBe(true);
+            await expect.poll(() => existsSync(join(scratch, 'page-sizes.held')), {timeout: 15_000}).toBe(true);
+            // L2/T5: explain the open immediately without inventing a page shape.
+            await session.page.screenshot({path: join(artifacts, 'discovering-page-shape.png')});
+            release('page-sizes');
+            await expect.poll(() => existsSync(join(scratch, 'parse-annotations.held')), {timeout: 15_000}).toBe(true);
+            // Source pixels and links do not depend on importing the other 21,600 pages.
+            await expect.poll(() => readPaintedPage(session.page, 1), {timeout: 5_000}).not.toBeNull();
+            expect(existsSync(join(scratch, 'parse-annotations.arm'))).toBe(true);
+            await goToPageViaToolbar(session.page, 2);
+            await expect.poll(() => readPaintedPage(session.page, 2), {timeout: 5_000}).not.toBeNull();
+            const link = '.editor-pane.is-active .page_container[data-page="2"] .pdf-link-overlay';
+            await session.page.waitForSelector(link, {visible: true});
+            await clickAsUser(session.page, link);
+            await expect.poll(() => readPaintedPage(session.page, 4), {timeout: 5_000}).not.toBeNull();
+            expect((await readToolbarPageIndicator(session.page)).renderedPage).toBe(4);
+            await session.page.screenshot({path: join(artifacts, 'source-painted-during-import.png')});
+            release('parse-annotations');
+            await goToPageViaToolbar(session.page, PAGE_COUNT);
+            await openAnnotationsTab(session.page);
+            await waitForFunctionInPage(session.page, (sentinel: string) => document.body.innerText.includes(sentinel), {timeout: 60_000}, NOTE_SENTINEL);
+            await session.page.screenshot({path: join(artifacts, 'imported-note.png')});
+        } finally {
+            gates.forEach(release);
+            await session.browser.disconnect();
+            await session.stop({preserveArtifacts: true});
+        }
+    }, 150_000);
+
     it('keeps painted pages and their links usable after free scrolling', async () => {
         const artifacts = join(outputDirectory, 'free-scroll');
         mkdirSync(artifacts, {recursive: true});
