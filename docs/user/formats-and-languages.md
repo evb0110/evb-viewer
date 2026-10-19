@@ -104,7 +104,9 @@ leaves the device. Its differences:
 - Documents up to 16 MB. Larger documents need the desktop app for now.
 - No image cleanup: Poor scan uses its recognition setting on the page as
   scanned, and inverted (light on dark) pages are not straightened out first.
-- Early-print reading (ſ, æ, œ) is desktop-only for now.
+- Early-print reading (ſ, æ, œ) works as in the desktop app for the browser
+  languages; its two extra models (about 14 MB) download the first time a page
+  needs them. Latin text needs the desktop app.
 - The browser draws the page with a different renderer than the desktop app,
   so on difficult scans a few words can come out differently.
 - The browser needs WebAssembly SIMD (Chrome 91, Firefox 89, Safari 16.4 or

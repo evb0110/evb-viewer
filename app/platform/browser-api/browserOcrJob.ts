@@ -8,7 +8,10 @@ import {
     getBrowserOcrLaneCount,
     runBrowserOcrEngine,
 } from '@app/platform/browser-api/browserOcrEngineClient';
-import {ensureBrowserOcrModel} from '@app/platform/browser-api/browserOcrModels';
+import {
+    ensureBrowserOcrModel,
+    readCachedOcrModel,
+} from '@app/platform/browser-api/browserOcrModels';
 import {
     BROWSER_OCR_ANNOTATION_MODE,
     readPageSourceDpi,
@@ -25,6 +28,18 @@ import {
     isBrowserPageOpsWasmFailure,
     type IOcrTextLayerInstructions,
 } from '@contracts/browserPageOpsWorker';
+import {
+    canReadEarlyPrint,
+    createEarlyPrintDictionary,
+    hasLongSSignature,
+    planEarlyPrintWordEdits,
+} from '@ocr-core/earlyPrintReading';
+import {
+    hocrWordText,
+    readHocrLines,
+} from '@ocr-core/hocrReading';
+import {readTraineddataWordList} from '@ocr-core/readTraineddataWordList';
+import type {IOcrWordEdit} from '@ocr-core/types';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
@@ -52,11 +67,13 @@ import {
 } from '@ocr-core/tesseractRecipe';
 import {
     parseTsvOcrData,
+    readTesseractWords,
+    TESSERACT_MAX_HOCR_BYTES,
     TESSERACT_MAX_TSV_BYTES,
 } from '@ocr-core/tesseractTsv';
 
-const ENGINE_PDF_OUTPUT = `${BROWSER_OCR_ENGINE_OUTPUT_BASE}.pdf`;
-const ENGINE_TSV_OUTPUT = `${BROWSER_OCR_ENGINE_OUTPUT_BASE}.tsv`;
+const LONG_S_OUTPUT_BASE = '/work/ita_old';
+const LIGATURES_OUTPUT_BASE = '/work/fra';
 const MAX_JOB_MESSAGES = 10_000;
 
 export interface IBrowserOcrJobInput {
@@ -86,6 +103,30 @@ interface IRecognizedPage {
     pageNumber: number;
     pdf: Uint8Array;
     languages: readonly string[];
+    wordEdits: IOcrWordEdit[];
+}
+
+function requireTesseractPdf(bytes: Uint8Array | undefined) {
+    if (!bytes || new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') {
+        throw new Error('Tesseract did not produce PDF output');
+    }
+    return bytes;
+}
+
+function decodeBoundedText(bytes: Uint8Array | undefined, maxBytes: number, label: string) {
+    if (!bytes || bytes.byteLength > maxBytes) {
+        throw new Error(`Tesseract ${label} output is missing or exceeds its limit`);
+    }
+    return new TextDecoder().decode(bytes);
+}
+
+/**
+ * The early-print dictionary of the selected languages, built from their own
+ * models' word lists as desktop builds it (Latin is not a browser language).
+ */
+async function loadEarlyPrintDictionary(languages: readonly string[]) {
+    const lists = await Promise.all([...new Set(languages)].map(async code => readTraineddataWordList(await readCachedOcrModel(code as TOcrModelCode))));
+    return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), false);
 }
 
 /** A failure the workspace explains in the user's language, by its code. */
@@ -118,6 +159,15 @@ async function extractPageText(page: IPdfPage) {
             .join('');
     } catch {
         return OCR_TEXT_PROBE_UNAVAILABLE;
+    }
+}
+
+// A TSV that cannot be read fails the page when it is parsed for its words.
+function readWordsOrNone(tsv: string) {
+    try {
+        return readTesseractWords(tsv).map(word => word.text);
+    } catch {
+        return [];
     }
 }
 
@@ -254,6 +304,105 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         const extractionDpi = resolveOcrExtractionDpi(renderDpi ?? finestSourceDpi);
         const recognized: IRecognizedPage[] = [];
         const queue = [...selection.pages];
+        const enginePass = (
+            languages: readonly string[],
+            outputBase: string,
+            dpi: number,
+            outputs: {
+                pdf?: boolean;
+                tsv?: boolean;
+                hocr?: boolean
+            },
+        ) => ({
+            args: buildTesseractArgs({
+                imagePath: BROWSER_OCR_ENGINE_IMAGE_PATH,
+                outputBase,
+                languages,
+                tessdataPath: BROWSER_OCR_ENGINE_TESSDATA_PATH,
+                dpi,
+                options: input.options,
+                outputs,
+            }),
+            outputs: ([
+                'pdf',
+                'tsv',
+                'hocr',
+            ] as const).filter(kind => outputs[kind]).map(kind => `${outputBase}.${kind}`),
+        });
+        // The early-print models and each language set's dictionary load once per job.
+        let earlyPrintModels: Promise<void> | null = null;
+        const dictionaries = new Map<string, Promise<ReadonlySet<string>>>();
+        /**
+         * On a page its own model read with the long-s signature, reads the
+         * raster again, as desktop does: the selected models writing hOCR as
+         * well, then ita_old for the long s and graves, fra for æ and œ. The
+         * reread PDF and the planned word edits replace the first reading only
+         * when every pass succeeded.
+         */
+        const readEarlyPrint = async (page: IPdfPage, dpi: number, languages: readonly string[]) => {
+            earlyPrintModels ??= (async () => {
+                for (const code of [
+                    'ita_old',
+                    'fra',
+                ] as const) {
+                    await ensureBrowserOcrModel(code, {signal});
+                }
+            })();
+            await earlyPrintModels;
+            const dictionaryKey = [...languages].sort().join('+');
+            let dictionary = dictionaries.get(dictionaryKey);
+            if (!dictionary) {
+                dictionary = loadEarlyPrintDictionary(languages);
+                dictionaries.set(dictionaryKey, dictionary);
+            }
+            // The first request handed its raster to the engine; render the page again.
+            const raster = await renderBrowserOcrRaster(page, dpi, signal);
+            const result = await runBrowserOcrEngine({
+                image: raster.image,
+                models: [...new Set([
+                    ...languages,
+                    'ita_old',
+                    'fra',
+                ])] as TOcrModelCode[],
+                passes: [
+                    enginePass(languages, BROWSER_OCR_ENGINE_OUTPUT_BASE, dpi, {
+                        pdf: true,
+                        tsv: true,
+                        hocr: true,
+                    }),
+                    enginePass(['ita_old'], LONG_S_OUTPUT_BASE, dpi, {hocr: true}),
+                    enginePass(['fra'], LIGATURES_OUTPUT_BASE, dpi, {hocr: true}),
+                ],
+            }, signal);
+            const [
+                base,
+                longS,
+                ligatures,
+            ] = result.passes;
+            const [
+                pdf,
+                tsv,
+                hocr,
+            ] = base!.outputs;
+            const rereadTsv = decodeBoundedText(tsv, TESSERACT_MAX_TSV_BYTES, 'TSV').trim();
+            const baseLines = readHocrLines(decodeBoundedText(hocr, TESSERACT_MAX_HOCR_BYTES, 'hOCR'));
+            // Edits name words by their place in the TSV, which lists the hOCR's words in order.
+            const hocrWords = baseLines.flatMap(line => line.words.map(word => hocrWordText(word).trim()));
+            const tsvWords = readTesseractWords(rereadTsv).map(word => word.text);
+            if (hocrWords.length !== tsvWords.length || hocrWords.some((word, index) => word !== tsvWords[index])) {
+                throw new Error('Tesseract listed different words in its hOCR and TSV');
+            }
+            const wordEdits = planEarlyPrintWordEdits({
+                base: baseLines,
+                longS: readHocrLines(decodeBoundedText(longS!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
+                ligatures: readHocrLines(decodeBoundedText(ligatures!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
+            }, await dictionary, {latin: false});
+            parseTsvOcrData(rereadTsv, {}, wordEdits);
+            return {
+                pdf: requireTesseractPdf(pdf),
+                wordEdits,
+            };
+        };
         const recognizePage = async (request: IOcrSearchablePdfPage) => {
             activePages.add(request.pageNumber);
             stage('processing', {
@@ -276,38 +425,36 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 const result = await runBrowserOcrEngine({
                     image: raster.image,
                     models: [...request.languages] as TOcrModelCode[],
-                    passes: [{
-                        args: buildTesseractArgs({
-                            imagePath: BROWSER_OCR_ENGINE_IMAGE_PATH,
-                            outputBase: BROWSER_OCR_ENGINE_OUTPUT_BASE,
-                            languages: request.languages,
-                            tessdataPath: BROWSER_OCR_ENGINE_TESSDATA_PATH,
-                            dpi,
-                            options: input.options,
-                            outputs: {
-                                pdf: true,
-                                tsv: true,
-                            },
-                        }),
-                        outputs: [
-                            ENGINE_PDF_OUTPUT,
-                            ENGINE_TSV_OUTPUT,
-                        ],
-                    }],
+                    passes: [enginePass(request.languages, BROWSER_OCR_ENGINE_OUTPUT_BASE, dpi, {
+                        pdf: true,
+                        tsv: true,
+                    })],
                 }, signal);
                 const [pass] = result.passes;
                 const [
-                    pagePdf,
+                    firstPdf,
                     tsv,
                 ] = pass!.outputs;
-                if (!pagePdf || new TextDecoder().decode(pagePdf.subarray(0, 5)) !== '%PDF-') {
-                    throw new Error('Tesseract did not produce PDF output');
-                }
-                if (!tsv || tsv.byteLength > TESSERACT_MAX_TSV_BYTES) {
-                    throw new Error('Tesseract TSV output is missing or exceeds its limit');
-                }
+                const tsvText = decodeBoundedText(tsv, TESSERACT_MAX_TSV_BYTES, 'TSV').trim();
                 // The words are not stored; parsing applies the desktop's TSV bounds.
-                parseTsvOcrData(new TextDecoder().decode(tsv).trim());
+                parseTsvOcrData(tsvText);
+                let pagePdf = requireTesseractPdf(firstPdf);
+                let wordEdits: IOcrWordEdit[] = [];
+                if (canReadEarlyPrint(request.languages) && hasLongSSignature(readWordsOrNone(tsvText))) {
+                    try {
+                        const early = await readEarlyPrint(page, dpi, request.languages);
+                        pagePdf = early.pdf;
+                        wordEdits = early.wordEdits;
+                    } catch (error) {
+                        throwIfAborted(signal);
+                        diagnostics.push({
+                            code: 'OCR_EARLY_PRINT_UNAVAILABLE',
+                            severity: 'warning',
+                            pageNumber: requirePageNumber(request.pageNumber),
+                            message: `The page looks like early print, but the early-print models could not run: ${getErrorMessage(error)}`,
+                        });
+                    }
+                }
                 const unsupported = findUnsupportedTesseractOptions(pass!.stderr);
                 if (unsupported.length > 0) {
                     diagnostics.push({
@@ -321,6 +468,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     pageNumber: request.pageNumber,
                     pdf: pagePdf,
                     languages: request.languages,
+                    wordEdits,
                 });
             } catch (error) {
                 throwIfAborted(signal);
@@ -357,6 +505,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             pageNumber: page.pageNumber,
             source,
             ...(shouldNormalizeGreekMicroSign(page.languages) ? {normalizeGreekMicroSign: true} : {}),
+            ...(page.wordEdits.length > 0 ? {wordEdits: page.wordEdits} : {}),
         }))};
         await browserDocumentStore.assertDocumentRevisionCurrent(input.sourceRef, revision.token);
         const written = await runBrowserPageOpsWorkerRequest('ocrTextLayer', {
