@@ -61,6 +61,9 @@ abi! {
         REQUEST_VERSION: u32 = 2;
         REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
         REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE: u32 = 4;
+        REQUEST_VERSION_OCR_TEXT_LAYER: u32 = 5;
+        // One per recognized page; an OCR job writes at most this many at once.
+        MAX_OCR_PAGE_PDFS: usize = 100_000;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
         MAX_DOCUMENTS: usize = 500;
@@ -70,6 +73,8 @@ abi! {
         RESPONSE_NATIVE_MUTATIONS: u32 = 4;
         RESPONSE_JSON: u32 = 5;
         RESPONSE_TEXT_BOX_APPEARANCE: u32 = 6;
+        // MUTATION_HEADER layout; the data is only the appended revision.
+        RESPONSE_INCREMENT: u32 = 7;
         NATIVE_MUTATION_POSTCONDITIONS_VERIFIED: u32 = 1;
     }
     operations {
@@ -91,6 +96,11 @@ abi! {
         // "<view mode> <orientation>".
         OP_PRINT_LAYOUT = 15 => "printLayout";
         OP_TEXT_BOX_APPEARANCE = 16 => "textBoxAppearance";
+        // Selected pages use the page list; insertion data is empty or the
+        // UTF-8 flag "with-evb-ocr-text". Answers RESPONSE_JSON.
+        OP_OCR_TEXT_VISIBILITY = 17 => "ocrTextVisibility";
+        // OCR_TEXT_LAYER_HEADER framing. Answers RESPONSE_INCREMENT.
+        OP_OCR_TEXT_LAYER = 18 => "ocrTextLayer";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
@@ -103,6 +113,13 @@ abi! {
         DOCUMENT_LIST_HEADER: DocumentListHeader {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES,
             operation: U32_BYTES, document_count: U32_BYTES,
+        }
+        // Followed by the document, the UTF-8 JSON instructions, then each
+        // page PDF as a little-endian u32 length and its bytes.
+        OCR_TEXT_LAYER_HEADER: OcrTextLayerHeader {
+            magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
+            data_length: U32_BYTES, instructions_length: U32_BYTES,
+            page_pdf_count: U32_BYTES,
         }
         MUTATION_HEADER: MutationHeader {
             kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
@@ -285,6 +302,61 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         insertion_data,
         password,
         original_appearance_source,
+    })
+}
+
+pub(crate) struct ParsedOcrTextLayerRequest<'a> {
+    pub(crate) data: &'a [u8],
+    pub(crate) instructions: &'a [u8],
+    pub(crate) page_pdfs: Vec<&'a [u8]>,
+}
+
+pub(crate) fn parse_ocr_text_layer_request(
+    request: &[u8],
+) -> Result<ParsedOcrTextLayerRequest<'_>> {
+    let mut offset = OCR_TEXT_LAYER_HEADER.magic;
+    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC {
+        return Err("Invalid page-op WASM OCR text-layer magic".into());
+    }
+    if read_u32_at(request, OCR_TEXT_LAYER_HEADER.version)? != REQUEST_VERSION_OCR_TEXT_LAYER
+        || read_u32_at(request, OCR_TEXT_LAYER_HEADER.operation)? != OP_OCR_TEXT_LAYER
+    {
+        return Err("OCR text-layer framing is reserved for the ocrTextLayer operation".into());
+    }
+    let data_len = read_usize_at(request, OCR_TEXT_LAYER_HEADER.data_length, "data_len")?;
+    let instructions_len = read_usize_at(
+        request,
+        OCR_TEXT_LAYER_HEADER.instructions_length,
+        "instructions_len",
+    )?;
+    let page_pdf_count = read_usize_at(
+        request,
+        OCR_TEXT_LAYER_HEADER.page_pdf_count,
+        "page PDF count",
+    )?;
+    if page_pdf_count == 0 || page_pdf_count > MAX_OCR_PAGE_PDFS {
+        return Err("Invalid page-op WASM OCR page PDF count".into());
+    }
+    let mut offset = OCR_TEXT_LAYER_HEADER.bytes;
+    let data = take_bytes(request, &mut offset, data_len)?;
+    let instructions = take_bytes(request, &mut offset, instructions_len)?;
+    // Every page PDF carries at least its length, so a count the request
+    // cannot hold fails before anything is reserved.
+    if page_pdf_count > (request.len() - offset) / U32_BYTES {
+        return Err("Truncated page-op WASM request".into());
+    }
+    let mut page_pdfs = Vec::with_capacity(page_pdf_count);
+    for _ in 0..page_pdf_count {
+        let len = read_usize_le(request, &mut offset, "page PDF length")?;
+        page_pdfs.push(take_bytes(request, &mut offset, len)?);
+    }
+    if offset != request.len() {
+        return Err("Trailing bytes in page-op WASM request".into());
+    }
+    Ok(ParsedOcrTextLayerRequest {
+        data,
+        instructions,
+        page_pdfs,
     })
 }
 

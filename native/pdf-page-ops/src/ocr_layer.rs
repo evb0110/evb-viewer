@@ -13,7 +13,7 @@
 use super::*;
 use lopdf::content::Content;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Tesseract writes one small page per raster. The bound keeps a damaged or
 /// unexpected sidecar from being loaded eagerly.
@@ -45,8 +45,14 @@ fn affine(matrix: [f64; 6]) -> Matrix3 {
     ]
 }
 
-pub(crate) fn read_ocr_text_layer_file(path: &Path) -> Result<OcrTextLayerFile> {
-    let instructions: OcrTextLayerFile = read_json_sidecar(path, "OCR text-layer instructions")?;
+pub(crate) fn read_ocr_text_layer_file(path: &Path) -> Result<OcrTextLayerFile<PathBuf>> {
+    let instructions = read_json_sidecar(path, "OCR text-layer instructions")?;
+    validate_ocr_text_layer(&instructions)?;
+    Ok(instructions)
+}
+
+/// The checks every host's instructions pass before any page is written.
+fn validate_ocr_text_layer<S>(instructions: &OcrTextLayerFile<S>) -> Result<()> {
     if instructions.pages.is_empty() {
         return Err("ocr-text-layer requires at least one page".into());
     }
@@ -87,7 +93,7 @@ pub(crate) fn read_ocr_text_layer_file(path: &Path) -> Result<OcrTextLayerFile> 
             }
         }
     }
-    Ok(instructions)
+    Ok(())
 }
 
 fn utf16be(text: &str) -> Vec<u8> {
@@ -304,8 +310,7 @@ pub(crate) struct OcrLayerLine {
 /// forms alone, so their text decides whether the page paints text, and
 /// hidden text in a form is text a replacement would keep beside the new layer.
 struct PageTextInspection<'a> {
-    input_path: &'a Path,
-    qpdf_path: Option<&'a Path>,
+    structural: Option<StructuralSource<'a>>,
     /// Forms read so far, with the rendering mode each draw passed in: the
     /// same form drawn under another mode shows its text differently.
     visited: HashSet<(ObjectId, i64)>,
@@ -357,9 +362,7 @@ impl PageTextInspection<'_> {
             .and_then(|(_, object)| object.as_dict().ok())
             .unwrap_or(resources)
             .clone();
-        let Some(bytes) =
-            read_content_stream(incremental, self.input_path, self.qpdf_path, form_id)?
-        else {
+        let Some(bytes) = read_content_stream(incremental, self.structural, form_id)? else {
             self.doubt("a Form XObject's content could not be read");
             return Ok(());
         };
@@ -405,12 +408,7 @@ fn inspect_page_text_visibility(
     let mut evb_ocr_layer = false;
     let mut evb_ocr_lines: Option<Vec<OcrLayerLine>> = None;
     for content_id in incremental.previous_document.get_page_contents(page_id) {
-        let Some(bytes) = read_content_stream(
-            incremental,
-            inspection.input_path,
-            inspection.qpdf_path,
-            content_id,
-        )?
+        let Some(bytes) = read_content_stream(incremental, inspection.structural, content_id)?
         else {
             inspection.doubt("a page content stream could not be read");
             continue;
@@ -571,6 +569,52 @@ pub(crate) fn write_ocr_text_visibility(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let report = inspect_ocr_text_visibility(
+        &mut incremental,
+        StructuralSource::for_path(input_path, qpdf_path),
+        page_numbers,
+        with_evb_ocr_text,
+    )?;
+    serde_json::to_writer(output, &report)?;
+    Ok(())
+}
+
+/// The visibility report for a document held in memory: the browser's
+/// `ocrTextVisibility` operation, serialized as `ocr-text-visibility` prints it.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn ocr_text_visibility_bytes(
+    data: &[u8],
+    page_numbers: &[u32],
+    with_evb_ocr_text: bool,
+) -> Result<Vec<u8>> {
+    let mut incremental = incremental_from_bytes(data)?;
+    let report =
+        inspect_ocr_text_visibility(&mut incremental, None, page_numbers, with_evb_ocr_text)?;
+    Ok(serde_json::to_vec(&report)?)
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn incremental_from_bytes(data: &[u8]) -> Result<IncrementalDocument> {
+    if data.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM input exceeds the input admission ceiling",
+        ));
+    }
+    Ok(IncrementalDocument::from_document(
+        load_pdf_bytes(data)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?,
+        u64::try_from(data.len())?,
+        data.last().copied(),
+    ))
+}
+
+fn inspect_ocr_text_visibility(
+    incremental: &mut IncrementalDocument,
+    structural: Option<StructuralSource<'_>>,
+    page_numbers: &[u32],
+    with_evb_ocr_text: bool,
+) -> Result<OcrTextVisibilityReport> {
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
@@ -581,15 +625,14 @@ pub(crate) fn write_ocr_text_visibility(
     for &page_number in page_numbers {
         let page_id = resolver.page_id(&incremental.previous_document, page_number)?;
         let mut inspection = PageTextInspection {
-            input_path,
-            qpdf_path,
+            structural,
             visited: HashSet::new(),
             decoded_bytes: 0,
             painted: false,
             uncertain: None,
         };
         let page = inspect_page_text_visibility(
-            &mut incremental,
+            incremental,
             &mut inspection,
             page_number,
             page_id,
@@ -606,15 +649,27 @@ pub(crate) fn write_ocr_text_visibility(
         }
         pages.push(page);
     }
-    serde_json::to_writer(
-        output,
-        &OcrTextVisibilityReport {
-            format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
-            schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
-            pages,
-        },
-    )?;
-    Ok(())
+    Ok(OcrTextVisibilityReport {
+        format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
+        schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
+        pages,
+    })
+}
+
+fn ocr_source_length_error(length: u64, source: impl std::fmt::Display) -> Box<dyn Error> {
+    domain_error(
+        NativeErrorCode::TooLarge,
+        format!(
+            "OCR page PDF must be between 1 and {MAX_OCR_SOURCE_PDF_BYTES} bytes ({length} bytes): {source}"
+        ),
+    )
+}
+
+fn checked_ocr_source(source: Result<Document>) -> Result<Document> {
+    let source =
+        source.map_err(|error| classify_pdf_load_error(error, "Failed to parse OCR page PDF"))?;
+    assert_plaintext_base(&source, "Encrypted OCR page PDFs are not supported")?;
+    Ok(source)
 }
 
 fn load_ocr_source(path: &Path) -> Result<Document> {
@@ -622,35 +677,26 @@ fn load_ocr_source(path: &Path) -> Result<Document> {
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .len();
     if length == 0 || length > MAX_OCR_SOURCE_PDF_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            format!(
-                "OCR page PDF must be between 1 and {MAX_OCR_SOURCE_PDF_BYTES} bytes: {}",
-                path.display()
-            ),
-        ));
+        return Err(ocr_source_length_error(length, path.display()));
     }
-    let source = load_pdf_path(path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse OCR page PDF"))?;
-    assert_plaintext_base(&source, "Encrypted OCR page PDFs are not supported")?;
-    Ok(source)
+    checked_ocr_source(load_pdf_path(path))
 }
 
-pub(crate) fn write_ocr_text_layer_path(
-    input_path: &Path,
-    output_path: &Path,
-    instructions: &OcrTextLayerFile,
-    qpdf_path: Option<&Path>,
+/// Writes every instruction's page into the incremental revision. `load_source`
+/// returns the Tesseract page PDF an instruction names, by path or by index.
+fn apply_ocr_text_layer<S>(
+    incremental: &mut IncrementalDocument,
+    structural: Option<StructuralSource<'_>>,
+    instructions: &OcrTextLayerFile<S>,
+    mut load_source: impl FnMut(&S) -> Result<Document>,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
     for page in &instructions.pages {
-        let mut source = load_ocr_source(&page.source_path)?;
+        let mut source = load_source(&page.source)?;
         let source_resolver = PageTreeResolver::new(&source)?;
         if source_resolver.page_count() != 1 {
             return Err("OCR page PDF must contain exactly one page".into());
@@ -667,12 +713,11 @@ pub(crate) fn write_ocr_text_layer_path(
             page.preprocess_inverse.as_ref(),
         )?;
         if !incremental.new_document.has_object(page_id) {
-            prepare_incremental_overlay_page(&mut incremental, page_id)?;
+            prepare_incremental_overlay_page(incremental, page_id)?;
         }
         replace_page_ocr_text(
-            &mut incremental,
-            input_path,
-            qpdf_path,
+            incremental,
+            structural,
             &source,
             source_page_id,
             page_id,
@@ -681,6 +726,23 @@ pub(crate) fn write_ocr_text_layer_path(
         )?;
     }
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    Ok(())
+}
+
+pub(crate) fn write_ocr_text_layer_path(
+    input_path: &Path,
+    output_path: &Path,
+    instructions: &OcrTextLayerFile<PathBuf>,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    apply_ocr_text_layer(
+        &mut incremental,
+        StructuralSource::for_path(input_path, qpdf_path),
+        instructions,
+        |path: &PathBuf| load_ocr_source(path),
+    )?;
     let revision_bytes = build_incremental_revision(&mut incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
     with_staged_incremental_output(input_path, output_path, |staged_output_path| {
@@ -691,6 +753,61 @@ pub(crate) fn write_ocr_text_layer_path(
             &expected_object_ids,
         )
     })
+}
+
+/// The browser's `ocrTextLayer` operation: instructions name Tesseract page
+/// PDFs by their index in `page_pdfs`. Returns only the appended revision; the
+/// caller publishes the original bytes followed by it.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn ocr_text_layer_increment_bytes(
+    data: &[u8],
+    instructions: &[u8],
+    page_pdfs: &[&[u8]],
+) -> Result<OcrTextLayerIncrement> {
+    if instructions.len() > MAX_SIDECAR_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "OCR text-layer instructions exceed the byte admission ceiling",
+        ));
+    }
+    let instructions: OcrTextLayerFile<usize> =
+        evb_native_support::bounded_io::deserialize_json_slice(
+            instructions,
+            "OCR text-layer instructions",
+        )?;
+    validate_ocr_text_layer(&instructions)?;
+    let mut incremental = incremental_from_bytes(data)?;
+    let page_count = u32::try_from(incremental.previous_document.get_pages().len())
+        .map_err(|_| "PDF page count exceeds the WASM response range")?;
+    apply_ocr_text_layer(&mut incremental, None, &instructions, |&index| {
+        let bytes = page_pdfs
+            .get(index)
+            .ok_or("ocr-text-layer names an OCR page PDF the request does not carry")?;
+        if bytes.is_empty() || bytes.len() as u64 > MAX_OCR_SOURCE_PDF_BYTES {
+            return Err(ocr_source_length_error(
+                bytes.len() as u64,
+                format!("page PDF {index}"),
+            ));
+        }
+        checked_ocr_source(load_pdf_bytes(bytes))
+    })?;
+    let revision = build_incremental_revision(&mut incremental)?;
+    validate_incremental_append_bytes(
+        &revision,
+        u64::try_from(data.len())?,
+        incremental.get_prev_documents().xref_start,
+        &collect_incremental_append_object_ids(&incremental),
+    )?;
+    Ok(OcrTextLayerIncrement {
+        data: revision,
+        page_count,
+    })
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) struct OcrTextLayerIncrement {
+    pub(crate) data: Vec<u8>,
+    pub(crate) page_count: u32,
 }
 
 #[cfg(test)]

@@ -6,6 +6,8 @@ export const REQUEST_MAGIC = 'EPPO';
 export const REQUEST_VERSION = 2;
 export const REQUEST_VERSION_DOCUMENT_LIST = 3;
 export const REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE = 4;
+export const REQUEST_VERSION_OCR_TEXT_LAYER = 5;
+export const MAX_OCR_PAGE_PDFS = 100000;
 export const U32_BYTES = 4;
 export const F64_BYTES = 8;
 export const MAX_DOCUMENTS = 500;
@@ -15,6 +17,7 @@ export const RESPONSE_ANNOTATION_PARSE = 3;
 export const RESPONSE_NATIVE_MUTATIONS = 4;
 export const RESPONSE_JSON = 5;
 export const RESPONSE_TEXT_BOX_APPEARANCE = 6;
+export const RESPONSE_INCREMENT = 7;
 export const NATIVE_MUTATION_POSTCONDITIONS_VERIFIED = 1;
 export const MAX_U32 = 4294967295;
 
@@ -35,6 +38,8 @@ export const OPERATION_CODES = {
     mergePages: 14,
     printLayout: 15,
     textBoxAppearance: 16,
+    ocrTextVisibility: 17,
+    ocrTextLayer: 18,
 } as const;
 
 export const REQUEST_HEADER = {
@@ -61,6 +66,16 @@ export const DOCUMENT_LIST_HEADER = {
     operation: 8,
     documentCount: 12,
     bytes: 16,
+} as const;
+
+export const OCR_TEXT_LAYER_HEADER = {
+    magic: 0,
+    version: 4,
+    operation: 8,
+    dataLength: 12,
+    instructionsLength: 16,
+    pagePdfCount: 20,
+    bytes: 24,
 } as const;
 
 export const MUTATION_HEADER = {
