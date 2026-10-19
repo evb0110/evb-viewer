@@ -37,7 +37,7 @@ const PDF_OCR_PAGE_TEXT_VISIBILITY_SCHEMA = v.strictObject({
     evbOcrLines: v.nullable(v.array(PDF_OCR_LAYER_LINE_SCHEMA)),
 });
 
-const PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA = v.strictObject({
+export const PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA = v.strictObject({
     format: v.literal(PDF_OCR_TEXT_VISIBILITY_FORMAT),
     schemaVersion: v.literal(PDF_OCR_TEXT_VISIBILITY_SCHEMA_VERSION),
     pages: v.array(PDF_OCR_PAGE_TEXT_VISIBILITY_SCHEMA),

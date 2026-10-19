@@ -199,15 +199,6 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         }
     }
 
-    if (input.options.preprocessingMode === 'clean') {
-        // The popup says so beside Poor scan; recognition settings still apply.
-        diagnostics.push({
-            code: 'OCR_PREPROCESSING_UNAVAILABLE',
-            severity: 'info',
-            message: 'Image cleanup for poor scans needs the desktop app; pages were recognized without it',
-        });
-    }
-
     const pdf = await loadBrowserPdfjsDocument(input.sourceRef);
     try {
         stage('pdf-prep');
@@ -238,8 +229,29 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         diagnostics.push(...selection.diagnostics);
         processedCount = totalPages - selection.pages.length;
 
+        // As on desktop, the document's resolution is its finest selected page
+        // image, read before any page renders, so lane order cannot change it.
         const renderDpi = input.options.renderDpi;
+        const sourceDpiByPage = new Map<number, number>();
         let finestSourceDpi: number | null = null;
+        if (renderDpi === undefined) {
+            stage('dpi-inspection');
+            for (const request of selection.pages) {
+                throwIfAborted(signal);
+                const page = await pdf.getPage(request.pageNumber).catch(() => null);
+                if (!page) continue;
+                try {
+                    const sourceDpi = readPageSourceDpi(await page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}));
+                    if (sourceDpi !== undefined) {
+                        sourceDpiByPage.set(request.pageNumber, sourceDpi);
+                        finestSourceDpi = Math.max(finestSourceDpi ?? 0, sourceDpi);
+                    }
+                } finally {
+                    page.cleanup();
+                }
+            }
+        }
+        const extractionDpi = resolveOcrExtractionDpi(renderDpi ?? finestSourceDpi);
         const recognized: IRecognizedPage[] = [];
         const queue = [...selection.pages];
         const recognizePage = async (request: IOcrSearchablePdfPage) => {
@@ -251,12 +263,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             let page: IPdfPage | null = null;
             try {
                 page = await pdf.getPage(request.pageNumber);
-                const sourceDpi = renderDpi === undefined
-                    ? readPageSourceDpi(await page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}))
-                    : undefined;
-                if (sourceDpi !== undefined) finestSourceDpi = Math.max(finestSourceDpi ?? 0, sourceDpi);
-                const extractionDpi = resolveOcrExtractionDpi(renderDpi ?? finestSourceDpi);
-                const dpi = resolveOcrPageDpi(extractionDpi, sourceDpi);
+                const dpi = resolveOcrPageDpi(extractionDpi, sourceDpiByPage.get(request.pageNumber));
                 if (dpi < extractionDpi) {
                     diagnostics.push({
                         code: 'OCR_SOURCE_DPI_LIMITED',

@@ -22,7 +22,7 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
-import {decodePdfOcrTextVisibilityReport} from '@contracts/pdfOcrTextVisibility';
+import {PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA} from '@contracts/pdfOcrTextVisibility';
 import * as v from 'valibot';
 
 const workerRequestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -331,7 +331,7 @@ const workerResultSchemas = {
     conformance: conformanceFactsSchema,
     mergePages: pageMutationResultSchema,
     ocrTextVisibility: v.nullable(v.union([
-        v.pipe(v.unknown(), v.transform(value => decodePdfOcrTextVisibilityReport(value))),
+        PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ])),
     // `data` is the revision the writer appends to the request's document.
