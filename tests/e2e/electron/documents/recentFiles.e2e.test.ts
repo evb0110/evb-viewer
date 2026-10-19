@@ -1247,12 +1247,14 @@ describe('Electron E2E - Recent Files', () => {
             await cdp.detach();
         }
         // This fresh source has no remembered geometry. While its copy is
-        // held, the claimed tab shows only the viewer background.
+        // held, the claimed tab explains loading without guessing a page shape.
         await waitForFunctionInPage(session.page, (fileName: string) => {
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
             const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
             const rect = viewport?.getBoundingClientRect();
+            const progress = host?.querySelector<HTMLElement>('.workspace-host__opening-progress [role="progressbar"]');
+            const progressRect = progress?.getBoundingClientRect();
             const visibleSurface = Array.from(host?.querySelectorAll<HTMLElement>(
                 '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
             ) ?? []).some(node => {
@@ -1263,6 +1265,8 @@ describe('Electron E2E - Recent Files', () => {
                 && viewport?.dataset.openSurfacePhase === 'pending'
                 && chassis?.dataset.openSurfaceHasOpeningGeometry === 'false'
                 && Boolean(rect && rect.width > 0 && rect.height > 0)
+                && Boolean(progressRect && progressRect.width > 0 && progressRect.height > 0
+                    && getComputedStyle(progress!).visibility !== 'hidden')
                 && !visibleSurface;
         }, {timeout: RECENT_OPEN_TIMEOUT_MS}, basename(droppedPath));
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
@@ -1296,16 +1300,14 @@ describe('Electron E2E - Recent Files', () => {
         expect(frames.filter(frame => (
             frame.kind === 'committed-empty' || frame.kind === 'loader' || frame.kind === 'tool-surface'
         )), details).toEqual([]);
-        // Until the page's shape is known the new tab is the bare viewer; then
+        // Until the page's shape is known the new tab explains loading; then
         // it shows that shape, and then the page in the same place.
         const firstShellIndex = frames.findIndex(frame => frame.kind === 'page-shell');
         expect(firstShellIndex, details).toBeGreaterThan(0);
         expect(frames.slice(0, firstShellIndex).filter(frame => (
-            frame.kind === 'blank'
-                ? frame.openSurfacePhase !== null && !isOpeningBeforePageGeometry(frame)
-                : frame.kind !== 'committed-canvas'
+            !isOpeningBeforePageGeometry(frame) && frame.kind !== 'committed-canvas'
         )), details).toEqual([]);
-        // Unknown geometry may stay bare while the copy is held. Once the
+        // Unknown geometry keeps visible progress while the copy is held. Once the
         // complete shape arrives, the existing one-frame shell budget applies.
         const claimIndex = frames.findIndex(frame => (
             frame.openSurfacePhase === 'pending'
