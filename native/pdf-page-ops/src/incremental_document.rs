@@ -47,6 +47,24 @@ const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json"];
 // reconstructs for a damaged file, which is the view the opening check accepts.
 const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json"];
 
+/// Where a structural path load reads the base streams it left unloaded:
+/// the source file, through qpdf. A document loaded from bytes holds every
+/// base stream and has none.
+#[derive(Clone, Copy)]
+pub(crate) struct StructuralSource<'a> {
+    pub(crate) input_path: &'a Path,
+    pub(crate) qpdf_path: &'a Path,
+}
+
+impl<'a> StructuralSource<'a> {
+    pub(crate) fn for_path(input_path: &'a Path, qpdf_path: Option<&'a Path>) -> Option<Self> {
+        qpdf_path.map(|qpdf_path| Self {
+            input_path,
+            qpdf_path,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct IncrementalDocument {
     previous_len: u64,
@@ -104,8 +122,7 @@ impl IncrementalDocument {
     /// Read-only consumers decode a transient stream instead of retaining it.
     pub(crate) fn read_base_stream_bounded(
         &self,
-        path: &Path,
-        qpdf_path: Option<&Path>,
+        structural: Option<StructuralSource<'_>>,
         object_id: ObjectId,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
@@ -113,10 +130,13 @@ impl IncrementalDocument {
             return Ok(None);
         };
         if self.unavailable_base_streams.contains(&object_id) {
-            if let Some(qpdf_path) = qpdf_path {
+            if let Some(source) = structural {
                 let mut transient = stream.clone();
                 transient.set_content(read_qpdf_stream_bounded(
-                    path, qpdf_path, object_id, max_bytes,
+                    source.input_path,
+                    source.qpdf_path,
+                    object_id,
+                    max_bytes,
                 )?);
                 return Ok(
                     if transient.filters().is_ok_and(|filters| !filters.is_empty()) {
