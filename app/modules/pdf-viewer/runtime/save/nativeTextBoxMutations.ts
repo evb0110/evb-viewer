@@ -373,11 +373,11 @@ export async function prepareNativeTextBoxPagePaint(options: {
         }))),
         signature: options.signature,
         nativeTextBoxInputs: Object.freeze([...nativeTextBoxInputs]),
-        nativeAnnotationAppearance: Object.freeze({
+        ...(actions.length ? {nativeAnnotationAppearance: Object.freeze({
             digest,
             pdf: pdfs.length ? pdfs : null,
             annotations: Object.freeze(actions),
-        }),
+        })} : {}),
     });
 }
 

@@ -430,16 +430,23 @@ describe('committed surface E2E contract', () => {
         expect(findCommittedSurfaceContractViolations({frames}).join('\n')).toContain(`exposed ${kind}`);
     });
 
-    it('accepts the bare viewport only while the opening page shape is unknown', () => {
+    it('requires visible progress while the opening page shape is unknown', () => {
         const openingFrame = (sequence: number, hasOpeningGeometry: 'true' | 'false') => frame(sequence, {
-            kind: 'blank',
+            kind: 'opening-progress',
+            openingProgressRect: {
+                ...rect,
+                height: 8,
+            },
             openSurfacePhase: 'pending',
             openSurfaceDiagnostic: {openSurfaceHasOpeningGeometry: hasOpeningGeometry},
         });
         const canvases = Array.from({length: 10}, (_, index) => committedCanvas(index + 3));
 
         expect(findCommittedSurfaceContractViolations({frames: [
-            frame(1),
+            {
+                ...openingFrame(1, 'false'),
+                openSurfacePhase: 'idle',
+            },
             openingFrame(2, 'false'),
             ...canvases,
         ]})).toEqual([]);
@@ -447,7 +454,23 @@ describe('committed surface E2E contract', () => {
             frame(1),
             openingFrame(2, 'true'),
             ...canvases,
+        ]}).join('\n')).toContain('exposed opening-progress');
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            {
+                ...openingFrame(2, 'false'),
+                kind: 'blank',
+            },
+            ...canvases,
         ]}).join('\n')).toContain('exposed blank');
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            {
+                ...openingFrame(2, 'false'),
+                openingProgressRect: null,
+            },
+            ...canvases,
+        ]}).join('\n')).toContain('exposed opening-progress');
     });
 
     it('rejects an opening that goes back to the bare viewport after its page shell', () => {
@@ -491,6 +514,19 @@ describe('committed surface E2E contract', () => {
             backToBare,
             ...canvases,
         ]}).join('\n')).toContain('frame 3 exposed blank');
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            shell,
+            {
+                ...backToBare,
+                kind: 'opening-progress',
+                openingProgressRect: {
+                    ...rect,
+                    height: 8,
+                },
+            },
+            ...canvases,
+        ]}).join('\n')).toContain('frame 3 exposed opening-progress');
     });
 
     it('compares every opening shell frame with the canvas, including one not yet measured', () => {

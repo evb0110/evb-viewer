@@ -11,6 +11,7 @@ export type TCommittedSurfaceKind =
     | 'committed-canvas'
     | 'committed-empty'
     | 'loader'
+    | 'opening-progress'
     | 'page-shell'
     | 'tool-surface';
 
@@ -75,6 +76,7 @@ export interface ICommittedSurfaceFrame {
     interactionCheckpoint?: string | null;
     openSurfacePhase?: string | null;
     openSurfacePresentation?: string | null;
+    openingProgressRect?: ICommittedSurfaceRect | null;
     openSurfaceDiagnostic?: Record<string, string | undefined> | undefined;
     pdfOpeningDiagnostic?: Record<string, string | undefined> | undefined;
     pdfNavigationDiagnostic?: Record<string, string | undefined> | undefined;
@@ -195,14 +197,16 @@ function ownsPageFrameStyle(style: ICommittedSurfaceStyle | null) {
 }
 
 /**
- * Until the first page's shape is known an opening shows the bare viewport,
- * because a placeholder of a guessed shape would change shape when the real
- * geometry arrives. An empty frame then is the opening, not a lost surface.
+ * Before page geometry arrives, opening feedback has to be visibly present.
+ * It may precede the chassis's open claim, but cannot replace a known page shape.
  */
 export function isOpeningBeforePageGeometry(frame: ICommittedSurfaceFrame) {
-    return frame.kind === 'blank'
-        && frame.openSurfacePhase === 'pending'
-        && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false';
+    return frame.kind === 'opening-progress'
+        && (frame.openingProgressRect?.width ?? 0) > 0
+        && (frame.openingProgressRect?.height ?? 0) > 0
+        && (frame.openSurfacePhase === 'pending' || frame.openSurfacePhase === 'idle' || frame.openSurfacePhase == null)
+        && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'true'
+        && frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'true';
 }
 
 /**
@@ -257,7 +261,7 @@ export function findCommittedSurfaceContractViolations(
     }
 
     // An open never goes back a step: once it has shown its page shape, the
-    // bare viewport of that same open is a regression, not the opening.
+    // progress alone in that same open is a regression, not the opening.
     const openingsWithShell = new Set<string>();
     const openingKey = (frame: ICommittedSurfaceFrame) => (
         `${frame.openSurfaceDiagnostic?.openSurfaceDocumentId ?? ''}#${frame.openSurfaceDiagnostic?.openSurfaceGeneration ?? ''}`
@@ -267,12 +271,12 @@ export function findCommittedSurfaceContractViolations(
             && frame.kind === 'blank'
             && frame.openSurfacePhase === 'pending'
             && frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
-        if (frame.kind === 'page-shell') {
+        if (frame.kind === 'page-shell' || frame.kind === 'committed-canvas') {
             openingsWithShell.add(openingKey(frame));
         }
-        const isOpeningBlank = isOpeningBeforePageGeometry(frame) && !openingsWithShell.has(openingKey(frame));
+        const isOpeningProgress = isOpeningBeforePageGeometry(frame) && !openingsWithShell.has(openingKey(frame));
         if (
-            (frame.kind === 'blank' && !isOpeningBlank || frame.kind === 'loader')
+            (frame.kind === 'blank' || frame.kind === 'loader' || frame.kind === 'opening-progress' && !isOpeningProgress)
             && !isExplicitDeferredOpening
         ) {
             violations.push(`frame ${String(frame.frame)} exposed ${frame.kind}`);
@@ -1044,6 +1048,9 @@ export async function installCommittedSurfaceSampler(
                 const visibleLoader = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
+                const openingProgress = Array.from(host?.querySelectorAll<HTMLElement>(
+                    '.workspace-host__opening-progress [role="progressbar"]',
+                ) ?? []).find(ownsVisibleCenter) ?? null;
                 const visibleToolSurface = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.scan-cleanup-surface',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
@@ -1199,6 +1206,8 @@ export async function installCommittedSurfaceSampler(
                     kind = 'page-shell';
                 } else if (committedEmptyElement) {
                     kind = 'committed-empty';
+                } else if (openingProgress) {
+                    kind = 'opening-progress';
                 }
 
                 const hostRect = host?.getBoundingClientRect() ?? null;
@@ -1283,6 +1292,7 @@ export async function installCommittedSurfaceSampler(
                     loaderSelector,
                     openSurfacePhase: viewport?.dataset.openSurfacePhase ?? null,
                     openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
+                    openingProgressRect: toRect(openingProgress),
                     openSurfaceDiagnostic: chassis ? {...chassis.dataset} : undefined,
                     pdfOpeningDiagnostic: pdfOpeningDiagnostic ? {...pdfOpeningDiagnostic.dataset} : undefined,
                     pdfNavigationDiagnostic: pdfViewerHost ? {...pdfViewerHost.dataset} : undefined,

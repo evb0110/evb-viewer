@@ -54,6 +54,9 @@
                 @retry-recent="retryRecentFiles"
             />
         </div>
+        <div v-if="isOpening" class="workspace-host__opening-progress">
+            <AppProgressBar :aria-label="t('common.loading')" />
+        </div>
     </div>
 </template>
 
@@ -69,6 +72,7 @@ import {
     describeOpenResult,
 } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
 import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import type {
@@ -135,6 +139,7 @@ const isStartVisible = computed(() => {
     const phase = snapshot.value.phase;
     const toolbar = documentView.value?.toolbarSnapshot.value;
     return (phase === 'empty' || phase === 'failed')
+        && !isOpening.value
         && !toolbar?.hasPdf
         && !toolbar?.isDjvuMode
         && !workspaceRestoreTracker.has(tabId);
@@ -265,5 +270,12 @@ onMounted(() => {
     justify-content: center;
     overflow: hidden;
     background: var(--app-document-viewer-bg, var(--app-window-bg));
+}
+
+.workspace-host__opening-progress {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: var(--app-workspace-transition-overlay-z-index);
+    pointer-events: none;
 }
 </style>

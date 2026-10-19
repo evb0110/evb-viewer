@@ -919,8 +919,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         pageIndex + 1,
         pagePaint(pageIndex).signature,
     ])));
-    async function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
-        await ensureAnnotationProjectionReady();
+    function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
         const document = documentSession.pdfDocument.value;
         if (!document) return;
         return prepareNativeTextBoxPagePaint({
