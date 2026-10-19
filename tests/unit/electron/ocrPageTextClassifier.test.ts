@@ -18,7 +18,7 @@ import {readOcrLayerLayout} from '@electron/features/search/readOcrLayerLayout';
 import {
     classifyOcrPageText,
     shouldOcrClassifiedPage,
-} from '@electron/features/ocr/pipeline/pageTextClassifier';
+} from '@ocr-core/pageTextClassifier';
 
 function visibility(overrides: Partial<IPdfOcrPageTextVisibility> = {}): IPdfOcrPageTextVisibility {
     return {

@@ -8,4 +8,3 @@ export {
     findOcrResultForDocument,
 } from '@electron/features/ocr/main/jobManager';
 export {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
-export {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';

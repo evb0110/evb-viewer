@@ -10,7 +10,7 @@ import { iterateOcrPageRanges } from '@electron/features/ocr/contracts';
 import {
     classifyOcrPageText,
     shouldOcrClassifiedPage,
-} from '@electron/features/ocr/pipeline/pageTextClassifier';
+} from '@ocr-core/pageTextClassifier';
 import {inspectPdfPageTextVisibility} from '@electron/pdf/inspectPdfPageTextVisibility';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {

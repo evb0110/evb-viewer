@@ -2,9 +2,9 @@ import { isLatinScriptOcrLanguage } from '@contracts/ocrLanguages';
 import type {
     IHocrChar,
     IHocrLine,
-} from '@electron/features/ocr/pipeline/hocrReading';
-import { hocrWordText } from '@electron/features/ocr/pipeline/hocrReading';
-import type { IOcrWordEdit } from '@electron/features/ocr/pipeline/types';
+} from '@ocr-core/hocrReading';
+import { hocrWordText } from '@ocr-core/hocrReading';
+import type { IOcrWordEdit } from '@ocr-core/types';
 
 /*
  * Early print, read by three models. The selected language's model reads the

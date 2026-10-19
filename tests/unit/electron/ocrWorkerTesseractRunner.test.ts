@@ -6,8 +6,8 @@ import {
 import {
     parseTsvOcrData,
     parseTsvOutput,
-    shouldNormalizeGreekMicroSign,
-} from '@electron/features/ocr/pipeline/tesseractRunner';
+} from '@ocr-core/tesseractTsv';
+import {shouldNormalizeGreekMicroSign} from '@ocr-core/tesseractRecipe';
 
 describe('parseTsvOutput', () => {
     it('preserves line boxes positioned at the top of the page', () => {

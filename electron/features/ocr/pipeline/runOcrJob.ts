@@ -26,8 +26,8 @@ import {
     getSequentialProgressPage,
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
+import type {IOcrPageWithWords} from '@ocr-core/types';
 import type {
-    IOcrPageWithWords,
     IOcrPageProcessingResult,
     IOcrPdfPageRequest,
     IOcrPipelinePaths,

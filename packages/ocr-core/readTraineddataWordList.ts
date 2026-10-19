@@ -1,7 +1,3 @@
-import {readFile} from 'node:fs/promises';
-import {join} from 'node:path';
-import {createEarlyPrintDictionary} from '@electron/features/ocr/pipeline/earlyPrintReading';
-
 // TessdataManager component numbers (tessdatamanager.h).
 const LSTM_SYSTEM_DAWG = 19;
 const LSTM_UNICHARSET = 21;
@@ -16,7 +12,7 @@ const MAX_WORDS = 2_000_000;
 const MAX_WORD_LENGTH = 256;
 const MAX_EDGE_VISITS = 64_000_000;
 
-function component(data: Buffer, index: number) {
+function component(data: Uint8Array, index: number) {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const entries = view.getInt32(0, true);
     if (entries <= index || 4 + 8 * entries > data.byteLength) return null;
@@ -33,14 +29,13 @@ function component(data: Buffer, index: number) {
  * prints them: a SquishedDawg over the model's LSTM unicharset. Null when the
  * model carries no dictionary.
  */
-export async function readTraineddataWordList(path: string): Promise<string[] | null> {
-    const data = await readFile(path);
+export function readTraineddataWordList(data: Uint8Array): string[] | null {
     if (data.byteLength > MAX_TRAINEDDATA_BYTES) throw new Error('traineddata file exceeds the size limit');
     const unicharsetBytes = component(data, LSTM_UNICHARSET);
     const dawgBytes = component(data, LSTM_SYSTEM_DAWG);
     if (!unicharsetBytes || !dawgBytes || dawgBytes.byteLength < 10) return null;
 
-    const unicharsetLines = unicharsetBytes.toString('utf8').split('\n');
+    const unicharsetLines = new TextDecoder().decode(unicharsetBytes).split('\n');
     const unichars = unicharsetLines.slice(1, 1 + Number(unicharsetLines[0])).map((line) => {
         const unichar = line.split(' ')[0] ?? '';
         return unichar === 'NULL' ? ' ' : unichar;
@@ -95,29 +90,4 @@ export async function readTraineddataWordList(path: string): Promise<string[] | 
         });
     }
     return words;
-}
-
-const dictionaries = new Map<string, Promise<ReadonlySet<string>>>();
-const MAX_CACHED_DICTIONARIES = 2;
-
-/**
- * The early-print dictionary of the selected languages: the union of their
- * word lists, loaded once per set of languages. Latin keeps its language
- * dictionary: script/Latin's multilingual DAWG exceeds the bounded reader
- * and includes words from languages the user did not select.
- */
-export function loadEarlyPrintDictionary(tessdataPath: string, languages: readonly string[]) {
-    const codes = [...new Set(languages)].sort();
-    const key = `${tessdataPath}\0${codes.join('+')}`;
-    let dictionary = dictionaries.get(key);
-    if (!dictionary) {
-        dictionary = (async () => {
-            const lists = await Promise.all(codes.map(code => readTraineddataWordList(join(tessdataPath, `${code === 'lat' ? 'lat_dictionary' : code}.traineddata`))));
-            return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), codes.includes('lat'));
-        })();
-        dictionary.catch(() => dictionaries.delete(key));
-        dictionaries.set(key, dictionary);
-        while (dictionaries.size > MAX_CACHED_DICTIONARIES) dictionaries.delete(dictionaries.keys().next().value!);
-    }
-    return dictionary;
 }
