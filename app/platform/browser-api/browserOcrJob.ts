@@ -353,6 +353,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             let dictionary = dictionaries.get(dictionaryKey);
             if (!dictionary) {
                 dictionary = loadEarlyPrintDictionary(languages);
+                // Awaited after the engine runs; an early rejection is not an unhandled one.
+                dictionary.catch(() => {});
                 dictionaries.set(dictionaryKey, dictionary);
             }
             // The first request handed its raster to the engine; render the page again.
