@@ -881,7 +881,7 @@ describe('Electron E2E - text interaction contract', () => {
             viewMode: null,
             viewRotation: rotation,
         }]);
-        await waitForViewerInteractive(page);
+        await waitForPdfLoaded(page);
         await page.waitForFunction(value => document.querySelector('.editor-pane.is-active [data-pdf-annotation-editor-surface]')?.getAttribute('data-view-rotation') === String(value), {}, rotation);
         await clickAnnotationTool(page, 'Text');
         const point = await placementPoint(page);
