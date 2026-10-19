@@ -228,6 +228,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             const recent = '.editor-pane.is-active .recent-row--data button.recent-open';
             await session.page.waitForSelector(recent, {visible: true});
             for (const gate of gates) writeFileSync(join(scratch, `${gate}.arm`), '');
+            await installCommittedSurfaceSampler(session.page, {sampleCanvasPixels: false});
             await clickAsUser(session.page, recent);
             await expect.poll(() => evaluateInPage(session.page, () => {
                 const progress = document.querySelector('.workspace-host__opening-progress [role="progressbar"]');
@@ -241,6 +242,14 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             await expect.poll(() => existsSync(join(scratch, 'parse-annotations.held')), {timeout: 15_000}).toBe(true);
             // Source pixels and links do not depend on importing the other 21,600 pages.
             await expect.poll(() => readPaintedPage(session.page, 1), {timeout: 5_000}).not.toBeNull();
+            await waitForCommittedSurfaceSamples(session.page, {
+                kind: 'committed-canvas',
+                minimumSamples: 10,
+            });
+            const openingTrace = await stopCommittedSurfaceSampler(session.page);
+            writeFileSync(join(artifacts, 'opening-frames.json'), JSON.stringify(openingTrace, null, 2));
+            expect(openingTrace.frames.some(frame => frame.kind === 'opening-progress')).toBe(true);
+            expect(findCommittedSurfaceContractViolations(openingTrace)).toEqual([]);
             expect(existsSync(join(scratch, 'parse-annotations.arm'))).toBe(true);
             await goToPageViaToolbar(session.page, 2);
             await expect.poll(() => readPaintedPage(session.page, 2), {timeout: 5_000}).not.toBeNull();
