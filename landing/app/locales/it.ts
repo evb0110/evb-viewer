@@ -53,7 +53,7 @@ export default {
         },
         installers: {
             heading: 'Download desktop',
-            description: 'Le build desktop sono pensate per OCR di PDF ricercabili, integrazione nativa con il sistema operativo e flussi più pesanti come grandi unioni. L’installer consigliato si basa sul dispositivo attuale, ma ogni build resta selezionabile.',
+            description: 'Le build desktop aggiungono la pulizia delle scansioni, l’OCR in circa 30 lingue, l’integrazione nativa con il sistema operativo e flussi più pesanti come grandi unioni. L’installer consigliato si basa sul dispositivo attuale, ma ogni build resta selezionabile.',
             loading: 'Caricamento dei link dell’ultima release...',
             error: 'Impossibile caricare gli artefatti della release in questo momento.',
             retry: 'Riprova',
@@ -157,7 +157,7 @@ export default {
                 },
                 languages: {
                     question: 'Quali lingue riconosce l\'OCR?',
-                    answer: 'Circa 30, tra cui inglese, tedesco, francese, russo, greco, ebraico, arabo e siriaco. Inglese e russo sono inclusi nell\'app; gli altri modelli si scaricano una volta, alla prima scelta.',
+                    answer: 'Circa 30, tra cui inglese, tedesco, francese, russo, greco, ebraico, arabo e siriaco. Inglese e russo sono inclusi nell\'app; gli altri modelli si scaricano una volta, alla prima scelta. L’app web legge inglese, russo, francese, tedesco, portoghese, spagnolo, olandese e italiano.',
                 },
                 formats: {
                     question: 'Quali file apre?',
@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Posso usarlo senza installare nulla?',
-                    answer: 'Sì, su {webAppUrl}. L\'app web apre PDF, file DjVu e immagini locali; l\'OCR e le unioni di grandi dimensioni richiedono l\'app desktop.',
+                    answer: 'Sì, su {webAppUrl}. L’app web apre PDF, file DjVu e immagini locali ed esegue l’OCR in otto lingue europee; la pulizia delle scansioni, le altre lingue OCR, i file oltre 16 MB e le unioni di grandi dimensioni richiedono l’app desktop.',
                 },
                 assistant: {
                     question: 'Usa l\'IA?',
@@ -175,19 +175,19 @@ export default {
         },
         entryPoints: {
             heading: 'Scegli il punto di ingresso giusto',
-            description: 'Inizia nel browser per lavorare rapidamente con PDF, DjVu e immagini locali, oppure scegli l’app desktop per OCR di PDF ricercabili, integrazione nativa con il sistema operativo e unioni più grandi.',
+            description: 'Inizia nel browser per lavorare rapidamente con PDF, DjVu e immagini locali, OCR compreso, oppure scegli l’app desktop per la pulizia delle scansioni, l’OCR in circa 30 lingue, l’integrazione nativa con il sistema operativo e unioni più grandi.',
             web: {
                 title: 'App web',
                 description: 'Ideale per aprire subito PDF locali, file DjVu e immagini comuni, poi rivedere, annotare ed esportare senza installare nulla.',
                 point1: 'Flussi di lavoro PDF, DjVu e immagini',
                 point2: 'Nessun attrito di installazione o aggiornamento',
-                point3: 'Ottima per revisione rapida, annotazioni, modifiche pagina ed esportazione',
+                point3: 'Ottima per revisione rapida, annotazioni, modifiche pagina, OCR ed esportazione',
                 action: 'Apri app web',
             },
             desktop: {
                 title: 'App desktop',
-                description: 'Ideale per OCR di PDF ricercabili, integrazione nativa con il sistema operativo, lavori di unione più grandi e flussi che richiedono più dei limiti di memoria del browser.',
-                point1: 'OCR di PDF ricercabili',
+                description: 'Ideale per la pulizia delle scansioni, l’OCR in circa 30 lingue, l’integrazione nativa con il sistema operativo, lavori di unione più grandi e flussi che richiedono più dei limiti di memoria del browser.',
+                point1: 'Pulizia delle scansioni e OCR in circa 30 lingue',
                 point2: 'Lavori di unione ed esportazione più grandi',
                 point3: 'Finestre di dialogo desktop native e integrazione con il sistema operativo',
                 action: 'Sfoglia build desktop',
@@ -204,7 +204,7 @@ export default {
         seo: {
             title: 'Funzionalità EVB Viewer per browser e desktop',
             ogTitle: 'Panoramica delle funzionalità di EVB Viewer',
-            ogDescription: 'Scopri cosa copre oggi EVB Viewer nel browser e cosa aggiunge l’app desktop per OCR di PDF ricercabili, integrazione nativa con il sistema operativo e lavori più grandi.',
+            ogDescription: 'Scopri cosa copre oggi EVB Viewer nel browser e cosa aggiunge l’app desktop per la pulizia delle scansioni, altre lingue OCR, l’integrazione nativa con il sistema operativo e lavori più grandi.',
         },
         hero: {
             badge: 'Pulizia nativa delle scansioni e OCR',
@@ -218,11 +218,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, immagini e DjVu dove ha senso',
-                description: 'I flussi browser aprono PDF locali, file DjVu e immagini comuni. L’app desktop aggiunge OCR di PDF ricercabili ed evita i limiti di memoria del browser sui lavori più pesanti.',
+                description: 'I flussi browser aprono PDF locali, file DjVu e immagini comuni. L’app desktop aggiunge la pulizia delle scansioni e altre lingue OCR ed evita i limiti di memoria del browser sui lavori più pesanti.',
             },
             ocr: {
                 title: 'OCR con output ricercabile',
-                description: 'Le build desktop eseguono localmente OCR di PDF ricercabili e mantengono il risultato dentro il documento modificato.',
+                description: 'L’OCR viene eseguito localmente nel browser e nelle build desktop e mantiene il risultato ricercabile dentro il documento modificato. Il browser legge otto lingue europee; le build desktop circa 30.',
             },
             annotations: {
                 title: 'Strumenti di annotazione avanzati',
@@ -243,7 +243,7 @@ export default {
         },
         workflow: {
             heading: 'Come il prodotto si inserisce nel lavoro reale',
-            description: 'Una sessione tipica di EVB Viewer inizia con lavoro rapido nel browser e passa al desktop quando l’OCR di PDF ricercabili o la scala lo richiedono.',
+            description: 'Una sessione tipica di EVB Viewer inizia con lavoro rapido nel browser e passa al desktop quando la pulizia delle scansioni, altre lingue OCR o la scala lo richiedono.',
             load: {
                 title: 'Inizia nel browser',
                 body: 'Apri subito un PDF locale, un file DjVu o un’immagine quando un’installazione rallenterebbe il compito.',
@@ -253,8 +253,8 @@ export default {
                 body: 'Cerca, commenta, evidenzia, confronta e riorganizza pagine senza lasciare l’area di lavoro.',
             },
             edit: {
-                title: 'Passa al desktop per OCR o scala',
-                body: 'Installa l’app desktop per OCR di PDF ricercabili, integrazione nativa con il sistema operativo e lavori più grandi di unione/esportazione.',
+                title: 'Passa al desktop per pulizia o scala',
+                body: 'Installa l’app desktop per la pulizia delle scansioni, l’OCR in circa 30 lingue, l’integrazione nativa con il sistema operativo e lavori più grandi di unione/esportazione.',
             },
             export: {
                 title: 'Esporta il risultato',
@@ -283,22 +283,22 @@ export default {
     },
     docs: {
         seo: {
-            title: 'Documentazione EVB Viewer per file nel browser e flussi OCR desktop',
+            title: 'Documentazione EVB Viewer per flussi browser e desktop',
             ogTitle: 'Guida utente EVB Viewer',
-            ogDescription: 'Inizia con l’app browser per file locali, poi installa l’app desktop quando hai bisogno di OCR di PDF ricercabili, integrazione nativa con il sistema operativo o lavori più grandi di unione/esportazione.',
+            ogDescription: 'Inizia con l’app browser per file locali e OCR, poi installa l’app desktop quando hai bisogno della pulizia delle scansioni, di altre lingue OCR, dell’integrazione nativa con il sistema operativo o di lavori più grandi di unione/esportazione.',
         },
         hero: {
-            title: 'Guide per file nel browser e OCR desktop',
-            subtitle: 'Inizia con l’app web per lavorare rapidamente con PDF, DjVu e immagini locali, poi passa all’app desktop per OCR di PDF ricercabili, integrazione nativa con il sistema operativo o lavori più grandi di unione/esportazione.',
+            title: 'Guide per l’app browser e l’app desktop',
+            subtitle: 'Inizia con l’app web per lavorare rapidamente con PDF, DjVu e immagini locali, OCR compreso, poi passa all’app desktop per la pulizia delle scansioni, altre lingue OCR, l’integrazione nativa con il sistema operativo o lavori più grandi di unione/esportazione.',
         },
         guideCardAction: 'Vai alla sezione',
         browserQuickstart: {
             heading: 'Avvio rapido nel browser',
             intro: 'Usa l’app web quando il lavoro inizia con un PDF locale, un file DjVu o un’immagine comune e vuoi procedere subito.',
             li1: 'Apri un PDF, file DjVu o immagine supportata direttamente nell’area di lavoro del browser.',
-            li2: 'Usa ricerca, note, evidenziazioni, riordino pagine, ritaglio ed esportazione senza installare l’app desktop. Lascia i lotti di unione molto grandi al desktop.',
+            li2: 'Usa ricerca, note, evidenziazioni, riordino pagine, ritaglio, OCR ed esportazione senza installare l’app desktop. Lascia i lotti di unione molto grandi al desktop.',
             li3: 'I flussi browser sono ideali per file più leggeri, cicli di revisione rapidi e lotti di unione limitati.',
-            li4: 'L’OCR di PDF ricercabili resta prima di tutto desktop, quindi passa all’app desktop quando il compito dipende da esso.',
+            li4: 'L’OCR nel browser legge inglese, russo, francese, tedesco, portoghese, spagnolo, olandese e italiano; passa all’app desktop per la pulizia delle scansioni o altre lingue.',
         },
         bookmarks: {
             title: 'In questa pagina',
@@ -319,7 +319,7 @@ export default {
         },
         workspace: {
             heading: 'Panoramica area di lavoro',
-            intro: 'EVB Viewer è un’area di lavoro documentale che copre browser e desktop. Il browser apre PDF locali, file DjVu e immagini; il desktop aggiunge OCR di PDF ricercabili, integrazione nativa con il sistema operativo e più margine per lavori grandi.',
+            intro: 'EVB Viewer è un’area di lavoro documentale che copre browser e desktop. Il browser apre PDF locali, file DjVu e immagini ed esegue l’OCR; il desktop aggiunge la pulizia delle scansioni, altre lingue OCR, l’integrazione nativa con il sistema operativo e più margine per lavori grandi.',
             li1: 'In alto: barra schede per aprire, riordinare, dividere e spostare schede.',
             li2: 'Sotto le schede: barra strumenti per salvataggio, esportazione, OCR, zoom, modalità selezione/mano e impostazioni.',
             li3: 'Al centro: visualizzatore documenti con layout a pagina singola o pagine affiancate.',
@@ -328,7 +328,7 @@ export default {
         },
         unsigned: {
             heading: 'Installare build desktop',
-            intro: 'Usa le build desktop per OCR di PDF ricercabili, integrazione nativa con il sistema operativo e flussi più pesanti come grandi unioni. Scarica gli installer dalla sezione download di EVB Viewer o dalle release ufficiali.',
+            intro: 'Usa le build desktop per la pulizia delle scansioni, l’OCR in circa 30 lingue, l’integrazione nativa con il sistema operativo e flussi più pesanti come grandi unioni. Scarica gli installer dalla sezione download di EVB Viewer o dalle release ufficiali.',
             li1: 'Installa sempre file pubblicati nelle release di {repo}.',
             li2: 'Se il sistema operativo mostra un avviso, usa i passaggi di override per piattaforma qui sotto.',
             macosHeading: 'macOS (DMG):',
@@ -346,7 +346,7 @@ export default {
         },
         openCombine: {
             heading: 'Aprire e combinare file',
-            intro: 'Usa {menuPath} per aprire file supportati. I flussi browser coprono PDF, file DjVu e immagini comuni; il desktop è migliore per OCR di PDF ricercabili e lavori di unione più grandi.',
+            intro: 'Usa {menuPath} per aprire file supportati. I flussi browser coprono PDF, file DjVu e immagini comuni; il desktop è migliore per la pulizia delle scansioni e lavori di unione più grandi.',
             li1: 'I tipi di file supportati includono PDF, DjVu, PNG, JPG/JPEG, TIFF, BMP, WEBP e GIF.',
             li2: 'Puoi selezionare più PDF, file DjVu o immagini insieme. L’unione nel browser è limitata dalla memoria; usa il desktop per lotti più grandi.',
             li3: 'Il nome del file generato segue il primo file selezionato, ad esempio {example}.',
@@ -408,7 +408,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR ed esportazioni',
-            intro: 'Le esportazioni sono disponibili in tutto il prodotto. L’OCR di PDF ricercabili resta nell’ambiente desktop, dove sono disponibili elaborazione locale e risorse linguistiche.',
+            intro: 'Le esportazioni sono disponibili in tutto il prodotto. L’OCR viene eseguito localmente nel browser per otto lingue europee e nelle build desktop per circa 30, dove è disponibile anche la pulizia delle scansioni.',
             li1: 'Il popup OCR supporta modalità tutte le pagine, pagina corrente o intervallo personalizzato.',
             li2: 'La selezione lingua è raggruppata per famiglie di scrittura per una configurazione più veloce.',
             li3: 'Puoi annullare l’OCR in corso e monitorare l’avanzamento pagina per pagina.',
