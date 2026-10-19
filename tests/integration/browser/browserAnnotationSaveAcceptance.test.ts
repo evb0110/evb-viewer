@@ -94,7 +94,7 @@ afterAll(async () => {
 });
 
 describe('browser annotation save acceptance in Chromium', () => {
-    it('opens, edits, saves, and reopens under the cap, and rejects over-cap open and save', async () => {
+    it('saves and reopens annotations within the save budget, and reads larger PDFs while explaining save limits', async () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
@@ -125,9 +125,9 @@ describe('browser annotation save acceptance in Chromium', () => {
                     savedAndReopened: true,
                 },
                 overCap: {
-                    openMessage: expect.stringContaining('Use the native app for files this large.'),
+                    openedWithAnnotations: true,
+                    rangeReadsPreserved: true,
                     saveMessage: expect.stringContaining('Use the native app for files this large.'),
-                    openRejectedWithLocalizedCap: true,
                     saveRejectedWithLocalizedCap: true,
                 },
             });
