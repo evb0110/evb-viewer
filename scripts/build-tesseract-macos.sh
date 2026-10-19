@@ -8,12 +8,10 @@ TMP_ROOT="${TMPDIR:-$PROJECT_ROOT/.devkit/tmp}"
 mkdir -p "$TMP_ROOT"
 BUILD_DIR="$(mktemp -d "$TMP_ROOT/tesseract-macos-XXXXXX")"
 BREW_PREFIX="$(brew --prefix)"
-LEPTONICA_VERSION="1.82.0"
-LEPTONICA_SHA256="40fa9ac1e815b91e0fa73f0737e60c9eec433a95fa123f95f2573dd3127dd669"
+# shellcheck source=scripts/tesseract-source-pins.sh
+. "$SCRIPT_DIR/tesseract-source-pins.sh"
 GIFLIB_VERSION="5.2.2"
 GIFLIB_SHA256="be7ffbd057cadebe2aa144542fd90c6838c6a083b5e8a9048b8ee3b66b29d5fb"
-TESSERACT_VERSION="5.5.3"
-TESSERACT_SHA256="9218e62793116d42a9f6d14cd9348518b27f382096eea3d0f2d1a24616bb5884"
 TESSERACT_DIR="$PROJECT_ROOT/resources/tesseract/$TARGET"
 trap 'rm -rf -- "$BUILD_DIR"' EXIT
 

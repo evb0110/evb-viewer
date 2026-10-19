@@ -317,6 +317,14 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, 'public', 'wasm'), {recursive: true});
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-image-combine.wasm'), 'wasm\n');
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm'), 'wasm\n');
+    // The OCR engine is checked by its pinned digest, so the fixture carries the
+    // fetched files (`pnpm test:unit` runs ensure-wasm-artifacts first).
+    for (const fileName of [
+        'evb-tesseract.wasm',
+        'evb-tesseract.mjs',
+    ]) {
+        cpSync(resolve('public', 'wasm', fileName), path.join(projectRoot, 'public', 'wasm', fileName));
+    }
     writeFileSync(
         path.join(projectRoot, 'packages', 'contracts', 'index.ts'),
         'export const contract = true;\n',
