@@ -166,7 +166,7 @@ describe('browser document lifecycle UI', () => {
                     const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                     await api.waitForActiveDocumentOpenSettled?.();
                 });
-                await page.locator('.editor-pane.is-active [data-pdf-annotation-editor-ready="true"]').first().waitFor();
+                await page.locator('.editor-pane.is-active .page_container--rendered [data-pdf-annotation-editor-ready="true"]').first().waitFor();
             }
             await addNote(page, 'Before the save frontier', {
                 x: 160,
