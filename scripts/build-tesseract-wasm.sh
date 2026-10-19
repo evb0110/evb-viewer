@@ -30,8 +30,8 @@ curl -fsSL -o "$BUILD_DIR/tesseract.tar.gz" \
   "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/$TESSERACT_VERSION.tar.gz"
 curl -fsSL -o "$BUILD_DIR/leptonica.tar.gz" \
   "https://github.com/DanBloomberg/leptonica/archive/refs/tags/$LEPTONICA_VERSION.tar.gz"
-echo "$TESSERACT_SHA256  $BUILD_DIR/tesseract.tar.gz" | sha256sum -c -
-echo "$LEPTONICA_SHA256  $BUILD_DIR/leptonica.tar.gz" | sha256sum -c -
+echo "$TESSERACT_SHA256  $BUILD_DIR/tesseract.tar.gz" | shasum -a 256 -c -
+echo "$LEPTONICA_SHA256  $BUILD_DIR/leptonica.tar.gz" | shasum -a 256 -c -
 tar -xzf "$BUILD_DIR/tesseract.tar.gz" -C "$BUILD_DIR"
 tar -xzf "$BUILD_DIR/leptonica.tar.gz" -C "$BUILD_DIR"
 # The only source change: WebAssembly has no cpuid, and SIMD128 provides the
@@ -58,7 +58,7 @@ emcmake cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/lepton
   -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_C_FLAGS="$simd_flags"
-cmake --build "$BUILD_DIR/leptonica-build" --parallel "$(nproc)"
+cmake --build "$BUILD_DIR/leptonica-build" --parallel
 cmake --install "$BUILD_DIR/leptonica-build"
 
 # The desktop recipe's options, plus WebAssembly SIMD through the SSE4.1 path.
@@ -104,7 +104,7 @@ emcmake cmake -S "$BUILD_DIR/tesseract-$TESSERACT_VERSION" -B "$BUILD_DIR/tesser
   -DCMAKE_CXX_FLAGS="$simd_flags" \
   -DCMAKE_EXE_LINKER_FLAGS="${link_flags[*]}" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-cmake --build "$BUILD_DIR/tesseract-build" --parallel "$(nproc)" --target tesseract
+cmake --build "$BUILD_DIR/tesseract-build" --parallel --target tesseract
 
 mkdir -p "$OUT_DIR"
 cp "$BUILD_DIR/tesseract-build/bin/tesseract.wasm" "$OUT_DIR/evb-tesseract.wasm"
@@ -112,4 +112,4 @@ cp "$BUILD_DIR/tesseract-build/bin/tesseract.wasm" "$OUT_DIR/evb-tesseract.wasm"
 # it names its .wasm after the build output, so point it at the shipped name.
 sed 's/tesseract\.wasm/evb-tesseract.wasm/g' "$BUILD_DIR/tesseract-build/bin/tesseract.js" > "$OUT_DIR/evb-tesseract.mjs"
 grep -q 'evb-tesseract.wasm' "$OUT_DIR/evb-tesseract.mjs"
-sha256sum "$OUT_DIR/evb-tesseract.mjs" "$OUT_DIR/evb-tesseract.wasm"
+shasum -a 256 "$OUT_DIR/evb-tesseract.mjs" "$OUT_DIR/evb-tesseract.wasm"

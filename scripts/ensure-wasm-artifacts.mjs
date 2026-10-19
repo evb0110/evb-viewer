@@ -57,6 +57,8 @@ export function findWasmArtifactsToBuild(root = projectRoot) {
         }) => !isPresent(artifact) || recorded[artifact.crateName] !== buildId);
 }
 
+const PREBUILT_WASM_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** @param {Uint8Array} bytes */
 function sha256Hex(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
@@ -75,7 +77,8 @@ export function findPrebuiltWasmFilesToFetch(root = projectRoot) {
 
 /** @param {import('./wasm-artifacts.mjs').IPrebuiltWasmFile} file */
 async function fetchPrebuiltWasmFile(file) {
-    const response = await fetch(file.url);
+    // One deadline covers the response headers and the whole body.
+    const response = await fetch(file.url, {signal: AbortSignal.timeout(PREBUILT_WASM_DOWNLOAD_TIMEOUT_MS)});
     if (!response.ok) {
         throw new Error(`Downloading ${file.label} failed: HTTP ${response.status} from ${file.url}`);
     }
