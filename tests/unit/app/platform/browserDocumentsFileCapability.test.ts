@@ -550,37 +550,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
     });
 
-    it('rejects an oversized parse before reading the working copy', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const workingRef = await browserDocumentStore.createStoredDocument(
-            'oversized-parse.pdf',
-            Uint8Array.of(37),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
-        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
-        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: BROWSER_FULL_READ_LIMIT + 1,
-            modifiedAt: 0,
-        });
-        const readSpy = vi.spyOn(browserDocumentStore, 'read');
-
-        try {
-            await expect(capability.parsePdfAnnotations(workingRef, revisionOptions)).rejects.toThrow(
-                `Parsing PDF annotations is unavailable in the browser for inputs larger than ${BROWSER_FULL_READ_LIMIT / (1024 * 1024)}MB`,
-            );
-            expect(readSpy).not.toHaveBeenCalled();
-        } finally {
-            statSpy.mockRestore();
-            readSpy.mockRestore();
-        }
-    });
-
     it('registers browser files for open after ingestion completes', async () => {
         const file = new File([Uint8Array.of(1, 2, 3)], 'drop.pdf', { type: 'application/pdf' });
         const {
@@ -1269,7 +1238,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
         await browserDocumentStore.touchRecentFile(sourceRef);
 
-        await expect(capability.openDocumentDirect(sourceRef)).resolves.toBeNull();
+        await expect(capability.openDocumentDirect(sourceRef)).rejects.toThrow('Not allowed');
         const recentFiles = await capability.recentFiles.get();
         expect(recentFiles).toEqual([expect.objectContaining({
             originalPath: sourceRef,
@@ -1277,7 +1246,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         })]);
     });
 
-    it('rejects oversized sources during direct open before reading them', async () => {
+    it('opens oversized sources with range-backed working copies', async () => {
         const {
             BROWSER_MAX_FULL_READ_BYTES,
             capability,
@@ -1301,9 +1270,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
 
-        await expect(capability.openDocumentDirect(sourceRef)).rejects.toThrow(
-            'Opening documents is unavailable in the browser for inputs larger than 16MB. Use the native app for files this large.',
-        );
+        await expect(capability.openDocumentDirect(sourceRef)).resolves.toMatchObject({kind: 'pdf'});
     });
 
     it('streams oversized browser saves to an existing file handle', async () => {

@@ -1,3 +1,6 @@
+import {
+    BROWSER_PAGE_OPS_MAX_REQUEST_BYTES, BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES,
+} from '@contracts/browserPageOpsLimits';
 import { getErrorMessage } from '@app/utils/error';
 import {
     BOX_LAYOUT,
@@ -44,7 +47,6 @@ import {
 } from '@contracts/browserPdfCatalog';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type {ICropMargins} from '@contracts/shared';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
     NATIVE_ERROR_ENVELOPE_SCHEMA,
@@ -73,8 +75,7 @@ interface IPdfPageOpsWasmExports {
     evb_pdf_page_ops_error_len(): number;
 }
 
-const PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
-const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+
 
 type IBrowserPageOpsWasmRequestMap = IBrowserPageOpsWorkerRequestMap;
 
@@ -521,7 +522,6 @@ function readWasmError(exports: IPdfPageOpsWasmExports) {
 }
 
 function readWasmFailure(
-    type: TBrowserPageOpsWasmRequestType,
     resultCode: number,
     exports: IPdfPageOpsWasmExports,
 ) {
@@ -534,11 +534,6 @@ function readWasmFailure(
         code: 'native-failure' as const,
         message: encodedError ?? `Page operation WASM failed with result code ${resultCode}`,
     };
-    BrowserLogger.warn('browser-wasm', 'PDF page operation WASM failed', {
-        error: error.message,
-        resultCode,
-        type,
-    });
     return createWasmFailure(error.code, error.message);
 }
 
@@ -732,7 +727,7 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
         passwordOffset = builtRequest.passwordOffset;
         passwordLength = builtRequest.passwordLength;
         requestByteLength = request.byteLength;
-        if (requestByteLength === 0 || requestByteLength > PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES) {
+        if (requestByteLength === 0 || requestByteLength > BROWSER_PAGE_OPS_MAX_REQUEST_BYTES) {
             return createWasmFailure('too-large', 'Page operation WASM request exceeds the admission ceiling');
         }
         const allocatedPointer = exports.evb_pdf_page_ops_alloc(requestByteLength);
@@ -749,14 +744,14 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
         requestMemory.set(request);
         const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
         if (resultCode !== 0) {
-            return readWasmFailure(type, resultCode, exports);
+            return readWasmFailure(resultCode, exports);
         }
 
         const outputPointer = exports.evb_pdf_page_ops_output_ptr();
         const outputLen = exports.evb_pdf_page_ops_output_len();
-        if (outputLen === 0 || outputLen > PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES) {
+        if (outputLen === 0 || outputLen > BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES) {
             return createWasmFailure(
-                outputLen > PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES ? 'too-large' : 'invalid-request',
+                outputLen > BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES ? 'too-large' : 'invalid-request',
                 'Page operation WASM returned an invalid output envelope',
             );
         }

@@ -46,11 +46,12 @@ export function resolveStoredDocumentStorageMode(
     return storageMode;
 }
 
-export function buildBrowserDocumentFullReadError(fileName: string, fileSize: number) {
+export function buildBrowserDocumentFullReadError(fileName: string, fileSize: number, maxBytes = BROWSER_MAX_FULL_READ_BYTES) {
     return new BrowserDocumentReadError(
         BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
         `Browser document is too large to load fully into memory (${fileName}: `
         + `${Math.floor(fileSize / (1024 * 1024))}MB > `
-        + `${Math.floor(BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024))}MB limit)`,
+        + `${Math.round(maxBytes / (1024 * 1024))}MB limit)`,
+        {maxBytes},
     );
 }

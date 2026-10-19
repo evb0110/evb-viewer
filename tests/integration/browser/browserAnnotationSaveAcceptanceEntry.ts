@@ -21,7 +21,7 @@ import {requirePdfDateString} from '@contracts/pdfDateString';
 
 const FULL_READ_CAP_MESSAGE = 'Use the native app for files this large.';
 
-async function createAnnotatedFixture() {
+async function createAnnotatedFixture(paddingBytes = 0) {
     const document = await PDFDocument.create();
     const page = document.addPage([
         200,
@@ -44,7 +44,10 @@ async function createAnnotatedFixture() {
         Open: false,
     }));
     page.node.set(PDFName.of('Annots'), document.context.obj([annotation]));
-    return new Uint8Array(await document.save());
+    if (paddingBytes > 0) {
+        document.catalog.set(PDFName.of('LargeFixture'), document.context.register(document.context.stream(new Uint8Array(paddingBytes))));
+    }
+    return new Uint8Array(await document.save({useObjectStreams: false}));
 }
 
 function createCapability() {
@@ -142,7 +145,7 @@ async function runUnderCapFlow() {
 }
 
 async function runOverCapFlow() {
-    const oversized = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+    const oversized = await createAnnotatedFixture(BROWSER_MAX_FULL_READ_BYTES);
     const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
         'browser-annotation-over-cap.pdf',
         oversized,
@@ -154,25 +157,18 @@ async function runOverCapFlow() {
         },
     ));
     const capability = createCapability();
-    let openMessage = '';
     let saveMessage = '';
+    let workingPath: TLegacyDocumentRef | undefined;
     try {
-        await capability.openDocumentDirect(sourcePath);
-    } catch (error) {
-        openMessage = error instanceof Error ? error.message : String(error);
-    }
-    const workingPath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
-        'browser-annotation-over-cap-working.pdf',
-        oversized,
-        {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            retention: 'transient',
-            saveKind: 'pdf',
-        },
-    ));
-    try {
+        const opened = await capability.openDocumentDirect(sourcePath);
+        if (!opened || opened.kind !== 'pdf') {
+            throw new Error('Large annotation acceptance fixture did not open as a PDF');
+        }
+        workingPath = opened.workingPath;
+        const rangeOffset = BROWSER_MAX_FULL_READ_BYTES - 8;
+        const range = await capability.readFileRange(workingPath, rangeOffset, 32);
         const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+        const parsed = await capability.parsePdfAnnotations(workingPath, {expectedDocumentRevisionToken: revision.token});
         try {
             await capability.applyPdfNativeMutationsToWorkingCopy!(
                 workingPath,
@@ -187,16 +183,18 @@ async function runOverCapFlow() {
         } catch (error) {
             saveMessage = error instanceof Error ? error.message : String(error);
         }
+        return {
+            openedWithAnnotations: parsed.entities.some(entity => entity.kind === 'note' && entity.contents === 'до Привет café'),
+            rangeReadsPreserved: range.byteLength === 32 && range.every((byte, index) => byte === oversized[rangeOffset + index]),
+            saveMessage,
+            saveRejectedWithLocalizedCap: saveMessage.includes(FULL_READ_CAP_MESSAGE),
+        };
     } finally {
-        await browserDocumentStore.remove(workingPath).catch(() => undefined);
+        if (workingPath) {
+            await browserDocumentStore.remove(workingPath).catch(() => undefined);
+        }
         await browserDocumentStore.remove(sourcePath).catch(() => undefined);
     }
-    return {
-        openMessage,
-        saveMessage,
-        openRejectedWithLocalizedCap: openMessage.includes(FULL_READ_CAP_MESSAGE),
-        saveRejectedWithLocalizedCap: saveMessage.includes(FULL_READ_CAP_MESSAGE),
-    };
 }
 
 async function runAcceptance() {

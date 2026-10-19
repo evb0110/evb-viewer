@@ -280,12 +280,12 @@ export class BrowserDocumentRecordStore {
         return entry;
     }
 
-    public async read(ref: string): Promise<Uint8Array> {
+    public async read(ref: string, {maxBytes = BROWSER_MAX_FULL_READ_BYTES} = {}): Promise<Uint8Array> {
         const entry = await this.requireEntry(ref);
-        if (entry.fileSize > BROWSER_MAX_FULL_READ_BYTES) {
-            throw buildBrowserDocumentFullReadError(entry.fileName, entry.fileSize);
+        if (entry.fileSize > maxBytes) {
+            throw buildBrowserDocumentFullReadError(entry.fileName, entry.fileSize, maxBytes);
         }
-        return this.readEntryBytes(entry);
+        return this.readEntryBytes(entry, maxBytes);
     }
     public async readRange(
         ref: string,
@@ -536,32 +536,24 @@ export class BrowserDocumentRecordStore {
         this.emitRevisionChangeForEntry(entry, previousToken, 'browser-handle-refresh');
     }
 
-    protected async readEntryBytes(entry: IBrowserDocumentEntry): Promise<Uint8Array> {
+    protected async readEntryBytes(entry: IBrowserDocumentEntry, maxBytes = BROWSER_MAX_FULL_READ_BYTES): Promise<Uint8Array> {
         switch (entry.storageMode) {
             case 'source-proxy':
                 if (!entry.sourceRef) {
                     return new Uint8Array();
                 }
-                return this.read(entry.sourceRef);
+                return this.read(entry.sourceRef, {maxBytes});
             case 'handle': {
-                if (
-                    entry.fileSnapshot
-                    && entry.fileSnapshot.size === entry.fileSize
-                    && entry.fileSnapshot.lastModified === entry.fileLastModified
-                ) {
-                    return readFileSnapshotBytes(entry.fileSnapshot);
+                let file = entry.fileSnapshot;
+                if (!file || file.size !== entry.fileSize || file.lastModified !== entry.fileLastModified) {
+                    if (!entry.saveHandle) return cloneBytes(entry.data);
+                    file = (await readFileHandleMetadata(entry.saveHandle)).file;
                 }
-                if (!entry.saveHandle) {
-                    return cloneBytes(entry.data);
-                }
-                const {
-                    file,
-                    bytes,
-                } = await readFileHandleBytes(entry.saveHandle);
+                if (file.size > maxBytes) throw buildBrowserDocumentFullReadError(file.name, file.size, maxBytes);
                 entry.fileSnapshot = file;
                 entry.fileSize = file.size;
                 entry.fileLastModified = file.lastModified;
-                return bytes;
+                return readFileSnapshotBytes(file);
             }
             case 'chunked': {
                 return entry.data.byteLength > 0 ? cloneBytes(entry.data) : readBrowserDocumentChunkedEntryBytes(entry);

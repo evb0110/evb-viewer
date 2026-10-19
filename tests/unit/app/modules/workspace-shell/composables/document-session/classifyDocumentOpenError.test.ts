@@ -11,6 +11,44 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 
 describe('classifyDocumentOpenError', () => {
+    it.each([
+        [
+            'NotAllowedError',
+            'errors.browser.filePermissionDenied',
+        ],
+        [
+            'NotReadableError',
+            'errors.browser.filePermissionDenied',
+        ],
+        [
+            'QuotaExceededError',
+            'errors.browser.storageFull',
+        ],
+        [
+            'InvalidPDFException',
+            'errors.file.invalid',
+        ],
+        [
+            'BrowserPageOpsWorkerUnavailableError',
+            'errors.browser.documentToolsUnavailable',
+        ],
+    ])('explains a %s browser refusal on screen', (name, key) => {
+        const error = Object.assign(new Error('technical detail'), {name});
+        const t = ((translationKey: string) => translationKey) as TTranslateFn;
+        expect(classifyDocumentOpenError(error, null, t)).toBe(key);
+    });
+
+    it('names the actual browser operation limit instead of the desktop encrypted-file limit', () => {
+        const envelope = {
+            code: 'browser-byte-limit',
+            message: 'Browser operation refused',
+            maxBytes: 16 * 1024 * 1024,
+        };
+        const error = new Error(encodeSerializableErrorEnvelope(envelope));
+        const t = ((key: string, parameters?: {limitMiB?: number}) => `${key}:${parameters?.limitMiB}`) as TTranslateFn;
+        expect(classifyDocumentOpenError(error, null, t)).toBe('errors.browser.documentTooLarge:16');
+    });
+
     it('localizes a serialized encrypted PDF size-limit failure', () => {
         const error = new Error(encodeSerializableErrorEnvelope({
             code: 'too-large',

@@ -10,7 +10,9 @@ import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import {
+    readToastDescription, toastDescriptionContaining,
+} from '@tests/helpers/toastDescription';
 
 type TCapturedListener = (event: DragEvent) => void;
 
@@ -233,11 +235,22 @@ describe('useExternalFileDrop', () => {
         expect(openPathsInAppropriateTab).toHaveBeenCalledTimes(1);
     });
 
-    it('reports failed dropped-file registration and opens remaining valid files', async () => {
+    it.each([
+        {
+            error: new Error('ingestion failed'),
+            reason: 'errors.file.openDescription',
+        },
+        {
+            error: Object.assign(new Error('access refused'), {name: 'NotAllowedError'}),
+            reason: 'errors.browser.filePermissionDenied',
+        },
+    ])('reports $reason for failed registration and opens remaining valid files', async ({
+        error, reason,
+    }) => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
         const registerFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => {
             if (files[0]?.name === 'file-0') {
-                throw new Error('ingestion failed');
+                throw error;
             }
             return [requireDocumentRef('/docs/b.pdf')];
         });
@@ -258,8 +271,9 @@ describe('useExternalFileDrop', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.open',
-            description: toastDescriptionContaining('ingestion failed'),
+            description: toastDescriptionContaining(reason),
         }));
+        expect(readToastDescription(toastAddMock.mock.calls[0]?.[0]?.description)).not.toContain(error.message);
         expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/b.pdf']);
     });
 

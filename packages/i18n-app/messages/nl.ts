@@ -1779,6 +1779,13 @@ export default {
             'restoredOnNextStart': 'Sommige bestanden die de export verving, konden nog niet worden teruggezet. EVB Viewer zet ze terug bij de volgende start.',
         },
         'browser': {
+            'documentTooLarge': 'Deze bewerking laadt het hele bestand in het geheugen en ondersteunt tot {limitMiB} MiB in de browser. Gebruik hiervoor de desktopapp.',
+            'filePermissionDenied': 'De browser kan dit bestand niet lezen. Sta bestandstoegang toe en selecteer het opnieuw.',
+            'storageFull': 'De browseropslag is vol. Maak ruimte vrij voor deze site en probeer het opnieuw.',
+            'notEnoughMemory': 'De browser heeft onvoldoende geheugen. Sluit andere tabbladen en probeer het opnieuw of gebruik de desktopapp.',
+            'documentToolsUnavailable': 'Het documentgereedschap kon niet starten. Laad de pagina opnieuw en probeer het opnieuw.',
+            'annotationsUnavailable': 'Bestaande annotaties kunnen niet worden bewerkt',
+            'annotationsTooLarge': 'Het document is geopend om te lezen. Het importeren van bestaande annotaties overschrijdt de geheugenlimiet van het browsergereedschap. Gebruik de desktopapp om ze te bewerken.',
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
             'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
             'imageExtensionMismatch': 'De export is niet opgeslagen. Kies een bestandsnaam die eindigt op {extensions}.',

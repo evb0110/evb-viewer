@@ -1790,6 +1790,13 @@ export default {
             'restoredOnNextStart': 'Alguns arquivos substituídos pela exportação ainda não puderam ser restaurados. O EVB Viewer os restaura na próxima inicialização.',
         },
         'browser': {
+            'documentTooLarge': 'Esta operação carrega o arquivo inteiro na memória e suporta até {limitMiB} MiB no navegador. Use o aplicativo para desktop nesta operação.',
+            'filePermissionDenied': 'O navegador não consegue ler este arquivo. Permita o acesso e selecione-o novamente.',
+            'storageFull': 'O armazenamento do navegador está cheio. Libere espaço para este site e tente novamente.',
+            'notEnoughMemory': 'O navegador ficou sem memória. Feche outras abas e tente novamente ou use o aplicativo para desktop.',
+            'documentToolsUnavailable': 'Não foi possível iniciar a ferramenta de documentos. Recarregue a página e tente novamente.',
+            'annotationsUnavailable': 'A edição de anotações existentes está indisponível',
+            'annotationsTooLarge': 'O documento está aberto para leitura. A importação das anotações existentes excede o limite de memória da ferramenta do navegador. Use o aplicativo para desktop para editá-las.',
             'filePickerSetupDenied': 'O acesso do navegador aos arquivos foi negado. Escolha Abrir novamente para usar o seletor compatível.',
             'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de arquivos local ativado para salvar documentos grandes.',
             'imageExtensionMismatch': 'A exportação não foi salva. Escolha um nome de arquivo que termine em {extensions}.',

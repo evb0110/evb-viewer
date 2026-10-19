@@ -1,3 +1,5 @@
+import {SerializableError} from '@contracts/serializableError';
+
 const BROWSER_COMBINE_IMAGE_EXTENSIONS = new Set([
     '.bmp',
     '.gif',
@@ -45,10 +47,12 @@ function buildBrowserByteLimitError(
     noun: string,
     hint?: string,
 ) {
-    return new Error(
-        `${label} is unavailable in the browser for ${noun} larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`
+    return new SerializableError({
+        code: 'browser-byte-limit',
+        maxBytes,
+        message: `${label} is unavailable in the browser for ${noun} larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`
         + (hint ? (hint.startsWith('.') ? hint : ` ${hint}`) : ''),
-    );
+    });
 }
 
 export {

@@ -10,6 +10,8 @@ import {
     getDocumentFilesCapability, getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {isBrowserFullReadTooLargeError} from '@app/platform/browser-api/public';
 import type {
     InjectionKey,
     Ref,
@@ -64,6 +66,8 @@ export interface ICreatePdfDocumentAnnotationsOptions {
  * used on its own creates one for itself.
  */
 export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotationsOptions) => {
+    const {t} = useTypedI18n();
+    const {presentNoticeToast} = useFailureToast();
     const views = new Set<IPdfDocumentAnnotationsView>();
     const history = usePdfAppAnnotationHistory({
         emitAnnotationState: (state) => {
@@ -102,14 +106,12 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         promise: Promise<boolean>;
         result?: IPdfAnnotationParseResult;
     } | null = null;
-    function cancelWriterParse(controller = writerParseTask?.abortController) {
-        if (writerParseTask?.abortController !== controller) return;
+    function cancelWriterParse() {
         writerParseTask?.abortController.abort();
         writerParseTask = null;
     }
     onScopeDispose(cancelWriterParse, true);
-    watch(options.documentRevisionToken, () => cancelWriterParse(), {flush: 'sync'});
-
+    watch(options.documentRevisionToken, cancelWriterParse, {flush: 'sync'});
     function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>) {
         const selectedParsePath = () => {
             const source = options.source.value;
@@ -133,8 +135,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         const abortController = new AbortController();
         const targetStore = application.value.store;
         const identity = documentIdentity.value;
-        // The producer follows the shared resource, not the first viewer's
-        // load token or lifetime. Detaching a linked view cannot cancel it.
         const isCurrent = () => !abortController.signal.aborted
             && documentIdentity.value === identity
             && application.value.store === targetStore
@@ -207,18 +207,19 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 });
                 return true;
             } catch (error) {
-                if (!abortController.signal.aborted) {
+                if (isCurrent() && isBrowserFullReadTooLargeError(error)) {
+                    presentNoticeToast({
+                        tone: 'warning',
+                        title: t('errors.browser.annotationsUnavailable'),
+                        description: t('errors.browser.annotationsTooLarge'),
+                    });
+                } else if (isCurrent()) {
                     BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
+                    cancelWriterParse();
                 }
                 return false;
             }
-        })().then((committed) => {
-            if (!committed) cancelWriterParse(abortController);
-            return committed;
-        }, (error: unknown) => {
-            cancelWriterParse(abortController);
-            throw error;
-        });
+        })();
         writerParseTask = {
             matches: (candidate, path, version) => candidate === document && path === parsePath && version === fence.documentVersion && isCurrent(),
             abortController,
@@ -227,7 +228,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         return promise;
     }
 
-    // The working-copy revision the store was last started or kept for.
     let storeRevision: TDocumentRevisionToken | null = null;
     function reset(documentKey: string) {
         cancelWriterParse();

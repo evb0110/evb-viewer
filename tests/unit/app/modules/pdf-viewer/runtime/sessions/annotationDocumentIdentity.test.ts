@@ -36,6 +36,8 @@ import {
     pdfDocumentAnnotationsKey,
     type TPdfDocumentAnnotations,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 const revisionRead = vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>();
 const electronApi = createElectronPlatformApiFixture({documentFiles: {getDocumentRevision: revisionRead}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));

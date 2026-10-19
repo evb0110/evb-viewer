@@ -13,9 +13,11 @@ export const DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA = v.object({
         'invalid-djvu',
         'djvu-components-required',
         'djvu-raster-limit',
+        'browser-byte-limit',
     ]),
     message: v.string(),
     fileName: v.optional(v.string()),
+    maxBytes: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
 });
 
 export type TDocumentOpenErrorCode = v.InferOutput<typeof DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA>['code'];

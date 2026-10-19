@@ -30,9 +30,6 @@ import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const NativeWebAssembly = WebAssembly;
-const loggerWarn = vi.hoisted(() => vi.fn());
-
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: loggerWarn}}));
 
 interface IPdfPageSummary {
     mediaBox: IPageGeometry['mediaBox'];
@@ -1247,15 +1244,6 @@ describe('browser page-ops WASM fast path', () => {
 
         expect(wasmMock.run).toHaveBeenCalledTimes(1);
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
-        expect(loggerWarn).toHaveBeenCalledWith(
-            'browser-wasm',
-            'PDF page operation WASM failed',
-            {
-                error: 'page wasm failed',
-                resultCode: -7,
-                type: 'deletePages',
-            },
-        );
     });
 
     it('classifies allocation failure without touching linear memory', async () => {

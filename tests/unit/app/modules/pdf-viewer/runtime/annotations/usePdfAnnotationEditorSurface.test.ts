@@ -26,6 +26,8 @@ import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sess
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
+
 const rect: IAnnotationMarkerRect = {
     left: 0.1,
     top: 0.2,

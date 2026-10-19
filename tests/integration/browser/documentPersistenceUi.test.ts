@@ -1,7 +1,9 @@
 import {
     createHash, randomBytes,
 } from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {
+    readFileSync, writeFileSync, rmSync, openSync, writeSync, closeSync,
+} from 'node:fs';
 import {
     basename, resolve,
 } from 'node:path';
@@ -17,6 +19,172 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+    // C2/C4: opening a valid document has no size gate or console failure;
+    // a refused open explains its cause on screen and leaves the next open usable.
+    it('opens large PDFs through the chooser and Recent Files and explains invalid input', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const dropPath = resolve(process.cwd(), `.devkit/large-drop-${process.pid}.pdf`);
+        const largePath = resolve(process.cwd(), `.devkit/billion-byte-${process.pid}.pdf`);
+        const trace: string[] = [];
+        page.on('console', message => trace.push(message.text()));
+        page.on('crash', () => trace.push('PAGE CRASHED'));
+        let phase = 'chooser';
+        try {
+            const pdf = await PDFDocument.create();
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText('A large document opens in the browser', {
+                x: 40,
+                y: 740,
+            });
+            // A real, uncompressed PDF stream exceeds the former 16 MiB open ceiling.
+            pdf.catalog.set(pdf.context.obj('LargeFixture'), pdf.context.register(pdf.context.stream(new Uint8Array(18 * 1024 * 1024))));
+            const buffer = Buffer.from(await pdf.save({useObjectStreams: false}));
+            expect(buffer.byteLength).toBeGreaterThan(16 * 1024 * 1024);
+            await openPdfFromChooser(page, {
+                name: 'large-open.pdf',
+                mimeType: 'application/pdf',
+                buffer,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' ')).toContain('A large document opens in the browser');
+            expect(problems).toEqual([]);
+            phase = 'password prompt';
+            const protectedChooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Open File/u}).click();
+            await (await protectedChooser).setFiles({
+                name: 'protected-open.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(readFileSync(resolve('tests/fixtures/electron/password-protected.pdf.b64'), 'utf8').trim(), 'base64'),
+            });
+            await page.getByRole('textbox', {
+                name: 'Password',
+                exact: true,
+            }).fill('frame-secret');
+            await page.getByRole('button', {
+                name: 'Open',
+                exact: true,
+            }).click();
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain('protected-open.pdf');
+            expect(problems).toEqual([]);
+            phase = 'recent';
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            const recent = page.getByRole('button', {name: /large-open\.pdf/u}).first();
+            await recent.click();
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' ')).toContain('A large document opens in the browser');
+            expect(problems).toEqual([]);
+            phase = 'drop';
+            writeFileSync(dropPath, buffer);
+            const drag = await context.newCDPSession(page);
+            const dropTarget = await page.locator('.workspace-host').first().boundingBox();
+            if (!dropTarget) throw new Error('The workspace has no drop target');
+            for (const type of [
+                'dragEnter',
+                'dragOver',
+                'drop',
+            ] as const) {
+                await drag.send('Input.dispatchDragEvent', {
+                    type,
+                    x: dropTarget.x + dropTarget.width / 2,
+                    y: dropTarget.y + dropTarget.height / 2,
+                    data: {
+                        items: [],
+                        files: [dropPath],
+                        dragOperationsMask: 1,
+                    },
+                });
+            }
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain(`large-drop-${process.pid}.pdf`);
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await drag.detach();
+            expect(problems).toEqual([]);
+
+            // A sparse local file crosses the real chooser without allocating
+            // its unused 1 GiB stream in the test process.
+            phase = 'large local file';
+            const length = 1024 * 1024 * 1024;
+            const prefix = `%PDF-1.7\n1 0 obj\n<< /Length ${length} >>\nstream\n`;
+            const offsets = [
+                0,
+                9,
+            ];
+            let tail = '\nendstream\nendobj\n';
+            const add = (id: number, body: string) => {
+                offsets[id] = prefix.length + length + tail.length;
+                tail += `${id} 0 obj\n${body}\nendobj\n`;
+            };
+            add(2, '<< /Type /Catalog /Pages 3 0 R >>');
+            add(3, '<< /Type /Pages /Count 1 /Kids [4 0 R] >>');
+            add(4, '<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 6 0 R >> >> /Contents 5 0 R >>');
+            const content = 'BT /F1 18 Tf 40 740 Td (A billion bytes can be viewed) Tj ET';
+            add(5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+            add(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+            const xref = prefix.length + length + tail.length;
+            tail += 'xref\n0 7\n0000000000 65535 f \n';
+            tail += offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+            tail += `trailer\n<< /Size 7 /Root 2 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+            const descriptor = openSync(largePath, 'w');
+            try {
+                writeSync(descriptor, prefix);
+                writeSync(descriptor, tail, prefix.length + length, 'utf8');
+            } finally {
+                closeSync(descriptor);
+            }
+            const largeChooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Open File/u}).click();
+            await (await largeChooser).setFiles(largePath);
+            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' '), {timeout: 30000}).toContain('A billion bytes can be viewed');
+            await page.getByText('Existing annotation editing is unavailable', {exact: true}).waitFor();
+            expect(problems).toEqual([]);
+
+            phase = 'invalid PDF';
+            await page.evaluate(() => sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input'));
+            const invalid = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Open File/u}).click();
+            await (await invalid).setFiles({
+                name: 'invalid.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from('%PDF-1.7\nbroken'),
+            });
+            await page.locator('.app-toast-failure-reason').filter({hasText: 'The file is damaged or is not a supported document.'}).waitFor();
+            expect(await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').first().textContent()).toContain('A billion bytes can be viewed');
+        } catch (error) {
+            console.info('LARGE_OPEN_FAILURE', JSON.stringify({
+                phase,
+                trace: trace.slice(-35),
+                error: String(error),
+                problems,
+                text: await page.locator('body').innerText().catch(() => '<page closed>'),
+            }));
+            throw error;
+        } finally {
+            await context.close();
+            rmSync(dropPath, {force: true});
+            rmSync(largePath, {force: true});
+        }
+    }, 120000);
+
     // T4: every accepted note belongs to the document's Save As frontier.
     it.each([
         'single',

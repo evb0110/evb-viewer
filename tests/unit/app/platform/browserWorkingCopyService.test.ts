@@ -11,7 +11,7 @@ import {
     FakeIndexedDbFactory,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type {IBrowserBatchOpenProgress} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
@@ -234,12 +234,12 @@ describe('browser working-copy decryption', () => {
         await expect(browserDocumentStore.requireEntry(remove.mock.calls[0]![0])).rejects.toThrow();
     });
 
-    it('rejects encrypted browser inputs above the full-read cap before loading them', async () => {
+    it('rejects encrypted inputs whose framed request exceeds the WASM budget', async () => {
         const {
             browserDocumentStore,
             decryptBrowserWorkingCopy,
         } = await loadService();
-        const oversizedPdf = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+        const oversizedPdf = new Uint8Array(BROWSER_PAGE_OPS_MAX_REQUEST_BYTES);
         oversizedPdf.set(
             Uint8Array.from(new TextEncoder().encode('%PDF-1.7\n/Encrypt')),
         );
@@ -251,11 +251,9 @@ describe('browser working-copy decryption', () => {
                 kind: 'working',
             },
         );
-        const read = vi.spyOn(browserDocumentStore, 'read');
 
         await expect(decryptBrowserWorkingCopy(workingPath))
-            .rejects.toThrow('Opening encrypted documents is unavailable in the browser');
-        expect(read).not.toHaveBeenCalled();
+            .rejects.toThrow('Browser document is too large to load fully into memory');
         expect(wasmRun).not.toHaveBeenCalled();
     });
 

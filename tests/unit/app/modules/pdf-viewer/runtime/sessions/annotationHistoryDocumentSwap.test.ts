@@ -35,6 +35,8 @@ import {
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
+
 const { createPdfAnnotationSession } = await import(
     '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
 );
