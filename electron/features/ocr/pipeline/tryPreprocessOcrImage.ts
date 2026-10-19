@@ -6,7 +6,7 @@ import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand'
 import type {
     IOcrPipelinePaths, TWorkerLog,
 } from '@electron/features/ocr/pipeline/types';
-import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
+import {resolveTesseractLanguageConfig} from '@ocr-core/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import type {

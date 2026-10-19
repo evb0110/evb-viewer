@@ -7,6 +7,12 @@ registry: each page renders and recognizes under its own broker lease, and one
 document. Saved PDFs, search, selection and DOCX export consume the resulting
 logical text.
 
+The host-independent decisions live in `packages/ocr-core`: the Tesseract
+command line for every pass (`tesseractRecipe`), TSV and hOCR parsing, the
+existing-text classifier, early-print reading and the dictionary decoder. The
+desktop main process supplies files, native processes and storage around them,
+so another host reading the same raster passes Tesseract the same arguments.
+
 ## Language models
 
 Select the languages present in the document. The searchable picker keeps every
@@ -54,7 +60,7 @@ Every ſ, æ and œ they read on the 1677 breviary that prompted this was right.
 
 A page whose languages are all Latin-script is read with the selected models
 first. When at least 45% of its in-word f and s are f (61% to 99% on the
-breviary, 8% to 27% on modern German and English scans), `tesseractRunner`
+breviary, 8% to 27% on modern German and English scans), the runner
 reads the raster again: the selected models writing hOCR with each letter's
 box and alternatives, then `ita_old` and `fra`. `earlyPrintReading` aligns
 each of their lines with the first reading's and:

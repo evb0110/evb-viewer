@@ -45,6 +45,7 @@ for (const [source, target] of [
 for (const [source, allowed] of [
     ['packages/contracts', ['contracts', 'i18n-core']],
     ['packages/pdf-core', ['pdf-core', 'contracts']],
+    ['packages/ocr-core', ['ocr-core', 'contracts']],
     ['packages/agent-core', ['agent-core', 'contracts']],
     ['packages/i18n-core', ['i18n-core']],
     ['packages/i18n-app', ['i18n-app', 'i18n-core']],
@@ -52,7 +53,7 @@ for (const [source, allowed] of [
     ['packages/electron-worker-bundles', ['electron-worker-bundles']],
     ['packages/scan-cleanup', ['scan-cleanup', 'contracts']],
 ]) addZone(source, 'packages', allowed.map(name => `./${name}`));
-addZone('packages/!(contracts|pdf-core|agent-core|release-selection|scan-cleanup)/**/*', 'packages/contracts');
+addZone('packages/!(contracts|pdf-core|ocr-core|agent-core|release-selection|scan-cleanup)/**/*', 'packages/contracts');
 
 for (const [prefix, allowed] of [
     ['app/modules', moduleEntrypoints],
