@@ -53,7 +53,7 @@ export default {
         },
         installers: {
             heading: 'Téléchargements bureau',
-            description: 'Les builds bureau sont destinés à l’OCR de PDF recherchables, à l’intégration native au système d’exploitation et aux flux plus lourds comme les grandes fusions. L’installateur recommandé dépend de votre appareil actuel, mais chaque build reste sélectionnable.',
+            description: 'Les builds bureau ajoutent le nettoyage des numérisations, l’OCR dans une trentaine de langues, l’intégration native au système d’exploitation et les flux plus lourds comme les grandes fusions. L’installateur recommandé dépend de votre appareil actuel, mais chaque build reste sélectionnable.',
             loading: 'Chargement des liens de la dernière version...',
             error: 'Impossible de charger les artefacts de version pour le moment.',
             retry: 'Réessayer',
@@ -157,7 +157,7 @@ export default {
                 },
                 languages: {
                     question: 'Quelles langues l\'OCR reconnaît-il ?',
-                    answer: 'Une trentaine, dont l\'anglais, l\'allemand, le français, le russe, le grec, l\'hébreu, l\'arabe et le syriaque. L\'anglais et le russe sont fournis avec l\'application ; les autres modèles se téléchargent une fois, au premier choix.',
+                    answer: 'Une trentaine, dont l\'anglais, l\'allemand, le français, le russe, le grec, l\'hébreu, l\'arabe et le syriaque. L\'anglais et le russe sont fournis avec l\'application ; les autres modèles se téléchargent une fois, au premier choix. L’application web lit l’anglais, le russe, le français, l’allemand, le portugais, l’espagnol, le néerlandais et l’italien.',
                 },
                 formats: {
                     question: 'Quels fichiers ouvre-t-il ?',
@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Puis-je l\'utiliser sans rien installer ?',
-                    answer: 'Oui, sur {webAppUrl}. L\'application web ouvre des PDF, des fichiers DjVu et des images locaux ; l\'OCR et les grandes fusions nécessitent l\'application de bureau.',
+                    answer: 'Oui, sur {webAppUrl}. L’application web ouvre des PDF, des fichiers DjVu et des images locaux et fait l’OCR dans huit langues européennes ; le nettoyage des numérisations, les autres langues d’OCR, les fichiers de plus de 16 Mo et les grandes fusions nécessitent l’application de bureau.',
                 },
                 assistant: {
                     question: 'Utilise-t-il l\'IA ?',
@@ -175,19 +175,19 @@ export default {
         },
         entryPoints: {
             heading: 'Choisir le bon point d’entrée',
-            description: 'Commencez dans le navigateur pour un travail rapide sur PDF, DjVu et images locaux, ou choisissez l’application de bureau pour l’OCR de PDF recherchables, l’intégration native au système et les grandes fusions.',
+            description: 'Commencez dans le navigateur pour un travail rapide sur PDF, DjVu et images locaux, OCR compris, ou choisissez l’application de bureau pour le nettoyage des numérisations, l’OCR dans une trentaine de langues, l’intégration native au système et les grandes fusions.',
             web: {
                 title: 'Application web',
                 description: 'Idéale pour ouvrir immédiatement des PDF locaux, des fichiers DjVu et des images courantes, puis relire, annoter et exporter sans rien installer.',
                 point1: 'Flux de travail PDF, DjVu et images',
                 point2: 'Aucune friction d’installation ou de mise à jour',
-                point3: 'Parfait pour la relecture rapide, les annotations, les éditions de pages et l’export',
+                point3: 'Parfait pour la relecture rapide, les annotations, les éditions de pages, l’OCR et l’export',
                 action: 'Ouvrir l’application web',
             },
             desktop: {
                 title: 'Application de bureau',
-                description: 'Idéale pour l’OCR de PDF recherchables, l’intégration native au système, les gros travaux de fusion et les flux qui dépassent les limites mémoire du navigateur.',
-                point1: 'OCR de PDF recherchables',
+                description: 'Idéale pour le nettoyage des numérisations, l’OCR dans une trentaine de langues, l’intégration native au système, les gros travaux de fusion et les flux qui dépassent les limites mémoire du navigateur.',
+                point1: 'Nettoyage des numérisations et OCR dans une trentaine de langues',
                 point2: 'Gros travaux de fusion et d’export',
                 point3: 'Dialogues de bureau natifs et intégration au système',
                 action: 'Voir les builds bureau',
@@ -204,7 +204,7 @@ export default {
         seo: {
             title: 'Fonctionnalités EVB Viewer pour navigateur et bureau',
             ogTitle: 'Aperçu des fonctionnalités d’EVB Viewer',
-            ogDescription: 'Voyez ce qu’EVB Viewer couvre aujourd’hui dans le navigateur et ce que l’application de bureau ajoute pour l’OCR de PDF recherchables, l’intégration native au système et les gros travaux.',
+            ogDescription: 'Découvrez ce que couvre EVB Viewer dans le navigateur aujourd’hui et ce que l’application de bureau ajoute pour le nettoyage des numérisations, d’autres langues d’OCR, l’intégration native au système et les travaux plus lourds.',
         },
         hero: {
             badge: 'Nettoyage natif des scans et OCR',
@@ -218,11 +218,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, images et DjVu là où c’est pertinent',
-                description: 'Les flux navigateur ouvrent les PDF locaux, les fichiers DjVu et les images courantes. L’application de bureau ajoute l’OCR de PDF recherchables et évite les limites mémoire du navigateur sur les tâches plus lourdes.',
+                description: 'Les flux du navigateur ouvrent des PDF locaux, des fichiers DjVu et des images courantes. L’application de bureau ajoute le nettoyage des numérisations et d’autres langues d’OCR et évite les limites mémoire du navigateur pour les travaux plus lourds.',
             },
             ocr: {
                 title: 'OCR avec sortie recherchable',
-                description: 'Les builds bureau exécutent localement l’OCR de PDF recherchables et conservent le résultat dans le document édité.',
+                description: 'L’OCR s’exécute localement dans le navigateur et dans les builds bureau, et conserve le résultat recherchable dans le document édité. Le navigateur lit huit langues européennes ; les builds bureau, une trentaine.',
             },
             annotations: {
                 title: 'Outils d’annotation avancés',
@@ -243,7 +243,7 @@ export default {
         },
         workflow: {
             heading: 'Comment le produit s’insère dans le travail réel',
-            description: 'Une session EVB Viewer typique commence par un travail rapide dans le navigateur et passe au bureau quand l’OCR de PDF recherchables ou l’échelle l’exige.',
+            description: 'Une session EVB Viewer typique commence par un travail rapide dans le navigateur et passe au bureau quand le nettoyage des numérisations, d’autres langues d’OCR ou l’échelle l’exigent.',
             load: {
                 title: 'Commencer dans le navigateur',
                 body: 'Ouvrez immédiatement un PDF local, un fichier DjVu ou une image quand une installation ralentirait la tâche.',
@@ -253,8 +253,8 @@ export default {
                 body: 'Recherchez, commentez, surlignez, comparez et réorganisez les pages sans quitter l’espace de travail.',
             },
             edit: {
-                title: 'Passer au bureau pour l’OCR ou l’échelle',
-                body: 'Installez l’application de bureau pour l’OCR de PDF recherchables, l’intégration native au système et les gros travaux de fusion/export.',
+                title: 'Passer au bureau pour le nettoyage ou l’échelle',
+                body: 'Installez l’application de bureau pour le nettoyage des numérisations, l’OCR dans une trentaine de langues, l’intégration native au système et les gros travaux de fusion/export.',
             },
             export: {
                 title: 'Exporter le résultat',
@@ -283,22 +283,22 @@ export default {
     },
     docs: {
         seo: {
-            title: 'Documentation EVB Viewer pour fichiers navigateur et flux OCR bureau',
+            title: 'Documentation EVB Viewer pour les flux navigateur et bureau',
             ogTitle: 'Guide utilisateur EVB Viewer',
-            ogDescription: 'Commencez avec l’application navigateur pour les fichiers locaux, puis installez l’application de bureau quand vous avez besoin d’OCR de PDF recherchables, d’intégration native au système ou de gros travaux de fusion/export.',
+            ogDescription: 'Commencez avec l’application navigateur pour les fichiers locaux et l’OCR, puis installez l’application de bureau quand vous avez besoin du nettoyage des numérisations, d’autres langues d’OCR, de l’intégration native au système ou de gros travaux de fusion/export.',
         },
         hero: {
-            title: 'Guides pour fichiers navigateur et OCR bureau',
-            subtitle: 'Commencez avec l’application web pour un travail rapide sur PDF, DjVu et images locaux, puis passez à l’application de bureau pour l’OCR de PDF recherchables, l’intégration native au système ou les gros travaux de fusion/export.',
+            title: 'Guides pour les applications navigateur et bureau',
+            subtitle: 'Commencez avec l’application web pour un travail rapide sur PDF, DjVu et images locaux, OCR compris, puis passez à l’application de bureau pour le nettoyage des numérisations, d’autres langues d’OCR, l’intégration native au système ou les gros travaux de fusion/export.',
         },
         guideCardAction: 'Aller à la section',
         browserQuickstart: {
             heading: 'Démarrage rapide navigateur',
             intro: 'Utilisez l’application web quand le travail commence par un PDF local, un fichier DjVu ou une image courante et que vous voulez avancer tout de suite.',
             li1: 'Ouvrez un PDF, un fichier DjVu ou une image compatible directement dans l’espace de travail du navigateur.',
-            li2: 'Utilisez la recherche, les notes, les surlignages, le réordonnancement des pages, le rognage et l’export sans installer l’application de bureau. Réservez les très gros lots de fusion au bureau.',
+            li2: 'Utilisez la recherche, les notes, les surlignages, la réorganisation des pages, le recadrage, l’OCR et l’export sans installer l’application de bureau. Gardez les très grands lots de fusion pour le bureau.',
             li3: 'Les flux navigateur conviennent mieux aux fichiers légers, aux boucles de relecture rapides et aux lots de fusion limités.',
-            li4: 'L’OCR de PDF recherchables reste prioritairement bureau, passez donc à l’application de bureau quand la tâche en dépend.',
+            li4: 'L’OCR dans le navigateur lit l’anglais, le russe, le français, l’allemand, le portugais, l’espagnol, le néerlandais et l’italien ; passez à l’application de bureau pour le nettoyage des numérisations ou d’autres langues.',
         },
         bookmarks: {
             title: 'Sur cette page',
@@ -319,7 +319,7 @@ export default {
         },
         workspace: {
             heading: 'Aperçu de l’espace de travail',
-            intro: 'EVB Viewer est un espace de travail documentaire qui couvre navigateur et bureau. Le navigateur ouvre les PDF, fichiers DjVu et images locaux ; le bureau ajoute l’OCR de PDF recherchables, l’intégration native au système et plus de marge pour les gros travaux.',
+            intro: 'EVB Viewer est un espace de travail documentaire qui couvre le navigateur et le bureau. Le navigateur ouvre des PDF, des fichiers DjVu et des images locaux et fait l’OCR ; le bureau ajoute le nettoyage des numérisations, d’autres langues d’OCR, l’intégration native au système et plus de marge pour les gros travaux.',
             li1: 'En haut : barre d’onglets pour ouvrir, réordonner, fractionner et déplacer les onglets.',
             li2: 'Sous les onglets : barre d’outils pour enregistrer, exporter, OCR, zoomer, mode sélection/main et réglages.',
             li3: 'Au centre : visionneuse de documents avec mise en page page unique ou pages en vis-à-vis.',
@@ -328,7 +328,7 @@ export default {
         },
         unsigned: {
             heading: 'Installer les builds bureau',
-            intro: 'Utilisez les builds bureau pour l’OCR de PDF recherchables, l’intégration native au système et les flux plus lourds comme les grandes fusions. Téléchargez les installateurs depuis la section de téléchargement d’EVB Viewer ou les versions officielles.',
+            intro: 'Utilisez les builds bureau pour le nettoyage des numérisations, l’OCR dans une trentaine de langues, l’intégration native au système et les flux plus lourds comme les grandes fusions. Téléchargez les installateurs depuis la section de téléchargement d’EVB Viewer ou les versions officielles.',
             li1: 'Installez toujours les fichiers publiés dans les versions de {repo}.',
             li2: 'Si votre système affiche un avertissement, utilisez les étapes de contournement propres à la plateforme ci-dessous.',
             macosHeading: 'macOS (DMG) :',
@@ -346,7 +346,7 @@ export default {
         },
         openCombine: {
             heading: 'Ouvrir et combiner des fichiers',
-            intro: 'Utilisez {menuPath} pour ouvrir les fichiers pris en charge. Les flux navigateur couvrent les PDF, fichiers DjVu et images courantes ; le bureau convient mieux à l’OCR de PDF recherchables et aux gros travaux de fusion.',
+            intro: 'Utilisez {menuPath} pour ouvrir les fichiers pris en charge. Les flux navigateur couvrent les PDF, fichiers DjVu et images courantes ; le bureau est plus adapté au nettoyage des numérisations et aux grandes fusions.',
             li1: 'Les types de fichiers pris en charge incluent PDF, DjVu, PNG, JPG/JPEG, TIFF, BMP, WEBP et GIF.',
             li2: 'Vous pouvez sélectionner plusieurs PDF, fichiers DjVu ou images à la fois. La fusion navigateur est limitée par la mémoire ; utilisez le bureau pour les lots plus importants.',
             li3: 'Le nom du fichier généré suit le premier fichier sélectionné, par exemple {example}.',
@@ -408,7 +408,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR et exports',
-            intro: 'Les exports sont disponibles dans tout le produit. L’OCR de PDF recherchables reste dans l’environnement de bureau, où le traitement local et les ressources linguistiques sont disponibles.',
+            intro: 'Les exports sont disponibles dans tout le produit. L’OCR s’exécute localement dans le navigateur pour huit langues européennes et dans les builds bureau pour une trentaine, où le nettoyage des numérisations est aussi disponible.',
             li1: 'La fenêtre OCR prend en charge les modes toutes les pages, page courante ou plage personnalisée.',
             li2: 'La sélection de langue est regroupée par familles d’écriture pour une configuration plus rapide.',
             li3: 'Vous pouvez annuler un OCR en cours et suivre la progression page par page.',
