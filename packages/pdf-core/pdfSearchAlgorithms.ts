@@ -34,6 +34,13 @@ export function normalizeSearchablePageText(text: string) {
     return collapseRepeatedPdfSearchPageText(joinSearchLineHyphenation(text));
 }
 
+const BIDI_FORMATTING_CONTROLS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+
+/** A page's extracted text as search, the text catalog and export read it. */
+export function normalizeExtractedPageText(text: string) {
+    return normalizeSearchablePageText(text.replace(BIDI_FORMATTING_CONTROLS, '').trim());
+}
+
 /**
  * Joins the items into page text and finds the span each item owns in it,
  * from per-item boundaries rather than per-character maps. Both assembly

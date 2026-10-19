@@ -40,8 +40,11 @@ describe('ocrErrorMessageKeys', () => {
 
     it('maps every structured OCR error code to a known translation key', () => {
         expect(Object.keys(ocrErrorCodeMessageKeys).sort()).toEqual([
+            'OCR_BROWSER_UNSUPPORTED',
+            'OCR_DOCUMENT_TOO_LARGE',
             'OCR_INTERNAL_ERROR',
             'OCR_INVALID_PAYLOAD',
+            'OCR_MODEL_DOWNLOAD_FAILED',
             'OCR_QUEUE_BACKPRESSURE',
             'OCR_TOOLS_VALIDATION_FAILED',
             'OCR_WORKER_MESSAGE_ERROR',

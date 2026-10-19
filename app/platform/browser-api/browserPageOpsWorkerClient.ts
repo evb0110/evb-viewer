@@ -114,6 +114,28 @@ async function buildWorkerRequestWithTransfers(
         };
     }
 
+    if (request.type === 'ocrTextLayer') {
+        const data = await toTransferableRequestData(request.payload.data);
+        const pagePdfs: Uint8Array[] = [];
+        for (const page of request.payload.pagePdfs) {
+            const transferablePage = await toTransferableRequestData(page);
+            transfer.push(transferablePage.buffer);
+            pagePdfs.push(transferablePage);
+        }
+        transfer.push(data.buffer);
+        return {
+            request: {
+                ...request,
+                payload: {
+                    ...request.payload,
+                    data,
+                    pagePdfs,
+                },
+            },
+            transfer,
+        };
+    }
+
     const transferableData = await toTransferableRequestData(request.payload.data);
     transfer.push(transferableData.buffer);
     let originalAppearanceSourceData: Uint8Array<ArrayBuffer> | undefined;
@@ -291,7 +313,8 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 }
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
-    return type === 'textBoxAppearance' || type === 'saveMutations' || type === 'decrypt' || type === 'printLayout';
+    return type === 'textBoxAppearance' || type === 'saveMutations' || type === 'decrypt' || type === 'printLayout'
+        || type === 'ocrTextLayer' || type === 'ocrTextVisibility';
 }
 
 async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerRequestType>(

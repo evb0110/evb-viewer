@@ -46,7 +46,7 @@ function toArrayBuffer(bytes: Uint8Array) {
     ) as ArrayBuffer;
 }
 
-async function sha256Hex(bytes: Uint8Array) {
+export async function sha256Hex(bytes: Uint8Array) {
     const digest = new Uint8Array(
         await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes)),
     );

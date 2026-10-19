@@ -75,11 +75,11 @@ const probe = vi.hoisted(() => {
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: probe.runPdftotext}));
 
 const { selectOcrPagesForSupersession } = await import('@electron/features/ocr/pipeline/selectOcrPagesForSupersession');
+const {validateCreateSearchablePdfPayload} = await import('@electron/features/ocr/contracts');
 const {
     getOcrPageSelectionCount,
     iterateOcrPageRequestBatches,
-    validateCreateSearchablePdfPayload,
-} = await import('@electron/features/ocr/contracts');
+} = await import('@ocr-core/ocrPageSelection');
 
 let tempDir: string | null = null;
 

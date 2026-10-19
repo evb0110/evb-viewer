@@ -377,6 +377,7 @@ export default {
                 'off': 'Use the scan as-is.',
                 'clean': 'Straighten and clean up the page image first.',
             },
+            'browserUnavailable': 'Image cleanup needs the desktop app; the browser reads pages as scanned.',
         },
         'pageSegmentation': {
             'label': 'Text layout',
@@ -1810,6 +1811,9 @@ export default {
                 'workerUnavailable': 'OCR worker is unavailable',
                 'workerMessageError': 'OCR worker could not deliver a result',
                 'toolsValidationFailed': 'OCR tools are not ready',
+                'browserUnsupported': 'This browser cannot run OCR. Update the browser or use the desktop app.',
+                'documentTooLarge': 'This document is too large for OCR in the browser. Use the desktop app.',
+                'modelDownloadFailed': 'The language model could not be downloaded. Check the connection and try again.',
             },
         },
         'pageOps': {

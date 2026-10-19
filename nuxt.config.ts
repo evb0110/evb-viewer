@@ -112,7 +112,8 @@ const appContentSecurityPolicy = [
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' blob:${isDev ? ' ws: wss:' : ''}${sentryBrowserIngestOrigin ? ` ${sentryBrowserIngestOrigin}` : ''}`,
+    // Browser OCR downloads its pinned language models from GitHub (getOcrModelDownloadUrl).
+    `connect-src 'self' blob: https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${isDev ? ' ws: wss:' : ''}${sentryBrowserIngestOrigin ? ` ${sentryBrowserIngestOrigin}` : ''}`,
     "worker-src 'self' blob:",
     "frame-src 'self' blob:",
     "object-src 'none'",

@@ -36,7 +36,10 @@ import type {
     TWorkerLog,
 } from '@electron/features/ocr/pipeline/types';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
-import {clampDpi} from '@electron/image/imageDpi';
+import {
+    resolveOcrExtractionDpi,
+    resolveOcrPageDpi,
+} from '@ocr-core/ocrRenderDpi';
 import {
     getPngDimensionsFromFile,
     runOcrFileBased,
@@ -59,7 +62,7 @@ import {getErrorMessage} from '@electron/utils/error';
 import {
     getOcrPageSelectionCount,
     iterateOcrPageRequestBatches,
-} from '@electron/features/ocr/contracts';
+} from '@ocr-core/ocrPageSelection';
 import {selectOcrPagesForSupersession} from '@electron/features/ocr/pipeline/selectOcrPagesForSupersession';
 import {hashFileSha256} from '@electron/utils/hashFileSha256';
 import {
@@ -335,7 +338,7 @@ async function processOcrPage(
                 popplerSourcePdfPath: context.getPopplerSourcePdfPath(),
             }, pageSizeProbeImagePath);
         const pageSourceDpi = context.pageSourceDpiByNumber.get(page.pageNumber);
-        const effectiveDpi = Math.min(context.extractionDpi, pageSourceDpi ?? context.extractionDpi);
+        const effectiveDpi = resolveOcrPageDpi(context.extractionDpi, pageSourceDpi);
         lease = await acquireOcrPageLease(context, page, effectiveDpi, pageSize);
         throwIfAborted(context.signal);
         if (effectiveDpi < context.extractionDpi) {
@@ -642,7 +645,7 @@ async function buildOcrPageProcessingPlan(
             }
         }
     }
-    const extractionDpi = clampDpi(detectedDpi ?? 300);
+    const extractionDpi = resolveOcrExtractionDpi(detectedDpi);
     const concurrency = getOcrConcurrency(pages.length);
     sendStage('page-size-probing');
     const pageSizeProbe = await pageSizeSource.read(popplerSourcePdfPath, pages.map(page => page.pageNumber));
@@ -840,7 +843,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         await durableManifest.markNode('recognized-page', 'running');
         let processedPageCount = 0;
         let successfulPageCount = 0;
-        let actualRenderDpi = clampDpi(options.renderDpi ?? 300);
+        let actualRenderDpi = resolveOcrExtractionDpi(options.renderDpi);
         let pageSizeWarningReported = false;
         let hadTargetPages = false;
 

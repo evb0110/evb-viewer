@@ -1,16 +1,13 @@
-import type {
-    IOcrDiagnostic,
-    TOcrTextSupersessionPolicy,
-} from '@contracts/electronApiOcr';
+import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type {
     IOcrPdfPageRequest,
     TWorkerLog,
 } from '@electron/features/ocr/pipeline/types';
-import { iterateOcrPageRanges } from '@electron/features/ocr/contracts';
+import { iterateOcrPageRanges } from '@ocr-core/ocrPageSelection';
 import {
-    classifyOcrPageText,
-    shouldOcrClassifiedPage,
-} from '@ocr-core/pageTextClassifier';
+    OCR_TEXT_PROBE_UNAVAILABLE,
+    selectOcrPagesByExistingText,
+} from '@ocr-core/selectOcrPagesByExistingText';
 import {inspectPdfPageTextVisibility} from '@electron/pdf/inspectPdfPageTextVisibility';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
@@ -19,11 +16,9 @@ import {
 } from '@electron/pdf/pdfTextPageBatching';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import { requirePageNumber } from '@contracts/pageNumbers';
 
 const TEXT_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
 const TEXT_PROBE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
-const TEXT_PROBE_UNAVAILABLE = '[text-probe-unavailable]';
 
 async function extractPageTextForClassification(input: {
     sourcePdfPath: string;
@@ -38,7 +33,7 @@ async function extractPageTextForClassification(input: {
     // the worker was unable to inspect.
     const failClosed = (firstPage: number, lastPage: number, reason: string) => {
         for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
-            texts.set(pageNumber, TEXT_PROBE_UNAVAILABLE);
+            texts.set(pageNumber, OCR_TEXT_PROBE_UNAVAILABLE);
         }
         const message = `Existing-text probe failed for pages ${firstPage}-${lastPage}; they were left untouched: ${reason}`;
         input.log('warn', message);
@@ -101,9 +96,7 @@ export async function selectOcrPagesForSupersession(input: {
     log: TWorkerLog;
     signal: AbortSignal;
 }) {
-    const pages: IOcrPdfPageRequest[] = [];
     const warnings: string[] = [];
-    const diagnostics: IOcrDiagnostic[] = [];
     const requestedPageNumbers = input.pages.map(page => page.pageNumber);
     const visibilityAnalysis = await inspectPdfPageTextVisibility({
         pdfPath: input.sourcePdfPath,
@@ -117,7 +110,6 @@ export async function selectOcrPagesForSupersession(input: {
         input.log('warn', visibilityAnalysis.message);
         warnings.push(visibilityAnalysis.message);
     }
-    const visibility = visibilityAnalysis.visibility;
     const textProbe = await extractPageTextForClassification({
         sourcePdfPath: input.sourcePdfPath,
         pageNumbers: requestedPageNumbers,
@@ -127,74 +119,19 @@ export async function selectOcrPagesForSupersession(input: {
     });
     warnings.push(...textProbe.warnings);
 
-    // The writer refuses a page whose text it cannot replace safely, and that
-    // refusal would fail the whole run after recognition; skip the page instead.
-    const skipUnsupportedPage = (pageNumber: number, reason: string) => {
-        const message = `Skipped page ${pageNumber}: its existing text cannot be replaced safely (${reason})`;
-        warnings.push(message);
-        diagnostics.push({
-            code: 'OCR_EXISTING_TEXT_SKIPPED',
-            severity: 'warning',
-            pageNumber: requirePageNumber(pageNumber),
-            message,
-        });
-    };
-
-    for (const page of input.pages) {
-        const pageVisibility = visibility.get(page.pageNumber);
-        const unsupported = pageVisibility?.unsupported ?? null;
-        const extractedText = textProbe.texts.get(page.pageNumber) ?? TEXT_PROBE_UNAVAILABLE;
-        if (extractedText === TEXT_PROBE_UNAVAILABLE) {
-            const canReplaceWithoutTextProbe = input.supersessionPolicy === 'replace-all'
-                || input.supersessionPolicy === 'replace-evb' && pageVisibility?.evbOcrLayer === true;
-            if (canReplaceWithoutTextProbe && unsupported !== null) {
-                skipUnsupportedPage(page.pageNumber, unsupported);
-                continue;
-            }
-            if (canReplaceWithoutTextProbe) {
-                const message = `Scheduled page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
-                input.log('warn', message);
-                warnings.push(message);
-                pages.push(page);
-                continue;
-            }
-            const message = `Skipped page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
-            warnings.push(message);
-            diagnostics.push({
-                code: 'OCR_EXISTING_TEXT_SKIPPED',
-                severity: 'warning',
-                pageNumber: requirePageNumber(page.pageNumber),
-                message,
-            });
-            continue;
-        }
-        const classification = classifyOcrPageText({
-            extractedText,
-            ...(pageVisibility === undefined ? {} : {visibility: pageVisibility}),
-            languages: page.languages,
-        });
-        if (shouldOcrClassifiedPage(classification, input.supersessionPolicy)) {
-            if (unsupported !== null) {
-                skipUnsupportedPage(page.pageNumber, unsupported);
-                continue;
-            }
-            pages.push(page);
-            continue;
-        }
-        // Keeping a page's own text is what the policy asked for, so it is
-        // information about the run, not a warning that it fell short.
-        const message = `Skipped page ${page.pageNumber}: classified ${classification} under ${input.supersessionPolicy} policy`;
-        input.log('debug', message);
-        diagnostics.push({
-            code: 'OCR_EXISTING_TEXT_SKIPPED',
-            severity: 'info',
-            pageNumber: requirePageNumber(page.pageNumber),
-            message,
-        });
-    }
+    const selection = selectOcrPagesByExistingText({
+        pages: input.pages,
+        supersessionPolicy: input.supersessionPolicy,
+        visibility: visibilityAnalysis.visibility,
+        texts: textProbe.texts,
+        log: input.log,
+    });
     return {
-        pages,
-        warnings,
-        diagnostics,
+        pages: selection.pages,
+        warnings: [
+            ...warnings,
+            ...selection.warnings,
+        ],
+        diagnostics: selection.diagnostics,
     };
 }

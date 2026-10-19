@@ -62,10 +62,8 @@ import {
     type TMainJobSnapshot,
     type TMainJobTerminalSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
-import {
-    buildOcrErrorEnvelope,
-    getOcrPageSelectionCount,
-} from '@electron/features/ocr/contracts';
+import {buildOcrErrorEnvelope} from '@electron/features/ocr/contracts';
+import {getOcrPageSelectionCount} from '@ocr-core/ocrPageSelection';
 
 const log = createLogger('ocr-ipc');
 const pipelineLog: TWorkerLog = (level, message, data) => {

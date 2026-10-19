@@ -897,6 +897,7 @@ export default {
                 'off': 'Scan unverändert verwenden.',
                 'clean': 'Seitenbild zuerst begradigen und bereinigen.',
             },
+            'browserUnavailable': 'Die Bildbereinigung erfordert die Desktop-App; der Browser liest die Seiten wie gescannt.',
         },
         'pageSegmentation': {
             'label': 'Textlayout',
@@ -1810,6 +1811,9 @@ export default {
                 'workerUnavailable': 'Der OCR-Worker ist nicht verfügbar',
                 'workerMessageError': 'Der OCR-Worker konnte kein Ergebnis liefern',
                 'toolsValidationFailed': 'Die OCR-Tools sind nicht bereit',
+                'browserUnsupported': 'Dieser Browser kann keine Texterkennung ausführen. Aktualisieren Sie den Browser oder verwenden Sie die Desktop-App.',
+                'documentTooLarge': 'Dieses Dokument ist für die Texterkennung im Browser zu groß. Verwenden Sie die Desktop-App.',
+                'modelDownloadFailed': 'Das Sprachmodell konnte nicht heruntergeladen werden. Prüfen Sie die Verbindung und versuchen Sie es erneut.',
             },
         },
         'pageOps': {

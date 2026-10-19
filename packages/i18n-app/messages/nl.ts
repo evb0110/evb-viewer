@@ -897,6 +897,7 @@ export default {
                 'off': 'Gebruik de scan ongewijzigd.',
                 'clean': 'Maak de pagina-afbeelding eerst recht en schoon.',
             },
+            'browserUnavailable': 'Beeldopschoning vereist de desktop-app; de browser leest de pagina’s zoals ze gescand zijn.',
         },
         'pageSegmentation': {
             'label': 'Tekstindeling',
@@ -1810,6 +1811,9 @@ export default {
                 'workerUnavailable': 'De OCR-worker is niet beschikbaar',
                 'workerMessageError': 'De OCR-worker kon geen resultaat leveren',
                 'toolsValidationFailed': 'OCR-tools zijn niet gereed',
+                'browserUnsupported': 'Deze browser kan geen OCR uitvoeren. Werk de browser bij of gebruik de desktop-app.',
+                'documentTooLarge': 'Dit document is te groot voor OCR in de browser. Gebruik de desktop-app.',
+                'modelDownloadFailed': 'Het taalmodel kon niet worden gedownload. Controleer de verbinding en probeer het opnieuw.',
             },
         },
         'pageOps': {

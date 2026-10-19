@@ -223,6 +223,30 @@ export function getOcrModelSourcePath(code: string) {
     return code === 'lat_dictionary' ? 'lat' : code;
 }
 
+/** The tessdata_best commit every OCR model, on desktop and in the browser, is pinned to. */
+export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
+
+/** Where a pinned model downloads from; its bytes must match `OCR_LANGUAGE_MODEL_SHA256`. */
+export function getOcrModelDownloadUrl(code: TOcrModelCode) {
+    const sourcePath = getOcrModelSourcePath(code).split('/').map(encodeURIComponent).join('/');
+    return `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}/${sourcePath}.traineddata`;
+}
+
+/**
+ * The languages the browser workspace recognizes: the common European ones.
+ * Desktop offers every language in the registry.
+ */
+export const BROWSER_OCR_LANGUAGE_CODES = [
+    'eng',
+    'rus',
+    'fra',
+    'deu',
+    'por',
+    'spa',
+    'nld',
+    'ita',
+] as const satisfies readonly TOcrLanguageCode[];
+
 /** SHA-256 digests for the exact tessdata_best commit used by runtime downloads. */
 export const OCR_LANGUAGE_MODEL_SHA256 = {
     ara: 'ab9d157d8e38ca00e7e39c7d5363a5239e053f5b0dbdb3167dde9d8124335896',

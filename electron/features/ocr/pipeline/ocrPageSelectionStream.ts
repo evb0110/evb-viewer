@@ -9,7 +9,7 @@ import type {
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
-import {iterateOcrPageRequestBatches} from '@electron/features/ocr/contracts';
+import {iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
 import type {
     IOcrPageWithWords,
     IOcrWordEdit,

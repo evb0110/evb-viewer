@@ -4,7 +4,7 @@ import { range } from 'es-toolkit/math';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { normalizeSearchablePageText } from '@pdf-core/pdfSearchCore';
+import { normalizeExtractedPageText } from '@pdf-core/pdfSearchAlgorithms';
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import {
@@ -21,7 +21,7 @@ import {
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { streamItems } from '@electron/features/search/streamItems';
 import type { IPageText } from '@electron/features/search/pageText';
-import { readOcrLayerLayout } from '@electron/features/search/readOcrLayerLayout';
+import { readOcrLayerLayout } from '@ocr-core/readOcrLayerLayout';
 import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
 import * as v from 'valibot';
 
@@ -44,15 +44,10 @@ const PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA = v.object({
 // pdftotext wraps independently positioned right-to-left spans in bidi
 // embedding and isolate controls. They are layout hints, never searchable text,
 // and they split OCR words so queries and indexing miss them.
-const BIDI_FORMATTING_CONTROLS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
 // Poppler reads predefined CJK CMaps only from its compile-time data
 // directory, which the macOS runtime bundle lacks. It reports that per font.
 const MISSING_POPPLER_DATA = /Missing language pack/u;
-
-function normalizePopplerPageText(text: string) {
-    return normalizeSearchablePageText(text.replace(BIDI_FORMATTING_CONTROLS, '').trim());
-}
 
 type TStreamPdfPageTextsOptions = IPdfPageRange & {
     signal?: AbortSignal | undefined;
@@ -234,7 +229,7 @@ async function readPopplerPageTexts(
                 pageNumber += 1;
                 pages.push({
                     pageNumber,
-                    text: normalizePopplerPageText(pending.slice(0, end)),
+                    text: normalizeExtractedPageText(pending.slice(0, end)),
                 });
                 pending = pending.slice(end + 1);
             }
@@ -332,7 +327,7 @@ async function readOcrLayersInRecognitionOrder(
         if (page.evbOcrLayer && page.evbOcrLines !== null && !areas.has(pageNumber)) {
             ocrLayerTexts.set(pageNumber, {
                 pageNumber,
-                text: normalizePopplerPageText(page.evbOcrLines.map(line => line.text).join('\n')),
+                text: normalizeExtractedPageText(page.evbOcrLines.map(line => line.text).join('\n')),
                 layout: readOcrLayerLayout(page.evbOcrLines),
             });
         } else if (page.evbOcrLayer || page.hiddenText) {
