@@ -54,7 +54,7 @@
     "fallow:all": "pnpm run fallow && pnpm run fallow:dupes",
     "fallow:dupes": "fallow dupes --production --threshold 0",
     "fallow:health:summary": "fallow health --summary || true",
-    "test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy",
+    "test:coverage": "node scripts/ensure-wasm-artifacts.mjs && vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy",
     "test:electron-bundle-static-integrity": "pnpm run build:electron && pnpm run test:electron-bundle-static-integrity:no-build && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene",
     "test:electron-bundle-static-integrity:no-build": "vitest run --project electron-bundle-static-integrity",
     "test:unit": "node scripts/ensure-wasm-artifacts.mjs && vitest run --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy",
