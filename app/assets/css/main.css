@@ -139,7 +139,7 @@
     --app-scan-dialog-rail-width: 20rem;
     --app-scan-header-height: 3.5rem;
     --app-scan-settings-affordance-height: var(--app-control-height-xs);
-    --app-scan-page-list-width: 25rem;
+    --app-scan-page-list-width: 20rem;
     --app-scan-page-list-collapsed-width: 3rem;
     --app-scan-reset-confirmation-width: 17rem;
     --app-scan-details-width: 22rem;
@@ -159,7 +159,7 @@
     --app-scan-preview-stale-opacity: var(--app-opacity-muted);
     --app-scan-preview-crossfade-duration: var(--app-transition-standard);
     --app-scan-low-confidence-popover-width: 17rem;
-    --app-scan-first-run-guidance-width: 32rem;
+    --app-scan-first-run-guidance-width: 20rem;
     --app-scan-cutter-handle-width: var(--app-space-16xl);
     --app-scan-cutter-handle-height: var(--app-space-13xl);
     --app-scan-content-handle-size: var(--app-space-9xl);
@@ -352,6 +352,9 @@
     --app-search-virtual-row-height: 84px;
     --app-search-progress-height: 3px;
     --app-ocr-dialog-max-width: 72rem;
+
+    /* Holds the settings and a dozen language rows; the list scrolls past that. */
+    --app-ocr-dialog-height: 40rem;
     --app-sidebar-content-min-height: 5rem;
     --app-crop-dialog-input-width: 7.5rem;
     --app-zoom-menu-separator-height: var(--app-hairline-height);

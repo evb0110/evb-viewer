@@ -278,7 +278,7 @@
                         :step="0.1"
                         :increment-disabled="manualSkew.mixed"
                         :decrement-disabled="manualSkew.mixed"
-                        :aria-label="manualSkewLabel"
+                        :aria-label="`${manualSkewLabel} (${manualSkewRange})`"
                         :disabled="settings.preserveOriginalQuality === true"
                         @update:model-value="emitManualSkew"
                     />
@@ -778,7 +778,8 @@ const hasContentBoxes = computed(() => props.contentBoxes.mixed
 const manualSkewState = computed(() => props.manualSkew.mixed
     ? 'mixed'
     : props.manualSkew.value === undefined ? 'auto' : 'manual');
-const manualSkewLabel = computed(() => t('scanCleanup.settings.manualSkew', {
+const manualSkewLabel = computed(() => t('scanCleanup.settings.manualSkew'));
+const manualSkewRange = computed(() => t('scanCleanup.settings.manualSkewRange', {
     min: SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
     max: SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
 }));
@@ -795,11 +796,12 @@ const manualSkewValueText = computed(() => {
     }
     return `${value > 0 ? '+' : ''}${value.toFixed(1)}°`;
 });
+// The allowed range fills the hint line until a detected angle takes it.
 const manualSkewHint = computed(() => !props.manualSkew.mixed
     && props.manualSkew.value === undefined
     && props.detectedSkewDegrees !== undefined
     ? t('scanCleanup.settings.detectedSkew', {angle: props.detectedSkewDegrees.toFixed(1)})
-    : undefined);
+    : manualSkewRange.value);
 const manualSplitState = computed(() => props.manualSplit.mixed
     ? 'mixed'
     : props.manualSplit.value === null ? 'auto' : 'manual');

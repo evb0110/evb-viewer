@@ -33,13 +33,17 @@
         <section
             v-if="isVisible"
             class="annotation-properties-inline"
+            :class="{'annotation-properties-idle': isInspectorIdle}"
             :aria-label="propertiesLabel"
             data-annotation-inspector
             data-testid="annotation-inspector"
             :data-target="propertySelection.length > 0 ? 'selection' : 'defaults'"
         >
             <h3 class="annotation-properties-title">{{ propertiesLabel }}</h3>
-            <div class="annotation-properties-body app-scrollbar">
+            <div
+                class="annotation-properties-body app-scrollbar"
+                :class="{'annotation-properties-body-idle': isInspectorIdle}"
+            >
                 <PdfAnnotationStyleEditor
                     :tool="tool"
                     :settings="settings"
@@ -69,6 +73,7 @@ import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/eng
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 import PdfAnnotationStyleEditor from '@app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue';
 import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue';
+import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 interface IProps {
@@ -100,6 +105,8 @@ const {
     canRotateAnnotations = undefined,
 } = defineProps<IProps>();
 const propertySelection = computed(() => tool === 'select' || tool === 'none' ? selectedAnnotations : []);
+// With nothing to edit the inspector holds one hint, so it takes only its height.
+const isInspectorIdle = computed(() => propertySelection.value.length === 0 && !isAuthoringAnnotationTool(tool));
 const propertiesLabel = computed(() => propertySelection.value.length > 0
     ? t('annotations.selectedProperties')
     : t('annotations.toolDefaults'));
@@ -204,6 +211,11 @@ function retryEnrichment() {
     min-height: 0;
     overflow: auto;
     padding: var(--app-space-sm);
+}
+
+.annotation-properties-idle,
+.annotation-properties-body-idle {
+    flex: 0 0 auto;
 }
 
 .annotation-properties-title {

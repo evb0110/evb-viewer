@@ -186,8 +186,9 @@ function resolveAnalysis(
         phase: 'analyze',
         step,
         detail,
+        // The sentence's count measures the work it names.
         count: {
-            completed: analyzed,
+            completed: detail === 'read' ? read : analyzed,
             total,
         },
         fraction: analyzed === 0 && read === 0 ? null : analyzed / total,
