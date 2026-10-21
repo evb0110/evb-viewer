@@ -1972,7 +1972,7 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('rebases a continuous scrollbar at the physical segment boundary', async () => {
+    it('rebases a scrollbar at a segment end under the same document offset', async () => {
         const fixture = createViewportFixture({
             pageCount: 20_000,
             zoomMode: 'custom',
@@ -1985,16 +1985,34 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.pageMetricsVersion.value += 1;
             await nextTick();
 
-            fixture.container.scrollTop = 8_388_608 - fixture.container.clientHeight;
+            // Pages are 1,000 px with a 20 px gutter above each row.
+            const pitch = 1_020;
+            const viewportHeight = fixture.container.clientHeight;
+            const documentTop = 8_388_608 - viewportHeight;
+            const visibleArea = (page: number) => {
+                const top = 20 + (page - 1) * pitch;
+                return Math.max(0, Math.min(top + 1_000, documentTop + viewportHeight) - Math.max(top, documentTop));
+            };
+            const firstVisible = Math.floor((documentTop - 20) / pitch) + 1;
+            const expectedPage = [
+                firstVisible,
+                firstVisible + 1,
+                firstVisible + 2,
+            ].reduce((best, page) => visibleArea(page) > visibleArea(best) ? page : best);
+
+            fixture.container.scrollTop = documentTop;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             await nextTick();
 
-            expect(fixture.viewport.currentPage.value).toBe(8_226);
-            expect(fixture.container.scrollTop).toBe(912);
-            expect(fixture.viewport.visibleRange.value).toEqual({
-                start: 8_226,
-                end: 8_226,
-            });
+            // The physical offset moved away from both segment ends, onto a
+            // row-start origin, and the reader still sees the same page.
+            const scrollTop = fixture.container.scrollTop;
+            expect(scrollTop).toBeGreaterThan(viewportHeight);
+            expect(scrollTop).toBeLessThan(8_388_608 - 2 * viewportHeight);
+            expect((documentTop - scrollTop) % pitch).toBe(0);
+            expect(fixture.viewport.currentPage.value).toBe(expectedPage);
+            expect(fixture.viewport.visibleRange.value.start).toBeLessThanOrEqual(expectedPage);
+            expect(fixture.viewport.visibleRange.value.end).toBeGreaterThanOrEqual(expectedPage);
         } finally {
             fixture.app.unmount();
         }
