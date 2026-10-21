@@ -26,14 +26,15 @@
     opacity: 0;
 }
 
-.pdfViewer .page_container--rendered .document-page-skeleton {
+.pdfViewer .page_container[data-page-raster] .document-page-skeleton {
     display: none;
 }
 
-/* Canvas pixels may finish before Vue projects the canonical rendered state.
-   Keep that backing store non-presentational until the same class transition
-   that removes the skeleton; users then observe one atomic shell handoff. */
-.pdfViewer .page_container:not(.page_container--rendered) .page_canvas__render-layer {
+/* Canvas pixels may finish before Vue projects the committed raster. Keep that
+   backing store non-presentational until the same patch that removes the
+   skeleton; users then observe one atomic shell handoff. Text and annotation
+   layers below wait for the readable rendered state instead. */
+.pdfViewer .page_container:not([data-page-raster]) .page_canvas__render-layer {
     visibility: hidden;
 }
 
