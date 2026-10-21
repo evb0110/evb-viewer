@@ -218,7 +218,10 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             ...(process.env.EVB_E2E_LARGE_OPEN_RECORD === '1' ? {EVB_RECORD_SESSION: '1'} : {}),
         }});
         telemetry.sessionName = session.name;
-        const readViewport = () => evaluateInPage(session.page, () => {
+        // Classic scrollbars on Linux and Windows end in arrow buttons, a
+        // scrollbar width long; pressing one steps a line instead of dragging.
+        const arrowButtons = process.platform !== 'darwin';
+        const readViewport = () => evaluateInPage(session.page, (hasArrowButtons: boolean) => {
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
             const firstPage = host?.querySelector<HTMLElement>('.page_container[data-page]');
@@ -232,9 +235,14 @@ describe('Electron E2E - large object-dense PDF opening', () => {
                 .map(element => element.closest<HTMLElement>('.page_container[data-page]'))
                 .find(element => element && viewport.contains(element));
             const scrollbarWidth = viewport.offsetWidth - viewport.clientWidth;
-            const thumbHeight = Math.max(24, viewport.clientHeight ** 2 / viewport.scrollHeight);
             const trackTop = rect.top + viewport.clientTop;
-            const scrollRange = viewport.scrollHeight - viewport.clientHeight;
+            const buttonLength = hasArrowButtons ? scrollbarWidth : 0;
+            const thumbStart = trackTop + buttonLength;
+            const thumbEnd = trackTop + viewport.clientHeight - buttonLength;
+            const fraction = viewport.scrollTop / (viewport.scrollHeight - viewport.clientHeight);
+            // The thumb's length differs by platform; 4 px inside it at either
+            // end, and the proportional point between, which is its centre
+            // exactly mid-track, land on it whatever that length is.
             return {
                 centre,
                 centrePage: container ? Number(container.dataset.page) : null,
@@ -244,12 +252,13 @@ describe('Electron E2E - large object-dense PDF opening', () => {
                 scrollTop: viewport.scrollTop,
                 scrollbarWidth,
                 scrollbarX: rect.right - scrollbarWidth / 2,
-                thumbY: trackTop + thumbHeight / 2
-                    + viewport.scrollTop / scrollRange * (viewport.clientHeight - thumbHeight),
+                thumbY: fraction < 0.01 ? thumbStart + 4
+                    : fraction > 0.99 ? thumbEnd - 4
+                        : thumbStart + fraction * (thumbEnd - thumbStart),
                 trackTop: trackTop + 1,
                 trackBottom: trackTop + viewport.clientHeight - 1,
             };
-        });
+        }, arrowButtons);
         const dragScrollbar = async (destination: 'top' | 'bottom') => {
             const viewport = await readViewport();
             expect(viewport.scrollbarWidth, 'trusted drag needs a classic scrollbar').toBeGreaterThan(0);
