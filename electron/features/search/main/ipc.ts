@@ -21,10 +21,8 @@ import {
     type ISearchSenderContext,
 } from '@electron/features/search/main/searchService';
 import { getSearchIndexPath } from '@electron/features/search/searchIndex';
-import {
-    readPdfPageCount,
-    streamPdfPageTexts,
-} from '@electron/features/search/pdfPageTexts';
+import { streamPdfPageTexts } from '@electron/features/search/pdfPageTexts';
+import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 
 /**
  * A lazily backed working copy has no physical leaf until materialization
@@ -74,7 +72,7 @@ export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRe
         indexPath: getSearchIndexPath(pdfPath),
         documentRevision,
         ...(isWorkingCopyDocumentPath(pdfPath) ? {workingCopyPath: pdfPath} : {}),
-        readPageCount: (signal: AbortSignal) => readPdfPageCount(pdfPath, signal),
+        readPageCount: (signal: AbortSignal) => getPdfPageCount(pdfPath, {signal}),
         readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) => streamPdfPageTexts(pdfPath, {
             signal,
             visiblePageOnly: true,
