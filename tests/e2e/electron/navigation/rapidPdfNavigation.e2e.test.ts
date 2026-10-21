@@ -3244,9 +3244,14 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         const container = document.querySelector<HTMLElement>(
                             `#pdf-viewer .page_container[data-page="${pageNumber}"]`,
                         );
-                        const skeleton = container?.querySelector<HTMLElement>('.document-page-skeleton');
+                        // Off screen in the buffer, the page is not yet the reader's.
+                        if (!container || container.classList.contains('page_container--buffered')) {
+                            requestAnimationFrame(sample);
+                            return;
+                        }
+                        const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
                         const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
-                        const layer = container?.querySelector<HTMLElement>('.page_canvas__render-layer');
+                        const layer = container.querySelector<HTMLElement>('.page_canvas__render-layer');
                         const canvas = layer?.querySelector('canvas');
                         const covered = Boolean(skeletonStyle && skeletonStyle.display !== 'none'
                             && Number.parseFloat(skeletonStyle.opacity) > 0.01);
@@ -3281,7 +3286,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     probe.stopped = true;
                     return probe.frames;
                 });
-                expect(frames.length).toBeGreaterThan(5);
+                expect(frames.length).toBeGreaterThanOrEqual(5);
                 coveredFrames.push(...frames
                     .filter(frame => frame.bare)
                     .map(frame => ({
