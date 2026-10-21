@@ -215,7 +215,7 @@ function retryEnrichment() {
 
 .annotation-properties-idle,
 .annotation-properties-body-idle {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
 }
 
 .annotation-properties-title {
