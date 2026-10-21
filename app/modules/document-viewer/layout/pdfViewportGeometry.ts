@@ -9,6 +9,7 @@ import {
     getLayoutPageHeight,
     getLayoutPageTop,
     getLayoutPageWidth,
+    getLayoutPhysicalScrollSegment,
     getLayoutRowHeight,
 } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import {createLazyIndexedCollection} from '@app/modules/document-viewer/virtualization/pageVirtualization';
@@ -130,6 +131,8 @@ export function createPdfViewportGeometryFromLayout(
         },
         contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
         physicalScrollOrigin: Math.max(0, physicalScrollOrigin),
+        physicalScrollHeight: getLayoutPhysicalScrollSegment(metrics, Math.max(0, physicalScrollOrigin))?.height
+            ?? getLayoutContentHeight(metrics),
         pageRects,
         rows,
     };
@@ -143,6 +146,8 @@ export interface IPdfViewportGeometry {
     contentWidth: number;
     contentHeight: number;
     physicalScrollOrigin: number;
+    /** Scroll extent of the physical segment at `physicalScrollOrigin`. */
+    physicalScrollHeight: number;
     pageRects: readonly IPdfViewportRect[];
     rows: ReadonlyArray<{
         startPage: number;
@@ -265,6 +270,7 @@ export function computePdfViewportGeometry(
         contentWidth,
         contentHeight: Math.max(options.viewportHeight, top - (rows.length ? gap : 0) + padding),
         physicalScrollOrigin: 0,
+        physicalScrollHeight: Math.max(options.viewportHeight, top - (rows.length ? gap : 0) + padding),
         pageRects,
         rows,
     };
@@ -321,7 +327,7 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
         height: geometry.viewportHeight,
     }, {
         width: geometry.contentWidth,
-        height: Math.max(geometry.viewportHeight, geometry.contentHeight - geometry.physicalScrollOrigin),
+        height: Math.max(geometry.viewportHeight, geometry.physicalScrollHeight),
     }, geometry.insetTop);
 }
 

@@ -73,6 +73,13 @@ crash, moving a tab between windows, and reopening the same tab's document after
 a save always keep their place, regardless of this setting. Those documents were
 never closed. An explicit reset is not a restore.
 
+**R5. Document length does not slow reading.** Scrolling by wheel, keys or
+scrollbar, and the toolbar page controls, do work bounded by the pages they show,
+not by the page count or the distance travelled. The window keeps painting while
+the reader scrolls a 21,601-page document end to end at any zoom, and R1 holds
+once each gesture settles. Frame-time bounds are stated per fixture and
+environment. Added 2026-10-21 on the owner's request.
+
 ## Layout
 
 **L1. Fit modes.** Settled. Fit-width in continuous scroll: one scale for the

@@ -9,13 +9,16 @@ import { usePdfScroll as usePdfScrollProduction } from '@app/modules/pdf-viewer/
 import {
     buildPageLayoutMetrics,
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+    normalizePageMetrics,
+    resolveLayoutPhysicalScrollOrigin,
 } from '@app/modules/document-viewer/public';
 import {getPageTop} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const usePdfScroll = (
-    options: Omit<Parameters<typeof usePdfScrollProduction>[0], 'viewportWritePort'> = {},
+    options: Partial<Omit<Parameters<typeof usePdfScrollProduction>[0], 'viewportWritePort'>> = {},
 ) => usePdfScrollProduction({
+    getPhysicalScrollOrigin: () => 0,
     ...options,
     viewportWritePort: createTestPdfViewportWritePort().port,
 });
@@ -639,17 +642,21 @@ describe('usePdfScroll page layout fallback', () => {
         expect(getScrollLeft()).toBe(220);
     });
 
-    it('translates a far layout target into its bounded physical scroll segment', () => {
+    it('translates a far layout target using the session-owned physical scroll origin', () => {
         const {
             container,
             getScrollTop,
         } = createContainerStub();
-        const scroll = usePdfScroll();
         const layout = buildPageLayoutMetrics({
-            pageMetrics: [{
-                width: 64,
-                height: 64,
-            }],
+            pageMetrics: normalizePageMetrics({
+                pageMetrics: [{
+                    width: 64,
+                    height: 64,
+                }],
+                totalPages: 138_000,
+                fallbackWidth: 64,
+                fallbackHeight: 64,
+            }),
             totalPages: 138_000,
             viewMode: 'single',
             scale: 10,
@@ -657,10 +664,11 @@ describe('usePdfScroll page layout fallback', () => {
             paddingTop: 20,
             paddingBottom: 20,
         });
+        if (!layout) throw new Error('Expected segmented page layout');
         const targetPage = 69_001;
-        const targetTop = getPageTop(layout!, requirePageNumber(targetPage))!;
-        const segmentOrigin = Math.floor(targetTop / PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT)
-            * PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
+        const targetTop = getPageTop(layout, requirePageNumber(targetPage))!;
+        const segmentOrigin = resolveLayoutPhysicalScrollOrigin(layout, targetTop, container.clientHeight, null);
+        const scroll = usePdfScroll({getPhysicalScrollOrigin: () => segmentOrigin});
         scroll.setPageLayoutMetrics(layout);
 
         scroll.scrollToPage(container, requirePageNumber(targetPage), 138_000, 20);

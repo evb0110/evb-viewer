@@ -136,7 +136,7 @@ export {
 } from '@app/modules/document-viewer/layout/normalizePageMetrics';
 export { buildPageLayoutMetrics } from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
 export {
-    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, getLayoutContentHeight, getLayoutPageHeight, getLayoutPageTop, getLayoutPageWidth, getLayoutPhysicalScrollOrigin, getLayoutPhysicalScrollSegment, getLayoutPhysicalScrollSegmentTransition, getLayoutRowHeight, getLayoutRowTop, type IPdfPageLayoutBase, type IPdfPageLayoutMetrics,
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, getLayoutContentHeight, getLayoutPageHeight, getLayoutPageTop, getLayoutPageWidth, getLayoutPhysicalScrollSegment, resolveLayoutPhysicalScrollOrigin, getLayoutRowHeight, getLayoutRowTop, type IPdfPageLayoutBase, type IPdfPageLayoutMetrics,
 } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 export {
     getPageNumbersForViewMode, getPageRowBoundsForViewMode,

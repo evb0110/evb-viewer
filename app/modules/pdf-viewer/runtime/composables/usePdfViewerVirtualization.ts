@@ -67,6 +67,8 @@ interface IUsePdfViewerVirtualizationOptions {
         end: number;
     }>;
     navigationAnchorPage: Ref<number | null>;
+    /** Document offset of the page track's top, owned by the viewport session. */
+    physicalScrollOrigin: Readonly<Ref<number>>;
     navigationVisualHandoffTargetPage?: Readonly<Ref<number | null>> | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
 }
@@ -135,6 +137,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         navigationAnchorPage,
         navigationVisualHandoffTargetPage,
         getCommittedPageScale,
+        physicalScrollOrigin,
     } = options;
     const viewRotation = providedViewRotation ?? computed<TPdfViewRotation>(() => 0);
 
@@ -178,15 +181,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     const physicalScrollSegment = computed(() => {
         const layout = pageLayout.value;
-        if (!layout) {
-            return null;
-        }
-        const anchorPage = requirePageNumber(Math.min(
-            numPages.value,
-            Math.max(1, navigationAnchorPage.value ?? currentPage.value),
-        ), numPages.value);
-        const anchorTop = getPageTop(layout, anchorPage) ?? 0;
-        return getLayoutPhysicalScrollSegment(layout, anchorTop);
+        return layout && continuousScroll.value
+            ? getLayoutPhysicalScrollSegment(layout, physicalScrollOrigin.value)
+            : null;
     });
 
     function shouldPreserveCommittedPageGeometry(pageNumber: TPageNumber) {
@@ -620,16 +617,22 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             }];
         }
 
-        const mergedWindows = mergePdfRowWindows(layout, requestedWindows);
+        // A row outside the physical segment has no place in the track.
+        const segment = physicalScrollSegment.value;
+        const mergedWindows = mergePdfRowWindows(layout, requestedWindows).flatMap(window => {
+            const start = Math.max(window.start, segment?.firstPage ?? window.start);
+            const end = Math.min(window.end, segment?.lastPage ?? window.end);
+            return start <= end ? [{
+                start,
+                end,
+            }] : [];
+        });
 
         return mergedWindows.map((window, index) => {
             const previous = mergedWindows[index - 1];
             let spacerHeight = getLeadingSpacerHeightForPage(layout, window.start);
             if (index === 0) {
-                spacerHeight = Math.max(
-                    0,
-                    spacerHeight - (physicalScrollSegment.value?.origin ?? 0),
-                );
+                spacerHeight -= segment?.origin ?? 0;
             }
             if (previous) {
                 spacerHeight = getInterSegmentSpacerHeight(

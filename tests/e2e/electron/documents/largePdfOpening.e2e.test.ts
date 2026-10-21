@@ -22,6 +22,7 @@ import {
     describe, expect, it, onTestFinished,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -33,7 +34,11 @@ import {
     goToPageViaToolbar, openAnnotationsTab, openPdfInApp, scrollToPageWithWheel,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    callWorkspaceCommand, getLatestAutomationEventId, readWorkspaceStateValues,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
+import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {readViewerInvariantReport} from '@tests/e2e/electron/helpers/viewerInvariants';
 import {
     findCommittedSurfaceContractViolations,
     installCommittedSurfaceSampler,
@@ -186,6 +191,200 @@ async function readPaintedPage(page: Page, pageNumber: number) {
 }
 
 describe('Electron E2E - large object-dense PDF opening', () => {
+    it('keeps a 21601-page PDF responsive and its toolbar accurate after scrollbar drags and wheel scrolling', async () => {
+        const artifacts = join(outputDirectory, 'segmented-scroll');
+        mkdirSync(artifacts, {recursive: true});
+        const scratch = mkdtempSync(join(tmpdir(), 'evb-segmented-scroll-'));
+        onTestFinished(() => rmSync(scratch, {
+            recursive: true,
+            force: true,
+        }));
+        const fixturePath = createStructureDensePdf(scratch);
+        // R5: the reported 3.5–12 s stalls must fail, with room for slower CI.
+        const frameGapBoundMs = 2_000;
+        // A row crossing the segment end extends the range by at most one row
+        // and its gutter; the fixture's tallest page is under twice the usual.
+        const segmentHeightPx = 8_388_608;
+        const observations: Array<Record<string, unknown>> = [];
+        const telemetry: Record<string, unknown> = {
+            fixturePath,
+            frameGapBoundMs,
+            segmentHeightPx,
+            observations,
+        };
+        interface IFrameSamplerWindow extends Window {__evbStopLargePdfFrames?: () => number[];}
+        const session = await startElectronE2ESession(`e2e-large-pdf-segmented-scroll-${Date.now()}`, {extraEnv: {
+            EVB_E2E_OPEN_DIALOG_PATH: fixturePath,
+            ...(process.env.EVB_E2E_LARGE_OPEN_RECORD === '1' ? {EVB_RECORD_SESSION: '1'} : {}),
+        }});
+        telemetry.sessionName = session.name;
+        // Classic scrollbars on Linux and Windows end in arrow buttons, a
+        // scrollbar width long; pressing one steps a line instead of dragging.
+        const arrowButtons = process.platform !== 'darwin';
+        const readViewport = () => evaluateInPage(session.page, (hasArrowButtons: boolean) => {
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+            const firstPage = host?.querySelector<HTMLElement>('.page_container[data-page]');
+            if (!viewport || !firstPage) throw new Error('Missing document viewport or page');
+            const rect = viewport.getBoundingClientRect();
+            const centre = {
+                x: rect.left + viewport.clientLeft + viewport.clientWidth / 2,
+                y: rect.top + viewport.clientTop + viewport.clientHeight / 2,
+            };
+            const container = document.elementsFromPoint(centre.x, centre.y)
+                .map(element => element.closest<HTMLElement>('.page_container[data-page]'))
+                .find(element => element && viewport.contains(element));
+            const scrollbarWidth = viewport.offsetWidth - viewport.clientWidth;
+            const trackTop = rect.top + viewport.clientTop;
+            const buttonLength = hasArrowButtons ? scrollbarWidth : 0;
+            const thumbStart = trackTop + buttonLength;
+            const thumbEnd = trackTop + viewport.clientHeight - buttonLength;
+            const fraction = viewport.scrollTop / (viewport.scrollHeight - viewport.clientHeight);
+            // The thumb's length differs by platform; 4 px inside it at either
+            // end, and the proportional point between, which is its centre
+            // exactly mid-track, land on it whatever that length is.
+            return {
+                centre,
+                centrePage: container ? Number(container.dataset.page) : null,
+                centreText: container?.textContent ?? null,
+                pageHeight: firstPage.getBoundingClientRect().height,
+                scrollHeight: viewport.scrollHeight,
+                scrollTop: viewport.scrollTop,
+                scrollbarWidth,
+                scrollbarX: rect.right - scrollbarWidth / 2,
+                thumbY: fraction < 0.01 ? thumbStart + 4
+                    : fraction > 0.99 ? thumbEnd - 4
+                        : thumbStart + fraction * (thumbEnd - thumbStart),
+                trackTop: trackTop + 1,
+                trackBottom: trackTop + viewport.clientHeight - 1,
+            };
+        }, arrowButtons);
+        const dragScrollbar = async (destination: 'top' | 'bottom') => {
+            const viewport = await readViewport();
+            expect(viewport.scrollbarWidth, 'trusted drag needs a classic scrollbar').toBeGreaterThan(0);
+            await session.page.mouse.move(viewport.scrollbarX, viewport.thumbY);
+            await session.page.mouse.down();
+            try {
+                await session.page.mouse.move(viewport.scrollbarX,
+                    destination === 'bottom' ? viewport.trackBottom : viewport.trackTop, {steps: 30});
+            } finally {
+                await session.page.mouse.up();
+            }
+        };
+        const observeAction = async (action: string, perform: () => Promise<void>) => {
+            const before = await readViewport();
+            const afterEventId = await getLatestAutomationEventId(session.page);
+            await evaluateInPage(session.page, async () => {
+                const gapsMs: number[] = [];
+                let previous = performance.now();
+                let frameId = 0;
+                const sample = (now: number) => {
+                    gapsMs.push(now - previous);
+                    previous = now;
+                    frameId = requestAnimationFrame(sample);
+                };
+                (window as IFrameSamplerWindow).__evbStopLargePdfFrames = () => {
+                    cancelAnimationFrame(frameId);
+                    return [
+                        ...gapsMs,
+                        performance.now() - previous,
+                    ];
+                };
+                frameId = requestAnimationFrame(sample);
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            });
+            await perform();
+            const settleDeadline = Date.now() + 10_000;
+            // This is the requested observation window, not a retry of input.
+            await delay(2_000);
+            const frameGapsMs = await evaluateInPage(session.page, () => {
+                const probe = window as IFrameSamplerWindow;
+                const gaps = probe.__evbStopLargePdfFrames!();
+                delete probe.__evbStopLargePdfFrames;
+                return gaps;
+            });
+            const invariants = await readViewerInvariantReport(session.page, {settleTimeoutMs: Math.max(1, settleDeadline - Date.now())});
+            const viewport = await readViewport();
+            const indicator = await readToolbarPageIndicator(session.page);
+            // A scrollbar's final page can report idle before mouseup. Require
+            // idle for this gesture's settled page, without demanding a second
+            // report after release or accepting an intermediate page's event.
+            const navigationIdle = await evaluateInPage(session.page, (input: {
+                afterEventId: number;
+                page: number | null;
+            }) => (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getAutomationEvents()
+                .findLast(event => event.id > input.afterEventId
+                    && event.type === 'navigation-idle' && event.detail.page === input.page) ?? null, {
+                afterEventId,
+                page: indicator.renderedPage,
+            });
+            const painted = viewport.centrePage === null ? null : await readPaintedPage(session.page, viewport.centrePage);
+            const longestFrameGapMs = Math.max(...frameGapsMs);
+            observations.push({
+                action,
+                before,
+                viewport,
+                indicator,
+                painted,
+                longestFrameGapMs,
+                frameGapsMs,
+                navigationIdle,
+                invariants,
+            });
+            await session.page.screenshot({path: join(artifacts, `${action}.png`)});
+            expect.soft(frameGapsMs.length, `${action}: painting continues`).toBeGreaterThan(2);
+            expect.soft(longestFrameGapMs, `${action}: R5 longest frame gap (ms)`).toBeLessThan(frameGapBoundMs);
+            expect.soft(navigationIdle, `${action}: the settled page reports navigation idle`).not.toBeNull();
+            expect.soft(invariants.violations.filter(violation => [
+                'S0-viewer-settled',
+                'R1-toolbar-page-visible',
+            ].includes(violation.id)), `${action}: settled R1`).toEqual([]);
+            expect.soft(indicator.renderedPage, `${action}: readable toolbar`).not.toBeNull();
+            expect.soft(viewport.centrePage, `${action}: R1 page under viewport centre`).toBe(indicator.renderedPage);
+            expect.soft(viewport.centreText, `${action}: the named page has its own text`).toContain(`EVB visible page ${indicator.renderedPage}`);
+            expect.soft(painted, `${action}: the visible page is painted`).not.toBeNull();
+            expect.soft(viewport.scrollHeight, `${action}: physical scroll segment stays bounded`).toBeLessThanOrEqual(segmentHeightPx + 2 * viewport.pageHeight);
+            return viewport;
+        };
+        try {
+            await session.page.waitForSelector('.editor-pane.is-active .start-open-panel .open-panel-cta', {visible: true});
+            await clickAsUser(session.page, '.editor-pane.is-active .start-open-panel .open-panel-cta');
+            await expect.poll(() => readPaintedPage(session.page, 1), {timeout: OBSERVATION_TIMEOUT_MS}).not.toBeNull();
+            expect((await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [2.1])).called).toBe(true);
+            await expect.poll(() => readPaintedPage(session.page, 1), {timeout: 10_000}).not.toBeNull();
+            const setup = await readViewerInvariantReport(session.page, {});
+            expect(setup.violations.filter(violation => violation.id === 'S0-viewer-settled')).toEqual([]);
+            expect((await readToolbarPageIndicator(session.page)).renderedPage).toBe(1);
+            const initial = await readViewport();
+            telemetry.initialViewport = initial;
+            // All but two fixture pages share this height; the other two are taller.
+            // Even this lower bound is far above the physical scroll range at 210%.
+            telemetry.minimumDocumentHeightPx = initial.pageHeight * PAGE_COUNT;
+            expect(initial.scrollHeight, 'segmentation is exercised at 210%').toBeLessThan(initial.pageHeight * PAGE_COUNT / 2);
+            expect(initial.scrollHeight).toBeLessThanOrEqual(segmentHeightPx + 2 * initial.pageHeight);
+            const bottom = await observeAction('drag-bottom', () => dragScrollbar('bottom'));
+            expect.soft(bottom.centrePage, 'drag crosses thousands of pages to the segment boundary').toBeGreaterThan(1_000);
+            const top = await observeAction('drag-top', () => dragScrollbar('top'));
+            expect.soft(top.centrePage, 'drag back traverses the physical segment').toBeLessThan(bottom.centrePage!);
+            const wheel = await observeAction('wheel-down', async () => {
+                const {centre} = await readViewport();
+                await session.page.mouse.move(centre.x, centre.y);
+                for (let step = 0; step < 60; step += 1) {
+                    await session.page.mouse.wheel({deltaY: 1_200});
+                }
+            });
+            expect.soft(wheel.centrePage, 'wheel input moves the visible document').toBeGreaterThan(top.centrePage!);
+        } catch (error) {
+            telemetry.error = String(error);
+            await session.captureFailureArtifacts('large-pdf-segmented-scroll');
+            throw error;
+        } finally {
+            writeFileSync(join(artifacts, 'result.json'), `${JSON.stringify(telemetry, null, 2)}\n`);
+            await session.browser.disconnect();
+            await session.stop({preserveArtifacts: true});
+        }
+    }, 4 * 60_000);
+
     it.skipIf(process.platform === 'win32')('paints and navigates while the document annotation import is pending', async () => {
         const artifacts = join(outputDirectory, 'pending-annotations');
         mkdirSync(artifacts, {recursive: true});
