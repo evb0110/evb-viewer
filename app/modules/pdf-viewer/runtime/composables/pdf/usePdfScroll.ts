@@ -16,9 +16,7 @@ import {
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import {
     type IPdfPageLayoutMetrics,
-    getLayoutPhysicalScrollOrigin,
     getLayoutPageWidth,
-    getLayoutPhysicalScrollSegment,
 } from '@app/modules/document-viewer/public';
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
@@ -31,7 +29,7 @@ type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 
 interface IUsePdfScrollOptions {
     getPinnedMostVisiblePage?: () => number | null;
-    getPhysicalScrollOrigin?: () => number;
+    getPhysicalScrollOrigin: () => number;
     viewportWritePort: IPdfViewportWritePort;
 }
 
@@ -170,6 +168,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
     const pageLayoutMetrics = shallowRef<TPageLayoutMetrics | null>(null);
     let viewportVisibilityCache: IViewportVisibilityCacheEntry | null = null;
     const viewportWritePort = options.viewportWritePort;
+    const getPhysicalScrollOrigin = options.getPhysicalScrollOrigin;
     let viewportIntentSequence = 0;
 
     function applyViewportWrite(
@@ -289,10 +288,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
                 container,
                 totalPages,
                 pageLayoutMetrics.value,
-                pageLayoutMetrics.value
-                    ? options.getPhysicalScrollOrigin?.()
-                        ?? getLayoutPhysicalScrollOrigin(pageLayoutMetrics.value, currentPage.value)
-                    : 0,
+                getPhysicalScrollOrigin(),
             ) ?? domVisibility;
     }
 
@@ -404,8 +400,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
                 pageYRatio: options?.pageYRatio,
                 markerRect: options?.markerRect,
             });
-            const segment = getLayoutPhysicalScrollSegment(metrics, top);
-            const nextTop = Math.max(0, logicalTop - (segment?.origin ?? 0));
+            const nextTop = Math.max(0, logicalTop - getPhysicalScrollOrigin());
             const pageIndex = requirePageIndex(targetPage - 1);
             const nextLeft = resolveMarkerScrollLeft({
                 pageLeft: getLayoutPageLeft(metrics, pageIndex, container.clientWidth),

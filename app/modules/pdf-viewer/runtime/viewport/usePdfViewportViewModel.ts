@@ -41,6 +41,7 @@ interface IUsePdfViewportViewModelOptions {
         end: number;
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
+    physicalScrollOrigin: Readonly<Ref<number>>;
     navigationVisualHandoffTargetPage?: ComputedRef<number | null> | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
@@ -109,6 +110,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         scaledMargin: options.scaledMargin,
         visibleRange: options.visibleRange,
         navigationAnchorPage: options.navigationAnchorPage,
+        physicalScrollOrigin: options.physicalScrollOrigin,
         navigationVisualHandoffTargetPage: options.navigationVisualHandoffTargetPage,
         getCommittedPageScale: options.getCommittedPageScale,
     });

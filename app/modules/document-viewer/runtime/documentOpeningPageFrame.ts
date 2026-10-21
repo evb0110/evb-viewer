@@ -8,7 +8,10 @@ import type {
     TPdfZoomState,
     TZoomMode,
 } from '@contracts/shared';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import { buildPageLayoutMetrics } from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
 import {
     normalizePageMetrics,
@@ -17,7 +20,10 @@ import {
 import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
 import { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
 import { resolvePdfFitWidthDimensions } from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
-import { getLayoutPhysicalScrollOrigin } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import {
+    getLayoutPageTop,
+    resolveLayoutPhysicalScrollOrigin,
+} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import {
     createPdfViewportGeometryFromLayout,
     getViewportGeometryRowForPage,
@@ -227,7 +233,10 @@ function placeOnPageLayout(
     if (!layout) {
         return null;
     }
-    const origin = policy.continuousScroll ? getLayoutPhysicalScrollOrigin(layout, page) : 0;
+    // The viewport session places its first origin the same way.
+    const origin = policy.continuousScroll
+        ? resolveLayoutPhysicalScrollOrigin(layout, getLayoutPageTop(layout, requirePageIndex(page - 1)) ?? 0, viewport.height, 0)
+        : 0;
     const laidOut = createPdfViewportGeometryFromLayout(layout, {
         width: viewport.width,
         height: viewport.height,

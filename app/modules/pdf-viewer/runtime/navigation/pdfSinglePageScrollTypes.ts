@@ -55,6 +55,6 @@ export interface IUsePdfSinglePageScrollOptions {
     emitCurrentPage: (page: number) => void;
     emitNavigationFeedbackPage?: ((page: number | null) => void) | undefined;
     viewportWritePort: IPdfViewportWritePort;
-    getPhysicalScrollOrigin?: (() => number) | undefined;
+    getPhysicalScrollOrigin: () => number;
     getPageLayoutMetrics?: (() => IPdfPageLayoutMetrics | null) | undefined;
 }

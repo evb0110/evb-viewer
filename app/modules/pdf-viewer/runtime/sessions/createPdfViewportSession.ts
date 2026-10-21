@@ -1,6 +1,7 @@
 import {
     clampPageNumber,
     clampPageRange,
+    requirePageIndex,
     requirePageNumber,
 } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
@@ -26,8 +27,8 @@ import {
     getPageRowBoundsForViewMode,
     normalizePageMetrics,
     type IPdfPageLayoutMetrics,
-    getLayoutPhysicalScrollOrigin,
-    getLayoutPhysicalScrollSegmentTransition,
+    getLayoutPageTop,
+    resolveLayoutPhysicalScrollOrigin,
     type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -144,12 +145,14 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pageNumber: null,
     });
     const viewportPin = useViewportPagePin({summarizeViewerStateForLog: options.summarizeViewerStateForLog});
-    let getActivePhysicalScrollOrigin = () => 0;
-    let lastPhysicalScrollTop = 0;
+    // Document offset of the page track's top. Its only writers are the
+    // placements below; every physical position derives from it.
+    const physicalScrollOrigin = shallowRef(0);
     let physicalScrollTransitionSequence = 0;
+    const getActivePhysicalScrollOrigin = () => physicalScrollOrigin.value;
     const scroll = usePdfScroll({
         getPinnedMostVisiblePage: () => viewportPin.getPinnedViewportPage(),
-        getPhysicalScrollOrigin: () => getActivePhysicalScrollOrigin(),
+        getPhysicalScrollOrigin: getActivePhysicalScrollOrigin,
         viewportWritePort,
     });
     const scale = usePdfScale(
@@ -253,28 +256,31 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 container,
                 totalPages,
                 scroll.getPageLayoutMetrics(),
-                scroll.getPageLayoutMetrics() ? getActivePhysicalScrollOrigin() : 0,
+                getActivePhysicalScrollOrigin(),
             ) ?? domVisibility;
         visibleRange.value = visibility.range ?? visibleRange.value;
         return visibleRange.value;
     }
-    function schedulePhysicalScrollSegmentTransition(
+    /**
+     * Moves the segment origin under a viewport the reader scrolled near a
+     * segment end. The same document offset stays under the viewport: once
+     * Vue has placed the track at the new origin, the scroll offset follows.
+     */
+    function rebasePhysicalScroll(
         container: HTMLElement,
         layout: IPdfPageLayoutMetrics,
-        transition: {
-            origin: number;
-            page: TPageNumber;
-            scrollTop: number;
-        },
+        origin: number,
+        documentTop: number,
         sequence: number,
     ) {
         const documentFence = documentSession.captureFence();
+        physicalScrollOrigin.value = origin;
         void nextTick(() => {
             if (
                 sequence !== physicalScrollTransitionSequence
                 || !documentSession.isCurrent(documentFence)
                 || scroll.getPageLayoutMetrics() !== layout
-                || getActivePhysicalScrollOrigin() !== transition.origin
+                || physicalScrollOrigin.value !== origin
             ) {
                 return;
             }
@@ -282,16 +288,33 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 intent: viewportWritePort.beginIntent(`pdf-scroll-segment-transition-${sequence}`),
                 reason: 'pdf-scroll-segment-transition',
                 left: container.scrollLeft,
-                top: transition.scrollTop,
+                top: documentTop - origin,
             });
             if (!applied) {
                 return;
             }
             navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
-            lastPhysicalScrollTop = container.scrollTop;
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(singlePageScroll.viewportAuthority.currentPage.value);
         });
+    }
+    /** Places the origin so `page` can be shown; `currentOrigin` is kept when it already can. */
+    function placePhysicalScrollOrigin(
+        layout: IPdfPageLayoutMetrics,
+        page: number,
+        currentOrigin: number,
+    ) {
+        if (!options.continuousScroll.value) {
+            physicalScrollOrigin.value = 0;
+            return;
+        }
+        const pageTop = getLayoutPageTop(layout, requirePageIndex(clampPageNumber(page, layout.base.totalPages) - 1)) ?? 0;
+        physicalScrollOrigin.value = resolveLayoutPhysicalScrollOrigin(
+            layout,
+            pageTop,
+            options.viewerContainer.value?.clientHeight ?? 0,
+            currentOrigin,
+        );
     }
     function getVisibleRange(): IPageRange {
         if (!options.continuousScroll.value && numPages.value > 0) {
@@ -361,16 +384,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         },
         ...openSurfaceViewportCallbacks,
     });
-    getActivePhysicalScrollOrigin = () => {
-        const layout = scroll.getPageLayoutMetrics();
-        if (!layout) {
-            return 0;
-        }
-        return getLayoutPhysicalScrollOrigin(
-            layout,
-            singlePageScroll.navigationAnchorPage.value ?? currentPage.value,
-        );
-    };
     const viewportAuthority = singlePageScroll.viewportAuthority;
     const viewportWork = {
         activeWorkKind: viewportAuthority.activeWorkKind,
@@ -425,6 +438,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scaledMargin: scale.scaledMargin,
         visibleRange,
         navigationAnchorPage: singlePageScroll.navigationAnchorPage,
+        physicalScrollOrigin,
         navigationVisualHandoffTargetPage: singlePageScroll.navigationVisualHandoffTargetPage,
         getCommittedPageScale: options.getCommittedPageScale,
         scaleContainerStyle: scale.containerStyle,
@@ -655,6 +669,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     /** Places the reading point a reload carried, or else the page's top, and commits it. */
     function applyReloadViewport(pageNumber: TPageNumber, anchor?: IPdfSemanticAnchor | null) {
+        const layout = viewModel.pageLayout.value;
+        if (layout) {
+            placePhysicalScrollOrigin(layout, pageNumber, physicalScrollOrigin.value);
+        }
         scroll.scrollToPage(options.viewerContainer.value, pageNumber, numPages.value, scale.scaledMargin.value, anchor ? {
             navigationSource: 'restore',
             preferExactDom: true,
@@ -779,8 +797,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         const scrollEventSequence = ++physicalScrollTransitionSequence;
-        const previousScrollTop = lastPhysicalScrollTop;
-        lastPhysicalScrollTop = container.scrollTop;
         viewModel.syncHorizontalScrollForZoomMode();
         const authority = singlePageScroll.viewportAuthority;
         const wasAuthorityScroll = viewportWritePort.consumeAuthorityScroll(container);
@@ -812,28 +828,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         // retained navigation row at the scroll boundary so virtualization
         // follows the live offset instead of remaining pinned to an already
         // settled destination.
+        singlePageScroll.cancelProgrammaticNavigation('viewer-scroll-interaction');
         const layout = scroll.getPageLayoutMetrics();
-        const physicalScrollOrigin = getActivePhysicalScrollOrigin();
-        const transition = layout
-            ? getLayoutPhysicalScrollSegmentTransition(
-                layout,
-                container.scrollTop,
-                previousScrollTop,
-                container.clientHeight,
-                physicalScrollOrigin,
-            )
-            : null;
-        singlePageScroll.cancelProgrammaticNavigation(
-            'viewer-scroll-interaction',
-            transition ? getRequestAnchor(undefined, transition.page) : undefined,
-        );
-        if (transition && layout) {
-            schedulePhysicalScrollSegmentTransition(
-                container,
-                layout,
-                transition,
-                scrollEventSequence,
-            );
+        const origin = physicalScrollOrigin.value;
+        const documentTop = origin + container.scrollTop;
+        const nextOrigin = layout
+            ? resolveLayoutPhysicalScrollOrigin(layout, documentTop, container.clientHeight, origin)
+            : origin;
+        if (layout && nextOrigin !== origin) {
+            rebasePhysicalScroll(container, layout, nextOrigin, documentTop, scrollEventSequence);
             return;
         }
         projectViewportVisibleRange(container, numPages.value);
@@ -873,6 +876,31 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         },
         { immediate: true },
     );
+    // Apart from a rebase under the reader's scroll, the origin moves only
+    // with the layout or a navigation target, before Vue lays the track out.
+    // Relayout then restores the reading point at the new origin; a reflow at
+    // the same scale keeps an origin that still fits.
+    watch([
+        viewModel.pageLayout,
+        options.continuousScroll,
+    ], ([layout], [previous]) => {
+        const compatible = previous?.scale === layout?.scale
+            && previous?.gap === layout?.gap
+            && previous?.base.totalPages === layout?.base.totalPages;
+        if (layout) {
+            placePhysicalScrollOrigin(
+                layout,
+                singlePageScroll.navigationAnchorPage.value ?? currentPage.value,
+                compatible ? physicalScrollOrigin.value : 0,
+            );
+        }
+    }, {flush: 'sync'});
+    watch(singlePageScroll.navigationAnchorPage, (page) => {
+        const layout = viewModel.pageLayout.value;
+        if (page !== null && layout) {
+            placePhysicalScrollOrigin(layout, page, physicalScrollOrigin.value);
+        }
+    }, {flush: 'sync'});
     watchEffect(() => {
         const layout = viewModel.pageLayout.value;
         scroll.setPageLayoutMetrics(layout);

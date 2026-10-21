@@ -25,7 +25,6 @@ import {
     type IDocumentNavigationTicket,
     type TDocumentNavigationReport,
     type IDocumentViewerRuntime,
-    getLayoutPhysicalScrollOrigin,
 } from '@app/modules/document-viewer/public';
 import {
     createViewportAuthority as createViewportAuthorityService,
@@ -190,8 +189,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // placed without turning a late close/open tick into a RangeError.
         return Math.max(1, options.numPages.value, document.numPages);
     }
-    let getGeometryAnchorPage = () => options.currentPage.value;
-
     function refreshGeometry() {
         const container = options.viewerContainer.value;
         const metrics = options.getPageLayoutMetrics?.() ?? null;
@@ -204,8 +201,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             width: container.clientWidth,
             height: container.clientHeight,
             paddingInline: options.scaledMargin.value,
-        }, geometryRevision, options.getPhysicalScrollOrigin?.()
-            ?? getLayoutPhysicalScrollOrigin(metrics, getGeometryAnchorPage()));
+        }, geometryRevision, options.getPhysicalScrollOrigin());
         return geometry;
     }
 
@@ -468,11 +464,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     });
     // Restores after Vue has patched the new layout, before the browser paints.
     watch(pendingRelayoutAnchor, restoreRelayoutAnchor, {flush: 'post'});
-    getGeometryAnchorPage = () => (
-        viewportAuthority.pendingTargetPage.value
-        ?? navigationAnchorPage.value
-        ?? options.currentPage.value
-    );
     options.bindCurrentPageProjection?.(viewportAuthority.currentPage);
 
     function requestFor(page: number, scrollOptions?: IScrollToPageOptions) {
@@ -993,10 +984,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ? createPdfViewportGeometryFromLayout(layout, {
                 width: container.clientWidth,
                 height: container.clientHeight,
-            }, options.getGeometryRevision(), getLayoutPhysicalScrollOrigin(
-                layout,
-                options.currentPage.value,
-            ))
+            }, options.getGeometryRevision(), options.getPhysicalScrollOrigin())
             : null;
         const page = toPageNumber(clamp(Math.trunc(pageNumber), 1, pageCount()));
         const expected = snapshot

@@ -1,9 +1,4 @@
-import {
-    requirePageIndex,
-    requirePageNumber,
-    type TPageIndex,
-    type TPageNumber,
-} from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
 
 export interface IPdfPageLayoutBase {
     totalPages: number;
@@ -31,34 +26,10 @@ export interface IPdfPageLayoutMetrics {
 
 export const PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT = 8_388_608;
 
-export function getLayoutPhysicalScrollSegment(
-    layout: IPdfPageLayoutMetrics,
-    anchorTop: number,
-) {
-    const contentHeight = getLayoutContentHeight(layout);
-    if (contentHeight <= PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT) {
-        return null;
-    }
-    const origin = Math.floor(anchorTop / PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT)
-        * PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
-    return {
-        height: Math.min(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, contentHeight - origin),
-        origin,
-    };
-}
-
-export function getLayoutPhysicalScrollOrigin(
-    layout: IPdfPageLayoutMetrics,
-    pageNumber: number,
-) {
-    const boundedPage = Math.min(
-        layout.base.totalPages,
-        Math.max(1, Math.trunc(pageNumber)),
-    );
-    const pageIndex = requirePageIndex(boundedPage - 1);
-    const pageTop = getLayoutPageTop(layout, pageIndex) ?? 0;
-    return getLayoutPhysicalScrollSegment(layout, pageTop)?.origin ?? 0;
-}
+// A document taller than the browser can scroll is shown through one physical
+// segment at a time. The viewport session owns the segment origin; these
+// functions only say which origins are valid and when one has to move.
+// Origins sit at row starts, so no mounted row begins above the segment.
 
 function findFirstLayoutRowAtOrAfter(
     layout: IPdfPageLayoutMetrics,
@@ -79,103 +50,72 @@ function findFirstLayoutRowAtOrAfter(
     return low;
 }
 
-function getLayoutPageAtOrAfterTop(layout: IPdfPageLayoutMetrics, top: number) {
-    const rowIndex = findFirstLayoutRowAtOrAfter(layout, Math.max(0, top));
-    for (const candidateRowIndex of [
-        rowIndex - 1,
-        rowIndex,
-    ]) {
-        if (candidateRowIndex < 0 || candidateRowIndex >= layout.base.rowHeights.length) {
-            continue;
-        }
-        const rowTop = getLayoutRowTop(layout, candidateRowIndex);
-        const start = layout.base.rowStartPages[candidateRowIndex] ?? 1;
-        if (rowTop >= top) {
-            return requirePageNumber(start);
-        }
-    }
-    return null;
+/** The latest row-start origin at or above `top`. */
+function alignLayoutPhysicalScrollOrigin(layout: IPdfPageLayoutMetrics, top: number) {
+    const rowIndex = findFirstLayoutRowAtOrAfter(layout, top + layout.paddingTop, true) - 1;
+    return rowIndex <= 0 ? 0 : getLayoutRowTop(layout, rowIndex) - layout.paddingTop;
 }
 
-function getLayoutPageAtOrBeforeTop(layout: IPdfPageLayoutMetrics, top: number) {
-    const rowIndex = findFirstLayoutRowAtOrAfter(layout, Math.max(0, top), true);
-    for (let candidateRowIndex = Math.min(
-        rowIndex - 1,
-        layout.base.rowHeights.length - 1,
-    ); candidateRowIndex >= 0; candidateRowIndex -= 1) {
-        const rowTop = getLayoutRowTop(layout, candidateRowIndex);
-        if (rowTop > top) {
-            continue;
-        }
-        const start = layout.base.rowStartPages[candidateRowIndex] ?? 1;
-        const end = layout.base.rowEndPages[candidateRowIndex] ?? start;
-        return requirePageNumber(end);
-    }
-    return layout.base.rowStartPages.length > 0
-        ? requirePageNumber(layout.base.rowStartPages[0] ?? 1)
-        : null;
+function getLayoutMaxPhysicalScrollOrigin(layout: IPdfPageLayoutMetrics, contentHeight: number) {
+    return alignLayoutPhysicalScrollOrigin(layout, contentHeight - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
 }
 
-export function getLayoutPhysicalScrollSegmentTransition(
+/**
+ * The physical segment for an origin, or null when the whole document fits.
+ * Its pages are the rows that start inside it; no other row can be placed.
+ */
+export function getLayoutPhysicalScrollSegment(
     layout: IPdfPageLayoutMetrics,
-    scrollTop: number,
-    previousScrollTop: number,
-    viewportHeight: number,
-    physicalScrollOrigin: number,
-): {
-    origin: number;
-    page: TPageNumber;
-    scrollTop: number;
-} | null {
-    const segment = getLayoutPhysicalScrollSegment(layout, physicalScrollOrigin);
-    if (!segment || !Number.isFinite(scrollTop) || !Number.isFinite(previousScrollTop)) {
+    origin: number,
+) {
+    const contentHeight = getLayoutContentHeight(layout);
+    if (contentHeight <= PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT) {
         return null;
     }
-    const maxScrollTop = Math.max(0, segment.height - Math.max(0, viewportHeight));
-    if (previousScrollTop < scrollTop) {
-        if (
-            scrollTop < maxScrollTop - 1
-            || physicalScrollOrigin + segment.height >= getLayoutContentHeight(layout)
-        ) {
-            return null;
-        }
-        const origin = physicalScrollOrigin + PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
-        const page = getLayoutPageAtOrAfterTop(layout, origin);
-        if (!page) {
-            return null;
-        }
-        const pageTop = getLayoutPageTop(layout, requirePageIndex(page - 1));
-        return pageTop === null ? null : {
-            origin,
-            page,
-            scrollTop: Math.max(0, pageTop - origin),
-        };
-    }
-    if (
-        previousScrollTop <= scrollTop
-        || scrollTop > 1
-        || physicalScrollOrigin <= 0
-    ) {
-        return null;
-    }
-    const origin = Math.max(0, physicalScrollOrigin - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
-    const previousSegment = getLayoutPhysicalScrollSegment(layout, origin);
-    if (!previousSegment) {
-        return null;
-    }
-    const previousMaxScrollTop = Math.max(
-        0,
-        previousSegment.height - Math.max(0, viewportHeight),
-    );
-    const page = getLayoutPageAtOrBeforeTop(
-        layout,
-        origin + previousMaxScrollTop,
-    );
-    return page === null ? null : {
+    // The last segment ends with the document and may exceed the cap by part of a row.
+    const height = origin >= getLayoutMaxPhysicalScrollOrigin(layout, contentHeight)
+        ? contentHeight - origin
+        : PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
+    // One pixel absorbs rounding between an aligned origin and its row's top.
+    const firstRow = findFirstLayoutRowAtOrAfter(layout, origin + layout.paddingTop - 1);
+    const lastRow = Math.max(firstRow, findFirstLayoutRowAtOrAfter(layout, origin + height) - 1);
+    return {
+        height,
         origin,
-        page,
-        scrollTop: previousMaxScrollTop,
+        firstPage: layout.base.rowStartPages[firstRow] ?? 1,
+        lastPage: layout.base.rowEndPages[lastRow] ?? layout.base.totalPages,
     };
+}
+
+/**
+ * Keeps `currentOrigin` while the viewport at document offset `viewportTop`
+ * stays a viewport away from both ends of its segment; otherwise returns the
+ * row-start origin that centres the viewport in a new segment.
+ */
+export function resolveLayoutPhysicalScrollOrigin(
+    layout: IPdfPageLayoutMetrics,
+    viewportTop: number,
+    viewportHeight: number,
+    currentOrigin: number | null,
+) {
+    const contentHeight = getLayoutContentHeight(layout);
+    if (contentHeight <= PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT) {
+        return 0;
+    }
+    const maxOrigin = getLayoutMaxPhysicalScrollOrigin(layout, contentHeight);
+    if (currentOrigin !== null && currentOrigin >= 0 && currentOrigin <= maxOrigin) {
+        const height = currentOrigin >= maxOrigin ? contentHeight - currentOrigin : PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
+        const top = viewportTop - currentOrigin;
+        const leading = currentOrigin > 0 ? viewportHeight : 0;
+        const trailing = currentOrigin < maxOrigin ? viewportHeight : 0;
+        if (top >= leading && top + viewportHeight <= height - trailing) {
+            return currentOrigin;
+        }
+    }
+    return alignLayoutPhysicalScrollOrigin(layout, Math.min(
+        maxOrigin,
+        Math.max(0, viewportTop - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT / 2),
+    ));
 }
 
 export function getLayoutPageWidth(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {
