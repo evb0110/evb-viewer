@@ -9,7 +9,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Page} from 'puppeteer-core';
 import {
-    PDFDocument, PDFHexString, PDFName,
+    PDFDocument, PDFHexString, PDFName, StandardFonts,
 } from 'pdf-lib';
 import {
     createCanvas,
@@ -872,6 +872,95 @@ describe('Electron E2E - text interaction contract', () => {
         // covers the line, so the link's own hit target is what is checked.
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]');
         await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay', element => getComputedStyle(element).pointerEvents)).toBe('auto');
+    });
+
+    it('keeps a drag that starts beside a line on that line after an earlier selection', async () => {
+        // An issue card: a label followed by more lines, as in the owner's report.
+        const cardFixture = join(mkdtempSync(join(tmpdir(), 'evb-margin-drag-')), 'card.pdf');
+        onTestFinished(() => rmSync(cardFixture, {force: true}));
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const sheet = pdf.addPage([
+            612,
+            792,
+        ]);
+        for (const [
+            index,
+            line,
+        ] of [
+                'Card heading for the margin drag',
+                'issue model 2',
+                'Project 106k issues',
+                'Open in Web Issue Tracker',
+                'Reporter Example Person',
+            ].entries()) {
+            sheet.drawText(line, {
+                x: 72,
+                y: 700 - index * 40,
+                size: 16,
+                font,
+            });
+        }
+        writeFileSync(cardFixture, await pdf.save());
+        const {page} = await openFixture(true, 2.58, cardFixture);
+        await waitForViewerInteractive(page);
+        const lines = await page.evaluate(() => Object.fromEntries([
+            'Card heading',
+            'issue model 2',
+        ].map((text) => {
+            const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
+                .find(candidate => candidate.textContent?.includes(text));
+            const rect = span?.getBoundingClientRect();
+            if (!rect) throw new Error(`No text layer span for ${text}`);
+            return [
+                text,
+                {
+                    left: rect.left,
+                    right: rect.right,
+                    top: rect.top,
+                    bottom: rect.bottom,
+                },
+            ];
+        })));
+        const drag = async (from: {
+            x: number;
+            y: number
+        }, to: {
+            x: number;
+            y: number
+        }) => {
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            await page.mouse.move(to.x, to.y, {steps: 16});
+            await page.mouse.up();
+            return page.evaluate(() => window.getSelection()?.toString() ?? '');
+        };
+        const heading = lines['Card heading']!;
+        const label = lines['issue model 2']!;
+        // An earlier drag leaves the page's selection machinery primed.
+        expect(await drag(
+            {
+                x: heading.left + 2,
+                y: (heading.top + heading.bottom) / 2,
+            },
+            {
+                x: heading.right - 2,
+                y: (heading.top + heading.bottom) / 2,
+            },
+        )).toContain('Card heading');
+        // Press just left of and below the label, in the margin, and drag onto it.
+        const selected = await drag(
+            {
+                x: label.left - 4,
+                y: label.bottom + 2,
+            },
+            {
+                x: label.right - 2,
+                y: (label.top + label.bottom) / 2,
+            },
+        );
+        expect(selected.trim().length).toBeGreaterThan(0);
+        expect('issue model 2').toContain(selected.trim());
     });
 
     it('annotates text inside a search result without dropping the decorated text nodes', async () => {
