@@ -39,6 +39,7 @@
                     :render-error-label="pageRenderErrorLabel"
                     :spread-single="isSpreadSingle(pageItem.page)"
                     :buffered="isBufferedPage(pageItem.page)"
+                    :rendered="isPageRendered(pageItem.page)"
                     :raster="pageRaster(pageItem.page)"
                     :page-scale="getPageScale(pageItem.page)"
                     :placeholder-style="getEffectivePagePlaceholderStyle(pageItem.page)"
@@ -60,6 +61,7 @@
                 :render-error-label="pageRenderErrorLabel"
                 :spread-single="isSpreadSingle(item.page)"
                 :buffered="isBufferedPage(item.page)"
+                :rendered="isPageRendered(item.page)"
                 :raster="pageRaster(item.page)"
                 :page-scale="getPageScale(item.page)"
                 :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
@@ -121,6 +123,8 @@ interface IProps {
     pageRenderErrorLabel: string;
     isSpreadSingle: (page: TPageNumber) => boolean;
     isBufferedPage: (page: TPageNumber) => boolean;
+    /** The page is painted and, when the viewport needs it, its text is readable. */
+    isPageRendered: (page: TPageNumber) => boolean;
     pageRaster: (page: TPageNumber) => 'current' | 'stale' | null;
     getPageScale: (page: TPageNumber) => IPdfPageScale | null;
     getPagePlaceholderStyle: (page: TPageNumber) => Record<string, string> | null;
@@ -144,6 +148,7 @@ const {
     pageRenderErrorLabel,
     isSpreadSingle,
     isBufferedPage,
+    isPageRendered,
     pageRaster,
     getPageScale,
     getPagePlaceholderStyle,

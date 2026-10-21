@@ -20,6 +20,7 @@
                 :page-render-error-label="t('common.pageRenderFailed')"
                 :is-spread-single="isSpreadSingle"
                 :is-buffered-page="isPageBuffered"
+                :is-page-rendered="isPageRendered"
                 :page-raster="pageRaster"
                 :get-page-scale="getPageScale"
                 :get-page-placeholder-style="getPagePlaceholderStyle"
@@ -147,6 +148,7 @@ const {
     isPageRenderFailed,
     isSpreadSingle,
     isPageBuffered,
+    isPageRendered,
     pageRaster,
     getPageScale,
     getPagePlaceholderStyle,
