@@ -23,6 +23,7 @@ import {
 } from 'vitest';
 import {
     createBlankFixturePdf,
+    createLinkedTextFixturePdf,
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -824,6 +825,53 @@ describe('Electron E2E - text interaction contract', () => {
         // The active instrument must still be possible to switch off.
         await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
         expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
+    });
+
+    it.each([
+        [
+            'squiggly',
+            'Squiggly',
+        ],
+        [
+            'strikethrough',
+            'StrikeOut',
+        ],
+    ] as const)('marks linked text with %s and keeps the link clickable outside markup', async (tool, subtype) => {
+        const linkFixture = await createLinkedTextFixturePdf(`markup-link-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(linkFixture, {force: true}));
+        const {page} = await openFixture(true, 2.58, linkFixture);
+        await page.waitForSelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay');
+        await waitForViewerInteractive(page);
+        const line = await page.evaluate(() => {
+            const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
+                .find(candidate => candidate.textContent?.includes('Open the project'));
+            const rect = span?.getBoundingClientRect();
+            if (!rect) throw new Error('The linked line has no text layer span');
+            return {
+                start: {
+                    x: rect.left + 3,
+                    y: rect.top + rect.height / 2,
+                },
+                end: {
+                    x: rect.right - 3,
+                    y: rect.top + rect.height / 2,
+                },
+            };
+        });
+        // Outside markup the link owns the pointer, so a click still follows it.
+        expect(await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-link-overlay')), line.start)).toBe(true);
+        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        await page.mouse.move(line.start.x, line.start.y);
+        await page.mouse.down();
+        await page.mouse.move(line.end.x, line.end.y, {steps: 16});
+        await page.mouse.up();
+        await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
+        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
+        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toContain('Example Workspace');
+        // Leaving markup gives the link back its pointer; the new mark now
+        // covers the line, so the link's own hit target is what is checked.
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]');
+        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay', element => getComputedStyle(element).pointerEvents)).toBe('auto');
     });
 
     it('annotates text inside a search result without dropping the decorated text nodes', async () => {

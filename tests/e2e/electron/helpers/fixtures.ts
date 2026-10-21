@@ -1763,6 +1763,55 @@ export async function createLinkOnlyFixturePdf(filename: string) {
     return filePath;
 }
 
+/** A text line covered by a URI link, as a report's "Open the project" line is. */
+export async function createLinkedTextFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        612,
+        792,
+    ]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const text = 'Open the project at Example Workspace';
+    const size = 18;
+    page.drawText('Linked text fixture', {
+        font,
+        size: 24,
+        x: 72,
+        y: 680,
+    });
+    page.drawText(text, {
+        font,
+        size,
+        x: 72,
+        y: 600,
+    });
+    const link = doc.context.register(doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Link'),
+        Rect: [
+            70,
+            594,
+            74 + font.widthOfTextAtSize(text, size),
+            620,
+        ],
+        Border: [
+            0,
+            0,
+            0,
+        ],
+        A: {
+            S: PDFName.of('URI'),
+            URI: PDFString.of('https://example.com/evb-viewer-linked-text'),
+        },
+        P: page.ref,
+    }));
+    page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
+    writeFileSync(filePath, await doc.save({useObjectStreams: false}));
+    return filePath;
+}
+
 /** Mirrors the owner's sidebar report: note, two marks and an empty rectangle. */
 export async function createAnnotationSidebarFixturePdf(filename: string) {
     ensureFixtureDir();
