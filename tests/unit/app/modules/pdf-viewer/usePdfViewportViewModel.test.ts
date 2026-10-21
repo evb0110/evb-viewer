@@ -101,6 +101,7 @@ describe('usePdfViewportViewModel', () => {
                 end: 1,
             }),
             navigationAnchorPage: computed(() => null),
+            physicalScrollOrigin: ref(0),
             scaleContainerStyle: computed(() => ({})),
             selectionMarkupStyle: computed(() => null),
             classState: {
@@ -195,6 +196,7 @@ describe('usePdfViewportViewModel', () => {
                 end: 2,
             }),
             navigationAnchorPage: computed(() => navigationAnchorPage.value),
+            physicalScrollOrigin: ref(0),
             getCommittedPageScale: pageNumber => pageNumber <= 2 ? 1 : null,
             scaleContainerStyle: computed(() => ({})),
             selectionMarkupStyle: computed(() => null),
@@ -269,6 +271,7 @@ describe('usePdfViewportViewModel', () => {
                 end: 1,
             }),
             navigationAnchorPage: computed(() => null),
+            physicalScrollOrigin: ref(0),
             scaleContainerStyle: computed(() => ({})),
             selectionMarkupStyle: computed(() => null),
             classState: {
