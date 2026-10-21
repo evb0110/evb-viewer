@@ -13,7 +13,12 @@ import {
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
     usePdfViewerVirtualization,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/public';
+import {
+    getLayoutPhysicalScrollSegment,
+    getLayoutRowTop,
+    getPageRowBoundsForViewMode,
+    resolveLayoutPhysicalScrollOrigin,
+} from '@app/modules/document-viewer/public';
 import {
     resolvePdfRenderPerformancePolicy,
     type IPdfRenderPerformancePolicy,
@@ -63,6 +68,7 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
     })));
 
     return usePdfViewerVirtualization({
+        physicalScrollOrigin: ref(0),
         performancePolicy: normalPerformancePolicy,
         bufferPages: computed(() => 0),
         viewMode: computed(() => viewMode),
@@ -102,6 +108,7 @@ function createPagedHarness(options?: {
     })));
 
     return usePdfViewerVirtualization({
+        physicalScrollOrigin: ref(0),
         performancePolicy: options?.performancePolicy ?? normalPerformancePolicy,
         bufferPages: computed(() => options?.bufferPages ?? 2),
         viewMode: computed(() => options?.viewMode ?? 'single'),
@@ -133,6 +140,7 @@ describe('usePdfViewerVirtualization', () => {
         const effectiveScale = ref(3.8);
         const continuousScroll = ref(true);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -276,6 +284,7 @@ describe('usePdfViewerVirtualization', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(null);
         const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -346,6 +355,7 @@ describe('usePdfViewerVirtualization', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(null);
         const effectiveScale = ref(2.87);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -412,6 +422,7 @@ describe('usePdfViewerVirtualization', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(null);
         const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -469,6 +480,7 @@ describe('usePdfViewerVirtualization', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(null);
         const effectiveScale = ref(0.9);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -532,6 +544,7 @@ describe('usePdfViewerVirtualization', () => {
         const effectiveScale = ref(1);
         const committedOutgoingScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -580,6 +593,7 @@ describe('usePdfViewerVirtualization', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(null);
         const effectiveScale = ref(0.8);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -647,6 +661,7 @@ describe('usePdfViewerVirtualization', () => {
             height: 520,
         };
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
@@ -689,6 +704,7 @@ describe('usePdfViewerVirtualization', () => {
 
     it('clamps continuous-mode placeholder mounts while layout metrics are unavailable', () => {
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -727,6 +743,7 @@ describe('usePdfViewerVirtualization', () => {
             height: 520,
         };
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'facing'),
@@ -787,6 +804,7 @@ describe('usePdfViewerVirtualization', () => {
     it('does not materialize a stale large viewport range while the PDF owner is inactive', () => {
         const totalPages = 138_000;
         const isActive = ref(false);
+        const physicalScrollOrigin = ref(0);
         const pageMetrics = ref<IPdfPageMetric[]>([]);
         pageMetrics.value[0] = {
             width: 64,
@@ -802,6 +820,7 @@ describe('usePdfViewerVirtualization', () => {
         });
 
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin,
             performancePolicy: normalPerformancePolicy,
             isActive,
             bufferPages: computed(() => 2),
@@ -826,6 +845,10 @@ describe('usePdfViewerVirtualization', () => {
             start: totalPages,
             end: totalPages,
         };
+        const layout = virtualization.pageLayout.value;
+        if (!layout) throw new Error('Expected segmented page layout');
+        const lastRow = layout.base.pageRowIndices[totalPages - 1]!;
+        physicalScrollOrigin.value = resolveLayoutPhysicalScrollOrigin(layout, getLayoutRowTop(layout, lastRow), 1_000, null);
         isActive.value = true;
 
         expect(virtualization.pagesToRender.value).toContain(totalPages);
@@ -838,6 +861,7 @@ describe('usePdfViewerVirtualization', () => {
             end: 2,
         });
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -886,8 +910,9 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value).not.toContain(700);
     });
 
-    it('rebases far navigation targets into a bounded physical scroll segment', () => {
+    it('places far navigation targets inside the session-owned bounded physical scroll segment', () => {
         const totalPages = 138_000;
+        const physicalScrollOrigin = ref(0);
         const pageMetrics = ref<IPdfPageMetric[]>([]);
         pageMetrics.value[0] = {
             width: 64,
@@ -898,6 +923,7 @@ describe('usePdfViewerVirtualization', () => {
             height: 64,
         };
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin,
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
@@ -917,6 +943,11 @@ describe('usePdfViewerVirtualization', () => {
             navigationAnchorPage: ref(69_001),
         });
 
+        const layout = virtualization.pageLayout.value;
+        if (!layout) throw new Error('Expected segmented page layout');
+        const targetRow = layout.base.pageRowIndices[69_000]!;
+        physicalScrollOrigin.value = resolveLayoutPhysicalScrollOrigin(layout, getLayoutRowTop(layout, targetRow), 1_000, null);
+
         expect(virtualization.virtualPageSegments.value).toHaveLength(1);
         expect(virtualization.pagesToRender.value).toContain(69_001);
         expect(virtualization.pagesToRender.value.length).toBeLessThan(100);
@@ -930,6 +961,94 @@ describe('usePdfViewerVirtualization', () => {
         expect(trailingHeight).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
         expect(virtualization.virtualScrollHeight.value).toBe(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
     });
+
+    it.each([
+        'single',
+        'facing',
+    ] as const)(
+        'clips visible and navigation windows to the owned segment and places rows at their physical tops in %s mode',
+        (viewMode) => {
+            const totalPages = 21_601;
+            const physicalScrollOrigin = ref(0);
+            const currentPage = ref(1);
+            const visibleRange = ref({
+                start: 1,
+                end: 1,
+            });
+            const navigationAnchorPage = ref<number | null>(null);
+            const virtualization = usePdfViewerVirtualization({
+                physicalScrollOrigin,
+                performancePolicy: normalPerformancePolicy,
+                bufferPages: computed(() => 2),
+                viewMode: computed(() => viewMode),
+                numPages: ref(totalPages),
+                currentPage,
+                continuousScroll: computed(() => true),
+                basePageWidth: ref(595),
+                basePageHeight: ref(842),
+                pageMetrics: ref(Array.from({length: totalPages}, (_, index) => ({
+                    width: 595,
+                    height: index % 3 === 1 ? 595 : 842,
+                }))),
+                pageMetricsVersion: ref(0),
+                effectiveScale: ref(2),
+                scaledMargin: ref(20),
+                visibleRange,
+                navigationAnchorPage,
+            });
+            const layout = virtualization.pageLayout.value;
+            if (!layout) throw new Error('Expected segmented page layout');
+            const origin = resolveLayoutPhysicalScrollOrigin(layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, 1_000, null);
+            physicalScrollOrigin.value = origin;
+            const segment = getLayoutPhysicalScrollSegment(layout, origin);
+            if (!segment) throw new Error('Expected physical scroll segment');
+
+            for (const page of [
+                segment.firstPage,
+                segment.firstPage + 50,
+                segment.lastPage,
+            ]) {
+                currentPage.value = page;
+                visibleRange.value = {
+                    start: page,
+                    end: page,
+                };
+                for (const anchor of [
+                    null,
+                    segment.firstPage - 1,
+                    segment.lastPage + 1,
+                ]) {
+                    navigationAnchorPage.value = anchor;
+                    const windows = virtualization.virtualPageSegments.value;
+                    expect(windows).toHaveLength(1);
+                    expect(virtualization.pagesToRender.value).toContain(
+                        anchor === null ? page : anchor < segment.firstPage ? segment.firstPage : segment.lastPage,
+                    );
+                    expect(virtualization.pagesToRender.value.length).toBeLessThan(100);
+                    for (const window of windows) {
+                        expect(window.start).toBeGreaterThanOrEqual(segment.firstPage);
+                        expect(window.end).toBeLessThanOrEqual(segment.lastPage);
+                        expect(window.pages.every(mountedPage =>
+                            mountedPage >= segment.firstPage && mountedPage <= segment.lastPage,
+                        )).toBe(true);
+                    }
+                    const first = windows[0]!;
+                    const row = layout.base.pageRowIndices[first.start - 1]!;
+                    const physicalTop = getLayoutRowTop(layout, row) - origin;
+                    expect(first.start).toBe(layout.base.rowStartPages[row]);
+                    if (first.start === segment.firstPage) {
+                        expect(first.spacerBeforeStyle).toBeNull();
+                        expect(physicalTop).toBe(layout.paddingTop);
+                    } else {
+                        expect(first.spacerBeforeStyle).not.toBeNull();
+                        const spacerHeight = Number.parseFloat(first.spacerBeforeStyle!.height!);
+                        expect(spacerHeight).toBeGreaterThan(0);
+                        expect(layout.paddingTop + spacerHeight + layout.gap).toBe(physicalTop);
+                    }
+                }
+            }
+        },
+    );
 
     it.each([
         {
@@ -947,6 +1066,7 @@ describe('usePdfViewerVirtualization', () => {
         radius,
     }) => {
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
@@ -998,6 +1118,7 @@ describe('usePdfViewerVirtualization', () => {
     }) => {
         const navigationAnchorPage = ref<number | null>(50);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'facing'),
@@ -1025,6 +1146,7 @@ describe('usePdfViewerVirtualization', () => {
     it('keeps the navigation anchor window and its spacers across a scale change', () => {
         const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
+            physicalScrollOrigin: ref(0),
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),

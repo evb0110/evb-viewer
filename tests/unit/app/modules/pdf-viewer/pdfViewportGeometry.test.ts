@@ -9,7 +9,10 @@ import {
     resolveScrollForAnchor,
     buildPageLayoutMetrics,
     getLayoutContentHeight,
-    getLayoutPhysicalScrollSegmentTransition,
+    getLayoutPhysicalScrollSegment,
+    getLayoutRowHeight,
+    getLayoutRowTop,
+    resolveLayoutPhysicalScrollOrigin,
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
     normalizePageMetrics,
 } from '@app/modules/document-viewer/public';
@@ -199,7 +202,7 @@ describe('pdfViewportGeometry', () => {
         ))).toEqual(resolveScrollForAnchor(wide, intendedAnchor));
     });
 
-    it('resolves the exact page and anchor inside the second physical segment', () => {
+    it('resolves the visible page from the session-owned physical scroll origin', () => {
         const pageMetrics = Array.from({length: 20_000}, () => ({
             width: 600,
             height: 1_000,
@@ -217,16 +220,17 @@ describe('pdfViewportGeometry', () => {
             throw new Error('Expected segmented page layout');
         }
 
+        const origin = resolveLayoutPhysicalScrollOrigin(layout, 10_200_020, 1_000, null);
         const visibility = getViewportVisibilityFromLayout(
             {
                 clientHeight: 1_000,
                 clientWidth: 1_000,
-                scrollTop: 10_200_020 - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+                scrollTop: 10_200_020 - origin,
                 scrollLeft: 0,
             } as HTMLElement,
             pageMetrics.length,
             layout,
-            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+            origin,
         );
 
         expect(visibility).toEqual({
@@ -235,53 +239,6 @@ describe('pdfViewportGeometry', () => {
                 end: 10_001,
             },
             mostVisiblePage: 10_001,
-        });
-    });
-
-    it('crosses a physical segment boundary once in either direction', () => {
-        const pageMetrics = Array.from({length: 20_000}, () => ({
-            width: 600,
-            height: 1_000,
-        }));
-        const layout = buildPageLayoutMetrics({
-            pageMetrics,
-            totalPages: pageMetrics.length,
-            viewMode: 'single',
-            scale: 1,
-            gap: 20,
-            paddingTop: 20,
-            paddingBottom: 20,
-        });
-        if (!layout) {
-            throw new Error('Expected segmented page layout');
-        }
-
-        const viewportHeight = 1_000;
-        const firstSegmentBottom = PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - viewportHeight;
-        const forward = getLayoutPhysicalScrollSegmentTransition(
-            layout,
-            firstSegmentBottom,
-            firstSegmentBottom - 100,
-            viewportHeight,
-            0,
-        );
-        expect(forward).toEqual({
-            origin: PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
-            page: 8_226,
-            scrollTop: 912,
-        });
-
-        const backward = getLayoutPhysicalScrollSegmentTransition(
-            layout,
-            0,
-            100,
-            viewportHeight,
-            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
-        );
-        expect(backward).toEqual({
-            origin: 0,
-            page: 8_224,
-            scrollTop: firstSegmentBottom,
         });
     });
 
@@ -535,5 +492,187 @@ describe('pdfViewportGeometry', () => {
             viewportYFraction: 0,
             affinity: 'start',
         }).top).toBe(820);
+    });
+});
+
+function createPhysicalScrollLayout(mixedHeights: boolean, scale = 2) {
+    const totalPages = 21_601;
+    const layout = buildPageLayoutMetrics({
+        pageMetrics: normalizePageMetrics({
+            pageMetrics: Array.from({length: totalPages}, (_, index) => ({
+                width: 595,
+                height: mixedHeights && index % 3 === 1 ? 595 : 842,
+            })),
+            totalPages,
+            fallbackWidth: 595,
+            fallbackHeight: 842,
+        }),
+        totalPages,
+        viewMode: 'single',
+        scale,
+        gap: 20,
+        paddingTop: 20,
+        paddingBottom: 20,
+    });
+    if (!layout) throw new Error('Expected page layout');
+    return layout;
+}
+
+describe.each([
+    {
+        name: 'uniform',
+        mixedHeights: false,
+    },
+    {
+        name: 'mixed-height',
+        mixedHeights: true,
+    },
+])('physical scroll segments with $name pages', ({mixedHeights}) => {
+    const viewportHeight = 1_000;
+
+    it('uses no segment and resets the origin to zero when the document fits', () => {
+        const layout = createPhysicalScrollLayout(mixedHeights, 0.1);
+        expect(getLayoutContentHeight(layout)).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
+        expect(getLayoutPhysicalScrollSegment(layout, 0)).toBeNull();
+        expect(resolveLayoutPhysicalScrollOrigin(layout, 0, viewportHeight, null)).toBe(0);
+        expect(resolveLayoutPhysicalScrollOrigin(layout, 100_000, viewportHeight, 50_000)).toBe(0);
+    });
+
+    it('keeps the owned origin until a viewport enters an end margin and then recentres the same document offset', () => {
+        const layout = createPhysicalScrollLayout(mixedHeights);
+        const origin = resolveLayoutPhysicalScrollOrigin(
+            layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + viewportHeight, viewportHeight, null,
+        );
+        expect(origin).toBeGreaterThan(0);
+        for (const top of [
+            origin + viewportHeight,
+            origin + PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT / 2,
+            origin + PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - 2 * viewportHeight,
+        ]) {
+            expect(resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, origin)).toBe(origin);
+        }
+
+        for (const top of [
+            origin + viewportHeight - 1,
+            origin + PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - 2 * viewportHeight + 1,
+        ]) {
+            const nextOrigin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, origin);
+            if (top < origin + viewportHeight) {
+                expect(nextOrigin).toBeLessThan(origin);
+            } else {
+                expect(nextOrigin).toBeGreaterThan(origin);
+            }
+            const physicalTop = top - nextOrigin;
+            expect(physicalTop).toBeGreaterThanOrEqual(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT / 2);
+            expect(physicalTop).toBeLessThan(
+                PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT / 2 + layout.base.maxPageHeight * layout.scale + layout.gap,
+            );
+            expect(resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, nextOrigin)).toBe(nextOrigin);
+        }
+    });
+
+    it('aligns every segment origin to its first whole row and excludes preceding rows', () => {
+        const layout = createPhysicalScrollLayout(mixedHeights);
+        for (const top of [
+            0,
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - 100,
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 12_345,
+            getLayoutContentHeight(layout) / 2,
+            getLayoutContentHeight(layout) - viewportHeight,
+        ]) {
+            const origin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, null);
+            const segment = getLayoutPhysicalScrollSegment(layout, origin);
+            if (!segment) throw new Error('Expected physical scroll segment');
+            const firstRow = layout.base.pageRowIndices[segment.firstPage - 1]!;
+            expect(segment.origin).toBe(origin);
+            expect(getLayoutRowTop(layout, firstRow) - origin).toBe(layout.paddingTop);
+            expect(layout.base.rowStartPages[firstRow]).toBe(segment.firstPage);
+            if (firstRow > 0) {
+                expect(getLayoutRowTop(layout, firstRow - 1) - layout.paddingTop).toBeLessThan(origin);
+                expect(layout.base.rowEndPages[firstRow - 1]).toBeLessThan(segment.firstPage);
+            }
+        }
+    });
+
+    it('reaches both document endpoints and ends the last whole-row segment exactly at the content height', () => {
+        const layout = createPhysicalScrollLayout(mixedHeights);
+        const contentHeight = getLayoutContentHeight(layout);
+        const lastOrigin = resolveLayoutPhysicalScrollOrigin(layout, contentHeight - viewportHeight, viewportHeight, 0);
+        const last = getLayoutPhysicalScrollSegment(layout, lastOrigin);
+        if (!last) throw new Error('Expected last physical scroll segment');
+        expect(last.origin + last.height).toBe(contentHeight);
+        expect(last.lastPage).toBe(layout.base.totalPages);
+        expect(last.height).toBeGreaterThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
+        expect(last.height).toBeLessThan(
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + layout.base.maxPageHeight * layout.scale + layout.gap,
+        );
+        expect(resolveLayoutPhysicalScrollOrigin(layout, contentHeight - viewportHeight, viewportHeight, lastOrigin))
+            .toBe(lastOrigin);
+
+        const firstOrigin = resolveLayoutPhysicalScrollOrigin(layout, 0, viewportHeight, lastOrigin);
+        expect(firstOrigin).toBe(0);
+        expect(getLayoutPhysicalScrollSegment(layout, firstOrigin)?.firstPage).toBe(1);
+        expect(resolveLayoutPhysicalScrollOrigin(layout, 0, viewportHeight, firstOrigin)).toBe(0);
+    });
+
+    it('keeps a row crossing the 8 MiB mark wholly inside the segment shown over it', () => {
+        const layout = createPhysicalScrollLayout(mixedHeights);
+        const row = layout.base.rowStartPages.findIndex((_, index) =>
+            getLayoutRowTop(layout, index) + getLayoutRowHeight(layout, index) > PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+        );
+        expect(row).toBeGreaterThan(0);
+        const rowTop = getLayoutRowTop(layout, row);
+        const rowBottom = rowTop + getLayoutRowHeight(layout, row);
+        expect(rowTop).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
+        expect(rowBottom).toBeGreaterThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
+        const origin = resolveLayoutPhysicalScrollOrigin(layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, viewportHeight, 0);
+        const segment = getLayoutPhysicalScrollSegment(layout, origin);
+        if (!segment) throw new Error('Expected physical scroll segment');
+        expect(segment.firstPage).toBeLessThanOrEqual(layout.base.rowStartPages[row]!);
+        expect(segment.lastPage).toBeGreaterThanOrEqual(layout.base.rowEndPages[row]!);
+        expect(rowTop - origin).toBeGreaterThanOrEqual(layout.paddingTop);
+        expect(rowBottom - origin).toBeLessThanOrEqual(segment.height);
+    });
+
+    it('clamps anchor scroll targets to the physical segment height rather than the remaining document height', () => {
+        const layout = createPhysicalScrollLayout(mixedHeights);
+        for (const top of [
+            0,
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 12_345,
+            getLayoutContentHeight(layout) - viewportHeight,
+        ]) {
+            const origin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, null);
+            const segment = getLayoutPhysicalScrollSegment(layout, origin);
+            if (!segment) throw new Error('Expected physical scroll segment');
+            const geometry = createPdfViewportGeometryFromLayout(layout, {
+                width: 1_000,
+                height: viewportHeight,
+            }, 1, origin);
+            expect(geometry.physicalScrollHeight).toBe(segment.height);
+            const maxTop = geometry.physicalScrollHeight - viewportHeight;
+            for (const page of [
+                segment.firstPage,
+                segment.lastPage,
+                layout.base.totalPages,
+            ]) {
+                for (const pageYFraction of [
+                    0,
+                    0.5,
+                    1,
+                ]) {
+                    const scroll = resolveScrollForAnchor(geometry, {
+                        page,
+                        pageXFraction: 0.5,
+                        pageYFraction,
+                        viewportXFraction: 0.5,
+                        viewportYFraction: 0,
+                        affinity: 'start',
+                    });
+                    expect(scroll.top).toBeGreaterThanOrEqual(0);
+                    expect(scroll.top).toBeLessThanOrEqual(maxTop);
+                    if (page === layout.base.totalPages && pageYFraction === 1) expect(scroll.top).toBe(maxTop);
+                }
+            }
+        }
     });
 });
