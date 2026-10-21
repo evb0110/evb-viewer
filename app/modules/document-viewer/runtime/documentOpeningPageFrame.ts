@@ -260,7 +260,7 @@ function placeOnPageLayout(
     const content = policy.continuousScroll
         ? {
             width: laidOut.contentWidth,
-            height: Math.max(viewport.height, laidOut.contentHeight - origin),
+            height: Math.max(viewport.height, laidOut.physicalScrollHeight),
         }
         : {
             width: Math.max(viewport.width, laidOutRow.rect.width + gutter * 2),

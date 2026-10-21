@@ -202,6 +202,8 @@ describe('Electron E2E - large object-dense PDF opening', () => {
         const fixturePath = createStructureDensePdf(scratch);
         // R5: the reported 3.5–12 s stalls must fail, with room for slower CI.
         const frameGapBoundMs = 2_000;
+        // A row crossing the segment end extends the range by at most one row
+        // and its gutter; the fixture's tallest page is under twice the usual.
         const segmentHeightPx = 8_388_608;
         const observations: Array<Record<string, unknown>> = [];
         const telemetry: Record<string, unknown> = {
@@ -332,7 +334,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             expect.soft(viewport.centrePage, `${action}: R1 page under viewport centre`).toBe(indicator.renderedPage);
             expect.soft(viewport.centreText, `${action}: the named page has its own text`).toContain(`EVB visible page ${indicator.renderedPage}`);
             expect.soft(painted, `${action}: the visible page is painted`).not.toBeNull();
-            expect.soft(viewport.scrollHeight, `${action}: physical scroll segment stays bounded`).toBeLessThanOrEqual(segmentHeightPx + viewport.pageHeight);
+            expect.soft(viewport.scrollHeight, `${action}: physical scroll segment stays bounded`).toBeLessThanOrEqual(segmentHeightPx + 2 * viewport.pageHeight);
             return viewport;
         };
         try {
@@ -350,7 +352,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             // Even this lower bound is far above the physical scroll range at 210%.
             telemetry.minimumDocumentHeightPx = initial.pageHeight * PAGE_COUNT;
             expect(initial.scrollHeight, 'segmentation is exercised at 210%').toBeLessThan(initial.pageHeight * PAGE_COUNT / 2);
-            expect(initial.scrollHeight).toBeLessThanOrEqual(segmentHeightPx + initial.pageHeight);
+            expect(initial.scrollHeight).toBeLessThanOrEqual(segmentHeightPx + 2 * initial.pageHeight);
             const bottom = await observeAction('drag-bottom', () => dragScrollbar('bottom'));
             expect.soft(bottom.centrePage, 'drag crosses thousands of pages to the segment boundary').toBeGreaterThan(1_000);
             const top = await observeAction('drag-top', () => dragScrollbar('top'));
