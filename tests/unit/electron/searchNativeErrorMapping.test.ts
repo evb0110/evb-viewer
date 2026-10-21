@@ -47,8 +47,8 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         stderr: '',
         exitCode: 0,
     });
-    if (command === '/fake/pdfinfo') {
-        return result(`Pages: ${fake.pageTexts.size}\n`);
+    if (command === '/fake/qpdf' && args[0] === '--show-npages') {
+        return result(`${fake.pageTexts.size}\n`);
     }
     if (command === '/fake/pdftotext') {
         const firstPage = Number(args[args.indexOf('-f') + 1]);
@@ -126,6 +126,7 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdfinfo: '/fake/pdfinfo',
     pdftotext: '/fake/pdftotext',
+    qpdf: '/fake/qpdf',
 })}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/fake/evb-pdf-search'}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: async () => undefined}));
