@@ -878,21 +878,37 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     // Apart from a rebase under the reader's scroll, the origin moves only
     // with the layout or a navigation target, before Vue lays the track out.
-    // Relayout then restores the reading point at the new origin; a reflow at
-    // the same scale keeps an origin that still fits.
+    // A zoom, fit or view-mode change goes through relayout, which restores
+    // the reading point at the new origin. Page metrics that reflow rows at
+    // the same scale keep the reading offset under a row-start origin.
     watch([
         viewModel.pageLayout,
         options.continuousScroll,
-    ], ([layout], [previous]) => {
-        const compatible = previous?.scale === layout?.scale
-            && previous?.gap === layout?.gap
-            && previous?.base.totalPages === layout?.base.totalPages;
-        if (layout) {
-            placePhysicalScrollOrigin(
-                layout,
-                singlePageScroll.navigationAnchorPage.value ?? currentPage.value,
-                compatible ? physicalScrollOrigin.value : 0,
-            );
+    ], ([
+        layout,
+        continuous,
+    ], [
+        previous,
+        wasContinuous,
+    ]) => {
+        if (!layout) {
+            return;
+        }
+        const container = options.viewerContainer.value;
+        const reflow = continuous && continuous === wasContinuous && container
+            && previous?.scale === layout.scale
+            && previous.gap === layout.gap
+            && previous.base.totalPages === layout.base.totalPages
+            && previous.base.rowHeights.length === layout.base.rowHeights.length;
+        if (!reflow) {
+            placePhysicalScrollOrigin(layout, singlePageScroll.navigationAnchorPage.value ?? currentPage.value, 0);
+            return;
+        }
+        const origin = physicalScrollOrigin.value;
+        const documentTop = origin + container.scrollTop;
+        const nextOrigin = resolveLayoutPhysicalScrollOrigin(layout, documentTop, container.clientHeight, origin);
+        if (nextOrigin !== origin) {
+            rebasePhysicalScroll(container, layout, nextOrigin, documentTop, ++physicalScrollTransitionSequence);
         }
     }, {flush: 'sync'});
     watch(singlePageScroll.navigationAnchorPage, (page) => {

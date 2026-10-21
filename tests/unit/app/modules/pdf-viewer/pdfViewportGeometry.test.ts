@@ -571,6 +571,20 @@ describe.each([
         }
     });
 
+    it('replaces an origin that a same-scale reflow left inside a row', () => {
+        const before = createPhysicalScrollLayout(false);
+        const after = createPhysicalScrollLayout(true);
+        const top = PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 12_345;
+        const origin = resolveLayoutPhysicalScrollOrigin(before, top, viewportHeight, null);
+        const reflowed = resolveLayoutPhysicalScrollOrigin(after, top, viewportHeight, origin);
+        const segment = getLayoutPhysicalScrollSegment(after, reflowed);
+        if (!segment) throw new Error('Expected physical scroll segment');
+        const firstRow = after.base.pageRowIndices[segment.firstPage - 1]!;
+        expect(reflowed).not.toBe(origin);
+        expect(getLayoutRowTop(after, firstRow) - reflowed).toBe(after.paddingTop);
+        expect(resolveLayoutPhysicalScrollOrigin(after, top, viewportHeight, reflowed)).toBe(reflowed);
+    });
+
     it('aligns every segment origin to its first whole row and excludes preceding rows', () => {
         const layout = createPhysicalScrollLayout(mixedHeights);
         for (const top of [

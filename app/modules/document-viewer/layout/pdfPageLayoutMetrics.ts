@@ -88,9 +88,10 @@ export function getLayoutPhysicalScrollSegment(
 }
 
 /**
- * Keeps `currentOrigin` while the viewport at document offset `viewportTop`
- * stays a viewport away from both ends of its segment; otherwise returns the
- * row-start origin that centres the viewport in a new segment.
+ * Keeps `currentOrigin` while it is still a row start and the viewport at
+ * document offset `viewportTop` stays a viewport away from both ends of its
+ * segment; otherwise returns the row-start origin that centres the viewport
+ * in a new segment.
  */
 export function resolveLayoutPhysicalScrollOrigin(
     layout: IPdfPageLayoutMetrics,
@@ -103,7 +104,10 @@ export function resolveLayoutPhysicalScrollOrigin(
         return 0;
     }
     const maxOrigin = getLayoutMaxPhysicalScrollOrigin(layout, contentHeight);
-    if (currentOrigin !== null && currentOrigin >= 0 && currentOrigin <= maxOrigin) {
+    if (
+        currentOrigin !== null && currentOrigin >= 0 && currentOrigin <= maxOrigin
+        && alignLayoutPhysicalScrollOrigin(layout, currentOrigin) === currentOrigin
+    ) {
         const height = currentOrigin >= maxOrigin ? contentHeight - currentOrigin : PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
         const top = viewportTop - currentOrigin;
         const leading = currentOrigin > 0 ? viewportHeight : 0;
