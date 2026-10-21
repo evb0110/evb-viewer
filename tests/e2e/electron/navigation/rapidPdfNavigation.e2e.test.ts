@@ -3193,6 +3193,119 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
     }, 60_000);
 
+    it('turns onto an already drawn next page without covering it with a skeleton', async () => {
+        const session = sessionFixture.getSession();
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
+        }
+
+        const originalViewport = session.page.viewport();
+        let stopThrottle: (() => Promise<void>) | null = null;
+        try {
+            await session.page.setViewport({
+                width: 1600,
+                height: 1000,
+            });
+            await setFitWidthAndWaitForPage(session, 40);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
+            expect(await waitForVisiblePageCanvas(session, 40, 15_000)).toBe(true);
+            const nextButton = await revealForPointer(session.page, '.page-controls button[aria-label^="Next Page"]');
+
+            const coveredFrames: Array<{
+                page: number;
+                elapsedMs: number
+            }> = [];
+            for (const target of [
+                41,
+                42,
+                43,
+            ]) {
+                // Paged view draws the following page off screen; Next must
+                // show that drawing, not a placeholder over it.
+                await session.page.waitForFunction((pageNumber: number) => {
+                    const container = document.querySelector<HTMLElement>(
+                        `#pdf-viewer .page_container--buffered[data-page="${pageNumber}"]`,
+                    );
+                    const canvas = container?.querySelector('canvas');
+                    return Boolean(container?.dataset.pageRaster && canvas && canvas.width > 0);
+                }, {timeout: 15_000}, target);
+                await session.page.evaluate((pageNumber: number) => {
+                    const probe: IBarePageProbe = {
+                        frames: [],
+                        stopped: false,
+                    };
+                    (window as IBarePageProbeWindow).__evbBarePageProbe = probe;
+                    const startedAt = performance.now();
+                    const sample = () => {
+                        if (probe.stopped) {
+                            return;
+                        }
+                        const container = document.querySelector<HTMLElement>(
+                            `#pdf-viewer .page_container[data-page="${pageNumber}"]`,
+                        );
+                        const skeleton = container?.querySelector<HTMLElement>('.document-page-skeleton');
+                        const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
+                        const layer = container?.querySelector<HTMLElement>('.page_canvas__render-layer');
+                        const canvas = layer?.querySelector('canvas');
+                        const covered = Boolean(skeletonStyle && skeletonStyle.display !== 'none'
+                            && Number.parseFloat(skeletonStyle.opacity) > 0.01);
+                        const drawn = Boolean(layer && canvas && canvas.width > 0
+                            && window.getComputedStyle(layer).visibility === 'visible');
+                        // The page was drawn before the click: every frame shows that drawing.
+                        probe.frames.push({
+                            bare: covered || !drawn,
+                            elapsedMs: performance.now() - startedAt,
+                            page: pageNumber,
+                        });
+                        requestAnimationFrame(sample);
+                    };
+                    requestAnimationFrame(sample);
+                }, target);
+                // A slower machine stretches the gap between the page turn and
+                // its text layer, which is when a skeleton covered the page.
+                stopThrottle = await throttleRendererMainThread(session, 4);
+                await session.page.mouse.click(nextButton.x, nextButton.y);
+                await waitForToolbarCurrentPage(session, target);
+                await session.page.waitForFunction((pageNumber: number) => Boolean(document.querySelector(
+                    `#pdf-viewer .page_container--rendered[data-page="${pageNumber}"]:not(.page_container--buffered)`,
+                )), {timeout: 15_000}, target);
+                await waitForAnimationFrames(session.page, 5);
+                await stopThrottle();
+                stopThrottle = null;
+                const frames = await session.page.evaluate(() => {
+                    const probe = (window as IBarePageProbeWindow).__evbBarePageProbe;
+                    if (!probe) {
+                        return [];
+                    }
+                    probe.stopped = true;
+                    return probe.frames;
+                });
+                expect(frames.length).toBeGreaterThan(5);
+                coveredFrames.push(...frames
+                    .filter(frame => frame.bare)
+                    .map(frame => ({
+                        page: target,
+                        elapsedMs: Math.round(frame.elapsedMs),
+                    })));
+            }
+
+            expect(coveredFrames).toEqual([]);
+        } finally {
+            await session.page.evaluate(() => {
+                const probeWindow = window as IBarePageProbeWindow;
+                if (probeWindow.__evbBarePageProbe) {
+                    probeWindow.__evbBarePageProbe.stopped = true;
+                }
+                delete probeWindow.__evbBarePageProbe;
+            }).catch(() => undefined);
+            await stopThrottle?.().catch(() => undefined);
+            if (originalViewport) {
+                await session.page.setViewport(originalViewport);
+            }
+        }
+    }, 90_000);
+
     it('keeps page overlays mounted after jumping to page 100', async () => {
         const session = sessionFixture.getSession();
         if (!pageJumpReady || !pageJumpPdfPath) {

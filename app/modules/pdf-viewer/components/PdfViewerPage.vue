@@ -26,7 +26,7 @@
                 :class="{'document-page-visual--committed': rendered}"
             ></div>
             <DocumentPageSkeleton
-                v-if="showSkeleton && !rendered && !renderFailed"
+                v-if="showSkeleton && raster === null && !renderFailed"
                 :deferred="deferSkeleton"
                 :padding="pageSkeletonPadding"
                 :content-height="pageSkeletonContentHeight"
@@ -79,6 +79,8 @@ interface IProps {
     renderErrorLabel?: string;
     spreadSingle?: boolean;
     buffered?: boolean;
+    /** Painted and, when the viewport needs it, readable; a skeleton never covers a raster. */
+    rendered?: boolean;
     /** A committed raster, at the current scale or stretched from an older one. */
     raster?: 'current' | 'stale' | null;
     pageScale: IPdfPageScale | null;
@@ -95,6 +97,7 @@ const {
     renderErrorLabel = '',
     spreadSingle = false,
     buffered = false,
+    rendered = false,
     raster = null,
     pageScale,
     placeholderStyle = null,
@@ -125,7 +128,6 @@ const fallbackSkeletonPadding = Object.freeze({
 const pageSkeletonPadding = computed(() => scaledSkeletonPadding.value ?? fallbackSkeletonPadding);
 const pageSkeletonContentHeight = computed(() => scaledPageHeight.value ?? 760);
 
-const rendered = computed(() => raster !== null);
 const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
 
 function handlePageClick(event: MouseEvent) {

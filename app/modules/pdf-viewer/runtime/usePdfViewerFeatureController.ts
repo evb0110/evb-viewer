@@ -287,18 +287,14 @@ export const usePdfViewerFeatureController = (
         viewState: props,
     });
 
-    const isPageBuffered = createPdfRenderPagePredicate(
+    const pagePredicate = (predicate: (pageNumber: TPageNumber) => boolean) => createPdfRenderPagePredicate(
         () => documentSession.numPages.value,
-        pageNumber => viewportSession.viewModel.isPageBuffered(pageNumber),
+        predicate,
     );
-    const isPageRenderedForClass = createPdfRenderPagePredicate(
-        () => documentSession.numPages.value,
-        pageNumber => renderingSession.isPageRenderedForClass(pageNumber),
-    );
-    const isPageRenderFailed = createPdfRenderPagePredicate(
-        () => documentSession.numPages.value,
-        pageNumber => renderingSession.isPageRenderFailed(pageNumber),
-    );
+    const isPageBuffered = pagePredicate(viewportSession.viewModel.isPageBuffered);
+    const isPageRenderedForClass = pagePredicate(renderingSession.isPageRenderedForClass);
+    const isPagePainted = pagePredicate(renderingSession.isPagePainted);
+    const isPageRenderFailed = pagePredicate(renderingSession.isPageRenderFailed);
 
     const renderViewModel = usePdfRenderViewModel({
         src,
@@ -313,10 +309,7 @@ export const usePdfViewerFeatureController = (
         isPageBuffered,
         isPageRenderedForClass,
         isPageRenderFailed,
-        shouldShowSkeleton: createPdfRenderPagePredicate(
-            () => documentSession.numPages.value,
-            isPageNearVisibleAndUnrendered,
-        ),
+        shouldShowSkeleton: pagePredicate(isPageNearVisibleAndUnrendered),
         visibleRange: viewportSession.visibleRange,
         zoom,
         zoomMode,
@@ -482,12 +475,11 @@ export const usePdfViewerFeatureController = (
         isPageRenderFailed,
         isSpreadSingle: (page: number) => isStandaloneSpreadPage(page, viewMode.value, documentSession.numPages.value),
         isPageBuffered,
-        pageRaster: (pageNumber: TPageNumber) => {
-            if (!isPageRenderedForClass(pageNumber)) {
-                return null;
-            }
-            return renderingSession.isPageVisualReady(pageNumber) ? 'current' as const : 'stale' as const;
-        },
+        isPageRendered: isPageRenderedForClass,
+        // Pixels only; a painted page may still lack its text.
+        pageRaster: (pageNumber: TPageNumber) => !isPagePainted(pageNumber)
+            ? null
+            : renderingSession.isPageVisualReady(pageNumber) ? 'current' as const : 'stale' as const,
         getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,
