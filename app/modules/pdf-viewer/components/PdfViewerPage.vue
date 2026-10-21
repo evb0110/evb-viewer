@@ -12,7 +12,7 @@
         }"
         :data-page="page"
         :data-document-page-number="page"
-        :data-page-visual="rendered ? 'ready' : 'none'"
+        :data-page-visual="raster === null ? 'none' : 'ready'"
         :data-page-raster="raster ?? undefined"
         :style="[
             placeholderStyle ?? undefined,
@@ -23,7 +23,7 @@
         <div class="page_canvas">
             <div
                 class="page_canvas__render-layer canvasWrapper"
-                :class="{'document-page-visual--committed': rendered}"
+                :class="{'document-page-visual--committed': raster !== null}"
             ></div>
             <DocumentPageSkeleton
                 v-if="showSkeleton && raster === null && !renderFailed"

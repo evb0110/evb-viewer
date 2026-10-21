@@ -3132,9 +3132,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         && skeletonStyle.display !== 'none'
                         && Number.parseFloat(skeletonStyle.opacity) > 0.01,
                     );
-                    const rendered = page?.classList.contains('page_container--rendered') === true;
+                    // The page's committed pixels, which show before its text layer is ready.
+                    const painted = page?.dataset.pageVisual === 'ready';
                     probe.frames.push({
-                        bare: page !== undefined && !rendered && !showsSkeleton,
+                        bare: page !== undefined && !painted && !showsSkeleton,
                         elapsedMs: performance.now() - startedAt,
                         page: page ? Number(page.dataset.page) : null,
                     });
