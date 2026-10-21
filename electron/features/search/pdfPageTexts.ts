@@ -425,6 +425,9 @@ async function* streamPdfPageTextRanges(
     ] of windows.entries()) {
         signal?.throwIfAborted();
         await assertSource();
+        // Starting a window reports its first page, so progress moves while
+        // the visibility pass reads a group of windows ahead of pdftotext.
+        onProgress?.(window.firstPage);
         if (index >= inspectedWindows) {
             // One load inspects every page of this window and the next ones,
             // before pdftotext reads any of them, so pages whose text is EVB's
@@ -454,9 +457,6 @@ async function* streamPdfPageTextRanges(
             yield* streamPdfjsPageTexts(pdfPath, window, signal);
             continue;
         }
-        // The window is read even while its reading order is resolved. Report
-        // only its first page so yielding the window never moves progress back.
-        onProgress?.(window.firstPage);
         const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, poppler.pages, inspection, areas, signal);
         const pages = [
             ...orderedPages,
