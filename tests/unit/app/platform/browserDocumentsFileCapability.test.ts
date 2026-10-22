@@ -20,6 +20,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
+import {BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES} from '@app/platform/browser-api/browserFilePickerAdapter';
 import {
     FakeIndexedDbFactory,
     MemoryStorage,
@@ -354,9 +355,24 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         'commit',
         'cancel',
         'denied',
+        'large-download',
     ])('preserves native Save bytes through %s', async (outcome) => {
-        const original = Uint8Array.of(37, 80, 68, 70, 1);
+        const original = outcome === 'large-download'
+            ? new Uint8Array(BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES + 1)
+            : Uint8Array.of(37, 80, 68, 70, 1);
         const edited = Uint8Array.of(37, 80, 68, 70, 2, 3);
+        const downloads: Blob[] = [];
+        if (outcome === 'large-download') {
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {value: (blob: Blob) => {
+                    downloads.push(blob);
+                    return 'blob:staged-download';
+                }},
+                revokeObjectURL: {value: () => {}},
+            });
+            vi.stubGlobal('URL', DownloadURL);
+        }
         let physical = original.slice();
         const handle = createFileSystemFileHandle({
             name: 'native.pdf',
@@ -370,7 +386,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const {
             capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: outcome === 'large-download' ? undefined : async () => {
             if (outcome === 'cancel') throw new DOMException('Canceled', 'AbortError');
             return handle;
         }}});
@@ -394,12 +410,15 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const commit = capability.commitStagedPdfNativeMutations!(working, receipt, {expectedDocumentRevisionToken: revision.token});
         if (outcome === 'denied') await expect(commit).rejects.toThrow('Write denied');
-        else expect((await commit).applied).toBe(outcome === 'commit');
-        const expected = outcome === 'commit' ? edited : original;
-        expect(physical).toEqual(expected);
+        else expect((await commit).applied).toBe(outcome === 'commit' || outcome === 'large-download');
+        const expected = outcome === 'commit' || outcome === 'large-download' ? edited : original;
+        if (outcome === 'large-download') {
+            expect(downloads).toHaveLength(1);
+            expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(edited);
+        } else expect(physical).toEqual(expected);
         await expect(store.read(working)).resolves.toEqual(expected);
         await expect(store.read(source)).resolves.toEqual(expected);
-        if (outcome !== 'commit') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
+        if (outcome === 'cancel' || outcome === 'denied') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
     });
 
     it('returns typed unsupported results for desktop-only folder actions', async () => {
@@ -623,37 +642,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(fallbackResult?.kind).toBe('pdf');
-    });
-
-    it('rejects oversized browser combine inputs before reading the input PDFs', async () => {
-        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const firstRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            Uint8Array.of(1),
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const secondRef = await browserDocumentStore.createStoredDocument(
-            'second.pdf',
-            Uint8Array.of(2),
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: (BROWSER_FULL_READ_LIMIT / 2) + 1,
-            modifiedAt: 0,
-        });
-        const readSpy = vi.spyOn(browserDocumentStore, 'read');
-
-        await expect(createCombinedPdfFromPaths([
-            firstRef,
-            secondRef,
-        ])).rejects.toThrow(
-            'Combining documents is unavailable in the browser for inputs larger than 16MB',
-        );
-
-        expect(readSpy).not.toHaveBeenCalled();
-        statSpy.mockRestore();
-        readSpy.mockRestore();
     });
 
     it('validates oversized browser PDFs through range reads without a full read', async () => {
@@ -1821,15 +1809,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(originalCreateWritable).toHaveBeenCalledOnce();
     });
 
-    it('blocks browser save-as when a working copy exceeds the full-read budget', async () => {
+    it('blocks browser save-as when a working copy exceeds the download budget', async () => {
         const {
-            BROWSER_MAX_FULL_READ_BYTES,
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
         const workingRef = await browserDocumentStore.createStoredDocument(
             'oversized.pdf',
-            new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
+            new Uint8Array(BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES + 1),
             {
                 mimeType: 'application/pdf',
                 kind: 'working',
@@ -1842,7 +1829,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             undefined,
             await getRevisionOptions(browserDocumentStore, workingRef),
         )).rejects.toThrow(
-            `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB`,
+            `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES / (1024 * 1024)}MB`,
         );
     });
 
@@ -1930,7 +1917,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('fails early for oversized browser download fallback saves without a handle', async () => {
         const {
-            BROWSER_MAX_FULL_READ_BYTES,
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
@@ -1942,7 +1928,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         await browserDocumentStore.writeForBootstrap(
             workingRef,
-            new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
+            new Uint8Array(BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES + 1),
             'test-setup',
         );
 

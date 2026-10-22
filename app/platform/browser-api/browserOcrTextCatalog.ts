@@ -1,10 +1,8 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import {
-    BROWSER_MAX_FULL_READ_BYTES,
-    browserDocumentStore,
-} from '@app/platform/browserDocumentStore';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
@@ -47,9 +45,9 @@ async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signa
     }>();
     if (pageNumbers.length === 0) return layers;
     const {size} = await browserDocumentStore.stat(ref);
-    if (size > BROWSER_MAX_FULL_READ_BYTES) return layers;
+    if (size > BROWSER_PAGE_OPS_MAX_REQUEST_BYTES) return layers;
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-        data: await browserDocumentStore.read(ref),
+        data: await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES}),
         pages: pageNumbers,
         withEvbOcrText: true,
     }, signal === undefined ? {} : {signal}).catch(() => null);

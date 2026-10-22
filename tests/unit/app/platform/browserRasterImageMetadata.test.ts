@@ -18,7 +18,6 @@ import {
     probeBrowserImageFile,
     PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
 } from '@app/platform/browser-api/browserImageResourcePolicy';
-import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 function jpegWithExifOrientation(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
     return new Uint8Array([
@@ -142,21 +141,10 @@ describe('browserRasterImageMetadata', () => {
         })).toBe(381);
     });
 
-    it('enforces fallback page, output, and aggregate decoded-working-set limits', () => {
+    it('checks page counts, nonempty output and aggregate decoded working sets', () => {
         expect(() => assertBrowserCombinedPdfPageCount(501)).toThrow('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array())).toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
-        expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES))).not.toThrow();
-        expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1)))
-            .toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
-        try {
-            assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1));
-        } catch (error) {
-            expect(error).toMatchObject({
-                name: 'SerializableError',
-                code: 'too-large',
-                errorEnvelope: {code: 'too-large'},
-            });
-        }
+        expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(16 * 1024 * 1024 + 1))).not.toThrow();
         const budget = {
             usedBytes: 250,
             maxBytes: 300,

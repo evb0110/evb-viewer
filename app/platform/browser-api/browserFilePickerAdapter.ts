@@ -21,7 +21,7 @@ export interface IPickedBrowserFile {
     handle?: FileSystemFileHandle | null;
 }
 
-const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
+export const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
 const BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS = 120_000;

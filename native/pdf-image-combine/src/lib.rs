@@ -63,7 +63,7 @@ pub use crate::{
 pub const DEFAULT_DPI: u32 = 72;
 pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
 pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
-/// Shared output cap for byte-returning native, WASM, and browser combines.
+/// Output cap for byte-returning native IPC adapters.
 pub const PDF_COMBINE_MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -278,9 +278,8 @@ pub struct PdfBuildOptions {
     pub max_pixels: u64,
     pub max_bilevel_pixels: u64,
     pub max_output_bytes: u64,
-    /// Allows the trusted file-backed native CLI to exceed the shared
-    /// byte-returning output cap. Byte-returning adapters must leave this
-    /// disabled.
+    /// Allows the file-backed CLI and in-process WASM to use their available
+    /// resources. Byte-returning IPC adapters leave this disabled.
     pub allow_large_output: bool,
     pub max_tiff_frames: usize,
     /// Lowercase hex encoding of the canonical JSON provenance payload to

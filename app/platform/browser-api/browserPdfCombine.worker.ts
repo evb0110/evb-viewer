@@ -11,6 +11,7 @@ import type {
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {
     BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
+    BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
     getBrowserPdfCombineWorkerRequestId,
     parseBrowserPdfCombineWorkerRequest,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
@@ -31,13 +32,11 @@ import {
     SerializableError,
 } from '@contracts/serializableError';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
-import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import { createBrowserPdfCombineOutputError } from '@app/platform/browser-api/browserPdfCombineLimits';
 import {createPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 
 const MAX_IMAGE_PIXELS = 80_000_000;
-const MAX_INPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
+const MAX_INPUT_BYTES = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
 const MAX_DECODED_WORKING_BYTES = 256 * 1024 * 1024;
 
 interface IDecodedWorkingSetBudget { usedBytes: number; }
@@ -307,8 +306,8 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
         if (isBrowserPageOpsWasmFailure(merged)) {
             throw new SerializableError(merged.error);
         }
-        if (merged.data.byteLength === 0 || merged.data.byteLength > MAX_OUTPUT_BYTES) {
-            throw createBrowserPdfCombineOutputError(merged.data.byteLength);
+        if (merged.data.byteLength === 0) {
+            throw createBrowserPdfCombineOutputError();
         }
         return {data: toTransferableUint8Array(merged.data)};
     }
@@ -319,8 +318,8 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
     }
     const wasmResult = await tryCombineImageInputsWithWasm(inputs, flatWasmPreprocessing);
     if (wasmResult.status === 'success') {
-        if (wasmResult.data.byteLength === 0 || wasmResult.data.byteLength > MAX_OUTPUT_BYTES) {
-            throw createBrowserPdfCombineOutputError(wasmResult.data.byteLength);
+        if (wasmResult.data.byteLength === 0) {
+            throw createBrowserPdfCombineOutputError();
         }
         return {data: toTransferableUint8Array(wasmResult.data)};
     }

@@ -323,6 +323,9 @@ export async function commitBrowserOcrResult(
         staged.artifact,
         workingCopyPath,
         expectedDocumentRevisionToken,
+        // The writer admitted this result already. Keep that exact byte budget
+        // through receipt verification instead of imposing the combine default.
+        {maxBytes: staged.artifact.size},
     );
 }
 

@@ -7,7 +7,6 @@ use std::{cell::RefCell, slice, str};
 use crate::{
     is_output_limit_exceeded, write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec,
     InputSource, JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, PdfPageSpec, Result,
-    PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPIC";
@@ -20,8 +19,8 @@ const PAGE_KIND_IMAGE: u32 = 1;
 const PAGE_KIND_MASK: u32 = 2;
 const PAGE_KIND_LAYERED: u32 = 3;
 const PAGE_KIND_LAYERED_COLOR: u32 = 4;
-const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
-const MAX_OUTPUT_BYTES: usize = PDF_COMBINE_MAX_OUTPUT_BYTES as usize;
+// WASM32 Rust's allocation layout uses a signed pointer-sized length.
+const MAX_REQUEST_BYTES: usize = i32::MAX as usize;
 
 thread_local! {
     static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
@@ -71,13 +70,9 @@ pub unsafe extern "C" fn evb_pdf_image_combine_build_pdf(
     }
     let request = slice::from_raw_parts(request_pointer, request_len);
     match std::panic::catch_unwind(|| build_pdf_from_request(request)) {
-        Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => {
+        Ok(Ok(output)) => {
             LAST_OUTPUT.with(|slot| *slot.borrow_mut() = output);
             0
-        }
-        Ok(Ok(_)) => {
-            set_error_envelope(output_ceiling_error());
-            -1
         }
         Ok(Err(error)) => {
             set_error_envelope(NativeErrorEnvelope::from_error(error.as_ref()));
@@ -95,12 +90,6 @@ pub unsafe extern "C" fn evb_pdf_image_combine_build_pdf(
 
 fn set_error_envelope(envelope: NativeErrorEnvelope) {
     LAST_ERROR.with(|slot| *slot.borrow_mut() = envelope.to_json().into_bytes());
-}
-fn output_ceiling_error() -> NativeErrorEnvelope {
-    NativeErrorEnvelope {
-        code: NativeErrorCode::TooLarge,
-        message: "Image-combine WASM output exceeds the admission ceiling".to_string(),
-    }
 }
 #[no_mangle]
 pub extern "C" fn evb_pdf_image_combine_output_ptr() -> *const u8 {
@@ -128,22 +117,13 @@ fn clear_last_result() {
 }
 
 fn build_pdf_from_request(request: &[u8]) -> Result<Vec<u8>> {
-    build_pdf_from_request_with_limit(request, MAX_OUTPUT_BYTES as u64)
+    build_pdf_from_request_with_limit(request, u64::MAX)
 }
 
 fn build_pdf_from_request_with_limit(request: &[u8], max_output_bytes: u64) -> Result<Vec<u8>> {
     let (page_specs, mut options) = parse_request(request)?;
     options.max_output_bytes = max_output_bytes;
-    let output_capacity = usize::try_from(max_output_bytes)
-        .unwrap_or(MAX_OUTPUT_BYTES)
-        .min(MAX_OUTPUT_BYTES);
-    write_pdf(
-        Vec::with_capacity(output_capacity),
-        page_specs,
-        &options,
-        |_| {},
-    )
-    .map_err(|error| {
+    write_pdf(Vec::new(), page_specs, &options, |_| {}).map_err(|error| {
         let is_typed_output_limit =
             error
                 .downcast_ref::<NativeError>()
@@ -196,8 +176,8 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         max_pages,
         max_pixels,
         max_bilevel_pixels: max_pixels,
-        max_output_bytes: MAX_OUTPUT_BYTES as u64,
-        allow_large_output: false,
+        max_output_bytes: u64::MAX,
+        allow_large_output: true,
         max_tiff_frames: read_usize_le(request, offset, "max_tiff_frames")?,
         provenance_stamp_hex: None,
         worker_threads: 1,
@@ -511,20 +491,34 @@ mod tests {
     }
 
     #[test]
-    fn wasm_uses_the_shared_sixteen_mib_output_cap() {
-        assert_eq!(MAX_OUTPUT_BYTES, 16 * 1024 * 1024);
+    fn wasm_output_can_exceed_the_byte_returning_ipc_cap() {
+        let scan = include_bytes!(
+            "../../../tests/fixtures/electron/latin-ligatures/missale-1835-urbanus.jpg"
+        );
+        let mut jpeg = scan[..2].to_vec();
+        for _ in 0..270 {
+            jpeg.extend_from_slice(&[255, 254, 255, 255]);
+            jpeg.extend(std::iter::repeat_n(65, 65533));
+        }
+        jpeg.extend_from_slice(&scan[2..]);
+        let mut request = request_header(REQUEST_VERSION_V1, 1);
+        request[16..20].copy_from_slice(&(crate::DEFAULT_MAX_IMAGE_PIXELS as u32).to_le_bytes());
+        push_input(&mut request, "large-scan.jpg", &jpeg);
+        let output = build_pdf_from_request(&request).unwrap();
+        assert!(output.starts_with(b"%PDF-"));
+        assert!(output.len() > 16 * 1024 * 1024);
     }
 
     #[test]
-    fn clearing_wasm_output_does_not_retain_capacity_above_the_shared_cap() {
+    fn clearing_wasm_output_releases_its_allocation() {
         LAST_OUTPUT.with(|slot| {
-            *slot.borrow_mut() = Vec::with_capacity(MAX_OUTPUT_BYTES.saturating_mul(2));
+            *slot.borrow_mut() = Vec::with_capacity(1024);
         });
 
         clear_last_result();
 
         LAST_OUTPUT.with(|slot| {
-            assert!(slot.borrow().capacity() <= MAX_OUTPUT_BYTES);
+            assert_eq!(slot.borrow().capacity(), 0);
         });
     }
 
@@ -616,10 +610,6 @@ mod tests {
         assert_eq!(
             envelope,
             r#"{"code":"too-large","message":"Image-combine WASM request exceeds the admission ceiling"}"#
-        );
-        assert_eq!(
-            output_ceiling_error().to_json(),
-            r#"{"code":"too-large","message":"Image-combine WASM output exceeds the admission ceiling"}"#
         );
     }
 

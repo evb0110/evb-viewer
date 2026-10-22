@@ -76,6 +76,24 @@ describe('browser OCR progress', () => {
             expect(counts[0]).toBe(0);
             expect(counts.some(count => count > 0)).toBe(true);
             expect(counts).toEqual([...counts].sort((left, right) => left - right));
+            await dialog.getByRole('button', {
+                name: 'Close',
+                exact: true,
+            }).last().click();
+            if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).first().click();
+            }
+            await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            const searchInput = page.locator('.document-search-bar input:visible').first();
+            await searchInput.fill('lantern');
+            await searchInput.press('Enter');
+            // Each scanned page has one lantern. Searching the applied PDF
+            // independently confirms recognition finished on all eight pages.
+            await expect.poll(() => page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
+                .toEqual(Array.from({length: 8}, () => 'lantern'));
         } finally {
             await page.context().close();
         }

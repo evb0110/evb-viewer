@@ -853,8 +853,11 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(wasmMock.free).not.toHaveBeenCalled();
     });
 
-    it('refuses WASM output above the shared browser combine cap', async () => {
-        const wasmMock = createWasmExportsMock({reportedOutputLength: 16 * 1024 * 1024 + 1});
+    it('returns WASM output above the former 16 MiB cap', async () => {
+        const output = new Uint8Array(16 * 1024 * 1024 + 1);
+        output.set(new TextEncoder().encode('%PDF-1.4'));
+        const wasmMock = createWasmExportsMock({output});
+        wasmMock.exports.memory.grow(Math.ceil(output.byteLength / 65536));
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
@@ -862,16 +865,13 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([{
+        const result = await tryCombineImageInputsWithWasm([{
             fileName: 'scan.png',
             data: new Uint8Array([1]),
-        }])).resolves.toMatchObject({
-            status: 'fatal',
-            error: {
-                code: 'too-large',
-                message: expect.stringContaining('16MB'),
-            },
-        });
+        }]);
+        expect(result.status).toBe('success');
+        if (result.status !== 'success') throw new Error(JSON.stringify(result));
+        expect(Buffer.from(result.data).equals(Buffer.from(output))).toBe(true);
         expect(wasmMock.free).toHaveBeenCalledOnce();
     });
 
@@ -886,7 +886,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
         const data = new Uint8Array([1]);
-        Object.defineProperty(data, 'byteLength', {value: 256 * 1024 * 1024 + 1});
+        Object.defineProperty(data, 'byteLength', {value: 0x8000_0000});
 
         await expect(tryCombineImageInputsWithWasm([{
             fileName: 'scan.png',

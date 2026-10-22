@@ -5,9 +5,9 @@ import {
 } from '@contracts/serializableError';
 
 /**
- * The maximum number of bytes a PDF image combiner may return as one value.
- * A validated file-backed output path has a separate resource budget because
- * it does not cross the byte-returning transport boundary.
+ * The maximum number of bytes returned across the native IPC boundary.
+ * In-process WASM and validated file-backed output use their own allocations
+ * instead of this serialized-value budget.
  */
 export const PDF_COMBINE_OUTPUT_POLICY = Object.freeze({
     maxBytes: 16 * 1024 * 1024,

@@ -20,7 +20,7 @@ import {
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
 } from '@contracts/getCheckedWasmMemoryView';
 import {PDF_COMBINE_OUTPUT_POLICY} from '@contracts/pdfCombineOutputPolicy';
-import {BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {createBrowserPdfCombineOutputErrorEnvelope} from '@app/platform/browser-api/browserPdfCombineLimits';
 
 interface IPdfImageCombineWasmExports {
@@ -571,11 +571,6 @@ function readWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExport
     return error;
 }
 
-// Bound the browser WASM request before loading the module. Native and browser
-// combines share the same 16MiB output policy, while this separate request
-// ceiling prevents an oversized pre-build allocation.
-const PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
-
 function throwIfAborted(signal: AbortSignal | undefined) {
     if (!signal?.aborted) {
         return;
@@ -624,7 +619,7 @@ export async function tryCombineImageInputsWithWasm(
     if (
         !Number.isSafeInteger(estimatedRequestLength)
         || estimatedRequestLength <= 0
-        || estimatedRequestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES
+        || estimatedRequestLength > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES
     ) {
         return createWasmRequestTooLargeOutcome();
     }
@@ -641,7 +636,7 @@ export async function tryCombineImageInputsWithWasm(
         throwIfAborted(signal);
         const request = buildWasmRequest(inputs, options);
         requestLength = request.byteLength;
-        if (requestLength === 0 || requestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES) {
+        if (requestLength === 0 || requestLength > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES) {
             return createWasmRequestTooLargeOutcome();
         }
         const allocatedPointer = exports.evb_pdf_image_combine_alloc(requestLength);
@@ -672,10 +667,10 @@ export async function tryCombineImageInputsWithWasm(
 
         const outputPointer = exports.evb_pdf_image_combine_output_ptr();
         const outputLen = exports.evb_pdf_image_combine_output_len();
-        if (outputLen === 0 || outputLen > BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES) {
+        if (outputLen === 0) {
             return {
                 status: 'fatal',
-                error: createBrowserPdfCombineOutputErrorEnvelope(outputLen),
+                error: createBrowserPdfCombineOutputErrorEnvelope(),
             };
         }
 
