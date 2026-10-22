@@ -191,6 +191,7 @@ describe('Electron E2E - screenshot annotation output', () => {
         await page.screenshot({
             path: screenPath,
             clip,
+            captureBeyondViewport: false,
         });
         const visible = await countAnnotationColourPixels(screenPath);
         console.log(`OPAQUE_HIGHLIGHT_PIXELS ${JSON.stringify({
