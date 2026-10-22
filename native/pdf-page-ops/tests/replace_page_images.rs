@@ -549,3 +549,37 @@ fn a_clipped_or_translucent_scan_does_not_hide_what_was_drawn_before_it() {
     report(&run(&scratch, instructions(&scratch)), "visible-text");
     assert!(!scratch.path("output.pdf").exists());
 }
+
+#[test]
+fn images_the_page_does_not_draw_are_not_counted_as_its_bytes() {
+    let scratch = Scratch::new("shared-xobjects");
+    let source_path = scratch.path("source.pdf");
+    let source = save_source(&source_path, false, false, false);
+    // Scanners may give every page one /XObject dictionary naming all images.
+    let mut document = Document::load(&source_path).unwrap();
+    let other_page_image = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 1000,
+            "Height" => 1000, "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+        },
+        vec![128; 1000 * 1000],
+    ));
+    document
+        .get_dictionary_mut(source.page)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap()
+        .get_mut(b"XObject")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap()
+        .set("OtherPage", other_page_image);
+    document.save(&source_path).unwrap();
+    save_replacement(&scratch.path("replacement.pdf"), true, false);
+
+    let page_report = report(&run(&scratch, instructions(&scratch)), "not-smaller");
+    assert_eq!(page_report["sourceBytes"], source.stream_bytes as u64);
+    assert!(!scratch.path("output.pdf").exists());
+}

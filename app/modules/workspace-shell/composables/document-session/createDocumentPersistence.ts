@@ -657,7 +657,6 @@ export function createDocumentPersistence(
                     opts?.expectedDocumentRevisionToken ?? state.documentRevisionToken.value,
                 ),
             );
-            opts?.onResult?.(optimizeResult);
             if (optimizeResult.validation && !optimizeResult.validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, true, refusedPersistFailure(
                     'file:optimizePdfAsCopy',
@@ -676,6 +675,7 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, true);
             }
 
+            opts?.onResult?.(optimizeResult);
             const savedPath = optimizeResult.path;
             if (savedPath) {
                 let savedWorkingPath = previousWorkingPath;

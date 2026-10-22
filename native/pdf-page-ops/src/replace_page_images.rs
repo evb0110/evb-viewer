@@ -52,15 +52,6 @@ pub(crate) enum ReplacePageOutcome {
     UnsupportedText,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ReplacePageReport {
-    page_number: u32,
-    outcome: ReplacePageOutcome,
-    source_bytes: u64,
-    replacement_bytes: u64,
-}
-
 pub(crate) fn read_replace_page_images_file(path: &Path) -> Result<ReplacePageImagesFile> {
     let instructions: ReplacePageImagesFile =
         read_json_sidecar(path, "replace-page-images instructions")?;
@@ -102,6 +93,7 @@ pub(crate) fn write_replace_page_images_path(
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
     let mut replacement: Option<LoadedReplacement> = None;
     let mut reports = Vec::with_capacity(instructions.pages.len());
+    let mut replaced = false;
     for page in &instructions.pages {
         if replacement
             .as_ref()
@@ -132,18 +124,14 @@ pub(crate) fn write_replace_page_images_path(
             replacement_page_id,
             instructions.max_byte_ratio,
         )?;
-        reports.push(ReplacePageReport {
-            page_number: page.page_number,
-            outcome,
-            source_bytes,
-            replacement_bytes,
-        });
+        replaced |= outcome == ReplacePageOutcome::Replaced;
+        reports.push(serde_json::json!({
+            "pageNumber": page.page_number, "outcome": outcome,
+            "sourceBytes": source_bytes, "replacementBytes": replacement_bytes,
+        }));
     }
 
-    if reports
-        .iter()
-        .any(|report| report.outcome == ReplacePageOutcome::Replaced)
-    {
+    if replaced {
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
         let revision_bytes = build_incremental_revision(&mut incremental)?;
         let expected_object_ids = collect_incremental_append_object_ids(&incremental);
@@ -303,10 +291,13 @@ fn is_opaque_cover(image: &Dictionary, placement: PdfMatrix, view: PdfRect) -> b
 /// Whether everything the page shows comes from images. Text and drawings
 /// may be hidden by an opaque image drawn over the whole page after them, as
 /// searchable-image scans from Acrobat do; text also by rendering mode 3.
+/// `drawn` receives the XObjects the page draws: a shared or inherited
+/// /XObject dictionary can also name other pages' images.
 fn classify_page(
     document: &Document,
     page_id: ObjectId,
     operations: &[ContentOperation],
+    drawn: &mut Vec<Object>,
 ) -> Result<Option<ReplacePageOutcome>> {
     let xobjects = page_xobjects(document, page_id)?;
     let view = resolve_page_view(document, page_id)?;
@@ -356,16 +347,18 @@ fn classify_page(
             }
             "BI" => draws_image = true,
             "Do" => {
-                let xobject = operation
+                let entry = operation
                     .operands
                     .first()
-                    .and_then(|name| name.as_name().ok())
-                    .and_then(|name| xobjects.as_ref()?.get(name).ok())
+                    .and_then(|name| name.as_name().ok());
+                let entry = entry.and_then(|name| xobjects.as_ref()?.get(name).ok());
+                let xobject = entry
                     .and_then(|xobject| document.dereference(xobject).ok())
                     .and_then(|(_, xobject)| xobject.as_stream().ok());
-                let Some(xobject) = xobject else {
+                let (Some(entry), Some(xobject)) = (entry, xobject) else {
                     return Ok(Some(ReplacePageOutcome::FormXobject));
                 };
+                drawn.push(entry.clone());
                 // A Form XObject may paint text or vectors this page cannot keep.
                 if xobject.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Image") {
                     return Ok(Some(ReplacePageOutcome::FormXobject));
@@ -396,27 +389,22 @@ fn replace_page_images(
     replacement_page_id: ObjectId,
     max_byte_ratio: f64,
 ) -> Result<(ReplacePageOutcome, u64, u64)> {
-    let source_bytes = {
-        let document = &incremental.previous_document;
-        let page = document.get_dictionary(page_id)?;
-        let contents = page.get(b"Contents").cloned().unwrap_or(Object::Null);
-        let xobjects = page_xobjects(document, page_id)?
-            .map(Object::Dictionary)
-            .unwrap_or(Object::Null);
-        reachable_stream_bytes(document, &[&contents, &xobjects])?
-    };
-
     materialize_page_contents(incremental, structural, page_id)?;
     let document = &incremental.previous_document;
-    let page_content =
-        match page_content_with_limit(document, page_id, MAX_REPLACEMENT_CONTENT_BYTES) {
-            Ok(bytes) => bytes,
-            Err(_) => return Ok((ReplacePageOutcome::UnsupportedText, source_bytes, 0)),
-        };
-    let Ok(content) = Content::decode(&page_content) else {
-        return Ok((ReplacePageOutcome::UnsupportedText, source_bytes, 0));
+    let content = page_content_with_limit(document, page_id, MAX_REPLACEMENT_CONTENT_BYTES)
+        .ok()
+        .and_then(|bytes| Content::decode(&bytes).ok());
+    let Some(content) = content else {
+        return Ok((ReplacePageOutcome::UnsupportedText, 0, 0));
     };
-    if let Some(outcome) = classify_page(document, page_id, &content.operations)? {
+    let mut drawn = Vec::new();
+    let outcome = classify_page(document, page_id, &content.operations, &mut drawn)?;
+    let contents = document.get_dictionary(page_id)?.get(b"Contents").cloned();
+    let source_bytes = reachable_stream_bytes(
+        document,
+        &[&contents.unwrap_or(Object::Null), &Object::Array(drawn)],
+    )?;
+    if let Some(outcome) = outcome {
         return Ok((outcome, source_bytes, 0));
     }
 
