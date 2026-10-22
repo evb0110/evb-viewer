@@ -493,13 +493,12 @@ describe('scan cleanup workspace session detection guidance', () => {
             1,
             3,
         ]);
-        // Source rasters are only inputs. Reporting them as analyzed pages made
-        // the visible counter change meaning when native results started; the
-        // read pages are shown ahead of it instead.
+        // Source rasters are only inputs, never analyzed pages. Until the first
+        // verdict the Reading sentence counts them; detection counts verdicts.
         expect(mounted.session.activity.value).toMatchObject({
             detail: 'read',
             count: {
-                completed: 0,
+                completed: 2,
                 total: 3,
             },
         });

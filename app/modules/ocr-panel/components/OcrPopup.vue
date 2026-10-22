@@ -4,7 +4,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning && !isExporting"
-        :ui="{ content: '@container/ocr-dialog w-[calc(100vw-4rem)] max-w-[var(--app-ocr-dialog-max-width)] h-[calc(100dvh-5rem)] max-h-[calc(100dvh-5rem)] top-16 translate-y-0', body: 'min-h-0 flex flex-col @min-[60rem]/ocr-dialog:overflow-y-hidden', footer: 'justify-end gap-2' }"
+        :ui="{ content: '@container/ocr-dialog w-[calc(100vw-4rem)] max-w-[var(--app-ocr-dialog-max-width)] h-[min(var(--app-ocr-dialog-height),calc(100dvh-5rem))] top-16 translate-y-0', body: 'min-h-0 flex flex-col @min-[60rem]/ocr-dialog:overflow-y-hidden', footer: 'justify-end gap-2' }"
     >
         <template #description>
             <span class="sr-only">
@@ -872,11 +872,11 @@ function getLanguageModelStateIcon(state: string) {
     align-items: start;
 }
 
+/* The heading keeps one line; the search takes the column's width below it. */
 .language-picker-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--app-space-6xl);
+    flex-direction: column;
+    gap: var(--app-space-3xl);
     margin-bottom: var(--app-space-3xl);
 }
 
@@ -886,7 +886,6 @@ function getLanguageModelStateIcon(state: string) {
 
 .language-search {
     width: 100%;
-    max-width: var(--app-settings-select-max-size);
 }
 
 /* Keep scrolling on this wrapper rather than the checkbox group's <fieldset>:

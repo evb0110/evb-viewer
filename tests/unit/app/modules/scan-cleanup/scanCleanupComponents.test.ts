@@ -293,7 +293,8 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.reset': 'Reset',
     'scanCleanup.settings.automatic': 'Automatic',
     'scanCleanup.preview.page': 'Page {page} of {total}',
-    'scanCleanup.settings.manualSkew': 'Deskew angle ({min}° to {max}°)',
+    'scanCleanup.settings.manualSkew': 'Deskew angle',
+    'scanCleanup.settings.manualSkewRange': '{min}° to {max}°',
     'scanCleanup.thickness.label': 'Text thickness ({value})',
     'scanCleanup.thickness.control': 'Text thickness',
 

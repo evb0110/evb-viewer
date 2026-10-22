@@ -555,22 +555,22 @@
     cursor: nwse-resize;
 }
 
+/* A corner card: the page the guidance talks about stays readable beside it. */
 .scan-cleanup-first-run-guidance {
     position: absolute;
     z-index: var(--app-z-local-overlay);
-    inset-inline-start: 50%;
-    inset-block-start: 50%;
+    inset-inline-end: var(--app-space-12xl);
+    inset-block-end: var(--app-space-12xl);
     display: grid;
     width: min(var(--app-scan-first-run-guidance-width), calc(100% - var(--app-space-16xl)));
     gap: var(--app-space-7xl);
     border: var(--app-hairline-height) solid var(--ui-border);
     border-radius: var(--app-radius-lg);
-    background: color-mix(in srgb, var(--ui-bg-elevated) 96%, transparent);
+    background: var(--ui-bg-elevated);
     box-shadow: var(--shadow-lg);
     padding: var(--app-space-12xl);
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-    transform: translate(-50%, -50%);
 }
 
 .scan-cleanup-first-run-guidance ol {
