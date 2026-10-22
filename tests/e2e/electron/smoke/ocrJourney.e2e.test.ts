@@ -1433,8 +1433,8 @@ if (process.versions.electron && process.type === 'browser') {
             }
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await waitForFunctionInPage(page, () => {
-                const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
-                return /Processing page \d+/u.test(text);
+                const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim() ?? '';
+                return /^Processing pages: \d+\/40 completed$/u.test(text);
             }, {timeout: 30_000});
             if (viaOverflow) {
                 // The user cancels the run from the narrow window, and OCR can be started again.
@@ -1491,7 +1491,7 @@ if (process.versions.electron && process.type === 'browser') {
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
         await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.startsWith('Processing page ') === true
+            /^Processing pages: \d+\/4 completed$/u.test(document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.trim() ?? '')
         ), {timeout: OCR_TIMEOUT_MS});
 
         // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
