@@ -72,6 +72,33 @@ function createHistory() {
 }
 
 describe('useWorkspaceMetadataHistory', () => {
+    it('keeps an unresolved bookmark read clean when page labels synchronize first', () => {
+        const {
+            bookmarkItems, bookmarksDirty, pageLabelRanges, pageLabelsDirty, history,
+        } = createHistory();
+        bookmarkItems.value = [{
+            title: 'Imported',
+            pageIndex: requirePageIndex(0),
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }];
+        history.resetToCurrentState();
+        // A working-copy reload clears the outline before its independent read completes.
+        bookmarkItems.value = [];
+        pageLabelRanges.value = [{
+            startPage: 1,
+            style: 'D',
+            prefix: 'New ',
+            startNumber: 1,
+        }];
+        history.markCurrentStateClean('pageLabelRanges');
+        expect(bookmarksDirty.value).toBe(false);
+        expect(pageLabelsDirty.value).toBe(false);
+    });
+
     it('publishes each metadata edit directly to the workspace command sink', () => {
         const registrations: IWorkspaceCommandRegistration[] = [];
         const reset = vi.fn();
