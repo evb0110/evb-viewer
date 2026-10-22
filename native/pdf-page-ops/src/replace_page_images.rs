@@ -47,6 +47,7 @@ pub(crate) enum ReplacePageOutcome {
     NotSmaller,
     NoImages,
     VisibleText,
+    VisibleDrawing,
     FormXobject,
     UnsupportedText,
 }
@@ -299,9 +300,9 @@ fn is_opaque_cover(image: &Dictionary, placement: PdfMatrix, view: PdfRect) -> b
         && drawn.y2 >= view.y2 - tolerance
 }
 
-/// Whether everything the page shows comes from images. Text may be hidden
-/// by rendering mode 3 or by an opaque image drawn over the whole page after
-/// it, as searchable-image scans from Acrobat do.
+/// Whether everything the page shows comes from images. Text and drawings
+/// may be hidden by an opaque image drawn over the whole page after them, as
+/// searchable-image scans from Acrobat do; text also by rendering mode 3.
 fn classify_page(
     document: &Document,
     page_id: ObjectId,
@@ -314,6 +315,7 @@ fn classify_page(
     let mut saved = Vec::new();
     let mut draws_image = false;
     let mut shows_text = false;
+    let mut shows_drawing = false;
     for operation in operations {
         match operation.operator.as_str() {
             "q" => saved.push((placement, mode)),
@@ -339,6 +341,10 @@ fn classify_page(
                 }
                 shows_text |= mode != 3;
             }
+            // Paths and shadings would be flattened into the page image.
+            "f" | "F" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*" | "sh" => {
+                shows_drawing = true;
+            }
             "BI" => draws_image = true,
             "Do" => {
                 let xobject = operation
@@ -358,6 +364,7 @@ fn classify_page(
                 draws_image = true;
                 if is_opaque_cover(&xobject.dict, placement, view) {
                     shows_text = false;
+                    shows_drawing = false;
                 }
             }
             _ => {}
@@ -365,6 +372,9 @@ fn classify_page(
     }
     if shows_text {
         return Ok(Some(ReplacePageOutcome::VisibleText));
+    }
+    if shows_drawing {
+        return Ok(Some(ReplacePageOutcome::VisibleDrawing));
     }
     Ok((!draws_image).then_some(ReplacePageOutcome::NoImages))
 }

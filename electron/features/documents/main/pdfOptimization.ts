@@ -145,6 +145,7 @@ const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
             'not-smaller',
             'no-images',
             'visible-text',
+            'visible-drawing',
             'form-xobject',
             'unsupported-text',
         ]),

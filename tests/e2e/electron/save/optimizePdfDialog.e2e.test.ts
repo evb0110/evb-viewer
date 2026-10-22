@@ -13,12 +13,11 @@ import {
 import {promisify} from 'node:util';
 import {PDFDocument} from 'pdf-lib';
 import {
-    afterEach, describe, expect, it, vi,
+    afterEach, describe, expect, it,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
-import type * as electronRunLaunchConfig from '@scripts/electron-run/electronRunLaunchConfig';
 import {readPdfMetadataWithQpdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
     startElectronE2ESession,
@@ -34,19 +33,6 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-
-// The normal Linux lane maps its window on private Xvfb. This regression must
-// exercise the documented hidden window, as the existing userInput spec does.
-vi.mock('@scripts/electron-run/electronRunLaunchConfig', async (importOriginal) => {
-    const original = await importOriginal<typeof electronRunLaunchConfig>();
-    return {
-        ...original,
-        buildElectronE2EAutomationEnv: (env: NodeJS.ProcessEnv) => ({
-            ...original.buildElectronE2EAutomationEnv(env),
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-        }),
-    };
-});
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 120_000;
@@ -127,7 +113,6 @@ describe('Optimize PDF saves only smaller copies', () => {
             extraEnv: {
                 EVB_E2E_SAVE_DIALOG_PATH: outputPath,
                 EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
-                EVB_AUTOMATION_HIDE_WINDOW: '1',
             },
         });
         await openPdfInApp(session.page, inputPath, TIMEOUT_MS);

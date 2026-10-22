@@ -477,3 +477,38 @@ fn invalid_instructions_report_invalid_request_without_writing_output() {
         assert!(!scratch.path("output.pdf").exists());
     }
 }
+
+fn rewrite_page_content(path: &Path, page: ObjectId, content: &str) {
+    let mut document = Document::load(path).unwrap();
+    let contents = document.add_object(Stream::new(dictionary! {}, content.as_bytes().to_vec()));
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", contents);
+    document.save(path).unwrap();
+}
+
+#[test]
+fn drawing_over_the_scan_keeps_the_page_and_drawing_under_it_does_not() {
+    let scratch = Scratch::new("drawing");
+    let source_path = scratch.path("source.pdf");
+    let source = save_source(&source_path, false, false, false);
+    save_replacement(&scratch.path("replacement.pdf"), false, false);
+    rewrite_page_content(
+        &source_path,
+        source.page,
+        "q 200 0 0 120 0 0 cm /Scan Do Q\n0 0 1 RG 10 60 m 190 60 l S\n",
+    );
+    let page_report = report(&run(&scratch, instructions(&scratch)), "visible-drawing");
+    assert_eq!(page_report["replacementBytes"], 0);
+    assert!(!scratch.path("output.pdf").exists());
+
+    // A background fill the opaque scan covers is not part of what the page shows.
+    rewrite_page_content(
+        &source_path,
+        source.page,
+        "1 1 1 rg 0 0 200 120 re f\nq 200 0 0 120 0 0 cm /Scan Do Q\n",
+    );
+    report(&run(&scratch, instructions(&scratch)), "replaced");
+    assert!(scratch.path("output.pdf").exists());
+}
