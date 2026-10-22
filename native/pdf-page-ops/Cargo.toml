@@ -37,3 +37,6 @@ evb-pdf-image-combine = { version = "0.1.0", path = "../pdf-image-combine" }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+jpeg-encoder = "0.7.1"

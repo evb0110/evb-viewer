@@ -302,6 +302,7 @@ dependencies = [
  "evb-pdf-image-combine",
  "getrandom",
  "harfrust",
+ "jpeg-encoder",
  "libc",
  "lopdf",
  "png",
