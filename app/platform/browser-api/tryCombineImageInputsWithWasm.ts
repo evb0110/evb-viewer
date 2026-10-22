@@ -679,6 +679,7 @@ export async function tryCombineImageInputsWithWasm(
             data: toTransferableUint8Array(copyWasmBytes(exports, outputPointer, outputLen)),
         };
     } catch (error) {
+        wasmExportsPromise = null;
         return {
             status: 'fatal',
             error: {

@@ -32,6 +32,10 @@ import {
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {
+    DOCUMENT_LIST_HEADER, U32_BYTES,
+} from '@contracts/browserPageOpsWasm.generated';
 
 export interface IBrowserBatchOpenProgress {
     processed: number;
@@ -278,6 +282,13 @@ async function createCombinedPdfFromPreparedPaths(
         );
     }
 
+    let remainingBytes = paths.every(path => isPdfFileName(getBrowserDocumentFileName(path)))
+        ? BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - paths.length * U32_BYTES
+        : BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
+    const metadata = await Promise.all(paths.map(path => browserDocumentStore.stat(path)));
+    if (metadata.reduce((total, {size}) => total + size, 0) > remainingBytes) {
+        throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+    }
     const inputs = [];
 
     for (let index = 0; index < paths.length; index += 1) {
@@ -287,7 +298,8 @@ async function createCombinedPdfFromPreparedPaths(
         }
 
         const path = paths[index]!;
-        const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES});
+        const data = await browserDocumentStore.read(path, {maxBytes: remainingBytes});
+        remainingBytes -= data.byteLength;
         inputs.push(cloneCombineWorkerInput(
             getBrowserDocumentFileName(path),
             data,

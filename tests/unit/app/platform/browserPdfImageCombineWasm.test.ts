@@ -811,12 +811,23 @@ describe('tryCombineImageInputsWithWasm', () => {
         );
     });
 
-    it('fails closed when WASM allocation throws before a pointer is available', async () => {
-        const wasmMock = createWasmExportsMock({allocThrows: true});
+    it.each([
+        'allocation',
+        'combine',
+    ])('allows the next image import after a WASM %s trap', async (phase) => {
+        const wasmMock = createWasmExportsMock({allocThrows: phase === 'allocation'});
+        if (phase === 'combine') {
+            wasmMock.exports.evb_pdf_image_combine_build_pdf.mockImplementation(() => {
+                throw new NativeWebAssembly.RuntimeError('unreachable');
+            });
+        }
+        const healthyWasm = createWasmExportsMock();
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
-            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+            instantiate: vi.fn()
+                .mockResolvedValueOnce({instance: {exports: wasmMock.exports}})
+                .mockResolvedValue({instance: {exports: healthyWasm.exports}}),
         });
         const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
@@ -829,7 +840,15 @@ describe('tryCombineImageInputsWithWasm', () => {
             status: 'fatal',
             error: {code: 'native-failure'},
         });
-        expect(wasmMock.free).not.toHaveBeenCalled();
+        if (phase === 'allocation') expect(wasmMock.free).not.toHaveBeenCalled();
+        else expect(wasmMock.free).toHaveBeenCalledOnce();
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'next-scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toEqual({
+            status: 'success',
+            data: new TextEncoder().encode('%PDF'),
+        });
     });
 
     it('fails closed when WASM allocation returns address zero', async () => {

@@ -21,6 +21,11 @@ import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES} from '@app/platform/browser-api/browserFilePickerAdapter';
+import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {
+    DOCUMENT_LIST_HEADER, U32_BYTES,
+} from '@contracts/browserPageOpsWasm.generated';
 import {
     FakeIndexedDbFactory,
     MemoryStorage,
@@ -863,6 +868,43 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 percent: 95,
             }),
         ]));
+    });
+
+    it.each([
+        [
+            'png',
+            BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
+        ],
+        [
+            'pdf',
+            BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - 2 * U32_BYTES,
+        ],
+    ] as const)('rejects a %s selection exceeding its combined request budget before reading its files', async (extension, budget) => {
+        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
+        const refs = await Promise.all([
+            'first',
+            'second',
+        ].map(name => browserDocumentStore.createStoredDocument(
+            `${name}.${extension}`,
+            Uint8Array.of(1),
+            PDF_SOURCE_OPTIONS,
+        )));
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: Math.floor(budget / 2) + 1,
+            modifiedAt: 0,
+        });
+        const read = vi.spyOn(browserDocumentStore, 'read');
+        try {
+            await expect(createCombinedPdfFromPaths(refs)).rejects.toThrow('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+            expect(read).not.toHaveBeenCalled();
+            expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
+        } finally {
+            stat.mockRestore();
+            read.mockRestore();
+        }
+        await expect(browserDocumentStore.read(refs[0]!)).resolves.toEqual(Uint8Array.of(1));
     });
 
     it('offloads supported mixed PDF and raster-image combine jobs to the browser worker', async () => {

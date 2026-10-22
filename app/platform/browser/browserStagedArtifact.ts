@@ -16,6 +16,7 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import * as v from 'valibot';
+import {SerializableError} from '@contracts/serializableError';
 
 export interface IBrowserStagedArtifactStore {
     getDocumentRevision(ref: TDocumentRef): Promise<IDocumentRevisionInfo>;
@@ -107,9 +108,11 @@ export async function readBrowserStoreStagedArtifact(
     }
     const decoded = parsed.output;
     if (decoded.size > maxBytes) {
-        throw new Error(
-            `Browser staged PDF output exceeds the browser full-read limit of ${maxBytes} bytes`,
-        );
+        throw new SerializableError({
+            code: 'browser-byte-limit',
+            maxBytes,
+            message: `Browser staged PDF output exceeds the ${Math.floor(maxBytes / (1024 * 1024))}MB browser read limit`,
+        });
     }
 
     const initialRevision = await store.getDocumentRevision(decoded.path);

@@ -1409,7 +1409,7 @@ if (process.versions.electron && process.type === 'browser') {
                     {},
                 ]);
                 const ocr = status.value?.ocr;
-                if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                if (!ocr?.isRunning || (ocr.processedCount ?? 0) <= 0 || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
                     throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
                 }
             }, {timeout: 30_000});
@@ -1434,7 +1434,8 @@ if (process.versions.electron && process.type === 'browser') {
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await waitForFunctionInPage(page, () => {
                 const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim() ?? '';
-                return /^Processing pages: \d+\/40 completed$/u.test(text);
+                const match = /^Processing pages: (\d+)\/40 completed$/u.exec(text);
+                return match !== null && Number(match[1]) > 0 && Number(match[1]) < 40;
             }, {timeout: 30_000});
             if (viaOverflow) {
                 // The user cancels the run from the narrow window, and OCR can be started again.
@@ -1490,9 +1491,11 @@ if (process.versions.electron && process.type === 'browser') {
         await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
-        await waitForFunctionInPage(page, () => (
-            /^Processing pages: \d+\/4 completed$/u.test(document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.trim() ?? '')
-        ), {timeout: OCR_TIMEOUT_MS});
+        await waitForFunctionInPage(page, () => {
+            const text = document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.trim() ?? '';
+            const match = /^Processing pages: (\d+)\/4 completed$/u.exec(text);
+            return match !== null && Number(match[1]) > 0 && Number(match[1]) < 4;
+        }, {timeout: OCR_TIMEOUT_MS});
 
         // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
         await page.evaluate((host: string) => {

@@ -8,7 +8,6 @@ import {
     vi,
 } from 'vitest';
 import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {
     commitBrowserStoreStagedArtifact,
     createBrowserStoreStagedArtifact,
@@ -156,7 +155,11 @@ describe('browser staged artifact commit', () => {
         await expect(store.exists(stagedRef)).resolves.toBe(true);
     });
 
-    it('rejects an oversized staged output before replacing the target', async () => {
+    it.each([
+        16,
+        64,
+    ])('rejects a staged output above the configured %iMB read budget before replacing the target', async (limitMiB) => {
+        const maxBytes = limitMiB * 1024 * 1024;
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument('oversized-source.pdf', Uint8Array.of(1), PDF_OPTIONS);
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
@@ -177,11 +180,18 @@ describe('browser staged artifact commit', () => {
             store,
             {
                 ...stagedArtifact,
-                size: BROWSER_MAX_FULL_READ_BYTES + 1,
+                size: maxBytes + 1,
             },
             workingRef,
             workingRevision.token,
-        )).rejects.toThrow('exceeds the browser full-read limit');
+            limitMiB === 16 ? undefined : {maxBytes},
+        )).rejects.toMatchObject({
+            message: `Browser staged PDF output exceeds the ${limitMiB}MB browser read limit`,
+            errorEnvelope: {
+                code: 'browser-byte-limit',
+                maxBytes,
+            },
+        });
         await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1));
         await expect(store.exists(stagedRef)).resolves.toBe(true);
     });
