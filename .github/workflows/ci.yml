@@ -392,7 +392,11 @@ jobs:
           wasm: 'true'
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        # Playwright runs apt itself, so select the same probed Ubuntu mirrors
+        # as apt-install.sh before it starts downloading system dependencies.
+        run: |
+          scripts/ci/select-apt-mirrors.sh
+          pnpm exec playwright install --with-deps chromium
 
       - name: Browser integration tests
         timeout-minutes: 9
