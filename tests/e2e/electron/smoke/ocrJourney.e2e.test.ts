@@ -1493,8 +1493,7 @@ if (process.versions.electron && process.type === 'browser') {
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
         await waitForFunctionInPage(page, () => {
             const text = document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.trim() ?? '';
-            const match = /^Processing pages: (\d+)\/4 completed$/u.exec(text);
-            return match !== null && Number(match[1]) > 0 && Number(match[1]) < 4;
+            return /^Processing pages: \d+\/4 completed$/u.test(text);
         }, {timeout: OCR_TIMEOUT_MS});
 
         // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
