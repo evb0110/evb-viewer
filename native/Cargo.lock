@@ -299,8 +299,10 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "evb-native-support",
+ "evb-pdf-image-combine",
  "getrandom",
  "harfrust",
+ "jpeg-encoder",
  "libc",
  "lopdf",
  "png",

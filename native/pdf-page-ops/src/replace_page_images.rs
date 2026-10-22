@@ -227,24 +227,6 @@ fn reachable_stream_bytes(document: &Document, roots: &[&Object]) -> Result<u64>
     Ok(total)
 }
 
-/// The page's effective /XObject resource dictionary, nearest first.
-fn page_xobjects(document: &Document, page_id: ObjectId) -> Result<Option<Dictionary>> {
-    let (direct, inherited) = document.get_page_resources(page_id)?;
-    let candidates = direct.into_iter().chain(
-        inherited
-            .into_iter()
-            .filter_map(|id| document.get_dictionary(id).ok()),
-    );
-    for resources in candidates {
-        if let Ok(xobjects) = resources.get(b"XObject") {
-            if let Ok((_, Object::Dictionary(xobjects))) = document.dereference(xobjects) {
-                return Ok(Some(xobjects.clone()));
-            }
-        }
-    }
-    Ok(None)
-}
-
 /// Reads the page's content streams that a structural load left unread.
 fn materialize_page_contents(
     incremental: &mut IncrementalDocument,

@@ -38,6 +38,7 @@ const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 120_000;
 const SCAN_FIXTURE = resolve('tests/fixtures/optimize-searchable-ccitt.pdf');
 const COLOR_FIXTURE = resolve('landing/recorder/documents/noldeke-1880-raw-scan.pdf');
+const TYPESET_PHOTO_FIXTURE = resolve('tests/fixtures/optimize-typeset-photo.pdf');
 
 async function optimizeAsUser(page: Page, preset: string) {
     await activateMenuItemAsUser(page, {id: 'optimize-pdf'});
@@ -183,6 +184,76 @@ describe('Optimize PDF saves only smaller copies', () => {
             3,
         ]) expect(optimizedText).toContain(`Synthetic searchable scan page ${number}`);
         await waitForActiveDocumentSource(page, outputPath, TIMEOUT_MS);
+        expect(readFileSync(inputPath)).toEqual(original);
+    }, TIMEOUT_MS * 2);
+
+    // T3: optimizing photos on typeset pages preserves searchable text and
+    // emits a useful smaller copy. Keeping every text page's image unchanged
+    // must fail even if a structural rewrite saves a few bytes.
+    it('recompresses a typeset page photo with Balanced scanned PDF while preserving its text', async () => {
+        const {
+            page, inputPath, outputPath,
+        } = await openFixture(TYPESET_PHOTO_FIXTURE);
+        const original = readFileSync(inputPath);
+        const tools = getPdfNativeToolPaths();
+        const env = {
+            ...process.env,
+            ...buildPopplerEnv(tools),
+        };
+        const {stdout: originalText} = await execFileAsync(tools.pdftotext, [
+            inputPath,
+            '-',
+        ], {env});
+        expect(originalText).toContain('A typeset book with a photograph');
+        expect(tools.pdfimages, 'the PDF image inspector must run').toBeTruthy();
+        const imageDimensions = async (path: string) => {
+            const {stdout} = await execFileAsync(tools.pdfimages!, [
+                '-list',
+                path,
+            ], {env});
+            return stdout.split('\n').filter(line => /^\s*\d+\s+\d+\s+image\s/u.test(line)).map((line) => {
+                const fields = line.trim().split(/\s+/u);
+                return [
+                    Number(fields[3]),
+                    Number(fields[4]),
+                ];
+            });
+        };
+        expect(await imageDimensions(inputPath)).toEqual([[
+            1200,
+            900,
+        ]]);
+
+        await optimizeAsUser(page, 'Balanced scanned PDF');
+
+        const notice = await page.$eval('body', element => (
+            element.querySelector('[data-testid="optimize-pdf-notice"]')?.textContent?.trim()
+            || element.querySelector('.app-toast')?.textContent?.trim()
+            || ''
+        ));
+        console.log(`[Optimize typeset photo] original=${original.length} output=${existsSync(outputPath) ? statSync(outputPath).size : 0}; ${notice}`);
+        expect(existsSync(outputPath), `Balanced scanned PDF must save a smaller typeset-photo copy; UI: ${notice}`).toBe(true);
+        const optimized = readFileSync(outputPath);
+        expect(optimized.length).toBeLessThanOrEqual(original.length * 0.6);
+        const {stdout: optimizedText} = await execFileAsync(tools.pdftotext, [
+            outputPath,
+            '-',
+        ], {env});
+        expect(optimizedText).toBe(originalText);
+        expect(await imageDimensions(outputPath)).toEqual([[
+            400,
+            300,
+        ]]);
+        await readPdfMetadataWithQpdf(outputPath);
+        const toast = await page.$eval('.app-toast', element => element.textContent ?? '');
+        expect(toast).toContain('Optimized PDF saved');
+        expect(toast).toMatch(/→.*\(\d+% smaller\)/u);
+        const sizes = toast.split('→');
+        expect(sizes).toHaveLength(2);
+        expectDisplayedBytes(sizes[0]!, original.length);
+        expectDisplayedBytes(sizes[1]!, optimized.length);
+        await waitForActiveDocumentSource(page, outputPath, TIMEOUT_MS);
+        await waitForPdfLoaded(page, TIMEOUT_MS);
         expect(readFileSync(inputPath)).toEqual(original);
     }, TIMEOUT_MS * 2);
 
