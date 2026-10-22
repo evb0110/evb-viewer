@@ -414,6 +414,90 @@ fn photo_inside_a_form_that_cannot_be_read_keeps_its_bytes() {
     assert!(!scratch.path("output.pdf").exists());
 }
 
+fn assert_pinned(scratch: &Scratch, report: &Value, image: ObjectId) {
+    assert!(
+        report["images"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["objectNumber"] != image.0),
+        "{report}"
+    );
+    assert!(!scratch.path("output.pdf").exists());
+}
+
+fn form_drawing_photo(pdf: &mut Pdf, image: ObjectId, extra: lopdf::Dictionary) -> ObjectId {
+    let mut dict = dictionary! {
+        "Type" => "XObject", "Subtype" => "Form",
+        "BBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        "Resources" => dictionary! { "XObject" => dictionary! { "Photo" => image } },
+    };
+    dict.extend(&extra);
+    pdf.document.add_object(Stream::new(
+        dict,
+        b"q 600 0 0 450 0 0 cm /Photo Do Q\n".to_vec(),
+    ))
+}
+
+#[test]
+fn photo_an_annotation_appearance_also_draws_keeps_its_bytes() {
+    let scratch = Scratch::new("annotation");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, false, false);
+    let appearance = form_drawing_photo(&mut pdf, image, dictionary! {});
+    let annotation = pdf.document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Stamp",
+        "Rect" => vec![0.into(), 0.into(), 600.into(), 450.into()],
+        "AP" => dictionary! { "N" => appearance },
+    });
+    let page = pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    pdf.document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annotation)]);
+    pdf.save(&scratch.path("source.pdf"));
+
+    let report = run(&scratch, &[]);
+
+    assert_pinned(&scratch, &report, image);
+}
+
+#[test]
+fn photo_a_tiling_pattern_also_draws_keeps_its_bytes() {
+    let scratch = Scratch::new("pattern");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, false, false);
+    let pattern = form_drawing_photo(
+        &mut pdf,
+        image,
+        dictionary! {
+            "Type" => "Pattern", "PatternType" => 1, "PaintType" => 1, "TilingType" => 1,
+            "XStep" => 612, "YStep" => 792,
+        },
+    );
+    let page = pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    let resources = pdf
+        .document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap();
+    resources.set("Pattern", dictionary! { "P1" => pattern });
+    pdf.save(&scratch.path("source.pdf"));
+
+    let report = run(&scratch, &[]);
+
+    assert_pinned(&scratch, &report, image);
+}
+
 #[test]
 fn photo_drawn_only_on_a_skipped_page_keeps_its_bytes() {
     let scratch = Scratch::new("skipped");
