@@ -126,8 +126,9 @@ describe('scan cleanup activity', () => {
         expect(waiting.detail).toBe('read');
         expect(waiting.fraction).toBeNull();
         expect(reading.detail).toBe('read');
+        // The Reading sentence counts the page images read, not the verdicts.
         expect(reading.count).toEqual({
-            completed: 0,
+            completed: 7,
             total: 148,
         });
         expect(reading.bufferFraction).toBeCloseTo(7 / 148);
