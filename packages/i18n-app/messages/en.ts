@@ -473,7 +473,7 @@ export default {
             'indexing': 'Indexing OCR text...',
             'applying': 'Applying OCR result...',
         },
-        'processingPage': 'Processing page {page} ({processed}/{total})',
+        'processingPages': 'Processing pages: {processed}/{total} completed',
         'complete': 'OCR complete - PDF is now searchable',
         'partialComplete': 'OCR complete with warnings',
         'noPagesToProcess': 'No pages needed OCR',

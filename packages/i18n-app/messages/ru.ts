@@ -475,7 +475,7 @@ export default {
             'indexing': 'Индексация текста OCR...',
             'applying': 'Применение результата OCR...',
         },
-        'processingPage': 'Обработка страницы {page} ({processed}/{total})',
+        'processingPages': 'Обработка страниц: завершено {processed}/{total}',
         'complete': 'OCR завершён — PDF теперь доступен для поиска',
         'partialComplete': 'OCR завершён с предупреждениями',
         'noPagesToProcess': 'OCR не требуется ни для одной страницы',

@@ -995,7 +995,7 @@ export default {
             'indexing': 'A indexar texto OCR...',
             'applying': 'A aplicar o resultado de OCR...',
         },
-        'processingPage': 'A processar página {page} ({processed}/{total})',
+        'processingPages': 'A processar páginas: {processed}/{total} concluídas',
         'complete': 'OCR concluído - o PDF é agora pesquisável',
         'partialComplete': 'OCR concluído com avisos',
         'noPagesToProcess': 'Nenhuma página precisava de OCR',

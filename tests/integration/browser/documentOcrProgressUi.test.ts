@@ -13,25 +13,30 @@ import {
 describe('browser OCR progress', () => {
     it('shows completed page counts instead of a parallel worker page number', async () => {
         // I4: long work reports its step with a count that never moves backward.
-        const page = await lifecycle.browser.newPage({viewport: {
-            width: 1440,
-            height: 900,
-        }});
+        const evidence = process.env.EVB_OCR_PROGRESS_EVIDENCE_DIR;
+        if (evidence) await mkdir(evidence, {recursive: true});
+        const page = await lifecycle.browser.newPage({
+            ...(evidence ? {recordVideo: {dir: evidence}} : {}),
+            viewport: {
+                width: 1440,
+                height: 900,
+            },
+        });
         try {
             // Serve the bundled, hash-verified English model without a network download.
             await page.route('**/eng.traineddata', route => route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}));
             const source = await PDFDocument.load(await readFile(join(
                 process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf',
             )));
-            const document = await PDFDocument.create();
+            const fixturePdf = await PDFDocument.create();
             for (let index = 0; index < 8; index += 1) {
-                const [copy] = await document.copyPages(source, [0]);
-                document.addPage(copy!);
+                const [copy] = await fixturePdf.copyPages(source, [0]);
+                fixturePdf.addPage(copy!);
             }
             await openPdfFromChooser(page, {
                 name: 'ocr-progress-counts.pdf',
                 mimeType: 'application/pdf',
-                buffer: Buffer.from(await document.save()),
+                buffer: Buffer.from(await fixturePdf.save()),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
             await page.getByRole('button', {
@@ -56,9 +61,7 @@ describe('browser OCR progress', () => {
             await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
             await page.waitForFunction(() => document.querySelector('[role="dialog"] .progress-text')
                 ?.textContent?.startsWith('Processing page'), undefined, {timeout: 90_000});
-            const evidence = process.env.EVB_OCR_PROGRESS_EVIDENCE_DIR;
             if (evidence) {
-                await mkdir(evidence, {recursive: true});
                 await page.screenshot({path: join(evidence, 'processing.png')});
             }
             await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
