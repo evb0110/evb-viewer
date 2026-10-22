@@ -428,12 +428,25 @@ const printResultSchema = v.object({
     unsupportedReason: v.exactOptional(v.picklist(unsupportedReasons)),
 });
 const nullableCountSchema = v.nullable(nonNegativeSafeInteger);
+/**
+ * `not-smaller`: the best copy the preset could make was not smaller than the
+ * document, so nothing was written; `optimizedBytes` is that copy's size.
+ */
+export const PDF_OPTIMIZE_OUTCOMES = [
+    'saved',
+    'not-smaller',
+    'invalid',
+    'cancelled',
+] as const;
 const optimizeResultSchema = v.object({
+    outcome: v.picklist(PDF_OPTIMIZE_OUTCOMES),
     path: v.nullable(documentRefSchema),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
     preset: PDF_OPTIMIZE_PRESET_SCHEMA,
     originalBytes: nullableCountSchema,
     optimizedBytes: nullableCountSchema,
+    /** Pages whose images were re-encoded; the rest kept their own content. */
+    optimizedPages: nullableCountSchema,
     pageCount: nullableCountSchema,
 });
 const stagedOutputSchema = v.message(TYPED_STAGED_ARTIFACT_SCHEMA, 'invalid staged native PDF output');

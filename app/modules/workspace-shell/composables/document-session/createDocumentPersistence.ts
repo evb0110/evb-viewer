@@ -19,6 +19,7 @@ import type {
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
+    IPdfOptimizeResult,
     IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
@@ -637,6 +638,7 @@ export function createDocumentPersistence(
             saveMode?: TPdfSaveMode;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             expectedWorkingPath?: TDocumentRef | null;
+            onResult?: (result: IPdfOptimizeResult) => void;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
@@ -655,6 +657,7 @@ export function createDocumentPersistence(
                     opts?.expectedDocumentRevisionToken ?? state.documentRevisionToken.value,
                 ),
             );
+            opts?.onResult?.(optimizeResult);
             if (optimizeResult.validation && !optimizeResult.validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, true, refusedPersistFailure(
                     'file:optimizePdfAsCopy',

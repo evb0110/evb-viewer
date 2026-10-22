@@ -705,6 +705,9 @@ pub(crate) enum Operation {
     OcrTextLayer {
         instructions_file: PathBuf,
     },
+    ReplacePageImages {
+        instructions_file: PathBuf,
+    },
     OcrTextVisibility {
         pages_file: PathBuf,
         /// Also report the text of each page's EVB OCR layer.

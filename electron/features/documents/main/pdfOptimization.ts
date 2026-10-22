@@ -1,13 +1,15 @@
 import {
-    copyFile,
+    open,
     readdir,
     rm,
     stat,
+    writeFile,
 } from 'fs/promises';
 import {
     extname,
     join,
 } from 'path';
+import * as v from 'valibot';
 import type {
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
@@ -22,11 +24,9 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import {
     assertNonEmptyPdfOutput,
     getPdfPageCount,
-    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-    QPDF_TIMEOUT_MS,
-    runQpdfCommand,
+    resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public';
-import { tryWritePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import { writePdfWithNativeImageCombineManifest } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { optimizePdfForSave } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import {
@@ -39,14 +39,34 @@ import type { TRequestId } from '@contracts/shared';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 
-const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = 25;
+const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = 10;
 const PDF_OPTIMIZE_RENDER_TIMEOUT_MS = 15 * 60 * 1000;
-const PDF_OPTIMIZE_MERGE_TIMEOUT_MS = 30 * 60 * 1000;
+const PDF_OPTIMIZE_REPLACE_TIMEOUT_MS = 30 * 60 * 1000;
+const PDF_OPTIMIZE_REPLACE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
+/**
+ * A page is re-encoded only when that saves at least a tenth of its bytes:
+ * a smaller gain is not worth replacing the page's own image with a lossy one.
+ */
+const PDF_OPTIMIZE_MAX_REPLACEMENT_BYTE_RATIO = 0.9;
+const NETPBM_HEADER_BYTES = 512;
+
+/**
+ * How a raster preset re-encodes a page. Pages are rendered as Netpbm so the
+ * image combiner, not the renderer, chooses the stored encoding: JPEG pages
+ * are written as one gray channel when the render is gray, and black-and-white
+ * pages are binarized by scan cleanup's pass and stored as lossless 1-bit.
+ */
+type TRasterPageEncoding =
+    | {
+        kind: 'jpeg';
+        quality: number;
+        grayscale: boolean;
+    }
+    | {kind: 'black-and-white';};
 
 interface IPdfRasterOptimizePreset {
     dpi: number;
-    jpegQuality: number;
-    grayscale: boolean;
+    encoding: TRasterPageEncoding;
 }
 
 interface IPdfOptimizePageRange {
@@ -70,8 +90,9 @@ interface IOptimizeProgressContext {
 
 /**
  * The bar's share for each stage. Rendering and assembling pages is most of
- * the work and advances per page; the structure pass and the validity check
- * that follow have no count, so the dialog shows their elapsed time instead.
+ * the work and advances per page; placing the pages, the structure pass and
+ * the validity check that follow have no count, so the dialog shows their
+ * elapsed time instead.
  */
 const OPTIMIZE_PAGE_WORK_PERCENT = 80;
 const OPTIMIZE_RENDER_WEIGHT = 3;
@@ -94,20 +115,53 @@ interface IOptimizePdfToFileOptions {
 const RASTER_PRESETS: Record<Exclude<TPdfOptimizePreset, 'lossless'>, IPdfRasterOptimizePreset> = {
     balancedScanned: {
         dpi: 200,
-        jpegQuality: 82,
-        grayscale: false,
+        encoding: {
+            kind: 'jpeg',
+            quality: 82,
+            grayscale: false,
+        },
     },
     smallScanned: {
         dpi: 150,
-        jpegQuality: 60,
-        grayscale: true,
+        encoding: {
+            kind: 'jpeg',
+            quality: 60,
+            grayscale: true,
+        },
     },
     blackAndWhite: {
-        dpi: 200,
-        jpegQuality: 68,
-        grayscale: true,
+        dpi: 300,
+        encoding: {kind: 'black-and-white'},
     },
 };
+
+const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
+    format: v.literal('evb-pdf-replace-page-images'),
+    pages: v.array(v.object({
+        pageNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
+        outcome: v.picklist([
+            'replaced',
+            'not-smaller',
+            'no-images',
+            'visible-text',
+            'form-xobject',
+            'unsupported-text',
+        ]),
+        sourceBytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
+        replacementBytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    })),
+});
+
+interface IReplacementPage {
+    pageNumber: number;
+    replacement: string;
+    replacementPageNumber: number;
+}
+
+interface IOptimizedCandidate {
+    validation: Awaited<ReturnType<typeof validatePdfFile>>;
+    optimizedPages: number;
+}
 
 function requireDocumentRef(value: unknown) {
     const documentRef = parseDocumentRef(value);
@@ -200,6 +254,13 @@ function emitProgress(
     });
 }
 
+function signalOptions(context: IOptimizeProgressContext) {
+    return {
+        ...(context.signal ? {signal: context.signal} : {}),
+        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
+    };
+}
+
 /**
  * pdftoppm renders a whole page range before it returns, so the pages it has
  * already written are counted while it runs; otherwise the first stage of a
@@ -214,7 +275,7 @@ function watchRenderedPageCount(renderDir: string, onCount: (count: number) => v
             return;
         }
         reading = true;
-        void collectRenderedJpegPages(renderDir)
+        void collectRenderedPages(renderDir)
             .then(pages => {
                 // A read that finishes after the range returned would report a
                 // stale rendering stage over the assembly that followed it.
@@ -242,43 +303,66 @@ function parsePageNumber(fileName: string) {
     return Number.parseInt(match[1] ?? '', 10);
 }
 
-async function collectRenderedJpegPages(renderDir: string) {
+async function collectRenderedPages(renderDir: string) {
     const entries = await readdir(renderDir);
     return entries
         .filter(entry => {
             const extension = extname(entry).toLowerCase();
-            return extension === '.jpg' || extension === '.jpeg';
+            return extension === '.ppm' || extension === '.pgm';
         })
         .sort((left, right) => parsePageNumber(left) - parsePageNumber(right))
         .map(entry => join(renderDir, entry));
 }
 
-async function renderPdfRangeToJpegPages(
+/** Width and height in pixels from the header pdftoppm writes. */
+async function readNetpbmDimensions(path: string) {
+    const handle = await open(path, 'r');
+    let header: string;
+    try {
+        const buffer = Buffer.alloc(NETPBM_HEADER_BYTES);
+        const {bytesRead} = await handle.read(buffer, 0, buffer.byteLength, 0);
+        header = buffer.toString('latin1', 0, bytesRead);
+    } finally {
+        await handle.close();
+    }
+    const fields = header.replace(/#[^\n]*\n/gu, ' ').match(/^P[56]\s+(\d+)\s+(\d+)\s+255\s/u);
+    const width = Number(fields?.[1]);
+    const height = Number(fields?.[2]);
+    if (!(width > 0 && height > 0)) {
+        throw new Error(`Rendered page is not an 8-bit Netpbm image: ${path}`);
+    }
+    return {
+        width,
+        height,
+    };
+}
+
+async function renderPdfRange(
     inputPath: string,
     renderDir: string,
     range: IPdfOptimizePageRange,
     preset: IPdfRasterOptimizePreset,
-    signal?: AbortSignal,
-    cancelGroup?: string,
+    context: IOptimizeProgressContext,
 ) {
     const paths = getPdfNativeToolPaths();
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: PDF_OPTIMIZE_RENDER_TIMEOUT_MS,
         commandLabel: 'pdftoppm(pdf-optimize)',
-        ...(signal ? {signal} : {}),
-        ...(cancelGroup ? {cancelGroup} : {}),
+        ...signalOptions(context),
     };
     const popplerEnv = buildPopplerEnv(paths);
     if (popplerEnv !== undefined) {
         commandOptions.env = popplerEnv;
     }
 
+    const grayscale = preset.encoding.kind === 'black-and-white' || preset.encoding.grayscale;
+    // The page's view, as a viewer shows it. Annotations stay live on the
+    // page, so they are not painted into its image too.
     const args = [
         '-q',
-        ...(preset.grayscale ? ['-gray'] : []),
-        '-jpeg',
-        '-jpegopt',
-        `quality=${preset.jpegQuality}`,
+        '-cropbox',
+        '-hide-annotations',
+        ...(grayscale ? ['-gray'] : []),
         '-r',
         String(preset.dpi),
         '-f',
@@ -290,7 +374,7 @@ async function renderPdfRangeToJpegPages(
     ];
     await runNativeToolCommand(paths.pdftoppm, args, commandOptions);
 
-    const pagePaths = await collectRenderedJpegPages(renderDir);
+    const pagePaths = await collectRenderedPages(renderDir);
     const expectedCount = range.lastPage - range.firstPage + 1;
     if (pagePaths.length !== expectedCount) {
         throw new Error(`PDF optimization rendered ${pagePaths.length} pages, expected ${expectedCount}`);
@@ -298,17 +382,51 @@ async function renderPdfRangeToJpegPages(
     return pagePaths;
 }
 
-async function assembleImageChunk(
-    imagePaths: string[],
+async function writeChunkManifest(
+    pagePaths: string[],
+    manifestPath: string,
+    preset: IPdfRasterOptimizePreset,
+) {
+    const lines: string[] = [];
+    for (const pagePath of pagePaths) {
+        const {
+            width, height,
+        } = await readNetpbmDimensions(pagePath);
+        const pageSize = [
+            (width / preset.dpi * 72).toFixed(6),
+            (height / preset.dpi * 72).toFixed(6),
+        ];
+        lines.push(preset.encoding.kind === 'black-and-white'
+            ? [
+                'image-bw',
+                ...pageSize,
+                pagePath,
+            ].join('\t')
+            : [
+                'image-jpeg',
+                ...pageSize,
+                String(preset.encoding.quality),
+                pagePath,
+            ].join('\t'));
+    }
+    await writeFile(manifestPath, `${lines.join('\n')}\n`, 'utf8');
+}
+
+async function assembleRenderedChunk(
+    pagePaths: string[],
+    renderDir: string,
     chunkPath: string,
     pageOffset: number,
     pageCount: number,
+    preset: IPdfRasterOptimizePreset,
     context: IOptimizeProgressContext,
 ) {
-    // Chunks stay files until the merge, so they are not held to the cap on
-    // bytes returned into memory; 25 color pages at 200 DPI routinely exceed it.
-    const ok = await tryWritePdfWithNativeImageCombiner(imagePaths, chunkPath, {
-        maxPages: imagePaths.length,
+    const manifestPath = join(renderDir, 'pages.tsv');
+    await writeChunkManifest(pagePaths, manifestPath, preset);
+    // Chunks stay files until the pages are placed, so they are not held to
+    // the cap on bytes returned into memory.
+    const ok = await writePdfWithNativeImageCombineManifest(manifestPath, chunkPath, {
+        maxPages: pagePaths.length,
         outputMode: 'file-backed',
         onProgress: progress => emitProgress(
             context,
@@ -319,36 +437,53 @@ async function assembleImageChunk(
         ...(context.signal ? {signal: context.signal} : {}),
     });
     if (!ok) {
-        throw new Error('Native PDF image assembler is unavailable');
+        throw new Error('Native PDF image assembler failed to write the re-encoded pages');
     }
 
     await assertNonEmptyPdfOutput(chunkPath, 'Optimizing scanned PDF chunk');
 }
 
-async function mergePdfChunks(chunkPaths: string[], outputPath: string, context: IOptimizeProgressContext) {
-    if (chunkPaths.length === 1) {
-        await copyFile(chunkPaths[0]!, outputPath);
-        await assertNonEmptyPdfOutput(outputPath, 'Optimizing scanned PDF');
-        return;
+/**
+ * Puts each re-encoded page into its source page when that saves enough
+ * bytes, and returns how many pages changed. A page keeps its own content
+ * otherwise, and when it shows text or vector content that its image would
+ * flatten.
+ */
+async function replacePageImages(
+    inputPath: string,
+    outputPath: string,
+    pages: IReplacementPage[],
+    scratchDir: string,
+    context: IOptimizeProgressContext,
+) {
+    const pageOpsPath = resolveNativePageOpsPath();
+    if (!pageOpsPath) {
+        throw new Error('Native PDF page tool is unavailable');
     }
-
-    await runQpdfCommand([
-        '--empty',
-        '--pages',
-        ...chunkPaths.flatMap(chunkPath => [
-            chunkPath,
-            '1-z',
-        ]),
-        '--',
+    const instructionsPath = join(scratchDir, 'replace-page-images.json');
+    await writeFile(instructionsPath, JSON.stringify({
+        maxByteRatio: PDF_OPTIMIZE_MAX_REPLACEMENT_BYTE_RATIO,
+        pages,
+    }), 'utf8');
+    const result = await runNativeToolCommand(pageOpsPath, [
+        'replace-page-images',
+        '--input',
+        inputPath,
+        '--output',
         outputPath,
+        '--instructions-file',
+        instructionsPath,
+        '--qpdf',
+        getPdfNativeToolPaths().qpdf,
     ], {
-        timeoutMs: Math.max(QPDF_TIMEOUT_MS, PDF_OPTIMIZE_MERGE_TIMEOUT_MS),
-        allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-        commandLabel: 'qpdf(pdf-optimize-merge)',
-        ...(context.signal ? {signal: context.signal} : {}),
-        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
+        commandLabel: 'evb-pdf-page-ops(replace-page-images)',
+        timeoutMs: PDF_OPTIMIZE_REPLACE_TIMEOUT_MS,
+        maxStdoutBytes: PDF_OPTIMIZE_REPLACE_MAX_STDOUT_BYTES,
+        rejectOnStdoutTruncation: true,
+        ...signalOptions(context),
     });
-    await assertNonEmptyPdfOutput(outputPath, 'Optimizing scanned PDF');
+    const report = v.parse(REPLACE_PAGE_IMAGES_REPORT_SCHEMA, JSON.parse(result.stdout));
+    return report.pages.filter(page => page.outcome === 'replaced').length;
 }
 
 function getRasterPreset(preset: TPdfOptimizePreset): IPdfRasterOptimizePreset {
@@ -358,9 +493,9 @@ function getRasterPreset(preset: TPdfOptimizePreset): IPdfRasterOptimizePreset {
     return RASTER_PRESETS[preset];
 }
 
-async function finalizeOptimizedPdf(
+/** Rewrites the candidate's structure and checks it; publishing is the caller's. */
+async function finishCandidate(
     tempPath: string,
-    outputPath: string,
     context: IOptimizeProgressContext,
     pageCount: number,
 ) {
@@ -369,44 +504,34 @@ async function finalizeOptimizedPdf(
         force: true,
         skipSemanticPreflight: true,
         label: 'qpdf(pdf-optimize-final)',
-        ...(context.signal ? {signal: context.signal} : {}),
-        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
+        ...signalOptions(context),
     });
 
     emitProgress(context, 'validating', pageCount, pageCount);
-    const validation = await validatePdfFile(tempPath, {
-        ...(context.signal ? {signal: context.signal} : {}),
-        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
-    });
-    if (!validation.isValid) {
-        return validation;
-    }
-
-    await atomicReplace(tempPath, outputPath);
-    emitProgress(context, 'complete', pageCount, pageCount);
-    return validation;
+    return validatePdfFile(tempPath, signalOptions(context));
 }
 
 async function optimizeLosslessCopy(
     inputPath: string,
     tempOutputPath: string,
-    outputPath: string,
     context: IOptimizeProgressContext,
-) {
+): Promise<IOptimizedCandidate> {
     emitProgress(context, 'preparing', 0, 1);
     await copyFileCopyOnWrite(inputPath, tempOutputPath);
-    return finalizeOptimizedPdf(tempOutputPath, outputPath, context, 1);
+    return {
+        validation: await finishCandidate(tempOutputPath, context, 1),
+        optimizedPages: 0,
+    };
 }
 
 async function optimizeRasterCopy(
     inputPath: string,
     tempOutputPath: string,
-    outputPath: string,
     pageCount: number,
     preset: IPdfRasterOptimizePreset,
     context: IOptimizeProgressContext,
-) {
-    const chunkPaths: string[] = [];
+): Promise<IOptimizedCandidate> {
+    const replacements: IReplacementPage[] = [];
     let processedPages = 0;
     context.pages = {
         total: pageCount,
@@ -416,9 +541,10 @@ async function optimizeRasterCopy(
     emitProgress(context, 'rendering', 0, pageCount);
     return usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
         for (const range of createPageRanges(pageCount)) {
-            await usingManagedScratchScope('pdfExport-', tempDir, async actualRenderDir => {
+            const chunkPath = join(tempDir, `chunk-${String(range.firstPage).padStart(6, '0')}.pdf`);
+            await usingManagedScratchScope('pdfExport-', tempDir, async renderDir => {
                 const pagesBeforeRange = processedPages;
-                const stopWatching = watchRenderedPageCount(actualRenderDir, count => emitProgress(
+                const stopWatching = watchRenderedPageCount(renderDir, count => emitProgress(
                     context,
                     'rendering',
                     pagesBeforeRange + count,
@@ -426,38 +552,54 @@ async function optimizeRasterCopy(
                 ));
                 let renderedPages: string[];
                 try {
-                    renderedPages = await renderPdfRangeToJpegPages(
-                        inputPath,
-                        actualRenderDir,
-                        range,
-                        preset,
-                        context.signal,
-                        context.cancelGroup,
-                    );
+                    renderedPages = await renderPdfRange(inputPath, renderDir, range, preset, context);
                 } finally {
                     stopWatching();
                 }
                 processedPages += renderedPages.length;
                 emitProgress(context, 'rendering', processedPages, pageCount);
-
-                const chunkPath = join(tempDir, `chunk-${String(chunkPaths.length + 1).padStart(5, '0')}.pdf`);
-                await assembleImageChunk(
+                await assembleRenderedChunk(
                     renderedPages,
+                    renderDir,
                     chunkPath,
                     range.firstPage - 1,
                     pageCount,
+                    preset,
                     context,
                 );
-                chunkPaths.push(chunkPath);
             });
+            for (let pageNumber = range.firstPage; pageNumber <= range.lastPage; pageNumber += 1) {
+                replacements.push({
+                    pageNumber,
+                    replacement: chunkPath,
+                    replacementPageNumber: pageNumber - range.firstPage + 1,
+                });
+            }
         }
 
         emitProgress(context, 'optimizing', pageCount, pageCount);
-        await mergePdfChunks(chunkPaths, tempOutputPath, context);
-        return finalizeOptimizedPdf(tempOutputPath, outputPath, context, pageCount);
+        const optimizedPages = await replacePageImages(
+            inputPath,
+            tempOutputPath,
+            replacements,
+            tempDir,
+            context,
+        );
+        if (optimizedPages === 0) {
+            await copyFileCopyOnWrite(inputPath, tempOutputPath);
+        }
+        return {
+            validation: await finishCandidate(tempOutputPath, context, pageCount),
+            optimizedPages,
+        };
     });
 }
 
+/**
+ * Writes an optimized copy of `inputPath` to `outputPath` only when the copy
+ * is smaller. Otherwise nothing is written and the result says so with the
+ * size the best attempt reached.
+ */
 export async function optimizePdfToFile(
     inputPath: string,
     outputPath: string,
@@ -465,62 +607,68 @@ export async function optimizePdfToFile(
     optimizeOptions: IOptimizePdfToFileOptions,
 ): Promise<IPdfOptimizeResult> {
     const normalizedOptions = normalizePdfOptimizeOptions(options);
-    const requestId = optimizeOptions.requestId;
     const context: IOptimizeProgressContext = {
         ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
-        requestId,
+        requestId: optimizeOptions.requestId,
         preset: normalizedOptions.preset,
         ...(optimizeOptions.signal ? {signal: optimizeOptions.signal} : {}),
         ...(optimizeOptions.onProgress ? {emit: optimizeOptions.onProgress} : {}),
     };
-    const originalBytes = await stat(inputPath).then(stats => stats.size).catch(() => null);
+    const originalBytes = (await stat(inputPath)).size;
     const pageCount = normalizedOptions.preset === 'lossless'
         ? null
-        : await getPdfPageCount(inputPath, {
-            ...(optimizeOptions.signal ? {signal: optimizeOptions.signal} : {}),
-            ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
-        });
+        : await getPdfPageCount(inputPath, signalOptions(context));
     const tempOutputPath = makeSiblingTempPath(outputPath);
-    let replaced = false;
+    const result = {
+        preset: normalizedOptions.preset,
+        originalBytes,
+        pageCount,
+    };
 
     try {
-        const validation = normalizedOptions.preset === 'lossless'
-            ? await optimizeLosslessCopy(inputPath, tempOutputPath, outputPath, context)
+        const candidate = pageCount === null
+            ? await optimizeLosslessCopy(inputPath, tempOutputPath, context)
             : await optimizeRasterCopy(
                 inputPath,
                 tempOutputPath,
-                outputPath,
-                pageCount ?? await getPdfPageCount(inputPath, {
-                    ...(optimizeOptions.signal ? {signal: optimizeOptions.signal} : {}),
-                    ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
-                }),
+                pageCount,
                 getRasterPreset(normalizedOptions.preset),
                 context,
             );
-        if (!validation.isValid) {
+        if (!candidate.validation.isValid) {
             return {
+                ...result,
+                outcome: 'invalid',
                 path: null,
-                validation,
-                preset: normalizedOptions.preset,
-                originalBytes,
+                validation: candidate.validation,
                 optimizedBytes: null,
-                pageCount,
+                optimizedPages: candidate.optimizedPages,
+            };
+        }
+        const optimizedBytes = (await stat(tempOutputPath)).size;
+        if (optimizedBytes >= originalBytes) {
+            emitProgress(context, 'complete', 1, 1);
+            return {
+                ...result,
+                outcome: 'not-smaller',
+                path: null,
+                validation: candidate.validation,
+                optimizedBytes,
+                optimizedPages: candidate.optimizedPages,
             };
         }
 
-        replaced = true;
-        const optimizedBytes = await stat(outputPath).then(stats => stats.size).catch(() => null);
+        await atomicReplace(tempOutputPath, outputPath);
+        emitProgress(context, 'complete', 1, 1);
         return {
+            ...result,
+            outcome: 'saved',
             path: requireDocumentRef(outputPath),
-            validation,
-            preset: normalizedOptions.preset,
-            originalBytes,
+            validation: candidate.validation,
             optimizedBytes,
-            pageCount,
+            optimizedPages: candidate.optimizedPages,
         };
     } finally {
-        if (!replaced) {
-            await rm(tempOutputPath, { force: true }).catch(() => undefined);
-        }
+        await rm(tempOutputPath, { force: true }).catch(() => undefined);
     }
 }

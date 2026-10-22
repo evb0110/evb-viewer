@@ -100,6 +100,10 @@ pub enum ImageProcessing {
     DownscaleToPpi {
         ppi_cap: u16,
     },
+    /// Binarizes a grayscale (PGM) render with scan cleanup's black-and-white
+    /// pass and stores the page as a lossless 1-bit image. Needs a page size,
+    /// which gives the render's resolution.
+    BlackAndWhite,
 }
 
 pub struct ImageSpec<S> {
@@ -778,6 +782,9 @@ fn read_processed_image(
     options: &PdfBuildOptions,
     page_size: Option<PdfPageSize>,
 ) -> Result<ImagePage> {
+    if image.processing == ImageProcessing::BlackAndWhite {
+        return read_black_and_white_page(image.source, options, page_size);
+    }
     let compression = PdfImageCompression::from(image.compression);
     match image.source {
         InputSource::File { label, file } => read_image_page_from_file(
@@ -799,6 +806,60 @@ fn read_processed_image(
             image.size_guardrail,
         ),
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn read_black_and_white_page(
+    source: InputSource<'_>,
+    options: &PdfBuildOptions,
+    page_size: Option<PdfPageSize>,
+) -> Result<ImagePage> {
+    let page_size = page_size.ok_or("Black-and-white pages need a page size")?;
+    let bytes = source.read_all()?;
+    let render = parse_netpbm(bytes.as_ref(), options.max_pixels)?;
+    if render.channels != 1 {
+        return Err("Black-and-white pages need a grayscale (PGM) render".into());
+    }
+    let width = render.width as usize;
+    let height = render.height as usize;
+    let dpi = f64::from(render.width) * 72.0 / page_size.width_points;
+    if !dpi.is_finite() || dpi <= 0.0 {
+        return Err("Black-and-white page size gives no render resolution".into());
+    }
+    let gray = scan_primitives::GrayImage::from_vec(width, height, width, render.pixels.to_vec())
+        .ok_or("Black-and-white render has an invalid pixel buffer")?;
+    let cleanup = evb_scan_cleanup::CleanupOptions {
+        dpi,
+        ..evb_scan_cleanup::CleanupOptions::default()
+    };
+    let binary = evb_scan_cleanup::bw::clean_black_and_white(&gray, &cleanup).binary;
+    // Both rasters pack black as one, most significant bit first.
+    let row_stride = width.div_ceil(8);
+    let mut bitmap = Vec::with_capacity(row_stride * height);
+    for row in binary.words().chunks_exact(binary.words_per_line()) {
+        let mut packed = row.iter().flat_map(|word| word.to_be_bytes());
+        bitmap.extend(packed.by_ref().take(row_stride));
+    }
+    let dpi = dpi.round().clamp(1.0, f64::from(u32::MAX)) as u32;
+    bilevel_image_page(
+        crate::netpbm::PbmP4Image {
+            width: render.width,
+            height: render.height,
+            row_stride,
+            bitmap,
+        },
+        dpi,
+        dpi,
+    )
+}
+
+#[cfg(target_family = "wasm")]
+fn read_black_and_white_page(
+    _source: InputSource<'_>,
+    _options: &PdfBuildOptions,
+    _page_size: Option<PdfPageSize>,
+) -> Result<ImagePage> {
+    Err("Black-and-white pages are not available in the browser build".into())
 }
 
 fn read_mask(source: InputSource<'_>, max_pixels: u64) -> Result<BilevelStream> {

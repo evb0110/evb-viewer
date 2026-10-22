@@ -94,11 +94,13 @@ export async function handleOptimizePdfAsCopy(
     });
     if (!targetPath) {
         return {
+            outcome: 'cancelled' as const,
             path: null,
             validation: null,
             preset: options.preset,
             originalBytes: null,
             optimizedBytes: null,
+            optimizedPages: null,
             pageCount: null,
         };
     }

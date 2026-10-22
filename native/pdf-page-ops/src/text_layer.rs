@@ -41,7 +41,10 @@ fn collect_fonts_from_resources(
     }
 }
 
-fn page_fonts(document: &Document, page_id: ObjectId) -> Result<BTreeMap<Vec<u8>, Object>> {
+pub(crate) fn page_fonts(
+    document: &Document,
+    page_id: ObjectId,
+) -> Result<BTreeMap<Vec<u8>, Object>> {
     let (direct_resources, inherited_resource_ids) = document.get_page_resources(page_id)?;
     let mut fonts = BTreeMap::new();
     // A nearer resource dictionary shadows the inherited one with the same name.
@@ -1203,7 +1206,7 @@ pub(crate) fn clone_object_graph<F: Fn(&Object) -> Result<Option<Object>>>(
     }
 }
 
-fn text_operations(
+pub(crate) fn text_operations(
     source: &Document,
     page_id: ObjectId,
     filter: Option<(TextMatrix, PdfRect)>,
