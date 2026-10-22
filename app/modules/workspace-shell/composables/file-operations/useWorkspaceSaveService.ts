@@ -6,7 +6,10 @@ import type { TRequestId } from '@contracts/shared';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {isFailurePresentation} from '@app/composables/useFailureToast';
-import type {IPdfOptimizeOptions} from '@contracts/electronApiDocuments';
+import type {
+    IPdfOptimizeOptions,
+    IPdfOptimizeResult,
+} from '@contracts/electronApiDocuments';
 import {
     getDocumentMutationErrorPayload,
     isStaleRevisionError,
@@ -462,6 +465,7 @@ async function executeOptimizationSave(
                     saveMode: getSaveMode(plan),
                     expectedWorkingPath: plan.target.expectedWorkingPath,
                     expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
+                    ...(plan.request.onResult ? {onResult: plan.request.onResult} : {}),
                 },
             ),
         );
@@ -827,16 +831,17 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleOptimizePdfAsCopy: (
             options: IPdfOptimizeOptions,
             requestId?: TRequestId,
-        ) => canSave.value
-            ? saveIfDirty().then(saved => saved ? save({
-                kind: 'optimize-copy',
+            onResult?: (result: IPdfOptimizeResult) => void,
+        ) => {
+            const request = {
+                kind: 'optimize-copy' as const,
                 options,
                 ...(requestId === undefined ? {} : {requestId}),
-            }) : false)
-            : save({
-                kind: 'optimize-copy',
-                options,
-                ...(requestId === undefined ? {} : {requestId}),
-            }),
+                ...(onResult === undefined ? {} : {onResult}),
+            };
+            return canSave.value
+                ? saveIfDirty().then(saved => saved ? save(request) : false)
+                : save(request);
+        },
     };
 };

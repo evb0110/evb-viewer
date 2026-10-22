@@ -127,6 +127,206 @@ fn cli_streams_jsonl_compact_manifest_without_staging_all_pages() {
 }
 
 #[test]
+fn image_bw_manifest_writes_one_bit_page_with_clean_paper_and_retained_ink() {
+    use std::io::Read;
+
+    use fax::{
+        decoder::{decode_g4, pels},
+        Color,
+    };
+    use flate2::read::ZlibDecoder;
+
+    const WIDTH: usize = 256;
+    const HEIGHT: usize = 192;
+    let input_path = temp_path("bw-gray").with_extension("pgm");
+    let manifest_path = temp_path("bw-manifest").with_extension("tsv");
+    let output_path = temp_path("bw-output").with_extension("pdf");
+    // Connected, text-like strokes on gray paper, with ample blank margins.
+    let stroke = |x: usize, y: usize| {
+        (48..56).contains(&x) && (48..144).contains(&y)
+            || (48..112).contains(&x) && (88..96).contains(&y)
+            || (104..112).contains(&x) && (48..144).contains(&y)
+            || (152..160).contains(&x) && (48..144).contains(&y)
+            || (152..208).contains(&x) && (48..56).contains(&y)
+            || (152..208).contains(&x) && (136..144).contains(&y)
+    };
+    let mut pgm = format!("P5\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            pgm.push(if stroke(x, y) { 40 } else { 220 });
+        }
+    }
+    fs::write(&input_path, pgm).unwrap();
+    fs::write(
+        &manifest_path,
+        format!("image-bw\t96\t72\t{}\n", input_path.display()),
+    )
+    .unwrap();
+    let result = run_bw_manifest(&manifest_path, &output_path);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let pdf = fs::read(&output_path).unwrap();
+    let text = String::from_utf8_lossy(&pdf);
+    assert_eq!(text.matches("/Type /Page ").count(), 1);
+    assert!(text.contains("/Count 1"));
+    assert!(text.contains("/MediaBox [0 0 96.0000 72.0000]"));
+
+    // Read the actual emitted image, without assuming which lossless codec won.
+    let image_marker = b"/Subtype /Image";
+    assert_eq!(
+        pdf.windows(image_marker.len())
+            .filter(|part| *part == image_marker)
+            .count(),
+        1
+    );
+    let image_start = pdf
+        .windows(image_marker.len())
+        .position(|part| part == image_marker)
+        .unwrap();
+    let stream_start = image_start
+        + pdf[image_start..]
+            .windows(8)
+            .position(|part| part == b"\nstream\n")
+            .unwrap()
+        + 8;
+    let dictionary = std::str::from_utf8(&pdf[image_start..stream_start]).unwrap();
+    assert!(dictionary.contains("/BitsPerComponent 1"));
+    assert!(dictionary.contains("/ColorSpace /DeviceGray"));
+    assert!(dictionary.contains("/Width 256 /Height 192"));
+    let length: usize = dictionary
+        .split("/Length ")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let encoded = &pdf[stream_start..stream_start + length];
+    let row_stride = WIDTH.div_ceil(8);
+    let bitmap = if dictionary.contains("/JBIG2Decode") {
+        assert!(!dictionary.contains("/Decode [1 0]"));
+        let decoded =
+            jbig2_codec::decode_pdf_generic(encoded, jbig2_codec::DecodeLimits::default()).unwrap();
+        assert_eq!(
+            (decoded.width, decoded.height),
+            (WIDTH as u32, HEIGHT as u32)
+        );
+        decoded.rows
+    } else {
+        assert!(
+            dictionary.contains("/Decode [1 0]"),
+            "black bits must render as ink"
+        );
+        if dictionary.contains("/CCITTFaxDecode") {
+            assert!(dictionary.contains("/BlackIs1 true"));
+            let mut bitmap = vec![0; row_stride * HEIGHT];
+            let mut row = 0;
+            assert!(decode_g4(
+                encoded.iter().copied(),
+                WIDTH as u32,
+                Some(HEIGHT as u32),
+                |transitions| {
+                    for (x, color) in pels(transitions, WIDTH as u32).enumerate() {
+                        if color == Color::Black {
+                            bitmap[row * row_stride + x / 8] |= 1 << (7 - x % 8);
+                        }
+                    }
+                    row += 1;
+                }
+            )
+            .is_some());
+            assert_eq!(row, HEIGHT);
+            bitmap
+        } else {
+            assert!(
+                dictionary.contains("/FlateDecode"),
+                "unexpected bilevel encoding: {dictionary}"
+            );
+            let mut bitmap = Vec::new();
+            ZlibDecoder::new(encoded).read_to_end(&mut bitmap).unwrap();
+            bitmap
+        }
+    };
+    assert_eq!(bitmap.len(), row_stride * HEIGHT);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            // Check interiors of paper and strokes. Binarization may move their
+            // edges, but it must neither erase ink cores nor dirty blank paper.
+            let expected = stroke(x, y);
+            let interior = (x.saturating_sub(2)..=(x + 2).min(WIDTH - 1)).all(|near_x| {
+                (y.saturating_sub(2)..=(y + 2).min(HEIGHT - 1))
+                    .all(|near_y| stroke(near_x, near_y) == expected)
+            });
+            if interior {
+                let ink = bitmap[y * row_stride + x / 8] & (1 << (7 - x % 8)) != 0;
+                assert_eq!(ink, expected, "wrong decoded ink at ({x}, {y})");
+            }
+        }
+    }
+    remove_files([&input_path, &manifest_path, &output_path]);
+}
+
+#[test]
+fn image_bw_manifest_rejects_three_channel_ppm() {
+    let input_path = temp_path("bw-rgb").with_extension("ppm");
+    let manifest_path = temp_path("bw-rgb-manifest").with_extension("tsv");
+    let output_path = temp_path("bw-rgb-output").with_extension("pdf");
+    fs::write(&input_path, b"P6\n1 1\n255\n\xdc\xdc\xdc").unwrap();
+    fs::write(
+        &manifest_path,
+        format!("image-bw\t72\t72\t{}\n", input_path.display()),
+    )
+    .unwrap();
+    let result = run_bw_manifest(&manifest_path, &output_path);
+    assert!(!result.status.success());
+    let error: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("grayscale (PGM) render"),
+        "{error}"
+    );
+    assert!(!output_path.exists());
+    remove_files([&input_path, &manifest_path, &output_path]);
+}
+
+#[test]
+fn image_bw_manifest_rejects_wrong_field_counts() {
+    let manifest_path = temp_path("bw-fields").with_extension("tsv");
+    let output_path = temp_path("bw-fields-output").with_extension("pdf");
+    for line in ["image-bw\t72\t72", "image-bw\t72\t72\t/missing.pgm\textra"] {
+        fs::write(&manifest_path, line).unwrap();
+        let result = run_bw_manifest(&manifest_path, &output_path);
+        assert!(!result.status.success(), "accepted malformed line: {line}");
+        let error: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .contains("Invalid compact manifest field count on line 1"),
+            "{error}"
+        );
+        assert!(!output_path.exists());
+    }
+    remove_files([&manifest_path, &output_path]);
+}
+
+fn run_bw_manifest(manifest: &Path, output: &Path) -> process::Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .arg("--output")
+        .arg(output)
+        .arg("--compact-manifest")
+        .arg(manifest)
+        .output()
+        .unwrap()
+}
+
+#[test]
 fn cli_preserves_existing_output_and_removes_temporary_on_late_failure() {
     let valid_path = temp_path("late-valid").with_extension("ppm");
     let invalid_path = temp_path("late-invalid").with_extension("ppm");

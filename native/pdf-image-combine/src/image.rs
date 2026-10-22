@@ -959,6 +959,9 @@ fn apply_jpeg_processing<'a>(
         ImageProcessing::DownscaleToPpi { ppi_cap } => {
             downscale_prepared_netpbm_to_ppi_cap(prepared, max_pixels, page_size, ppi_cap)
         }
+        ImageProcessing::BlackAndWhite => {
+            Err("Black-and-white processing does not produce JPEG pages".into())
+        }
     }
 }
 

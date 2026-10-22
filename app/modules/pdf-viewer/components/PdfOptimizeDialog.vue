@@ -25,11 +25,19 @@
                         color="warning"
                         variant="soft"
                         icon="i-ph-warning-circle"
-                        :description="t('optimizePdf.flattenWarning')"
-                        :class="{invisible: !selectedPresetDestructive || isRunning || Boolean(progress)}"
-                        :aria-hidden="selectedPresetDestructive && !isRunning && !progress
-                            ? undefined
-                            : 'true'"
+                        :description="t('optimizePdf.rasterWarning')"
+                        :class="{invisible: !showsRasterWarning}"
+                        :aria-hidden="showsRasterWarning ? undefined : 'true'"
+                    />
+
+                    <UAlert
+                        color="info"
+                        variant="soft"
+                        icon="i-ph-info"
+                        :description="presetNotice ?? ''"
+                        :class="{invisible: !showsPresetNotice}"
+                        :aria-hidden="showsPresetNotice ? undefined : 'true'"
+                        data-testid="optimize-pdf-notice"
                     />
 
                     <div
@@ -99,9 +107,15 @@ const open = defineModel<boolean>('open', { required: true });
 const {
     isRunning,
     progress,
+    notice,
 } = defineProps<{
     isRunning: boolean;
     progress: IPdfOptimizeProgress | null;
+    /** Why the last run with `preset` saved nothing. */
+    notice: {
+        preset: TPdfOptimizePreset;
+        message: string;
+    } | null;
 }>();
 
 const emit = defineEmits<{submit: [payload: IPdfOptimizeOptions];}>();
@@ -148,7 +162,11 @@ const presetOptions = computed(() => [
     description: string;
 }>);
 
-const selectedPresetDestructive = computed(() => preset.value !== 'lossless');
+const presetNotice = computed(() => (notice?.preset === preset.value ? notice.message : null));
+const showsPresetNotice = computed(() => presetNotice.value !== null && !isRunning && !progress);
+const showsRasterWarning = computed(() => (
+    preset.value !== 'lossless' && !showsPresetNotice.value && !isRunning && !progress
+));
 
 // Stages without a page count still show movement: their elapsed time.
 const phaseClock = useStageElapsedClock(
@@ -198,5 +216,6 @@ function handleSubmit() {
 
 .optimize-status-slot > * {
     grid-area: 1 / 1;
+    align-self: start;
 }
 </style>

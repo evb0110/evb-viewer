@@ -600,6 +600,33 @@ async function writePdfWithNativeImageCombiner(
     });
 }
 
+/**
+ * Writes the pages a compact manifest describes, one tab-separated page per
+ * line (see the combiner's `--compact-manifest`), straight to `outputPath`.
+ */
+export async function writePdfWithNativeImageCombineManifest(
+    manifestPath: string,
+    outputPath: string,
+    options?: INativePdfImageCombineOptions,
+): Promise<boolean> {
+    const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
+    if (!binaryPath) {
+        return false;
+    }
+    const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
+        '--compact-manifest',
+        manifestPath,
+    ]);
+    if (!ok) {
+        await rm(outputPath, { force: true }).catch(() => undefined);
+        return false;
+    }
+    return validateNativePdfOutputFile(
+        outputPath,
+        normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode),
+    );
+}
+
 async function runNativePdfImageCombine(
     binaryPath: string,
     outputPath: string,

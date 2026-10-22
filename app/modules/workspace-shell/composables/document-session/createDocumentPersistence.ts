@@ -19,6 +19,7 @@ import type {
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
+    IPdfOptimizeResult,
     IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
@@ -637,6 +638,7 @@ export function createDocumentPersistence(
             saveMode?: TPdfSaveMode;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             expectedWorkingPath?: TDocumentRef | null;
+            onResult?: (result: IPdfOptimizeResult) => void;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
@@ -673,10 +675,13 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, true);
             }
 
+            opts?.onResult?.(optimizeResult);
             const savedPath = optimizeResult.path;
             if (savedPath) {
                 let savedWorkingPath = previousWorkingPath;
-                if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
+                // Unlike Save As, the copy holds other bytes than the working
+                // copy, so the document continues from the copy on every platform.
+                if (savedPath !== previousWorkingPath) {
                     const nextWorkingPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
                     if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                         BrowserLogger.debug('workspace', 'Skipped stale optimized-copy working-copy refresh', {

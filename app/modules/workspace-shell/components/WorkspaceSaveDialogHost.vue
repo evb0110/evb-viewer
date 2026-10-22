@@ -30,6 +30,7 @@
             :open="presentsDocumentDialogs && optimize.optimizeDialogOpen.value"
             :is-running="optimize.isOptimizeDialogRunning.value"
             :progress="optimize.optimizeProgress.value"
+            :notice="optimize.optimizeNotice.value"
             @submit="optimize.handleOptimizeDialogSubmit"
             @update:open="optimize.handleOptimizeDialogOpenChange"
         />

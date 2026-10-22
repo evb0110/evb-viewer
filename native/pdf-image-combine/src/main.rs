@@ -963,6 +963,13 @@ fn parse_compact_manifest_line(
             None,
             None,
         )),
+        "image-bw" if parts.len() == 4 => Ok(image(
+            source(3)?,
+            ImageCompression::Auto,
+            ImageProcessing::BlackAndWhite,
+            None,
+            None,
+        )),
         "image" if parts.len() == 8 => Ok(image(
             source(3)?,
             ImageCompression::Auto,
@@ -1091,6 +1098,7 @@ fn parse_compact_manifest_line(
         }),
         "image"
         | "image-bilevel"
+        | "image-bw"
         | "image-jpeg"
         | "photo-jpeg"
         | "layered"

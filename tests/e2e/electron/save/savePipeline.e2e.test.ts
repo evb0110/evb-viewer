@@ -838,12 +838,15 @@ describe('Electron E2E - save pipeline diagnostics', () => {
 
     it('writes Optimize As Copy to the chosen destination without changing the source', async () => {
         const stamp = Date.now();
-        const sourcePath = await createMultiPageTextFixturePdf(`optimize-as-copy-source-${stamp}.pdf`, 2);
+        // A scan, which the default preset re-encodes smaller. Pages with real
+        // text keep their content, so a text fixture would get no copy.
+        const sourcePath = createFixturePath(`optimize-as-copy-source-${stamp}.pdf`);
+        await writeFile(sourcePath, await readFile('landing/recorder/documents/noldeke-1880-raw-scan.pdf'));
         const destinationPath = createFixturePath(`optimize-as-copy-destination-${stamp}.pdf`);
         expect(existsSync(destinationPath)).toBe(false);
         const sourceBeforeBytes = await readFile(sourcePath);
-        // The default preset rebuilds pages as images through the native
-        // combiner, which E2E launches leave off unless enabled.
+        // The default preset re-encodes pages through the native combiner,
+        // which E2E launches leave off unless enabled.
         session = await startElectronE2ESession(`e2e-optimize-as-copy-${stamp}`, {
             clean: true,
             extraEnv: {
@@ -884,21 +887,24 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(await readPdfPageSnapshots(destinationPath)).toEqual([
             1,
             2,
+            3,
+            4,
         ].map(pageNumber => ({
             pageNumber,
             rotation: 0,
             textSnippet: '',
         })));
+        expect((await readFile(destinationPath)).length).toBeLessThan(sourceBeforeBytes.length);
         await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
 
-        // A fresh session opens the copy and paints both pages.
+        // A fresh session opens the copy and paints its first two pages.
         await session.stop();
         session = await startElectronE2ESession(`e2e-optimize-as-copy-reopen-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [destinationPath],
         });
         await waitForOpenedPdf(session.page, destinationPath);
-        expect(await getWorkspaceToolbarSnapshot(session.page)).toMatchObject({totalPages: 2});
+        expect(await getWorkspaceToolbarSnapshot(session.page)).toMatchObject({totalPages: 4});
         for (const pageNumber of [
             1,
             2,
