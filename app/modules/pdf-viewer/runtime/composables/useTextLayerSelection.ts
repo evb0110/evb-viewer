@@ -119,7 +119,9 @@ function updateSelectionSentinel(
     const { endOfContent } = entry;
     endOfContent.style.width = textLayerDiv.style.width || '100%';
     endOfContent.style.height = textLayerDiv.style.height || '100%';
-    endOfContent.style.userSelect = 'text';
+    // A collapsed caret must not land on the page-sized sentinel: a drag
+    // that starts beside a line would then anchor at the end of the page.
+    endOfContent.style.userSelect = range.collapsed ? 'none' : 'text';
 
     const modifyStart = isSelectionStartBeingModified(range);
     const anchor = resolveSelectionSentinelAnchor(range, modifyStart);
@@ -293,6 +295,9 @@ export const useTextLayerSelection = () => {
                 textLayerDiv,
                 'mousedown',
                 () => {
+                    // The last drag left the sentinel selectable; clear that
+                    // before this press places its caret over the whole page.
+                    endOfContent.style.userSelect = 'none';
                     textLayerDiv.classList.add('selecting');
                 },
             );
