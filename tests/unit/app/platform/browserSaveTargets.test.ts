@@ -40,6 +40,7 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
+    BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES: 64 * 1024 * 1024,
     BrowserFileWriteOutcomeError: class BrowserFileWriteOutcomeError extends Error {
         public readonly externalWriteCommitted = null;
     },

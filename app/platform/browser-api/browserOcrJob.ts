@@ -19,10 +19,9 @@ import {
 } from '@app/platform/browser-api/browserOcrRaster';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import {
-    BROWSER_MAX_FULL_READ_BYTES,
-    browserDocumentStore,
-} from '@app/platform/browserDocumentStore';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {OCR_TEXT_LAYER_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,
@@ -225,10 +224,13 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     stage('preparing');
     const revision = await browserDocumentStore.getDocumentRevision(input.sourceRef);
     const {size} = await browserDocumentStore.stat(input.sourceRef);
-    if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        throw new BrowserOcrJobError('OCR_DOCUMENT_TOO_LARGE', `Browser OCR accepts documents up to ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)} MB`);
+    // Reject an impossible source before OCR. The worker accounts for page PDFs
+    // and instructions once recognition has produced their actual bytes.
+    const maxInputBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - OCR_TEXT_LAYER_HEADER.bytes;
+    if (size > maxInputBytes) {
+        throw new BrowserOcrJobError('OCR_DOCUMENT_TOO_LARGE', 'The source PDF exceeds the PDF writer request budget');
     }
-    const data = await browserDocumentStore.read(input.sourceRef);
+    const data = await browserDocumentStore.read(input.sourceRef, {maxBytes: maxInputBytes});
     throwIfAborted(signal);
     await browserDocumentStore.assertDocumentRevisionCurrent(input.sourceRef, revision.token);
 
@@ -524,9 +526,6 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         const output = new Uint8Array(data.byteLength + written.data.byteLength);
         output.set(data);
         output.set(written.data, data.byteLength);
-        if (output.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
-            throw new BrowserOcrJobError('OCR_DOCUMENT_TOO_LARGE', `The searchable PDF would exceed the browser's ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)} MB editing limit`);
-        }
         return {
             kind: 'written',
             data: output,

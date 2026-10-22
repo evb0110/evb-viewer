@@ -13,6 +13,7 @@ import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts'
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
+    BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES,
     BrowserFileWriteOutcomeError,
     ensureFileHandleWritePermission,
     pickSaveTarget,
@@ -40,10 +41,11 @@ export async function assertBrowserPathWithinFullReadBudget(
     path: string,
     label: string,
     hint?: string,
+    maxBytes = BROWSER_MAX_FULL_READ_BYTES,
 ) {
     const { size } = await browserDocumentStore.stat(path);
-    if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        throw buildBrowserByteLimitError(label, BROWSER_MAX_FULL_READ_BYTES, 'inputs', hint);
+    if (size > maxBytes) {
+        throw buildBrowserByteLimitError(label, maxBytes, 'inputs', hint);
     }
 }
 
@@ -82,7 +84,11 @@ export async function saveWorkingBytesToSource(
             sourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
             async (mutation) => {
-                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
+                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
+                    browserDocumentStore,
+                    stagedOutput,
+                    pickedTarget.handle ? undefined : {maxBytes: BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES},
+                ) : null;
                 if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
                 if (pickedTarget.handle) {
                     await mutation.assertPhysicalSourceBaseCurrent();
@@ -102,12 +108,15 @@ export async function saveWorkingBytesToSource(
                         pickedTarget.handle,
                     );
                 } else {
-                    await assertBrowserPathWithinFullReadBudget(
-                        workingCopyPath,
-                        'Saving documents',
-                        getBrowserLargeSaveHandleHint(),
-                    );
-                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
+                    if (!staged) {
+                        await assertBrowserPathWithinFullReadBudget(
+                            workingCopyPath,
+                            'Saving documents',
+                            getBrowserLargeSaveHandleHint(),
+                            BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES,
+                        );
+                    }
+                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath, {maxBytes: BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES});
                     const saveResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName: ensurePdfExtension(pickedTarget.fileName),
                         mimeType: 'application/pdf',
@@ -236,7 +245,11 @@ export async function savePdfAsFromWorkingCopy(
             previousSourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
             async () => {
-                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
+                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
+                    browserDocumentStore,
+                    stagedOutput,
+                    saveResult.handle ? undefined : {maxBytes: BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES},
+                ) : null;
                 let normalizedFileName = ensurePdfExtension(saveResult.fileName);
                 let savedHandle = saveResult.handle;
                 let bytes: Uint8Array = new Uint8Array();
@@ -252,9 +265,10 @@ export async function savePdfAsFromWorkingCopy(
                             workingCopyPath,
                             'Saving documents',
                             useNativeAppMessage,
+                            BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES,
                         );
                     }
-                    bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
+                    bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath, {maxBytes: BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES});
                     const downloadResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName,
                         mimeType: 'application/pdf',

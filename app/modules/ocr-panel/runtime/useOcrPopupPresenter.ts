@@ -447,8 +447,7 @@ export const useOcrPopupPresenter = ({
     const showCustomRange = computed(() => settings.value.pageRange === 'custom');
     const progressStatusText = computed(() => {
         if (progress.value.phase === 'processing') {
-            return t('ocr.processingPage', {
-                page: progress.value.currentPage,
+            return t('ocr.processingPages', {
                 processed: progress.value.processedCount,
                 total: progress.value.totalPages,
             });

@@ -317,7 +317,7 @@ describe('useOcrPopupPresenter', () => {
             harness.ocr.progress.value.modelDownload!.retrying = false;
             expect(harness.presenter.progressStatusText.value).toContain('"attempt":2');
             harness.ocr.progress.value.phase = 'processing';
-            expect(harness.presenter.progressStatusText.value).toBe('ocr.processingPage:{"page":0,"processed":0,"total":0}');
+            expect(harness.presenter.progressStatusText.value).toBe('ocr.processingPages:{"processed":0,"total":0}');
             harness.ocr.progress.value.phase = 'model-prep';
             harness.ocr.progress.value.modelDownload = undefined;
             expect(harness.presenter.progressStatusText.value).toBe('ocr.preparing');

@@ -16,6 +16,7 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import * as v from 'valibot';
+import {SerializableError} from '@contracts/serializableError';
 
 export interface IBrowserStagedArtifactStore {
     getDocumentRevision(ref: TDocumentRef): Promise<IDocumentRevisionInfo>;
@@ -23,7 +24,7 @@ export interface IBrowserStagedArtifactStore {
         size: number;
         modifiedAt: number;
     }>;
-    read(ref: TDocumentRef): Promise<Uint8Array>;
+    read(ref: TDocumentRef, options?: {maxBytes?: number}): Promise<Uint8Array>;
     commitStagedDocument(
         stagedRef: TDocumentRef,
         targetRef: TDocumentRef,
@@ -99,16 +100,19 @@ export async function createBrowserStoreStagedArtifact(
 export async function readBrowserStoreStagedArtifact(
     store: IBrowserStagedArtifactStore,
     stagedArtifact: unknown,
+    {maxBytes = BROWSER_MAX_FULL_READ_BYTES}: {maxBytes?: number} = {},
 ) {
     const parsed = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, stagedArtifact, {abortEarly: true});
     if (!parsed.success || !isBrowserStoreStagedArtifact(parsed.output)) {
         throw new Error('Expected a browser-store staged artifact');
     }
     const decoded = parsed.output;
-    if (decoded.size > BROWSER_MAX_FULL_READ_BYTES) {
-        throw new Error(
-            `Browser staged PDF output exceeds the browser full-read limit of ${BROWSER_MAX_FULL_READ_BYTES} bytes`,
-        );
+    if (decoded.size > maxBytes) {
+        throw new SerializableError({
+            code: 'browser-byte-limit',
+            maxBytes,
+            message: `Browser staged PDF output exceeds the ${Math.floor(maxBytes / (1024 * 1024))}MB browser read limit`,
+        });
     }
 
     const initialRevision = await store.getDocumentRevision(decoded.path);
@@ -122,7 +126,7 @@ export async function readBrowserStoreStagedArtifact(
         throw new Error('Browser staged artifact content or revision changed after staging');
     }
 
-    const bytes = await store.read(decoded.path);
+    const bytes = await store.read(decoded.path, {maxBytes});
     if (bytes.byteLength !== decoded.size || await sha256Hex(bytes) !== decoded.sha256) {
         throw new Error('Browser staged artifact content does not match its receipt');
     }
@@ -144,6 +148,7 @@ export async function commitBrowserStoreStagedArtifact(
     stagedArtifact: unknown,
     targetRef: TDocumentRef,
     expectedTargetRevisionToken: TDocumentRevisionToken,
+    options: {maxBytes?: number} = {},
 ): Promise<boolean> {
     const expectedRevision = parseDocumentRevisionToken(expectedTargetRevisionToken);
     if (expectedRevision === null) {
@@ -151,7 +156,7 @@ export async function commitBrowserStoreStagedArtifact(
     }
     const {
         artifact, bytes,
-    } = await readBrowserStoreStagedArtifact(store, stagedArtifact);
+    } = await readBrowserStoreStagedArtifact(store, stagedArtifact, options);
     if (!isBrowserLegacyDocumentRef(targetRef) || targetRef === artifact.path) {
         throw new Error('Browser staged commit requires a different browser target ref');
     }

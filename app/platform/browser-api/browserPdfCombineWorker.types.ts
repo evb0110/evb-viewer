@@ -7,6 +7,9 @@ import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import * as v from 'valibot';
 
 export const BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
+// WASM32 Rust allocations must fit isize; actual available memory is checked
+// by the allocator. This is an ABI boundary, not a document-size policy.
+export const BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES = 0x7fff_ffff;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const byteArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
