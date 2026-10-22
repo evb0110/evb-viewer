@@ -948,11 +948,11 @@ describe('Electron E2E - text interaction contract', () => {
                 y: (heading.top + heading.bottom) / 2,
             },
         )).toContain('Card heading');
-        // Press just left of and below the label, in the margin, and drag onto it.
+        // Press in the margin just left of the label and drag onto it.
         const selected = await drag(
             {
                 x: label.left - 4,
-                y: label.bottom + 2,
+                y: (label.top + label.bottom) / 2,
             },
             {
                 x: label.right - 2,
