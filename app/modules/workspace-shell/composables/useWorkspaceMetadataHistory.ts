@@ -136,7 +136,11 @@ export const useWorkspaceMetadataHistory = (deps: {
             }
             : snapshot;
         currentSnapshot.value = snapshot;
-        syncDirtyFlags(snapshot);
+        // A field read clears only its own flag. The other field may be
+        // between a reload's clear and its own read, which is no edit.
+        if (field === 'bookmarkItems') deps.bookmarksDirty.value = false;
+        else if (field === 'pageLabelRanges') deps.pageLabelsDirty.value = false;
+        else syncDirtyFlags(snapshot);
     }
 
     function recordCurrentState() {

@@ -883,6 +883,32 @@ describe('Electron E2E - bookmark destination round trip', () => {
         expect(await page.$eval('.page_container[data-page="1"]', node => node.textContent)).toContain('Metadata matrix page 1');
     }, 180_000);
 
+    it('removes a deleted named target before the bookmark sidebar is opened', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`unresolved-named-target-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict)
+            .set(PDFName.of('Dest'), PDFString.of('chapter-two'));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [
+            pdf.getPages()[2]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]}));
+        await writeFile(fixture, await pdf.save());
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '[data-thumbnail-page="3"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete named target before reading the outline'});
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 30_000}).toBe('3');
+        await waitForPdfLoaded(page);
+        await saveViaVisibleToolbar(page, 60_000, fixture);
+        const catalog = await readPdfMetadataWithQpdf(fixture);
+        expect((await PDFDocument.load(await readFile(fixture))).getPageCount()).toBe(3);
+        expect(catalog.outlines.map(item => item.title)).not.toContain('Imported');
+    }, 90_000);
+
     it('review-b6yh removes an accepted named destination when its page is deleted', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
         const pdf = await PDFDocument.load(await readFile(fixture));

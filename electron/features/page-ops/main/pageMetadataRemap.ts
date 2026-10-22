@@ -1,3 +1,4 @@
+import {te} from '@electron/te';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import {
@@ -20,6 +21,7 @@ import {
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
+import {readNativePdfCatalogPart} from '@electron/features/page-ops/main/readNativePdfCatalog';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
@@ -74,9 +76,24 @@ export async function resolvePageMetadataSourceTargets(
         || (item.pageIndex === null && typeof item.originalDestination?.sourceTarget === 'object')
         || needsResolution(item.items)
     ));
-    if (!metadata || !needsResolution(metadata.bookmarks ?? [])) return metadata;
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) throw new Error('Native bookmark target resolution is unavailable');
+    // The renderer omits bookmarks it has not read since the last reload. The
+    // working PDF still holds them, and qpdf is about to rewrite their pages, so
+    // read them here instead of letting a deleted page keep its bookmark.
+    if (metadata?.bookmarks === undefined) {
+        metadata = {
+            ...metadata,
+            ...decodeMetadataSnapshot({
+                bookmarks: await readNativePdfCatalogPart(binaryPath, sourcePath, 'bookmarks', {
+                    ...options,
+                    commandLabel: 'evb-pdf-page-ops(source-bookmarks)',
+                }),
+                untitledBookmarkLabel: metadata?.untitledBookmarkLabel ?? te('bookmarks.untitled'),
+            }),
+        };
+    }
+    if (!needsResolution(metadata.bookmarks ?? [])) return metadata;
     return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
         const mutationsPath = join(tempDir, 'targets.json');
         const bookmarks: IPdfBookmarkEntry[] = [];
