@@ -336,20 +336,16 @@ export async function prepareNativeTextBoxPagePaint(options: {
         entity.identity.id,
         entity,
     ]));
-    const projected = nativeTextBoxInputs.map(input => ({
+    // Excluded annotations stay out of the raster through the canvas filter's
+    // hidden ids. A native delete for them only forced a second operator list
+    // that read the same appearance streams as the first and lost their ink.
+    const actions = nativeTextBoxInputs.map(input => ({
         action: sourceId(derivedById.get(input.id)!) ? 'replace' as const : 'append' as const,
         id: sourceId(derivedById.get(input.id)!) ?? input.id,
         appearanceDocument: input.appearanceDocument,
         appearanceIndex: input.appearanceIndex,
     }));
-    projected.forEach(entry => excludedIds.delete(entry.id));
-    const actions = [
-        ...projected,
-        ...[...excludedIds].filter(id => loadedIds.has(id)).map(id => ({
-            action: 'delete' as const,
-            id,
-        })),
-    ];
+    actions.forEach(entry => excludedIds.delete(entry.id));
     const hash = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice())), byte => byte.toString(16).padStart(2, '0')).join('');
     const pdfDigests: string[] = [];
     for (const pdf of pdfs) pdfDigests.push(await hash(pdf));
