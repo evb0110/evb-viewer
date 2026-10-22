@@ -84,12 +84,27 @@ describe('useTextLayerSelection', () => {
         expect(assistant.contains(pdf.sentinel)).toBe(false);
     });
 
-    it('still moves the selection sentinel between registered PDF text layers', () => {
+    it('still moves the selection sentinel between registered PDF text layers during a drag', () => {
         const firstPage = createTextLayer('First page');
         const secondPage = createTextLayer('Second page');
 
+        document.dispatchEvent(new Event('pointerdown'));
         dispatchSelection(firstPage.text, secondPage.text);
 
         expect(secondPage.layer.contains(firstPage.sentinel)).toBe(true);
+    });
+
+    it('leaves the sentinel reset when a selection change arrives after the press ends', () => {
+        const firstPage = createTextLayer('First page');
+        const secondPage = createTextLayer('Second page');
+
+        document.dispatchEvent(new Event('pointerdown'));
+        document.dispatchEvent(new Event('pointerup'));
+        dispatchSelection(firstPage.text, secondPage.text);
+
+        // A late change must not cover the page again and swallow the next press.
+        expect(firstPage.layer.lastElementChild).toBe(firstPage.sentinel);
+        expect(firstPage.sentinel.style.height).toBe('');
+        expect(firstPage.layer.classList.contains('selecting')).toBe(false);
     });
 });
