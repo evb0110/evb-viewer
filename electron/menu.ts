@@ -412,6 +412,7 @@ function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 channel: DOCUMENTS_EVENT_CHANNELS.onMenuRepairSave,
             })] : []),
             ...(state.supportsOptimizePdf ? [createWindowMenuAction({
+                id: 'optimize-pdf',
                 label: te('menu.optimizePdfForInteraction'),
                 enabled: state.canOptimizePdf,
                 channel: DOCUMENTS_EVENT_CHANNELS.onMenuOptimizePdfForInteraction,

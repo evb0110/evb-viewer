@@ -679,7 +679,9 @@ export function createDocumentPersistence(
             const savedPath = optimizeResult.path;
             if (savedPath) {
                 let savedWorkingPath = previousWorkingPath;
-                if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
+                // Unlike Save As, the copy holds other bytes than the working
+                // copy, so the document continues from the copy on every platform.
+                if (savedPath !== previousWorkingPath) {
                     const nextWorkingPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
                     if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                         BrowserLogger.debug('workspace', 'Skipped stale optimized-copy working-copy refresh', {

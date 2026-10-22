@@ -1237,6 +1237,7 @@ export default {
         'successTitle': 'Оптимизированный PDF сохранён',
         'savedDescription': '{original} → {optimized} (меньше на {percent}%)',
         'notSmaller': 'Копия не сохранена: с этим профилем файл занял бы {optimized}, не меньше текущих {original}.',
+        'alreadyCompact': 'Копия не сохранена: этот PDF уже настолько компактен, насколько позволяет этот профиль.',
         'progress': {
             'preparing': 'Подготовка...',
             'rendering': 'Отрисовка страниц...',

@@ -54,7 +54,8 @@ const NETPBM_HEADER_BYTES = 512;
  * How a raster preset re-encodes a page. Pages are rendered as Netpbm so the
  * image combiner, not the renderer, chooses the stored encoding: JPEG pages
  * are written as one gray channel when the render is gray, and black-and-white
- * pages are binarized by scan cleanup's pass and stored as lossless 1-bit.
+ * pages are binarized with scan cleanup's illumination normalization and
+ * Sauvola threshold and stored as lossless 1-bit.
  */
 type TRasterPageEncoding =
     | {

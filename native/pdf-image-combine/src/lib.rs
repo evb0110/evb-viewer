@@ -100,8 +100,9 @@ pub enum ImageProcessing {
     DownscaleToPpi {
         ppi_cap: u16,
     },
-    /// Binarizes a grayscale (PGM) render with scan cleanup's black-and-white
-    /// pass and stores the page as a lossless 1-bit image. Needs a page size,
+    /// Binarizes a grayscale (PGM) render with scan cleanup's illumination
+    /// normalization and Sauvola threshold and stores the page as a lossless
+    /// 1-bit image. Needs a page size,
     /// which gives the render's resolution.
     BlackAndWhite,
 }
@@ -828,11 +829,17 @@ fn read_black_and_white_page(
     }
     let gray = scan_primitives::GrayImage::from_vec(width, height, width, render.pixels.to_vec())
         .ok_or("Black-and-white render has an invalid pixel buffer")?;
-    let cleanup = evb_scan_cleanup::CleanupOptions {
-        dpi,
-        ..evb_scan_cleanup::CleanupOptions::default()
-    };
-    let binary = evb_scan_cleanup::bw::clean_black_and_white(&gray, &cleanup).binary;
+    // Scan cleanup's illumination normalization and its Sauvola route, with
+    // its uncalibrated window. Its full black-and-white pass tunes stroke
+    // weight from document-wide evidence; run on one page without it, it
+    // thickened some words and not others.
+    let normalized = evb_scan_cleanup::background::normalize_illumination(&gray, dpi);
+    let radius = ((dpi * 25.5 / 300.0).round() as usize).clamp(8, 64);
+    let binary = scan_primitives::threshold::threshold_local(
+        &normalized,
+        radius,
+        scan_primitives::threshold::LocalThreshold::Sauvola { k: 0.34 },
+    );
     // Both rasters pack black as one, most significant bit first.
     let row_stride = width.div_ceil(8);
     let mut bitmap = Vec::with_capacity(row_stride * height);

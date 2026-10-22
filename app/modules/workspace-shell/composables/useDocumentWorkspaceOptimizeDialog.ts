@@ -96,10 +96,14 @@ export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IU
             // so and stays open for another preset. Other refusals were already
             // reported by the save surface.
             optimizeProgress.value = null;
-            if (result?.outcome === 'not-smaller' && sizes) {
+            if (result?.outcome === 'not-smaller') {
+                // With no page re-encoded, the candidate is a structural
+                // rewrite of the same content; its size says nothing useful.
                 optimizeNotice.value = {
                     preset: options.preset,
-                    message: t('optimizePdf.notSmaller', sizes),
+                    message: result.optimizedPages && sizes
+                        ? t('optimizePdf.notSmaller', sizes)
+                        : t('optimizePdf.alreadyCompact'),
                 };
             }
         }

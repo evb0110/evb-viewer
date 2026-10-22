@@ -1225,6 +1225,7 @@ export default {
         'successTitle': 'PDF optimizado guardado',
         'savedDescription': '{original} → {optimized} ({percent} % menos)',
         'notSmaller': 'No se guardó ninguna copia: con este preajuste el archivo ocuparía {optimized}, no menos que los {original} actuales.',
+        'alreadyCompact': 'No se guardó ninguna copia: este PDF ya es tan compacto como puede dejarlo este preajuste.',
         'progress': {
             'preparing': 'Preparando...',
             'rendering': 'Renderizando páginas...',

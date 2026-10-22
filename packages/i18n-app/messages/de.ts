@@ -1225,6 +1225,7 @@ export default {
         'successTitle': 'Optimiertes PDF gespeichert',
         'savedDescription': '{original} → {optimized} ({percent} % kleiner)',
         'notSmaller': 'Es wurde keine Kopie gespeichert: Mit dieser Voreinstellung wäre die Datei {optimized} groß und damit nicht kleiner als die aktuellen {original}.',
+        'alreadyCompact': 'Es wurde keine Kopie gespeichert: Dieses PDF ist bereits so kompakt, wie diese Voreinstellung es machen kann.',
         'progress': {
             'preparing': 'Vorbereitung...',
             'rendering': 'Seiten werden gerendert...',

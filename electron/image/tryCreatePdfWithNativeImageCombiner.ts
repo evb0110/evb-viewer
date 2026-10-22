@@ -609,7 +609,7 @@ export async function writePdfWithNativeImageCombineManifest(
     outputPath: string,
     options?: INativePdfImageCombineOptions,
 ): Promise<boolean> {
-    const binaryPath = resolveNativePdfImageCombinePath();
+    const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
     if (!binaryPath) {
         return false;
     }

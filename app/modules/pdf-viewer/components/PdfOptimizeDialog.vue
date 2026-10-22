@@ -216,5 +216,6 @@ function handleSubmit() {
 
 .optimize-status-slot > * {
     grid-area: 1 / 1;
+    align-self: start;
 }
 </style>

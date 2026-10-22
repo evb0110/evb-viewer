@@ -1226,6 +1226,7 @@ export default {
         'successTitle': 'PDF optimisé enregistré',
         'savedDescription': '{original} → {optimized} ({percent} % plus petit)',
         'notSmaller': 'Aucune copie n’a été enregistrée : avec ce préréglage, le fichier ferait {optimized}, pas moins que les {original} actuels.',
+        'alreadyCompact': 'Aucune copie n’a été enregistrée : ce PDF est déjà aussi compact que ce préréglage peut le rendre.',
         'progress': {
             'preparing': 'Préparation...',
             'rendering': 'Rendu des pages...',

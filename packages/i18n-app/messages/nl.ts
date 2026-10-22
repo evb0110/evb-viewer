@@ -1225,6 +1225,7 @@ export default {
         'successTitle': 'Geoptimaliseerde PDF opgeslagen',
         'savedDescription': '{original} → {optimized} ({percent}% kleiner)',
         'notSmaller': 'Er is geen kopie opgeslagen: met deze preset zou het bestand {optimized} zijn, niet kleiner dan de huidige {original}.',
+        'alreadyCompact': 'Er is geen kopie opgeslagen: deze PDF is al zo compact als deze preset hem kan maken.',
         'progress': {
             'preparing': 'Voorbereiden...',
             'rendering': 'Pagina’s renderen...',

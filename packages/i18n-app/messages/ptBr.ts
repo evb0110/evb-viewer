@@ -1226,6 +1226,7 @@ export default {
         'successTitle': 'PDF otimizado salvo',
         'savedDescription': '{original} → {optimized} ({percent}% menor)',
         'notSmaller': 'Nenhuma cópia foi salva: com esta predefinição o arquivo teria {optimized}, não menos que os {original} atuais.',
+        'alreadyCompact': 'Nenhuma cópia foi salva: este PDF já está tão compacto quanto esta predefinição consegue deixá-lo.',
         'progress': {
             'preparing': 'Preparando...',
             'rendering': 'Renderizando páginas...',
