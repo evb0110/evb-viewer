@@ -628,6 +628,12 @@
     /* stylelint-enable declaration-no-important */
 }
 
+/* A markup drag starts on linked text too: both link surfaces pass it through. */
+.pdfViewer.is-selection-markup-tool .pdf-link-overlay,
+.pdfViewer.is-selection-markup-tool .annotation-layer .linkAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .linkAnnotation *,
+.pdfViewer.is-selection-markup-tool .annotationLayer .linkAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .linkAnnotation *,
 .pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
 .pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
 .pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,

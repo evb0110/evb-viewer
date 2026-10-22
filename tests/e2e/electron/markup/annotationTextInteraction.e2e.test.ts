@@ -9,7 +9,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Page} from 'puppeteer-core';
 import {
-    PDFDocument, PDFHexString, PDFName,
+    PDFDocument, PDFHexString, PDFName, StandardFonts,
 } from 'pdf-lib';
 import {
     createCanvas,
@@ -23,6 +23,7 @@ import {
 } from 'vitest';
 import {
     createBlankFixturePdf,
+    createLinkedTextFixturePdf,
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -824,6 +825,142 @@ describe('Electron E2E - text interaction contract', () => {
         // The active instrument must still be possible to switch off.
         await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
         expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
+    });
+
+    it.each([
+        [
+            'squiggly',
+            'Squiggly',
+        ],
+        [
+            'strikethrough',
+            'StrikeOut',
+        ],
+    ] as const)('marks linked text with %s and keeps the link clickable outside markup', async (tool, subtype) => {
+        const linkFixture = await createLinkedTextFixturePdf(`markup-link-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(linkFixture, {force: true}));
+        const {page} = await openFixture(true, 2.58, linkFixture);
+        await page.waitForSelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay');
+        await waitForViewerInteractive(page);
+        const line = await page.evaluate(() => {
+            const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
+                .find(candidate => candidate.textContent?.includes('Open the project'));
+            const rect = span?.getBoundingClientRect();
+            if (!rect) throw new Error('The linked line has no text layer span');
+            return {
+                start: {
+                    x: rect.left + 3,
+                    y: rect.top + rect.height / 2,
+                },
+                end: {
+                    x: rect.right - 3,
+                    y: rect.top + rect.height / 2,
+                },
+            };
+        });
+        // Outside markup the link owns the pointer, so a click still follows it.
+        expect(await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-link-overlay')), line.start)).toBe(true);
+        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        await page.mouse.move(line.start.x, line.start.y);
+        await page.mouse.down();
+        await page.mouse.move(line.end.x, line.end.y, {steps: 16});
+        await page.mouse.up();
+        await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
+        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
+        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toContain('Example Workspace');
+        // Leaving markup gives the link back its pointer; the new mark now
+        // covers the line, so the link's own hit target is what is checked.
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]');
+        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay', element => getComputedStyle(element).pointerEvents)).toBe('auto');
+    });
+
+    it('keeps a drag that starts beside a line on that line after an earlier selection', async () => {
+        // An issue card: a label followed by more lines, as in the owner's report.
+        const cardFixture = join(mkdtempSync(join(tmpdir(), 'evb-margin-drag-')), 'card.pdf');
+        onTestFinished(() => rmSync(cardFixture, {force: true}));
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const sheet = pdf.addPage([
+            612,
+            792,
+        ]);
+        for (const [
+            index,
+            line,
+        ] of [
+                'Card heading for the margin drag',
+                'issue model 2',
+                'Project 106k issues',
+                'Open in Web Issue Tracker',
+                'Reporter Example Person',
+            ].entries()) {
+            sheet.drawText(line, {
+                x: 72,
+                y: 700 - index * 40,
+                size: 16,
+                font,
+            });
+        }
+        writeFileSync(cardFixture, await pdf.save());
+        const {page} = await openFixture(true, 2.58, cardFixture);
+        await waitForViewerInteractive(page);
+        const lines = await page.evaluate(() => Object.fromEntries([
+            'Card heading',
+            'issue model 2',
+        ].map((text) => {
+            const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
+                .find(candidate => candidate.textContent?.includes(text));
+            const rect = span?.getBoundingClientRect();
+            if (!rect) throw new Error(`No text layer span for ${text}`);
+            return [
+                text,
+                {
+                    left: rect.left,
+                    right: rect.right,
+                    top: rect.top,
+                    bottom: rect.bottom,
+                },
+            ];
+        })));
+        const drag = async (from: {
+            x: number;
+            y: number
+        }, to: {
+            x: number;
+            y: number
+        }) => {
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            await page.mouse.move(to.x, to.y, {steps: 16});
+            await page.mouse.up();
+            return page.evaluate(() => window.getSelection()?.toString() ?? '');
+        };
+        const heading = lines['Card heading']!;
+        const label = lines['issue model 2']!;
+        // An earlier drag leaves the page's selection machinery primed.
+        expect(await drag(
+            {
+                x: heading.left + 2,
+                y: (heading.top + heading.bottom) / 2,
+            },
+            {
+                x: heading.right - 2,
+                y: (heading.top + heading.bottom) / 2,
+            },
+        )).toContain('Card heading');
+        // Press in the margin just left of the label and drag onto it.
+        const selected = await drag(
+            {
+                x: label.left - 4,
+                y: (label.top + label.bottom) / 2,
+            },
+            {
+                x: label.right - 2,
+                y: (label.top + label.bottom) / 2,
+            },
+        );
+        expect(selected.trim().length).toBeGreaterThan(0);
+        expect('issue model 2').toContain(selected.trim());
     });
 
     it('annotates text inside a search result without dropping the decorated text nodes', async () => {
