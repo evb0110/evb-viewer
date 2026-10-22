@@ -7,6 +7,10 @@ use std::{
     path::Path,
     sync::{Mutex, OnceLock},
 };
+use zune_jpeg::{
+    zune_core::{colorspace::ColorSpace, options::DecoderOptions},
+    JpegDecoder,
+};
 
 use evb_native_support::bounded_io::read_open_file_bounded;
 #[cfg(test)]
@@ -920,6 +924,71 @@ fn encode_with_size_guardrail<'a>(
     }
 
     Ok((current_prepared, current_quality))
+}
+
+/// A JPEG decoded and encoded again by [`recompress_jpeg`].
+pub struct RecompressedJpeg {
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    /// The encoder stored one gray channel: the source was gray, or color
+    /// with every pixel neutral.
+    pub grayscale: bool,
+}
+
+/// Decodes an 8-bit gray or RGB JPEG, shrinks it to `width` x `height` by
+/// area averaging, and encodes it again at `quality`. The new size may not
+/// exceed the source's; the same size keeps every pixel.
+pub fn recompress_jpeg(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    max_pixels: u64,
+) -> Result<RecompressedJpeg> {
+    let metadata = parse_jpeg_metadata(bytes)?;
+    if width == 0 || height == 0 || width > metadata.width || height > metadata.height {
+        return Err("A recompressed JPEG cannot be larger than its source".into());
+    }
+    assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
+    let (channels, color_space) = match metadata.components {
+        1 => (1u8, ColorSpace::Luma),
+        3 => (3u8, ColorSpace::RGB),
+        components => {
+            return Err(format!("Unsupported JPEG component count: {components}").into());
+        }
+    };
+    let options = DecoderOptions::default()
+        .set_strict_mode(true)
+        .set_max_width(metadata.width as usize)
+        .set_max_height(metadata.height as usize)
+        .jpeg_set_out_colorspace(color_space);
+    let pixels = with_image_decode_admission(|| {
+        JpegDecoder::new_with_options(Cursor::new(bytes), options)
+            .decode()
+            .map_err(|error| format!("JPEG scan data is not decodable: {error}").into())
+    })?;
+    if pixels.len() != metadata.width as usize * metadata.height as usize * channels as usize {
+        return Err("Decoded JPEG does not match its frame size".into());
+    }
+    let prepared = resize_prepared_netpbm(
+        PreparedNetpbmPixels {
+            width: metadata.width,
+            height: metadata.height,
+            channels,
+            pixels: Cow::Owned(pixels),
+        },
+        width,
+        height,
+        max_pixels,
+    )?;
+    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
+    Ok(RecompressedJpeg {
+        data,
+        width,
+        height,
+        grayscale: color_space == "DeviceGray",
+    })
 }
 
 struct PreparedNetpbmPixels<'a> {

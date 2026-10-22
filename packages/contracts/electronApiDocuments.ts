@@ -243,6 +243,7 @@ const PDF_OPTIMIZE_PROGRESS_PHASES = [
     'preparing',
     'rendering',
     'assembling',
+    'compressingImages',
     'optimizing',
     'validating',
     'complete',

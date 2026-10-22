@@ -173,6 +173,7 @@ const phaseClock = useStageElapsedClock(
     () => (isRunning ? progress?.phase ?? 'preparing' : null),
     new Set<IPdfOptimizeProgress['phase']>([
         'preparing',
+        'compressingImages',
         'optimizing',
         'validating',
     ]),
@@ -191,6 +192,8 @@ const progressStatus = computed(() => {
             return t('optimizePdf.progress.rendering');
         case 'assembling':
             return t('optimizePdf.progress.assembling');
+        case 'compressingImages':
+            return t('optimizePdf.progress.compressingImages');
         case 'optimizing':
             return t('optimizePdf.progress.optimizing');
         case 'validating':

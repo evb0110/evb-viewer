@@ -9,7 +9,6 @@ import {
     extname,
     join,
 } from 'path';
-import * as v from 'valibot';
 import type {
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
@@ -24,7 +23,6 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import {
     assertNonEmptyPdfOutput,
     getPdfPageCount,
-    resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public';
 import { writePdfWithNativeImageCombineManifest } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
@@ -38,16 +36,15 @@ import { parseDocumentRef } from '@contracts/documentRef';
 import type { TRequestId } from '@contracts/shared';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
+import {
+    recompressImages,
+    replacePageImages,
+    type IPdfImageRecompression,
+    type IReplacementPage,
+} from '@electron/features/documents/main/pdfOptimizationPasses';
 
 const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = 10;
 const PDF_OPTIMIZE_RENDER_TIMEOUT_MS = 15 * 60 * 1000;
-const PDF_OPTIMIZE_REPLACE_TIMEOUT_MS = 30 * 60 * 1000;
-const PDF_OPTIMIZE_REPLACE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
-/**
- * A page is re-encoded only when that saves at least a tenth of its bytes:
- * a smaller gain is not worth replacing the page's own image with a lossy one.
- */
-const PDF_OPTIMIZE_MAX_REPLACEMENT_BYTE_RATIO = 0.9;
 const NETPBM_HEADER_BYTES = 512;
 
 /**
@@ -68,6 +65,7 @@ type TRasterPageEncoding =
 interface IPdfRasterOptimizePreset {
     dpi: number;
     encoding: TRasterPageEncoding;
+    images: IPdfImageRecompression;
 }
 
 interface IPdfOptimizePageRange {
@@ -100,7 +98,8 @@ const OPTIMIZE_RENDER_WEIGHT = 3;
 const OPTIMIZE_ASSEMBLE_WEIGHT = 1;
 const OPTIMIZE_STAGE_PERCENT = {
     preparing: 0,
-    optimizing: OPTIMIZE_PAGE_WORK_PERCENT,
+    compressingImages: OPTIMIZE_PAGE_WORK_PERCENT,
+    optimizing: 85,
     validating: 90,
     complete: 100,
 } as const;
@@ -121,6 +120,10 @@ const RASTER_PRESETS: Record<Exclude<TPdfOptimizePreset, 'lossless'>, IPdfRaster
             quality: 82,
             grayscale: false,
         },
+        images: {
+            dpi: 200,
+            quality: 82,
+        },
     },
     smallScanned: {
         dpi: 150,
@@ -129,36 +132,20 @@ const RASTER_PRESETS: Record<Exclude<TPdfOptimizePreset, 'lossless'>, IPdfRaster
             quality: 60,
             grayscale: true,
         },
+        images: {
+            dpi: 150,
+            quality: 60,
+        },
     },
     blackAndWhite: {
         dpi: 300,
         encoding: {kind: 'black-and-white'},
+        images: {
+            dpi: 150,
+            quality: 60,
+        },
     },
 };
-
-const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
-    format: v.literal('evb-pdf-replace-page-images'),
-    pages: v.array(v.object({
-        pageNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
-        outcome: v.picklist([
-            'replaced',
-            'not-smaller',
-            'no-images',
-            'visible-text',
-            'visible-drawing',
-            'form-xobject',
-            'unsupported-text',
-        ]),
-        sourceBytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
-        replacementBytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    })),
-});
-
-interface IReplacementPage {
-    pageNumber: number;
-    replacement: string;
-    replacementPageNumber: number;
-}
 
 interface IOptimizedCandidate {
     validation: Awaited<ReturnType<typeof validatePdfFile>>;
@@ -445,49 +432,6 @@ async function assembleRenderedChunk(
     await assertNonEmptyPdfOutput(chunkPath, 'Optimizing scanned PDF chunk');
 }
 
-/**
- * Puts each re-encoded page into its source page when that saves enough
- * bytes, and returns how many pages changed. A page keeps its own content
- * otherwise, and when it shows text or vector content that its image would
- * flatten.
- */
-async function replacePageImages(
-    inputPath: string,
-    outputPath: string,
-    pages: IReplacementPage[],
-    scratchDir: string,
-    context: IOptimizeProgressContext,
-) {
-    const pageOpsPath = resolveNativePageOpsPath();
-    if (!pageOpsPath) {
-        throw new Error('Native PDF page tool is unavailable');
-    }
-    const instructionsPath = join(scratchDir, 'replace-page-images.json');
-    await writeFile(instructionsPath, JSON.stringify({
-        maxByteRatio: PDF_OPTIMIZE_MAX_REPLACEMENT_BYTE_RATIO,
-        pages,
-    }), 'utf8');
-    const result = await runNativeToolCommand(pageOpsPath, [
-        'replace-page-images',
-        '--input',
-        inputPath,
-        '--output',
-        outputPath,
-        '--instructions-file',
-        instructionsPath,
-        '--qpdf',
-        getPdfNativeToolPaths().qpdf,
-    ], {
-        commandLabel: 'evb-pdf-page-ops(replace-page-images)',
-        timeoutMs: PDF_OPTIMIZE_REPLACE_TIMEOUT_MS,
-        maxStdoutBytes: PDF_OPTIMIZE_REPLACE_MAX_STDOUT_BYTES,
-        rejectOnStdoutTruncation: true,
-        ...signalOptions(context),
-    });
-    const report = v.parse(REPLACE_PAGE_IMAGES_REPORT_SCHEMA, JSON.parse(result.stdout));
-    return report.pages.filter(page => page.outcome === 'replaced').length;
-}
-
 function getRasterPreset(preset: TPdfOptimizePreset): IPdfRasterOptimizePreset {
     if (preset === 'lossless') {
         throw new Error('Lossless PDF optimization preset does not have raster settings');
@@ -579,20 +523,28 @@ async function optimizeRasterCopy(
             }
         }
 
-        emitProgress(context, 'optimizing', pageCount, pageCount);
-        const optimizedPages = await replacePageImages(
-            inputPath,
-            tempOutputPath,
-            replacements,
-            tempDir,
-            context,
-        );
-        if (optimizedPages === 0) {
-            await copyFileCopyOnWrite(inputPath, tempOutputPath);
+        emitProgress(context, 'compressingImages', pageCount, pageCount);
+        const replacedPath = join(tempDir, 'replaced-pages.pdf');
+        const replacedPages = await replacePageImages({
+            input: inputPath,
+            output: replacedPath,
+            scratchDir: tempDir,
+        }, replacements, signalOptions(context));
+        const imageSourcePath = replacedPages.length > 0 ? replacedPath : inputPath;
+        const imagePages = await recompressImages({
+            input: imageSourcePath,
+            output: tempOutputPath,
+            scratchDir: tempDir,
+        }, replacedPages, preset.images, signalOptions(context));
+        if (imagePages.length === 0) {
+            await copyFileCopyOnWrite(imageSourcePath, tempOutputPath);
         }
         return {
             validation: await finishCandidate(tempOutputPath, context, pageCount),
-            optimizedPages,
+            optimizedPages: new Set([
+                ...replacedPages,
+                ...imagePages,
+            ]).size,
         };
     });
 }

@@ -59,6 +59,24 @@ pub(crate) fn page_fonts(
     Ok(fonts)
 }
 
+/// The page's effective /XObject resource dictionary, nearest first.
+pub(crate) fn page_xobjects(document: &Document, page_id: ObjectId) -> Result<Option<Dictionary>> {
+    let (direct, inherited) = document.get_page_resources(page_id)?;
+    let candidates = direct.into_iter().chain(
+        inherited
+            .into_iter()
+            .filter_map(|id| document.get_dictionary(id).ok()),
+    );
+    for resources in candidates {
+        if let Ok(xobjects) = resources.get(b"XObject") {
+            if let Ok((_, Object::Dictionary(xobjects))) = document.dereference(xobjects) {
+                return Ok(Some(xobjects.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub(crate) fn page_resources(document: &Document, page_id: ObjectId) -> Result<Dictionary> {
     // Incremental page dictionaries live in `new_document`, while their
     // preserved `/Parent` points into the base document. Resolve a direct

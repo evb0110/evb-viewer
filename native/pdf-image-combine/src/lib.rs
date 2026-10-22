@@ -55,7 +55,7 @@ use crate::{
 };
 
 pub use crate::{
-    image::JpegSizeGuardrail,
+    image::{recompress_jpeg, JpegSizeGuardrail, RecompressedJpeg},
     netpbm::{probe_netpbm_path, NetpbmProbe},
     pdf::{PdfImagePlacement, PdfPageSize},
 };

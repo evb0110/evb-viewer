@@ -166,6 +166,10 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "replace-page-images" => Operation::ReplacePageImages {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
         },
+        #[cfg(not(target_family = "wasm"))]
+        "recompress-images" => Operation::RecompressImages {
+            instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
+        },
         "ocr-text-layer" => Operation::OcrTextLayer {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
         },
@@ -391,6 +395,17 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             let instructions = read_replace_page_images_file(instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_replace_page_images_path(
+                &config.input_path,
+                output_path,
+                &instructions,
+                config.qpdf_path.as_deref(),
+            );
+        }
+        #[cfg(not(target_family = "wasm"))]
+        Operation::RecompressImages { instructions_file } => {
+            let instructions = read_recompress_images_file(instructions_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_recompress_images_path(
                 &config.input_path,
                 output_path,
                 &instructions,
