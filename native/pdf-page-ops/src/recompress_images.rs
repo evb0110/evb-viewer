@@ -6,8 +6,8 @@
 //! number never changes, so whatever refers to it still does.
 //!
 //! Only images whose size is known from page content are touched. An image
-//! that appears only in an annotation appearance, a pattern or a Type 3 glyph
-//! keeps its bytes; so does one drawn by content that cannot be read.
+//! that an annotation appearance, a pattern or a Type 3 glyph also draws
+//! keeps its bytes, and so does one drawn by content that cannot be read.
 
 use super::*;
 use crate::split_pages::PdfMatrix;
@@ -90,49 +90,101 @@ impl ImageWalk<'_> {
             .flatten()
     }
 
-    /// A Form XObject's own /XObject resources; `None` when it has none.
-    fn form_xobjects(&self, form: &Stream) -> Option<Option<Dictionary>> {
-        let resources = form.dict.get(b"Resources").ok()?;
-        Some(
-            self.document()
-                .dereference(resources)
-                .ok()
-                .and_then(|(_, resources)| resources.as_dict().ok())
-                .and_then(|resources| resources.get(b"XObject").ok())
-                .and_then(|xobjects| self.document().dereference(xobjects).ok())
-                .and_then(|(_, xobjects)| xobjects.as_dict().ok())
-                .cloned(),
-        )
-    }
-
-    /// Keeps the bytes of every image `xobjects` names, and of every image
-    /// the forms it names draw: content that was not read may draw them at
-    /// any size.
-    fn pin_all(&mut self, xobjects: Option<&Dictionary>) {
-        let mut pending: Vec<Dictionary> = xobjects.into_iter().cloned().collect();
-        let mut seen = HashSet::new();
-        while let Some(xobjects) = pending.pop() {
-            for (_, entry) in xobjects.iter() {
-                let Ok(id) = entry.as_reference() else {
-                    continue;
-                };
-                if !seen.insert(id) {
-                    continue;
-                }
-                self.pinned.insert(id);
-                let nested = self
-                    .document()
-                    .get_object(id)
-                    .and_then(Object::as_stream)
-                    .ok()
-                    .and_then(|form| self.form_xobjects(form))
-                    .flatten();
-                pending.extend(nested);
-            }
+    fn resolved_dict(&self, object: &Object) -> Option<Dictionary> {
+        let (_, object) = self.document().dereference(object).ok()?;
+        match object {
+            Object::Dictionary(dict) => Some(dict.clone()),
+            Object::Stream(stream) => Some(stream.dict.clone()),
+            _ => None,
         }
     }
 
+    /// The /XObject resources of a form, tiling pattern or Type 3 font
+    /// dictionary; `None` when it has no /Resources of its own.
+    fn own_xobjects(&self, holder: &Dictionary) -> Option<Option<Dictionary>> {
+        let resources = self.resolved_dict(holder.get(b"Resources").ok()?);
+        Some(resources.and_then(|resources| self.resolved_dict(resources.get(b"XObject").ok()?)))
+    }
+
+    /// Keeps the bytes of `ids` and of every image they draw through their
+    /// resources: what draws them was not measured, so they may be shown at
+    /// any size.
+    fn pin_objects(&mut self, mut pending: Vec<ObjectId>) {
+        let mut seen = HashSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            self.pinned.insert(id);
+            let nested = self
+                .document()
+                .get_object(id)
+                .ok()
+                .and_then(|object| self.resolved_dict(object))
+                .and_then(|holder| self.own_xobjects(&holder))
+                .flatten();
+            pending.extend(nested.iter().flat_map(references));
+        }
+    }
+
+    fn pin_all(&mut self, xobjects: Option<&Dictionary>) {
+        self.pin_objects(xobjects.into_iter().flat_map(references).collect());
+    }
+
+    /// Pins what the patterns and Type 3 fonts of `resources` draw.
+    fn pin_patterns_and_fonts(&mut self, resources: Option<&Dictionary>) {
+        let mut ids = Vec::new();
+        for key in [b"Pattern".as_slice(), b"Font"] {
+            let entries = resources
+                .and_then(|resources| resources.get(key).ok())
+                .and_then(|entries| self.resolved_dict(entries));
+            for (_, entry) in entries.iter().flat_map(Dictionary::iter) {
+                match entry {
+                    Object::Reference(id) => ids.push(*id),
+                    Object::Dictionary(holder) => {
+                        let nested = self.own_xobjects(holder).flatten();
+                        ids.extend(nested.iter().flat_map(references));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.pin_objects(ids);
+    }
+
+    /// Pins what the page's annotation appearances draw, in every state.
+    fn pin_annotation_appearances(&mut self, page_id: ObjectId) {
+        let document = self.document();
+        let annotations = document
+            .get_dictionary(page_id)
+            .and_then(|page| page.get(b"Annots"))
+            .and_then(|annotations| document.dereference(annotations))
+            .and_then(|(_, annotations)| annotations.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut ids = Vec::new();
+        for annotation in &annotations {
+            let appearances = self
+                .resolved_dict(annotation)
+                .and_then(|annotation| self.resolved_dict(annotation.get(b"AP").ok()?));
+            for (_, appearance) in appearances.iter().flat_map(Dictionary::iter) {
+                match appearance {
+                    Object::Reference(id) => match document.get_object(*id) {
+                        Ok(Object::Dictionary(states)) => ids.extend(references(states)),
+                        _ => ids.push(*id),
+                    },
+                    Object::Dictionary(states) => ids.extend(references(states)),
+                    _ => {}
+                }
+            }
+        }
+        self.pin_objects(ids);
+    }
+
     fn walk_page(&mut self, page_number: u32, page_id: ObjectId) -> Result<()> {
+        let resources = page_resources(self.document(), page_id).ok();
+        self.pin_patterns_and_fonts(resources.as_ref());
+        self.pin_annotation_appearances(page_id);
         let xobjects = page_xobjects(self.document(), page_id)?;
         let mut bytes = Vec::new();
         for id in self.document().get_page_contents(page_id) {
@@ -233,9 +285,14 @@ impl ImageWalk<'_> {
         if subtype != Some(b"Form") || forms.contains(&id) {
             return;
         }
+        let resources = stream
+            .dict
+            .get(b"Resources")
+            .ok()
+            .and_then(|resources| self.resolved_dict(resources));
         // A form without its own resources uses those of what draws it.
         let xobjects = self
-            .form_xobjects(stream)
+            .own_xobjects(&stream.dict)
             .unwrap_or_else(|| parent_xobjects.cloned());
         let matrix = stream
             .dict
@@ -252,6 +309,7 @@ impl ImageWalk<'_> {
             })
             .unwrap_or(Some(PdfMatrix::IDENTITY))
             .filter(|_| forms.len() < MAX_FORM_DEPTH);
+        self.pin_patterns_and_fonts(resources.as_ref());
         let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id)) else {
             self.pin_all(xobjects.as_ref());
             return;
@@ -266,6 +324,12 @@ impl ImageWalk<'_> {
         );
         forms.pop();
     }
+}
+
+/// The objects a dictionary names by reference.
+fn references(dict: &Dictionary) -> impl Iterator<Item = ObjectId> + '_ {
+    dict.iter()
+        .filter_map(|(_, entry)| entry.as_reference().ok())
 }
 
 /// A JPEG this pass can rewrite without changing how it is decoded.
@@ -335,12 +399,16 @@ fn jpeg_candidate(
     let bytes = if !incremental.unavailable_base_streams.contains(&id) {
         stream.content.clone()
     } else if let Some(source) = structural {
-        read_qpdf_stream_bounded(
+        // An image the source cannot give back keeps its bytes.
+        let Ok(bytes) = read_qpdf_stream_bounded(
             source.input_path,
             source.qpdf_path,
             id,
             MAX_IMAGE_STREAM_BYTES,
-        )?
+        ) else {
+            return Ok(None);
+        };
+        bytes
     } else {
         return Ok(None);
     };
