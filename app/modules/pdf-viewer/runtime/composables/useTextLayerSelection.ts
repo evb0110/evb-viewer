@@ -146,9 +146,13 @@ function enableGlobalSelectionListener() {
         },
     );
 
+    // A cancelled gesture ends the press as a release does.
     const stopPointerUp = useEventListener(
         document,
-        'pointerup',
+        [
+            'pointerup',
+            'pointercancel',
+        ],
         () => {
             isPointerDown = false;
             clearTrackedSelectionLayers();
