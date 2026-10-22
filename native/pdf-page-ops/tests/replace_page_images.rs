@@ -512,3 +512,40 @@ fn drawing_over_the_scan_keeps_the_page_and_drawing_under_it_does_not() {
     report(&run(&scratch, instructions(&scratch)), "replaced");
     assert!(scratch.path("output.pdf").exists());
 }
+
+#[test]
+fn a_clipped_or_translucent_scan_does_not_hide_what_was_drawn_before_it() {
+    let scratch = Scratch::new("clipped-cover");
+    let source_path = scratch.path("source.pdf");
+    let source = save_source(&source_path, false, false, false);
+    save_replacement(&scratch.path("replacement.pdf"), false, false);
+    // The clip leaves the right half of the line visible beside the scan.
+    rewrite_page_content(
+        &source_path,
+        source.page,
+        "0 0 1 RG 10 60 m 190 60 l S\nq 0 0 100 120 re W n 200 0 0 120 0 0 cm /Scan Do Q\n",
+    );
+    report(&run(&scratch, instructions(&scratch)), "visible-drawing");
+    assert!(!scratch.path("output.pdf").exists());
+
+    // Text under a scan drawn through an extended graphics state may show through.
+    let mut document = Document::load(&source_path).unwrap();
+    let state =
+        document.add_object(dictionary! { "Type" => "ExtGState", "CA" => 0.5, "ca" => 0.5 });
+    let resources = document
+        .get_dictionary_mut(source.page)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap();
+    resources.set("ExtGState", dictionary! { "Half" => state });
+    document.save(&source_path).unwrap();
+    rewrite_page_content(
+        &source_path,
+        source.page,
+        "BT /F1 12 Tf 1 0 0 1 50 60 Tm (Searchable scan text) Tj ET\nq /Half gs 200 0 0 120 0 0 cm /Scan Do Q\n",
+    );
+    report(&run(&scratch, instructions(&scratch)), "visible-text");
+    assert!(!scratch.path("output.pdf").exists());
+}

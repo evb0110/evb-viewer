@@ -312,14 +312,23 @@ fn classify_page(
     let view = resolve_page_view(document, page_id)?;
     let mut placement = PdfMatrix::IDENTITY;
     let mut mode = 0;
+    // A clip or an extended graphics state (opacity, blending) can let what
+    // was painted earlier show through an image placed over the whole page.
+    let mut clipped = false;
+    let mut styled = false;
     let mut saved = Vec::new();
     let mut draws_image = false;
     let mut shows_text = false;
     let mut shows_drawing = false;
     for operation in operations {
         match operation.operator.as_str() {
-            "q" => saved.push((placement, mode)),
-            "Q" => (placement, mode) = saved.pop().unwrap_or((placement, mode)),
+            "q" => saved.push((placement, mode, clipped, styled)),
+            "Q" => {
+                (placement, mode, clipped, styled) =
+                    saved.pop().unwrap_or((placement, mode, clipped, styled));
+            }
+            "W" | "W*" => clipped = true,
+            "gs" => styled = true,
             "cm" => match PdfMatrix::from_operation(operation) {
                 Some(matrix) => placement = placement.concat(matrix),
                 None => return Ok(Some(ReplacePageOutcome::UnsupportedText)),
@@ -362,7 +371,7 @@ fn classify_page(
                     return Ok(Some(ReplacePageOutcome::FormXobject));
                 }
                 draws_image = true;
-                if is_opaque_cover(&xobject.dict, placement, view) {
+                if !clipped && !styled && is_opaque_cover(&xobject.dict, placement, view) {
                     shows_text = false;
                     shows_drawing = false;
                 }
