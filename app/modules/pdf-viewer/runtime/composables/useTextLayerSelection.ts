@@ -220,8 +220,11 @@ function enableGlobalSelectionListener() {
                 return;
             }
 
+            // Only a drag in progress needs the page-sized sentinel. A change
+            // that arrives after pointerup would cover the page again and
+            // swallow the next press.
             const entry = textLayers.get(nextActiveLayer);
-            if (entry) {
+            if (entry && isPointerDown) {
                 nextActiveLayer.classList.add('selecting');
                 updateSelectionSentinel(nextActiveLayer, entry, range);
             }
