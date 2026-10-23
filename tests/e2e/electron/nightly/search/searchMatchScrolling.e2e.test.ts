@@ -116,6 +116,69 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
+    it('shows three complete snippet lines inside each search match card', async () => {
+        const {page} = sessionFixture.getSession();
+        const evidence = resolve('.devkit/match-card', process.env.EVB_MATCH_CARD_EVIDENCE ?? 'regression');
+        mkdirSync(evidence, {recursive: true});
+        const pdf = await PDFDocument.create();
+        for (let index = 0; index < 3; index += 1) {
+            pdf.addPage().drawText(
+                'Despite the long period covered by the books of the Old Testament, Biblical Hebrew '
+                + 'exhibits a surprising degree of uniformity, owing to its being a literary language '
+                + 'and to the homogeneous character of the textual tradition.',
+                {
+                    x: 40,
+                    y: 700,
+                    size: 14,
+                    maxWidth: 500,
+                },
+            );
+        }
+        const fixture = resolve(evidence, 'three-line-search.pdf');
+        writeFileSync(fixture, await pdf.save());
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'search');
+        await clickAsUser(page, '.document-search-bar input');
+        await page.keyboard.type('Biblical');
+        await page.keyboard.press('Enter');
+        await page.waitForSelector('.document-search-result-snippet');
+
+        for (const scale of [
+            0.85,
+            1,
+            1.1,
+            1.25,
+        ]) {
+            // Layout setup mirrors the root scale applied by the settings UI.
+            await page.evaluate(value => document.documentElement.style.setProperty('--app-ui-scale', String(value)), scale);
+            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+            await clickAsUser(page, '.document-search-result');
+            const layout = await page.$eval('.document-search-result.is-active', card => {
+                const snippet = card.querySelector<HTMLElement>('.document-search-result-snippet')!;
+                const style = getComputedStyle(snippet);
+                const cardStyle = getComputedStyle(card);
+                const cardRect = card.getBoundingClientRect();
+                const snippetRect = snippet.getBoundingClientRect();
+                const range = document.createRange();
+                range.selectNodeContents(snippet);
+                return {
+                    lineHeight: Number.parseFloat(style.lineHeight),
+                    height: snippetRect.height,
+                    bottomClearance: cardRect.bottom - snippetRect.bottom,
+                    paddingBottom: Number.parseFloat(cardStyle.paddingBottom),
+                    textHeight: range.getBoundingClientRect().height,
+                };
+            });
+            await page.screenshot({path: resolve(evidence, `scale-${scale}.png`)});
+            writeFileSync(resolve(evidence, `scale-${scale}.json`), JSON.stringify(layout, null, 2));
+            expect(layout.textHeight, `fixture must wrap to at least three lines at scale ${scale}`).toBeGreaterThan(layout.lineHeight * 2);
+            expect(layout.height, `three complete lines at scale ${scale}: ${JSON.stringify(layout)}`).toBeGreaterThanOrEqual(layout.lineHeight * 3 - 0.5);
+            expect(layout.bottomClearance, `bottom padding at scale ${scale}`).toBeGreaterThanOrEqual(layout.paddingBottom);
+        }
+    }, 120_000);
+
     it('keeps the query, matches and selected occurrence when one page rotates', async () => {
         const {page} = sessionFixture.getSession();
         const evidence = resolve('.devkit/rotatesearch', `search-${process.pid}`);

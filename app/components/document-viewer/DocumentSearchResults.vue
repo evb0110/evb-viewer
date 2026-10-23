@@ -112,7 +112,9 @@
 
 <script setup lang="ts">
 import type {IPdfSearchProgress} from '@contracts/search';
-import { useVirtualList } from '@vueuse/core';
+import {
+    useMutationObserver, useVirtualList,
+} from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
 import {
     formatPageIndicatorWithOptions,
@@ -126,13 +128,25 @@ import {
     formatDocumentSearchResultsSummary, resolveVirtualRowRevealScrollTop,  
 } from '@app/modules/document-viewer/public';
 
-const SEARCH_VIRTUAL_ROW_HEIGHT_TOKENS = Object.freeze({
-    group: '--app-search-virtual-group-row-height',
-    match: '--app-search-virtual-row-height',
-});
 const searchVirtualRowHeightsPx = reactive({
     group: 36,
-    match: 84,
+    match: 100,
+});
+
+function updateVirtualRowHeights() {
+    const styles = window.getComputedStyle(document.documentElement);
+    const scale = Number(styles.getPropertyValue('--app-ui-scale') || '1');
+    searchVirtualRowHeightsPx.group = Number.parseFloat(styles.getPropertyValue('--app-search-virtual-group-row-height') || '36') * scale;
+    searchVirtualRowHeightsPx.match = Number.parseFloat(styles.getPropertyValue('--app-search-virtual-row-height') || '100') * scale;
+}
+
+onMounted(updateVirtualRowHeights);
+useMutationObserver(() => globalThis.document?.documentElement, updateVirtualRowHeights, {
+    attributes: true,
+    attributeFilter: [
+        'style',
+        'class',
+    ],
 });
 
 const { t } = useTypedI18n();
@@ -310,20 +324,6 @@ function virtualRowHeight(row: TSearchVirtualRow) {
     return searchVirtualRowHeightsPx[row.kind];
 }
 
-onMounted(() => {
-    const styles = window.getComputedStyle(document.documentElement);
-    for (const kind of [
-        'group',
-        'match',
-    ] as const) {
-        const tokenValue = styles.getPropertyValue(SEARCH_VIRTUAL_ROW_HEIGHT_TOKENS[kind]).trim();
-        const pixels = tokenValue.endsWith('px') ? Number.parseFloat(tokenValue) : Number.NaN;
-        if (Number.isFinite(pixels) && pixels > 0) {
-            searchVirtualRowHeightsPx[kind] = pixels;
-        }
-    }
-});
-
 function revealVirtualRowSpan(startIndex: number, endIndex: number) {
     const listElement = searchResultsList.value;
     if (!listElement || !listElement.isConnected) {
@@ -451,9 +451,7 @@ watch(
 
 .document-search-results-virtual-match {
     box-sizing: border-box;
-    height: var(--app-search-virtual-row-height);
-    min-height: var(--app-search-virtual-row-height);
-    max-height: var(--app-search-virtual-row-height);
+    height: calc(var(--app-search-virtual-row-height) * var(--app-ui-scale));
     overflow: hidden;
 }
 
@@ -534,9 +532,7 @@ watch(
     display: flex;
     box-sizing: border-box;
     width: 100%;
-    height: var(--app-search-virtual-group-row-height);
-    min-height: var(--app-search-virtual-group-row-height);
-    max-height: var(--app-search-virtual-group-row-height);
+    height: calc(var(--app-search-virtual-group-row-height) * var(--app-ui-scale));
     align-items: center;
     gap: var(--app-sidebar-row-gap);
     border: none;
