@@ -165,7 +165,7 @@ describe('DocumentSearchResults', () => {
         await nextTick();
         await nextTick();
 
-        expect(list.scrollTop).toBe(120);
+        expect(list.scrollTop).toBe(136);
         expect(host.querySelector(
             '.document-search-result[data-page-number="2"][data-page-match-number="1"]',
         )).not.toBeNull();
@@ -183,7 +183,7 @@ describe('DocumentSearchResults', () => {
         const {
             host,
             list,
-        } = await mountResults(state, 240);
+        } = await mountResults(state, 272);
 
         groupButton(host, 2).click();
         await nextTick();
@@ -198,7 +198,7 @@ describe('DocumentSearchResults', () => {
             currentResultIndex: -1,
             currentResultNavigationId: 0,
         });
-        const {list} = await mountResults(state, 120);
+        const {list} = await mountResults(state, 136);
         list.scrollTop = 12;
         list.dispatchEvent(new Event('scroll'));
         await nextTick();

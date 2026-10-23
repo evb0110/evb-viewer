@@ -349,7 +349,7 @@
     --app-panel-empty-icon-size: var(--app-control-height-xs);
     --app-panel-empty-max-width: 22rem;
     --app-search-virtual-group-row-height: 36px;
-    --app-search-virtual-row-height: 84px;
+    --app-search-virtual-row-height: 100px;
     --app-search-progress-height: 3px;
     --app-ocr-dialog-max-width: 72rem;
 
