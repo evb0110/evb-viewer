@@ -930,7 +930,7 @@ onBeforeUnmount(() => {
     min-inline-size: 0;
 }
 
-.settings-card :deep([role='combobox']) {
+.settings-card :deep([aria-haspopup='listbox']) {
     max-width: 100%;
 }
 

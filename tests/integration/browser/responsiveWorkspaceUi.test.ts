@@ -19,6 +19,7 @@ async function readSettingsLayout(page: Page) {
                 className: element.className,
                 width: element.clientWidth,
                 contentWidth: element.scrollWidth,
+                text: element.innerText.slice(0, 200),
             })),
         truncatedNavigation: [...document.querySelectorAll<HTMLElement>('.rail-item > span:not(.iconify, .rail-count)')]
             .filter(element => element.scrollWidth > element.clientWidth + 1)
@@ -103,6 +104,7 @@ it('keeps settings and document controls readable and reachable from phone to de
         }).waitFor();
         await page.evaluate(() => document.fonts.ready);
         for (const width of [
+            290,
             320,
             390,
             768,
@@ -175,6 +177,7 @@ it('keeps settings and document controls readable and reachable from phone to de
         });
         await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
         for (const width of [
+            290,
             320,
             390,
             768,
