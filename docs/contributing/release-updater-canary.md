@@ -2,19 +2,35 @@
 
 The release workflow validates updater metadata before upload and again after the draft release assets are downloaded. The gate requires the release version to match `package.json`, every referenced artifact to exist, and every metadata size and SHA-512 value to match the exact uploaded bytes.
 
-## Residual N-1 → N check
+## Required release verification
+
+The release contract is the exact-SHA CI verdict, the release workflow's package
+and artifact-integrity checks, public GitHub promotion, and verification of the
+production updater channel, release manifest, and asset route. These checks run
+in the existing hosted workflow; see [Releasing](releasing.md).
+
+## Optional N-1 → N smoke
 
 An actual automatic update cannot be a deterministic pre-publication gate with the production GitHub provider: the feed is only available to installed clients after the signed release becomes public. A draft-only or unsigned feed would exercise materially different trust and provider behavior.
 
-After promotion, perform this canary on each platform for which updater metadata was published:
+After promotion, an installed-client smoke can provide additional evidence when
+a suitable disposable environment is already available. It is optional, does
+not require coverage of every published updater feed, and is not a prerequisite
+for completing a release. Do not provision VMs or macOS accounts for a routine
+release. If the environment or host capacity is unavailable, record that the
+smoke was not run and complete the automated release workflow.
 
-1. Install the previous public signed version in a disposable VM or macOS test account.
+When running it:
+
+1. Install the previous public version in a disposable VM or macOS test account. On macOS, use the Developer ID signed release.
 2. Confirm the About dialog reports N-1 and no EVB Viewer process from another installation is running.
 3. Trigger **Check for updates**, wait for the download to finish, and choose the restart/install action.
 4. Confirm the relaunched executable is the installed application, the About dialog reports N, and a PDF opens and renders.
 5. Preserve the updater log and application log with the release record.
 
-Do not use an installed production copy for this canary. A future reliable automation lane requires disposable signed-machine images and an isolated public-compatible update feed; until then, the deterministic artifact-integrity gate plus this post-promotion smoke is the release contract.
+Do not use an installed production copy for this canary. Record the platform,
+versions, and result separately from the automated release checks. Passing
+artifact and feed checks does not mean an installed-client update was exercised.
 
 ## macOS installations without administrator rights
 
@@ -41,4 +57,4 @@ The behavior comes from [Squirrel's Contents replacement path](https://github.co
 The focused macOS case in `tests/unit/electron/updates.test.ts` exercises the
 shipped ShipIt executable against disposable signed apps under a non-writable
 parent and verifies the installed bytes and signature. It disables relaunch;
-the signed-release UI canary above remains a separate post-promotion check.
+the optional installed-client updater smoke above remains a separate post-promotion check.
