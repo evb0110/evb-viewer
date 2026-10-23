@@ -33,6 +33,12 @@ async function readSettingsLayout(page: Page) {
 async function readClippedToolbarControls(page: Page) {
     return page.evaluate(() => {
         const toolbar = document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Document toolbar"]')!;
+        const clippingOverflows = new Set([
+            'hidden',
+            'clip',
+            'auto',
+            'scroll',
+        ]);
         return [...toolbar.querySelectorAll<HTMLButtonElement>('button')].flatMap(button => {
             const rect = button.getBoundingClientRect();
             if (!rect.width || !rect.height || getComputedStyle(button).visibility === 'hidden') return [];
@@ -40,16 +46,14 @@ async function readClippedToolbarControls(page: Page) {
             const bounds = toolbar.getBoundingClientRect();
             let clipped = rect.left < bounds.left - 1 || rect.right > bounds.right + 1
                 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1;
-            while (ancestor && ancestor !== toolbar) {
+            while (ancestor) {
                 const style = getComputedStyle(ancestor);
-                if ([
-                    'hidden',
-                    'clip',
-                    'auto',
-                    'scroll',
-                ].includes(style.overflowX)) {
-                    const clip = ancestor.getBoundingClientRect();
+                const clip = ancestor.getBoundingClientRect();
+                if (clippingOverflows.has(style.overflowX)) {
                     clipped ||= rect.left < clip.left - 1 || rect.right > clip.right + 1;
+                }
+                if (clippingOverflows.has(style.overflowY)) {
+                    clipped ||= rect.top < clip.top - 1 || rect.bottom > clip.bottom + 1;
                 }
                 ancestor = ancestor.parentElement;
             }
