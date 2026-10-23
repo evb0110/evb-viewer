@@ -1058,10 +1058,11 @@ async function waitForPersistedDiagnosticsPreference(userDataPath: string, expec
 }
 
 async function chooseTheme(page: Page, theme: 'light' | 'dark') {
-    // The label text sits on top of the radio's wrapper; the radio button itself is covered.
+    // Click the visible label for the accessible radio choice.
     const label = theme === 'dark' ? LOCALE_MESSAGES.en.settings.themeDark : LOCALE_MESSAGES.en.settings.themeLight;
-    await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('.settings-grid .settings-radio-label'))
-        .find(element => element.textContent?.trim() === text), label, {description: `${label} theme`});
+    await clickFoundAsUser(page, (value: string) => document.querySelector(
+        `.settings-grid [role="radio"][value="${value}"]`,
+    )?.closest<HTMLElement>('label') ?? null, theme, {description: `${label} theme`});
 }
 
 async function chooseLanguage(page: Page, currentLabel: string, nextLabel: string) {

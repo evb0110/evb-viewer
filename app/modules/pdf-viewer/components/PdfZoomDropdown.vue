@@ -180,7 +180,7 @@ const customInputRef = ref<HTMLInputElement | null>(null);
 
 const effectiveCompactLevel = useClamp(() => compactLevel, 0, 2);
 
-const showStepButtons = computed(() => true);
+const showStepButtons = computed(() => effectiveCompactLevel.value < 2);
 const shortcutLabels = useShortcutLabels();
 
 function normalizeZoomLevel(value: number) {
@@ -361,14 +361,8 @@ function selectCustomZoomInput(event: FocusEvent) {
     transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
 }
 
-.zoom-controls--compact-2 .zoom-controls-display {
-    width: 100%;
-    min-width: 100%;
-    max-width: 100%;
-}
-
 .zoom-controls--compact-2 {
-    --zoom-control-display-width: 5.5rem;
+    --zoom-control-display-width: 4.5rem;
 }
 
 .zoom-controls-display:disabled {

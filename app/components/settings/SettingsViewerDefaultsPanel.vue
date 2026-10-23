@@ -171,8 +171,10 @@ const settingsFormFieldUi = { label: 'settings-field-label' };
 
 .settings-swatch-track {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
     align-self: flex-start;
+    max-width: 100%;
     gap: var(--app-space-3xl);
     padding: var(--app-space-3xl) var(--app-space-6xl);
     border-radius: calc(var(--ui-radius) * 1.5);

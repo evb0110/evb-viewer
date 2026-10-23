@@ -581,41 +581,10 @@ function handleToolbarCommand(command: TToolbarCommand) {
     min-width: max-content;
 }
 
-.toolbar[data-collapse-tier='5'] {
-    overflow: hidden;
-}
-
 .toolbar[data-collapse-tier='5'] .toolbar-center {
-    min-width: 0;
     flex: 1 1 auto;
-    overflow: hidden;
-}
-
-.toolbar[data-collapse-tier='5'] .toolbar-section,
-.toolbar[data-collapse-tier='5'] .toolbar-left,
-.toolbar[data-collapse-tier='5'] .toolbar-right,
-.toolbar[data-collapse-tier='5'] .toolbar-cluster,
-.toolbar[data-collapse-tier='5'] .toolbar-button-group {
+    flex-wrap: wrap;
+    justify-content: center;
     min-width: 0;
-}
-
-.toolbar[data-collapse-tier='5'] .toolbar-left,
-.toolbar[data-collapse-tier='5'] .toolbar-right {
-    flex: 0 1 auto;
-    overflow: hidden;
-}
-
-.toolbar[data-collapse-tier='5'] .toolbar-center {
-    overflow-x: auto;
-    scrollbar-width: none;
-}
-
-.toolbar[data-collapse-tier='5'] .toolbar-center::-webkit-scrollbar {
-    display: none;
-}
-
-.toolbar[data-collapse-tier='5'] .toolbar-inline-group {
-    min-width: 0;
-    flex: 1 1 auto;
 }
 </style>

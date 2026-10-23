@@ -146,7 +146,7 @@ for (const entry of ['pdf', 'djvu', 'native-tools']) addZone(`electron/${entry}`
 addZone('electron/native-tools', ocrNativeToolPaths);
 
 const namingOnlyConfig = [
-    {ignores: ['landing/.nuxt/**', 'landing/.output/**', 'landing/dist/**', 'landing/node_modules/**']},
+    {ignores: ['landing/.nuxt/**', 'landing/.output/**', 'landing/.vercel/**', 'landing/dist/**', 'landing/node_modules/**']},
     {
         files: ['landing/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}'],
         languageOptions: {

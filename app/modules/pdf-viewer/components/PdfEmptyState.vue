@@ -706,6 +706,8 @@ watch(() => openInProgress, (isOpening) => {
 }
 
 .start-tool-page {
+    --app-tool-page-padding: 0;
+
     height: 100%;
     min-height: 0;
 }
@@ -1201,6 +1203,43 @@ watch(() => openInProgress, (isOpening) => {
 }
 
 @container (max-width: 640px) {
+    .start-shell {
+        padding: var(--app-space-3xl);
+    }
+
+    .start-rail {
+        align-items: stretch;
+    }
+
+    .rail-section {
+        flex: 1 1 0;
+    }
+
+    .rail-item {
+        position: relative;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--app-space-sm);
+        width: 100%;
+        height: 100%;
+        min-height: calc(var(--app-control-height-md) * 2);
+        padding: var(--app-space-3xl) var(--app-space-sm);
+    }
+
+    .rail-item span:not(.rail-shortcut, .rail-count) {
+        overflow: visible;
+        font-size: var(--app-text-size-caption);
+        text-align: center;
+        text-overflow: clip;
+        white-space: normal;
+    }
+
+    .rail-count {
+        position: absolute;
+        inset-block-start: var(--app-space-sm);
+        inset-inline-end: var(--app-space-sm);
+    }
+
     .start-open-panel {
         flex-direction: column;
         align-items: stretch;

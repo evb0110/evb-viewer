@@ -57,6 +57,9 @@ function findPageRenderPending() {
     if (!track || !viewport) {
         return 'the viewer has no page track';
     }
+    if (viewport.closest('[aria-busy="true"]')) {
+        return 'the document is still opening';
+    }
     const viewportRect = viewport.getBoundingClientRect();
     const pending = [...track.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)]
         .filter((container) => {

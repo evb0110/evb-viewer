@@ -183,11 +183,9 @@ body {
     display: flex;
     box-sizing: border-box;
     align-items: center;
-    flex: 0 0 var(--app-toolbar-row-height, 3.5rem);
+    flex: 0 0 auto;
     gap: 0.25rem;
-    height: var(--app-toolbar-row-height, 3.5rem);
     min-height: var(--app-toolbar-row-height, 3.5rem);
-    max-height: var(--app-toolbar-row-height, 3.5rem);
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
     border-top: 1px solid var(--ui-border);
