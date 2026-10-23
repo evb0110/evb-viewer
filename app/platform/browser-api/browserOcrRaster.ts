@@ -3,6 +3,7 @@ import type {
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsRuntime, {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
+import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
 
 // Poppler paints every annotation's appearance into an OCR raster.
 export const BROWSER_OCR_ANNOTATION_MODE: number = AnnotationMode.ENABLE;
@@ -184,6 +185,9 @@ export async function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal
                 const task = page.render({
                     canvas,
                     canvasContext: context,
+                    // OCR does not paint the screen. Hidden tabs receive no
+                    // animation frames; retain display content and annotations.
+                    useRequestAnimationFrame: false,
                     viewport,
                     transform: [
                         1,
@@ -196,6 +200,9 @@ export async function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal
                     background: 'rgb(255,255,255)',
                     annotationMode: BROWSER_OCR_ANNOTATION_MODE,
                 });
+                task.onContinue = (continueRender: () => void) => {
+                    void yieldToBrowser().then(continueRender);
+                };
                 const cancel = () => task.cancel();
                 signal.addEventListener('abort', cancel, {once: true});
                 try {
