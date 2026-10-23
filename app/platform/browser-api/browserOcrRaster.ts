@@ -184,6 +184,9 @@ export async function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal
                 const task = page.render({
                     canvas,
                     canvasContext: context,
+                    // OCR does not paint the screen. Hidden tabs receive no
+                    // animation frames; retain display content and annotations.
+                    useRequestAnimationFrame: false,
                     viewport,
                     transform: [
                         1,

@@ -11,12 +11,18 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser OCR progress', () => {
-    it('shows completed page counts instead of a parallel worker page number', async () => {
+    it('shows completed page counts and finishes while tab animation frames are suspended', async () => {
         // I4: long work reports its step with a count that never moves backward.
         const evidence = process.env.EVB_OCR_PROGRESS_EVIDENCE_DIR;
         if (evidence) await mkdir(evidence, {recursive: true});
         const page = await lifecycle.browser.newPage({
-            ...(evidence ? {recordVideo: {dir: evidence}} : {}),
+            ...(evidence ? {recordVideo: {
+                dir: evidence,
+                size: {
+                    width: 1440,
+                    height: 900,
+                },
+            }} : {}),
             viewport: {
                 width: 1440,
                 height: 900,
@@ -61,10 +67,34 @@ describe('browser OCR progress', () => {
             await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
             await page.waitForFunction(() => document.querySelector('[role="dialog"] .progress-text')
                 ?.textContent?.startsWith('Processing page'), undefined, {timeout: 90_000});
+            // Headless Chromium keeps every tab visible. Reproduce the hidden-tab
+            // policy directly: animation callbacks stop, while worker messages,
+            // promises and DOM updates can still run. OCR must finish before any
+            // callbacks resume, as it must when the user works in another app.
+            await page.evaluate(() => {
+                const request = window.requestAnimationFrame.bind(window);
+                const cancel = window.cancelAnimationFrame.bind(window);
+                const suspended = new Map<number, FrameRequestCallback>();
+                let frameId = 0;
+                window.requestAnimationFrame = callback => {
+                    suspended.set(--frameId, callback);
+                    return frameId;
+                };
+                window.cancelAnimationFrame = id => {
+                    if (!suspended.delete(id)) cancel(id);
+                };
+                Reflect.set(window, '__resumeOcrAnimationFrames', () => {
+                    window.requestAnimationFrame = request;
+                    window.cancelAnimationFrame = cancel;
+                    suspended.forEach(callback => request(callback));
+                });
+            });
             if (evidence) {
                 await page.screenshot({path: join(evidence, 'processing.png')});
             }
             await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
+            if (evidence) await page.screenshot({path: join(evidence, 'complete-without-animation-frames.png')});
+            await page.evaluate(() => Reflect.get(window, '__resumeOcrAnimationFrames')());
             const samples = await page.evaluate(() => Reflect.get(window, '__ocrProgressSamples') as string[]);
             if (evidence) await writeFile(join(evidence, 'samples.json'), JSON.stringify(samples, null, 2));
             const processing = samples.filter(text => text.startsWith('Processing page'));
@@ -94,6 +124,7 @@ describe('browser OCR progress', () => {
             // independently confirms recognition finished on all eight pages.
             await expect.poll(() => page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
                 .toEqual(Array.from({length: 8}, () => 'lantern'));
+            if (evidence) await page.screenshot({path: join(evidence, 'searchable.png')});
         } finally {
             await page.context().close();
         }

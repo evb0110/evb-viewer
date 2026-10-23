@@ -23,17 +23,17 @@ import {
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
-const archiveName = 'pdfjs-dist-6.3.314-f88c766a.tgz';
+const archiveName = 'pdfjs-dist-6.3.315-dd722a66.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '6.3.314',
+    version: '6.3.315',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
-    branch: 'evb-1383-native-annotation-appearance',
-    commit: 'f88c766ad2701da9d29ef391ae9a9346c6891474',
-    tree: 'ab88cbc85b3dc7fa98067f468a16ef6b18e21a6a',
+    branch: 'evb-1442-background-rendering',
+    commit: 'dd722a6628764218a99e3d8ac6e9c2b70141f993',
+    tree: '845071699cbf0e9a0fa353e2a769f9d64aafd97e',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
     upstreamTag: 'v6.3.289',
@@ -206,7 +206,7 @@ function validateReceipt(receipt) {
         && receipt.build.environment === 'PUPPETEER_SKIP_DOWNLOAD=1', 'build receipt is incomplete');
     assert(receipt.build.node && receipt.build.npm && receipt.build.os && receipt.build.arch, 'build tool receipt is incomplete');
     assert(receipt.artifact.published === false && receipt.evb.noNpmPublication === true, 'npm publication is not disabled');
-    assert(receipt.evb.dependencyKey === dependencyKey && receipt.evb.pnpm === '10.32.1', 'EVB dependency or pnpm mismatch');
+    assert(receipt.evb.dependencyKey === dependencyKey && receipt.evb.pnpm === '10.34.5', 'EVB dependency or pnpm mismatch');
     assert(receipt.evb.previewDependency === 'npm:pdfjs-dist@5.4.296', 'preview dependency mismatch');
     assert(receipt.package.sourceMapPolicy === 'source maps retained; local absolute paths forbidden' && receipt.package.sourceMapCount === 10, 'source-map receipt mismatch');
     assert(receipt.package.manifest === `${archiveName.slice(0, -4)}.files.sha256` && receipt.package.manifestFormat === 'file<TAB>size<TAB>sha256<TAB>path', 'manifest receipt mismatch');

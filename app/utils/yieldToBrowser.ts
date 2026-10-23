@@ -3,14 +3,6 @@ type TTaskResolver = () => void;
 let taskChannel: MessageChannel | null | undefined;
 const pendingTaskResolvers: TTaskResolver[] = [];
 
-function getVisibilityState() {
-    if (typeof document === 'undefined') {
-        return 'hidden';
-    }
-
-    return document.visibilityState;
-}
-
 function getTaskChannel() {
     if (taskChannel !== undefined) {
         return taskChannel;
@@ -28,7 +20,8 @@ function getTaskChannel() {
     return taskChannel;
 }
 
-async function yieldToTaskQueue() {
+/** Yield nonvisual work without waiting for a repaint that a hidden tab may never receive. */
+export async function yieldToBrowser() {
     const channel = getTaskChannel();
     if (channel) {
         await new Promise<void>((resolve) => {
@@ -41,20 +34,6 @@ async function yieldToTaskQueue() {
     await new Promise<void>((resolve) => {
         setTimeout(resolve, 0);
     });
-}
-
-export async function yieldToBrowser() {
-    if (
-        getVisibilityState() === 'visible'
-        && typeof requestAnimationFrame === 'function'
-    ) {
-        await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => resolve());
-        });
-        return;
-    }
-
-    await yieldToTaskQueue();
 }
 
 export function resetBrowserYieldStateForTests() {

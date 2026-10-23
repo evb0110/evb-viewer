@@ -1,13 +1,12 @@
 # EVB PDF.js artifact
 
-This directory contains the complete generated `pdfjs-dist@6.3.313` package
+This directory contains the complete generated `pdfjs-dist@6.3.315` package
 from the public EVB fork at
 `https://github.com/evb0110/pdf.js`, commit
-`f9ed28c517dc5fbbe178d64a44df27981c1b3a98`, tree
-`eee30b627caeea3b31cd33bc01ec6b492f20fc15`, branch
-`evb-927-annotation-suppression`, which is one commit on top of
-`c3253faa1` from `ticket/168-fork-rebase`. The fork rebases the EVB changes
-onto upstream `v6.3.289`.
+`dd722a6628764218a99e3d8ac6e9c2b70141f993`, tree
+`845071699cbf0e9a0fa353e2a769f9d64aafd97e`, branch
+`evb-1442-background-rendering`, based on the native annotation appearance
+renderer at `f88c766ad`. The fork rebases the EVB changes onto upstream `v6.3.289`.
 
 The generated fork metadata keeps `sourceVersion: 5.7.284` to identify the
 original EVB fork base. The upstream rebase is identified separately by the
@@ -35,3 +34,8 @@ overlap, rotation and vertical-font controls.
 out of the canvas and keeps every other annotation, so the viewer and its
 thumbnails can draw editable annotations from the EVB store without reading
 the render task's private operator list.
+
+`page.render({useRequestAnimationFrame: false})` uses the existing promise
+scheduler for offscreen OCR rasters. Display content and annotation visibility
+stay the same; rendering can continue when hidden tabs receive no animation
+callbacks. Default viewer rendering still follows animation frames.

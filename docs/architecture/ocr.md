@@ -28,6 +28,12 @@ measured against reference text, the two rasters recognize equally well
 overall. Neither supersampling the PDF.js raster nor reading the embedded
 image directly improved on it.
 
+OCR rasters use the renderer's promise scheduler, with
+`useRequestAnimationFrame: false`, so hidden tabs do not wait for a repaint.
+Rendering intent stays `display`, preserving visible content and annotations.
+The browser may still freeze or discard the entire page, and system sleep
+stops browser work.
+
 Recognition runs in a pool of engine workers sized from the device's cores and
 memory (`browserOcrEngineClient.ts`); canceling ends a busy worker, since a
 worker inside Tesseract cannot read messages. Models download from the pinned
@@ -46,7 +52,8 @@ digest and commits only while both revisions still match. Early print reads
 as on desktop: a page with the long-s signature runs the selected models,
 `ita_old` and `fra` in one engine request on a fresh raster, and the planned
 word edits travel with the page to the writer. Scan cleanup is not in the
-browser; documents are limited to the browser's 16 MB editing size for now.
+browser. OCR admission uses the PDF writer's request budget, including the
+recognized page layers; it does not reuse the generic editing byte limit.
 
 ## Language models
 
