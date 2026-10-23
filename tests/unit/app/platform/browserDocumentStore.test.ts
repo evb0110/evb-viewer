@@ -1333,7 +1333,11 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4, 5, 6, 7));
     });
 
-    it('clones chunked documents without materializing them into inline storage', async () => {
+    it.each([
+        'chunked',
+        'source-proxy',
+        'handle',
+    ] as const)('clones $0 documents with their actual bytes and size', async (storageMode) => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'chunked.pdf',
@@ -1355,7 +1359,19 @@ describe('BrowserDocumentStore', () => {
             chunkSize: 4,
         });
 
-        const cloneRef = await store.cloneStoredDocument(ref, {
+        const sourceRef = storageMode === 'source-proxy'
+            ? await store.cloneAsWorkingCopy(ref)
+            : storageMode === 'handle'
+                ? await store.createStoredDocument('handle.pdf', new Uint8Array(), {
+                    ...PDF_SOURCE_OPTIONS,
+                    storageMode: 'handle',
+                    saveHandle: createFileSystemFileHandle({
+                        name: 'handle.pdf',
+                        getFile: async () => new File([Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8)], 'handle.pdf'),
+                    }),
+                })
+                : ref;
+        const cloneRef = await store.cloneStoredDocument(sourceRef, {
             fileName: 'clone.pdf',
             kind: 'working',
             retention: 'transient',
@@ -1364,8 +1380,13 @@ describe('BrowserDocumentStore', () => {
         const cloneEntry = await store.requireEntry(cloneRef);
 
         expect(cloneEntry.storageMode).toBe('chunked');
-        expect(cloneEntry.chunkCount).toBe(2);
+        expect(cloneEntry.chunkCount).toBe(storageMode === 'chunked' ? 2 : 1);
         await expect(store.readRange(cloneRef, 2, 4)).resolves.toEqual(Uint8Array.of(3, 4, 5, 6));
+        const revision = await store.getDocumentRevision(cloneRef);
+        store.unload(cloneRef);
+        await expect(store.stat(cloneRef)).resolves.toMatchObject({size: 8});
+        await expect(store.getDocumentRevision(cloneRef)).resolves.toEqual(revision);
+        await expect(store.read(cloneRef)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8));
     });
 
     it('removes partial chunked clone records when source chunk copy fails', async () => {

@@ -20,7 +20,6 @@ import {
     effectScope,
     nextTick,
     ref,
-    shallowRef,
     type EffectScope,
 } from 'vue';
 import type {
@@ -28,7 +27,6 @@ import type {
     IOcrSettings,
     IOcrUiProgress,
 } from '@app/utils/ocr/ocrTypes';
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
@@ -187,19 +185,16 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const currentPage = ref(3);
     const totalPages = ref(12);
     const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
-    const documentRevision = ref(requireDocumentRevisionToken('drt1:ocr-presenter-test'));
-    const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
-    const onOcrComplete = vi.fn();
+    let finishApply: (applied: boolean) => void = () => {};
+    const onOcrComplete = vi.fn(() => new Promise<boolean>((resolve) => { finishApply = resolve; }));
     const busy = ref(false);
 
     const scope = effectScope();
     const presenter = scope.run(() => useOcrPopupPresenter({
         context: {
-            pdfDocument,
             currentPage,
             totalPages,
             workingCopyPath,
-            documentRevision,
             busy,
         },
         applyResult: onOcrComplete,
@@ -235,13 +230,16 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
         currentPage,
         totalPages,
         workingCopyPath,
-        documentRevision,
-        pdfDocument,
         isOpen,
         disabled,
         externalError,
         busy,
         events: {onOcrComplete},
+        completeApply: async (applied = true) => {
+            finishApply(applied);
+            await Promise.resolve();
+            await nextTick();
+        },
     };
 }
 
@@ -384,8 +382,7 @@ describe('useOcrPopupPresenter', () => {
             });
             expect(harness.presenter.showSuccessState.value).toBe(false);
             expect(harness.presenter.viewState.value).toBe('applying');
-            harness.pdfDocument.value = {} as IPdfDocument;
-            await nextTick();
+            await harness.completeApply();
             expect(harness.presenter.showSuccessState.value).toBe(true);
             expect(harness.presenter.viewState.value).toBe('results');
         } finally {
@@ -430,7 +427,6 @@ describe('useOcrPopupPresenter', () => {
 
     it('can run from a working copy when the fallback toolbar has no PDF object', async () => {
         const harness = createPresenterHarness();
-        harness.pdfDocument.value = null;
         harness.ocr.runOcr.mockImplementation(async () => {
             setSearchableResult(harness.ocr, 'req-no-pdf-object', '/tmp/no-pdf-object.pdf');
         });
@@ -547,8 +543,7 @@ describe('useOcrPopupPresenter', () => {
             await nextTick();
             expect(harness.events.onOcrComplete).toHaveBeenCalledTimes(1);
 
-            harness.pdfDocument.value = {} as IPdfDocument;
-            await nextTick();
+            await harness.completeApply();
 
             expect(harness.presenter.viewState.value).toBe('results');
             expect(harness.ocr.clearResults).toHaveBeenCalledTimes(1);
@@ -558,44 +553,20 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it('recognizes OCR application when the active document only refreshes its revision token', async () => {
+    it.each([
+        true,
+        false,
+    ])('waits for application acknowledgement and displays its outcome (%s)', async (applied) => {
         const harness = createPresenterHarness();
 
         try {
             harness.presenter.handleRunOcr();
-            setSearchableResult(harness.ocr, 'req-revision-applied', '/tmp/revision-applied.pdf');
+            setSearchableResult(harness.ocr, 'req-applied', '/tmp/applied.pdf');
             await nextTick();
-
             expect(harness.presenter.viewState.value).toBe('applying');
-            harness.pdfDocument.value = null;
-            harness.documentRevision.value = requireDocumentRevisionToken('drt2:ocr-presenter-test');
-            await nextTick();
-
-            expect(harness.presenter.showSuccessState.value).toBe(true);
-            expect(harness.presenter.viewState.value).toBe('results');
-        } finally {
-            stopHarness(harness.scope);
-        }
-    });
-
-    it('does not treat the source revision resolution as OCR application', async () => {
-        const harness = createPresenterHarness();
-
-        try {
-            harness.presenter.handleRunOcr();
-            setSearchableResult(harness.ocr, 'req-source-revision', '/tmp/source-revision.pdf');
-            await nextTick();
-
-            harness.documentRevision.value = requireDocumentRevisionToken('source-revision-token');
-            await nextTick();
-
-            expect(harness.presenter.viewState.value).toBe('applying');
-
-            harness.documentRevision.value = requireDocumentRevisionToken('drt2:ocr-presenter-applied');
-            await nextTick();
-
-            expect(harness.presenter.showSuccessState.value).toBe(true);
-            expect(harness.presenter.viewState.value).toBe('results');
+            await harness.completeApply(applied);
+            expect(harness.presenter.showSuccessState.value).toBe(applied);
+            expect(harness.presenter.viewState.value).toBe(applied ? 'results' : 'configure');
         } finally {
             stopHarness(harness.scope);
         }

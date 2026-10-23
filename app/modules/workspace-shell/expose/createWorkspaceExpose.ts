@@ -261,9 +261,9 @@ export function createWorkspaceExpose(
             return owners.runAgentAction(...args);
         },
         readAgentResource: owners.readAgentResource,
-        handleOcrComplete: async payload => document.ocr.applyResult(
-            payload as Parameters<typeof document.ocr.applyResult>[0],
-        ),
+        handleOcrComplete: async (payload) => {
+            await document.ocr.applyResult(payload as Parameters<typeof document.ocr.applyResult>[0]);
+        },
         ...createWorkspaceDocumentRecovery(document, pdfViewer),
         pageOpsDelete: (pages, totalPages) => runPageOperation(() => pageOps.pageOpsDelete(pages, totalPages)),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),

@@ -4,15 +4,18 @@ import type {
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsRuntime, {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {
+    createPpmRaster, writePpmTile,
+} from '@ocr-core/ppmRaster';
+import {
+    BROWSER_OCR_RENDER_TILE_PX as RENDER_TILE_PX,
+    BROWSER_OCR_MAX_RASTER_PIXELS,
+    BROWSER_OCR_MAX_RASTER_DIMENSION_PX,
+    type TBrowserOcrEngineRequest,
+} from '@contracts/browserOcrEngine';
 
 // Poppler paints every annotation's appearance into an OCR raster.
 export const BROWSER_OCR_ANNOTATION_MODE: number = AnnotationMode.ENABLE;
-
-/** Desktop's raster admission: a page above either bound is refused, not downscaled. */
-export const BROWSER_OCR_MAX_RASTER_PIXELS = 45_000_000;
-const BROWSER_OCR_MAX_RASTER_DIMENSION_PX = 40_000;
-// Below every browser's canvas area limit (Safari: 4096 x 4096).
-const RENDER_TILE_PX = 4096;
 
 type TMatrix = [number, number, number, number, number, number];
 
@@ -23,12 +26,8 @@ interface IPageImage {
     mask: boolean;
 }
 
-export interface IBrowserOcrRaster {
-    /** Binary PPM (P6), the format the engine reads without image codecs. */
-    image: Uint8Array<ArrayBuffer>;
-    width: number;
-    height: number;
-}
+/** Transfer painted tiles; workers perform readback and RGB packing. */
+export interface IBrowserOcrRaster {image: TBrowserOcrEngineRequest['payload']['image']}
 
 export class BrowserOcrRasterTooLargeError extends Error {
     public constructor(width: number, height: number) {
@@ -150,10 +149,6 @@ export function readPageSourceDpi(operatorList: IPdfOperatorList) {
     return mask && area(mask) >= area(dominant) * 0.95 && mask.dpi > dominant.dpi ? mask.dpi : dominant.dpi;
 }
 
-function throwIfAborted(signal: AbortSignal) {
-    if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');
-}
-
 /**
  * Renders the page view (crop box, rotation, user unit) at `dpi` the way
  * desktop's Poppler renders it for OCR: RGB on white, annotations included.
@@ -168,19 +163,19 @@ export async function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal
         || width * height > BROWSER_OCR_MAX_RASTER_PIXELS) {
         throw new BrowserOcrRasterTooLargeError(width, height);
     }
-    const header = new TextEncoder().encode(`P6\n${width} ${height}\n255\n`);
-    const image = new Uint8Array(header.byteLength + width * height * 3);
-    image.set(header);
+    const transfer = typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function';
+    const ppm = transfer ? null : createPpmRaster(width, height);
+    const tiles: ImageBitmap[] = [];
     const canvas = document.createElement('canvas');
     try {
         for (let top = 0; top < height; top += RENDER_TILE_PX) {
             for (let left = 0; left < width; left += RENDER_TILE_PX) {
-                throwIfAborted(signal);
+                signal.throwIfAborted();
                 const tileWidth = Math.min(RENDER_TILE_PX, width - left);
                 const tileHeight = Math.min(RENDER_TILE_PX, height - top);
                 canvas.width = tileWidth;
                 canvas.height = tileHeight;
-                const context = canvas.getContext('2d', {willReadFrequently: true});
+                const context = canvas.getContext('2d', {willReadFrequently: !transfer});
                 if (!context) throw new Error('Canvas 2D context is unavailable');
                 const task = page.render({
                     canvas,
@@ -210,28 +205,25 @@ export async function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal
                 } finally {
                     signal.removeEventListener('abort', cancel);
                 }
-                throwIfAborted(signal);
-                const {data} = context.getImageData(0, 0, tileWidth, tileHeight);
-                for (let row = 0; row < tileHeight; row += 1) {
-                    let source = row * tileWidth * 4;
-                    let target = header.byteLength + ((top + row) * width + left) * 3;
-                    for (let column = 0; column < tileWidth; column += 1) {
-                        image[target] = data[source]!;
-                        image[target + 1] = data[source + 1]!;
-                        image[target + 2] = data[source + 2]!;
-                        source += 4;
-                        target += 3;
-                    }
+                signal.throwIfAborted();
+                if (ppm) {
+                    writePpmTile(ppm, width, context.getImageData(0, 0, tileWidth, tileHeight).data, left, top, tileWidth, tileHeight);
+                } else {
+                    tiles.push(await createImageBitmap(canvas));
                 }
             }
         }
+        signal.throwIfAborted();
+    } catch (error) {
+        tiles.forEach(tile => tile.close());
+        throw error;
     } finally {
         canvas.width = 0;
         canvas.height = 0;
     }
-    return {
-        image,
+    return {image: ppm?.image ?? {
         width,
         height,
-    };
+        tiles,
+    }};
 }

@@ -3,7 +3,7 @@ import {
     BROWSER_OCR_ENGINE_IMAGE_PATH,
     BROWSER_OCR_ENGINE_OUTPUT_BASE,
     BROWSER_OCR_ENGINE_TESSDATA_PATH,
-} from '@app/platform/browser-api/browserOcrEngine.types';
+} from '@contracts/browserOcrEngine';
 import {
     getBrowserOcrLaneCount,
     runBrowserOcrEngine,
@@ -48,7 +48,9 @@ import type {
     IOcrSearchablePdfPage,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
-import type {TOcrModelCode} from '@contracts/ocrLanguages';
+import {
+    OCR_LANGUAGE_MODEL_BYTES, type TOcrModelCode,
+} from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
 import {
@@ -256,56 +258,46 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         stage('pdf-prep');
         const visibility = await readVisibility(data, input.pages.map(page => page.pageNumber), signal);
         if (visibility.warning) errors.push(visibility.warning);
-        const texts = new Map<number, string>();
-        for (const request of input.pages) {
-            throwIfAborted(signal);
-            // A page PDF.js cannot load is a page whose text is unknown, never an empty page.
-            const page = await pdf.getPage(request.pageNumber).catch(() => null);
-            if (!page) {
-                texts.set(request.pageNumber, OCR_TEXT_PROBE_UNAVAILABLE);
-                continue;
-            }
-            try {
-                texts.set(request.pageNumber, await extractPageText(page));
-            } finally {
-                page.cleanup();
-            }
-        }
-        const selection = selectOcrPagesByExistingText({
-            pages: input.pages,
-            supersessionPolicy: input.options.supersessionPolicy ?? 'missing-only',
-            visibility: visibility.visibility,
-            texts,
-        });
-        errors.push(...selection.warnings);
-        diagnostics.push(...selection.diagnostics);
-        processedCount = totalPages - selection.pages.length;
-
-        // As on desktop, the document's resolution is its finest selected page
-        // image, read before any page renders, so lane order cannot change it.
+        // Probe selected pages once; all lanes receive the same DPI.
         const renderDpi = input.options.renderDpi;
         const sourceDpiByPage = new Map<number, number>();
+        const queue: IOcrSearchablePdfPage[] = [];
         let finestSourceDpi: number | null = null;
-        if (renderDpi === undefined) {
-            stage('dpi-inspection');
-            for (const request of selection.pages) {
-                throwIfAborted(signal);
-                const page = await pdf.getPage(request.pageNumber).catch(() => null);
-                if (!page) continue;
-                try {
+        let maxPageArea = 0;
+        if (renderDpi === undefined) stage('dpi-inspection');
+        for (const request of input.pages) {
+            throwIfAborted(signal);
+            const page = await pdf.getPage(request.pageNumber).catch(() => null);
+            try {
+                const selection = selectOcrPagesByExistingText({
+                    pages: [request],
+                    supersessionPolicy: input.options.supersessionPolicy ?? 'missing-only',
+                    visibility: visibility.visibility,
+                    texts: new Map([[
+                        request.pageNumber,
+                        page ? await extractPageText(page) : OCR_TEXT_PROBE_UNAVAILABLE,
+                    ]]),
+                });
+                errors.push(...selection.warnings);
+                diagnostics.push(...selection.diagnostics);
+                queue.push(...selection.pages);
+                if (!page || selection.pages.length === 0) continue;
+                const viewport = page.getViewport({scale: 1});
+                maxPageArea = Math.max(maxPageArea, viewport.width * viewport.height);
+                if (renderDpi === undefined) {
                     const sourceDpi = readPageSourceDpi(await page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}));
                     if (sourceDpi !== undefined) {
                         sourceDpiByPage.set(request.pageNumber, sourceDpi);
                         finestSourceDpi = Math.max(finestSourceDpi ?? 0, sourceDpi);
                     }
-                } finally {
-                    page.cleanup();
                 }
+            } finally {
+                page?.cleanup();
             }
         }
+        processedCount = totalPages - queue.length;
         const extractionDpi = resolveOcrExtractionDpi(renderDpi ?? finestSourceDpi);
         const recognized: IRecognizedPage[] = [];
-        const queue = [...selection.pages];
         const enginePass = (
             languages: readonly string[],
             outputBase: string,
@@ -492,12 +484,15 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 await recognizePage(request);
             }
         };
-        await Promise.all(Array.from({length: Math.min(getBrowserOcrLaneCount(), Math.max(1, queue.length))}, lane));
+        const memoryLanes = getBrowserOcrLaneCount(maxPageArea * (extractionDpi / 72) ** 2,
+            modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0));
+        const targeted = queue.length > 0;
+        await Promise.all(Array.from({length: Math.min(memoryLanes, Math.max(1, queue.length))}, lane));
 
         if (recognized.length === 0) {
             return {
                 kind: 'nothing-written',
-                targeted: selection.pages.length > 0,
+                targeted,
                 errors: errors.items,
                 diagnostics: diagnostics.items,
             };

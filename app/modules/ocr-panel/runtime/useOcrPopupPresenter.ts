@@ -1,5 +1,4 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import {
@@ -259,12 +258,9 @@ interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
 }
 
 interface IOcrPopupPresenterContext {
-    /** Only its identity matters: a new document ends the pending apply. */
-    pdfDocument: MaybeRefOrGetter<unknown>;
     currentPage: MaybeRefOrGetter<number>;
     totalPages: MaybeRefOrGetter<number>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
-    documentRevision: MaybeRefOrGetter<TDocumentRevisionToken | null>;
     /** The document is being saved, changed or exported, so a run must not start. */
     busy: MaybeRefOrGetter<boolean>;
 }
@@ -272,7 +268,7 @@ interface IOcrPopupPresenterContext {
 export interface IOcrPopupPresenterOptions {
     context: IOcrPopupPresenterContext;
     /** Applies a finished run to the document. */
-    applyResult: (payload: IOcrPopupCompletePayload) => void | Promise<void>;
+    applyResult: (payload: IOcrPopupCompletePayload) => Promise<boolean>;
 }
 
 const ocrProgressStageKeys = {
@@ -334,7 +330,6 @@ export const useOcrPopupPresenter = ({
     const activeOcrSourcePath = ref<TDocumentRef | null>(null);
     const activeOcrSourcePage = ref<number | null>(null);
     const pendingAppliedOcrRequestId = ref<string | null>(null);
-    const pendingAppliedOcrSourceDocumentRevision = ref<TDocumentRevisionToken | null>(null);
     const languageSearchQuery = ref('');
 
     const {
@@ -353,8 +348,6 @@ export const useOcrPopupPresenter = ({
     const currentPage = computed(() => toValue(context.currentPage));
     const totalPages = computed(() => toValue(context.totalPages));
     const workingCopyPath = computed(() => toValue(context.workingCopyPath));
-    const documentRevision = computed(() => toValue(context.documentRevision));
-    const pdfDocument = computed(() => toValue(context.pdfDocument));
     const isRunSettingsLocked = computed(() => progress.value.isRunning);
     const availableLanguageCodes = computed(() => new Set<string>(
         availableLanguages.value.map(language => language.code),
@@ -735,7 +728,6 @@ export const useOcrPopupPresenter = ({
         activeOcrSourcePath.value = null;
         activeOcrSourcePage.value = null;
         pendingAppliedOcrRequestId.value = null;
-        pendingAppliedOcrSourceDocumentRevision.value = null;
         clearResults();
         clearRunSettingsHistory();
     }
@@ -843,51 +835,42 @@ export const useOcrPopupPresenter = ({
         resetCompletedOcrState();
     });
 
-    watch([
-        pdfDocument,
-        documentRevision,
-    ], ([
-        nextDocument,
-        nextRevision,
-    ], [previousDocument]) => {
-        const documentChanged = nextDocument !== null && nextDocument !== previousDocument;
-        const revisionChangedToAppliedDocument = nextRevision !== null
-            && nextRevision !== pendingAppliedOcrSourceDocumentRevision.value;
-        if (
-            (!documentChanged && !revisionChangedToAppliedDocument)
-            || pendingAppliedOcrRequestId.value === null
-            || progress.value.isRunning
-        ) {
-            return;
-        }
-
-        pendingAppliedOcrRequestId.value = null;
-        pendingAppliedOcrSourceDocumentRevision.value = null;
-        showSuccessState.value = true;
-        stopSuccessStateReset();
-        startSuccessStateReset();
-    });
-
     watch(error, (nextError) => {
         if (nextError !== null && pendingAppliedOcrRequestId.value !== null) {
             pendingAppliedOcrRequestId.value = null;
-            pendingAppliedOcrSourceDocumentRevision.value = null;
         }
     });
 
-    watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
+    watch(() => results.value.searchablePdfResult, async (searchablePdfResult) => {
         const sourceWorkingCopyPath = activeOcrSourcePath.value;
         const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage.value;
         if (searchablePdfResult && sourceWorkingCopyPath) {
             pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
-            pendingAppliedOcrSourceDocumentRevision.value = searchablePdfResult.sourceDocumentRevisionToken;
-            void applyResult({
+            const applying = applyResult({
                 ...searchablePdfResult,
                 sourceWorkingCopyPath,
                 sourcePageToRestore,
             });
             activeOcrSourcePath.value = null;
             activeOcrSourcePage.value = null;
+            try {
+                const applied = await applying;
+                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) return;
+                if (applied) {
+                    showSuccessState.value = true;
+                    stopSuccessStateReset();
+                    startSuccessStateReset();
+                } else {
+                    clearResults();
+                }
+            } catch (applyError) {
+                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) return;
+                error.value = t('errors.ocr.createSearchablePdf');
+                clearResults();
+                BrowserLogger.error('ocr', 'Failed to apply the recognized PDF', {error: applyError}, {code: 'RENDERER_OCR_RUN_FAILED'});
+            } finally {
+                if (pendingAppliedOcrRequestId.value === searchablePdfResult.requestId) pendingAppliedOcrRequestId.value = null;
+            }
         }
     });
 

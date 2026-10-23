@@ -528,7 +528,8 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const nextSaveHandle = options.saveHandle ?? null;
         const nextSourceRef = options.sourceRef;
 
-        if (sourceEntry.storageMode === 'chunked') {
+        if (sourceEntry.storageMode === 'chunked' || sourceEntry.storageMode === 'source-proxy' || sourceEntry.storageMode === 'handle') {
+            const {size} = await this.stat(sourceRef);
             const ref = options.ref ?? createBrowserDocumentRef(nextName);
             const entry: IBrowserDocumentEntry = {
                 ref,
@@ -538,7 +539,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 retention: nextRetention,
                 ...(nextSourceRef ? { sourceRef: nextSourceRef } : {}),
                 data: new Uint8Array(),
-                fileSize: sourceEntry.fileSize,
+                fileSize: size,
                 updatedAt: Date.now(),
                 contentToken: createBrowserDocumentContentToken(),
                 pendingLoad: null,
@@ -549,13 +550,13 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 ...(sourceEntry.sourceBaseWitness ? {sourceBaseWitness: sourceEntry.sourceBaseWitness} : {}),
                 storageMode: 'chunked',
                 chunkCount: 0,
-                chunkSize: sourceEntry.chunkSize,
+                chunkSize: sourceEntry.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
             };
 
             return this.persistNewEntry(
                 entry,
                 (offset, length) => this.readEntryRange(sourceEntry, offset, length),
-                sourceEntry.fileSize,
+                size,
             );
         }
 

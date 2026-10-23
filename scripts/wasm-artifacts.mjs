@@ -92,11 +92,11 @@ const PREBUILT_WASM_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/d
  */
 export const PREBUILT_WASM_FILES = [
     {
-        bytes: 2536214,
+        bytes: 2536662,
         label: 'Tesseract OCR engine WASM',
         publicRelativePath: 'public/wasm/evb-tesseract.wasm',
-        sha256: '1c86616f12fe26502c77cb8679f0b4e1397ce5223c6acb9ab561e877f99301c6',
-        url: `${PREBUILT_WASM_BASE_URL}/evb-tesseract-5.5.3-r1.wasm`,
+        sha256: 'affb1417875bbea1df8980fc55b3a5f95f4bb6d0638410cf1f40314e5f6bcbd1',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-tesseract-5.5.3-r2.wasm`,
     },
     {
         bytes: 70908,

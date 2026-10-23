@@ -1,0 +1,20 @@
+--- src/tesseract.cpp
++++ src/tesseract.cpp
+@@ -711,7 +711,16 @@
+   // first TessBaseAPI must be destructed, DawgCache must be the last object.
+   tesseract::Dict::GlobalDawgCache();
+ 
+-  TessBaseAPI api;
++  // A worker retains weights for one immutable command-line configuration.
++  // A configuration change or failure discards the whole WASM instance.
++  static TessBaseAPI api;
++  struct ClearPage {
++    TessBaseAPI &api;
++    ~ClearPage() {
++      api.ClearAdaptiveClassifier();
++      api.Clear();
++    }
++  } clear_page{api};
+ 
+   api.SetOutputName(outputbase);
+ 
