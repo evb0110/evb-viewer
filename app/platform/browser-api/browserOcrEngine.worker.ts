@@ -2,12 +2,18 @@
 
 import {
     BROWSER_OCR_ENGINE_IMAGE_PATH,
+    BROWSER_OCR_ENGINE_REVISION,
     BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS,
     BROWSER_OCR_ENGINE_TESSDATA_PATH,
+    BROWSER_OCR_RENDER_TILE_PX,
     parseBrowserOcrEngineRequest,
     type IBrowserOcrEnginePass,
     type IBrowserOcrEngineResult,
-} from '@app/platform/browser-api/browserOcrEngine.types';
+    type TBrowserOcrEngineRequest,
+} from '@contracts/browserOcrEngine';
+import {
+    createPpmRaster, writePpmTile,
+} from '@ocr-core/ppmRaster';
 import {readCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
@@ -20,8 +26,9 @@ interface ITesseractModule {
     callMain(args: string[]): number;
     FS: {
         mkdirTree(path: string): void;
-        writeFile(path: string, data: Uint8Array): void;
+        writeFile(path: string, data: Uint8Array, options?: {canOwn: boolean}): void;
         readFile(path: string): Uint8Array;
+        unlink(path: string): void;
     };
 }
 
@@ -41,6 +48,11 @@ interface IEngine {
 
 let enginePromise: Promise<IEngine> | null = null;
 const models = new Map<TOcrModelCode, Promise<Uint8Array>>();
+let activeInstance: {
+    key: string;
+    module: ITesseractModule;
+    log: {stderr: string};
+} | null = null;
 
 function loadEngine() {
     enginePromise ??= (async () => {
@@ -50,7 +62,7 @@ function loadEngine() {
             module,
         ] = await Promise.all([
             import(/* @vite-ignore */ moduleUrl) as Promise<{default: TTesseractModuleFactory}>,
-            WebAssembly.compileStreaming(fetch(new URL('/wasm/evb-tesseract.wasm', self.location.href))),
+            WebAssembly.compileStreaming(fetch(new URL(`/wasm/evb-tesseract.wasm?revision=${BROWSER_OCR_ENGINE_REVISION}`, self.location.href))),
         ]);
         return {
             factory: imported.default,
@@ -74,8 +86,9 @@ function loadModel(code: TOcrModelCode) {
 }
 
 /**
- * One Tesseract run in a fresh instance of the compiled engine, as desktop
- * runs one process per pass: no setting or state carries over between passes.
+ * Retain model weights only for an identical command-line configuration.
+ * The WASM CLI clears page results, adaptive state and the document dictionary
+ * after each call. A changed recipe gets a fresh instance, just as on desktop.
  */
 async function runPass(
     engine: IEngine,
@@ -83,42 +96,85 @@ async function runPass(
     modelBytes: ReadonlyMap<TOcrModelCode, Uint8Array>,
     pass: IBrowserOcrEnginePass,
 ) {
-    let stderr = '';
-    const instance = await engine.factory({
-        instantiateWasm(imports, receive) {
-            void WebAssembly.instantiate(engine.module, imports).then(created => receive(created, engine.module));
-            return {};
-        },
-        print: () => {},
-        printErr: (line) => {
-            if (stderr.length < BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS) {
-                stderr = `${stderr}${line}\n`.slice(0, BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS);
-            }
-        },
-    });
-    instance.FS.mkdirTree('/work');
-    instance.FS.writeFile(BROWSER_OCR_ENGINE_IMAGE_PATH, image);
-    for (const [
-        code,
-        bytes,
-    ] of modelBytes) {
-        instance.FS.writeFile(`${BROWSER_OCR_ENGINE_TESSDATA_PATH}/${code}.traineddata`, bytes);
+    const key = JSON.stringify([
+        pass.args.slice(2),
+        [...modelBytes.keys()],
+    ]);
+    if (activeInstance?.key !== key) {
+        activeInstance = null;
+        const log = {stderr: ''};
+        const module = await engine.factory({
+            instantiateWasm(imports, receive) {
+                void WebAssembly.instantiate(engine.module, imports).then(created => receive(created, engine.module));
+                return {};
+            },
+            print: () => {},
+            printErr: (line) => {
+                if (log.stderr.length < BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS) {
+                    log.stderr = `${log.stderr}${line}\n`.slice(0, BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS);
+                }
+            },
+        });
+        module.FS.mkdirTree('/work');
+        for (const [
+            code,
+            bytes,
+        ] of modelBytes) {
+            module.FS.writeFile(`${BROWSER_OCR_ENGINE_TESSDATA_PATH}/${code}.traineddata`, bytes, {canOwn: true});
+        }
+        activeInstance = {
+            key,
+            module,
+            log,
+        };
     }
+    const {
+        module: instance, log,
+    } = activeInstance;
+    log.stderr = '';
+    // This input can serve several early-print passes, so MEMFS borrows it.
+    instance.FS.writeFile(BROWSER_OCR_ENGINE_IMAGE_PATH, image, {canOwn: true});
     const exitCode = instance.callMain([...pass.args]);
     if (exitCode !== 0) {
-        throw new Error(`Tesseract exited with code ${exitCode}: ${stderr.trim()}`);
+        throw new Error(`Tesseract exited with code ${exitCode}: ${log.stderr.trim()}`);
     }
     const outputs = pass.outputs.map((path) => {
         try {
-            return instance.FS.readFile(path).slice();
+            return instance.FS.readFile(path);
         } catch {
-            throw new Error(`Tesseract did not write ${path}: ${stderr.trim()}`);
+            throw new Error(`Tesseract did not write ${path}: ${log.stderr.trim()}`);
         }
     });
+    for (const path of [
+        BROWSER_OCR_ENGINE_IMAGE_PATH,
+        ...pass.outputs,
+    ]) instance.FS.unlink(path);
     return {
-        stderr,
+        stderr: log.stderr,
         outputs,
     };
+}
+
+function readRaster(image: TBrowserOcrEngineRequest['payload']['image']) {
+    if (image instanceof Uint8Array) return image;
+    const ppm = createPpmRaster(image.width, image.height);
+    const canvas = new OffscreenCanvas(1, 1);
+    const columns = Math.ceil(image.width / BROWSER_OCR_RENDER_TILE_PX);
+    try {
+        image.tiles.forEach((tile, index) => {
+            canvas.width = tile.width;
+            canvas.height = tile.height;
+            const context = canvas.getContext('2d', {willReadFrequently: true});
+            if (!context) throw new Error('OCR canvas context is unavailable');
+            context.drawImage(tile, 0, 0);
+            writePpmTile(ppm, image.width, context.getImageData(0, 0, tile.width, tile.height).data,
+                index % columns * BROWSER_OCR_RENDER_TILE_PX, Math.floor(index / columns) * BROWSER_OCR_RENDER_TILE_PX, tile.width, tile.height);
+            tile.close();
+        });
+        return ppm.image;
+    } finally {
+        canvas.width = canvas.height = 0;
+    }
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
@@ -146,9 +202,10 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             code,
             loaded[index]!,
         ]));
+        const image = readRaster(request.payload.image);
         const passes: IBrowserOcrEngineResult['passes'] = [];
         for (const pass of request.payload.passes) {
-            passes.push(await runPass(engine, request.payload.image, modelBytes, pass));
+            passes.push(await runPass(engine, image, modelBytes, pass));
         }
         self.postMessage({
             id: request.id,
@@ -157,10 +214,13 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             data: {passes},
         }, passes.flatMap(pass => pass.outputs.map(output => output.buffer)));
     } catch (error) {
+        activeInstance = null;
         self.postMessage({
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
         });
+    } finally {
+        if (!(request.payload.image instanceof Uint8Array)) request.payload.image.tiles.forEach(tile => tile.close());
     }
 });

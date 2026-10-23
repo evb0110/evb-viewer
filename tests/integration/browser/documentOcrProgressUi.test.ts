@@ -8,11 +8,75 @@ import {
 import {
     describe, expect, it,
 } from 'vitest';
+import {buildTesseractArgs} from '@ocr-core/tesseractRecipe';
 import {
     lifecycle, openPdfFromChooser,
 } from './documentLifecycleTestHelpers';
 
 describe('browser OCR progress', () => {
+    it('preserves recognized words and boxes across tiled pixels, warm engines and changed recipes', async () => {
+        const page = await lifecycle.browser.newPage();
+        const fixturePath = join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf');
+        const fixture = await PDFDocument.load(await readFile(fixturePath));
+        const dpi = Math.ceil(4200 / fixture.getPage(0).getWidth() * 72);
+        const pass = (poorScan: boolean) => ({
+            args: buildTesseractArgs({
+                imagePath: '/work/page.ppm',
+                outputBase: '/work/out',
+                languages: ['eng'],
+                tessdataPath: '/tessdata',
+                dpi,
+                options: {qualityProfile: poorScan ? 'poor-scan' : 'balanced'},
+                outputs: {tsv: true},
+            }),
+            outputs: ['/work/out.tsv'],
+        });
+        try {
+            await page.route('**/eng.traineddata', route => route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}));
+            await page.route('**/ocr-pixels.pdf', route => route.fulfill({path: fixturePath}));
+            await page.goto(lifecycle.origin);
+            const outputs = await page.evaluate<string[]>(`(async () => {
+                const {getPdfjsLib} = await import('/_nuxt/platform/browser-api/browserPdfjsDocumentInit.ts');
+                const {renderBrowserOcrRaster} = await import('/_nuxt/platform/browser-api/browserOcrRaster.ts');
+                const {runBrowserOcrEngine} = await import('/_nuxt/platform/browser-api/browserOcrEngineClient.ts');
+                const {ensureBrowserOcrModel} = await import('/_nuxt/platform/browser-api/browserOcrModels.ts');
+                const signal = new AbortController().signal;
+                await ensureBrowserOcrModel('eng', {signal});
+                const lib = await getPdfjsLib();
+                const task = lib.getDocument({data: new Uint8Array(await (await fetch('/ocr-pixels.pdf')).arrayBuffer())});
+                const output = [];
+                try {
+                    const pdf = await task.promise;
+                    const source = await pdf.getPage(1);
+                    for (let index = 0; index < 4; index += 1) {
+                        const originalCanvas = globalThis.OffscreenCanvas;
+                        let raster;
+                        try {
+                            if (index === 0) Reflect.set(globalThis, 'OffscreenCanvas', undefined);
+                            raster = await renderBrowserOcrRaster(source, ${dpi}, signal);
+                        } finally {
+                            Reflect.set(globalThis, 'OffscreenCanvas', originalCanvas);
+                        }
+                        const result = await runBrowserOcrEngine({
+                            image: raster.image, models: ['eng'],
+                            passes: [index === 2 ? ${JSON.stringify(pass(true))} : ${JSON.stringify(pass(false))}],
+                        }, signal);
+                        output.push(new TextDecoder().decode(result.passes[0].outputs[0]));
+                    }
+                    return output;
+                } finally { await task.destroy(); }
+            })()`);
+            expect(outputs[0]).toMatch(/lantern/iu);
+            // Includes every character, word box and confidence value. This also
+            // catches Tesseract dropping SIMD after its first warm CLI call.
+            expect(outputs[1]).toBe(outputs[0]);
+            expect(outputs[3]).toBe(outputs[0]);
+            expect(outputs[2]).toMatch(/lantern/iu);
+        } finally {
+            await page.context().close();
+        }
+    }, 90_000);
+
     it('cancels a long offscreen raster from an event-loop task', async () => {
         // Cancellation must run between render chunks, even without animation
         // frames. Preload the full operator list so worker I/O cannot supply

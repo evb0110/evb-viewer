@@ -28,14 +28,14 @@ describe('browser OCR output admission', () => {
             )));
             const formerCeiling = 16 * 1024 * 1024;
             const originalLength = (await fixture.save({useObjectStreams: false})).byteLength;
-            // A valid unused stream places the scan just below the old ceiling;
-            // recognizing its real image then crosses it without a long book run.
+            // A valid unused stream places the scan just above the old ceiling;
+            // the real OCR and undo baseline must both accept it, without a long book run.
             fixture.catalog.set(fixture.context.obj('AdmissionFixture'), fixture.context.register(
-                fixture.context.stream(new Uint8Array(formerCeiling - originalLength - 2048)),
+                fixture.context.stream(new Uint8Array(formerCeiling - originalLength + 2048)),
             ));
             const original = Buffer.from(await fixture.save({useObjectStreams: false}));
-            expect(original.byteLength).toBeLessThan(formerCeiling);
-            expect(original.byteLength).toBeGreaterThan(formerCeiling - 4096);
+            expect(original.byteLength).toBeGreaterThan(formerCeiling);
+            expect(original.byteLength).toBeLessThan(formerCeiling + 4096);
             await openPdfFromChooser(page, {
                 name: 'ocr-output-admission.pdf',
                 mimeType: 'application/pdf',

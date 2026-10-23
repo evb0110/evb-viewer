@@ -292,7 +292,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         };
     }
 
-    async function applyOcrCompleteResult(payload: IOcrCompletePayload) {
+    async function applyOcrCompleteResult(payload: IOcrCompletePayload): Promise<boolean> {
         const pageToRestore = payload.sourcePageToRestore ?? currentPage.value;
         const warmupPageCountHint = totalPages.value > 0
             ? totalPages.value
@@ -306,11 +306,11 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             ? await runWithDocumentOperationLease('ocr-apply', applyReload)
             : await applyReload();
         if (!result) {
-            return;
+            return false;
         }
 
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
-            return;
+            return false;
         }
         const restoreError = result.getRestoreError();
         if (restoreError) {
@@ -333,11 +333,12 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             color: 'success',
             title: t('ocr.complete'),
         });
+        return true;
     }
 
     async function handleOcrComplete(payload: IOcrCompletePayload) {
         try {
-            await applyOcrCompleteResult(payload);
+            return await applyOcrCompleteResult(payload);
         } catch (error) {
             if (isStaleRevisionError(error)) {
                 await acknowledgeOcrResultFile(payload);
@@ -351,7 +352,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                     failure,
                     title: t('errors.ocr.changedReload'),
                 });
-                return;
+                return false;
             }
             const failure = BrowserLogger.error('ocr', 'Failed to apply OCR result', {
                 requestId: payload.requestId,
@@ -363,17 +364,16 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 failure,
                 title: t('errors.ocr.createSearchablePdf'),
             });
+            return false;
         }
     }
 
     // The document's OCR run: views show it, none of them owns it.
     const ocr = useOcrPopupPresenter({
         context: {
-            pdfDocument,
             currentPage,
             totalPages,
             workingCopyPath,
-            documentRevision: documentRevisionToken,
             busy: options.isBusy,
         },
         applyResult: handleOcrComplete,

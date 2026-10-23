@@ -21,3 +21,13 @@
  #if defined(HAVE_NEON) && !defined(__aarch64__)
  #  if defined(HAVE_ANDROID_GETCPUFAMILY)
    {
+@@ -297,7 +297,8 @@
+   // value of the config variable if that value is not empty.
+   const char *dotproduct_method = "generic";
+   if (dotproduct == "auto") {
+-    // Automatic detection. Nothing to be done.
++    // Retain automatic SIMD selection across repeated CLI calls in a worker.
++    dotproduct_method = "auto";
+   } else if (dotproduct == "generic") {
+     // Generic code selected by config variable.
+     SetDotProduct(DotProductGeneric);

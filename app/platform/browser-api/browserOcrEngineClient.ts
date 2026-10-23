@@ -2,7 +2,7 @@ import {
     BROWSER_OCR_ENGINE_RESULT_SCHEMA,
     type IBrowserOcrEngineResult,
     type TBrowserOcrEngineRequest,
-} from '@app/platform/browser-api/browserOcrEngine.types';
+} from '@contracts/browserOcrEngine';
 import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
@@ -21,17 +21,19 @@ const PASS_TIMEOUT_MS = 3 * 60 * 1000;
 type TPendingEngineRequest = ITypedPendingBrowserWorkerRequest<'recognize', unknown>;
 
 /**
- * Pages recognized at once. Each lane is a worker holding one engine and its
- * models (a few hundred MB while a page runs), so a lane needs a core and the
- * memory to match; devices that report 4 GB or less get one.
+ * Reserve a core for interaction and at most half of reported memory for
+ * OCR. Account for model copies/weights and raster scratch, not just CPU count.
+ * Browsers omit or round deviceMemory; an unknown device gets a 4 GiB budget.
  */
-export function getBrowserOcrLaneCount() {
+export function getBrowserOcrLaneCount(pagePixels = 0, modelBytes = 0) {
     const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
     const memoryGb = typeof navigator === 'undefined'
         ? undefined
         : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
     if (memoryGb !== undefined && memoryGb <= 4) return 1;
-    return Math.min(4, Math.max(1, Math.floor(cores / 2)));
+    const perLane = 192 * 1024 * 1024 + pagePixels * 12 + modelBytes * 3;
+    const memoryLanes = Math.floor((memoryGb ?? 4) * 1024 ** 3 / 2 / perLane);
+    return Math.max(1, Math.min(8, cores - 1, memoryLanes));
 }
 
 export class BrowserOcrEngineUnavailableError extends Error {
@@ -99,6 +101,9 @@ export function runBrowserOcrEngine(
             type: 'recognize',
             payload,
         };
-        worker.postMessage(request, [payload.image.buffer]);
-    })).finally(() => signal.removeEventListener('abort', onAbort));
+        worker.postMessage(request, payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles);
+    })).finally(() => {
+        signal.removeEventListener('abort', onAbort);
+        if (!(payload.image instanceof Uint8Array)) payload.image.tiles.forEach(tile => tile.close());
+    });
 }

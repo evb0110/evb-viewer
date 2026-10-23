@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the browser OCR engine: the desktop's pinned Tesseract and Leptonica,
 # compiled to WebAssembly (SIMD128, single-threaded) as the stock command-line
-# program. The browser runs one fresh instance per page with the same
-# arguments desktop passes to its native binary.
+# program. A worker retains model weights for one configuration and clears
+# page/adaptive state between calls, using the desktop's command-line arguments.
 #
 # Output: $OUT_DIR/evb-tesseract.mjs (ES module factory) and evb-tesseract.wasm.
 # Needs an activated emsdk at EMSCRIPTEN_VERSION (source emsdk_env.sh first).
@@ -34,10 +34,11 @@ echo "$TESSERACT_SHA256  $BUILD_DIR/tesseract.tar.gz" | shasum -a 256 -c -
 echo "$LEPTONICA_SHA256  $BUILD_DIR/leptonica.tar.gz" | shasum -a 256 -c -
 tar -xzf "$BUILD_DIR/tesseract.tar.gz" -C "$BUILD_DIR"
 tar -xzf "$BUILD_DIR/leptonica.tar.gz" -C "$BUILD_DIR"
-# The only source change: WebAssembly has no cpuid, and SIMD128 provides the
-# SSE4.1 intrinsics Tesseract's dot product uses.
+# WebAssembly has no cpuid; SIMD128 provides Tesseract's SSE4.1 dot product.
 patch -p0 -d "$BUILD_DIR/tesseract-$TESSERACT_VERSION" \
   < "$SCRIPT_DIR/patches/tesseract-$TESSERACT_VERSION-simddetect-emscripten.patch"
+patch -p0 -d "$BUILD_DIR/tesseract-$TESSERACT_VERSION" \
+  < "$SCRIPT_DIR/patches/tesseract-$TESSERACT_VERSION-reuse-wasm-engine.patch"
 
 # Deterministic paths in the binary, whatever the temporary directory is.
 prefix_map="-ffile-prefix-map=$BUILD_DIR=/build"
