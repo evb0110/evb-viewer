@@ -8,10 +8,20 @@ import {
 import {
     describe, expect, it,
 } from 'vitest';
+import type {Page} from 'playwright';
 import {buildTesseractArgs} from '@ocr-core/tesseractRecipe';
 import {
     lifecycle, openPdfFromChooser,
 } from './documentLifecycleTestHelpers';
+
+async function openOcrEngineFixture(page: Page) {
+    const url = `${lifecycle.origin}/__ocr-engine`;
+    await page.route(url, route => route.fulfill({
+        contentType: 'text/html',
+        body: '<!doctype html><html><body>OCR engine</body></html>',
+    }));
+    await page.goto(url, {waitUntil: 'domcontentloaded'});
+}
 
 describe('browser OCR progress', () => {
     it('preserves recognized words and boxes across tiled pixels, warm engines and changed recipes', async () => {
@@ -34,7 +44,7 @@ describe('browser OCR progress', () => {
         try {
             await page.route('**/eng.traineddata', route => route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}));
             await page.route('**/ocr-pixels.pdf', route => route.fulfill({path: fixturePath}));
-            await page.goto(lifecycle.origin);
+            await openOcrEngineFixture(page);
             const outputs = await page.evaluate<string[]>(`(async () => {
                 const {getPdfjsLib} = await import('/_nuxt/platform/browser-api/browserPdfjsDocumentInit.ts');
                 const {renderBrowserOcrRaster} = await import('/_nuxt/platform/browser-api/browserOcrRaster.ts');
@@ -97,7 +107,7 @@ describe('browser OCR progress', () => {
         }
         const page = await lifecycle.browser.newPage();
         try {
-            await page.goto(lifecycle.origin);
+            await openOcrEngineFixture(page);
             // Keep browser imports out of Vitest's server-side transform.
             const result = await page.evaluate<{
                 status: string;
