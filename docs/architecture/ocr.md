@@ -30,6 +30,8 @@ image directly improved on it.
 
 OCR rasters use the renderer's promise scheduler, with
 `useRequestAnimationFrame: false`, so hidden tabs do not wait for a repaint.
+Render continuations yield through the shared task queue between operator
+chunks, allowing input and cancellation events to run before a tile finishes.
 Rendering intent stays `display`, preserving visible content and annotations.
 The browser may still freeze or discard the entire page, and system sleep
 stops browser work.
