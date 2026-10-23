@@ -6,7 +6,7 @@ module.exports = {
         to: {circular: true},
     }],
     options: {
-        exclude: {path: '(^|/)\\.(nuxt|output)/'},
+        exclude: {path: '(^|/)\\.(nuxt|output|vercel)/'},
         doNotFollow: {path: '(^|/)node_modules/'},
         tsConfig: {fileName: 'tsconfig.json'},
     },

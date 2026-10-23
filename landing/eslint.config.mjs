@@ -11,6 +11,7 @@ export default withNuxt(
     { ignores: [
         '.nuxt/**',
         '.output/**',
+        '.vercel/**',
         'dist/**',
         'node_modules/**',
     ] },
