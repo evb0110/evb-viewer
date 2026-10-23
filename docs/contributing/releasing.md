@@ -41,4 +41,9 @@ The command reports the tag, draft or public state, expected assets, checksums, 
 - While the GitHub release is still a draft, a re-run rebuilds the packages, reuses matching immutable uploads, and stops if any byte differs.
 - Once the release is public, a re-run does not rebuild packages or edit the GitHub release. It downloads the published assets, verifies them against the published `SHA256SUMS`, and completes the mirror from those exact bytes: missing objects are uploaded, existing matching objects are reused, and the stable channel moves to the tag. Use this when a mirror transfer failed after promotion.
 
-After promotion, follow the [updater canary](release-updater-canary.md) on each published updater feed. A draft proves package and mirror handling but cannot prove that an installed client sees a public update.
+The green release workflow, public release, and verified production updater
+routes complete the release. An [installed-client updater smoke](release-updater-canary.md)
+is optional when a suitable disposable environment is already available. Missing
+test systems or host capacity do not block publication or require provisioning
+new VMs or accounts. Record any installed-client smoke separately; automated
+artifact and feed verification does not exercise an installed client's update.
