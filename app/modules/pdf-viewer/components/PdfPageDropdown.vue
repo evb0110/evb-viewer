@@ -1,6 +1,6 @@
 <template>
     <div ref="pageControlsRef" :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
-        <div v-if="showEdgeButtons" class="page-controls-item">
+        <div class="page-controls-item page-controls-item--edge">
             <ToolbarButton
                 icon="ph:caret-double-left"
                 :tooltip="t('pageDropdown.firstPage')"
@@ -81,7 +81,7 @@
                 @click="goToNext"
             />
         </div>
-        <div v-if="showEdgeButtons" class="page-controls-item">
+        <div class="page-controls-item page-controls-item--edge">
             <ToolbarButton
                 icon="ph:caret-double-right"
                 :tooltip="t('pageDropdown.lastPage')"
@@ -150,7 +150,6 @@ const pageControlsRef = ref<HTMLElement | null>(null);
 
 const effectiveCompactLevel = useClamp(() => compactLevel, 0, 3);
 
-const showEdgeButtons = computed(() => effectiveCompactLevel.value < 1);
 const showTotalInDisplay = computed(() => true);
 const hasPages = computed(() => totalPages > 0);
 const commandPage = computed(() => resolvePdfPageDropdownDisplayPage({
@@ -288,6 +287,12 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-item {
     display: flex;
+}
+
+@container (max-width: 520px) {
+    .page-controls-item--edge {
+        display: none;
+    }
 }
 
 .page-controls-item :deep(.toolbar-btn) {

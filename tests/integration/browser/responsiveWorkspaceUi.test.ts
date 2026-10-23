@@ -108,6 +108,7 @@ it('keeps settings and document controls readable and reachable from phone to de
             320,
             390,
             768,
+            900,
             1280,
         ]) {
             await page.setViewportSize({
@@ -181,6 +182,7 @@ it('keeps settings and document controls readable and reachable from phone to de
             320,
             390,
             768,
+            900,
             1280,
         ]) {
             await page.setViewportSize({
@@ -191,6 +193,12 @@ it('keeps settings and document controls readable and reachable from phone to de
                 const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
                 return viewport.scrollWidth - viewport.clientWidth;
             }), {timeout: 10_000}).toBeLessThanOrEqual(1);
+            if (width >= 900) {
+                await page.getByRole('button', {name: /^Last Page\b/iu}).click();
+                await expect.poll(() => page.locator('.page-controls-current-primary').innerText()).toBe('60');
+                await page.getByRole('button', {name: /^First Page\b/iu}).click();
+                await expect.poll(() => page.locator('.page-controls-current-primary').innerText()).toBe('1');
+            }
             observations.push({
                 surface: 'document',
                 width,

@@ -121,6 +121,10 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
         await page.keyboard.up(modifier);
         await selectTextBox(page, 'Remove this box');
         await page.keyboard.press('Delete');
+        // Finish the deletion before the independent note move changes selection.
+        await page.waitForFunction(() => !Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        )).some(element => element.textContent?.trim() === 'Remove this box'));
 
         const marker = await revealForPointer(page, '.editor-pane.is-active .pdf-annotation-editor-note');
         await page.mouse.move(marker.x, marker.y);
@@ -180,10 +184,10 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
             extraEnv: {EVB_APP_STATE_DIR: join(stateDirectory, 'reopen')},
         });
         await waitForViewerInteractive(session.page);
-        await clickAsUser(session.page, '.page-controls .page-controls-item:nth-child(1) button');
+        await clickAsUser(session.page, '.page-controls button[aria-label^="First Page"]');
         await waitForToolbarCurrentPage(session.page, 1);
         for (let number = 2; number <= 4; number += 1) {
-            await clickAsUser(session.page, '.page-controls .page-controls-item:nth-child(4) button');
+            await clickAsUser(session.page, '.page-controls button[aria-label^="Next Page"]');
             await waitForToolbarCurrentPage(session.page, number);
         }
         await waitForViewerInteractive(session.page);
