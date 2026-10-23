@@ -9,7 +9,7 @@ case "$platform" in
 esac
 
 IFS=$'\t' read -r no_focus hide_window hidden_app_bundle host_display_isolation < <(
-  pnpm exec tsx scripts/electron-run/printElectronE2EHeadlessRunnerConfig.ts "$node_platform"
+  node --import tsx scripts/electron-run/printElectronE2EHeadlessRunnerConfig.ts "$node_platform"
 )
 
 if [ "${1:-}" = "--no-build" ]; then

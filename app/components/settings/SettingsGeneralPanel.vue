@@ -38,14 +38,7 @@
             indicator="hidden"
             :ui="settingsRadioGroupUi"
             @update:model-value="updateTheme"
-        >
-            <template #label="{ item }">
-                <span class="settings-radio-label">
-                    <UIcon :name="item.icon" class="settings-radio-icon" />
-                    <span>{{ item.label }}</span>
-                </span>
-            </template>
-        </URadioGroup>
+        />
 
         <UFormField
             :label="t('settings.language')"
@@ -64,11 +57,12 @@
 
         <div class="settings-field flex flex-col gap-1">
             <URadioGroup
+                class="settings-scale-options"
                 :model-value="settings.uiScale"
                 :legend="t('settings.uiScale')"
                 :items="uiScaleOptions"
                 value-key="value"
-                variant="table"
+                variant="card"
                 orientation="horizontal"
                 indicator="hidden"
                 :ui="settingsRadioGroupUi"
@@ -126,8 +120,9 @@ const settingsFormFieldUi = {
 const settingsRadioGroupUi = {
     fieldset: 'w-full',
     legend: 'settings-field-label',
-    item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
-    label: 'w-full text-center text-xs font-medium',
+    item: 'flex-1 min-w-fit min-h-[var(--app-control-height-lg)] cursor-pointer items-center justify-center px-2 py-1.5',
+    wrapper: 'flex-row justify-center gap-2',
+    label: 'text-center text-xs font-medium',
 };
 const localeSelectContent = [
     'settings-locale-select-content',
@@ -186,17 +181,13 @@ function updateUiScale(value: TUiScalePreference) {
 <style lang="scss" scoped>
 @use '@app/assets/css/settings-panel-shared';
 
-.settings-radio-label {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--app-space-md);
-    min-width: 0;
-}
+@container (max-width: 520px) {
+    .settings-scale-options :deep([data-slot='item']) {
+        flex-basis: calc(50% - var(--app-space-sm));
+    }
 
-.settings-radio-icon {
-    width: var(--app-icon-size-xs);
-    height: var(--app-icon-size-xs);
-    flex-shrink: 0;
+    .settings-scale-options :deep([data-slot='item']:first-of-type) {
+        flex-basis: 100%;
+    }
 }
 </style>

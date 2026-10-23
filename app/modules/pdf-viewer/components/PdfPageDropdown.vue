@@ -10,7 +10,7 @@
                 @click="goToFirst"
             />
         </div>
-        <div v-if="showStepButtons" class="page-controls-item">
+        <div class="page-controls-item">
             <ToolbarButton
                 icon="ph:caret-left"
                 :tooltip="t('pageDropdown.previousPage')"
@@ -71,7 +71,7 @@
             </div>
         </div>
 
-        <div v-if="showStepButtons" class="page-controls-item">
+        <div class="page-controls-item">
             <ToolbarButton
                 icon="ph:caret-right"
                 :tooltip="t('pageDropdown.nextPage')"
@@ -150,8 +150,7 @@ const pageControlsRef = ref<HTMLElement | null>(null);
 
 const effectiveCompactLevel = useClamp(() => compactLevel, 0, 3);
 
-const showEdgeButtons = computed(() => true);
-const showStepButtons = computed(() => true);
+const showEdgeButtons = computed(() => effectiveCompactLevel.value < 1);
 const showTotalInDisplay = computed(() => true);
 const hasPages = computed(() => totalPages > 0);
 const commandPage = computed(() => resolvePdfPageDropdownDisplayPage({

@@ -9,9 +9,11 @@
             <button
                 type="button"
                 :class="['app-menu-trigger', { 'is-open': menuOpen }]"
+                :aria-label="t('toolbar.appMenu')"
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
             >
+                <UIcon name="i-ph-list" class="app-menu-trigger-icon" />
                 <span class="app-menu-trigger-label">{{ t('toolbar.appMenu') }}</span>
                 <UIcon name="i-ph-caret-down" class="app-menu-trigger-chevron" />
             </button>
@@ -356,6 +358,10 @@ function getMenuShortcut(item: unknown) {
     white-space: nowrap;
 }
 
+.app-menu-trigger-icon {
+    display: none;
+}
+
 .app-menu-trigger:hover,
 .app-menu-trigger.is-open {
     background: var(--app-toolbar-control-hover-bg);
@@ -388,6 +394,25 @@ function getMenuShortcut(item: unknown) {
 
 .app-menu-trigger.is-open .app-menu-trigger-chevron {
     transform: rotate(180deg);
+}
+
+@container (max-width: 520px) {
+    .app-menu-trigger {
+        width: var(--toolbar-control-height, var(--app-toolbar-control-size));
+        padding: 0;
+        justify-content: center;
+    }
+
+    .app-menu-trigger-icon {
+        display: inline-block;
+        width: var(--app-toolbar-icon-size);
+        height: var(--app-toolbar-icon-size);
+    }
+
+    .app-menu-trigger-label,
+    .app-menu-trigger-chevron {
+        display: none;
+    }
 }
 
 </style>

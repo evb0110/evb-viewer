@@ -920,7 +920,7 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: var(--app-space-10xl);
     min-width: 0;
-    padding: var(--app-space-15xl);
+    padding: clamp(var(--app-space-10xl), 3cqi, var(--app-space-15xl));
     border: 1px solid var(--app-start-card-border);
     border-radius: var(--app-radius-surface);
     background: var(--app-start-card-bg);
@@ -928,6 +928,10 @@ onBeforeUnmount(() => {
 
 .settings-card :deep(.settings-section) {
     min-inline-size: 0;
+}
+
+.settings-card :deep([role='combobox']) {
+    max-width: 100%;
 }
 
 .settings-card--span {
