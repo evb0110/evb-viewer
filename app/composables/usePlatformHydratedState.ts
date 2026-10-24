@@ -59,6 +59,25 @@ export const usePlatformHydratedState = <T>(
     const error = useState<string | null>(`${options.key}:error`, () => null);
     const loadRecord = getLoadRecord(options.key);
     const lifecycle = createDisposalFlag();
+    // A prerendered page hydrates this state from the server's payload, which
+    // cannot hold what only the browser knows. Once the page is live, a value
+    // the browser could read at once replaces the unresolved server value, so
+    // it shows without waiting for the platform load (which reads the same
+    // store and then confirms it).
+    if (import.meta.client && options.initialResolved && !isResolved.value) {
+        const nuxtApp = useNuxtApp();
+        const applyInitialValue = () => {
+            if (!isResolved.value) {
+                state.value = options.initialValue();
+                isResolved.value = true;
+            }
+        };
+        if (nuxtApp.isHydrating) {
+            nuxtApp.hooks.hookOnce('app:suspense:resolve', applyInitialValue);
+        } else {
+            applyInitialValue();
+        }
+    }
     const retry = useTimeoutFn(() => {
         if (lifecycle.isDisposed()) {
             return;

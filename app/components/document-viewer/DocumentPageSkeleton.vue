@@ -259,7 +259,7 @@ const repeatParagraphs = computed(() => {
     }
 }
 
-:global(html.app-low-graphics) .inner {
+html.app-low-graphics .inner {
     animation: none;
 }
 

@@ -1,6 +1,6 @@
 <template>
-    <div :class="['zoom-controls', `zoom-controls--compact-${effectiveCompactLevel}`]">
-        <div v-if="showStepButtons" class="zoom-controls-item">
+    <div class="zoom-controls">
+        <div class="zoom-controls-item" data-collapse-at="4">
             <ToolbarButton
                 icon="ph:minus"
                 :tooltip="t('zoom.zoomOut')"
@@ -109,7 +109,7 @@
             </UPopover>
         </div>
 
-        <div v-if="showStepButtons" class="zoom-controls-item">
+        <div class="zoom-controls-item" data-collapse-at="4">
             <ToolbarButton
                 icon="ph:plus"
                 :tooltip="t('zoom.zoomIn')"
@@ -125,7 +125,6 @@
 
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
-import { useClamp } from '@vueuse/math';
 import type {
     TFitMode,
     TZoomMode,
@@ -149,7 +148,6 @@ interface IProps {
     /** False while there is no page to measure: the field stays empty. */
     hasZoom?: boolean;
     canUseViewModes?: boolean;
-    compactLevel?: number;
 }
 
 const {
@@ -161,7 +159,6 @@ const {
     canUseViewModes = true,
     disabled = false,
     hasZoom = true,
-    compactLevel = 0,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -181,9 +178,7 @@ const isOpen = computed({
 const customZoomValue = ref(formatZoomValue(zoom));
 const customInputRef = ref<HTMLInputElement | null>(null);
 
-const effectiveCompactLevel = useClamp(() => compactLevel, 0, 2);
 
-const showStepButtons = computed(() => effectiveCompactLevel.value < 2);
 const shortcutLabels = useShortcutLabels();
 
 function normalizeZoomLevel(value: number) {
@@ -363,10 +358,6 @@ function selectCustomZoomInput(event: FocusEvent) {
     cursor: pointer;
     color: var(--ui-text);
     transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
-}
-
-.zoom-controls--compact-2 {
-    --zoom-control-display-width: 4.5rem;
 }
 
 .zoom-controls-display:disabled {

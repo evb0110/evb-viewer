@@ -31,6 +31,7 @@ import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
 import {useFailureToast} from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { RECENT_FILES_PREPAINT_SCRIPT } from '@app/utils/recentFilesPrepaintScript';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
@@ -318,6 +319,11 @@ useHead(() => ({
     },
     meta: localeHead.value.meta,
     link: localeHead.value.link,
+    script: [{
+        key: 'recent-files-prepaint',
+        innerHTML: RECENT_FILES_PREPAINT_SCRIPT,
+        tagPosition: 'head',
+    }],
 }));
 
 function dispatchAppReady() {

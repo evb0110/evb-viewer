@@ -5,23 +5,27 @@
         :data-workspace-render-active="isRenderActive ? 'true' : 'false'"
         :data-workspace-tab-id="tabId"
     >
-        <DocumentWorkspace
-            v-if="crashDescription === null"
-            :key="renderKey"
-            :tab-id="tabId"
-            :is-active="isActive"
-            :is-render-active="isRenderActive"
-            :is-tab-transition-busy="isTabTransitionBusy"
-            :document-session="documentSession"
-            :is-fullscreen="isFullscreen"
-            :fullscreen-supported="fullscreenSupported"
-            :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
-            @open-in-new-tab="emit('open-in-new-tab', $event)"
-            @request-close-tab="emit('request-close-tab')"
-            @open-settings="emit('open-settings')"
-            @open-combine="emit('open-combine')"
-            @toggle-fullscreen="emit('toggle-fullscreen')"
-        />
+        <!-- The workspace needs the browser (rendering sessions, frames), so the
+        prerendered page holds only Start; the workspace mounts behind it once
+        the page is live. -->
+        <ClientOnly v-if="crashDescription === null">
+            <DocumentWorkspace
+                :key="renderKey"
+                :tab-id="tabId"
+                :is-active="isActive"
+                :is-render-active="isRenderActive"
+                :is-tab-transition-busy="isTabTransitionBusy"
+                :document-session="documentSession"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
+                :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
+                @open-in-new-tab="emit('open-in-new-tab', $event)"
+                @request-close-tab="emit('request-close-tab')"
+                @open-settings="emit('open-settings')"
+                @open-combine="emit('open-combine')"
+                @toggle-fullscreen="emit('toggle-fullscreen')"
+            />
+        </ClientOnly>
         <DocumentWorkspaceFailurePanel
             v-else
             :description="crashDescription"

@@ -3,38 +3,40 @@
         ref="toolbarRef"
         class="toolbar"
         :data-collapse-tier="collapseTier"
+        :data-toolbar-layout="toolbarLayout"
         role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
     >
+        <span ref="collapseProbeRef" class="toolbar-collapse-probe" aria-hidden="true" />
         <div class="toolbar-section toolbar-left">
             <slot
                 v-if="isCommandInline('app-menu')"
                 name="app-menu"
-                :collapse-tier="collapseTier"
-                :has-overflow-items="hasOverflowItems"
-                :is-collapsed="isCollapsed"
             />
-            <ToolbarButton
-                v-if="isCommandInline('open-file') && !isCollapsed(5)"
-                :icon="getReaderCommandToolbarIcon('open-file')"
-                :tooltip="t('toolbar.openPdf')"
-                :shortcut="shortcutLabels.openFile"
-                :disabled="isOpeningDocument"
-                :loading="isOpeningDocument"
-                @click="handleToolbarCommand('open-file')"
-            />
-            <ToolbarButton
-                v-if="isCommandInline('toggle-sidebar') && !isCollapsed(5)"
-                :icon="getReaderCommandToolbarIcon('toggle-sidebar')"
-                :active="showSidebar"
-                :tooltip="t('toolbar.toggleSidebar')"
-                :shortcut="shortcutLabels.toggleSidebar"
-                :disabled="!hasInteractiveDocument || canToggleSidebar === false"
-                @click="handleToolbarCommand('toggle-sidebar')"
-            />
+            <span class="toolbar-collapsible" data-collapse-at="5">
+                <ToolbarButton
+                    v-if="isCommandInline('open-file')"
+                    :icon="getReaderCommandToolbarIcon('open-file')"
+                    :tooltip="t('toolbar.openPdf')"
+                    :shortcut="shortcutLabels.openFile"
+                    :disabled="isOpeningDocument"
+                    :loading="isOpeningDocument"
+                    @click="handleToolbarCommand('open-file')"
+                />
+                <ToolbarButton
+                    v-if="isCommandInline('toggle-sidebar')"
+                    :icon="getReaderCommandToolbarIcon('toggle-sidebar')"
+                    :active="showSidebar"
+                    :tooltip="t('toolbar.toggleSidebar')"
+                    :shortcut="shortcutLabels.toggleSidebar"
+                    :disabled="!hasInteractiveDocument || canToggleSidebar === false"
+                    @click="handleToolbarCommand('toggle-sidebar')"
+                />
+            </span>
 
             <div
-                v-if="!isCollapsed(4) && (isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page'))"
+                v-if="(isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page'))"
+                data-collapse-at="4"
                 class="toolbar-cluster"
             >
                 <div class="toolbar-action toolbar-action--save">
@@ -77,7 +79,8 @@
             </div>
 
             <div
-                v-if="!isCollapsed(4) && (isCommandInline('undo') || isCommandInline('redo'))"
+                v-if="(isCommandInline('undo') || isCommandInline('redo'))"
+                data-collapse-at="4"
                 class="toolbar-cluster"
             >
                 <div class="toolbar-action toolbar-action--undo">
@@ -108,10 +111,6 @@
                 <slot
                     v-if="isCommandInline('page-navigation')"
                     name="page-dropdown"
-                    :collapse-tier="collapseTier"
-                    :compact-level="pageCompactLevel"
-                    :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
                 />
             </div>
 
@@ -119,14 +118,10 @@
                 <slot
                     v-if="isCommandInline('zoom')"
                     name="zoom-dropdown"
-                    :collapse-tier="collapseTier"
-                    :compact-level="zoomCompactLevel"
-                    :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
                 />
             </div>
 
-            <div v-if="!isCollapsed(2)" class="toolbar-button-group toolbar-button-group--fit">
+            <div data-collapse-at="2" class="toolbar-button-group toolbar-button-group--fit">
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('fit-width')"
@@ -149,7 +144,7 @@
                         @click="handleToolbarCommand('fit-height')"
                     />
                 </div>
-                <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(2)" class="toolbar-group-item toolbar-group-item--continuous-scroll">
+                <div v-if="isCommandInline('continuous-scroll')" class="toolbar-group-item toolbar-group-item--continuous-scroll">
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('continuous-scroll')"
                         :active="continuousScroll"
@@ -161,9 +156,9 @@
                 </div>
             </div>
 
-            <div v-if="!isCollapsed(3)" class="toolbar-separator" />
+            <div data-collapse-at="3" class="toolbar-separator" />
 
-            <div v-if="!isCollapsed(3)" class="toolbar-button-group toolbar-button-group--interaction">
+            <div data-collapse-at="3" class="toolbar-button-group toolbar-button-group--interaction">
                 <div v-if="isCommandInline('quick-note')" class="toolbar-group-item toolbar-group-item--quick-note">
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('quick-note')"
@@ -199,7 +194,8 @@
 
         <div class="toolbar-section toolbar-right">
             <div
-                v-if="!isCollapsed(3) && (isCommandInline('capture-region') || isCommandInline('crop'))"
+                v-if="(isCommandInline('capture-region') || isCommandInline('crop'))"
+                data-collapse-at="3"
                 class="toolbar-cluster"
             >
                 <div class="toolbar-action toolbar-action--capture-region">
@@ -225,7 +221,8 @@
             </div>
 
             <div
-                v-if="!isCollapsed(1) && (isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx'))"
+                v-if="(isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx'))"
+                data-collapse-at="1"
                 class="toolbar-cluster"
             >
                 <div
@@ -234,17 +231,11 @@
                 >
                     <slot
                         name="scan-cleanup"
-                        :collapse-tier="collapseTier"
-                        :has-overflow-items="hasOverflowItems"
-                        :is-collapsed="isCollapsed"
                     />
                 </div>
                 <div v-if="isCommandInline('ocr')" class="toolbar-action toolbar-action--ocr">
                     <slot
                         name="ocr"
-                        :collapse-tier="collapseTier"
-                        :has-overflow-items="hasOverflowItems"
-                        :is-collapsed="isCollapsed"
                     />
                 </div>
                 <div class="toolbar-action toolbar-action--export-docx">
@@ -259,7 +250,7 @@
                 </div>
             </div>
 
-            <div v-if="!isCollapsed(1)" class="toolbar-separator" />
+            <div data-collapse-at="1" class="toolbar-separator" />
 
             <div class="toolbar-cluster">
                 <slot
@@ -267,23 +258,24 @@
                     name="overflow-menu"
                     :collapse-tier="collapseTier"
                     :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
                 />
-                <ToolbarButton
-                    v-if="isCommandInline('fullscreen') && !isCollapsed(5)"
-                    :icon="isFullscreen ? 'ph:corners-in' : getReaderCommandToolbarIcon('fullscreen')"
-                    :tooltip="t('toolbar.fullscreen')"
-                    :active="isFullscreen"
-                    :disabled="!hasInteractiveDocument || !fullscreenSupported"
-                    @click="handleToolbarCommand('toggle-fullscreen')"
-                />
-                <AssistantToolbarToggle v-if="!isCollapsed(5)" />
-                <ToolbarButton
-                    v-if="isCommandInline('settings') && !isCollapsed(5)"
-                    :icon="getReaderCommandToolbarIcon('settings')"
-                    :tooltip="t('toolbar.settings')"
-                    @click="handleToolbarCommand('open-settings')"
-                />
+                <span class="toolbar-collapsible" data-collapse-at="5">
+                    <ToolbarButton
+                        v-if="isCommandInline('fullscreen')"
+                        :icon="isFullscreen ? 'ph:corners-in' : getReaderCommandToolbarIcon('fullscreen')"
+                        :tooltip="t('toolbar.fullscreen')"
+                        :active="isFullscreen"
+                        :disabled="!hasInteractiveDocument || !fullscreenSupported"
+                        @click="handleToolbarCommand('toggle-fullscreen')"
+                    />
+                    <AssistantToolbarToggle />
+                    <ToolbarButton
+                        v-if="isCommandInline('settings')"
+                        :icon="getReaderCommandToolbarIcon('settings')"
+                        :tooltip="t('toolbar.settings')"
+                        @click="handleToolbarCommand('open-settings')"
+                    />
+                </span>
             </div>
         </div>
         <slot name="persistent-actions" />
@@ -295,7 +287,10 @@ import ToolbarButton from '@app/components/ToolbarButton.vue';
 import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButton.vue';
 import { AssistantToolbarToggle } from '@app/modules/agent-panel/public/component-exports/assistantToolbarToggle';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
+import { useResizeObserver } from '@vueuse/core';
 import { useShortcutLabels } from '@app/constants/shortcuts';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
+import { useAssistantPanel } from '@app/composables/useAssistantPanel';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import {
@@ -404,34 +399,32 @@ const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     isAnySaving,
     isHistoryBusy,
 }));
-const {
-    toolbarRef,
-    collapseTier,
-    hasOverflowItems: hasMeasuredOverflowItems,
-    isCollapsed,
-} = useToolbarOverflow();
-const hasOverflowItems = computed(() => hasMeasuredOverflowItems.value || isCommandInline('overflow-menu'));
-const pageCompactLevel = computed(() => {
-    if (collapseTier.value >= 4) {
-        return 3;
+// The toolbar's container queries decide which groups it shows, so the
+// prerendered page already has the final layout. The overflow menu lists what
+// they hid; it reads the tier those queries set on the probe.
+const toolbarRef = useTemplateRef<HTMLElement>('toolbarRef');
+const collapseProbeRef = useTemplateRef<HTMLElement>('collapseProbeRef');
+const collapseTier = ref(0);
+const { isBrowserRuntime } = useRuntimeEnvironment();
+const { isEnabled: isAssistantToggleShown } = useAssistantPanel();
+const toolbarLayout = computed(() => {
+    if (isBrowserRuntime.value) {
+        return 'browser';
     }
-    if (collapseTier.value >= 2) {
-        return 2;
-    }
-    if (collapseTier.value >= 1) {
-        return 1;
-    }
-    return 0;
+    return isAssistantToggleShown.value ? 'desktop-assistant' : 'desktop';
 });
-const zoomCompactLevel = computed(() => {
-    if (collapseTier.value >= 4) {
-        return 2;
-    }
-    if (collapseTier.value >= 1) {
-        return 1;
-    }
-    return 0;
-});
+watch(toolbarLayout, readCollapseTier, {flush: 'post'});
+function readCollapseTier() {
+    const probe = collapseProbeRef.value;
+    collapseTier.value = probe
+        ? Number.parseInt(getComputedStyle(probe).getPropertyValue('--toolbar-collapse-tier'), 10) || 0
+        : 0;
+}
+// The tier changes with the toolbar's width (and its rem-based height when the
+// UI scale changes) or with the layout's threshold set, which can switch
+// without a resize when the assistant setting loads.
+useResizeObserver(toolbarRef, readCollapseTier);
+const hasOverflowItems = computed(() => isCommandInline('overflow-menu') || collapseTier.value > 0);
 
 const toolbarCommandHandlers = {
     'open-file': () => emit('open-file'),
@@ -465,7 +458,9 @@ function handleToolbarCommand(command: TToolbarCommand) {
 
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use 'sass:list';
+
 /*
  * Toolbar layout
  * ──────────────
@@ -573,10 +568,67 @@ function handleToolbarCommand(command: TToolbarCommand) {
     min-width: max-content;
 }
 
-.toolbar[data-collapse-tier='5'] .toolbar-center {
-    flex: 1 1 auto;
-    flex-wrap: wrap;
-    justify-content: center;
-    min-width: 0;
+/*
+ * Collapse tiers
+ * ──────────────
+ * The toolbar's own width decides which groups it shows, so the prerendered
+ * page paints the layout the live page keeps. An element marked
+ * data-collapse-at="N" is hidden from tier N on; the probe carries the tier
+ * for the overflow menu, which lists what is hidden. Each threshold is the
+ * widest content of the tier below it (desktop scan cleanup, the assistant
+ * toggle, four-digit page counts, the longest locale's Menu label) and keeps
+ * the tiers in rem, so they follow the UI scale.
+ */
+.toolbar-collapsible {
+    display: contents;
+}
+
+.toolbar-collapse-probe {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+
+    --toolbar-collapse-tier: 0;
+}
+
+/* Widest content of the tier below each threshold, plus headroom for longer
+   locale labels, measured at UI scale 1 with a four-digit page count:
+   browser 1281/1190/1070/859/577 px; desktop has no Menu button (-85 px) but
+   scan cleanup at tier 0 (+38 px); the assistant toggle adds 38 px to tiers 0-4. */
+$toolbar-collapse-thresholds: (
+    'browser': (81.5rem, 75.5rem, 68rem, 54.5rem, 37.5rem),
+    'desktop': (78.5rem, 70.5rem, 63rem, 49.5rem, 32rem),
+    'desktop-assistant': (80.5rem, 73rem, 65rem, 52rem, 34.5rem),
+);
+
+@each $layout, $widths in $toolbar-collapse-thresholds {
+    @for $tier from 1 through 5 {
+        @container (width <= #{list.nth($widths, $tier)}) {
+            .toolbar[data-toolbar-layout='#{$layout}'] .toolbar-collapse-probe {
+                --toolbar-collapse-tier: #{$tier};
+            }
+
+            .toolbar[data-toolbar-layout='#{$layout}'] :deep([data-collapse-at='#{$tier}']) {
+                display: none;
+            }
+
+            @if $tier == 4 {
+                .toolbar[data-toolbar-layout='#{$layout}'] :deep(.zoom-controls) {
+                    --zoom-control-display-width: 4.5rem;
+                }
+            }
+
+            @if $tier == 5 {
+                .toolbar[data-toolbar-layout='#{$layout}'] .toolbar-center {
+                    flex: 1 1 auto;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    min-width: 0;
+                }
+            }
+        }
+    }
 }
 </style>

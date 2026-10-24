@@ -1,5 +1,5 @@
 <template>
-    <div ref="pageControlsRef" :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
+    <div ref="pageControlsRef" class="page-controls">
         <div class="page-controls-item page-controls-item--edge">
             <ToolbarButton
                 icon="ph:caret-double-left"
@@ -96,7 +96,6 @@
 
 <script setup lang="ts">
 import { onClickOutside } from '@vueuse/core';
-import { useClamp } from '@vueuse/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import {
@@ -120,7 +119,6 @@ interface IProps {
     pageLabels?: TDocumentPageLabelLookup;
     navigationPage?: number;
     disabled?: boolean;
-    compactLevel?: number;
     viewMode?: TPdfViewMode;
 }
 
@@ -131,7 +129,6 @@ const {
     pageLabels = null,
     navigationPage = undefined,
     disabled = false,
-    compactLevel = 0,
     viewMode = 'single',
 } = defineProps<IProps>();
 
@@ -148,7 +145,6 @@ const pageInputValue = ref(currentPage.toString());
 const pageInputRef = ref<HTMLInputElement | null>(null);
 const pageControlsRef = ref<HTMLElement | null>(null);
 
-const effectiveCompactLevel = useClamp(() => compactLevel, 0, 3);
 
 const showTotalInDisplay = computed(() => true);
 const hasPages = computed(() => totalPages > 0);

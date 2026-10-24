@@ -242,7 +242,7 @@ function onSave() {
     transform: scale(1.15);
 }
 
-:global(html.app-low-graphics) .status-save-dot-button.is-saving .status-save-dot {
+html.app-low-graphics .status-save-dot-button.is-saving .status-save-dot {
     animation: none;
 }
 
