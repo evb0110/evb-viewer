@@ -1,0 +1,40 @@
+app/assets/css/_toolbar-menu-shared.scss
+  s_10b6fbc6b94ef3::t_39216a13f888c5 89-95
+app/modules/pdf-viewer/components/PdfEmptyState.vue
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 560,599
+  s_10b6fbc6b94ef3::t_39216a13f888c5 561-564,600-602
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_10b6fbc6b94ef3::t_39216a13f888c5 100
+app/assets/css/main.css
+  s_10b6fbc6b94ef3::t_9caecf08a3fa42 68
+  s_10b6fbc6b94ef3::t_39216a13f888c5 430,507,1172-1187
+app/assets/css/app-shell-critical.scss
+  s_10b6fbc6b94ef3::t_39216a13f888c5 97-99
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 96
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 294
+  s_10b6fbc6b94ef3::t_39216a13f888c5 3-10,65,287-293,295-313
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_10b6fbc6b94ef3::t_39216a13f888c5 3
+tests/integration/browser/responsiveWorkspaceUi.test.ts
+  s_10b6fbc6b94ef3::t_6fcf868ccc1b95 319,330-331,338
+  s_10b6fbc6b94ef3::t_5c82688f32de9c 341-352
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 274
+  s_10b6fbc6b94ef3::t_a6d5b891d680c0 9,234-273,275-318,320-329,332-337,339-340,353-357
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "85e8e9c4cc8f29ec1324fb2f1fd88d17bf80068f",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
