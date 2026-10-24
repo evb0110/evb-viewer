@@ -275,7 +275,8 @@ const RECENT_FILE_TAIL_LENGTH = 24;
 
 const recentFilesHeadingId = useId();
 
-const recentSearch = ref('');
+// Start owns the query, so it survives a visit to Combine or Settings.
+const recentSearch = defineModel<string>('search', {default: ''});
 
 const clearHistoryDialogOpen = ref(false);
 const recentFilesBeforeOpen = shallowRef<readonly IRecentFile[] | null>(null);

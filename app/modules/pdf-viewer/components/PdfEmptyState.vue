@@ -13,7 +13,7 @@
                         class="rail-item"
                         :class="{ 'is-active': activeSection === 'recent' }"
                         :aria-current="activeSection === 'recent' ? 'page' : undefined"
-                        @click="showRecentFiles"
+                        @click="setActiveSection('recent')"
                     >
                         <UIcon name="i-ph-clock" class="rail-item-icon" />
                         <span>{{ t('emptyState.recentFiles') }}</span>
@@ -29,7 +29,7 @@
                         :class="{ 'is-active': activeSection === 'combine' }"
                         :aria-current="activeSection === 'combine' ? 'page' : undefined"
                         :disabled="openInProgress"
-                        @click="showCombinePage"
+                        @click="setActiveSection('combine')"
                     >
                         <UIcon name="i-ph-stack-plus" class="rail-item-icon" />
                         <span>{{ t('dialogs.combineFiles') }}</span>
@@ -42,7 +42,7 @@
                         class="rail-item"
                         :class="{ 'is-active': activeSection === 'settings' }"
                         :aria-current="activeSection === 'settings' ? 'page' : undefined"
-                        @click="showSettingsPage"
+                        @click="setActiveSection('settings')"
                     >
                         <UIcon name="i-ph-gear" class="rail-item-icon" />
                         <span>{{ t('toolbar.settings') }}</span>
@@ -73,6 +73,7 @@
                     </section>
 
                     <StartRecentFiles
+                        v-model:search="recentSearch"
                         :recent-files="recentFiles"
                         :recent-files-resolved="recentFilesResolved"
                         :recent-files-error="recentFilesError"
@@ -94,7 +95,7 @@
                     :show-eyebrow="false"
                     :show-header="false"
                     :open-result="openCombineResult"
-                    @close="showRecentFiles"
+                    @close="setActiveSection('recent')"
                 />
                 <SettingsPage
                     v-else
@@ -102,7 +103,7 @@
                     :show-back="false"
                     :show-eyebrow="false"
                     :show-header="false"
-                    @close="showRecentFiles"
+                    @close="setActiveSection('recent')"
                 />
             </main>
         </div>
@@ -160,18 +161,7 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const openPanelButtonId = useId();
 const activeSection = ref<TStartSection>(startSection);
-
-function showRecentFiles() {
-    setActiveSection('recent');
-}
-
-function showCombinePage() {
-    setActiveSection('combine');
-}
-
-function showSettingsPage() {
-    setActiveSection('settings');
-}
+const recentSearch = ref('');
 
 function openFile() {
     emit('open-file');
