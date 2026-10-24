@@ -611,3 +611,102 @@ it('paints the settled phone layout before the app starts', async () => {
         await phone.close();
     }
 }, 120_000);
+
+// Owner-reported: a pinch zoomed the whole interface instead of the document.
+it('pinches the document, not the interface, on a touch phone', async () => {
+    const phone = await lifecycle.browser.newContext({
+        ...devices['Pixel 7'],
+        viewport: {
+            width: 412,
+            height: 776,
+        },
+    });
+    try {
+        const page = await phone.newPage();
+        const problems = collectConsoleProblems(page);
+        await openStartPage(page);
+        keepFileChooserInterceptionEnabled(page);
+        const pdf = await PDFDocument.create();
+        pdf.addPage([
+            420,
+            600,
+        ]).drawText('Pinch me', {
+            x: 24,
+            y: 560,
+            size: 18,
+        });
+        const chooser = page.waitForEvent('filechooser');
+        await page.getByRole('button', {
+            name: 'Open File',
+            exact: true,
+        }).first().tap();
+        await (await chooser).setFiles({
+            name: 'Pinch document.pdf',
+            mimeType: 'application/pdf',
+            buffer: Buffer.from(await pdf.save()),
+        });
+        await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
+        const readZoom = () => page.evaluate(() => ({
+            documentZoom: Number.parseInt(document.querySelector<HTMLElement>('.zoom-controls-display-value')!.innerText, 10),
+            pageScale: window.visualViewport?.scale ?? 1,
+        }));
+        await expect.poll(async () => (await readZoom()).documentZoom).toBeGreaterThan(0);
+        const before = await readZoom();
+        const cdp = await phone.newCDPSession(page);
+        // A real finger pace: each move lands after the zoom has re-rendered
+        // the page under the fingers.
+        const pinch = async (x: number, y: number, fromHalfSpan: number, toHalfSpan: number) => {
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchStart',
+                touchPoints: [
+                    {
+                        x: x - fromHalfSpan,
+                        y,
+                        id: 1,
+                    },
+                    {
+                        x: x + fromHalfSpan,
+                        y,
+                        id: 2,
+                    },
+                ],
+            });
+            for (let step = 1; step <= 12; step += 1) {
+                const halfSpan = fromHalfSpan + (toHalfSpan - fromHalfSpan) * step / 12;
+                await cdp.send('Input.dispatchTouchEvent', {
+                    type: 'touchMove',
+                    touchPoints: [
+                        {
+                            x: x - halfSpan,
+                            y,
+                            id: 1,
+                        },
+                        {
+                            x: x + halfSpan,
+                            y,
+                            id: 2,
+                        },
+                    ],
+                });
+                await page.waitForTimeout(60);
+            }
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchEnd',
+                touchPoints: [],
+            });
+        };
+        const viewport = (await page.locator('[data-document-viewer-chassis-viewport]').boundingBox())!;
+        await pinch(Math.round(viewport.x + viewport.width / 2), Math.round(viewport.y + viewport.height / 2), 40, 120);
+        await expect.poll(async () => (await readZoom()).documentZoom, {message: 'spreading two fingers zooms the document by their ratio'})
+            .toBeGreaterThanOrEqual(Math.round(before.documentZoom * 2.5));
+        const pinched = await readZoom();
+        expect(pinched.pageScale, 'the interface itself does not zoom').toBe(1);
+        const toolbar = (await page.locator('[role="toolbar"][aria-label="Document toolbar"]').boundingBox())!;
+        await pinch(Math.round(toolbar.x + toolbar.width / 2), Math.round(toolbar.y + toolbar.height / 2), 30, 90);
+        await page.waitForTimeout(500);
+        expect(await readZoom(), 'a pinch on the chrome zooms nothing').toEqual(pinched);
+        expect(problems).toEqual([]);
+    } finally {
+        await phone.close();
+    }
+}, 120_000);
