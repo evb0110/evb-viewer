@@ -1,0 +1,58 @@
+app/modules/pdf-viewer/components/PdfPageDropdown.vue
+  s_10b6fbc6b94ef3::t_80b4c0f2dd9d9e 2
+app/utils/recentFilesPrepaintScript.ts
+  s_10b6fbc6b94ef3::t_141f102afd5adc 1-13
+app/modules/djvu-viewer/components/DjvuBanner.vue
+  s_10b6fbc6b94ef3::t_da1d861215195d 78
+tests/integration/browser/responsiveWorkspaceUi.test.ts
+  s_10b6fbc6b94ef3::t_22cdec671fadfc 513-613
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_10b6fbc6b94ef3::t_0d6fd6da9229de 133,149
+app/modules/pdf-viewer/components/PdfEmptyState.vue
+  s_10b6fbc6b94ef3::t_d5bfb11367130f 2,99-100,1412-1416
+  s_10b6fbc6b94ef3::t_141f102afd5adc 915
+  s_10b6fbc6b94ef3::t_a0f7fae1d29760 918
+  s_10b6fbc6b94ef3::t_37da0c8f0baa57 1389
+  s_10b6fbc6b94ef3::t_da1d861215195d 601,923,929,933-934,1224-1225
+  s_10b6fbc6b94ef3::t_d6fe0bb5fc045a 386-387,914,916-917,919-922,924-928,930-932,935
+app/modules/workspace-shell/components/DocumentWorkspaceTab.vue
+  s_10b6fbc6b94ef3::t_5791477f837c54 14-26
+  s_10b6fbc6b94ef3::t_326349d0e62beb 8-13,27-28
+app/app.vue
+  s_10b6fbc6b94ef3::t_141f102afd5adc 34
+  s_10b6fbc6b94ef3::t_a126c2d1e48bb6 322-326
+app/composables/usePlatformHydratedState.ts
+  s_10b6fbc6b94ef3::t_a00b06e5a2b198 62-80
+app/modules/pdf-viewer/components/PdfStatusBar.vue
+  s_10b6fbc6b94ef3::t_da1d861215195d 245
+app/modules/pdf-viewer/components/PdfZoomDropdown.vue
+  s_10b6fbc6b94ef3::t_09b558ef794648 2-3,112
+app/modules/pdf-viewer/components/PdfToolbar.vue
+  s_10b6fbc6b94ef3::t_ee6d88f1799b0c 38-39,82-83,124,147,159,161,197-198,224-225,253
+  s_10b6fbc6b94ef3::t_abb0131f68c11b 457-458,591-594,603
+  s_10b6fbc6b94ef3::t_b3ae7e5c6a772f 596
+  s_10b6fbc6b94ef3::t_2656ca7080e49b 16-35,262-278
+  s_10b6fbc6b94ef3::t_fba46c134a4ee2 10,402-412,414,416-420,422
+  s_10b6fbc6b94ef3::t_a1e7fd319ae61f 566-590,620-627
+  s_10b6fbc6b94ef3::t_7a4e1550971208 290
+app/components/document-viewer/DocumentPageSkeleton.vue
+  s_10b6fbc6b94ef3::t_da1d861215195d 262
+app/modules/workspace-shell/components/EditorPanesHost.vue
+  s_10b6fbc6b94ef3::t_7948f9412d0902 22-31,62,306-310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1cf983ca980eaf941d02e0abec3b08ada63c3025",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
