@@ -1,0 +1,21 @@
+app/utils/recentFilesPrepaintScript.ts
+  s_10b6fbc6b94ef3::t_7751dad6338616 2,14-17
+app/utils/recentFilesPersistence.ts
+  s_10b6fbc6b94ef3::t_7751dad6338616 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e5eb5639c0965d60f5c931b142cddee772fc773a",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
