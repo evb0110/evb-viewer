@@ -554,6 +554,24 @@ watch(() => openInProgress, (isOpening) => {
 </script>
 
 <style lang="scss" scoped>
+/* A phone or tablet shows Start as one page that scrolls: the recent list
+   takes the height of its rows instead of a box of its own that scrolls inside
+   the page, which on a phone is a sliver with a second scrollbar. */
+@mixin start-single-scroll {
+    .start-shell {
+        height: auto;
+        min-height: 100%;
+    }
+
+    .start-main,
+    .start-recent,
+    .recent-table {
+        height: auto;
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+}
+
 .empty-state {
     width: 100%;
     height: 100%;
@@ -646,9 +664,11 @@ watch(() => openInProgress, (isOpening) => {
     white-space: nowrap;
 }
 
-.rail-item:hover:not(.is-active, :disabled) {
-    background: var(--app-start-rail-item-hover-bg);
-    color: var(--app-start-rail-item-active-fg);
+@media (hover: hover) {
+    .rail-item:hover:not(.is-active, :disabled) {
+        background: var(--app-start-rail-item-hover-bg);
+        color: var(--app-start-rail-item-active-fg);
+    }
 }
 
 .rail-item.is-active {
@@ -657,8 +677,10 @@ watch(() => openInProgress, (isOpening) => {
     color: var(--app-start-rail-item-active-fg);
 }
 
-.rail-item.is-active:hover:not(:disabled) {
-    background: var(--app-start-rail-item-active-hover-bg);
+@media (hover: hover) {
+    .rail-item.is-active:hover:not(:disabled) {
+        background: var(--app-start-rail-item-active-hover-bg);
+    }
 }
 
 .rail-item:disabled {
@@ -866,8 +888,10 @@ watch(() => openInProgress, (isOpening) => {
     color: var(--ui-text);
 }
 
-.recent-row--data:hover:not(.is-disabled, :has(.recent-action:hover), :has(.recent-location--reveal:hover)) {
-    background: var(--app-start-row-hover-bg);
+@media (hover: hover) {
+    .recent-row--data:hover:not(.is-disabled, :has(.recent-action:hover), :has(.recent-location--reveal:hover)) {
+        background: var(--app-start-row-hover-bg);
+    }
 }
 
 .recent-open:focus-visible {
@@ -946,9 +970,11 @@ watch(() => openInProgress, (isOpening) => {
         color var(--app-transition-quick);
 }
 
-.recent-location--reveal:hover {
-    background: var(--app-start-row-action-hover-bg);
-    color: var(--ui-text);
+@media (hover: hover) {
+    .recent-location--reveal:hover {
+        background: var(--app-start-row-action-hover-bg);
+        color: var(--ui-text);
+    }
 }
 
 .recent-location--reveal:focus-visible {
@@ -1085,9 +1111,11 @@ watch(() => openInProgress, (isOpening) => {
     height: var(--app-icon-size-md);
 }
 
-.recent-action:hover {
-    background: var(--app-start-row-action-hover-bg);
-    color: var(--app-start-row-remove-hover-fg);
+@media (hover: hover) {
+    .recent-action:hover {
+        background: var(--app-start-row-action-hover-bg);
+        color: var(--app-start-row-remove-hover-fg);
+    }
 }
 
 .recent-action:focus-visible {
@@ -1099,9 +1127,11 @@ watch(() => openInProgress, (isOpening) => {
     color: var(--app-start-row-remove-fg);
 }
 
-.recent-action--remove:hover {
-    background: var(--app-start-row-remove-hover-bg);
-    color: var(--app-start-row-remove-hover-fg);
+@media (hover: hover) {
+    .recent-action--remove:hover {
+        background: var(--app-start-row-remove-hover-bg);
+        color: var(--app-start-row-remove-hover-fg);
+    }
 }
 
 .recent-empty {
@@ -1283,6 +1313,67 @@ watch(() => openInProgress, (isOpening) => {
     .recent-row--head .recent-col--location {
         display: none;
     }
+
+    @include start-single-scroll;
+
+    /* Rows are a list, not a table: the file name takes the width and the
+       time sits under it. The column header stays for screen readers only. */
+    .recent-table {
+        position: relative;
+    }
+
+    .recent-row--head {
+        position: absolute;
+        width: var(--app-divider-width);
+        height: var(--app-hairline-height);
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    .recent-table,
+    .recent-table--compact {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .recent-row--data {
+        grid-template-areas: 'name actions';
+    }
+
+    .recent-row--data .recent-col--name {
+        grid-area: name;
+    }
+
+    /* The name sits at the top of the icon and the time at the bottom of the
+       row, in a line the name leaves free, so a row is no taller than its
+       icon unless large text needs more and the two never overlap. Taps on
+       the time reach the row. */
+    .recent-row--data .recent-open {
+        align-items: flex-start;
+    }
+
+    .recent-row--data .recent-file-name {
+        padding-block-end: calc(var(--app-text-size-meta) * var(--app-line-height-text));
+    }
+
+    .recent-row--data .recent-col--time {
+        grid-area: name;
+        align-self: end;
+        padding-inline-start: calc(var(--app-document-icon-width) + var(--app-start-recent-header-gap));
+        line-height: var(--app-line-height-text);
+        text-align: start;
+        pointer-events: none;
+    }
+
+    .recent-row--data .recent-col--actions {
+        grid-area: actions;
+    }
+
+    /* The Start rail already shows the count. */
+    .recent-footer:not(:has(.recent-refresh-failed)) {
+        display: none;
+    }
 }
 
 @container (max-width: 520px) {
@@ -1295,5 +1386,9 @@ watch(() => openInProgress, (isOpening) => {
     .recent-clear {
         flex: 0 0 auto;
     }
+}
+
+@media (pointer: coarse) {
+    @include start-single-scroll;
 }
 </style>
