@@ -77,8 +77,6 @@ const performanceModeItems = computed(() => PERFORMANCE_MODE_OPTION_DEFINITIONS.
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settings-panel-shared';
-
 .settings-performance-restart-notice {
     display: flex;
     align-items: center;

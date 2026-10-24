@@ -59,9 +59,10 @@ export function getPdfPageDropdownInputLabel(page: number, pageLabels: TDocument
 }
 
 export function getPdfPageDropdownIndicatorParts(options: IPdfPageDropdownIndicatorOptions) {
+    // A field with nothing to count stays empty rather than showing a dash.
     if (options.totalPages <= 0) {
         return {
-            primary: '-',
+            primary: '',
             secondary: '',
         };
     }

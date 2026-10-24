@@ -60,6 +60,12 @@ export default defineAppConfig({ui: {
             true: {overlay: 'app-scrollbar app-scroll-region--balanced'},
         }},
     },
+    // Card and segmented choices share one selected look, drawn by `.app-choice`
+    // in main.css, instead of the theme's half-strength accent tint.
+    radioGroup: {variants: {variant: {
+        card: {item: 'app-choice'},
+        table: {item: 'app-choice'},
+    }}},
     select: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
     selectMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
 }});

@@ -207,14 +207,21 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         ?? knownFileSizeBytes?.value
         ?? statFileSizeBytes.value
     ));
+    // With no document the metrics describe nothing, so the bar leaves them out.
     const statusFileSizeLabel = computed(() => {
+        if (!hasDocument.value) {
+            return '';
+        }
         if (statusFileSizeBytes.value === null) {
             return t('status.fileSizeUnknown');
         }
         return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
     });
     const statusZoomLabel = computed(() => {
-        if (!hasDocument.value || isDocumentVisualPending?.value) {
+        if (!hasDocument.value) {
+            return '';
+        }
+        if (isDocumentVisualPending?.value) {
             return t('status.zoomUnknown');
         }
         return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });

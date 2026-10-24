@@ -1248,6 +1248,7 @@ describe('Electron E2E - Recent Files', () => {
         }
         // This fresh source has no remembered geometry. While its copy is
         // held, the claimed tab explains loading without guessing a page shape.
+        // The explanation is a hairline across the top of the tab's surface.
         await waitForFunctionInPage(session.page, (fileName: string) => {
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
@@ -1267,6 +1268,10 @@ describe('Electron E2E - Recent Files', () => {
                 && Boolean(rect && rect.width > 0 && rect.height > 0)
                 && Boolean(progressRect && progressRect.width > 0 && progressRect.height > 0
                     && getComputedStyle(progress!).visibility !== 'hidden')
+                && Boolean(host && progressRect
+                    && progressRect.height <= 3
+                    && Math.abs(progressRect.top - host.getBoundingClientRect().top) <= 1
+                    && progressRect.width >= host.getBoundingClientRect().width - 1)
                 && !visibleSurface;
         }, {timeout: RECENT_OPEN_TIMEOUT_MS}, basename(droppedPath));
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (

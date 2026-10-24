@@ -20,6 +20,13 @@
     color: var(--ui-text);
 }
 
+/* The inline label of a checkbox or switch reads at the field label's size. */
+.settings-control-label {
+    font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-medium);
+    color: var(--ui-text);
+}
+
 .settings-field-hint {
     margin: 0;
     font-size: var(--app-text-size-kicker);

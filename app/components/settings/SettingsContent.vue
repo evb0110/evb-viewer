@@ -990,3 +990,9 @@ onBeforeUnmount(() => {
     }
 }
 </style>
+
+<!-- The panels hand these classes to Nuxt UI slots through `:ui`. Slot
+elements do not carry a panel's scope attribute, so the classes are global. -->
+<style lang="scss">
+@use '@app/assets/css/settings-panel-shared';
+</style>

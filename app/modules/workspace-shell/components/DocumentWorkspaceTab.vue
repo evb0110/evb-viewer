@@ -55,7 +55,7 @@
             />
         </div>
         <div v-if="isOpening" class="workspace-host__opening-progress">
-            <AppProgressBar :aria-label="t('common.loading')" />
+            <AppProgressBar variant="edge" :aria-label="t('common.loading')" />
         </div>
     </div>
 </template>

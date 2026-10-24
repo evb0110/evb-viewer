@@ -146,6 +146,8 @@ interface IProps {
     viewMode: TPdfViewMode;
     open: boolean;
     disabled?: boolean;
+    /** False while there is no page to measure: the field stays empty. */
+    hasZoom?: boolean;
     canUseViewModes?: boolean;
     compactLevel?: number;
 }
@@ -158,6 +160,7 @@ const {
     open,
     canUseViewModes = true,
     disabled = false,
+    hasZoom = true,
     compactLevel = 0,
 } = defineProps<IProps>();
 
@@ -228,9 +231,10 @@ function formatZoomValue(value: number) {
     return Math.round(value * 100).toString();
 }
 
+// A busy document keeps showing its zoom while the control is disabled.
 const zoomDisplay = computed(() => {
-    if (disabled) {
-        return '-';
+    if (!hasZoom) {
+        return '';
     }
     return `${Math.round(normalizedEffectiveZoom.value * 100)}%`;
 });

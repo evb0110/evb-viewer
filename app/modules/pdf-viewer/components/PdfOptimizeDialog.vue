@@ -52,13 +52,7 @@
                             </span>
                             <span>{{ progressPercentLabel }}</span>
                         </div>
-                        <UProgress
-                            color="primary"
-                            size="md"
-                            :max="100"
-                            :model-value="progressPercent"
-                            :ui="progressUi"
-                        />
+                        <AppProgressBar :value="progressPercent" />
                     </div>
                 </div>
             </div>
@@ -95,6 +89,7 @@
 </template>
 
 <script setup lang="ts">
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
 import type {
     IPdfOptimizeOptions,
@@ -129,10 +124,6 @@ const radioGroupUi = {
     item: 'items-start',
     label: 'font-normal',
     description: 'text-xs',
-} as const;
-const progressUi = {
-    base: 'bg-elevated',
-    indicator: 'duration-200',
 } as const;
 
 const presetOptions = computed(() => [

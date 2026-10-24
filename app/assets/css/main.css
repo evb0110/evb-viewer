@@ -173,6 +173,23 @@
     --app-scan-zone-picture-color: var(--ui-primary);
     --app-scan-zone-fill-color: var(--ui-warning);
     --app-progress-bar-width: 15rem;
+
+    /* Progress reads as activity, not as another heavy control: a quiet
+       neutral track, the accent for the work done, and a hairline with a
+       soft sweep along the top edge of a surface that is loading. */
+    --app-progress-track: color-mix(in oklab, var(--ui-border) 80%, var(--ui-bg-muted) 20%);
+    --app-progress-indicator: var(--ui-primary);
+    --app-progress-edge-track: color-mix(in oklab, var(--ui-primary) 10%, transparent);
+    --app-progress-edge-sweep: linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in oklab, var(--ui-primary) 55%, transparent) 30%,
+        var(--app-progress-edge-accent) 70%,
+        transparent 100%
+    );
+    --app-progress-edge-accent: var(--color-brand-500);
+    --app-choice-selected-bg: color-mix(in oklab, var(--ui-bg-elevated) 70%, var(--ui-bg-accented) 30%);
+    --app-choice-selected-border: color-mix(in oklab, var(--ui-border) 55%, var(--ui-text-dimmed) 45%);
     --app-progress-chip-offset-low: 3rem;
     --app-progress-chip-offset-high: 7rem;
     --app-space-3xs: 0.125rem;
@@ -839,6 +856,11 @@
     --ui-primary-fg: var(--ui-bg);
     --ui-success: oklch(72% 0.16 147);
     --app-window-bg: var(--ui-bg, #18181b);
+    --app-progress-track: color-mix(in oklab, var(--ui-border) 85%, var(--ui-text) 15%);
+    --app-progress-edge-track: color-mix(in oklab, var(--ui-primary) 14%, transparent);
+    --app-progress-edge-accent: var(--color-brand-300);
+    --app-choice-selected-bg: color-mix(in oklab, var(--ui-bg) 84%, var(--ui-text) 16%);
+    --app-choice-selected-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-text) 30%);
     --app-scrollbar-thumb: color-mix(in oklab, var(--ui-border) 35%, var(--ui-text-muted) 65%);
     --app-scrollbar-thumb-hover: color-mix(in oklab, var(--ui-border) 20%, var(--ui-text-muted) 80%);
     --app-chrome: color-mix(in oklab, var(--ui-bg) 82%, var(--ui-bg-elevated) 18%);
@@ -880,8 +902,11 @@
     --app-nav-bg-active: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 5%);
     --app-nav-bg-active-hover: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-text) 8%);
     --app-nav-border-active: color-mix(in oklab, var(--ui-border) 60%, var(--ui-text) 14%);
-    --app-tab-hover-bg: color-mix(in oklab, var(--app-tabbar-bg) 55%, var(--ui-bg) 45%);
-    --app-tab-active-bg: var(--ui-bg);
+
+    /* A dark tab strip marks the open tab by lifting it, as its controls do;
+       the page colour sat below the strip and read as a hole in it. */
+    --app-tab-hover-bg: color-mix(in oklab, var(--app-tabbar-bg) 93%, var(--ui-text) 7%);
+    --app-tab-active-bg: color-mix(in oklab, var(--ui-bg) 86%, var(--ui-text) 14%);
     --app-editor-pane-active-tabbar-bg: color-mix(in oklab, var(--app-tabbar-bg) 80%, var(--ui-text-muted) 20%);
     --app-editor-pane-active-tabbar-divider: color-mix(in oklab, var(--ui-border) 50%, var(--ui-text-muted) 50%);
     --app-editor-pane-active-tabbar-glow: transparent;
@@ -1077,6 +1102,33 @@
     color: var(--ui-text-dimmed);
     font-size: var(--app-text-size-caption);
     font-variant-numeric: tabular-nums;
+}
+
+/* Choices on a dialog or card surface select the way the Start rail does:
+   options are plain, and the selected one is pressed in, with the active
+   border and default ink. The accent stays for primary actions, focus and
+   progress. */
+.app-choice {
+    background-color: var(--ui-bg);
+}
+
+.app-choice [data-slot='label'] {
+    color: var(--ui-text-muted);
+}
+
+.app-choice:hover:not(:has([data-state='checked'], :disabled)) [data-slot='label'] {
+    color: var(--ui-text);
+}
+
+.app-choice:has([data-state='checked']) {
+    z-index: var(--app-z-local-raised);
+    border-color: var(--app-choice-selected-border);
+    background-color: var(--app-choice-selected-bg);
+}
+
+.app-choice:has([data-state='checked']) [data-slot='label'] {
+    color: var(--ui-text-highlighted);
+    font-weight: var(--app-font-weight-semibold);
 }
 
 .app-panel-scroll {
