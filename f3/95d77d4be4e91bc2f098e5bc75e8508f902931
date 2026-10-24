@@ -1,0 +1,23 @@
+tests/integration/browser/responsiveWorkspaceUi.test.ts
+  s_10b6fbc6b94ef3::t_ccbd4dd18e2892 411-436
+app/assets/css/app-shell-critical.scss
+  s_10b6fbc6b94ef3::t_aaf2f5131d9540 7-14
+app/modules/pdf-viewer/components/PdfEmptyState.vue
+  s_10b6fbc6b94ef3::t_08372c4c1f5b33 557-574,667-671,680-683,891-894,973-977,1114-1118,1130-1134,1316-1359,1373-1375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f395d77d4be4e91bc2f098e5bc75e8508f902931",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
