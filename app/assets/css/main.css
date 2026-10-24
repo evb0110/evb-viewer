@@ -65,7 +65,7 @@
     --app-toolbar-save-menu-min-width: 11rem;
     --app-toolbar-app-menu-min-width: 15rem;
     --app-toolbar-app-menu-trigger-max-width: 11rem;
-    --app-toolbar-app-menu-trigger-max-viewport-width: 32vw;
+    --app-toolbar-app-menu-trigger-max-viewport-width: 28vw;
     --app-toolbar-overflow-menu-min-width: 14rem;
     --app-toolbar-overflow-badge-offset-top: -0.125rem;
     --app-toolbar-overflow-badge-offset-inline-end: -0.3125rem;
@@ -427,6 +427,7 @@
     --app-control-active-hover-border: var(--app-toolbar-control-active-hover-border);
     --app-search-toggle-active-bg: color-mix(in oklab, var(--ui-primary) 12%, transparent);
     --app-sidebar-bg: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
+    --app-sidebar-scrim-bg: rgb(0 0 0 / 0.24);
     --app-sidebar-border: color-mix(in oklab, var(--ui-border) 72%, transparent);
     --app-sidebar-control-hover-bg: color-mix(in oklab, var(--app-sidebar-bg) 55%, var(--ui-bg) 45%);
     --app-toolbar-control-inactive-fg: color-mix(in oklab, var(--ui-text) 82%, var(--ui-text-muted) 18%);
@@ -503,6 +504,7 @@
     --app-start-row-remove-hover-fg: var(--ui-text);
     --app-start-shell-rail-width: 15.5rem;
     --app-start-shell-gap: var(--app-space-16xl);
+    --app-start-shell-min-height: 32rem;
     --app-start-shell-padding: var(--app-space-10xl) clamp(var(--app-space-9xl), 2vw, var(--app-space-16xl)) var(--app-space-12xl);
     --app-start-rail-gap: var(--app-space-14xl);
     --app-start-rail-padding: var(--app-space-3xl) var(--app-space-sm);
@@ -1165,6 +1167,24 @@
 html {
     font-size: calc(16px * var(--app-ui-scale, 1));
     font-family: var(--app-font-ui);
+}
+
+/* Touch screens: fingers need larger targets than a mouse pointer, and iOS
+   Safari zooms the whole page into a focused field whose text is under 16px. */
+@media (pointer: coarse) {
+    :root {
+        --app-tabbar-height: 2.75rem;
+        --app-tab-close-size: 2rem;
+        --app-action-size-sm: 2rem;
+        --app-statusbar-action-size: 1.5rem;
+        --app-touch-field-min-font-size: 16px;
+    }
+
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']),
+    textarea,
+    select {
+        font-size: max(1rem, var(--app-touch-field-min-font-size));
+    }
 }
 
 body,

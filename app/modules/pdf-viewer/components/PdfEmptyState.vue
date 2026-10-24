@@ -557,7 +557,11 @@ watch(() => openInProgress, (isOpening) => {
 .empty-state {
     width: 100%;
     height: 100%;
-    overflow: hidden;
+
+    /* The critical shell centres this box; once Start is taller than the
+       pane, plain centring would push its top out of scroll reach. */
+    align-items: safe center;
+    overflow: hidden auto;
     background: var(--app-start-bg);
     color: var(--ui-text);
     container-type: inline-size;
@@ -592,7 +596,10 @@ watch(() => openInProgress, (isOpening) => {
     gap: var(--app-start-shell-gap);
     width: 100%;
     max-width: var(--app-content-width-2xl);
-    height: 100%;
+
+    /* A phone, especially in landscape, has less height than the open panel
+       and a usable recent list need, so Start scrolls instead of crushing the list. */
+    height: max(100%, var(--app-start-shell-min-height));
     min-height: 0;
     margin: 0 auto;
     padding: var(--app-start-shell-padding);

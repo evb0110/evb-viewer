@@ -1,6 +1,6 @@
 <template>
     <div
-        class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]"
+        class="app-shell-root h-dvh min-w-0 flex flex-col bg-[var(--app-window-bg)]"
         :class="{ 'is-zen-mode': isFullscreen }"
     >
         <div v-if="showBrowserInstallHint" class="browser-install-hint">

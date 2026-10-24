@@ -1,5 +1,13 @@
 <template>
     <main ref="workspaceMainRef" class="workspace-main">
+        <!-- Phone widths only: the open sidebar covers the page, and a tap
+        beside it closes it. -->
+        <div
+            v-if="showSidebar"
+            class="sidebar-scrim"
+            aria-hidden="true"
+            @click="emit('dismiss')"
+        />
         <div
             ref="sidebarWrapperRef"
             class="sidebar-wrapper"
@@ -54,6 +62,7 @@ const emit = defineEmits<{
     'container-resize': [width: number];
     'slide-start': [];
     'slide-end': [];
+    'dismiss': [];
 }>();
 const workspaceMainRef = useTemplateRef<HTMLElement>('workspaceMainRef');
 const sidebarWrapperRef = useTemplateRef<HTMLElement>('sidebarWrapperRef');
@@ -273,6 +282,43 @@ watch(
 .sidebar-resizer:hover,
 .sidebar-resizer.is-active {
     background: var(--app-editor-sash-bg-hover);
+}
+
+.sidebar-scrim {
+    display: none;
+}
+
+/* Below 548 px the sidebar at its minimum (220 px plus the 8 px sash) cannot
+   sit beside the page's 320 px minimum viewer width (SIDEBAR in
+   app/constants/pdfLayout.ts): on a phone the page would refit to a sliver.
+   There the sidebar opens over the page instead, so the page keeps its size
+   and position. */
+@media (width < 548px) {
+    .sidebar-wrapper {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        z-index: var(--app-z-workspace-overlay);
+        box-shadow: var(--shadow-popup);
+    }
+
+    .sidebar-wrapper.is-closed {
+        box-shadow: none;
+    }
+
+    /* Viewer layers such as the crop and snip overlays stack above the
+       workspace overlay level; keep all of them below the open sidebar. */
+    .workspace-main__viewer {
+        isolation: isolate;
+    }
+
+    .sidebar-scrim {
+        position: absolute;
+        inset: 0;
+        z-index: var(--app-z-workspace-overlay);
+        display: block;
+        background: var(--app-sidebar-scrim-bg);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
