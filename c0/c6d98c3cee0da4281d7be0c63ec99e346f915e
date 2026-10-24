@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/components/StartRecentFiles.vue
+  s_10b6fbc6b94ef3::t_8837efb455d4d9 278-279
+app/pages/index.vue
+  s_10b6fbc6b94ef3::t_8837efb455d4d9 21-25
+app/modules/pdf-viewer/components/PdfEmptyState.vue
+  s_10b6fbc6b94ef3::t_8837efb455d4d9 76,164
+  ai_agent 98,106
+  s_10b6fbc6b94ef3::t_3fe9452f00cdfd 16,32,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c0c6d98c3cee0da4281d7be0c63ec99e346f915e",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
