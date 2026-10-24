@@ -408,6 +408,32 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
             return Math.abs(pageTop - zoomTop);
         }), {message: 'page and zoom controls share a toolbar row at 360 px'}).toBeLessThanOrEqual(1);
         await page.screenshot({path: resolve(evidenceDir, 'portrait-360.png')});
+        // The owner's phone: Android Chrome at 412x776 with the system font
+        // size raised, so the page's text is about 14% larger.
+        await page.setViewportSize({
+            width: 412,
+            height: 776,
+        });
+        await page.addStyleTag({content: 'html { font-size: 18.24px !important; }'});
+        await page.getByRole('button', {
+            name: 'Close Tab',
+            exact: true,
+        }).first().tap();
+        await page.locator('.recent-row--data:not(.recent-row--skeleton)').first().waitFor();
+        const start = await page.evaluate(() => {
+            const table = document.querySelector<HTMLElement>('.recent-table')!;
+            return {
+                tableScrollRange: table.scrollHeight - table.clientHeight,
+                tableHeaderShown: getComputedStyle(document.querySelector<HTMLElement>('.recent-row--head')!).display !== 'none',
+                rootOverscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+            };
+        });
+        await page.screenshot({path: resolve(evidenceDir, 'portrait-start-large-text.png')});
+        expect.soft(start.tableScrollRange, 'the recent list does not scroll inside Start').toBeLessThanOrEqual(1);
+        expect.soft(start.tableHeaderShown, 'a phone lists recent files without a table header').toBe(false);
+        // The app never scrolls at the page level, so a pull past a pane's top
+        // must not reach the browser's pull-to-refresh.
+        expect.soft(start.rootOverscroll, 'pulling down does not reload the app').toBe('none');
         expect(problems).toEqual([]);
     } finally {
         await portrait.close();

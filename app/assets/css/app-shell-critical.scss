@@ -4,6 +4,14 @@ body,
     min-height: 100%;
 }
 
+/* The app never scrolls at the page level, so a pull past the top of a pane
+   reaches the root only as the browser's pull-to-refresh, which reloads the
+   app. Panes keep their own scrolling. */
+html,
+body {
+    overscroll-behavior: none;
+}
+
 :root {
     --app-font-ui: 'EVB Noto Sans', Arial, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
     --ui-primary: var(--ui-color-primary-700);
