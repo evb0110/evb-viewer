@@ -22,19 +22,12 @@ async function requireBrowserPageOpsWasmResult<T>(
     run: () => Promise<unknown>,
 ): Promise<T> {
     const result = await run();
-    if (result !== null && !isBrowserPageOpsWasmFailure(result)) {
+    if (!isBrowserPageOpsWasmFailure(result)) {
         return result as T;
     }
-    if (isBrowserPageOpsWasmFailure(result)) {
-        throw new PdfPageOpsCapabilityError(
-            result.error.code === 'too-large' ? 'too-large' : 'native-failure',
-            result.error.message,
-            {operation},
-        );
-    }
     throw new PdfPageOpsCapabilityError(
-        'native-unavailable',
-        `PDF ${operation} is unavailable because the browser WASM page tool could not be loaded`,
+        result.error.code === 'too-large' ? 'too-large' : 'native-failure',
+        result.error.message,
         {operation},
     );
 }

@@ -292,7 +292,7 @@ export const BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA = v.object({
 });
 
 const workerResultSchemas = {
-    textBoxAppearance: v.nullable(v.union([
+    textBoxAppearance: v.union([
         v.pipe(
             v.object({
                 data: v.pipe(pdfBytesSchema, v.check(value => value.byteLength > 0
@@ -305,19 +305,19 @@ const workerResultSchemas = {
             })),
         ),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ])),
-    saveMutations: v.nullable(v.union([
+    ]),
+    saveMutations: v.union([
         BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ])),
-    decrypt: v.nullable(v.union([
+    ]),
+    decrypt: v.union([
         pageMutationResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ])),
-    printLayout: v.nullable(v.union([
+    ]),
+    printLayout: v.union([
         pageMutationResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ])),
+    ]),
     deletePages: pageMutationResultSchema,
     extractPages: pageMutationResultSchema,
     reorderPages: pageMutationResultSchema,
@@ -330,15 +330,15 @@ const workerResultSchemas = {
     readCatalog: catalogResultSchema,
     conformance: conformanceFactsSchema,
     mergePages: pageMutationResultSchema,
-    ocrTextVisibility: v.nullable(v.union([
+    ocrTextVisibility: v.union([
         PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ])),
+    ]),
     // `data` is the revision the writer appends to the request's document.
-    ocrTextLayer: v.nullable(v.union([
+    ocrTextLayer: v.union([
         pageMutationResultSchema,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ])),
+    ]),
 };
 
 const workerSuccessResponseSchema = v.union([

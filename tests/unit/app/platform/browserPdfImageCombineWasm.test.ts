@@ -25,10 +25,7 @@ const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: loggerWarn}}));
 
 function createFetchMock() {
-    return vi.fn(async () => ({
-        ok: true,
-        arrayBuffer: async () => new ArrayBuffer(8),
-    }));
+    return vi.fn(async () => new Response(new ArrayBuffer(8)));
 }
 
 function toArrayBuffer(data: Uint8Array): ArrayBuffer {
@@ -41,11 +38,7 @@ async function stubSuccessfulImageCombineWasmFetch() {
     vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
     vi.stubGlobal('WebAssembly', NativeWebAssembly);
     const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
-    const fetchMock = vi.fn(async () => ({
-        ok: true,
-        headers: {get: () => null},
-        arrayBuffer: async () => toArrayBuffer(wasmBytes),
-    }));
+    const fetchMock = vi.fn(async () => new Response(toArrayBuffer(wasmBytes)));
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
 }

@@ -78,9 +78,6 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         data: bytes,
         password: password ?? '',
     }, signal ? {signal} : {});
-    if (result === null) {
-        throw new Error('Browser PDF decrypt operation is unavailable');
-    }
     if (isBrowserPageOpsWasmFailure(result)) {
         if (result.error.code === 'needs-password') {
             return {
