@@ -1,0 +1,9 @@
+docs/architecture/behavior-contract.md
+  ai_agent 113-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd9917bb3894747e0eae829bc572f96bce4cec4b",
+  "prompts": {}
+}
