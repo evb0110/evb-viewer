@@ -207,10 +207,10 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 ok: true,
                 data,
             } as TBrowserPageOpsWorkerResponse;
-            if (data === null || isBrowserPageOpsWasmFailure(data)) {
+            if (isBrowserPageOpsWasmFailure(data)) {
                 self.postMessage(response);
             } else {
-                const result = data as Exclude<IBrowserPageOpsWorkerResultMap['textBoxAppearance' | 'saveMutations' | 'decrypt' | 'printLayout' | 'ocrTextLayer'], null | {status: 'failed'}>;
+                const result = data as Exclude<IBrowserPageOpsWorkerResultMap['textBoxAppearance' | 'saveMutations' | 'decrypt' | 'printLayout' | 'ocrTextLayer'], {status: 'failed'}>;
                 const transferableData = toTransferableUint8Array(result.data);
                 self.postMessage({
                     ...response,

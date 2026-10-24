@@ -179,10 +179,10 @@ async function readVisibility(data: Uint8Array, pageNumbers: number[], signal: A
             pages: pageNumbers,
             withEvbOcrText: false,
         }, {signal});
-        if (report === null || isBrowserPageOpsWasmFailure(report)) {
+        if (isBrowserPageOpsWasmFailure(report)) {
             return {
                 visibility: new Map<number, IPdfOcrPageTextVisibility>(),
-                warning: `Existing-text inspection was unavailable: ${report === null ? 'the page tool could not be loaded' : report.error.message}`,
+                warning: `Existing-text inspection was unavailable: ${report.error.message}`,
             };
         }
         return {visibility: new Map(report.pages.map(page => [
@@ -512,9 +512,6 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             instructions,
             pagePdfs: recognized.map(page => page.pdf),
         }, {signal});
-        if (written === null) {
-            throw new Error('The browser page tool that writes the searchable layer could not be loaded');
-        }
         if (isBrowserPageOpsWasmFailure(written)) {
             throw new Error(`Writing the searchable layer failed: ${written.error.message}`);
         }

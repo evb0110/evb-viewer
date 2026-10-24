@@ -260,11 +260,7 @@ async function stubSuccessfulWasmFetch() {
     vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
     vi.stubGlobal('WebAssembly', NativeWebAssembly);
     const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
-    const fetchMock = vi.fn(async () => ({
-        ok: true,
-        headers: {get: () => null},
-        arrayBuffer: async () => toArrayBuffer(wasmBytes),
-    }));
+    const fetchMock = vi.fn(async () => new Response(toArrayBuffer(wasmBytes)));
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
 }
@@ -1173,30 +1169,30 @@ describe('browser page-ops WASM fast path', () => {
             .rejects.toThrow('deletePages: cannot delete every page');
     });
 
-    it('returns null when the WASM asset is unavailable', async () => {
+    it('reports why the WASM asset could not be loaded', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
         vi.stubGlobal('WebAssembly', NativeWebAssembly);
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: false,
-            arrayBuffer: async () => new ArrayBuffer(0),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(null, {status: 404})));
         const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
         await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
             data: basePdf,
             pages: [1],
-        })).resolves.toBeNull();
+        })).resolves.toEqual({
+            status: 'failed',
+            error: {
+                code: 'io',
+                message: 'The browser page tool could not be loaded: WASM module request failed with status 404',
+            },
+        });
     });
 
-    it('returns null for a cached module with an incompatible allocation ABI', async () => {
+    it('reports a module with an incompatible allocation ABI', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(8),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
         const wasmMock = createFailingPageOpsWasmExports('unused');
         wasmMock.exports.evb_wasm_request_allocation_abi_version.mockReturnValue(0);
         vi.stubGlobal('WebAssembly', {
@@ -1209,17 +1205,20 @@ describe('browser page-ops WASM fast path', () => {
         await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
             data: basePdf,
             pages: [1],
-        })).resolves.toBeNull();
+        })).resolves.toEqual({
+            status: 'failed',
+            error: {
+                code: 'io',
+                message: 'The browser page tool could not be loaded: The page tool does not match this version of the app',
+            },
+        });
         expect(wasmMock.exports.evb_pdf_page_ops_alloc).not.toHaveBeenCalled();
     });
 
     it('preserves native WASM error envelopes when a page operation falls back', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(8),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
         const wasmMock = createFailingPageOpsWasmExports(JSON.stringify({
             code: 'corrupt-xref',
             message: 'page wasm failed',
@@ -1249,10 +1248,7 @@ describe('browser page-ops WASM fast path', () => {
     it('classifies allocation failure without touching linear memory', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(8),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
         const wasmMock = createFailingPageOpsWasmExports('unused');
         wasmMock.exports.evb_pdf_page_ops_alloc.mockReturnValue(0);
         vi.stubGlobal('WebAssembly', {
@@ -1276,10 +1272,7 @@ describe('browser page-ops WASM fast path', () => {
     it('rejects an out-of-bounds allocation pointer and releases ABI ownership', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(8),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
         const wasmMock = createFailingPageOpsWasmExports('unused');
         const probePointer = wasmMock.alloc(7);
         wasmMock.free(probePointer, 6);
@@ -1319,10 +1312,7 @@ describe('browser page-ops WASM fast path', () => {
     it('rejects an out-of-bounds output span and frees the valid request allocation', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(8),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
         const wasmMock = createFailingPageOpsWasmExports('unused');
         const probePointer = wasmMock.alloc(7);
         wasmMock.free(probePointer, 6);
@@ -1373,10 +1363,7 @@ describe('browser page-ops WASM fast path', () => {
     ])('falls back to native-failure for malformed or unknown WASM errors', async (encodedError) => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => ({
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(8),
-        })));
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
         const wasmMock = createFailingPageOpsWasmExports(encodedError);
         vi.stubGlobal('WebAssembly', {
             Memory: NativeWebAssembly.Memory,
@@ -1404,10 +1391,7 @@ describe('browser page-ops WASM fast path', () => {
         'clears encoded password bytes before releasing WASM memory on %s', async (outcome) => {
             vi.resetModules();
             vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-            vi.stubGlobal('fetch', vi.fn(async () => ({
-                ok: true,
-                arrayBuffer: async () => new ArrayBuffer(8),
-            })));
+            vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
             const wasm = createFailingPageOpsWasmExports(JSON.stringify({
                 code: 'needs-password',
                 message: 'Password required',

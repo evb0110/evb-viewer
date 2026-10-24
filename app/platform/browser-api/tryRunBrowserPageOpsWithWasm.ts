@@ -94,7 +94,7 @@ const wasmCatalogResultSchema = v.pipe(
 );
 
 type IBrowserPageOpsWasmResultMap = {
-    [K in keyof IBrowserPageOpsWorkerResultMap]: Exclude<IBrowserPageOpsWorkerResultMap[K], IBrowserPageOpsWasmFailure | null>;
+    [K in keyof IBrowserPageOpsWorkerResultMap]: Exclude<IBrowserPageOpsWorkerResultMap[K], IBrowserPageOpsWasmFailure>;
 };
 
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
@@ -108,7 +108,7 @@ type TBrowserPageOpsWasmRequest = {
 
 const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
 
-let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
+let wasmExportsPromise: Promise<IPdfPageOpsWasmExports> | null = null;
 
 function createWasmFailure(
     code: TNativeErrorCode,
@@ -127,7 +127,7 @@ function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value
     return typeof value === 'function';
 }
 
-function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports | null {
+function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports {
     const {
         memory,
         evb_wasm_request_allocation_abi_version: allocationAbiVersion,
@@ -152,7 +152,7 @@ function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasm
         || !isWasmNumberFunction(errorPtr)
         || !isWasmNumberFunction(errorLen)
     ) {
-        return null;
+        throw new Error('The page tool does not match this version of the app');
     }
 
     return {
@@ -168,34 +168,34 @@ function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasm
     };
 }
 
-function canUsePdfPageOpsWasm() {
-    return typeof WebAssembly !== 'undefined'
-        && typeof fetch === 'function';
-}
-
 function resolveWasmUrl() {
     return new URL(WASM_PATH, globalThis.location.href).toString();
 }
 
-async function loadPdfPageOpsWasm() {
+function loadPdfPageOpsWasm() {
     const pending = wasmExportsPromise ??= (async () => {
-        try {
-            const instantiated = await loadWasmWithDeadline(resolveWasmUrl());
-            const instance = 'instance' in instantiated
-                ? instantiated.instance
-                : instantiated;
-            return getPdfPageOpsWasmExports(instance.exports);
-        } catch {
-            // A transient fetch/instantiate failure must not disable WASM for the
-            // rest of the session. Clear the memo so a later op re-attempts the
-            // load. A module that loads but exports the wrong shape returns null
-            // without throwing and stays cached, since that failure is permanent.
-            wasmExportsPromise = null;
-            return null;
+        if (typeof WebAssembly === 'undefined' || typeof fetch !== 'function') {
+            throw new Error('This browser cannot run WebAssembly');
         }
+        const instantiated = await loadWasmWithDeadline(resolveWasmUrl());
+        const instance = 'instance' in instantiated
+            ? instantiated.instance
+            : instantiated;
+        return getPdfPageOpsWasmExports(instance.exports);
     })();
-
+    // A failed load must not disable the page tool for the rest of the
+    // session: the next operation loads it again.
+    pending.catch(() => {
+        if (wasmExportsPromise === pending) wasmExportsPromise = null;
+    });
     return pending;
+}
+
+function createWasmLoadFailure(error: unknown) {
+    return createWasmFailure(
+        error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'io',
+        `The browser page tool could not be loaded: ${getErrorMessage(error)}`,
+    );
 }
 
 function writeMagic(request: Uint8Array, offset: number) {
@@ -793,10 +793,13 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     type: K,
     payload: IBrowserPageOpsWasmRequestMap[K],
     beforeRun?: () => Promise<void>,
-): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure | null> {
-    if (!canUsePdfPageOpsWasm()) return null;
-    const exports = await loadPdfPageOpsWasm();
-    if (!exports) return null;
+): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure> {
+    let exports: IPdfPageOpsWasmExports;
+    try {
+        exports = await loadPdfPageOpsWasm();
+    } catch (error) {
+        return createWasmLoadFailure(error);
+    }
     await beforeRun?.();
 
     const request = {
