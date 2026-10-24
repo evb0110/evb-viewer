@@ -8,6 +8,10 @@ import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand'
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {
+    hasNativeErrorCode,
+    type TNativeErrorCode,
+} from '@contracts/nativeErrors';
+import {
     decodePdfOcrTextVisibilityReport,
     PDF_OCR_TEXT_VISIBILITY_REPORT_MAX_BYTES,
     type IPdfOcrPageTextVisibility,
@@ -18,6 +22,14 @@ const OCR_TEXT_VISIBILITY_TIMEOUT_MS = 2 * 60 * 1000;
 const OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES = 4 * 1024 * 1024;
 // With the layers' text, a record carries the page's recognized text too.
 const OCR_TEXT_VISIBILITY_WITH_TEXT_MAX_STDOUT_BYTES = PDF_OCR_TEXT_VISIBILITY_REPORT_MAX_BYTES;
+// Failures to read the document itself, which every later request repeats:
+// qpdf's whole-document structure limits and an unreadable PDF structure.
+const DOCUMENT_FAILURE = /qpdf (?:structure|structural|object)|Failed to parse PDF structure/u;
+const DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
+    'encrypted',
+    'needs-password',
+    'corrupt-xref',
+]);
 
 export type TOcrPdfTextVisibilityAnalysis =
     | {
@@ -26,7 +38,7 @@ export type TOcrPdfTextVisibilityAnalysis =
     }
     | {
         status: 'degraded';
-        reason: 'native-tool-unavailable' | 'native-tool-failed';
+        reason: 'native-tool-unavailable' | 'native-tool-failed' | 'document-unreadable';
         message: string;
         visibility: Map<number, IPdfOcrPageTextVisibility>;
     };
@@ -95,7 +107,9 @@ export async function inspectPdfPageTextVisibility(input: {
         }
         return {
             status: 'degraded',
-            reason: 'native-tool-failed',
+            reason: hasNativeErrorCode(error) && DOCUMENT_FAILURE_CODES.has(error.code) || DOCUMENT_FAILURE.test(getErrorMessage(error))
+                ? 'document-unreadable'
+                : 'native-tool-failed',
             message: `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`,
             visibility: new Map(),
         };
