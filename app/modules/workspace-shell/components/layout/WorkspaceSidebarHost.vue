@@ -288,10 +288,12 @@ watch(
     display: none;
 }
 
-/* On a phone the page is too narrow to share with the sidebar: squeezed beside
-   it, the page would refit to a fraction of its width. The sidebar opens over
-   the page instead, so the page keeps its size and position. */
-@media (width <= 640px) {
+/* Below 548 px the sidebar at its minimum (220 px plus the 8 px sash) cannot
+   sit beside the page's 320 px minimum viewer width (SIDEBAR in
+   app/constants/pdfLayout.ts): on a phone the page would refit to a sliver.
+   There the sidebar opens over the page instead, so the page keeps its size
+   and position. */
+@media (width < 548px) {
     .sidebar-wrapper {
         position: absolute;
         inset-block: 0;
