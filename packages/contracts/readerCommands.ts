@@ -33,6 +33,7 @@ export const READER_COMMANDS = [
     'redo',
     'save',
     'save-as',
+    'scan-cleanup',
     'settings',
     'text-select',
     'toggle-sidebar',
@@ -197,6 +198,12 @@ export const READER_COMMAND_DESCRIPTORS = Object.freeze({
         category: 'document',
         labelKey: 'toolbar.saveAs',
         icon: 'ph:floppy-disk-back',
+    },
+    'scan-cleanup': {
+        id: 'scan-cleanup',
+        category: 'export',
+        labelKey: 'scanCleanup.button',
+        icon: 'ph:scissors',
     },
     settings: {
         id: 'settings',

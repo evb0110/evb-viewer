@@ -96,11 +96,6 @@ interface IProps {
     collapseTier: number
     hasPdf: boolean
     canToggleSidebar?: boolean
-    canCaptureRegion: boolean
-    canCrop: boolean
-    canQuickNote: boolean
-    canUseOcr: boolean
-    canUseScanCleanup?: boolean
     scanCleanupDisabled?: boolean
     scanCleanupRunning?: boolean
     scanCleanupLabel?: string
@@ -146,22 +141,17 @@ interface IProps {
 }
 
 const {
-    canCaptureRegion,
     canCombineFiles,
     canConvertToPdf,
-    canCrop,
     canPrint = true,
     canSave = false,
     canSaveAs = false,
     canUndo = false,
     canRedo = false,
     canPrintCurrentPage,
-    canQuickNote,
     canToggleSidebar,
     canToggleContinuousScroll = true,
     canUseViewModes = true,
-    canUseOcr,
-    canUseScanCleanup = false,
     scanCleanupDisabled = false,
     scanCleanupRunning = false,
     scanCleanupLabel = '',
@@ -305,11 +295,11 @@ const hasEditItems = computed(() => (
 ));
 
 const hasToolItems = computed(() => (
-    (canCaptureRegion && shouldShowMenuCommand('capture-region', 3))
-    || (canCrop && shouldShowMenuCommand('crop', 3))
-    || (canQuickNote && shouldShowMenuCommand('quick-note', 3))
-    || (canUseScanCleanup && collapseTier >= 1)
-    || (canUseOcr && shouldShowMenuCommand('ocr', 1))
+    shouldShowMenuCommand('capture-region', 3)
+    || shouldShowMenuCommand('crop', 3)
+    || shouldShowMenuCommand('quick-note', 3)
+    || shouldShowMenuCommand('scan-cleanup', 1)
+    || shouldShowMenuCommand('ocr', 1)
     || shouldShowMenuCommand('export-docx', 1)
 ));
 
@@ -429,28 +419,28 @@ function buildToolItems() {
         return items;
     }
 
-    if (canCaptureRegion && shouldShowMenuCommand('capture-region', 3)) {
+    if (shouldShowMenuCommand('capture-region', 3)) {
         items.push(createReaderCommandItem('capture-region', 'capture-region', t('toolbar.captureRegion'), {
             checked: isCapturingRegion,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
-    if (canCrop && shouldShowMenuCommand('crop', 3)) {
+    if (shouldShowMenuCommand('crop', 3)) {
         items.push(createReaderCommandItem('crop', 'crop', t('toolbar.crop'), {
             checked: isCropSelecting,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
-    if (canQuickNote && shouldShowMenuCommand('quick-note', 3)) {
+    if (shouldShowMenuCommand('quick-note', 3)) {
         items.push(createReaderCommandItem('quick-note', 'quick-note', t('annotations.createNotes'), {
             checked: isPlacingPageNote,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
-    if (canUseScanCleanup && collapseTier >= 1) {
+    if (shouldShowMenuCommand('scan-cleanup', 1)) {
         items.push(createCommandItem('open-scan-cleanup', scanCleanupLabel || t('scanCleanup.button'), undefined, {
             checked: scanCleanupRunning,
             disabled: scanCleanupDisabled,
@@ -458,7 +448,7 @@ function buildToolItems() {
         }));
     }
 
-    if (canUseOcr && shouldShowMenuCommand('ocr', 1)) {
+    if (shouldShowMenuCommand('ocr', 1)) {
         items.push(createReaderCommandItem('ocr', 'open-ocr', t('ocr.button'), {disabled: ocrDisabled || isDjvuMode}));
     }
 

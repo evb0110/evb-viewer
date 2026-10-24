@@ -23,6 +23,7 @@ async function readToolbar(page: Page) {
                 disabled: 'disabled' in element ? (element as HTMLButtonElement).disabled : false,
                 label: element.getAttribute('aria-label') ?? element.getAttribute('title') ?? '',
                 text: element.textContent?.trim() ?? '',
+                left: Math.round(element.getBoundingClientRect().left),
             }));
         const rightControls = Array.from(document.querySelectorAll<HTMLElement>(
             '#editor-global-toolbar-host button[aria-label*="Assistant"], #editor-global-toolbar-host button[aria-label*="Settings"]',
@@ -42,20 +43,33 @@ async function readToolbar(page: Page) {
     });
 }
 
+// Resize the real window, then read the toolbar once its collapse tier has
+// settled for the new width.
+async function readToolbarAtWidth(session: ReturnType<typeof sessions.getSession>, width: number) {
+    await session.command('windowResize', [
+        width,
+        700,
+    ]);
+    await expect.poll(() => session.page.evaluate(() => window.innerWidth)).toBe(width);
+    await session.page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    return readToolbar(session.page);
+}
+
 describe('empty workspace toolbar contract', () => {
     it('keeps document controls visible and disabled, without shifting the toolbar when a document opens', async () => {
         const session = sessions.getSession();
         await session.page.waitForSelector('#editor-global-toolbar-host [role="toolbar"]', {timeout: 20_000});
-        await session.command('windowResize', [
-            900,
-            700,
-        ]);
-        const empty = await readToolbar(session.page);
+        // A wide window shows every inline control; the 900 px baseline collapses some.
+        const emptyWide = await readToolbarAtWidth(session, 1600);
+        const empty = await readToolbarAtWidth(session, 900);
 
         const pdfPath = await createMultiPageTextFixturePdf(`empty-toolbar-${Date.now()}.pdf`, 2);
         await openPdfInApp(session.page, pdfPath);
         await waitForPdfLoaded(session.page);
         const documentToolbar = await readToolbar(session.page);
+        const documentWide = await readToolbarAtWidth(session, 1600);
 
         expect(empty.height, 'empty workspace must render the document toolbar row').toBeGreaterThan(0);
         const expectedLabels = [
@@ -76,6 +90,15 @@ describe('empty workspace toolbar contract', () => {
         expect(empty.viewportWidth, 'measure the supported 900 px window after its native bounds settle').toBe(900);
         expect(documentToolbar.viewportWidth, 'opening a document must keep the same settled window width').toBe(900);
         expect(documentToolbar.height).toBe(empty.height);
+        expect(
+            documentToolbar.controls.map(item => item.left),
+            'opening a document must not add, remove or move toolbar controls',
+        ).toEqual(empty.controls.map(item => item.left));
+        expect(documentWide.viewportWidth).toBe(1600);
+        expect(
+            documentWide.controls.map(item => item.left),
+            'opening a document must not add, remove or move controls in a wide window',
+        ).toEqual(emptyWide.controls.map(item => item.left));
         expect(documentToolbar.rightControls.map(item => item.label)).toEqual(empty.rightControls.map(item => item.label));
         expect(documentToolbar.rightControls.map(item => item.right)).toEqual(empty.rightControls.map(item => item.right));
     }, 90_000);

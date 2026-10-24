@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    createReaderToolbarSurface,
     DESKTOP_EDITOR_READER_COMMAND_SURFACE,
     isReaderCommandInMenu,
     isReaderCommandInline,
@@ -19,5 +20,16 @@ describe('readerCommandSurface', () => {
         expect(isReaderCommandInline(DESKTOP_EDITOR_READER_COMMAND_SURFACE, 'crop')).toBe(true);
         expect(isReaderCommandInMenu(DESKTOP_EDITOR_READER_COMMAND_SURFACE, 'capture-region')).toBe(true);
         expect(isReaderCommandInMenu(DESKTOP_EDITOR_READER_COMMAND_SURFACE, 'crop')).toBe(true);
+    });
+
+    it('offers OCR and scan cleanup only where the runtime can run them', () => {
+        const browserSurface = createReaderToolbarSurface({
+            ocr: true,
+            scanCleanup: false,
+        });
+        expect(isReaderCommandInline(browserSurface, 'ocr')).toBe(true);
+        expect(isReaderCommandInline(browserSurface, 'scan-cleanup')).toBe(false);
+        expect(isReaderCommandInMenu(browserSurface, 'scan-cleanup')).toBe(false);
+        expect(isReaderCommandInline(DESKTOP_EDITOR_READER_COMMAND_SURFACE, 'scan-cleanup')).toBe(true);
     });
 });

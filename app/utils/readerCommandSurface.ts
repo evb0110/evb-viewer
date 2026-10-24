@@ -36,30 +36,36 @@ const allCommands = createCommandMap(Object.fromEntries(READER_COMMANDS.map(comm
     true,
 ])));
 
-const desktopInlineCommands = {
-    ...allCommands,
-    'open-file': false,
-    'optimize-pdf-for-interaction': false,
-    'print-current-page': false,
-};
+/** Commands that exist only where the runtime can run them. */
+export interface IReaderToolbarCapabilities {
+    ocr: boolean;
+    scanCleanup: boolean;
+}
 
-export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createSurface({
-    inline: desktopInlineCommands,
-    menu: allCommands,
-});
+// The toolbar's commands depend only on what the runtime can do. Document state
+// disables commands but never adds or removes them, so the toolbar keeps its
+// layout when a tab opens or closes a document.
+export function createReaderToolbarSurface(capabilities: IReaderToolbarCapabilities) {
+    const commands = {
+        ...allCommands,
+        ocr: capabilities.ocr,
+        'scan-cleanup': capabilities.scanCleanup,
+    };
 
-// The shell toolbar remains mounted while a tab has no document so its height
-// stays stable when the document toolbar takes over. Keep only shell actions
-// visible on that surface; document actions belong to the empty-state page.
-export const EMPTY_STATE_READER_COMMAND_SURFACE = createSurface({
-    inline: {
-        'overflow-menu': true,
-        settings: true,
-    },
-    menu: {
-        'open-file': true,
-        settings: true,
-    },
+    return createSurface({
+        inline: {
+            ...commands,
+            'open-file': false,
+            'optimize-pdf-for-interaction': false,
+            'print-current-page': false,
+        },
+        menu: commands,
+    });
+}
+
+export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createReaderToolbarSurface({
+    ocr: true,
+    scanCleanup: true,
 });
 
 export function isReaderCommandInline(

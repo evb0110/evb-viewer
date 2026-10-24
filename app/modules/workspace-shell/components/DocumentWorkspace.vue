@@ -12,7 +12,6 @@
                 :can-use-ocr="canUseOcr"
                 can-use-djvu
                 :is-desktop-runtime="isDesktopRuntime"
-                :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 :is-opening-document="presentation.isOpeningDocumentForDisplay.value"
@@ -190,10 +189,6 @@ import { createDocumentViewContext } from '@app/modules/workspace-shell/document
 import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import {
-    DESKTOP_EDITOR_READER_COMMAND_SURFACE,
-    EMPTY_STATE_READER_COMMAND_SURFACE,
-} from '@app/utils/readerCommandSurface';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useWorkspaceDocumentLifecycle } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
@@ -374,10 +369,6 @@ const {
     },
 });
 const {mountedDocumentDriver} = documentContext.driver;
-// Start shows only the shell's own actions; document commands arrive with a document.
-const toolbarSurface = computed(() => (
-    presentation.toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
-));
 const canExportDocx = computed(() => (
     Boolean(file.workingCopyPath.value) && !save.isAnySaving.value && !history.isHistoryBusy.value
 ));
