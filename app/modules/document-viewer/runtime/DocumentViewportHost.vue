@@ -41,7 +41,9 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
+import { useEventListener } from '@vueuse/core';
 import {
+    resolveDocumentPinchZoomDeltaPx,
     resolveDocumentWheelInteraction,
     type IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/input/documentWheelInteraction';
@@ -93,6 +95,107 @@ function handleWheel(event: WheelEvent) {
     }
     emit('wheel', resolveDocumentWheelInteraction(event, viewport));
 }
+
+/*
+ * A two-finger pinch zooms the document, not the page: the page forbids the
+ * browser's own pinch zoom (touch-action in the app shell), and each move of
+ * the pinch reaches the viewer as the zoom interaction a trackpad pinch makes,
+ * anchored between the fingers. Moving both fingers scrolls the document.
+ *
+ * Zooming re-renders the page under the fingers, and touch events stay with
+ * the element each finger first touched: once that element is replaced they
+ * reach neither the viewport nor the window, only the element itself. The
+ * pinch therefore listens on the fingers' own targets while it lasts, so
+ * ordinary scrolling keeps passive listeners.
+ */
+interface ITouchPinch {
+    span: number;
+    x: number;
+    y: number;
+}
+
+let pinch: ITouchPinch | null = null;
+let stopFollowingPinch: (() => void) | null = null;
+
+function readTouchPinch(event: TouchEvent): ITouchPinch | null {
+    const first = event.touches.item(0);
+    const second = event.touches.item(1);
+    if (event.touches.length !== 2 || !first || !second) {
+        return null;
+    }
+    return {
+        span: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
+        x: (first.clientX + second.clientX) / 2,
+        y: (first.clientY + second.clientY) / 2,
+    };
+}
+
+function endTouchPinch() {
+    pinch = null;
+    stopFollowingPinch?.();
+    stopFollowingPinch = null;
+}
+
+function moveTouchPinch(event: TouchEvent) {
+    const viewport = viewportElement.value;
+    const next = readTouchPinch(event);
+    if (!viewport || !next || !pinch) {
+        endTouchPinch();
+        return;
+    }
+    // Each finger's target receives the same move; act on it once.
+    if (next.span === pinch.span && next.x === pinch.x && next.y === pinch.y) {
+        return;
+    }
+    // A second finger added during a one-finger scroll arrives as moves the
+    // browser already scrolls with and will not let us cancel; scrolling them
+    // again would double the speed.
+    if (event.cancelable) {
+        event.preventDefault();
+        viewport.scrollBy(pinch.x - next.x, pinch.y - next.y);
+    }
+    const deltaPx = resolveDocumentPinchZoomDeltaPx(pinch.span, next.span);
+    pinch = next;
+    emit('wheel', {
+        deltaPx,
+        intent: 'zoom',
+        event: {
+            cancelable: event.cancelable,
+            clientX: next.x,
+            clientY: next.y,
+            defaultPrevented: event.defaultPrevented,
+            deltaX: 0,
+            deltaY: deltaPx,
+            timeStamp: event.timeStamp,
+            preventDefault: () => event.preventDefault(),
+        },
+    });
+}
+
+function startTouchPinch(event: TouchEvent) {
+    const start = readTouchPinch(event);
+    if (!start) {
+        return;
+    }
+    endTouchPinch();
+    pinch = start;
+    const targets = new Set(Array.from(event.touches, touch => touch.target));
+    const stops = [...targets].flatMap(target => [
+        useEventListener(target, 'touchmove', moveTouchPinch, {passive: false}),
+        useEventListener(target, [
+            'touchend',
+            'touchcancel',
+        ], (touchEvent: TouchEvent) => {
+            if (touchEvent.touches.length < 2) {
+                endTouchPinch();
+            }
+        }),
+    ]);
+    stopFollowingPinch = () => stops.forEach(stop => stop());
+}
+
+useEventListener(viewportElement, 'touchstart', startTouchPinch, {passive: true});
+onBeforeUnmount(endTouchPinch);
 </script>
 
 <style scoped>

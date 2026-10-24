@@ -11,6 +11,10 @@ body,
 html,
 body {
     overscroll-behavior-y: none;
+
+    /* A pinch zooms the document (DocumentViewportHost), never the whole
+       interface; the interface size is a setting. One-finger panning stays. */
+    touch-action: pan-x pan-y;
 }
 
 :root {
@@ -349,76 +353,10 @@ body {
     overflow: hidden;
 }
 
-.empty-state-content,
-.recent-files {
-    width: min(100%, 40rem);
-}
-
-.recent-files {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.recent-files-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-}
-
-.recent-files-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.recent-file-item,
-.open-file-row {
-    display: grid;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.625rem 0.75rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.75rem;
-    background: var(--ui-bg);
-}
-
-.recent-file-item {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-}
-
-.open-file-row {
-    grid-template-columns: auto minmax(0, 1fr);
-    background: transparent;
-    text-align: left;
-}
-
-.recent-file-name,
-.recent-file-path,
-.recent-file-time,
-.open-file-row-label,
-.empty-state-hint,
-.empty-state-subhint {
+.recent-file-name {
     display: block;
     min-width: 0;
-}
-
-.recent-file-name,
-.recent-file-path,
-.open-file-row-label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.recent-file-path,
-.recent-file-time,
-.empty-state-hint,
-.empty-state-subhint {
-    color: var(--ui-text-dimmed);
 }

@@ -139,6 +139,17 @@ export function resolveDocumentWheelInteraction(
     };
 }
 
+/**
+ * A two-finger pinch feeds the same zoom path as a trackpad pinch: the change
+ * in finger distance becomes the wheel delta that zooms by the same factor.
+ */
+export function resolveDocumentPinchZoomDeltaPx(previousSpan: number, nextSpan: number) {
+    if (!(previousSpan > 0) || !(nextSpan > 0)) {
+        return 0;
+    }
+    return -Math.log(nextSpan / previousSpan) / DOCUMENT_WHEEL_ZOOM_SENSITIVITY;
+}
+
 function resolveDocumentWheelCumulativeDelta(startZoom: number, targetZoom: number) {
     if (
         !Number.isFinite(startZoom)
