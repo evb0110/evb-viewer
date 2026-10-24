@@ -18,9 +18,8 @@
 
       <div class="section-actions">
         <UButton
-          v-if="webAppUrl"
           :label="t('home.hero.openInBrowser')"
-          :to="webAppUrl"
+          to="/app"
           target="_blank"
           rel="noreferrer"
           icon="i-ph-globe"
@@ -389,9 +388,6 @@
 <script setup lang="ts">
 const { t } = useTypedI18n();
 const localePath = useLocalePath();
-const runtimeConfig = useRuntimeConfig();
-
-const webAppUrl = computed(() => runtimeConfig.public.webAppUrl.trim() || '');
 const pageDescription = computed(() => t('docs.seo.ogDescription'));
 
 const bookmarks = computed(() => [
