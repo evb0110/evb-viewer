@@ -1705,11 +1705,6 @@ describe('Scan cleanup components', () => {
                 collapseTier: collapseTier.value,
                 hasPdf: true,
                 canToggleSidebar: true,
-                canCaptureRegion: true,
-                canCrop: true,
-                canQuickNote: true,
-                canUseOcr: true,
-                canUseScanCleanup: true,
                 scanCleanupDisabled: scanCleanupDisabled.value,
                 scanCleanupRunning: scanCleanupRunning.value,
                 scanCleanupLabel: scanCleanupRunning.value

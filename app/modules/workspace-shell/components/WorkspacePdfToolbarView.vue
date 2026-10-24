@@ -27,8 +27,6 @@
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
         :document-busy="toolbarDocumentBusy"
-        :has-ocr-action="canUseOcr"
-        :has-scan-cleanup-action="toolbarHasPdf && canUseOcr && isDesktopRuntime"
         :surface="toolbarSurface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
@@ -98,9 +96,8 @@
         </template>
         <!-- Every slot is passed unconditionally: a conditional slot makes PdfToolbar
              re-render slotted components on each of its own updates. -->
-        <template #scan-cleanup="{ isCollapsed }">
+        <template #scan-cleanup>
             <AppTooltip
-                v-if="toolbarHasPdf && canUseOcr && isDesktopRuntime && !isCollapsed(1)"
                 :text="scanCleanupTriggerTooltip"
                 :delay-duration="1200"
             >
@@ -126,7 +123,6 @@
         </template>
         <template #ocr>
             <ToolbarButton
-                v-if="canUseOcr"
                 :icon="getReaderCommandToolbarIcon('ocr')"
                 :active="ocrPopupOpen"
                 :tooltip="t('ocr.button')"
@@ -171,12 +167,7 @@
                 :open="overflowMenuOpen"
                 :collapse-tier="collapseTier"
                 :can-toggle-sidebar="toolbarCanToggleSidebar"
-                :can-capture-region="canCaptureRegion"
-                :can-crop="canCrop"
-                :can-quick-note="canQuickNote"
                 :has-pdf="toolbarHasPdf"
-                :can-use-ocr="canUseOcr"
-                :can-use-scan-cleanup="canUseOcr && isDesktopRuntime"
                 :scan-cleanup-disabled="scanCleanupActionDisabled"
                 :scan-cleanup-running="isScanCleanupRunning"
                 :scan-cleanup-label="scanCleanupTriggerTooltip"
@@ -200,7 +191,7 @@
                 :is-crop-selecting="snapshot.isCropSelecting"
                 :is-placing-page-note="snapshot.isPlacingPageNote"
                 :document-busy="toolbarDocumentBusy"
-                :surface="surface"
+                :surface="toolbarSurface"
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
                 :can-print="snapshot.viewerCapabilities.print"
@@ -285,7 +276,6 @@ import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
 import type { TOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 import type {
     IDocumentNavigationTicket,
     TDocumentPageLabelLookup,
@@ -297,7 +287,7 @@ import {
     scanCleanupRun,
 } from '@app/modules/scan-cleanup/public/runtime';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
-import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
+import { createReaderToolbarSurface } from '@app/utils/readerCommandSurface';
 import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 const OcrPopup = defineAsyncComponent(
@@ -308,9 +298,6 @@ const { t } = useTypedI18n();
 
 const {
     appMenuOpen,
-    canCaptureRegion = true,
-    canCrop = true,
-    canQuickNote = true,
     canToggleSidebar = undefined,
     canUseDjvu = true,
     canUseOcr,
@@ -333,19 +320,14 @@ const {
     navigationTicket = null,
     physicalPage = undefined,
     snapshot,
-    surface,
     zoomDropdownOpen,
 } = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
     hasPdf?: boolean | undefined;
     canToggleSidebar?: boolean | undefined;
-    canCaptureRegion?: boolean | undefined;
-    canCrop?: boolean | undefined;
-    canQuickNote?: boolean | undefined;
     canUseOcr: boolean;
     canUseDjvu?: boolean | undefined;
     isDesktopRuntime: boolean;
-    surface: IReaderCommandSurface;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
     documentBusy?: boolean | undefined;
@@ -427,11 +409,10 @@ const {
     toggle: toggleAssistantPanel,
 } = useAssistantPanel();
 const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
-const toolbarSurface = computed(() => (
-    !toolbarHasPdf.value && isDesktopRuntime
-        ? DESKTOP_EDITOR_READER_COMMAND_SURFACE
-        : surface
-));
+const toolbarSurface = computed(() => createReaderToolbarSurface({
+    ocr: canUseOcr,
+    scanCleanup: canUseOcr && isDesktopRuntime,
+}));
 const toolbarDocumentBusy = computed(() => documentBusy ?? isOpeningDocument);
 const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);
 const toolbarControlsDisabled = computed(() => (

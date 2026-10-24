@@ -1,7 +1,7 @@
 <template>
     <header
         ref="toolbarRef"
-        :class="['toolbar', {'toolbar--has-ocr-action': hasOcrAction}]"
+        class="toolbar"
         :data-collapse-tier="collapseTier"
         role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
@@ -225,11 +225,11 @@
             </div>
 
             <div
-                v-if="!isCollapsed(1) && (hasScanCleanupAction || isCommandInline('ocr') || isCommandInline('export-docx'))"
+                v-if="!isCollapsed(1) && (isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx'))"
                 class="toolbar-cluster"
             >
                 <div
-                    v-if="hasScanCleanupAction"
+                    v-if="isCommandInline('scan-cleanup')"
                     class="toolbar-action toolbar-action--scan-cleanup"
                 >
                     <slot
@@ -239,9 +239,8 @@
                         :is-collapsed="isCollapsed"
                     />
                 </div>
-                <div class="toolbar-action toolbar-action--ocr">
+                <div v-if="isCommandInline('ocr')" class="toolbar-action toolbar-action--ocr">
                     <slot
-                        v-if="isCommandInline('ocr')"
                         name="ocr"
                         :collapse-tier="collapseTier"
                         :has-overflow-items="hasOverflowItems"
@@ -312,7 +311,6 @@ const {
     isOpeningDocument = false,
     isFullscreen = false,
     fullscreenSupported = true,
-    hasScanCleanupAction = false,
     canPrint = true,
     canSaveAs = true,
     canToggleContinuousScroll = true,
@@ -324,8 +322,6 @@ const {
     documentBusy?: boolean;
     isFullscreen?: boolean;
     fullscreenSupported?: boolean;
-    hasOcrAction?: boolean;
-    hasScanCleanupAction?: boolean;
     canToggleSidebar?: boolean;
     canPrint?: boolean;
     canSaveAs?: boolean;
@@ -530,11 +526,7 @@ function handleToolbarCommand(command: TToolbarCommand) {
     flex-shrink: 0;
 }
 
-.toolbar--has-ocr-action .toolbar-action--ocr {
-    inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
-    min-inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
-}
-
+.toolbar-action--ocr,
 .toolbar-action--scan-cleanup {
     inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
     min-inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
