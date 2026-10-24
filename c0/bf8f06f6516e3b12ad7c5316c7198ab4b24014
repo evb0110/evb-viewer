@@ -1,0 +1,32 @@
+packages/contracts/readerCommands.ts
+  s_987018517e7d3c::t_095a420e03ee66 36,202-206
+tests/unit/app/utils/readerCommandSurface.test.ts
+  s_987018517e7d3c::t_d1055506aa11cc 7,24-33
+tests/e2e/electron/smoke/emptyWorkspaceToolbar.e2e.test.ts
+  s_987018517e7d3c::t_0905e2fb6ab1ec 26,93-96
+  s_987018517e7d3c::t_fda4a5a9515261 46-59,64-66,72,97-101
+app/utils/readerCommandSurface.ts
+  s_987018517e7d3c::t_095a420e03ee66 39-43,45-64,66-68
+app/modules/pdf-viewer/components/PdfToolbar.vue
+  s_987018517e7d3c::t_095a420e03ee66 4,228,232,242,529
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_987018517e7d3c::t_095a420e03ee66 99,194,290,412-415
+app/components/toolbar/ToolbarOverflowMenu.vue
+  s_987018517e7d3c::t_095a420e03ee66 298-302,422,429,436,443,451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c0bf8f06f6516e3b12ad7c5316c7198ab4b24014",
+  "prompts": {},
+  "sessions": {
+    "s_987018517e7d3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "047ce61d-cc33-4b85-b0dc-56c128f60ca0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
