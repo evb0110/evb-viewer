@@ -408,34 +408,105 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
             return Math.abs(pageTop - zoomTop);
         }), {message: 'page and zoom controls share a toolbar row at 360 px'}).toBeLessThanOrEqual(1);
         await page.screenshot({path: resolve(evidenceDir, 'portrait-360.png')});
-        // The owner's phone: Android Chrome at 412x776 with the system font
-        // size raised, so the page's text is about 14% larger.
-        await page.setViewportSize({
+        expect(problems).toEqual([]);
+    } finally {
+        await portrait.close();
+    }
+}, 120_000);
+
+// Owner-reported on Android Chrome at 412x776 with the system font size raised
+// (page text about 14% larger): Start scrolled inside its pane and the recent
+// list scrolled again inside Start, a one-row sliver with its own scrollbar.
+it('scrolls phone Start as one page through every recent file', async () => {
+    const evidenceDir = resolve('.devkit', `responsive-phone-start-${process.pid}`);
+    mkdirSync(evidenceDir, {recursive: true});
+    const phone = await lifecycle.browser.newContext({
+        ...devices['Pixel 7'],
+        viewport: {
             width: 412,
             height: 776,
-        });
+        },
+    });
+    try {
+        const page = await phone.newPage();
+        const problems = collectConsoleProblems(page);
+        await openStartPage(page);
         await page.addStyleTag({content: 'html { font-size: 18.24px !important; }'});
-        await page.getByRole('button', {
-            name: 'Close Tab',
-            exact: true,
-        }).first().tap();
-        await page.locator('.recent-row--data:not(.recent-row--skeleton)').first().waitFor();
-        const start = await page.evaluate(() => {
-            const table = document.querySelector<HTMLElement>('.recent-table')!;
+        keepFileChooserInterceptionEnabled(page);
+        const pdf = await PDFDocument.create();
+        pdf.addPage([
+            420,
+            600,
+        ]);
+        // Six recent files at the larger text overflow the phone's height.
+        for (let index = 1; index <= 6; index += 1) {
+            const nextChooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().tap();
+            await (await nextChooser).setFiles({
+                name: `Phone recent ${index}.pdf`,
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
+            await page.getByRole('button', {
+                name: 'Close Tab',
+                exact: true,
+            }).first().tap();
+            await expect.poll(() => page.locator('.recent-row--data:not(.recent-row--skeleton)').count()).toBe(index);
+        }
+        const startPane = (await page.locator('.empty-state').boundingBox())!;
+        const startCdp = await phone.newCDPSession(page);
+        const swipeX = Math.round(startPane.x + startPane.width / 2);
+        const swipeStartY = Math.round(startPane.y + startPane.height - 8);
+        for (let swipe = 0; swipe < 4; swipe += 1) {
+            await startCdp.send('Input.dispatchTouchEvent', {
+                type: 'touchStart',
+                touchPoints: [{
+                    x: swipeX,
+                    y: swipeStartY,
+                }],
+            });
+            for (let step = 1; step <= 10; step += 1) {
+                await startCdp.send('Input.dispatchTouchEvent', {
+                    type: 'touchMove',
+                    touchPoints: [{
+                        x: swipeX,
+                        y: swipeStartY - Math.round((startPane.height - 16) * step / 10),
+                    }],
+                });
+            }
+            await startCdp.send('Input.dispatchTouchEvent', {
+                type: 'touchEnd',
+                touchPoints: [],
+            });
+        }
+        const readLastRecent = () => page.evaluate(() => {
+            const pane = document.querySelector<HTMLElement>('.empty-state')!.getBoundingClientRect();
+            const rows = document.querySelectorAll<HTMLElement>('.recent-row--data');
+            const last = rows[rows.length - 1]!.querySelector<HTMLElement>('.recent-open')!.getBoundingClientRect();
             return {
-                tableScrollRange: table.scrollHeight - table.clientHeight,
-                tableHeaderShown: getComputedStyle(document.querySelector<HTMLElement>('.recent-row--head')!).display !== 'none',
-                rootOverscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+                visible: last.top >= pane.top - 1 && last.bottom <= pane.bottom + 1,
+                tableScrollRange: (({
+                    scrollHeight, clientHeight,
+                }) => scrollHeight - clientHeight)(document.querySelector<HTMLElement>('.recent-table')!),
             };
         });
+        await expect.poll(async () => (await readLastRecent()).visible, {message: 'swiping Start reaches the last recent file'}).toBe(true);
+        const start = await page.evaluate(() => ({
+            tableHeaderWidth: document.querySelector<HTMLElement>('.recent-row--head')!.getBoundingClientRect().width,
+            rootOverscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+        }));
         await page.screenshot({path: resolve(evidenceDir, 'portrait-start-large-text.png')});
-        expect.soft(start.tableScrollRange, 'the recent list does not scroll inside Start').toBeLessThanOrEqual(1);
-        expect.soft(start.tableHeaderShown, 'a phone lists recent files without a table header').toBe(false);
+        expect.soft((await readLastRecent()).tableScrollRange, 'the recent list does not scroll inside Start').toBeLessThanOrEqual(1);
+        expect.soft(start.tableHeaderWidth, 'a phone lists recent files without a visible table header').toBeLessThanOrEqual(1);
         // The app never scrolls at the page level, so a pull past a pane's top
         // must not reach the browser's pull-to-refresh.
         expect.soft(start.rootOverscroll, 'pulling down does not reload the app').toBe('none');
         expect(problems).toEqual([]);
     } finally {
-        await portrait.close();
+        await phone.close();
     }
 }, 120_000);

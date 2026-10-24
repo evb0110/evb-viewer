@@ -1317,9 +1317,19 @@ watch(() => openInProgress, (isOpening) => {
     @include start-single-scroll;
 
     /* Rows are a list, not a table: the file name takes the width and the
-       time sits under it. */
+       time sits under it. The column header stays for screen readers only. */
+    .recent-table {
+        position: relative;
+    }
+
     .recent-row--head {
-        display: none;
+        position: absolute;
+        width: var(--app-divider-width);
+        height: var(--app-hairline-height);
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
     }
 
     .recent-table,
@@ -1335,16 +1345,23 @@ watch(() => openInProgress, (isOpening) => {
         grid-area: name;
     }
 
-    /* The name takes the top of the icon's height and the time its bottom,
-       so a row is no taller than its icon. Taps on the time reach the row. */
+    /* The name sits at the top of the icon and the time at the bottom of the
+       row, in a line the name leaves free, so a row is no taller than its
+       icon unless large text needs more and the two never overlap. Taps on
+       the time reach the row. */
     .recent-row--data .recent-open {
         align-items: flex-start;
+    }
+
+    .recent-row--data .recent-file-name {
+        padding-block-end: calc(var(--app-text-size-meta) * var(--app-line-height-text));
     }
 
     .recent-row--data .recent-col--time {
         grid-area: name;
         align-self: end;
         padding-inline-start: calc(var(--app-document-icon-width) + var(--app-start-recent-header-gap));
+        line-height: var(--app-line-height-text);
         text-align: start;
         pointer-events: none;
     }

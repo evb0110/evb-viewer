@@ -6,10 +6,11 @@ body,
 
 /* The app never scrolls at the page level, so a pull past the top of a pane
    reaches the root only as the browser's pull-to-refresh, which reloads the
-   app. Panes keep their own scrolling. */
+   app. Panes keep their own scrolling; the horizontal axis keeps the
+   browser's swipe navigation. */
 html,
 body {
-    overscroll-behavior: none;
+    overscroll-behavior-y: none;
 }
 
 :root {
