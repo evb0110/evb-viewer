@@ -1,0 +1,27 @@
+app/modules/document-viewer/runtime/DocumentViewportHost.vue
+  s_10b6fbc6b94ef3::t_0c3c200c0b55fa 44,46,98-149,157-193
+  s_10b6fbc6b94ef3::t_8b357d1b337702 150-156
+app/assets/css/app-shell-critical.scss
+  s_10b6fbc6b94ef3::t_0c3c200c0b55fa 14-17
+tests/integration/browser/responsiveWorkspaceUi.test.ts
+  s_10b6fbc6b94ef3::t_723d782f960dbd 346-347
+  s_10b6fbc6b94ef3::t_39c97203556cde 608-706
+app/modules/document-viewer/input/documentWheelInteraction.ts
+  s_10b6fbc6b94ef3::t_0c3c200c0b55fa 142-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9799812725f2a8baabccf17a93fe1225e8e30087",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
