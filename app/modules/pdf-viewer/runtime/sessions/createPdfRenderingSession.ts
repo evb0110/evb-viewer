@@ -44,6 +44,7 @@ import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer/runtime
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
+import { createPdfDetailRaster } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDetailRaster';
 import { resolvePdfRasterJobPages } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfRasterJobPages';
 import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfPageTextLayerReadyWaiter } from '@app/modules/pdf-viewer/runtime/sessions/createPdfPageTextLayerReadyWaiter';
@@ -346,6 +347,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                         prepared.job.renderOptions.contentIntent === 'canvas-only-buffer' ? 'buffer-preview' : 'settled'),
                     prepared.render,
                 )) return false;
+                detailRaster.handleBaseCommit(pageNumber, prepared.render);
                 canvasRenderer.applyContainerUserUnit(prepared.container, prepared.render.userUnit);
                 canvasRenderer.mountCanvas(prepared.canvasHost, prepared.render.canvas, previousRender?.canvas);
                 if (!commitRaster()) return false;
@@ -637,9 +639,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         renderedPageStateVersion.value += 1;
     }
-    function cancelRasterDemand() {
+    async function cancelRasterDemand() {
         viewportRasterJobs.clear();
-        return activeRasterScheduler?.cancelSource(viewportRasterSourceId) ?? Promise.resolve();
+        await Promise.all([
+            activeRasterScheduler?.cancelSource(viewportRasterSourceId),
+            detailRaster.cancel(),
+        ]);
     }
     async function cancelInFlightRenders() {
         const cancellation = cancelRasterDemand();
@@ -723,6 +728,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             if (pageRect.width <= 0 || pageRect.height <= 0) {
                 continue;
             }
+            detailRaster.clear(pageNumber);
             rotationPreviewCanvases.set(pageNumber, {
                 canvas,
                 container: target.container,
@@ -768,6 +774,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     function clearAuthoritativePage(pageNumber: TPageNumber, invalidateScheduler = true) {
         clearPageRotationPreview(pageNumber, true);
+        detailRaster.clear(pageNumber);
         for (const key of viewportRasterJobs.keys()) {
             if (viewportRasterJobs.get(key)?.demand.pageNumber === pageNumber) viewportRasterJobs.delete(key);
         }
@@ -802,6 +809,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         ]).forEach(pageNumber => clearAuthoritativePage(pageNumber, false));
         await Promise.all([
             release,
+            detailRaster.release(),
             pageRenderer.cleanupAllLayers(),
         ]);
     }
@@ -834,6 +842,27 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         hasActiveTransaction: () => viewport.viewportWork.activeWorkKind.value !== null,
         requestReconcileFrame: () => queueFrame(),
     });
+    // Deep zoom clamps the whole-page canvas; this adds full-resolution pixels
+    // for the part of each visible page in view.
+    const detailRaster = createPdfDetailRaster({
+        sourceId: `pdf-viewport-detail:${rasterConsumerId}`,
+        budgetPixels: performanceProfile.settledMaxCanvasPixels / 2,
+        settledMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
+        canvasRenderer,
+        pageRenderState,
+        viewerContainer: options.viewerContainer,
+        getScheduler: () => documentSession.rasterScheduler,
+        getDocument: () => documentSession.pdfDocument.value,
+        getMountedTarget: getMountedRasterTarget,
+        getScale: () => viewport.scale.effectiveScale.value,
+        getOutputScale: () => options.outputScale.value,
+        getRotation: () => options.viewRotation?.value ?? 0,
+        getHiddenAnnotationIds: () => pageRenderer.canvasHiddenAnnotationIds.value,
+        getSourceMaxPixels: pageNumber => resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, pageNumber),
+        // A rotation preview turns the old raster; a detail of it would not.
+        isCommittedVisual: pageNumber => !rotationPreviewCanvases.has(pageNumber) && isCommittedVisual(pageNumber),
+        canStartWork: () => qualityRefineGate.canRefineVisibleRaster(),
+    });
     function queueFrame() {
         if (disposed || frameId !== null) {
             return;
@@ -847,6 +876,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         qualityRefineGate.synchronizeViewportInteractionEpoch();
         const demand = latestDemand;
         if (!demand.operational) {
+            detailRaster.reconcile([], false);
             if (demand.mandatoryRaster) {
                 viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
             }
@@ -855,6 +885,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const mandatory = demand.mandatoryRaster;
         if (mandatory) {
+            detailRaster.reconcile(demand.requiredPages.map(toPageNumber), false);
             const version = renderVersion;
             void renderVisiblePages(mandatory.range, mandatory.options).finally(() => (
                 viewport.settleMandatoryRaster(mandatory.id, isMandatoryRasterSettled(mandatory.range, version))
@@ -863,6 +894,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const requiredPages = demand.requiredPages.map(toPageNumber);
         const requiredStates = requiredPages.map(getPageRasterState);
+        detailRaster.reconcile(requiredPages, !options.isResizing.value && requiredStates.every(state => state === 'current' || state === 'failed'));
         // While a pane edge is dragged the scale changes every frame. Stretch
         // the committed canvases and raster the settled scale once.
         if (options.isResizing.value && !requiredStates.includes('absent')) {

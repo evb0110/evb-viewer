@@ -34,7 +34,7 @@ export function freezePdfRegionCapture(viewerContainer: HTMLElement, selection: 
         outputRect: null,
         fragments: [],
     };
-    const sources = [...viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas')]
+    const sources = [...viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas__render-layer > canvas')]
         .map(canvas => ({
             canvas,
             rect: toClientRect(canvas.getBoundingClientRect()),

@@ -30,6 +30,7 @@ import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf
 export type TPdfRasterLane =
     | 'navigation-target'
     | 'viewport-visible'
+    | 'viewport-detail'
     | 'viewport-nearby'
     | 'thumbnail-current'
     | 'thumbnail-visible'
@@ -184,6 +185,7 @@ interface IResidentRaster {
 const LANE_ORDER: Record<TPdfRasterLane, number> = {
     'navigation-target': 600,
     'viewport-visible': 500,
+    'viewport-detail': 400,
     'viewport-nearby': 300,
     'thumbnail-current': 200,
     'thumbnail-visible': 200,
@@ -192,6 +194,7 @@ const LANE_ORDER: Record<TPdfRasterLane, number> = {
 const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationPriority> = {
     'navigation-target': 'navigation-target',
     'viewport-visible': 'visible',
+    'viewport-detail': 'nearby',
     'viewport-nearby': 'nearby',
     'thumbnail-current': 'thumbnail',
     'thumbnail-visible': 'thumbnail',
@@ -205,6 +208,7 @@ function createLaneCounts() {
     return {
         'navigation-target': 0,
         'viewport-visible': 0,
+        'viewport-detail': 0,
         'viewport-nearby': 0,
         'thumbnail-current': 0,
         'thumbnail-visible': 0,

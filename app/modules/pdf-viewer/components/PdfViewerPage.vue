@@ -25,6 +25,7 @@
                 class="page_canvas__render-layer canvasWrapper"
                 :class="{'document-page-visual--committed': raster !== null}"
             ></div>
+            <div class="page_canvas__detail-layer"></div>
             <DocumentPageSkeleton
                 v-if="showSkeleton && raster === null && !renderFailed"
                 :deferred="deferSkeleton"

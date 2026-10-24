@@ -9,5 +9,6 @@ export function getMountedPdfRasterTarget(root: HTMLElement | null, pageNumber: 
     return container && canvasHost ? {
         container,
         canvasHost,
+        detailHost: container.querySelector<HTMLDivElement>('.page_canvas__detail-layer'),
     } : null;
 }
