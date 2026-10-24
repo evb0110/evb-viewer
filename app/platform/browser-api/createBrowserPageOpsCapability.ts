@@ -824,10 +824,10 @@ export function createBrowserPageOpsCapability(
         },
         async renderTextBoxAppearance(_workingCopyPath, request, options) {
             const result = await runBrowserPageOpsWorkerRequest('textBoxAppearance', request, options);
-            if (result === null || isBrowserPageOpsWasmFailure(result)) {
+            if (isBrowserPageOpsWasmFailure(result)) {
                 throw new PdfPageOpsCapabilityError(
-                    result?.error.code === 'too-large' ? 'too-large' : 'native-unavailable',
-                    result?.error.message ?? 'Text appearance generation is unavailable',
+                    result.error.code === 'too-large' ? 'too-large' : 'native-unavailable',
+                    result.error.message,
                     {operation: 'text-box appearance'},
                 );
             }

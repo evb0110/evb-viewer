@@ -802,10 +802,16 @@ describe('browserPageOpsWorkerClient', () => {
         }
     });
 
-    it('preserves typed decrypt failures and unavailable WASM results across the worker boundary', async () => {
+    it('preserves typed decrypt and WASM load failures across the worker boundary', async () => {
         FakeWorker.autoRespond = false;
         for (const result of [
-            null,
+            {
+                status: 'failed',
+                error: {
+                    code: 'timeout',
+                    message: 'The browser page tool could not be loaded: The WASM module download stalled: no data arrived for 30000ms',
+                },
+            },
             {
                 status: 'failed',
                 error: {

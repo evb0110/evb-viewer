@@ -300,9 +300,6 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
         }
         await flushImages();
         const merged = await tryRunBrowserPageOpsWithWasm('mergePages', {documents});
-        if (merged === null) {
-            throw new Error('ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE');
-        }
         if (isBrowserPageOpsWasmFailure(merged)) {
             throw new SerializableError(merged.error);
         }

@@ -1,4 +1,4 @@
-const DEFAULT_WASM_LOAD_TIMEOUT_MS = 15_000;
+const DEFAULT_WASM_STALL_TIMEOUT_MS = 30_000;
 const WASM_CONTENT_TYPE = 'application/wasm';
 
 function servesWasmContentType(response: Response) {
@@ -6,32 +6,72 @@ function servesWasmContentType(response: Response) {
     return contentType.split(';', 1)[0]?.trim().toLowerCase() === WASM_CONTENT_TYPE;
 }
 
-function createWasmLoadTimeoutError(timeoutMs: number) {
-    const error = new Error(`WASM module load timed out after ${timeoutMs}ms`);
+function createWasmStallError(timeoutMs: number) {
+    const error = new Error(`The WASM module download stalled: no data arrived for ${timeoutMs}ms`);
     error.name = 'TimeoutError';
     return error;
 }
 
+/**
+ * Fetches and instantiates a WASM module. The load is abandoned only when the
+ * server sends nothing for `stallTimeoutMs`. A slow connection that keeps
+ * delivering bytes finishes however long the whole download takes; compiling
+ * after the last byte has no deadline.
+ */
 export async function loadWasmWithDeadline(
     url: string,
     imports: WebAssembly.Imports = {},
-    timeoutMs = DEFAULT_WASM_LOAD_TIMEOUT_MS,
+    stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
 ) {
     const abortController = new AbortController();
-    const timeoutState: { handle: ReturnType<typeof setTimeout> | null } = {handle: null};
-    const timeout = new Promise<never>((_resolve, reject) => {
-        timeoutState.handle = setTimeout(() => {
-            abortController.abort(createWasmLoadTimeoutError(timeoutMs));
-            reject(createWasmLoadTimeoutError(timeoutMs));
-        }, timeoutMs);
+    const watch: {
+        settled: boolean;
+        timer: ReturnType<typeof setTimeout> | null;
+        reader: ReadableStreamDefaultReader<Uint8Array> | null;
+    } = {
+        settled: false,
+        timer: null,
+        reader: null,
+    };
+    let rejectStalled: (error: Error) => void = () => undefined;
+    const stalled = new Promise<never>((_resolve, reject) => {
+        rejectStalled = reject;
     });
+    const disarm = () => {
+        if (watch.timer !== null) clearTimeout(watch.timer);
+        watch.timer = null;
+    };
+    const arm = () => {
+        disarm();
+        if (watch.settled) return;
+        watch.timer = setTimeout(() => {
+            const error = createWasmStallError(stallTimeoutMs);
+            abortController.abort(error);
+            rejectStalled(error);
+        }, stallTimeoutMs);
+    };
 
+    arm();
     try {
         return await Promise.race([
             (async () => {
                 const response = await fetch(url, {signal: abortController.signal});
                 if (!response.ok) {
                     throw new Error(`WASM module request failed with status ${response.status}`);
+                }
+                // A clone observes the download, so the original response keeps
+                // its URL for streaming compilation and the browser's code cache.
+                const reader = response.clone().body?.getReader() ?? null;
+                watch.reader = reader;
+                if (reader) {
+                    void (async () => {
+                        for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+                            arm();
+                        }
+                        disarm();
+                    })().catch(() => undefined);
+                } else {
+                    disarm();
                 }
                 // Streaming compilation requires the wasm MIME type anyway, so branching
                 // on it up front avoids a doomed streaming attempt whose failure could
@@ -42,12 +82,12 @@ export async function loadWasmWithDeadline(
                 const bytes = await response.arrayBuffer();
                 return WebAssembly.instantiate(bytes, imports);
             })(),
-            timeout,
+            stalled,
         ]);
     } finally {
-        const timeoutHandle = timeoutState.handle;
-        if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-        }
+        watch.settled = true;
+        disarm();
+        // Release the observing branch; a failed load leaves it unread.
+        void watch.reader?.cancel().catch(() => undefined);
     }
 }

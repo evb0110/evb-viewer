@@ -304,9 +304,6 @@ export function createBrowserDocumentsFileCapability(
                 mutations,
                 modifiedAt,
             });
-            if (wasmResult === null) {
-                throw new Error('Browser PDF save operation is unavailable');
-            }
             if (isBrowserPageOpsWasmFailure(wasmResult)) {
                 return {
                     applied: false,
