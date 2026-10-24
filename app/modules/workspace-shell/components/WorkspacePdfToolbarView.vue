@@ -130,7 +130,7 @@
                 @click="handleOpenOcr"
             />
         </template>
-        <template #zoom-dropdown="{ compactLevel }">
+        <template #zoom-dropdown>
             <PdfZoomDropdown
                 v-model:zoom="zoom"
                 v-model:zoom-mode="zoomMode"
@@ -141,13 +141,12 @@
                 :disabled="toolbarControlsDisabled"
                 :has-zoom="toolbarHasPdf && snapshot.totalPages > 0 && !isOpeningDocument"
                 :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
-                :compact-level="compactLevel"
                 @update:open="handleZoomDropdownOpenUpdate"
                 @fit-width="handleFitWidth"
                 @fit-height="handleFitHeight"
             />
         </template>
-        <template #page-dropdown="{ compactLevel }">
+        <template #page-dropdown>
             <PdfPageDropdown
                 :model-value="currentPage"
                 :open="pageDropdownOpen"
@@ -156,7 +155,6 @@
                 :page-labels="pageLabels"
                 :navigation-page="navigationPage"
                 :disabled="pageNavigationDisabled"
-                :compact-level="compactLevel"
                 @go-to-page="handleGoToPage"
                 @update:open="handlePageDropdownOpenUpdate"
             />

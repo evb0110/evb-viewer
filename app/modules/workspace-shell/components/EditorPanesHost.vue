@@ -19,12 +19,16 @@
             :key="documentController.snapshot.value.sessionId"
             :document-controller="documentController"
         />
-        <template v-if="parkingTarget">
-            <Teleport
-                v-for="pane in panes"
-                :key="pane.paneId"
-                :to="paneSlotTargets.get(pane.paneId) ?? parkingTarget"
-            >
+        <!-- Until the grid has mounted its slots (the prerendered HTML and the
+        hydrating render) a pane renders in place over the host, so the first
+        paint already shows the tab bar and Start. Mounting moves the same pane
+        into its slot without remounting it. -->
+        <Teleport
+            v-for="pane in panes"
+            :key="pane.paneId"
+            :to="paneSlotTargets.get(pane.paneId) ?? parkingTarget ?? 'body'"
+            :disabled="!(paneSlotTargets.get(pane.paneId) ?? parkingTarget)"
+        >
                 <EditorPaneView
                     :key="pane.paneId"
                     :pane="pane"
@@ -55,8 +59,7 @@
                     @open-combine="handleOpenCombine"
                     @toggle-fullscreen="handleToggleFullscreen"
                 />
-            </Teleport>
-        </template>
+        </Teleport>
     </div>
 </template>
 
@@ -298,6 +301,13 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
 <style scoped>
 .editor-panes-host {
     position: relative;
+}
+
+/* A pane rendered in place, before its slot exists, covers the host as the
+   single slot of the initial layout will. */
+.editor-panes-host > :deep(.editor-pane) {
+    position: absolute;
+    inset: 0;
 }
 
 .editor-pane-parking {

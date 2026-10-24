@@ -197,6 +197,15 @@ export default defineNuxtConfig({
                     sizes: '180x180',
                     href: '/apple-touch-icon.png',
                 },
+                // The UI font swaps in when it arrives; fetched with the page,
+                // it is there for the first paint and the text does not reflow.
+                {
+                    rel: 'preload',
+                    as: 'font',
+                    type: 'font/woff2',
+                    href: '/fonts/noto-sans/noto-sans-variable.woff2',
+                    crossorigin: 'anonymous',
+                },
             ],
             script: [
                 {

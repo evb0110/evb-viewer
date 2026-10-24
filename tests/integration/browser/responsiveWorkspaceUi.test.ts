@@ -510,3 +510,104 @@ it('scrolls phone Start as one page through every recent file', async () => {
         await phone.close();
     }
 }, 120_000);
+
+function readStartGeometry(page: Page) {
+    return page.evaluate(() => {
+        const rect = (element: Element | null) => {
+            if (!element) {
+                return null;
+            }
+            const box = element.getBoundingClientRect();
+            return [
+                box.left,
+                box.top,
+                box.width,
+                box.height,
+            ].map(Math.round);
+        };
+        const toolbar = document.querySelector('[role="toolbar"][aria-label="Document toolbar"]');
+        return {
+            toolbarButtons: toolbar
+                ? [...toolbar.querySelectorAll('button')]
+                    .filter(button => button.getBoundingClientRect().width > 0)
+                    .map(button => `${button.getAttribute('aria-label') ?? button.textContent?.trim()} ${rect(button)?.join(',')}`)
+                : [],
+            tabBar: rect(document.querySelector('.tab-bar')),
+            rail: rect(document.querySelector('.start-rail')),
+            openPanel: rect(document.querySelector('.start-open-panel')),
+            recentCard: rect(document.querySelector('.start-recent')),
+            recentRows: [...document.querySelectorAll('.recent-row--data')]
+                .filter(row => row.getBoundingClientRect().height > 0)
+                .map(row => rect(row)),
+        };
+    });
+}
+
+// Owner-reported: the prerendered page painted the desktop toolbar and an
+// empty pane, and the phone layout appeared only once the app had started.
+it('paints the settled phone layout before the app starts', async () => {
+    const phone = await lifecycle.browser.newContext({
+        ...devices['Pixel 7'],
+        viewport: {
+            width: 412,
+            height: 776,
+        },
+    });
+    try {
+        const page = await phone.newPage();
+        const problems = collectConsoleProblems(page);
+        await openStartPage(page);
+        keepFileChooserInterceptionEnabled(page);
+        const pdf = await PDFDocument.create();
+        pdf.addPage([
+            420,
+            600,
+        ]);
+        for (const name of [
+            'First paint one.pdf',
+            'First paint two.pdf',
+        ]) {
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().tap();
+            await (await chooser).setFiles({
+                name,
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
+            await page.getByRole('button', {
+                name: 'Close Tab',
+                exact: true,
+            }).first().tap();
+        }
+        await expect.poll(() => page.locator('.recent-row--data:not(.recent-row--skeleton)').count()).toBe(2);
+        await page.close();
+
+        // The first paint: the prerendered HTML, its styles and inline head
+        // scripts, before any app script runs.
+        const firstPaintPage = await phone.newPage();
+        await firstPaintPage.route('**/*', route => (route.request().resourceType() === 'script' ? route.abort() : route.continue()));
+        await firstPaintPage.goto(lifecycle.origin, {waitUntil: 'load'});
+        await firstPaintPage.evaluate(() => document.fonts.ready);
+        const firstPaint = await readStartGeometry(firstPaintPage);
+        await firstPaintPage.close();
+
+        const settledPage = await phone.newPage();
+        const settledProblems = collectConsoleProblems(settledPage);
+        await openStartPage(settledPage);
+        await settledPage.locator('.recent-row--data:not(.recent-row--skeleton)').first().waitFor();
+        const settled = await readStartGeometry(settledPage);
+
+        expect(settled.recentRows).toHaveLength(2);
+        expect(firstPaint, 'the first paint already has the settled toolbar, tabs and Start').toEqual(settled);
+        expect([
+            ...problems,
+            ...settledProblems,
+        ]).toEqual([]);
+    } finally {
+        await phone.close();
+    }
+}, 120_000);

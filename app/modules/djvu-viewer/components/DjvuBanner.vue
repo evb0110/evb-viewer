@@ -75,7 +75,7 @@ function dismiss() {
     white-space: nowrap;
 }
 
-:global(html.app-low-graphics) .djvu-banner {
+html.app-low-graphics .djvu-banner {
     backdrop-filter: none;
 }
 
