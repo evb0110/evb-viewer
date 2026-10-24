@@ -15,7 +15,7 @@ import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersi
 import * as v from 'valibot';
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
-const RECENT_FILES_LIMIT = 30;
+export const RECENT_FILES_LIMIT = 30;
 
 interface IRecentFilesCookieSnapshot {
     recentFiles: IRecentFile[];
