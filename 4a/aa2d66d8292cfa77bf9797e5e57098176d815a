@@ -1,0 +1,30 @@
+app/modules/pdf-viewer/components/PdfToolbar.vue
+  s_10b6fbc6b94ef3::t_cc6dfc2738faea 7,631-635
+tests/integration/browser/responsiveWorkspaceUi.test.ts
+  s_10b6fbc6b94ef3::t_723d782f960dbd 358-359,321-322,327,329,368
+  s_10b6fbc6b94ef3::t_39c97203556cde 628-726,328
+  s_10b6fbc6b94ef3::t_0659e7a140b74c 323-326,331,361-364
+app/modules/pdf-viewer/components/PdfStatusBar.vue
+  s_10b6fbc6b94ef3::t_8b357d1b337702 249-261
+app/assets/css/main.css
+  s_10b6fbc6b94ef3::t_cc6dfc2738faea 1160-1167
+app/components/toolbar/ToolbarOverflowMenu.vue
+  s_10b6fbc6b94ef3::t_67fe264e96414b 74,287-291,298
+  s_10b6fbc6b94ef3::t_cc6dfc2738faea 125-126,188,295-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4aaa2d66d8292cfa77bf9797e5e57098176d815a",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
