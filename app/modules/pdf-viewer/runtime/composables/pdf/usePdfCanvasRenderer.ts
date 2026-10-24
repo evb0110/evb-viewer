@@ -29,7 +29,23 @@ interface ICanvasRenderResult extends IPdfLayerRenderResult {
 
 interface IPreparedCanvasRender extends ICanvasRenderResult { startRender: () => ICancelableRenderTask; }
 
+/** A part of the displayed page box, each edge a fraction of its width or height. */
+export interface IPdfPageRegion {
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+}
+
 interface IRenderCanvasOptions {
+    /**
+     * Paints only this part of the page, repeating the annotation state of the
+     * committed whole-page raster it lies on.
+     */
+    region?: {
+        area: IPdfPageRegion;
+        base: IPdfLayerRenderResult;
+    } | undefined;
     annotationInput?: IPdfAnnotationRenderInput | (() => Promise<IPdfAnnotationRenderInput>);
     maxCanvasPixels?: number;
     sourceMaxPixels?: number;
@@ -165,9 +181,20 @@ export const usePdfCanvasRenderer = (deps: {
         canvas: HTMLCanvasElement,
         cssWidth: number,
         pixelSize: ICanvasPixelSize,
+        region: IPdfPageRegion | undefined,
     ) {
         canvas.width = pixelSize.pixelWidth;
         canvas.height = pixelSize.pixelHeight;
+        if (region) {
+            // Percentages of the page box keep the region on its page content
+            // while a zoom stretches the page before the next raster.
+            canvas.style.left = `${String(region.x0 * 100)}%`;
+            canvas.style.top = `${String(region.y0 * 100)}%`;
+            canvas.style.width = `${String((region.x1 - region.x0) * 100)}%`;
+            canvas.style.height = `${String((region.y1 - region.y0) * 100)}%`;
+            canvas.setAttribute('aria-hidden', 'true');
+            return;
+        }
         canvas.style.width = `${cssWidth}px`;
         canvas.style.setProperty('height', 'auto', 'important');
         canvas.style.display = 'block';
@@ -178,6 +205,23 @@ export const usePdfCanvasRenderer = (deps: {
     async function createAnnotationRenderOptions(
         pdfPage: IPdfPage, options?: IRenderCanvasOptions,
     ) {
+        if (options?.region) {
+            const {
+                annotationInput, annotationOutput,
+            } = options.region.base;
+            // Annotations the whole-page raster drew into the annotation
+            // layer's own canvases are already on screen above the region.
+            const excludedIds = new Set([
+                ...annotationInput?.excludedIds ?? toValue(options.hiddenAnnotationIds) ?? [],
+                ...annotationOutput?.ownCanvases.map(([id]) => id) ?? [],
+            ]);
+            return {
+                annotationInput,
+                annotationCanvasMap: null,
+                annotationMode: AnnotationMode.ENABLE,
+                hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(excludedIds),
+            };
+        }
         const input = await (typeof options?.annotationInput === 'function' ? options.annotationInput()
             : options?.annotationInput ?? deps.prepareAnnotations?.(pdfPage, options?.pageRenderCoordination));
         const hiddenAnnotationIds = toPdfjsHiddenAnnotationIds(input?.excludedIds ?? toValue(options?.hiddenAnnotationIds));
@@ -219,8 +263,9 @@ export const usePdfCanvasRenderer = (deps: {
             pageHeight: number;
         };
 
-        const cssWidth = viewport.width;
-        const cssHeight = viewport.height;
+        const region = options?.region?.area;
+        const cssWidth = viewport.width * (region ? region.x1 - region.x0 : 1);
+        const cssHeight = viewport.height * (region ? region.y1 - region.y0 : 1);
         if (!isValidViewportSize(cssWidth, cssHeight)) {
             throw new RangeError(`PDF page ${pdfPage.pageNumber} has invalid viewport size ${cssWidth}x${cssHeight}`);
         }
@@ -271,7 +316,7 @@ export const usePdfCanvasRenderer = (deps: {
             throw new Error(`PDF page ${pdfPage.pageNumber} has no 2D context`);
         }
         try {
-            setupCanvas(canvas, cssWidth, pixelSize);
+            setupCanvas(canvas, cssWidth, pixelSize, region);
         } catch (error) {
             surfaceReservation?.release();
             throw error;
@@ -280,14 +325,14 @@ export const usePdfCanvasRenderer = (deps: {
         const renderContext = {
             canvasContext: context,
             canvas,
-            transform: canvasScale.scaleX !== 1 || canvasScale.scaleY !== 1
+            transform: canvasScale.scaleX !== 1 || canvasScale.scaleY !== 1 || region
                 ? [
                     canvasScale.scaleX,
                     0,
                     0,
                     canvasScale.scaleY,
-                    0,
-                    0,
+                    -(region?.x0 ?? 0) * viewport.width * canvasScale.scaleX,
+                    -(region?.y0 ?? 0) * viewport.height * canvasScale.scaleY,
                 ] : undefined,
             viewport,
             annotationMode: annotationOptions.annotationMode,

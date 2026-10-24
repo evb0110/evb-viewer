@@ -34,7 +34,8 @@
    backing store non-presentational until the same patch that removes the
    skeleton; users then observe one atomic shell handoff. Text and annotation
    layers below wait for the readable rendered state instead. */
-.pdfViewer .page_container:not([data-page-raster]) .page_canvas__render-layer {
+.pdfViewer .page_container:not([data-page-raster]) .page_canvas__render-layer,
+.pdfViewer .page_container:not([data-page-raster]) .page_canvas__detail-layer {
     visibility: hidden;
 }
 
@@ -83,6 +84,20 @@
         position: absolute;
         inset: 0;
         border-radius: inherit;
+    }
+
+    /* Full-resolution pixels for the part of a clamped page in view, placed
+       by percentages of the page box. */
+    .page_canvas__detail-layer {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        border-radius: inherit;
+    }
+
+    .page_canvas__detail-layer > canvas {
+        position: absolute;
     }
 
     .page_canvas__render-layer > canvas {

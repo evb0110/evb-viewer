@@ -118,6 +118,17 @@ list scrolls inside a page that also scrolls. A two-finger pinch zooms the
 document by the fingers' span ratio and never the page, whose visual viewport
 scale stays 1. Pulling past the top of a pane does not reload the app.
 
+**L6. Zoom keeps vector content sharp.** Settled, after a zoom or scroll, on a
+page whose whole-page raster the settled canvas cap reduced: the visible part
+of the page, with a margin, is painted at the viewer's output scale when that
+fits the performance tier's detail budget. When it does not, the margin
+shrinks, down to none, and the part is painted at the density the budget
+allows. The whole-page raster alone is shown only when that density is not
+more than 1/0.9 (about 1.11) times its own. Pages capped at their source
+resolution by a raster display profile are exempt. During a gesture a
+lower-resolution stretch of the committed raster is allowed. Added 2026-10-25
+on the owner's request.
+
 ## Annotations
 
 **A1. Marks stay on their content.** Two observations: an annotation's position
