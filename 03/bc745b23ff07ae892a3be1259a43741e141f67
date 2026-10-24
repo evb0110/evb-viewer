@@ -1,0 +1,44 @@
+app/assets/css/_toolbar-menu-shared.scss
+  s_10b6fbc6b94ef3::t_39216a13f888c5 89-95
+app/modules/pdf-viewer/components/PdfEmptyState.vue
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 560,599
+  s_10b6fbc6b94ef3::t_39216a13f888c5 561-564,600-602
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_10b6fbc6b94ef3::t_39216a13f888c5 3
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_10b6fbc6b94ef3::t_39216a13f888c5 99
+app/assets/css/app-shell-critical.scss
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 96
+  s_10b6fbc6b94ef3::t_39216a13f888c5 97-99
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_10b6fbc6b94ef3::t_39216a13f888c5 3-10,65,287-293,295-306,313-319
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 294
+  s_10b6fbc6b94ef3::t_f19d932e93e673 307-312
+tests/integration/browser/responsiveWorkspaceUi.test.ts
+  s_10b6fbc6b94ef3::t_a6d5b891d680c0 9,234-271,301-344,346-350,359-363,366-370,372,374-375,411-415
+  s_10b6fbc6b94ef3::t_70e39758ce61b8 272-273,275-299
+  s_10b6fbc6b94ef3::t_37a371d2d313d2 274,351-358,371
+  s_10b6fbc6b94ef3::t_f4719a203f7cc4 300
+  s_10b6fbc6b94ef3::t_6fcf868ccc1b95 345,364-365,373
+  s_10b6fbc6b94ef3::t_017439d7cd5df4 376-398
+  s_10b6fbc6b94ef3::t_5c82688f32de9c 399-410
+app/assets/css/main.css
+  s_10b6fbc6b94ef3::t_9caecf08a3fa42 68
+  s_10b6fbc6b94ef3::t_39216a13f888c5 430,507,1172-1187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "03bc745b23ff07ae892a3be1259a43741e141f67",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
