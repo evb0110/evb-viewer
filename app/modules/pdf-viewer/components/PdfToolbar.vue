@@ -4,6 +4,7 @@
         class="toolbar"
         :data-collapse-tier="collapseTier"
         :data-toolbar-layout="toolbarLayout"
+        :data-has-document="hasPdf ? 'true' : 'false'"
         role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
     >
@@ -626,6 +627,12 @@ $toolbar-collapse-thresholds: (
                     flex-wrap: wrap;
                     justify-content: center;
                     min-width: 0;
+                }
+
+                /* A phone without a document shows no empty page and zoom
+                   fields; they keep their place for the document's values. */
+                .toolbar[data-toolbar-layout='#{$layout}'][data-has-document='false'] .toolbar-center {
+                    visibility: hidden;
                 }
             }
         }

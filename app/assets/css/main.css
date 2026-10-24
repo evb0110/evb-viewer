@@ -98,7 +98,6 @@
 
     /* Global layer scale. Component-internal stacking stays local and is never
        compared with these application-chrome layers. */
-    --app-z-base: 0;
     --app-z-workspace-overlay: 30;
     --app-z-floating-chrome: 40;
     --app-z-progress: 50;
@@ -122,7 +121,6 @@
     --app-z-pdf-text-layer: var(--app-z-local-raised);
     --app-z-pdf-link-layer: 2;
     --app-z-pdf-annotation-editor-layer: 3;
-    --app-z-pdf-comment-marker-layer: 4;
     --app-z-pdf-comment-tooltip: 5;
     --app-z-pdf-shape-layer: 6;
     --app-z-pdf-comment-popup: var(--app-z-pdf-shape-layer);
@@ -144,7 +142,6 @@
     --app-scan-reset-confirmation-width: 17rem;
     --app-scan-details-width: 22rem;
     --app-scan-toolbar-progress-height: var(--app-search-progress-height);
-    --app-scan-toolbar-progress-min-width: 4rem;
     --app-scan-toolbar-indeterminate-opacity: 0.55;
     --app-scan-toolbar-buffer-opacity: 0.3;
     --app-scan-toolbar-activity-width: 34rem;
@@ -153,7 +150,6 @@
     --app-scan-toolbar-right-zone-width: 21rem;
     --app-scan-toolbar-meter-width: 42rem;
     --app-scan-toolbar-redetect-width: 6.5rem;
-    --app-scan-toolbar-status-width: 23rem;
     --app-scan-toolbar-primary-width: 9rem;
     --app-scan-disabled-opacity: 0.58;
     --app-scan-preview-stale-opacity: var(--app-opacity-muted);
@@ -224,7 +220,6 @@
     --app-radius-surface: 0.65rem;
     --app-radius-full: 999px;
     --app-text-size-micro: 0.6875rem;
-    --app-text-size-marker: 0.40625rem;
     --app-text-size-tiny: 0.5625rem;
     --app-text-size-menu-shortcut: 0.64rem;
     --app-text-size-compact: 0.68rem;
@@ -304,7 +299,6 @@
     --app-outline-drop-indicator-radius: var(--app-radius-full);
     --app-outline-expand-icon-width: var(--app-space-9xl);
     --app-outline-action-radius: var(--app-radius-xs);
-    --app-outline-row-indent: var(--app-space-12xl);
     --app-thumbnail-row-gap: var(--app-space-sm);
     --app-thumbnail-selection-offset: calc(var(--app-sidebar-row-padding-block) + var(--app-space-sm));
     --app-thumbnail-row-radius: var(--app-radius-xs);
@@ -477,8 +471,6 @@
     --app-document-viewer-bg: var(--ui-bg-muted);
     --app-document-page-bg: var(--ui-bg);
     --app-document-thumbnails-background: var(--ui-bg-muted);
-    --app-thumbnail-placeholder-bg: color-mix(in oklab, var(--app-document-page-bg) 94%, var(--ui-bg-muted) 6%);
-    --app-thumbnail-placeholder-highlight: color-mix(in oklab, var(--app-document-page-bg) 82%, var(--ui-bg-muted) 18%);
     --app-document-page-shadow: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 18%, transparent);
     --app-pdf-viewer-bg: var(--app-document-viewer-bg);
     --app-pdf-page-bg: var(--app-document-page-bg);
@@ -515,7 +507,6 @@
     --app-start-rail-item-radius: var(--app-radius-xl);
     --app-start-rail-item-font-size: var(--app-text-size-ui);
     --app-start-rail-item-icon-size: var(--app-icon-size-lg);
-    --app-start-rail-shortcut-font-size: var(--app-text-size-caption);
     --app-start-rail-badge-size: 1.25rem;
     --app-start-rail-badge-padding-x: var(--app-space-md);
     --app-start-rail-badge-font-size: var(--app-text-size-badge);
@@ -630,7 +621,6 @@
     --app-pdf-annotation-properties-range-thumb-size: 12px;
     --app-pdf-annotation-properties-value-min-width: 44px;
     --app-pdf-annotation-style-popover-z-index: var(--app-z-menu);
-    --app-pdf-annotation-style-popover-width: 18rem;
     --app-pdf-context-menu-z-index: var(--app-z-menu);
     --app-pdf-initial-surface-z-index: var(--app-z-progress);
     --app-workspace-transition-overlay-z-index: var(--app-z-modal);
@@ -673,8 +663,6 @@
     --app-pdf-note-textarea-padding: 0.52rem;
     --app-pdf-note-status-font-size: var(--app-text-size-compact);
     --app-pdf-note-status-padding: 0 var(--app-pdf-note-textarea-padding) 0.3rem;
-    --app-pdf-note-error-font-size: var(--app-text-size-badge);
-    --app-pdf-note-error-padding: 0 var(--app-pdf-note-textarea-padding) var(--app-space-md);
     --app-pdf-comment-tooltip-max-width: 260px;
     --app-pdf-comment-tooltip-padding: 8px 12px;
     --app-pdf-comment-tooltip-radius: 6px;
@@ -784,15 +772,7 @@
     --app-pdf-comment-arrow-shadow-light: rgb(0 0 0 / 12%);
     --app-pdf-color-swatch-border: color-mix(in srgb, var(--ui-border) 80%, var(--ui-text) 20%);
     --app-pdf-page-selection-bar-bg: var(--app-sidebar-bg);
-    --app-pdf-comment-marker-badge-border: color-mix(in oklab, var(--app-pdf-note-border) 72%, var(--app-pdf-note-text) 28%);
-    --app-pdf-comment-marker-badge-bg: linear-gradient(
-        180deg,
-        var(--ui-bg) 0%,
-        color-mix(in oklab, var(--app-pdf-note-bg) 72%, var(--ui-bg) 28%) 100%
-    );
-    --app-pdf-comment-marker-badge-fg: var(--app-pdf-note-text);
     --app-pdf-comment-marker-badge-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 22%, transparent);
-    --app-pdf-comment-marker-badge-border-active: color-mix(in oklab, var(--app-pdf-note-text) 72%, var(--app-pdf-note-border) 28%);
     --app-pdf-comment-marker-badge-shadow-active: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 32%, transparent);
     --app-search-highlight-bg: rgb(255 230 0 / 32%);
     --app-search-highlight-current-bg: rgb(255 150 0 / 42%);
@@ -824,7 +804,6 @@
     --app-pdf-context-menu-panel-action-hover-bg: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
     --app-pdf-context-menu-panel-action-border: var(--ui-border);
     --app-image-placement-shadow: rgb(0 0 0 / 0.3);
-    --app-pdf-shape-selection-stroke: var(--ui-primary);
     --app-pdf-text-selection-bg: rgb(0 0 255 / 0.25);
     --app-pdf-link-hover-bg: rgb(255 255 0 / 0.2);
     --app-pdf-link-bg: rgb(255 255 0 / 0);
@@ -1178,6 +1157,14 @@ html {
         --app-action-size-sm: 2rem;
         --app-statusbar-action-size: 1.5rem;
         --app-touch-field-min-font-size: 16px;
+
+        /* Read at arm's length: the small sizes grow by about a pixel. */
+        --app-text-size-caption: 0.8125rem;
+        --app-text-size-kicker: 0.8125rem;
+        --app-text-size-meta: 0.8125rem;
+        --app-text-size-secondary: 0.875rem;
+        --app-text-size-body-sm: 0.875rem;
+        --app-text-size-body: 0.9375rem;
     }
 
     input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']),

@@ -246,6 +246,19 @@ html.app-low-graphics .status-save-dot-button.is-saving .status-save-dot {
     animation: none;
 }
 
+/* A phone shows the file name in its tab and the zoom in its toolbar; the
+   row keeps what only it shows: long work and the save state. */
+@media (width <= 640px) {
+    .status-bar-file,
+    .status-bar-item {
+        display: none;
+    }
+
+    .status-bar-metrics {
+        margin-inline-start: auto;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .status-save-dot-button.is-saving .status-save-dot {
         animation: none;

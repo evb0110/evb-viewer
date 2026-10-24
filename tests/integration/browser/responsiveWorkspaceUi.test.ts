@@ -318,6 +318,18 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         // iOS Safari zooms the page into a focused field with text under 16px.
         expect.soft(touchSizes.searchFont, 'fields keep iOS from zooming on focus').toBeGreaterThanOrEqual(16);
         expect.soft(touchSizes.tabClose, 'the tab close button is finger sized').toBeGreaterThanOrEqual(32);
+        const readPhoneChrome = () => page.evaluate(() => ({
+            pageFieldsVisible: getComputedStyle(document.querySelector<HTMLElement>('.toolbar-center')!).visibility === 'visible',
+            statusRepeats: [...document.querySelectorAll<HTMLElement>('.status-bar-file, .status-bar-item')]
+                .filter(element => element.getBoundingClientRect().width > 0)
+                .map(element => element.innerText),
+            saveStateShown: (document.querySelector<HTMLElement>('.status-save-dot')?.getBoundingClientRect().width ?? 0) > 0,
+            railLabelPx: Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('.rail-item span')!).fontSize),
+        }));
+        const startChrome = await readPhoneChrome();
+        expect.soft(startChrome.pageFieldsVisible, 'Start shows no empty page and zoom fields').toBe(false);
+        expect.soft(startChrome.statusRepeats, 'the status row does not repeat the tab and toolbar').toEqual([]);
+        expect.soft(startChrome.railLabelPx, 'small text grows on a touch screen').toBeGreaterThanOrEqual(13);
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
         for (let index = 1; index <= 8; index += 1) pdf.addPage([
@@ -345,6 +357,14 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         }).tap();
         const menuText = await page.getByRole('menu').first().innerText();
         expect.soft(menuText, 'a touch screen has no keyboard for shortcut hints').not.toMatch(/⌘|Ctrl\+/u);
+        await page.keyboard.press('Escape');
+        const documentChrome = await readPhoneChrome();
+        expect.soft(documentChrome.pageFieldsVisible, 'a document shows its page and zoom fields').toBe(true);
+        expect.soft(documentChrome.statusRepeats, 'the status row does not repeat the file name and zoom').toEqual([]);
+        expect.soft(documentChrome.saveStateShown, 'the status row keeps the save state').toBe(true);
+        await page.getByRole('button', {name: 'More tools'}).tap();
+        const moreToolsText = await page.getByRole('menu').first().innerText();
+        expect.soft(moreToolsText, 'More tools does not repeat the app menu\'s File and Edit commands').not.toMatch(/Open File|Save|Undo/u);
         await page.keyboard.press('Escape');
         const readViewer = () => page.evaluate(() => ({
             width: Math.round(document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!.getBoundingClientRect().width),
