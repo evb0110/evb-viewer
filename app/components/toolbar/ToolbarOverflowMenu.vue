@@ -71,6 +71,7 @@ import {
     type IReaderCommandSurface,
 } from '@app/utils/readerCommandSurface';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 
 const { t } = useTypedI18n();
 
@@ -283,14 +284,18 @@ const hasRelocatedFileItems = computed(() => (
     || shouldShowRelocatedCommand('save-as')
     || shouldShowRelocatedCommand('print')
 ));
-const hasDocumentItems = computed(() => shouldShowMenuCommand('open-file', 5)
+// The browser's app menu holds the File and Edit commands; More tools does
+// not repeat them there.
+const { isBrowserRuntime } = useRuntimeEnvironment();
+const fileCommandsInAppMenu = computed(() => isBrowserRuntime.value && isReaderCommandInline(surface, 'app-menu'));
+const hasDocumentItems = computed(() => !fileCommandsInAppMenu.value && (shouldShowMenuCommand('open-file', 5)
     || hasRelocatedFileItems.value || (
     showDocumentSection === true
     && (canCombineFiles === true
         || canPrintCurrentPage === true
         || canConvertToPdf === true)
-));
-const hasEditItems = computed(() => (
+)));
+const hasEditItems = computed(() => !fileCommandsInAppMenu.value && (
     shouldShowRelocatedCommand('undo') || shouldShowRelocatedCommand('redo')
 ));
 
