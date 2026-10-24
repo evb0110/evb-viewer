@@ -96,6 +96,7 @@
             @container-resize="setSidebarContainerWidth"
             @slide-start="isSlidingSidebar = true"
             @slide-end="isSlidingSidebar = false"
+            @dismiss="showSidebar = false"
         >
             <template #sidebar>
                 <WorkspaceDocumentSidebar

@@ -86,3 +86,10 @@
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
 }
+
+// A touch screen has no keyboard to press the shortcut on.
+@media (hover: none) and (pointer: coarse) {
+    .toolbar-menu-shortcut {
+        display: none;
+    }
+}

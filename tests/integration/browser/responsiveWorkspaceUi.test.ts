@@ -6,6 +6,7 @@ import {PDFDocument} from 'pdf-lib';
 import {
     expect, it,
 } from 'vitest';
+import {devices} from 'playwright';
 import type {Page} from 'playwright';
 import {
     lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
@@ -230,3 +231,185 @@ it('keeps settings and document controls readable and reachable from phone to de
         await page.context().close();
     }
 }, 90_000);
+
+async function openStartPage(page: Page) {
+    await page.addInitScript(() => {
+        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+        sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+    });
+    await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+    await waitForOpenFileReady(page);
+    await page.evaluate(() => document.fonts.ready);
+}
+
+function readStartReach(page: Page) {
+    return page.evaluate(() => {
+        const pane = document.querySelector<HTMLElement>('.empty-state')!.getBoundingClientRect();
+        const rail = document.querySelector<HTMLElement>('.start-rail')!.getBoundingClientRect();
+        const recent = document.querySelector<HTMLElement>('.start-recent')!.getBoundingClientRect();
+        return {
+            railTopInset: Math.round(rail.top - pane.top),
+            recentHeight: Math.round(recent.height),
+            recentBottomOverflow: Math.round(recent.bottom - pane.bottom),
+        };
+    });
+}
+
+// Phone browsers: a touch screen, a page narrower than the sidebar plus a
+// readable document, and (in landscape) less height than Start needs.
+it('fits Start, menus and the sidebar to a touch phone', async () => {
+    const evidenceDir = resolve('.devkit', `responsive-phone-${process.pid}`);
+    mkdirSync(evidenceDir, {recursive: true});
+    const landscape = await lifecycle.browser.newContext({...devices['iPhone 14 landscape']});
+    try {
+        const page = await landscape.newPage();
+        const problems = collectConsoleProblems(page);
+        await openStartPage(page);
+        const before = await readStartReach(page);
+        await page.screenshot({path: resolve(evidenceDir, 'landscape-start.png')});
+        expect.soft(before.railTopInset, 'the Start navigation begins inside its pane').toBeGreaterThanOrEqual(0);
+        const pane = (await page.locator('.empty-state').boundingBox())!;
+        // Finger swipes up the pane. CDP's synthesized scroll gesture does not
+        // scroll a headless touch page, so the touch points are sent directly.
+        const cdp = await landscape.newCDPSession(page);
+        const x = Math.round(pane.x + pane.width / 2);
+        const startY = Math.round(pane.y + pane.height - 8);
+        const travel = Math.round(pane.height - 16);
+        for (let swipe = 0; swipe < 3; swipe += 1) {
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchStart',
+                touchPoints: [{
+                    x,
+                    y: startY,
+                }],
+            });
+            for (let step = 1; step <= 10; step += 1) {
+                await cdp.send('Input.dispatchTouchEvent', {
+                    type: 'touchMove',
+                    touchPoints: [{
+                        x,
+                        y: startY - Math.round(travel * step / 10),
+                    }],
+                });
+            }
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchEnd',
+                touchPoints: [],
+            });
+        }
+        await expect.poll(async () => (await readStartReach(page)).recentBottomOverflow, {message: 'scrolling Start reaches the end of the recent list'}).toBeLessThanOrEqual(1);
+        const after = await readStartReach(page);
+        await page.screenshot({path: resolve(evidenceDir, 'landscape-start-scrolled.png')});
+        expect.soft(after.recentHeight, 'the recent list keeps a usable height').toBeGreaterThanOrEqual(200);
+        expect(problems).toEqual([]);
+    } finally {
+        await landscape.close();
+    }
+
+    const portrait = await lifecycle.browser.newContext({...devices['iPhone 14']});
+    try {
+        const page = await portrait.newPage();
+        const problems = collectConsoleProblems(page);
+        await openStartPage(page);
+        const touchSizes = await page.evaluate(() => ({
+            tabClose: document.querySelector<HTMLElement>('[aria-label="Close Tab"]')!.getBoundingClientRect().height,
+            searchFont: Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('input[type="search"]')!).fontSize),
+        }));
+        // iOS Safari zooms the page into a focused field with text under 16px.
+        expect.soft(touchSizes.searchFont, 'fields keep iOS from zooming on focus').toBeGreaterThanOrEqual(16);
+        expect.soft(touchSizes.tabClose, 'the tab close button is finger sized').toBeGreaterThanOrEqual(32);
+        keepFileChooserInterceptionEnabled(page);
+        const pdf = await PDFDocument.create();
+        for (let index = 1; index <= 8; index += 1) pdf.addPage([
+            420,
+            600,
+        ]).drawText(`Phone page ${index}`, {
+            x: 24,
+            y: 560,
+            size: 18,
+        });
+        const chooser = page.waitForEvent('filechooser');
+        await page.getByRole('button', {
+            name: 'Open File',
+            exact: true,
+        }).first().click();
+        await (await chooser).setFiles({
+            name: 'Phone document.pdf',
+            mimeType: 'application/pdf',
+            buffer: Buffer.from(await pdf.save()),
+        });
+        await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
+        await page.getByRole('button', {
+            name: 'Menu',
+            exact: true,
+        }).tap();
+        const menuText = await page.getByRole('menu').first().innerText();
+        expect.soft(menuText, 'a touch screen has no keyboard for shortcut hints').not.toMatch(/⌘|Ctrl\+/u);
+        await page.keyboard.press('Escape');
+        const readViewer = () => page.evaluate(() => ({
+            width: Math.round(document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!.getBoundingClientRect().width),
+            pageBox: (({
+                left, top, width, height,
+            }) => [
+                left,
+                top,
+                width,
+                height,
+            ].map(Math.round))(document.querySelector<HTMLElement>('.page_container')!.getBoundingClientRect()),
+            zoom: document.querySelector<HTMLElement>('.zoom-controls-display-value')!.innerText,
+            sidebarOpen: !document.querySelector<HTMLElement>('.sidebar-wrapper')!.classList.contains('is-closed'),
+            sidebarWidth: Math.round(document.querySelector<HTMLElement>('.sidebar-wrapper')!.getBoundingClientRect().width),
+        }));
+        const closed = await readViewer();
+        await page.getByRole('button', {name: 'More tools'}).tap();
+        await page.getByRole('menuitem', {name: /Toggle Sidebar/iu}).tap();
+        await expect.poll(async () => (await readViewer()).sidebarWidth).toBeGreaterThan(200);
+        await page.screenshot({path: resolve(evidenceDir, 'portrait-sidebar.png')});
+        const open = await readViewer();
+        expect.soft(open.width, 'the open sidebar covers the page instead of narrowing it').toBe(closed.width);
+        expect.soft(open.zoom, 'opening the sidebar does not refit the page').toBe(closed.zoom);
+        expect.soft(open.pageBox, 'the rendered page keeps its size and position').toEqual(closed.pageBox);
+        const viewport = page.viewportSize()!;
+        await page.touchscreen.tap(viewport.width - 16, viewport.height / 2);
+        await expect.poll(async () => (await readViewer()).sidebarOpen, {message: 'a tap beside the sidebar closes it'}).toBe(false);
+        await page.screenshot({path: resolve(evidenceDir, 'portrait-sidebar-closed.png')});
+        // Crop mode paints its overlay above ordinary viewer layers; the open
+        // sidebar and the tap target beside it must still be on top of it.
+        await page.getByRole('button', {name: 'More tools'}).tap();
+        await page.getByRole('menuitem', {name: 'Crop Pages'}).tap();
+        await page.locator('.crop-overlay.is-active').waitFor();
+        await page.getByRole('button', {name: 'More tools'}).tap();
+        await page.getByRole('menuitem', {name: /Toggle Sidebar/iu}).tap();
+        await expect.poll(async () => (await readViewer()).sidebarWidth).toBeGreaterThan(200);
+        expect.soft(await page.evaluate(() => {
+            const sidebar = document.querySelector<HTMLElement>('.sidebar-wrapper')!.getBoundingClientRect();
+            const center = document.elementFromPoint(sidebar.left + sidebar.width / 2, sidebar.top + sidebar.height / 2);
+            const beside = document.elementFromPoint(window.innerWidth - 16, window.innerHeight / 2);
+            return {
+                sidebar: Boolean(center?.closest('.sidebar-wrapper')),
+                beside: beside?.classList.contains('sidebar-scrim') ?? false,
+            };
+        }), 'the sidebar stays above the crop overlay').toEqual({
+            sidebar: true,
+            beside: true,
+        });
+        await page.touchscreen.tap(viewport.width - 16, viewport.height / 2);
+        await expect.poll(async () => (await readViewer()).sidebarOpen).toBe(false);
+        await page.keyboard.press('Escape');
+        // 360 px is the most common Android width: page and zoom controls
+        // share one toolbar row there instead of stacking.
+        await page.setViewportSize({
+            width: 360,
+            height: 740,
+        });
+        await expect.poll(() => page.evaluate(() => {
+            const pageTop = document.querySelector<HTMLElement>('.page-controls')!.getBoundingClientRect().top;
+            const zoomTop = document.querySelector<HTMLElement>('.zoom-controls')!.getBoundingClientRect().top;
+            return Math.abs(pageTop - zoomTop);
+        }), {message: 'page and zoom controls share a toolbar row at 360 px'}).toBeLessThanOrEqual(1);
+        await page.screenshot({path: resolve(evidenceDir, 'portrait-360.png')});
+        expect(problems).toEqual([]);
+    } finally {
+        await portrait.close();
+    }
+}, 120_000);

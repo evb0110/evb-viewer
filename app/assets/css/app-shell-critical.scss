@@ -93,7 +93,10 @@ body {
 .app-shell-root {
     width: 100%;
     max-width: 100vw;
-    height: 100vh;
+
+    /* Mobile browsers count the area under their address bar in 100vh, which
+       pushes the status bar off screen; dvh is the visible height. */
+    height: 100dvh;
     min-width: 0;
     min-height: 0;
     display: flex;
