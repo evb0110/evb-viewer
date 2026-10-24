@@ -447,6 +447,11 @@ async function* streamPdfPageTextRanges(
             });
             if (inspection.status === 'degraded') {
                 log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
+                // Each load reads the whole PDF, and a document that cannot be
+                // read fails every later load the same way: a 760 MB report
+                // spent 44 s on each of its eleven. Its later windows keep the
+                // layout reading order without asking again.
+                if (inspection.reason !== 'native-tool-failed') inspectedWindows = windows.length;
             }
         }
         const areas = visiblePageOnly ? await readCroppedPageAreas(pdfPath, window, signal) : new Map<number, IPopplerTextArea>();
