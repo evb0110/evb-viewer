@@ -20,10 +20,9 @@
 
       <div class="home-actions">
         <UButton
-          v-if="webAppUrl"
           :label="t('home.hero.openInBrowser')"
           :aria-label="t('home.hero.openInBrowser')"
-          :to="webAppUrl"
+          to="/app"
           target="_blank"
           rel="noreferrer"
           color="neutral"
@@ -377,9 +376,8 @@ const {
     locale,
 } = useTypedI18n();
 const localePath = useLocalePath();
-const runtimeConfig = useRuntimeConfig();
 const colorMode = useColorMode();
-const webAppUrl = computed(() => runtimeConfig.public.webAppUrl.trim() || '');
+const browserEntryUrl = new URL('/app', useRequestURL()).href;
 // The film mounts on the client, after color mode has resolved the system preference.
 const filmTheme = computed(() => colorMode.value === 'dark' ? 'dark' : 'light');
 
@@ -457,7 +455,7 @@ const audiences = computed(() => AUDIENCE_ICONS.map(({
 const faq = computed(() => FAQ_KEYS.map(key => ({
     key,
     question: t(`home.faq.items.${key}.question`),
-    answer: t(`home.faq.items.${key}.answer`, {webAppUrl: webAppUrl.value.replace(/^https?:\/\//u, '')}),
+    answer: t(`home.faq.items.${key}.answer`, {webAppUrl: browserEntryUrl.replace(/^https?:\/\//u, '')}),
 })));
 
 const MICROSOFT_STORE_URL = 'https://apps.microsoft.com/detail/9N3MB1WJGX1L';

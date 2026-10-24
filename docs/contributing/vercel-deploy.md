@@ -4,6 +4,13 @@
 
 - Vercel project name: `evb-viewer-web`
 - Runtime target: prerendered Nuxt web app with client-side runtime personalization
+- Production browser domains: `web.evb-viewer.com` and
+  `evb-viewer-web.vercel.app`. Both belong to this project and serve the same
+  production deployment; keep the Vercel domain attached without a redirect.
+- The landing's `/app` entry redirects Vercel-hosted landing pages to
+  `https://evb-viewer-web.vercel.app` and other hosts to `NUXT_PUBLIC_WEB_APP_URL`
+  (default `https://web.evb-viewer.com`). All localized home, feature and
+  documentation pages use this relative entry, including prerendered pages.
 
 ## Repo Configuration
 

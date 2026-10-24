@@ -262,6 +262,9 @@ describe('changed-area classifier', () => {
             'packages/scan-cleanup/adapters/createScanCleanupRenderers.ts',
             'packages/scan-cleanup/core/detection.ts',
             'server/api/releases.get.ts',
+            'landing/app/pages/index.vue',
+            'landing/server/routes/app.get.ts',
+            'landing/nuxt.config.ts',
             'tests/fixtures/electron/generated-text.pdf',
             'tests/helpers/pdfAnnotationCommentsListHarness.ts',
             'tests/setup.ts',
@@ -274,7 +277,6 @@ describe('changed-area classifier', () => {
         for (const file of [
             'docs/contributing/releasing.md',
             'electron/main.ts',
-            'landing/app/pages/index.vue',
             'native/pdf-search/src/main.rs',
         ]) {
             expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(false);
@@ -339,7 +341,7 @@ describe('changed-area classifier', () => {
 
             expect(result.status, result.stderr).toBe(0);
             expect(readFileSync(outputPath, 'utf8').trim().split('\n').sort()).toEqual([
-                'browser_integration=false',
+                'browser_integration=true',
                 'desktop_build=true',
                 'electron_save_reopen=false',
                 'electron_smoke=false',

@@ -80,6 +80,9 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             owner: 'browser_integration',
             paths: [
                 'app/**',
+                'landing/app/**',
+                'landing/server/**',
+                'landing/nuxt.config.ts',
                 // The browser WASM builds, rebuilt from these crates by
                 // scripts/ensure-wasm-artifacts.mjs.
                 'native/Cargo.lock',
