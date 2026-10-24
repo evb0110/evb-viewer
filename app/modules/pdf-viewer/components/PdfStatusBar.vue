@@ -32,8 +32,8 @@
                 />
                 <span>{{ materializationLabel }}</span>
             </span>
-            <span class="status-bar-item">{{ fileSizeLabel }}</span>
-            <span class="status-bar-item">{{ zoomLabel }}</span>
+            <span v-if="fileSizeLabel" class="status-bar-item">{{ fileSizeLabel }}</span>
+            <span v-if="zoomLabel" class="status-bar-item">{{ zoomLabel }}</span>
             <AppTooltip :text="saveDotTooltip" :delay-duration="800">
                 <button
                     type="button"

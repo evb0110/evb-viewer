@@ -62,8 +62,6 @@ const shortcutsOpen = ref(false);
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settings-panel-shared';
-
 .settings-section-title.is-toggle {
     cursor: pointer;
     display: flex;

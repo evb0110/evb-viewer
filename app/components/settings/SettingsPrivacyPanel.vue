@@ -3,7 +3,6 @@
         <legend class="settings-section-title">{{ t('settings.privacy') }}</legend>
 
         <UFormField
-            :label="t('settings.clientDiagnostics')"
             :help="t('settings.clientDiagnosticsDescription')"
             :ui="settingsFormFieldUi"
         >
@@ -11,6 +10,7 @@
                 :model-value="settings.clientDiagnosticsPreference === 'granted'"
                 :label="t('settings.clientDiagnostics')"
                 size="sm"
+                :ui="settingsControlUi"
                 @update:model-value="emit('update:client-diagnostics-preference', $event ? 'granted' : 'denied')"
             />
         </UFormField>
@@ -30,15 +30,11 @@ defineProps<{settings: ISettingsData;}>();
 const emit = defineEmits<{'update:client-diagnostics-preference': [value: TClientDiagnosticsPreference];}>();
 
 const { t } = useTypedI18n();
-const settingsFormFieldUi = {
-    label: 'settings-field-label',
-    help: 'settings-field-hint mt-1',
-};
+const settingsControlUi = { label: 'settings-control-label' };
+const settingsFormFieldUi = { help: 'settings-field-hint mt-1' };
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settings-panel-shared';
-
 .settings-privacy-link {
     width: fit-content;
     color: var(--ui-primary);

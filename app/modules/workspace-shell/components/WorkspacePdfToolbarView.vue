@@ -143,6 +143,7 @@
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
                 :disabled="toolbarControlsDisabled"
+                :has-zoom="toolbarHasPdf && snapshot.totalPages > 0 && !isOpeningDocument"
                 :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
                 :compact-level="compactLevel"
                 @update:open="handleZoomDropdownOpenUpdate"

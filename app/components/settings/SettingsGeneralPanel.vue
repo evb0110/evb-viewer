@@ -22,6 +22,7 @@
                 id="settings-suppress-unencrypted-save-notice"
                 :model-value="settings.suppressUnencryptedSaveNotice === true"
                 :label="t('settings.suppressUnencryptedSaveNotice')"
+                :ui="settingsControlUi"
                 @update:model-value="emit('update:suppress-unencrypted-save-notice', $event === true)"
             />
             <p class="settings-field-hint">{{ t('settings.suppressUnencryptedSaveNoticeDescription') }}</p>
@@ -117,6 +118,7 @@ const settingsFormFieldUi = {
     label: 'settings-field-label',
     help: 'settings-field-hint mt-1',
 };
+const settingsControlUi = { label: 'settings-control-label' };
 const settingsRadioGroupUi = {
     fieldset: 'w-full',
     legend: 'settings-field-label',
@@ -179,8 +181,6 @@ function updateUiScale(value: TUiScalePreference) {
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settings-panel-shared';
-
 @container (max-width: 520px) {
     .settings-scale-options :deep([data-slot='item']) {
         flex-basis: calc(50% - var(--app-space-sm));

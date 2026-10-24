@@ -46,6 +46,7 @@
             :model-value="settings.rememberDocumentView"
             :label="t('settings.rememberDocumentView')"
             size="sm"
+            :ui="settingsControlUi"
             @update:model-value="emit('update:remember-document-view', $event)"
         />
 
@@ -95,6 +96,7 @@
                 :model-value="settings.optimizePdfOnSaveAs"
                 :label="t('settings.optimizePdfOnSaveAs')"
                 size="sm"
+                :ui="settingsControlUi"
                 @update:model-value="emit('update:optimize-pdf-on-save-as', $event)"
             />
         </UFormField>
@@ -135,13 +137,15 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
-const settingsFormFieldUi = { label: 'settings-field-label' };
+const settingsFormFieldUi = {
+    label: 'settings-field-label',
+    help: 'settings-field-hint mt-1',
+};
+const settingsControlUi = { label: 'settings-control-label' };
 
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settings-panel-shared';
-
 .settings-swatch {
     width: var(--app-space-16xl);
     height: var(--app-space-16xl);

@@ -304,7 +304,7 @@ const assistantSwitchUi = {
     root: 'settings-agent-switch-row',
     container: 'order-2',
     wrapper: 'order-1 ms-0',
-    label: 'settings-agent-switch-label',
+    label: 'settings-control-label',
 };
 type TSetupSnippetId = 'codex' | 'claude' | 'cursor';
 const copiedSetupSnippet = ref<TSetupSnippetId | null>(null);
@@ -533,8 +533,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settings-panel-shared';
-
 .settings-agent-card {
     display: flex;
     align-items: flex-start;
@@ -641,12 +639,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     gap: var(--app-space-5xl);
     flex-shrink: 0;
     cursor: pointer;
-}
-
-.settings-agent-switch-label {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body-sm);
-    font-weight: var(--app-font-weight-medium);
 }
 
 .settings-agent-details {

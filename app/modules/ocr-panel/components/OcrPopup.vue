@@ -965,18 +965,19 @@ function getLanguageModelStateIcon(state: string) {
     border-color: color-mix(in oklab, var(--ui-border) 60%, var(--ui-text-muted));
 }
 
+/* A selected chip is pressed in like every other choice (`.app-choice`). */
 :deep(.language-chip:has([data-state="checked"])) {
-    border-color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
+    border-color: var(--app-choice-selected-border);
+    background: var(--app-choice-selected-bg);
 }
 
 :deep(.language-chip:has([data-state="checked"]) .language-chip-label) {
-    color: var(--ui-primary);
+    color: var(--ui-text-highlighted);
 }
 
 :deep(.language-chip:has([data-state="checked"]) .chip-code) {
-    border-color: color-mix(in srgb, var(--ui-primary) 35%, transparent);
-    color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-text-muted));
+    border-color: var(--app-choice-selected-border);
+    color: var(--ui-text-muted);
 }
 
 :deep(.language-chip-label) {
@@ -1016,7 +1017,11 @@ function getLanguageModelStateIcon(state: string) {
     text-align: center;
 }
 
+/* The dialog keeps its configured height, so the running and finished states
+   sit in its middle rather than under the header with the space left below. */
 .ocr-progress-panel {
+    width: min(var(--app-content-width-sm), 100%);
+    margin: auto;
     padding: var(--app-space-9xl) 0;
 }
 
@@ -1027,6 +1032,7 @@ function getLanguageModelStateIcon(state: string) {
 }
 
 .ocr-results-panel {
+    margin-block: auto;
     padding: var(--app-space-9xl) 0;
     text-align: center;
 }
