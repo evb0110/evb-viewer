@@ -110,6 +110,14 @@ ellipsis but is not cut mid-glyph, and a resize sash is reachable while its pane
 is open. A smaller window is outside the supported contract until the runtime
 declares and enforces a minimum for it.
 
+**L5. A phone gets a phone layout.** Applies to the browser workspace on a touch
+screen whose viewport is narrower than 640 CSS px. The prerendered first paint
+already has the settled toolbar, tab bar and Start geometry: no control appears,
+moves or vanishes when the app starts. Each pane scrolls in one container; no
+list scrolls inside a page that also scrolls. A two-finger pinch zooms the
+document by the fingers' span ratio and never the page, whose visual viewport
+scale stays 1. Pulling past the top of a pane does not reload the app.
+
 ## Annotations
 
 **A1. Marks stay on their content.** Two observations: an annotation's position
