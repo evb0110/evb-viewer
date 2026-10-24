@@ -1,0 +1,19 @@
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_10b6fbc6b94ef3::t_af74ea67d0066d 291-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3dce4106f8a111c399cfe8ed905908ab3ed59f61",
+  "prompts": {},
+  "sessions": {
+    "s_10b6fbc6b94ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4adf5dc4-d1bb-4eae-8f5d-71fd76c60915",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
