@@ -47,6 +47,11 @@ interface IRenderCanvasOptions {
         base: IPdfLayerRenderResult;
     } | undefined;
     annotationInput?: IPdfAnnotationRenderInput | (() => Promise<IPdfAnnotationRenderInput>);
+    /**
+     * The committed raster of this page. When the cap leaves the new raster
+     * the same pixel size, it is these pixels, so they are reused unpainted.
+     */
+    reuseCanvasOf?: IPdfLayerRenderResult | undefined;
     maxCanvasPixels?: number;
     sourceMaxPixels?: number;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
@@ -147,11 +152,13 @@ export const usePdfCanvasRenderer = (deps: {
         const requestedPixelCount = requestedPixelWidth * requestedPixelHeight;
         const maxCanvasPixels = getMaxCanvasPixels(options);
         const shouldClampPixels = maxCanvasPixels !== null && requestedPixelCount > maxCanvasPixels;
+        // Clamping the unrounded size makes a clamped canvas depend only on
+        // the page shape and the cap, so zoom steps keep its pixel size.
         const pixelScaleFactor = shouldClampPixels
-            ? Math.sqrt(maxCanvasPixels / requestedPixelCount)
+            ? Math.sqrt(maxCanvasPixels / (cssWidth * cssHeight)) / currentOutputScale
             : 1;
-        let pixelWidth = Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor));
-        let pixelHeight = Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor));
+        let pixelWidth = shouldClampPixels ? Math.max(1, Math.round(cssWidth * currentOutputScale * pixelScaleFactor)) : requestedPixelWidth;
+        let pixelHeight = shouldClampPixels ? Math.max(1, Math.round(cssHeight * currentOutputScale * pixelScaleFactor)) : requestedPixelHeight;
         // Rounding both axes independently can overshoot a strict pixel budget
         // by one row or column. Correct the longer axis after rounding so the
         // granted canvas is mathematically guaranteed to remain within budget.
@@ -281,6 +288,35 @@ export const usePdfCanvasRenderer = (deps: {
         }
 
         if (!shouldContinueCanvasPreparation(options)) return null;
+        // The device transform is the canvas size over the page size, so equal
+        // clamped sizes paint the same pixels at any zoom.
+        const reusable = options?.reuseCanvasOf;
+        if (reusable && !region && !options.reserveSurface && pixelSize.wasClamped
+            && reusable.canvas.width === pixelSize.pixelWidth && reusable.canvas.height === pixelSize.pixelHeight) {
+            const reused: IPreparedCanvasRender = {
+                canvas: reusable.canvas,
+                viewport,
+                annotationCanvasMap: reusable.annotationCanvasMap,
+                annotationInput: reusable.annotationInput,
+                annotationOutput: reusable.annotationOutput,
+                additionalResourceBytes: 0,
+                paintsAnnotations: true,
+                scaleX: canvasScale.scaleX,
+                scaleY: canvasScale.scaleY,
+                rawDims,
+                requestedPixels: pixelSize.requestedPixels,
+                grantedPixels: pixelSize.grantedPixels,
+                pixelScaleFactor: pixelSize.pixelScaleFactor,
+                wasClamped: true,
+                userUnit,
+                totalScaleFactor: scale * userUnit,
+                startRender: () => ({
+                    cancel() {},
+                    promise: Promise.resolve(),
+                }),
+            };
+            return reused;
+        }
         const annotationOptions = await withPageStageTimeout(
             createAnnotationRenderOptions(pdfPage, options),
             {
@@ -425,6 +461,7 @@ export const usePdfCanvasRenderer = (deps: {
         canvas: HTMLCanvasElement,
         previousCanvas?: HTMLCanvasElement | null,
     ) {
+        if (previousCanvas === canvas && canvas.parentElement === canvasHost) return;
         if (previousCanvas?.parentElement === canvasHost) {
             previousCanvas.replaceWith(canvas);
         } else {

@@ -312,6 +312,98 @@ describe('usePdfCanvasRenderer', () => {
         expect(result).toMatchObject(expectedResult);
     });
 
+    describe('across zoom steps over the canvas cap', () => {
+        const a4AtZoom = (zoom: number) => ({
+            width: 595.28 * zoom,
+            height: 841.89 * zoom,
+            userUnit: 1,
+            rawDims: {
+                pageWidth: 595.28,
+                pageHeight: 841.89,
+            },
+        });
+        const renderOptions = {maxCanvasPixels: 2 ** 24};
+
+        it('keeps the clamped canvas size of the page shape and cap', async () => {
+            // Rounding the requested axes first gave a US Letter page 3601x4659
+            // at 600 % and 3600x4660 at 601 %.
+            const sizes = new Set<string>();
+            for (const zoom of [
+                6,
+                6.01,
+                6.06,
+                9.75,
+            ]) {
+                const {canvas} = await renderScenario({
+                    outputScale: 2,
+                    renderOptions,
+                    viewport: {
+                        width: 612 * zoom,
+                        height: 792 * zoom,
+                        userUnit: 1,
+                        rawDims: {
+                            pageWidth: 612,
+                            pageHeight: 792,
+                        },
+                    },
+                    zoom,
+                });
+                sizes.add(`${String(canvas.width)}x${String(canvas.height)}`);
+            }
+            expect([...sizes]).toEqual(['3601x4659']);
+        });
+
+        it('reuses the committed canvas unpainted when the clamped size is equal', async () => {
+            const {
+                pdfPage,
+                renderer,
+                result: committed,
+            } = await renderScenario({
+                outputScale: 2,
+                renderOptions,
+                viewport: a4AtZoom(9.75),
+                zoom: 9.75,
+            });
+            pdfPage.getViewport.mockReturnValue(a4AtZoom(10));
+            pdfPage.render.mockClear();
+            const prepared = await renderer.prepareCanvasRender(pdfPage as never, 10, {
+                ...renderOptions,
+                reuseCanvasOf: committed!,
+            });
+            await prepared?.startRender().promise;
+
+            expect(prepared?.canvas).toBe(committed?.canvas);
+            expect(pdfPage.render).not.toHaveBeenCalled();
+            expect(prepared).toMatchObject({
+                totalScaleFactor: 10,
+                wasClamped: true,
+                scaleX: 3444 / (595.28 * 10),
+            });
+        });
+
+        it('paints a new canvas when the page at the new zoom fits under the cap', async () => {
+            const {
+                pdfPage,
+                renderer,
+                result: committed,
+            } = await renderScenario({
+                outputScale: 2,
+                renderOptions,
+                viewport: a4AtZoom(9.75),
+                zoom: 9.75,
+            });
+            const {canvas} = installCanvasDocument();
+            pdfPage.getViewport.mockReturnValue(a4AtZoom(2));
+            const prepared = await renderer.prepareCanvasRender(pdfPage as never, 2, {
+                ...renderOptions,
+                reuseCanvasOf: committed!,
+            });
+
+            expect(prepared?.canvas).toBe(canvas);
+            expect(prepared?.canvas).not.toBe(committed?.canvas);
+        });
+    });
+
     it('uses the latest reactive output scale for future canvas sizing', async () => {
         const outputScale = ref(1);
         const { canvas } = installCanvasDocument();
