@@ -97,6 +97,7 @@ export interface IPdfAnnotation {
     readonly subtype?: string;
     readonly hasAppearance?: boolean;
     readonly hasOwnCanvas?: boolean;
+    readonly annotationFlags?: number;
 }
 
 export interface IPdfRenderTask {

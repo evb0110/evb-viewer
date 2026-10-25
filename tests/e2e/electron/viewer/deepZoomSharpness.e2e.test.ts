@@ -37,6 +37,9 @@ const PAGE_WIDTH_PT = 842;
 const PAGE_HEIGHT_PT = 1191;
 const GRATING_MARGIN_PT = 40;
 const TARGET_ZOOM_PERCENT = 1000;
+// One toolbar zoom step below the target and also far over the cap. The page
+// width there is not a whole number of pixels.
+const STEP_FROM_ZOOM_PERCENT = 975;
 
 interface IMeasureRegion {
     left: number;
@@ -79,9 +82,11 @@ async function zoomToPercentAsUser(page: Page, percent: number) {
     });
     await page.waitForSelector('.zoom-chip-custom-input', {visible: true});
     await clickAsUser(page, '.zoom-chip-custom-input');
-    await page.keyboard.down('ControlLeft');
+    // Control+A moves the caret to the line start on macOS.
+    const selectAllModifier = process.platform === 'darwin' ? 'MetaLeft' : 'ControlLeft';
+    await page.keyboard.down(selectAllModifier);
     await page.keyboard.press('KeyA');
-    await page.keyboard.up('ControlLeft');
+    await page.keyboard.up(selectAllModifier);
     await page.keyboard.type(String(percent));
     await page.keyboard.press('Enter');
     await page.waitForFunction(
@@ -91,12 +96,28 @@ async function zoomToPercentAsUser(page: Page, percent: number) {
     );
 }
 
-async function waitForSettledPage(page: Page) {
-    await page.waitForFunction(() => {
+async function zoomInOneStepAsUser(page: Page, expectedPercent: number) {
+    await clickAsUser(page, {
+        find: () => Array.from(document.querySelectorAll<HTMLButtonElement>('.zoom-controls-item--display + .zoom-controls-item button'))
+            .find(candidate => candidate.getBoundingClientRect().width > 0 && !candidate.disabled),
+        arg: null,
+        description: 'visible zoom-in button',
+    });
+    await page.waitForFunction(
+        (expected: string) => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === expected,
+        {timeout: SETTLE_TIMEOUT_MS},
+        `${String(expectedPercent)}%`,
+    );
+}
+
+async function waitForSettledPage(page: Page, percent = TARGET_ZOOM_PERCENT) {
+    await page.waitForFunction((cssWidth: number) => {
         const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+        const surface = container?.querySelector<HTMLElement>('.page_canvas');
         return container?.classList.contains('page_container--rendered') === true
-            && container.dataset.pageRaster === 'current';
-    }, {timeout: SETTLE_TIMEOUT_MS});
+            && container.dataset.pageRaster === 'current'
+            && Math.abs((surface?.getBoundingClientRect().width ?? 0) - cssWidth) < 1;
+    }, {timeout: SETTLE_TIMEOUT_MS}, PAGE_WIDTH_PT * percent / 100);
 }
 
 /** The part of the grating inside the viewer, inset so no edge pixel counts. */
@@ -133,11 +154,13 @@ async function readGratingRegion(page: Page): Promise<IMeasureRegion & {baseDens
 async function waitForDetailCanvasCovering(page: Page, region: IMeasureRegion) {
     // Readiness tracks only the page raster, and the constrained policy holds
     // detail work for an input-idle window, so wait for the detail canvas
-    // itself. Without one the wait ends and the pixels decide.
+    // itself. Without one the wait ends and the pixels decide. A detail
+    // stretched from an earlier zoom does not count.
     await page.waitForFunction((target: IMeasureRegion) => {
         const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__detail-layer > canvas');
         const rect = canvas?.getBoundingClientRect();
         return Boolean(canvas?.isConnected && rect
+            && canvas.width >= 0.95 * rect.width * window.devicePixelRatio
             && rect.left <= target.left && rect.top <= target.top
             && rect.right >= target.left + target.width && rect.bottom >= target.top + target.height);
     }, {timeout: DETAIL_WAIT_MS}, region).catch(() => undefined);
@@ -205,6 +228,45 @@ describe('Electron E2E - deep zoom sharpness', () => {
         // Each bar spans two device pixels, so a resolved grating has at least
         // a quarter of its pixels near black and near white at any alignment.
         expect(region.baseDensity).toBeLessThan(0.6);
+        expect(shares.darkShare).toBeGreaterThan(0.2);
+        expect(shares.lightShare).toBeGreaterThan(0.2);
+    }, E2E_TIMEOUT_MS);
+
+    it('keeps the capped page raster across a zoom step and repaints only the detail', async () => {
+        session = await startConfiguredElectronE2ESession(`e2e-deep-zoom-step-${Date.now()}`, 'low');
+        const {page} = session;
+        const devicePixelRatio = await page.evaluate(() => window.devicePixelRatio);
+        await openPdfInApp(page, await createBarGratingPdf(devicePixelRatio));
+        await waitForViewerInteractive(page);
+        await zoomToPercentAsUser(page, STEP_FROM_ZOOM_PERCENT);
+        await waitForSettledPage(page, STEP_FROM_ZOOM_PERCENT);
+        await waitForDetailCanvasCovering(page, await readGratingRegion(page));
+        const pageCanvas = await page.evaluateHandle(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__render-layer > canvas');
+            if (!canvas) throw new Error('Page 1 canvas was not found');
+            return canvas;
+        });
+        const before = await pageCanvas.evaluate(canvas => `${String(canvas.width)}x${String(canvas.height)}`);
+
+        await zoomInOneStepAsUser(page, TARGET_ZOOM_PERCENT);
+        await waitForSettledPage(page);
+        const region = await readGratingRegion(page);
+        await waitForDetailCanvasCovering(page, region);
+        const after = await pageCanvas.evaluate(canvas => ({
+            kept: canvas === document.querySelector('.page_container[data-page="1"] .page_canvas__render-layer > canvas'),
+            size: `${String(canvas.width)}x${String(canvas.height)}`,
+        }));
+
+        const evidenceDir = resolve('.devkit/deep-zoom-sharpness', session.name);
+        await mkdir(evidenceDir, {recursive: true});
+        const evidencePath = join(evidenceDir, 'deep-zoom-step-1000.png');
+        const shares = await measureResolvedBarShare(page, region, evidencePath);
+        console.info(`[deep-zoom-step] before=${String(before)} after=${String(after.size)} kept=${String(after.kept)} darkShare=${shares.darkShare.toFixed(3)} lightShare=${shares.lightShare.toFixed(3)} evidence=${evidencePath}`);
+        // Both zoom levels ask for far more than the cap, so a new page raster
+        // would paint the same pixels at the same size.
+        expect(region.baseDensity).toBeLessThan(0.6);
+        expect(after.size).toBe(before);
+        expect(after.kept).toBe(true);
         expect(shares.darkShare).toBeGreaterThan(0.2);
         expect(shares.lightShare).toBeGreaterThan(0.2);
     }, E2E_TIMEOUT_MS);

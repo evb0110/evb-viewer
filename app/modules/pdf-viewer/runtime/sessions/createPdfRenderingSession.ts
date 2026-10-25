@@ -45,6 +45,10 @@ import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/l
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
 import { createPdfDetailRaster } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDetailRaster';
+import { getParsedPageAnnotations } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
+import type { IPdfPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { resolvePdfRasterJobPages } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfRasterJobPages';
 import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfPageTextLayerReadyWaiter } from '@app/modules/pdf-viewer/runtime/sessions/createPdfPageTextLayerReadyWaiter';
@@ -61,6 +65,7 @@ import type {
     TPdfPageRasterState,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportRasterJob';
 const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
+const PDF_ANNOTATION_FLAG_NO_ZOOM = 0x08;
 const singlePageRange = (pageNumber: number) => ({
     start: pageNumber,
     end: pageNumber,
@@ -180,6 +185,36 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         return isPagePainted(pageNumber) && pageRenderer.isAnnotationInputCurrent(pageNumber, slot.committedRender?.annotationInput)
             && slot.documentToken === getRenderDocumentToken() && slot.contentVersion === renderVersion && isRasterTargetCurrent(slot);
     }
+    // A committed raster that a raster of the same page at another zoom may
+    // reuse unpainted, when its content is unchanged. The canvas renderer
+    // reuses it only when the cap leaves the pixel size equal.
+    async function resolveReusableCommittedRender(job: IViewportRasterJob, page: IPdfPage, signal: AbortSignal, shouldContinue: () => boolean) {
+        const pageNumber = job.demand.pageNumber;
+        const slot = pageRenderState.getSlot(pageNumber);
+        const render = slot.committedRender;
+        const quality = slot.committedRasterQuality;
+        const intent = job.renderOptions.contentIntent;
+        if (
+            !render || quality?.intent !== 'settled' || !quality.wasClamped || !quality.paintsAnnotations
+            || intent !== undefined && intent !== 'full-visible'
+            || job.renderOptions.annotationCommit || job.renderOptions.forceRerender === true
+            || render.annotationOutput?.ownCanvases.length !== 0 || render.annotationInput?.nativeAnnotationAppearance
+            || rotationPreviewCanvases.has(pageNumber) || isAwaitingRotationRevision(pageNumber)
+            || !isPagePainted(pageNumber) || slot.documentToken !== getRenderDocumentToken()
+            || slot.contentVersion !== job.demand.consumerGeneration
+            || slot.targetViewRotation !== job.targetViewRotation
+            || slot.targetOutputScale === null || !isRasterScaleCurrent(job.targetOutputScale, slot.targetOutputScale)
+            || !pageRenderer.isAnnotationInputCurrent(pageNumber, render.annotationInput)
+        ) return null;
+        // A NoZoom appearance (ISO 32000-1, table 165) keeps its size on screen,
+        // so its pixels differ at every zoom.
+        const annotations = await withPageStageTimeout(getParsedPageAnnotations(page), {
+            pageNumber,
+            stage: 'canvas-prepare',
+            timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+        }, shouldContinue, undefined, payload => handlePageRenderStall(payload), undefined, signal).catch(() => null);
+        return annotations?.every(annotation => ((annotation.annotationFlags ?? 0) & PDF_ANNOTATION_FLAG_NO_ZOOM) === 0) ? render : null;
+    }
     function getPageRasterState(pageNumber: TPageNumber): TPdfPageRasterState {
         const pendingJob = [...viewportRasterJobs.values()].find(job => (
             job.demand.pageNumber === pageNumber
@@ -203,7 +238,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         );
     }
     function isPreparedRasterCurrent(prepared: IPreparedViewportRaster) {
+        const pageNumber = prepared.job.demand.pageNumber;
+        const committedRender = pageRenderState.getSlot(pageNumber).committedRender;
         return !prepared.signal.aborted && viewportRasterJobs.get(prepared.job.demand.renderKey) === prepared.job
+            // A reused canvas must still be that raster, unturned by a rotation preview.
+            && (!prepared.reusedRender || (committedRender === prepared.reusedRender || committedRender === prepared.render)
+                && !rotationPreviewCanvases.has(pageNumber) && !isAwaitingRotationRevision(pageNumber))
             && isRasterTargetCurrent(prepared.job)
             && prepared.job.demand.consumerGeneration === renderVersion
             && documentSession.pdfDocument.value !== null
@@ -261,8 +301,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 width: metric.width * job.targetScale,
                 height: metric.height * job.targetScale,
             }, job.targetViewRotation);
+            const reusable = await resolveReusableCommittedRender(job, page, signal, shouldContinue);
             const render = await canvasRenderer.prepareCanvasRender(page, job.targetScale, {
                 ...job.renderOptions,
+                ...(reusable ? {reuseCanvasOf: reusable} : {}),
                 ...(job.renderOptions.annotationCommit ? {annotationInput: () => job.renderOptions.annotationCommit!.prepare(page, captureSettlement, signal, reserveAppearanceBytes)} : {}),
                 hiddenAnnotationIds: () => pageRenderer.canvasHiddenAnnotationIds.value,
                 ...(sourceMaxPixels === null ? {} : {sourceMaxPixels}),
@@ -277,8 +319,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     reserveAppearanceBytes,
                 },
             });
+            // A reused render owns nothing until it commits.
+            const reusedRender = reusable && render?.canvas === reusable.canvas ? reusable : undefined;
             if (!render || !shouldContinue()) {
-                if (render) canvasRenderer.cleanupCanvasRenderResult(render);
+                if (render && !reusedRender) canvasRenderer.cleanupCanvasRenderResult(render);
                 pageRenderState.completeRender(demand.pageNumber, demand.consumerGeneration, job.requestId);
                 return null;
             }
@@ -288,6 +332,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 ...target,
                 signal,
                 render,
+                reusedRender,
             };
         },
         start: prepared => prepared.render.startRender(),
@@ -375,7 +420,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         discard(prepared) {
             const pageNumber = prepared.job.demand.pageNumber;
             if (pageRenderState.getSlot(pageNumber).committedRender === prepared.render) return;
-            canvasRenderer.cleanupCanvasRenderResult(prepared.render);
+            if (!prepared.reusedRender) canvasRenderer.cleanupCanvasRenderResult(prepared.render);
             const generation = prepared.job.demand.consumerGeneration;
             if (!isPreparedRasterCurrent(prepared)) pageRenderState.completeRender(pageNumber, generation, prepared.job.requestId);
         },
@@ -910,7 +955,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
             rasterDemandPages: rasterPages,
             ...(repairPages.length ? {
-                forceRerender: true,
                 retainOnlyCurrentResidentRaster: true,
                 renderWindowOverride: rasterRange,
             } : {}),
