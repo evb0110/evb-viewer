@@ -47,6 +47,8 @@ import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtim
 import { createPdfDetailRaster } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDetailRaster';
 import { getParsedPageAnnotations } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import type { IPdfPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { resolvePdfRasterJobPages } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfRasterJobPages';
 import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfPageTextLayerReadyWaiter } from '@app/modules/pdf-viewer/runtime/sessions/createPdfPageTextLayerReadyWaiter';
@@ -186,7 +188,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     // A committed raster that a raster of the same page at another zoom may
     // reuse unpainted, when its content is unchanged. The canvas renderer
     // reuses it only when the cap leaves the pixel size equal.
-    async function resolveReusableCommittedRender(job: IViewportRasterJob, page: IPdfPage) {
+    async function resolveReusableCommittedRender(job: IViewportRasterJob, page: IPdfPage, signal: AbortSignal, shouldContinue: () => boolean) {
         const pageNumber = job.demand.pageNumber;
         const slot = pageRenderState.getSlot(pageNumber);
         const render = slot.committedRender;
@@ -206,7 +208,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         ) return null;
         // A NoZoom appearance (ISO 32000-1, table 165) keeps its size on screen,
         // so its pixels differ at every zoom.
-        const annotations = await getParsedPageAnnotations(page).catch(() => null);
+        const annotations = await withPageStageTimeout(getParsedPageAnnotations(page), {
+            pageNumber,
+            stage: 'canvas-prepare',
+            timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+        }, shouldContinue, undefined, payload => handlePageRenderStall(payload), undefined, signal).catch(() => null);
         return annotations?.every(annotation => ((annotation.annotationFlags ?? 0) & PDF_ANNOTATION_FLAG_NO_ZOOM) === 0) ? render : null;
     }
     function getPageRasterState(pageNumber: TPageNumber): TPdfPageRasterState {
@@ -295,7 +301,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 width: metric.width * job.targetScale,
                 height: metric.height * job.targetScale,
             }, job.targetViewRotation);
-            const reusable = await resolveReusableCommittedRender(job, page);
+            const reusable = await resolveReusableCommittedRender(job, page, signal, shouldContinue);
             const render = await canvasRenderer.prepareCanvasRender(page, job.targetScale, {
                 ...job.renderOptions,
                 ...(reusable ? {reuseCanvasOf: reusable} : {}),
