@@ -150,7 +150,6 @@ describe('assistant tool contract invariants', () => {
                     pattern: '\\S',
                 }},
                 required: [key],
-                additionalProperties: true,
             }))}])});
             expect(() => validateMcpToolArguments(name, {id: 'annotation.open_note'}))
                 .toThrow(/advertised schema.*non-blank/u);
