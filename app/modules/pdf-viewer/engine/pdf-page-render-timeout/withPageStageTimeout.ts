@@ -38,6 +38,11 @@ function logPageStageDeadlineCallbackFailure(
  * A render stage fails when it makes no progress for `payload.timeoutMs`.
  * `refresh` restarts that window, so a slow page that keeps drawing is not a
  * stall; a stage that never reports progress still fails once.
+ *
+ * A minimized or occluded window gets no animation frames, and pdf.js draws
+ * every slice of a page in one, so a hidden document cannot progress. A
+ * deadline never fires while hidden and starts a full window when the
+ * document is shown again.
  */
 export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
     let rejectDeadline!: (error: unknown) => void;
@@ -45,6 +50,13 @@ export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
         rejectDeadline = reject;
     });
     let fired = false;
+    const restartWhenShown = () => {
+        if (!fired && document.visibilityState !== 'hidden') {
+            timer = arm();
+        }
+    };
+    globalThis.document?.addEventListener('visibilitychange', restartWhenShown);
+    const stopWatchingVisibility = () => globalThis.document?.removeEventListener('visibilitychange', restartWhenShown);
     const arm = () => options.renderSupervisor.armTimer({
         cause: 'page-stage-timeout',
         delayMs: options.payload.timeoutMs,
@@ -56,7 +68,11 @@ export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
             timeoutMs: options.payload.timeoutMs,
         },
         onFire: () => {
+            if (globalThis.document?.visibilityState === 'hidden') {
+                return;
+            }
             fired = true;
+            stopWatchingVisibility();
             rejectDeadline(createPageRenderTimeoutError(
                 options.payload.pageNumber,
                 options.payload.stage,
@@ -78,7 +94,10 @@ export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
     });
     let timer = arm();
     return {
-        clear: () => timer.clear(),
+        clear: () => {
+            stopWatchingVisibility();
+            timer.clear();
+        },
         refresh: () => {
             if (!fired && timer.isCurrent()) {
                 timer = arm();

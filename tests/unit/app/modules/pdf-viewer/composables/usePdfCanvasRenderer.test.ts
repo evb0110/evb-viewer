@@ -41,7 +41,10 @@ function createCanvas() {
 
 function installCanvasDocument(canvas = createCanvas()) {
     const createElement = vi.fn(() => canvas);
-    (globalThis as Record<string, unknown>).document = { createElement };
+    (globalThis as Record<string, unknown>).document = Object.assign(new EventTarget(), {
+        createElement,
+        visibilityState: 'visible',
+    });
     return {
         canvas,
         createElement,

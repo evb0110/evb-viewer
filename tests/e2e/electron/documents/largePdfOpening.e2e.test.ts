@@ -190,6 +190,52 @@ async function readPaintedPage(page: Page, pageNumber: number) {
     }, pageNumber);
 }
 
+interface IHiddenRendererWindow extends Window {__evbShowRenderer?: () => void;}
+
+/** A minimized or occluded window reports itself hidden and gets no animation
+ * frames until it is shown, which then runs the held callbacks. Hidden
+ * automation windows never throttle, so the page is given that state here. */
+function hideRendererLikeAWindowOutOfSight(page: Page) {
+    return evaluateInPage(page, () => {
+        const requestFrame = window.requestAnimationFrame.bind(window);
+        const cancelFrame = window.cancelAnimationFrame.bind(window);
+        const held = new Map<number, FrameRequestCallback>();
+        const shown = new Map<number, number>();
+        let nextHeldId = 1_000_000_000;
+        window.requestAnimationFrame = (callback) => {
+            nextHeldId += 1;
+            held.set(nextHeldId, callback);
+            return nextHeldId;
+        };
+        window.cancelAnimationFrame = (id) => {
+            held.delete(id);
+            cancelFrame(shown.get(id) ?? id);
+        };
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'hidden',
+        });
+        Object.defineProperty(document, 'hidden', {
+            configurable: true,
+            get: () => true,
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        (window as IHiddenRendererWindow).__evbShowRenderer = () => {
+            Reflect.deleteProperty(document, 'visibilityState');
+            Reflect.deleteProperty(document, 'hidden');
+            window.requestAnimationFrame = requestFrame;
+            document.dispatchEvent(new Event('visibilitychange'));
+            for (const [
+                id,
+                callback,
+            ] of held) {
+                shown.set(id, requestFrame(callback));
+            }
+            held.clear();
+        };
+    });
+}
+
 describe('Electron E2E - large object-dense PDF opening', () => {
     it('keeps a 21601-page PDF responsive and its toolbar accurate after scrollbar drags and wheel scrolling', async () => {
         const artifacts = join(outputDirectory, 'segmented-scroll');
@@ -670,4 +716,61 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             await session.stop({preserveArtifacts: true});
         }
     }, 8 * 60_000);
+
+    it('paints the opening page once a window hidden while it opened is shown again', async () => {
+        const artifacts = join(outputDirectory, 'hidden-window');
+        mkdirSync(artifacts, {recursive: true});
+        const scratch = mkdtempSync(join(tmpdir(), 'evb-hidden-open-'));
+        onTestFinished(() => rmSync(scratch, {
+            recursive: true,
+            force: true,
+        }));
+        const fixturePath = configuredFixture ? resolve(configuredFixture) : createStructureDensePdf(scratch);
+        const session = await startElectronE2ESession(`e2e-large-pdf-hidden-open-${Date.now()}`, {extraEnv: {
+            EVB_E2E_OPEN_DIALOG_PATH: fixturePath,
+            EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2',
+        }});
+        const logPath = join(electronFileLogDir(session.name), 'app.ndjson');
+        const readLog = () => existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
+        const logStart = readLog().length;
+        const telemetry: Record<string, unknown> = {
+            fixturePath,
+            sessionName: session.name,
+        };
+        try {
+            await session.page.waitForSelector('.editor-pane.is-active .start-open-panel .open-panel-cta', {visible: true});
+            await clickAsUser(session.page, '.editor-pane.is-active .start-open-panel .open-panel-cta');
+            // The person switches to another window while the file opens and
+            // stays away longer than four of the 15-second render watchdogs.
+            await hideRendererLikeAWindowOutOfSight(session.page);
+            expect(await readPaintedPage(session.page, 1), 'page 1 is still to be drawn when the window hides').toBeNull();
+            await delay(90_000);
+            expect(await readPaintedPage(session.page, 1), 'a hidden window draws nothing').toBeNull();
+            const renderFailures = readLog().slice(logStart).split('\n')
+                .filter(line => /made no progress|Failed to render canvas/u.test(line));
+            telemetry.renderFailuresWhileHidden = renderFailures;
+            await evaluateInPage(session.page, () => (window as IHiddenRendererWindow).__evbShowRenderer?.());
+            // L2: the page in view paints once the window is visible.
+            await expect.poll(() => readPaintedPage(session.page, 1), {timeout: 15_000}).not.toBeNull();
+            await session.page.screenshot({path: join(artifacts, 'page-1-after-show.png')});
+            for (const pageNumber of [
+                2,
+                3,
+            ]) {
+                await goToPageViaToolbar(session.page, pageNumber);
+                await expect.poll(() => readPaintedPage(session.page, pageNumber), {timeout: 10_000}).not.toBeNull();
+                expect.soft((await readToolbarPageIndicator(session.page)).renderedPage).toBe(pageNumber);
+            }
+            expect.soft(renderFailures, 'a hidden window is never reported as a stalled render').toEqual([]);
+        } catch (error) {
+            telemetry.error = String(error);
+            await session.captureFailureArtifacts('large-pdf-hidden-open');
+            throw error;
+        } finally {
+            writeFileSync(join(artifacts, 'result.json'), `${JSON.stringify(telemetry, null, 2)}\n`);
+            writeFileSync(join(artifacts, 'app.ndjson'), readLog().slice(logStart));
+            await session.browser.disconnect();
+            await session.stop({preserveArtifacts: true});
+        }
+    }, 4 * 60_000);
 });
