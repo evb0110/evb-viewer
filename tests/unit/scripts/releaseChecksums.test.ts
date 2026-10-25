@@ -22,12 +22,13 @@ import {
     validateReleaseAssetNames,
     verifyReleaseChecksums,
 } from '@scripts/release/release-checksums.mjs';
+import {createTestTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 const sha256 = (contents: string) => createHash('sha256').update(contents).digest('hex');
 
 describe('release checksum manifest', () => {
     it('generates deterministic checksums for the exact release asset set and verifies them', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-'));
+        const directory = await createTestTemporaryDirectory('evb-release-checksums-');
         await writeFile(join(directory, 'z archive.zip'), 'zip');
         await writeFile(join(directory, 'EVB Viewer.exe'), 'exe');
 
@@ -49,7 +50,7 @@ describe('release checksum manifest', () => {
     });
 
     it('rejects changed bytes and both missing and unlisted release assets', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-tamper-'));
+        const directory = await createTestTemporaryDirectory('evb-release-checksums-tamper-');
         await writeFile(join(directory, 'asset.zip'), 'original');
         await generateReleaseChecksums(directory);
         await writeFile(join(directory, 'asset.zip'), 'tampered');
@@ -74,7 +75,7 @@ describe('release checksum manifest', () => {
     });
 
     it('includes every target asset in the immutable checksum manifest', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-matrix-'));
+        const directory = await createTestTemporaryDirectory('evb-release-checksums-matrix-');
         await writeFile(join(directory, 'asset.zip'), 'core');
         await generateReleaseChecksums(directory);
         await writeFile(join(directory, 'EVB-Viewer-0.1.427-arm64-setup.exe'), 'windows-arm');
@@ -124,7 +125,7 @@ describe('release checksum manifest', () => {
     });
 
     it('propagates regular-file basename policy through checksum generation', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-unsafe-name-'));
+        const directory = await createTestTemporaryDirectory('evb-release-checksums-unsafe-name-');
         await writeFile(join(directory, 'asset.zip '), 'asset');
 
         await expect(generateReleaseChecksums(directory)).rejects.toThrow(
@@ -133,14 +134,14 @@ describe('release checksum manifest', () => {
     });
 
     it('rejects non-regular entries in real artifact directories', async () => {
-        const nestedDirectory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-nested-'));
+        const nestedDirectory = await createTestTemporaryDirectory('evb-release-checksums-nested-');
         await writeFile(join(nestedDirectory, 'asset.zip'), 'asset');
         await mkdir(join(nestedDirectory, 'nested '));
         await expect(generateReleaseChecksums(nestedDirectory)).rejects.toThrow(
             'Release artifact must be a regular file: "nested "',
         );
 
-        const linkedDirectory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-link-'));
+        const linkedDirectory = await createTestTemporaryDirectory('evb-release-checksums-link-');
         await writeFile(join(linkedDirectory, 'asset.zip'), 'asset');
         await symlink(join(linkedDirectory, 'asset.zip'), join(linkedDirectory, 'linked.zip '));
         await expect(generateReleaseChecksums(linkedDirectory)).rejects.toThrow(

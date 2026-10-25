@@ -47,6 +47,15 @@ import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantCh
 vi.mock('fs/promises', {spy: true});
 
 const tempRoots: string[] = [];
+const persistences: AssistantChatPersistence[] = [];
+
+/** Persistence debounces its writes; each one is flushed before its root is removed. */
+class FlushedAssistantChatPersistence extends AssistantChatPersistence {
+    constructor(...args: ConstructorParameters<typeof AssistantChatPersistence>) {
+        super(...args);
+        persistences.push(this);
+    }
+}
 
 const scope = {
     kind: 'document',
@@ -70,7 +79,7 @@ function createTempRoot() {
 }
 
 function createPersistence(rootDir = createTempRoot(), options: Partial<ConstructorParameters<typeof AssistantChatPersistence>[0]> = {}) {
-    return new AssistantChatPersistence({
+    return new FlushedAssistantChatPersistence({
         rootDir,
         maxSessionBytes: 64 * 1024,
         maxSessions: 16,
@@ -104,14 +113,18 @@ function directoryFileBytes(directory: string) {
         .reduce((total, entry) => total + statSync(join(directory, entry.name)).size, 0);
 }
 
-afterEach(() => {
-    for (const root of tempRoots.splice(0)) {
-        rmSync(root, {
-            recursive: true,
-            force: true,
-            maxRetries: 5,
-            retryDelay: 20,
-        });
+afterEach(async () => {
+    try {
+        await Promise.all(persistences.splice(0).map(persistence => persistence.flush()));
+    } finally {
+        for (const root of tempRoots.splice(0)) {
+            rmSync(root, {
+                recursive: true,
+                force: true,
+                maxRetries: 5,
+                retryDelay: 20,
+            });
+        }
     }
 });
 
@@ -157,7 +170,7 @@ describe('assistant chat session store persistence', () => {
         3,
     ])('retains a prompt with %i accepted large images through the answer and restart', async (imageCount) => {
         const rootDir = createTempRoot();
-        const persistence = new AssistantChatPersistence({rootDir});
+        const persistence = new FlushedAssistantChatPersistence({rootDir});
         const store = createAssistantChatSessionStore({persistence});
         await store.ready;
         const session = store.getSession(scope, selection, {create: true});
@@ -194,7 +207,7 @@ describe('assistant chat session store persistence', () => {
         const transcriptPath = persistence.sessionPath(store.keyForSession(session));
         expect(readFileSync(transcriptPath, 'utf8')).toContain('session-snapshot-ref');
         expect(statSync(transcriptPath).size).toBeLessThanOrEqual(persistence.getMaxSessionBytes());
-        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        const restarted = createAssistantChatSessionStore({persistence: new FlushedAssistantChatPersistence({rootDir})});
         await restarted.ready;
         expect(restarted.getMessages(scope, selection)).toEqual(store.getMessages(scope, selection));
     });
@@ -492,7 +505,7 @@ describe('assistant chat session store persistence', () => {
         }
         expect(defaultStore.listSessions()).toHaveLength(32);
         const rootDir = createTempRoot();
-        const persistence = new AssistantChatPersistence({rootDir});
+        const persistence = new FlushedAssistantChatPersistence({rootDir});
         const store = createAssistantChatSessionStore({
             persistence,
             maxEntries: 2,
@@ -542,7 +555,7 @@ describe('assistant chat session store persistence', () => {
         await store.flushPersistenceForTests();
 
         const restarted = createAssistantChatSessionStore({
-            persistence: new AssistantChatPersistence({rootDir}),
+            persistence: new FlushedAssistantChatPersistence({rootDir}),
             maxEntries: 2,
         });
         const cold = await restarted.loadSession(requestedScope, selection, {create: true});

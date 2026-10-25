@@ -1,10 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
-    mkdtemp,
     mkdir,
     writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
     AbortMultipartUploadCommand,
@@ -38,6 +36,7 @@ import {
     resolveMirrorPaths,
     versionParts,
 } from '@scripts/release/publish-release-mirror.mjs';
+import {createTestTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 function hasConfigProvider(value: unknown): value is {configProvider: Promise<Record<string, unknown>>} {
     return typeof value === 'object' && value !== null && 'configProvider' in value;
@@ -98,7 +97,7 @@ describe('release mirror publisher', () => {
     });
 
     it('publishes a drill tag only into its configured isolated channel', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-drill-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-drill-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'drill');
         const drillEnvironment = {
             ...environment,
@@ -211,7 +210,7 @@ describe('release mirror publisher', () => {
             client,
             putBodies,
             publish: async () => {
-                const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-retry-'));
+                const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-retry-');
                 await writeFile(join(artifactDirectory, 'asset.zip'), 'drill');
                 return await publishReleaseMirror({
                     artifactDirectory,
@@ -391,7 +390,7 @@ describe('release mirror publisher', () => {
             openUploads,
             stored,
             publish: async (artifact: Buffer, partBytes: number) => {
-                const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-multipart-'));
+                const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-multipart-');
                 await writeFile(join(artifactDirectory, 'asset.zip'), artifact);
                 return await publishReleaseMirror({
                     artifactDirectory,
@@ -603,7 +602,7 @@ describe('release mirror publisher', () => {
     });
 
     it('uploads verified artifacts and JSON pointers before pruning stale releases', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-');
         await writeFile(join(artifactDirectory, 'EVB Viewer.exe'), 'windows');
         await writeFile(join(artifactDirectory, 'latest.yml'), 'version: 1');
         await writeFile(join(artifactDirectory, '.ignored'), 'hidden');
@@ -699,7 +698,7 @@ describe('release mirror publisher', () => {
     });
 
     it('stages immutable release objects without publishing the stable channel', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-stage-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-stage-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'staged');
         const puts: PutObjectCommand[] = [];
         const stored = new Map<string, {
@@ -753,7 +752,7 @@ describe('release mirror publisher', () => {
     });
 
     it('keeps same-tag mirror repair byte-identical with Windows ARM64 in the core set', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-repair-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-repair-');
         await writeFile(join(artifactDirectory, 'core.zip'), 'core');
         const stored = new Map<string, {
             bytes: Buffer;
@@ -820,7 +819,7 @@ describe('release mirror publisher', () => {
     });
 
     it('completes an interrupted same-tag mirror from the same bytes without re-uploading finished objects', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-resume-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-resume-');
         await writeFile(join(artifactDirectory, 'core.zip'), 'core');
         await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-x64-setup.exe'), 'installer');
         await writeFile(join(artifactDirectory, 'SHA256SUMS'), 'checksums');
@@ -906,7 +905,7 @@ describe('release mirror publisher', () => {
             .rejects.toThrow('Invalid release tag');
         expect(() => requireEnvironment({}, 'MIRROR_S3_BUCKET')).toThrow('Missing required environment variable');
 
-        const emptyDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-empty-'));
+        const emptyDirectory = await createTestTemporaryDirectory('evb-mirror-empty-');
         await writeFile(join(emptyDirectory, '.ignored'), 'hidden');
         await expect(publishReleaseMirror({
             artifactDirectory: emptyDirectory,
@@ -916,7 +915,7 @@ describe('release mirror publisher', () => {
         }))
             .rejects.toThrow('No release artifacts');
 
-        const directoryOnly = await mkdtemp(join(tmpdir(), 'evb-mirror-directory-'));
+        const directoryOnly = await createTestTemporaryDirectory('evb-mirror-directory-');
         await mkdir(join(directoryOnly, 'nested'));
         await expect(publishReleaseMirror({
             artifactDirectory: directoryOnly,
@@ -926,7 +925,7 @@ describe('release mirror publisher', () => {
         }))
             .rejects.toThrow('No regular release artifact files');
 
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-invalid-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-invalid-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'zip');
         const client = {send: vi.fn(async (command: unknown) => {
             if (command instanceof HeadObjectCommand) {
@@ -950,7 +949,7 @@ describe('release mirror publisher', () => {
     });
 
     it('refuses to overwrite an immutable tagged asset or manifest', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-immutable-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-immutable-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'new bytes');
         const puts: PutObjectCommand[] = [];
         const client = {send: vi.fn(async (command: unknown) => {
@@ -981,7 +980,7 @@ describe('release mirror publisher', () => {
     });
 
     it('rejects an existing object whose trusted-looking metadata hides different bytes', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-forged-metadata-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-forged-metadata-');
         const artifact = Buffer.from('intended bytes');
         await writeFile(join(artifactDirectory, 'asset.zip'), artifact);
         const sha256 = createHash('sha256').update(artifact).digest('hex');
@@ -1029,7 +1028,7 @@ describe('release mirror publisher', () => {
         racingBytes,
         shouldAccept,
     ) => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-race-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-race-');
         const intendedBytes = Buffer.from('release bytes');
         await writeFile(join(artifactDirectory, 'asset.zip'), intendedBytes);
         const stored = new Map<string, Buffer>();
@@ -1085,7 +1084,7 @@ describe('release mirror publisher', () => {
     });
 
     it('refuses to move the stable channel backward', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-downgrade-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-downgrade-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
         const puts: PutObjectCommand[] = [];
         const stored = new Map<string, {
@@ -1130,7 +1129,7 @@ describe('release mirror publisher', () => {
     });
 
     it('uses the stable channel ETag and rejects a concurrent downgrade race', async () => {
-        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-channel-race-'));
+        const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-channel-race-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
         const stored = new Map<string, Buffer>();
         let stableReadCount = 0;
@@ -1185,7 +1184,7 @@ describe('release mirror publisher', () => {
 
     it('reconciles public, draft, and unresolved promotion outcomes without an unsafe rollback', async () => {
         async function createFixture() {
-            const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-transaction-'));
+            const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-transaction-');
             await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
             const stored = new Map<string, Buffer>([[
                 'evb-viewer/channels/stable.json',
@@ -1327,7 +1326,7 @@ describe('release mirror publisher', () => {
         expect(compareReleaseTags('v1.0.0', 'v1.0.0-beta.9')).toBeGreaterThan(0);
         expect(compareReleaseTags('v1.0.0-rc.2', 'v1.0.0-rc.10')).toBeLessThan(0);
 
-        const directory = await mkdtemp(join(tmpdir(), 'evb-mirror-hash-'));
+        const directory = await createTestTemporaryDirectory('evb-mirror-hash-');
         const filePath = join(directory, 'asset');
         await writeFile(filePath, 'content');
         expect(await hashFile(filePath)).toBe(createHash('sha256').update('content').digest('hex'));

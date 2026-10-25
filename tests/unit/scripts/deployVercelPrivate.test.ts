@@ -34,6 +34,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {createTestTemporaryDirectorySync} from '@tests/helpers/removeTemporaryDirectory';
 
 interface IPreparedPrivateDeploySource {
     cleanup: () => void;
@@ -153,7 +154,9 @@ let savedUserProfile: string | undefined;
 let lockHome: string | undefined;
 
 // A separate deploy process that holds the production lock until it is killed.
-function startProductionLockOwner(projectRoot: string) {
+// A killed deploy cannot remove its scratch copy, so it works in a temp folder
+// that its caller removes.
+function startProductionLockOwner(projectRoot: string, ownerTmpdir: string) {
     const owner = spawn(process.execPath, [
         '--input-type=module',
         '-e',
@@ -185,6 +188,7 @@ function startProductionLockOwner(projectRoot: string) {
             ...process.env,
             EVB_TEST_DEPLOY_MODULE: pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href,
             EVB_TEST_PROJECT_ROOT: projectRoot,
+            TMPDIR: ownerTmpdir,
         },
         stdio: [
             'ignore',
@@ -643,7 +647,7 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
     it.skipIf(process.platform === 'win32')('lets a deploy proceed after the process holding the production lock was killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
-        const owner = startProductionLockOwner(projectRoot);
+        const owner = startProductionLockOwner(projectRoot, createTestTemporaryDirectorySync('evb-deploy-lock-owner-'));
         await owner.held;
 
         try {
@@ -767,7 +771,7 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
     it.skipIf(process.platform === 'win32')('keeps a live deploy\'s production lock when the processes it started are killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
-        const owner = startProductionLockOwner(projectRoot);
+        const owner = startProductionLockOwner(projectRoot, createTestTemporaryDirectorySync('evb-deploy-lock-owner-'));
         await owner.held;
 
         try {
@@ -827,7 +831,7 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
                 process.env.TMPDIR = ownerTmpdir;
                 return getProductionDeployLockPath('project');
             })();
-            owner = startProductionLockOwner(projectRoot);
+            owner = startProductionLockOwner(projectRoot, ownerTmpdir);
             await owner.held;
         });
         afterAll(async () => {
@@ -1492,7 +1496,12 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             });
         `,
         ], {
-            env: process.env,
+            // The parent is killed before it can remove its scratch copy, so the
+            // copy goes under the fixture that afterAll removes.
+            env: {
+                ...process.env,
+                TMPDIR: path.dirname(childScript),
+            },
             stdio: [
                 'ignore',
                 'pipe',
