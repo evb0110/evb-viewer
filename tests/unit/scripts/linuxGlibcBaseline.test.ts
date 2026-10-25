@@ -3,17 +3,14 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    mkdtemp,
-    writeFile,
-} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {
     assertLinuxGlibcBaseline,
     compareNumericVersions,
     extractRequiredGlibcVersions,
 } from '@scripts/release/assert-linux-glibc-baseline.mjs';
+import {createTestTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 describe('Linux glibc release baseline', () => {
     it('orders numeric ABI versions without lexicographic mistakes', () => {
@@ -36,7 +33,7 @@ describe('Linux glibc release baseline', () => {
     });
 
     it('fails closed when readelf cannot inspect a file with ELF magic', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-glibc-malformed-elf-'));
+        const directory = await createTestTemporaryDirectory('evb-glibc-malformed-elf-');
         const malformedElfPath = join(directory, 'broken');
         await writeFile(malformedElfPath, Buffer.from([
             0x7f,

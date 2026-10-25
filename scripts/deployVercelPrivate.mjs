@@ -246,33 +246,45 @@ export function preparePrivateDeploySource({
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'evb-vercel-private-'));
     const sourceRoot = path.join(scratchRoot, 'source');
 
-    mkdirSync(sourceRoot, {recursive: true});
-    copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget);
-    if (deployTarget === 'viewer' && !prebuilt) {
-        copyBrowserWasm(projectRoot, sourceRoot);
-    }
-    mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
-    cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
-    if (prebuilt) {
-        const outputRoot = path.join(projectRoot, '.vercel', 'output');
-        if (!existsSync(path.join(outputRoot, 'config.json'))) {
-            throw new Error('Viewer prebuilt deployment requires .vercel/output/config.json.');
+    const cleanup = () => rmSync(scratchRoot, {
+        force: true,
+        recursive: true,
+    });
+
+    // A failed preparation would otherwise leave the copied source tree behind.
+    try {
+        mkdirSync(sourceRoot, {recursive: true});
+        copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget);
+        if (deployTarget === 'viewer' && !prebuilt) {
+            copyBrowserWasm(projectRoot, sourceRoot);
         }
-        cpSync(outputRoot, path.join(sourceRoot, '.vercel', 'output'), {
-            force: true,
-            recursive: true,
-            verbatimSymlinks: true,
-        });
+        mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
+        cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
+        if (prebuilt) {
+            const outputRoot = path.join(projectRoot, '.vercel', 'output');
+            if (!existsSync(path.join(outputRoot, 'config.json'))) {
+                throw new Error('Viewer prebuilt deployment requires .vercel/output/config.json.');
+            }
+            cpSync(outputRoot, path.join(sourceRoot, '.vercel', 'output'), {
+                force: true,
+                recursive: true,
+                verbatimSymlinks: true,
+            });
+        }
+        sanitizePnpmWorkspace(sourceRoot);
+        sanitizeVercelIgnore(sourceRoot, deployTarget);
+        configureDeployManifest(sourceRoot, deployTarget);
+    } catch (error) {
+        try {
+            cleanup();
+        } catch {
+            // Report why preparation failed, not why its scratch removal did.
+        }
+        throw error;
     }
-    sanitizePnpmWorkspace(sourceRoot);
-    sanitizeVercelIgnore(sourceRoot, deployTarget);
-    configureDeployManifest(sourceRoot, deployTarget);
 
     return {
-        cleanup: () => rmSync(scratchRoot, {
-            force: true,
-            recursive: true,
-        }),
+        cleanup,
         scratchRoot,
         sourceRoot,
     };

@@ -1,10 +1,8 @@
 import {
     copyFileSync,
-    mkdtempSync,
     readdirSync,
     writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import {
     dirname,
     join,
@@ -15,6 +13,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {createTestTemporaryDirectorySync} from '@tests/helpers/removeTemporaryDirectory';
 
 interface IWindowsPeDependenciesModule {
     bundleWindowsMsvcRuntime: (options: {
@@ -105,7 +104,7 @@ function createPeFixture(
         buffer.writeUInt32LE((Math.floor(fileVersion / 100) << 16) | fileVersion % 100, fixedFileInfoOffset + 8);
     }
 
-    const fixturePath = join(mkdtempSync(join(tmpdir(), 'evb-pe-fixture-')), `${machine}.dll`);
+    const fixturePath = join(createTestTemporaryDirectorySync('evb-pe-fixture-'), `${machine}.dll`);
     writeFileSync(fixturePath, buffer);
     return fixturePath;
 }
@@ -166,7 +165,7 @@ describe('Windows PE dependency helpers', () => {
 
     it('does not satisfy an import with a DLL bundled beside another tool', () => {
         const toolPath = createPeFixture('arm64', ['custom-runtime.dll']);
-        const siblingToolDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-other-tool-'));
+        const siblingToolDirectory = createTestTemporaryDirectorySync('evb-pe-other-tool-');
         const misplacedDllPath = join(siblingToolDirectory, 'custom-runtime.dll');
         copyFileSync(createPeFixture('arm64', []), misplacedDllPath);
 
@@ -237,7 +236,7 @@ describe('Windows PE dependency helpers', () => {
     });
 
     it('rejects a bundled Visual C++ runtime older than the toolset that built the tool', () => {
-        const directory = mkdtempSync(join(tmpdir(), 'evb-pe-runtime-'));
+        const directory = createTestTemporaryDirectorySync('evb-pe-runtime-');
         const toolPath = createPeFile(join(directory, 'tool.exe'), 'x64', ['MSVCP140.dll'], 1451);
         const runtimePath = createPeFile(join(directory, 'msvcp140.dll'), 'x64', [], 1444);
 
@@ -252,7 +251,7 @@ describe('Windows PE dependency helpers', () => {
     });
 
     it('bundles the imported Visual C++ runtime and its own runtime imports into each tool directory', () => {
-        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-system32-'));
+        const sourceDirectory = createTestTemporaryDirectorySync('evb-pe-system32-');
         // The 14.51 runtime release is itself linked by the 14.50 toolset.
         createPeFile(join(sourceDirectory, 'msvcp140.dll'), 'x64', [
             'KERNEL32.dll',
@@ -262,12 +261,12 @@ describe('Windows PE dependency helpers', () => {
         createPeFile(join(sourceDirectory, 'vcruntime140.dll'), 'x64', ['KERNEL32.dll'], 1451);
         createPeFile(join(sourceDirectory, 'vcruntime140_1.dll'), 'x64', ['VCRUNTIME140.dll'], 1451);
         createPeFile(join(sourceDirectory, 'concrt140.dll'), 'x64', [], 1451);
-        const popplerBin = mkdtempSync(join(tmpdir(), 'evb-pe-poppler-'));
+        const popplerBin = createTestTemporaryDirectorySync('evb-pe-poppler-');
         createPeFile(join(popplerBin, 'pdftotext.exe'), 'x64', [
             'KERNEL32.dll',
             'MSVCP140.dll',
         ], 1451);
-        const qpdfBin = mkdtempSync(join(tmpdir(), 'evb-pe-qpdf-'));
+        const qpdfBin = createTestTemporaryDirectorySync('evb-pe-qpdf-');
         createPeFile(join(qpdfBin, 'qpdf.exe'), 'x64', ['VCRUNTIME140.dll'], 1444);
         createPeFile(join(qpdfBin, 'vcruntime140.dll'), 'x64', [], 1444);
 
@@ -301,9 +300,9 @@ describe('Windows PE dependency helpers', () => {
     });
 
     it('replaces a bundled runtime older than the toolset that built a tool beside it', () => {
-        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-system32-'));
+        const sourceDirectory = createTestTemporaryDirectorySync('evb-pe-system32-');
         createPeFile(join(sourceDirectory, 'vcruntime140.dll'), 'x64', [], 1450, 1451);
-        const toolBin = mkdtempSync(join(tmpdir(), 'evb-pe-mixed-'));
+        const toolBin = createTestTemporaryDirectorySync('evb-pe-mixed-');
         createPeFile(join(toolBin, 'old-tool.exe'), 'x64', ['VCRUNTIME140.dll'], 1444);
         createPeFile(join(toolBin, 'new-tool.exe'), 'x64', ['VCRUNTIME140.dll'], 1451);
         createPeFile(join(toolBin, 'vcruntime140.dll'), 'x64', [], 1444, 1444);
@@ -316,13 +315,13 @@ describe('Windows PE dependency helpers', () => {
     });
 
     it('takes each directory\'s runtime from the source for its importers\' architecture', () => {
-        const system32 = mkdtempSync(join(tmpdir(), 'evb-pe-system32-'));
+        const system32 = createTestTemporaryDirectorySync('evb-pe-system32-');
         createPeFile(join(system32, 'vcruntime140.dll'), 'x64', [], 1451);
-        const sysWow64 = mkdtempSync(join(tmpdir(), 'evb-pe-syswow64-'));
+        const sysWow64 = createTestTemporaryDirectorySync('evb-pe-syswow64-');
         createPeFile(join(sysWow64, 'vcruntime140.dll'), 'ia32', [], 1451);
-        const djvuBin = mkdtempSync(join(tmpdir(), 'evb-pe-djvulibre-'));
+        const djvuBin = createTestTemporaryDirectorySync('evb-pe-djvulibre-');
         createPeFile(join(djvuBin, 'ddjvu.exe'), 'ia32', ['VCRUNTIME140.dll'], 1423);
-        const mixedBin = mkdtempSync(join(tmpdir(), 'evb-pe-mixed-'));
+        const mixedBin = createTestTemporaryDirectorySync('evb-pe-mixed-');
         createPeFile(join(mixedBin, 'tool32.exe'), 'ia32', ['VCRUNTIME140.dll'], 1423);
         createPeFile(join(mixedBin, 'tool64.exe'), 'x64', ['VCRUNTIME140.dll'], 1444);
         const sourceDirectories = {
@@ -342,7 +341,7 @@ describe('Windows PE dependency helpers', () => {
     });
 
     it('rejects a bundled DLL of another architecture than its importer', () => {
-        const directory = mkdtempSync(join(tmpdir(), 'evb-pe-arch-'));
+        const directory = createTestTemporaryDirectorySync('evb-pe-arch-');
         const toolPath = createPeFile(join(directory, 'ddjvu.exe'), 'ia32', ['VCRUNTIME140.dll'], 1423);
         const runtimePath = createPeFile(join(directory, 'vcruntime140.dll'), 'x64', [], 1451);
 
@@ -360,16 +359,16 @@ describe('Windows PE dependency helpers', () => {
     });
 
     it('refuses to bundle a host runtime older than a tool\'s toolset or of another architecture', () => {
-        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-system32-'));
+        const sourceDirectory = createTestTemporaryDirectorySync('evb-pe-system32-');
         createPeFile(join(sourceDirectory, 'vcruntime140.dll'), 'x64', [], 1444);
-        const toolBin = mkdtempSync(join(tmpdir(), 'evb-pe-tesseract-'));
+        const toolBin = createTestTemporaryDirectorySync('evb-pe-tesseract-');
         createPeFile(join(toolBin, 'tesseract.exe'), 'x64', ['VCRUNTIME140.dll'], 1451);
 
         expect(() => bundleWindowsMsvcRuntime({
             directories: [toolBin],
             sourceDirectories: {x64: sourceDirectory},
         })).toThrow(/vcruntime140\.dll 14\.44 is older than the MSVC 14\.51 toolset/u);
-        const arm64ToolBin = mkdtempSync(join(tmpdir(), 'evb-pe-arm64-'));
+        const arm64ToolBin = createTestTemporaryDirectorySync('evb-pe-arm64-');
         createPeFile(join(arm64ToolBin, 'tesseract.exe'), 'arm64', ['VCRUNTIME140.dll'], 1444);
         expect(() => bundleWindowsMsvcRuntime({
             directories: [arm64ToolBin],
