@@ -1,5 +1,7 @@
 import type { IPdfRasterDemand } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {
+    IPdfLayerRenderResult, IRenderVisiblePagesOptions,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import type { TPdfViewRotation } from '@contracts/shared';
 
@@ -23,4 +25,6 @@ export interface IPreparedViewportRaster {
     canvasHost: HTMLDivElement;
     signal: AbortSignal;
     render: NonNullable<Awaited<ReturnType<ReturnType<typeof usePdfCanvasRenderer>['prepareCanvasRender']>>>;
+    /** The committed raster whose canvas `render` shares until it commits. */
+    reusedRender?: IPdfLayerRenderResult | undefined;
 }
