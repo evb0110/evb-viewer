@@ -384,13 +384,16 @@ pub(crate) fn load_qpdf_page_local_incremental_pdf(
                     &mut document,
                     &page_ids_by_number,
                     edit,
-                    |document, batch| {
+                    |document, batch, retained| {
                         let additional = load_qpdf_selected_objects(
                             path,
                             qpdf_path,
                             &temp,
                             batch.iter().copied(),
                         )?;
+                        for object in additional.objects.values() {
+                            *retained = charge_retained(*retained, object)?;
+                        }
                         merge_qpdf_selected_objects(document, additional)
                     },
                 )?;
@@ -452,13 +455,13 @@ fn complete_page_local_objects(
     document: &mut Document,
     page_ids_by_number: &[ObjectId],
     edit: &PageLocalEdit,
-    mut fetch: impl FnMut(&mut Document, &BTreeSet<ObjectId>) -> Result<()>,
+    mut fetch: impl FnMut(&mut Document, &BTreeSet<ObjectId>, &mut usize) -> Result<()>,
 ) -> Result<()> {
     let pages = select_page_ids(page_ids_by_number, &edit.pages)?;
     let annotation_pages = select_page_ids(page_ids_by_number, &edit.annotation_pages)?;
     let known_pages = page_ids_by_number.iter().copied().collect::<HashSet<_>>();
     let mut requested = document.objects.keys().copied().collect::<BTreeSet<_>>();
-    // One ceiling covers every round and query batch: each retains its objects.
+    // One ceiling covers every round: `fetch` charges each object it adds.
     let mut retained = retained_cost(&Object::Dictionary(document.trailer.clone()))?;
     for object in document.objects.values() {
         retained = charge_retained(retained, object)?;
@@ -483,12 +486,7 @@ fn complete_page_local_objects(
                 "Page-local PDF objects exceed their object ceiling",
             ));
         }
-        fetch(document, &missing)?;
-        for id in &missing {
-            if let Ok(object) = document.get_object(*id) {
-                retained = charge_retained(retained, object)?;
-            }
-        }
+        fetch(document, &missing, &mut retained)?;
         requested.extend(missing);
     }
     for page_id in &pages {
@@ -499,7 +497,7 @@ fn complete_page_local_objects(
     Ok(())
 }
 
-fn charge_retained(retained: usize, object: &Object) -> Result<usize> {
+pub(crate) fn charge_retained(retained: usize, object: &Object) -> Result<usize> {
     retained
         .checked_add(retained_cost(object)?)
         .filter(|retained| *retained <= MAX_QPDF_RETAINED_STRUCTURE_BYTES)
@@ -621,6 +619,11 @@ fn page_local_dependencies(
         .map(|id| Object::Reference(*id))
         .collect::<Vec<_>>();
     values.extend(&addressed);
+    // Read but not followed: the writer sets the catalog's /Version when an
+    // append moves a classic cross-reference table past ten-digit offsets.
+    if let Ok(root) = document.trailer.get(b"Root").and_then(Object::as_reference) {
+        needed.insert(root);
+    }
     while let Some(value) = values.pop() {
         match value {
             Object::Reference(id) => {

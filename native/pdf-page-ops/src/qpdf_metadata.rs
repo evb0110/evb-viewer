@@ -1304,12 +1304,13 @@ mod platform {
             &mut document,
             &page_ids_by_number,
             edit,
-            |document, batch| {
+            |document, batch, retained| {
                 for id in batch {
                     // qpdf reads a missing object as null; leave it absent,
                     // as the eager reader and the JSON query do.
                     let object = reader.object(*id, Context::Value)?;
                     if !matches!(object, Object::Null) {
+                        *retained = charge_retained(*retained, &object)?;
                         document.objects.insert(*id, object);
                     }
                 }

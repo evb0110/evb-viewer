@@ -1782,31 +1782,45 @@ fn upgrades_a_classic_xref_when_the_append_crosses_ten_billion_bytes() {
     let pdf = temp_path("classic-xref-ceiling-append", "pdf");
     let mutations = temp_path("classic-xref-ceiling-append", "json");
     let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
-    let original_len = write_sparse_near_ten_gib_classic_pdf(&pdf);
-    fs::write(
-        &mutations,
-        br#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":[{"title":"A","pageIndex":0,"pageYRatio":0.5,"namedDest":null,"bold":false,"italic":false,"color":null,"items":[]}]}}"#,
-    )
-    .unwrap();
+    // A bookmark loads the whole document; a note loads only its page, but the
+    // writer still upgrades the catalog's /Version.
+    let saves: [(&[u8], bool); 2] = [
+        (
+            br#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":[{"title":"A","pageIndex":0,"pageYRatio":0.5,"namedDest":null,"bold":false,"italic":false,"color":null,"items":[]}]}}"#,
+            false,
+        ),
+        (
+            br#"{"freeTextNotes":[{"pageIndex":0,"stableKey":"uid:0:ceiling","text":"ceiling note","markerRect":{"left":0.5,"top":0.5,"width":0.01,"height":0.01},"author":null,"color":null,"createdAt":1}]}"#,
+            true,
+        ),
+    ];
+    for (payload, page_local) in saves {
+        let original_len = write_sparse_near_ten_gib_classic_pdf(&pdf);
+        fs::write(&mutations, payload).unwrap();
 
-    let output = append_bookmark(&pdf, &mutations);
-    assert!(
-        output.status.success(),
-        "append failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let final_len = fs::metadata(&pdf).unwrap().len();
-    assert!(final_len > original_len);
-    assert!(final_len > 10_000_000_000);
-    assert_ne!(terminal_xref_marker(&pdf), *b"xref");
-    let catalog = Command::new(qpdf_path())
-        .args(["--show-object=1", "--"])
-        .arg(&pdf)
-        .output()
-        .unwrap();
-    assert!(catalog.status.success());
-    assert!(String::from_utf8_lossy(&catalog.stdout).contains("/Version /1.5"));
-    assert_qpdf_check(&pdf);
+        let output = if page_local {
+            append_mutations_in_place(&pdf, &mutations)
+        } else {
+            append_bookmark(&pdf, &mutations)
+        };
+        assert!(
+            output.status.success(),
+            "append failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let final_len = fs::metadata(&pdf).unwrap().len();
+        assert!(final_len > original_len);
+        assert!(final_len > 10_000_000_000);
+        assert_ne!(terminal_xref_marker(&pdf), *b"xref");
+        let catalog = Command::new(qpdf_path())
+            .args(["--show-object=1", "--"])
+            .arg(&pdf)
+            .output()
+            .unwrap();
+        assert!(catalog.status.success());
+        assert!(String::from_utf8_lossy(&catalog.stdout).contains("/Version /1.5"));
+        assert_qpdf_check(&pdf);
+    }
 }
 
 /// The structural loader reads a FreeText's indirect /DA as qpdf JSON. The
