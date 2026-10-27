@@ -157,10 +157,11 @@ async function waitForDetailCanvasCovering(page: Page, region: IMeasureRegion) {
     // itself. Without one the wait ends and the pixels decide. A detail
     // stretched from an earlier zoom does not count.
     await page.waitForFunction((target: IMeasureRegion) => {
-        const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__detail-layer > canvas');
+        const canvases = document.querySelectorAll<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__detail-layer > canvas');
+        const canvas = canvases[canvases.length - 1];
         const rect = canvas?.getBoundingClientRect();
         return Boolean(canvas?.isConnected && rect
-            && canvas.width >= 0.95 * rect.width * window.devicePixelRatio
+            && Math.abs((canvas.width / (rect.width * window.devicePixelRatio)) - 1) < 0.01
             && rect.left <= target.left && rect.top <= target.top
             && rect.right >= target.left + target.width && rect.bottom >= target.top + target.height);
     }, {timeout: DETAIL_WAIT_MS}, region).catch(() => undefined);
