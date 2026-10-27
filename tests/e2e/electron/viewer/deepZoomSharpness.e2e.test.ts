@@ -198,6 +198,52 @@ async function measureResolvedBarShare(page: Page, region: IMeasureRegion, evide
     };
 }
 
+/**
+ * The same shares read from the topmost detail raster's own pixels over the
+ * region, with that raster's device pixels per CSS pixel over the output
+ * scale: 1 for a detail painted at the current zoom, the zoom ratio for one
+ * stretched from the previous step. A just-committed canvas can be missing
+ * from the next captured frames while software compositing uploads it, so a
+ * screenshot can show the earlier detail stretched by the zoom step.
+ */
+async function measureDetailRasterBarShare(page: Page, region: IMeasureRegion) {
+    return page.evaluate((target: IMeasureRegion) => {
+        const canvases = document.querySelectorAll<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__detail-layer > canvas');
+        const canvas = canvases[canvases.length - 1];
+        const context = canvas?.getContext('2d');
+        if (!canvas || !context) return {
+            darkShare: 0,
+            lightShare: 0,
+            resolution: 0,
+        };
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x0 = Math.round((target.left - rect.left) * scaleX);
+        const y0 = Math.round((target.top - rect.top) * scaleY);
+        const width = Math.min(Math.round(target.width * scaleX), canvas.width - x0);
+        const height = Math.min(Math.round(target.height * scaleY), canvas.height - y0);
+        const data = context.getImageData(x0, y0, width, height).data;
+        let dark = 0;
+        let light = 0;
+        let total = 0;
+        for (let y = 0; y < height; y += 4) {
+            for (let x = 0; x < width; x += 1) {
+                const offset = ((y * width) + x) * 4;
+                const luminance = ((0.2126 * data[offset]!) + (0.7152 * data[offset + 1]!) + (0.0722 * data[offset + 2]!)) / 255;
+                if (luminance < 0.15) dark += 1;
+                if (luminance > 0.85) light += 1;
+                total += 1;
+            }
+        }
+        return {
+            darkShare: dark / total,
+            lightShare: light / total,
+            resolution: canvas.width / (rect.width * window.devicePixelRatio),
+        };
+    }, region);
+}
+
 describe('Electron E2E - deep zoom sharpness', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -260,13 +306,19 @@ describe('Electron E2E - deep zoom sharpness', () => {
         const evidenceDir = resolve('.devkit/deep-zoom-sharpness', session.name);
         await mkdir(evidenceDir, {recursive: true});
         const evidencePath = join(evidenceDir, 'deep-zoom-step-1000.png');
-        const shares = await measureResolvedBarShare(page, region, evidencePath);
-        console.info(`[deep-zoom-step] before=${String(before)} after=${String(after.size)} kept=${String(after.kept)} darkShare=${shares.darkShare.toFixed(3)} lightShare=${shares.lightShare.toFixed(3)} evidence=${evidencePath}`);
+        await page.screenshot({
+            path: evidencePath,
+            type: 'png',
+        });
+        const shares = await measureDetailRasterBarShare(page, region);
+        console.info(`[deep-zoom-step] before=${String(before)} after=${String(after.size)} kept=${String(after.kept)} resolution=${shares.resolution.toFixed(3)} darkShare=${shares.darkShare.toFixed(3)} lightShare=${shares.lightShare.toFixed(3)} evidence=${evidencePath}`);
         // Both zoom levels ask for far more than the cap, so a new page raster
         // would paint the same pixels at the same size.
         expect(region.baseDensity).toBeLessThan(0.6);
         expect(after.size).toBe(before);
         expect(after.kept).toBe(true);
+        expect(shares.resolution).toBeGreaterThan(0.99);
+        expect(shares.resolution).toBeLessThan(1.01);
         expect(shares.darkShare).toBeGreaterThan(0.2);
         expect(shares.lightShare).toBeGreaterThan(0.2);
     }, E2E_TIMEOUT_MS);
