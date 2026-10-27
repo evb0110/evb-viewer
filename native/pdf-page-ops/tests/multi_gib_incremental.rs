@@ -348,6 +348,74 @@ fn write_free_text_marker_pdf(path: &Path, padding: Option<u64>) {
     file.sync_all().unwrap();
 }
 
+/// Two pages under a nested page tree that supplies an indirect inherited
+/// `/CropBox` and `/Rotate`. Page 1 (object 4) lists its annotations through
+/// an indirect `/Annots` array: a legacy EVB note marker whose empty
+/// appearance is reached through an indirect `/AP` and an indirect `/Length`,
+/// and its popup. `heavy` adds five 900,000-element arrays, whose qpdf
+/// structure exceeds the 256 MiB retained-memory estimate, and a sparse
+/// stream that pads the file past the eager-load ceiling.
+fn write_page_local_note_pdf(path: &Path, heavy: bool) {
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.7\n%\x80\x81\x82\x83\n").unwrap();
+    let mut offsets = Vec::new();
+    let objects: [&[u8]; 13] = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Kids[3 0 R]/Count 2/Rotate 11 0 R>>",
+        b"<</Type/Pages/Parent 2 0 R/Kids[4 0 R 12 0 R]/Count 2/MediaBox[0 0 200 100]/CropBox 10 0 R>>",
+        b"<</Type/Page/Parent 3 0 R/Resources<<>>/Annots 5 0 R>>",
+        b"[6 0 R 7 0 R]",
+        b"<</Type/Annot/Subtype/FreeText/Rect[50 50 52 51]/Contents(legacy note)/NM(legacy-marker)/P 4 0 R/Popup 7 0 R/AP 8 0 R>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[60 60 160 90]/Parent 6 0 R/P 4 0 R>>",
+        b"<</N 9 0 R>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 2 1]/Length 13 0 R>>\nstream\n\nendstream",
+        b"[10 5 190 95]",
+        b"90",
+        b"<</Type/Page/Parent 3 0 R/Resources<<>>>>",
+        b"0",
+    ];
+    for (index, body) in objects.iter().enumerate() {
+        let mut object = format!("{} 0 obj\n", index + 1).into_bytes();
+        object.extend_from_slice(body);
+        object.extend_from_slice(b"\nendobj\n");
+        write_object(&mut file, &mut offsets, &object);
+    }
+    if heavy {
+        let array = format!("[{}]", "0 ".repeat(900_000));
+        for object_number in 14..19 {
+            write_object(
+                &mut file,
+                &mut offsets,
+                format!("{object_number} 0 obj\n{array}\nendobj\n").as_bytes(),
+            );
+        }
+        offsets.push(file.stream_position().unwrap());
+        file.write_all(
+            format!("19 0 obj\n<</Length {STRUCTURAL_LOADER_STREAM_BYTES}>>\nstream\n").as_bytes(),
+        )
+        .unwrap();
+        file.seek(SeekFrom::Current(
+            i64::try_from(STRUCTURAL_LOADER_STREAM_BYTES).unwrap(),
+        ))
+        .unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+    }
+    let xref_offset = file.stream_position().unwrap();
+    let size = offsets.len() + 1;
+    file.write_all(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes())
+        .unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size {size}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n")
+            .as_bytes(),
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+}
+
 /// A scanned-style page: object 4 is a sparse image of `image_bytes` and the
 /// page lists `annotations` (object numbers among `objects`, numbered from 5).
 fn write_scanned_annotation_pdf(
@@ -501,6 +569,15 @@ fn append_bookmark(pdf: &Path, mutations: &Path) -> Output {
 }
 
 fn append_mutations(pdf: &Path, mutations: &Path) -> Output {
+    save_mutations(pdf, mutations, &["--append"])
+}
+
+/// The working-copy save the desktop app runs.
+fn append_mutations_in_place(pdf: &Path, mutations: &Path) -> Output {
+    save_mutations(pdf, mutations, &["--append", "--append-in-place"])
+}
+
+fn save_mutations(pdf: &Path, mutations: &Path, mode: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["save-mutations", "--input"])
         .arg(pdf)
@@ -510,7 +587,8 @@ fn append_mutations(pdf: &Path, mutations: &Path) -> Output {
         .arg(mutations)
         .arg("--qpdf")
         .arg(qpdf_path())
-        .args(["--modified-at", "D:20260827230000Z", "--append"])
+        .args(["--modified-at", "D:20260827230000Z"])
+        .args(mode)
         .output()
         .unwrap()
 }
@@ -608,6 +686,85 @@ fn qpdf_text_note_objects(pdf: &Path) -> Vec<((u32, u16), String)> {
             }
             let contents = object.get("/Contents")?.as_str()?.to_string();
             Some(((object_number, generation_number), contents))
+        })
+        .collect()
+}
+
+/// Each `/Annots` entry of the page `page` (an object number) with its
+/// object number and what a reader sees: subtype, name, text and rectangle.
+fn page_annotations(pdf: &Path, page: u32) -> Vec<(u32, String)> {
+    let objects = |ids: &[String]| {
+        let mut command = Command::new(qpdf_path());
+        command.args(["--json=1", "--json-key=objects", "--json-stream-data=none"]);
+        for id in ids {
+            command.arg(format!("--json-object={id}"));
+        }
+        let output = command.arg("--").arg(pdf).output().unwrap();
+        assert!(
+            output.status.success(),
+            "qpdf object query failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let mut value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        value["objects"].take()
+    };
+    let number = |reference: &str| -> u32 {
+        reference
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let mut annots = objects(&[page.to_string()])[format!("{page} 0 R")]["/Annots"].take();
+    if let Some(reference) = annots.as_str().map(str::to_string) {
+        annots = objects(&[number(&reference).to_string()])[&reference].take();
+    }
+    let Some(references) = annots.as_array() else {
+        return Vec::new();
+    };
+    let references = references
+        .iter()
+        .map(|reference| reference.as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    let annotations = objects(
+        &references
+            .iter()
+            .map(|reference| number(reference).to_string())
+            .collect::<Vec<_>>(),
+    );
+    references
+        .iter()
+        .map(|reference| {
+            let annotation = &annotations[reference];
+            let rect = annotation["/Rect"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| format!("{:.2}", value.as_f64().unwrap()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            (
+                number(reference),
+                format!(
+                    "{} {} {} [{rect}]",
+                    annotation["/Subtype"], annotation["/NM"], annotation["/Contents"]
+                ),
+            )
+        })
+        .collect()
+}
+
+/// What a reader sees on both pages of `write_page_local_note_pdf`, without
+/// object numbers, which depend on how many objects the base file had.
+fn note_pages_as_read(pdf: &Path) -> Vec<Vec<String>> {
+    [4, 12]
+        .into_iter()
+        .map(|page| {
+            page_annotations(pdf, page)
+                .into_iter()
+                .map(|(_, annotation)| annotation)
+                .collect()
         })
         .collect()
 }
@@ -1035,6 +1192,81 @@ fn legacy_note_marker_recognition_matches_eager_and_structural_loads() {
         );
         assert_qpdf_check(pdf);
     }
+}
+
+#[test]
+fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
+    let small = temp_path("page-local-note-small", "pdf");
+    let large = temp_path("page-local-note-large", "pdf");
+    let mutations = temp_path("page-local-note-mutations", "json");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone(), mutations.clone()]);
+    write_page_local_note_pdf(&small, false);
+    write_page_local_note_pdf(&large, true);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    // Note saves on a file whose structure exceeds the memory estimate: the
+    // legacy marker is rewritten by name beside a new note, the new note is
+    // edited, then the marker is edited through its object and the new note
+    // moves to page 2.
+    let note = |key: &str, text: &str, left: f64| {
+        format!(
+            r#"{{"pageIndex":0,"stableKey":"{key}","text":"{text}","markerRect":{{"left":{left},"top":0.25,"width":0.01,"height":0.01}},"author":null,"color":null,"createdAt":1}}"#
+        )
+    };
+    let save = |index: usize, added: u32| match index {
+        0 => format!(
+            r#"{{"freeTextNotes":[{},{}]}}"#,
+            note("legacy-marker", "edited legacy", 0.25),
+            note("uid:0:added", "added note", 0.6)
+        ),
+        1 => format!(
+            r#"{{"freeTextNotes":[{}]}}"#,
+            note("uid:0:added", "added note edited", 0.7)
+        ),
+        _ => format!(
+            r#"{{"updates":[{{"objectNumber":6,"generationNumber":0,"text":"legacy edited by object"}}],"geometryUpdates":[{{"objectNumber":{added},"generationNumber":0,"pageIndex":1,"markerRect":{{"left":0.4,"top":0.5,"width":0.01,"height":0.01}}}}]}}"#
+        ),
+    };
+    let mut seen = Vec::new();
+    for pdf in [&small, &large] {
+        let mut added = 0;
+        for index in 0..3 {
+            fs::write(&mutations, save(index, added)).unwrap();
+            let output = append_mutations_in_place(pdf, &mutations);
+            assert!(
+                output.status.success(),
+                "{} save {index} failed: {}",
+                pdf.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            seen.push(note_pages_as_read(pdf));
+            if index == 1 {
+                added = page_annotations(pdf, 4)
+                    .into_iter()
+                    .find(|(_, annotation)| annotation.contains("\"uid:0:added\""))
+                    .map(|(number, _)| number)
+                    .expect("the added note is on page 1");
+            }
+        }
+        assert_qpdf_check(pdf);
+    }
+
+    // The large file reads only the edited pages' objects, yet each save
+    // leaves what the eager reader of the whole small file leaves: the
+    // inherited crop box and rotation place each note, names find notes
+    // instead of duplicating them, and objects find their pages.
+    let (small_states, large_states) = seen.split_at(3);
+    assert_eq!(large_states, small_states);
+    let after = |save: usize| large_states[save].concat().join("\n");
+    assert!(after(1).contains("\"/Text\" \"legacy-marker\" \"edited legacy\""));
+    assert!(after(1).contains("\"/Text\" \"uid:0:added\" \"added note edited\""));
+    assert_eq!(after(1).matches("\"uid:0:added\"").count(), 1);
+    assert!(large_states[2][0]
+        .iter()
+        .any(|annotation| annotation.contains("\"legacy edited by object\"")));
+    assert!(large_states[2][1]
+        .iter()
+        .any(|annotation| annotation.contains("\"uid:0:added\"")));
 }
 
 #[test]

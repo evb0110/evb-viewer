@@ -23,9 +23,16 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
         &mutations.geometry_updates,
         &mutations.text_boxes,
         modified_at,
+        page_ids_by_number,
     )?;
-    validate_text_note_document_postconditions(document, &mutations.notes, modified_at)?;
-    validate_text_note_document_postconditions(document, &mutations.free_text_notes, modified_at)?;
+    for notes in [&mutations.notes, &mutations.free_text_notes] {
+        validate_text_note_document_postconditions(
+            document,
+            notes,
+            modified_at,
+            page_ids_by_number,
+        )?;
+    }
     validate_text_box_document_postconditions(document, &mutations.text_boxes, modified_at)?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     validate_page_rotation_document_postconditions(
@@ -82,26 +89,13 @@ fn validate_page_rotation_document_postconditions(
     if rotations.is_empty() {
         return Ok(());
     }
-    let pages = page_ids_by_number
-        .is_none()
-        .then(|| PageTreeResolver::new(document))
-        .transpose()?;
+    let pages = PageLookup::new(document, page_ids_by_number)?;
     for rotation in rotations {
         let page_number = rotation
             .page_index
             .checked_add(1)
             .ok_or("Page rotation index is outside the supported range")?;
-        let page_id = if let Some(page_ids) = page_ids_by_number {
-            page_ids
-                .get(rotation.page_index as usize)
-                .copied()
-                .ok_or("Page rotation index is outside the supported range")?
-        } else {
-            pages
-                .as_ref()
-                .ok_or("Page-tree resolver was not initialized")?
-                .page_id(document, page_number)?
-        };
+        let page_id = pages.page_id(document, page_number)?;
         let direct_rotation = document.dictionary(page_id)?.get(b"Rotate")?.as_i64()?;
         let normalized_direct_rotation = normalize_page_rotation(direct_rotation);
         if direct_rotation != normalized_direct_rotation
@@ -204,11 +198,12 @@ pub(crate) fn validate_note_geometry_document_postconditions(
     updates: &[NoteGeometryUpdate],
     text_boxes: &[TextBoxMutation],
     modified_at: &str,
+    page_ids_by_number: Option<&[ObjectId]>,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, page_ids_by_number)?;
     for update in updates {
         let page_number = update
             .page_index
@@ -345,12 +340,13 @@ pub(crate) fn validate_text_note_document_postconditions(
     document: &impl PdfObjectSource,
     notes: &[TextNote],
     modified_at: &str,
+    page_ids_by_number: Option<&[ObjectId]>,
 ) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, page_ids_by_number)?;
     for note in notes {
         let page_number = note
             .page_index

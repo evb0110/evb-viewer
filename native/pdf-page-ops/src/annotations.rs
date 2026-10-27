@@ -132,11 +132,22 @@ fn find_annotation_page_from_annots(
     document: &impl PdfObjectSource,
     target_id: ObjectId,
 ) -> Result<ObjectId> {
+    let lists_target = |page_id| {
+        get_page_annots(document, page_id).map(|annots| {
+            annots
+                .iter()
+                .any(|object| object.as_reference().ok() == Some(target_id))
+        })
+    };
+    // The page the annotation names is checked first: a page-local load
+    // holds that page but not the page tree.
+    if let Some(page_id) = annotation_page_id(document, target_id) {
+        if lists_target(page_id)? {
+            return Ok(page_id);
+        }
+    }
     for page_id in document.page_ids().into_values() {
-        if get_page_annots(document, page_id)?
-            .iter()
-            .any(|object| object.as_reference().ok() == Some(target_id))
-        {
+        if lists_target(page_id)? {
             return Ok(page_id);
         }
     }
@@ -267,7 +278,11 @@ pub(crate) fn update_note_geometry_incremental(
     if updates.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    let page_ids_by_number = incremental.page_ids_by_number.clone();
+    let page_resolver = PageLookup::new(
+        incremental.get_prev_documents(),
+        page_ids_by_number.as_deref(),
+    )?;
     for update in updates {
         let target_id = (update.object_number, update.generation_number);
         let target = resolve_note_target(incremental.get_prev_documents(), target_id)?;
@@ -470,7 +485,11 @@ where
         return Ok(());
     }
 
-    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    let page_ids_by_number = incremental.page_ids_by_number.clone();
+    let page_resolver = PageLookup::new(
+        incremental.get_prev_documents(),
+        page_ids_by_number.as_deref(),
+    )?;
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in &notes {

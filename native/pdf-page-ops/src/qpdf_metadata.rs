@@ -31,12 +31,61 @@ pub(crate) fn load_qpdf_metadata_pdf_path(
     }
 }
 
+/// The retained-memory estimate of one loaded object, as the qpdf JSON reader
+/// charges it.
+pub(crate) fn retained_cost(object: &Object) -> Result<usize> {
+    let mut pending = vec![(object, 0)];
+    let mut elements = 0usize;
+    let mut bytes = 0usize;
+    while let Some((object, depth)) = pending.pop() {
+        elements += 1;
+        if elements > MAX_QPDF_OBJECT_ELEMENTS || depth > MAX_PDF_STRUCTURAL_NESTING {
+            return Err(resource_limited(
+                "Selected qpdf object exceeds its element or nesting ceiling",
+            ));
+        }
+        bytes = bytes
+            .checked_add(QPDF_ESTIMATED_BYTES_PER_VALUE)
+            .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
+        match object {
+            Object::Name(value) | Object::String(value, _) => {
+                bytes = bytes
+                    .checked_add(value.len())
+                    .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
+            }
+            Object::Array(values) => pending.extend(values.iter().map(|value| (value, depth + 1))),
+            Object::Dictionary(dict) => {
+                for (key, value) in dict.iter() {
+                    bytes = bytes
+                        .checked_add(key.len())
+                        .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
+                    pending.push((value, depth + 1));
+                }
+            }
+            Object::Stream(stream) => {
+                for (key, value) in stream.dict.iter() {
+                    bytes = bytes
+                        .checked_add(key.len())
+                        .ok_or_else(|| resource_limited("PDF metadata retained size overflow"))?;
+                    pending.push((value, depth + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(bytes)
+}
+
+fn resource_limited(message: &str) -> Box<dyn Error> {
+    domain_error(NativeErrorCode::TooLarge, message)
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod platform {
     use super::*;
     use crate::incremental_document::{
         MAX_QPDF_DIAGNOSTIC_BYTES, MAX_QPDF_OBJECT_BYTES, MAX_QPDF_OBJECT_ELEMENTS,
-        MAX_QPDF_RETAINED_STRUCTURE_BYTES, QPDF_ESTIMATED_BYTES_PER_VALUE,
+        MAX_QPDF_RETAINED_STRUCTURE_BYTES,
     };
     use std::{
         cell::Cell,
@@ -204,6 +253,10 @@ mod platform {
         next_key: unsafe extern "C" fn(Data) -> *const c_char,
         dictionary: unsafe extern "C" fn(Data, Handle) -> Handle,
         release: unsafe extern "C" fn(Data, Handle),
+        page_count: unsafe extern "C" fn(Data) -> c_int,
+        page: unsafe extern "C" fn(Data, usize) -> Handle,
+        new_null: unsafe extern "C" fn(Data) -> Handle,
+        make_indirect: unsafe extern "C" fn(Data, Handle) -> Handle,
         _library: Library,
     }
 
@@ -260,6 +313,10 @@ mod platform {
                 next_key: symbol!(c"qpdf_oh_dict_next_key"),
                 dictionary: symbol!(c"qpdf_oh_get_dict"),
                 release: symbol!(c"qpdf_oh_release"),
+                page_count: symbol!(c"qpdf_get_num_pages"),
+                page: symbol!(c"qpdf_get_page_n"),
+                new_null: symbol!(c"qpdf_oh_new_null"),
+                make_indirect: symbol!(c"qpdf_make_indirect_object"),
                 _library: library,
             })
         }
@@ -416,6 +473,42 @@ mod platform {
             let object = self.convert(&handle, context)?;
             self.checkpoint()?;
             Ok(object)
+        }
+
+        /// Physical page order from qpdf's page-tree walk, as `--show-pages`
+        /// reports it.
+        fn page_ids(&self) -> Result<Vec<ObjectId>> {
+            let count = unsafe { (self.api.page_count)(self.data) };
+            self.checkpoint()?;
+            let count = usize::try_from(count)
+                .map_err(|_| corrupt("Bundled qpdf could not walk the page tree"))?;
+            if count > crate::load_policy::MAX_PATH_INPUT_PDF_PAGES {
+                return Err(limited("PDF page count exceeds the native path-load limit"));
+            }
+            let mut ids = Vec::with_capacity(count);
+            for index in 0..count {
+                let page = self.handle(unsafe { (self.api.page)(self.data, index) })?;
+                let number = unsafe { (self.api.object_id)(self.data, page.value) };
+                let generation = unsafe { (self.api.generation)(self.data, page.value) };
+                self.check()?;
+                ids.push((u32::try_from(number)?, u16::try_from(generation)?));
+            }
+            self.checkpoint()?;
+            Ok(ids)
+        }
+
+        /// The highest object number qpdf knows from the cross-reference
+        /// data, the JSON writer's `maxobjectid`. qpdf numbers a new indirect
+        /// object one above it; the object stays in this reader's memory.
+        fn max_object_number(&self) -> Result<u32> {
+            let null = self.handle(unsafe { (self.api.new_null)(self.data) })?;
+            let fresh = self.handle(unsafe { (self.api.make_indirect)(self.data, null.value) })?;
+            let number = unsafe { (self.api.object_id)(self.data, fresh.value) };
+            self.check()?;
+            u32::try_from(number)
+                .ok()
+                .and_then(|number| number.checked_sub(1))
+                .ok_or_else(|| corrupt("Bundled qpdf returned an invalid object number"))
         }
 
         fn object_handle(&self, id: ObjectId) -> Result<ObjectHandle<'_>> {
@@ -1087,51 +1180,6 @@ mod platform {
         Ok(())
     }
 
-    fn retained_cost(object: &Object) -> Result<usize> {
-        let mut pending = vec![(object, 0)];
-        let mut elements = 0usize;
-        let mut bytes = 0usize;
-        while let Some((object, depth)) = pending.pop() {
-            elements += 1;
-            if elements > MAX_QPDF_OBJECT_ELEMENTS || depth > MAX_PDF_STRUCTURAL_NESTING {
-                return Err(limited(
-                    "Selected qpdf object exceeds its element or nesting ceiling",
-                ));
-            }
-            bytes = bytes
-                .checked_add(QPDF_ESTIMATED_BYTES_PER_VALUE)
-                .ok_or_else(|| limited("PDF metadata retained size overflow"))?;
-            match object {
-                Object::Name(value) | Object::String(value, _) => {
-                    bytes = bytes
-                        .checked_add(value.len())
-                        .ok_or_else(|| limited("PDF metadata retained size overflow"))?;
-                }
-                Object::Array(values) => {
-                    pending.extend(values.iter().map(|value| (value, depth + 1)))
-                }
-                Object::Dictionary(dict) => {
-                    for (key, value) in dict.iter() {
-                        bytes = bytes
-                            .checked_add(key.len())
-                            .ok_or_else(|| limited("PDF metadata retained size overflow"))?;
-                        pending.push((value, depth + 1));
-                    }
-                }
-                Object::Stream(stream) => {
-                    for (key, value) in stream.dict.iter() {
-                        bytes = bytes
-                            .checked_add(key.len())
-                            .ok_or_else(|| limited("PDF metadata retained size overflow"))?;
-                        pending.push((value, depth + 1));
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(bytes)
-    }
-
     fn read_signatures(projection: &mut Projection<'_>, path: &Path, qpdf: &Path) -> Result<()> {
         let temp = TempQpdfFiles::create()?;
         run_qpdf_bounded(path, qpdf, &["--show-xref"], &temp, MAX_XREF_BYTES)?;
@@ -1228,5 +1276,64 @@ mod platform {
             IncrementalDocument::from_document(projection.document, initial.len(), last);
         incremental.unavailable_base_streams = unavailable;
         Ok(Some((incremental, reader.diagnostic_bytes.get() != 0)))
+    }
+
+    pub(super) fn load_page_local(
+        path: &Path,
+        qpdf: &Path,
+        edit: &PageLocalEdit,
+    ) -> Result<Option<(Document, Vec<ObjectId>)>> {
+        let Some(library) = adjacent_library(qpdf)? else {
+            return Ok(None);
+        };
+        // Whole-object reads never consult the projection purpose.
+        let reader = Reader::open(&library, path, QpdfMetadataPurpose::Geometry)?;
+        let page_ids_by_number = reader.page_ids()?;
+        let mut document = Document::with_version(reader.version()?);
+        document.trailer = reader.trailer()?;
+        // qpdf counts objects only after resolving every one of them. The
+        // admitted cross-reference chain bounds object numbers without that.
+        let largest_size = path_xref_chain(path, fs::metadata(path)?.len())
+            .ok()
+            .and_then(|chain| chain.largest_size);
+        document.max_id = match largest_size {
+            Some(size) => u32::try_from(size.saturating_sub(1))?,
+            None => reader.max_object_number()?,
+        };
+        complete_page_local_objects(
+            &mut document,
+            &page_ids_by_number,
+            edit,
+            |document, batch| {
+                for id in batch {
+                    // qpdf reads a missing object as null; leave it absent,
+                    // as the eager reader and the JSON query do.
+                    let object = reader.object(*id, Context::Value)?;
+                    if !matches!(object, Object::Null) {
+                        document.objects.insert(*id, object);
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        Ok(Some((document, page_ids_by_number)))
+    }
+}
+
+/// The base objects a page-local edit reads, through the bundled library.
+/// None means only that the supplied qpdf executable has no adjacent library.
+pub(crate) fn load_qpdf_page_local_objects(
+    path: &Path,
+    qpdf_path: &Path,
+    edit: &PageLocalEdit,
+) -> Result<Option<(Document, Vec<ObjectId>)>> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        platform::load_page_local(path, qpdf_path, edit)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (path, qpdf_path, edit);
+        Ok(None)
     }
 }
