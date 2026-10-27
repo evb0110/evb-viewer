@@ -540,12 +540,8 @@ pub(crate) fn append_native_mutations_with_qpdf(
 ) -> Result<()> {
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = if is_dictionary_only_mutation(mutations) {
-        load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-    } else {
-        load_incremental_pdf_path(input_path, qpdf_path)
-    }
-    .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = load_native_mutation_base(input_path, qpdf_path, mutations)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
@@ -614,21 +610,8 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
 
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let use_sparse_rotation_load = is_rotation_only_mutation(mutations)
-        && qpdf_path.is_some()
-        && fs::metadata(input_path)?.len() > MAX_ENCODED_PDF_BYTES as u64;
-    let mut incremental = if use_sparse_rotation_load {
-        load_qpdf_rotation_incremental_pdf(
-            input_path,
-            qpdf_path.ok_or("Large rotation input requires the bundled qpdf reader")?,
-            &mutations.page_rotations,
-        )
-    } else if is_dictionary_only_mutation(mutations) {
-        load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-    } else {
-        load_incremental_pdf_path(input_path, qpdf_path)
-    }
-    .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = load_native_mutation_base(input_path, qpdf_path, mutations)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
@@ -676,12 +659,82 @@ fn materialize_reused_base_streams(
     Ok(())
 }
 
-fn is_rotation_only_mutation(mutations: &NativeMutationsFile) -> bool {
-    !mutations.page_rotations.is_empty()
-        && mutations.page_labels.is_none()
-        && mutations.bookmarks.is_none()
-        && mutations.continuation.is_none()
-        && is_dictionary_only_mutation(mutations)
+/// A large PDF loads only what a page-local edit reads; any other edit, a PDF
+/// the eager reader admits, or an addressed note its page does not list
+/// loads the whole base object graph.
+fn load_native_mutation_base(
+    input_path: &Path,
+    qpdf_path: Option<&Path>,
+    mutations: &NativeMutationsFile,
+) -> Result<IncrementalDocument> {
+    if let (Some(qpdf_path), Some(edit)) = (qpdf_path, page_local_edit(mutations)) {
+        if fs::metadata(input_path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
+            if let Some(incremental) =
+                load_qpdf_page_local_incremental_pdf(input_path, qpdf_path, &edit)?
+            {
+                return Ok(incremental);
+            }
+        }
+    }
+    if is_dictionary_only_mutation(mutations) {
+        load_dictionary_incremental_pdf_path(input_path, qpdf_path)
+    } else {
+        load_incremental_pdf_path(input_path, qpdf_path)
+    }
+}
+
+/// The pages and annotations of an edit whose writers read only those:
+/// rotations, and notes created, edited or moved, except a note carrying a
+/// recovery graph, which can name objects on other pages. Every other
+/// mutation finds its targets across the document; a delete, for one, removes
+/// replies that other pages may list.
+fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
+    let NativeMutationsFile {
+        updates,
+        geometry_updates,
+        notes,
+        free_text_notes,
+        text_boxes,
+        deletes,
+        page_rotations,
+        page_labels,
+        bookmarks,
+        shapes,
+        markup,
+        placed_images,
+        placed_image_geometry_updates,
+        continuation,
+    } = mutations;
+    let notes = notes.iter().chain(free_text_notes);
+    let page_local = deletes.is_empty()
+        && text_boxes.is_empty()
+        && page_labels.is_none()
+        && bookmarks.is_none()
+        && shapes.is_none()
+        && markup.is_none()
+        && placed_images.is_empty()
+        && placed_image_geometry_updates.is_empty()
+        && continuation.is_none()
+        && notes.clone().all(|note| note.recovery_data.is_none());
+    let mut edit = PageLocalEdit::default();
+    edit.annotation_pages
+        .extend(notes.map(|note| note.page_index));
+    edit.annotation_pages
+        .extend(geometry_updates.iter().map(|update| update.page_index));
+    edit.annotations.extend(
+        updates
+            .iter()
+            .map(|update| (update.object_number, update.generation_number))
+            .chain(
+                geometry_updates
+                    .iter()
+                    .map(|update| (update.object_number, update.generation_number)),
+            ),
+    );
+    edit.pages.clone_from(&edit.annotation_pages);
+    edit.pages
+        .extend(page_rotations.iter().map(|rotation| rotation.page_index));
+    (page_local && !(edit.pages.is_empty() && edit.annotations.is_empty())).then_some(edit)
 }
 
 /// Rotations, page labels and bookmarks read and rewrite only dictionaries.
@@ -894,7 +947,7 @@ pub(crate) fn write_native_mutations_path(
 
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+    let mut incremental = load_native_mutation_base(input_path, qpdf_path, mutations)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),

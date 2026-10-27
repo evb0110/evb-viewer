@@ -7,8 +7,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
     Mutex,
 };
-pub(crate) use xref_admission::{check_xref_chain, path_has_encryption_entry};
-use xref_admission::{path_xref_chain, preflight_pdf_xref_chain};
+use xref_admission::preflight_pdf_xref_chain;
+pub(crate) use xref_admission::{check_xref_chain, path_has_encryption_entry, path_xref_chain};
 
 pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;

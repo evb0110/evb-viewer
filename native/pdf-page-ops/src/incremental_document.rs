@@ -323,15 +323,27 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     Ok((incremental, warned))
 }
 
-/// Load only the dictionaries needed by a rotation-only incremental append.
-/// qpdf still walks the complete page tree, but the JSON reader receives only
-/// the selected leaf pages and their `/Pages` ancestors rather than every
-/// object (including unrelated image and OCR streams) in a large scanned PDF.
-pub(crate) fn load_qpdf_rotation_incremental_pdf(
+/// What a page-local edit touches: page indexes it rewrites, the pages whose
+/// annotations it reads, and annotations it addresses by object, whose pages
+/// are found through their `/P`.
+#[derive(Default)]
+pub(crate) struct PageLocalEdit {
+    pub(crate) pages: BTreeSet<u32>,
+    pub(crate) annotation_pages: BTreeSet<u32>,
+    pub(crate) annotations: BTreeSet<ObjectId>,
+}
+
+/// Load only what a page-local edit reads (see `page_local_dependencies`)
+/// rather than every object of a large PDF. The bundled library reads each
+/// object on demand; without it, qpdf's page-tree walk supplies the pages and
+/// each round of the walk is one JSON query. None means an annotation the edit
+/// addresses is not listed on the page its `/P` names, so only a load of the
+/// whole document can find it.
+pub(crate) fn load_qpdf_page_local_incremental_pdf(
     path: &Path,
     qpdf_path: &Path,
-    rotations: &[PageRotationMutation],
-) -> Result<IncrementalDocument> {
+    edit: &PageLocalEdit,
+) -> Result<Option<IncrementalDocument>> {
     let initial_metadata = fs::metadata(path).map_err(io_domain_error)?;
     let previous_len = initial_metadata.len();
     if previous_len == 0 {
@@ -341,117 +353,55 @@ pub(crate) fn load_qpdf_rotation_incremental_pdf(
         ));
     }
 
-    let temp = TempQpdfFiles::create()?;
-    run_qpdf_bounded(
-        path,
-        qpdf_path,
-        &["--suppress-recovery", "--show-pages"],
-        &temp,
-        MAX_QPDF_PAGE_LIST_BYTES,
-    )?;
-    let page_ids_by_number = parse_qpdf_page_ids(&read_file_bounded(
-        &temp.structure,
-        MAX_QPDF_PAGE_LIST_BYTES,
-        "qpdf page tree",
-    )?)?;
-    if page_ids_by_number.len() > crate::load_policy::MAX_PATH_INPUT_PDF_PAGES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "PDF page count exceeds the native path-load limit",
-        ));
-    }
-
-    let mut target_page_ids = BTreeSet::new();
-    for rotation in rotations {
-        let page_id = page_ids_by_number
-            .get(rotation.page_index as usize)
-            .copied()
-            .ok_or_else(|| {
-                domain_error(
-                    NativeErrorCode::InvalidRequest,
-                    format!(
-                        "Page rotation index {} is outside the PDF page tree",
-                        rotation.page_index
-                    ),
-                )
-            })?;
-        target_page_ids.insert(page_id);
-    }
-    if target_page_ids.is_empty() {
-        return Err(domain_error(
-            NativeErrorCode::InvalidRequest,
-            "Page rotation mutation contains no target pages",
-        ));
-    }
-
-    let mut document =
-        load_qpdf_selected_objects(path, qpdf_path, &temp, target_page_ids.iter().copied())?;
-    for page_id in &target_page_ids {
-        let page = document.dictionary(*page_id)?;
-        if page.get(b"Type")?.as_name()? != b"Page" {
-            return Err("qpdf page-tree walk returned a non-page object".into());
-        }
-    }
-
-    let mut pending_parents = BTreeSet::new();
-    let mut pending_values = BTreeSet::new();
-    for page_id in &target_page_ids {
-        collect_rotation_value_reference(&document, *page_id, b"Rotate", &mut pending_values)?;
-        if document.dictionary(*page_id)?.get(b"Rotate").is_err() {
-            pending_parents.insert(page_parent_id(&document, *page_id)?);
-        }
-    }
-
-    for _ in 0..=MAX_PDF_STRUCTURAL_NESTING {
-        pending_parents.retain(|object_id| !document.objects.contains_key(object_id));
-        if pending_parents.is_empty() {
-            break;
-        }
-        let requested = std::mem::take(&mut pending_parents);
-        let additional =
-            load_qpdf_selected_objects(path, qpdf_path, &temp, requested.iter().copied())?;
-        merge_qpdf_selected_objects(&mut document, additional)?;
-
-        for object_id in requested {
-            let dictionary = document.dictionary(object_id)?;
-            if dictionary.get(b"Type")?.as_name()? != b"Pages" {
-                return Err("PDF page /Parent does not reference a /Pages node".into());
-            }
-            collect_rotation_value_reference(&document, object_id, b"Rotate", &mut pending_values)?;
-            if dictionary.get(b"Rotate").is_err() {
-                if let Ok(parent) = dictionary.get(b"Parent") {
-                    pending_parents.insert(
-                        parent
-                            .as_reference()
-                            .map_err(|_| "PDF /Pages parent must be an indirect reference")?,
-                    );
+    let (mut document, page_ids_by_number) =
+        match load_qpdf_page_local_objects(path, qpdf_path, edit)? {
+            Some(loaded) => loaded,
+            None => {
+                let temp = TempQpdfFiles::create()?;
+                run_qpdf_bounded(
+                    path,
+                    qpdf_path,
+                    &["--suppress-recovery", "--show-pages"],
+                    &temp,
+                    MAX_QPDF_PAGE_LIST_BYTES,
+                )?;
+                let page_ids_by_number = parse_qpdf_page_ids(&read_file_bounded(
+                    &temp.structure,
+                    MAX_QPDF_PAGE_LIST_BYTES,
+                    "qpdf page tree",
+                )?)?;
+                if page_ids_by_number.len() > crate::load_policy::MAX_PATH_INPUT_PDF_PAGES {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "PDF page count exceeds the native path-load limit",
+                    ));
                 }
+                let first = select_page_ids(&page_ids_by_number, &edit.pages)?
+                    .into_iter()
+                    .chain(edit.annotations.iter().copied());
+                let mut document = load_qpdf_selected_objects(path, qpdf_path, &temp, first)?;
+                complete_page_local_objects(
+                    &mut document,
+                    &page_ids_by_number,
+                    edit,
+                    |document, batch, retained| {
+                        let additional = load_qpdf_selected_objects(
+                            path,
+                            qpdf_path,
+                            &temp,
+                            batch.iter().copied(),
+                        )?;
+                        for object in additional.objects.values() {
+                            *retained = charge_retained(*retained, object)?;
+                        }
+                        merge_qpdf_selected_objects(document, additional)
+                    },
+                )?;
+                (document, page_ids_by_number)
             }
-        }
-    }
-    pending_parents.retain(|object_id| !document.objects.contains_key(object_id));
-    if !pending_parents.is_empty() {
-        return Err("PDF page-tree ancestry exceeds its structural depth limit".into());
-    }
-
-    for _ in 0..=MAX_PDF_STRUCTURAL_NESTING {
-        pending_values.retain(|object_id| !document.objects.contains_key(object_id));
-        if pending_values.is_empty() {
-            break;
-        }
-        let requested = std::mem::take(&mut pending_values);
-        let additional =
-            load_qpdf_selected_objects(path, qpdf_path, &temp, requested.iter().copied())?;
-        merge_qpdf_selected_objects(&mut document, additional)?;
-        for object_id in requested {
-            if let Ok(reference) = document.get_object(object_id)?.as_reference() {
-                pending_values.insert(reference);
-            }
-        }
-    }
-    pending_values.retain(|object_id| !document.objects.contains_key(object_id));
-    if !pending_values.is_empty() {
-        return Err("PDF inherited page attributes exceed their reference depth limit".into());
+        };
+    if !page_local_annotations_located(&document, &page_ids_by_number, edit)? {
+        return Ok(None);
     }
 
     let (previous_xref_start, xref_type) = read_terminal_xref(path, previous_len)?;
@@ -465,10 +415,243 @@ pub(crate) fn load_qpdf_rotation_incremental_pdf(
         return Err("PDF input changed while qpdf was reading its page tree".into());
     }
     let previous_last_byte = read_last_byte(path, previous_len)?;
+    // Both readers stand each stream in as its dictionary without bytes.
+    let unavailable_base_streams = document
+        .objects
+        .iter()
+        .filter_map(|(id, object)| matches!(object, Object::Stream(_)).then_some(*id))
+        .collect();
     let mut incremental =
         IncrementalDocument::from_document(document, previous_len, previous_last_byte);
+    incremental.unavailable_base_streams = unavailable_base_streams;
     incremental.page_ids_by_number = Some(page_ids_by_number);
-    Ok(incremental)
+    Ok(Some(incremental))
+}
+
+fn select_page_ids(
+    page_ids_by_number: &[ObjectId],
+    page_indexes: &BTreeSet<u32>,
+) -> Result<BTreeSet<ObjectId>> {
+    page_indexes
+        .iter()
+        .map(|index| {
+            page_ids_by_number
+                .get(*index as usize)
+                .copied()
+                .ok_or_else(|| {
+                    domain_error(
+                        NativeErrorCode::InvalidRequest,
+                        format!("Page index {index} is outside the PDF page tree"),
+                    )
+                })
+        })
+        .collect()
+}
+
+/// Fetches, in rounds, every object `page_local_dependencies` names until
+/// the loaded part of `document` names nothing new. qpdf leaves out an object
+/// that does not exist, so each object is requested at most once.
+fn complete_page_local_objects(
+    document: &mut Document,
+    page_ids_by_number: &[ObjectId],
+    edit: &PageLocalEdit,
+    mut fetch: impl FnMut(&mut Document, &BTreeSet<ObjectId>, &mut usize) -> Result<()>,
+) -> Result<()> {
+    let pages = select_page_ids(page_ids_by_number, &edit.pages)?;
+    let annotation_pages = select_page_ids(page_ids_by_number, &edit.annotation_pages)?;
+    let known_pages = page_ids_by_number.iter().copied().collect::<HashSet<_>>();
+    let mut requested = document.objects.keys().copied().collect::<BTreeSet<_>>();
+    // One ceiling covers every round: `fetch` charges each object it adds.
+    let mut retained = retained_cost(&Object::Dictionary(document.trailer.clone()))?;
+    for object in document.objects.values() {
+        retained = charge_retained(retained, object)?;
+    }
+    loop {
+        let missing = page_local_dependencies(
+            document,
+            &pages,
+            &annotation_pages,
+            &edit.annotations,
+            &known_pages,
+        )?
+        .difference(&requested)
+        .copied()
+        .collect::<BTreeSet<_>>();
+        if missing.is_empty() {
+            break;
+        }
+        if requested.len().saturating_add(missing.len()) > MAX_QPDF_OBJECT_ELEMENTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Page-local PDF objects exceed their object ceiling",
+            ));
+        }
+        fetch(document, &missing, &mut retained)?;
+        requested.extend(missing);
+    }
+    for page_id in &pages {
+        if document.dictionary(*page_id)?.get(b"Type")?.as_name()? != b"Page" {
+            return Err("qpdf page-tree walk returned a non-page object".into());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn charge_retained(retained: usize, object: &Object) -> Result<usize> {
+    retained
+        .checked_add(retained_cost(object)?)
+        .filter(|retained| *retained <= MAX_QPDF_RETAINED_STRUCTURE_BYTES)
+        .ok_or_else(|| {
+            domain_error(
+                NativeErrorCode::TooLarge,
+                "Page-local PDF objects exceed their retained memory ceiling",
+            )
+        })
+}
+
+/// The page an addressed annotation names through its own `/P`, or a popup
+/// through its parent's.
+fn addressed_annotation_page(
+    document: &Document,
+    annotation_id: ObjectId,
+    known_pages: &HashSet<ObjectId>,
+) -> Option<ObjectId> {
+    let annotation = document.get_dictionary(annotation_id).ok()?;
+    let page = |dictionary: &Dictionary| {
+        dictionary
+            .get(b"P")
+            .and_then(Object::as_reference)
+            .ok()
+            .filter(|page| known_pages.contains(page))
+    };
+    page(annotation).or_else(|| {
+        let parent = annotation
+            .get(b"Parent")
+            .and_then(Object::as_reference)
+            .ok()?;
+        page(document.get_dictionary(parent).ok()?)
+    })
+}
+
+/// Whether every addressed annotation, or the parent of an addressed popup,
+/// is listed on the page its `/P` names, where the edit's writers look.
+fn page_local_annotations_located(
+    document: &Document,
+    page_ids_by_number: &[ObjectId],
+    edit: &PageLocalEdit,
+) -> Result<bool> {
+    let known_pages = page_ids_by_number.iter().copied().collect::<HashSet<_>>();
+    for annotation_id in &edit.annotations {
+        let Some(page_id) = addressed_annotation_page(document, *annotation_id, &known_pages)
+        else {
+            return Ok(false);
+        };
+        let listed = get_page_annots(document, page_id)?;
+        let parent = document
+            .get_dictionary(*annotation_id)
+            .and_then(|annotation| annotation.get(b"Parent"))
+            .and_then(Object::as_reference)
+            .ok();
+        if !listed.iter().any(|object| {
+            object
+                .as_reference()
+                .is_ok_and(|id| id == *annotation_id || Some(id) == parent)
+        }) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The base objects a page-local edit reads, as far as the loaded part of
+/// `document` names them: each page and its `/Pages` ancestors with their
+/// inheritable boxes and rotation; for `annotation_pages`, and the pages that
+/// addressed `annotations` name, the `/Annots` entries with everything they
+/// reference. A stream adds only its `/Length`, and a page-tree node or
+/// catalog reached from an annotation is read but not followed, so the walk
+/// stays on the edited pages.
+fn page_local_dependencies(
+    document: &Document,
+    pages: &BTreeSet<ObjectId>,
+    annotation_pages: &BTreeSet<ObjectId>,
+    annotations: &BTreeSet<ObjectId>,
+    known_pages: &HashSet<ObjectId>,
+) -> Result<BTreeSet<ObjectId>> {
+    let mut needed = BTreeSet::new();
+    let mut values = Vec::new();
+    let mut pages = pages.clone();
+    let mut annotation_pages = annotation_pages.clone();
+    for annotation_id in annotations {
+        if let Some(page_id) = addressed_annotation_page(document, *annotation_id, known_pages) {
+            pages.insert(page_id);
+            annotation_pages.insert(page_id);
+        }
+    }
+    for page_id in &pages {
+        let mut node_id = *page_id;
+        for depth in 0..=MAX_PDF_STRUCTURAL_NESTING + 1 {
+            if depth > MAX_PDF_STRUCTURAL_NESTING {
+                return Err("PDF page-tree ancestry exceeds its structural depth limit".into());
+            }
+            needed.insert(node_id);
+            let Ok(node) = document.get_dictionary(node_id) else {
+                break;
+            };
+            if depth > 0 && node.get(b"Type")?.as_name()? != b"Pages" {
+                return Err("PDF page /Parent does not reference a /Pages node".into());
+            }
+            for key in [b"MediaBox".as_slice(), b"CropBox", b"Rotate"] {
+                values.extend(node.get(key).ok());
+            }
+            if depth == 0 && annotation_pages.contains(page_id) {
+                values.extend(node.get(b"Annots").ok());
+            }
+            let Ok(parent) = node.get(b"Parent") else {
+                break;
+            };
+            node_id = parent
+                .as_reference()
+                .map_err(|_| "PDF page /Parent must be an indirect reference")?;
+        }
+    }
+    let addressed = annotations
+        .iter()
+        .map(|id| Object::Reference(*id))
+        .collect::<Vec<_>>();
+    values.extend(&addressed);
+    // Read but not followed: the writer sets the catalog's /Version when an
+    // append moves a classic cross-reference table past ten-digit offsets.
+    if let Ok(root) = document.trailer.get(b"Root").and_then(Object::as_reference) {
+        needed.insert(root);
+    }
+    while let Some(value) = values.pop() {
+        match value {
+            Object::Reference(id) => {
+                if !needed.insert(*id) {
+                    continue;
+                }
+                let Ok(object) = document.get_object(*id) else {
+                    continue;
+                };
+                let page_tree_or_catalog = object.as_dict().is_ok_and(|dictionary| {
+                    dictionary
+                        .get(b"Type")
+                        .and_then(Object::as_name)
+                        .is_ok_and(|kind| matches!(kind, b"Page" | b"Pages" | b"Catalog"))
+                });
+                if !page_tree_or_catalog {
+                    values.push(object);
+                }
+            }
+            Object::Array(items) => values.extend(items),
+            Object::Dictionary(dictionary) => {
+                values.extend(dictionary.iter().map(|(_, value)| value))
+            }
+            Object::Stream(stream) => values.extend(stream.dict.get(b"Length").ok()),
+            _ => {}
+        }
+    }
+    Ok(needed)
 }
 
 const MAX_QPDF_PAGE_LIST_BYTES: usize = 64 * 1024 * 1024;
@@ -647,20 +830,6 @@ fn load_qpdf_selected_objects_batch(
     parse_qpdf_structure(&temp.structure, Some(path)).map(|(document, _)| document)
 }
 
-fn collect_rotation_value_reference(
-    document: &Document,
-    object_id: ObjectId,
-    key: &[u8],
-    pending: &mut BTreeSet<ObjectId>,
-) -> Result<()> {
-    if let Ok(value) = document.dictionary(object_id)?.get(key) {
-        if let Ok(reference) = value.as_reference() {
-            pending.insert(reference);
-        }
-    }
-    Ok(())
-}
-
 fn merge_qpdf_selected_objects(document: &mut Document, additional: Document) -> Result<()> {
     if document.version != additional.version
         || document.max_id != additional.max_id
@@ -678,14 +847,6 @@ fn merge_qpdf_selected_objects(document: &mut Document, additional: Document) ->
         }
     }
     Ok(())
-}
-
-fn page_parent_id(document: &Document, page_id: ObjectId) -> Result<ObjectId> {
-    document
-        .dictionary(page_id)?
-        .get(b"Parent")?
-        .as_reference()
-        .map_err(|_| "PDF page /Parent must be an indirect reference".into())
 }
 
 /// Reads one encoded PDF stream with bounded memory and a subprocess deadline.
@@ -1603,7 +1764,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn rotation_loader_reads_selected_page_ancestry_and_indirect_rotate_values() {
+    fn page_local_loader_reads_selected_page_ancestry_and_indirect_rotate_values() {
         let nonce = test_qpdf_temp_nonce().unwrap();
         let stem = format!("evb-qpdf-rotation-{nonce}");
         let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
@@ -1641,18 +1802,20 @@ esac
 "##;
         let fake_executable = crate::write_fake_executable(&qpdf_path, qpdf_script);
 
-        let result = load_qpdf_rotation_incremental_pdf(
+        let result = load_qpdf_page_local_incremental_pdf(
             &input_path,
             &qpdf_path,
-            &[PageRotationMutation {
-                page_index: 0,
-                angle: 90,
-            }],
+            &PageLocalEdit {
+                pages: BTreeSet::from([0]),
+                ..PageLocalEdit::default()
+            },
         );
         let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&qpdf_path);
         drop(fake_executable);
-        let mut incremental = result.expect("selected page ancestry should load for rotation");
+        let mut incremental = result
+            .expect("selected page ancestry should load for rotation")
+            .expect("a rotation addresses no annotation");
         assert_eq!(incremental.page_ids_by_number, Some(vec![page_id]));
         assert_eq!(
             resolve_page_rotation(incremental.get_prev_documents(), page_id).unwrap(),

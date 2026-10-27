@@ -4,7 +4,7 @@ use super::*;
 
 /// Walks a path's cross-reference chain with the eager preflight's parsers,
 /// reading each section through a window that grows only when it runs out.
-pub(super) fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
+pub(crate) fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
     let mut file =
         File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let (root, _) = read_terminal_xref(path, encoded_len)?;
@@ -77,6 +77,7 @@ pub(crate) fn check_xref_chain<'a>(
     let mut chain = XrefChain {
         encrypted: false,
         size: None,
+        largest_size: None,
     };
     pending.push((root, false));
 
@@ -132,6 +133,7 @@ pub(crate) fn check_xref_chain<'a>(
         if offset == root {
             chain.size = dictionary.size;
         }
+        chain.largest_size = chain.largest_size.max(dictionary.size);
         chain.encrypted |= dictionary.has_encrypt;
 
         for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
@@ -172,6 +174,9 @@ pub(crate) struct XrefChain {
     pub(crate) encrypted: bool,
     /// The terminal trailer's `/Size`, one more than the highest object number.
     pub(crate) size: Option<u64>,
+    /// The largest `/Size` of any revision. Each section's entries stay below
+    /// its own `/Size`, so no object number in the file reaches this value.
+    pub(crate) largest_size: Option<u64>,
 }
 
 fn parse_classic_xref_section(

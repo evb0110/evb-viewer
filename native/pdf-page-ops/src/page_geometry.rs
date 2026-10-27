@@ -224,32 +224,60 @@ pub(crate) fn resolve_page_rotation(
     ))
 }
 
+/// Finds a page by number: in qpdf's page-tree walk when a page-local load
+/// supplied it (that load holds no other page-tree nodes), otherwise by
+/// walking the loaded page tree.
+pub(crate) enum PageLookup<'a> {
+    Walked(&'a [ObjectId]),
+    Tree(PageTreeResolver),
+}
+
+impl<'a> PageLookup<'a> {
+    pub(crate) fn new(
+        document: &impl PdfObjectSource,
+        page_ids_by_number: Option<&'a [ObjectId]>,
+    ) -> Result<Self> {
+        Ok(match page_ids_by_number {
+            Some(page_ids) => Self::Walked(page_ids),
+            None => Self::Tree(PageTreeResolver::new(document)?),
+        })
+    }
+
+    pub(crate) fn page_id(
+        &self,
+        document: &impl PdfObjectSource,
+        page_number: u32,
+    ) -> Result<ObjectId> {
+        match self {
+            Self::Walked(page_ids) => page_number
+                .checked_sub(1)
+                .and_then(|index| page_ids.get(index as usize))
+                .copied()
+                .ok_or_else(|| {
+                    format!(
+                        "Page {page_number} is outside the document page range 1-{}",
+                        page_ids.len()
+                    )
+                    .into()
+                }),
+            Self::Tree(resolver) => resolver.page_id(document, page_number),
+        }
+    }
+}
+
 fn resolve_page_rotation_targets(
     document: &impl PdfObjectSource,
     rotations: &[PageRotationMutation],
     page_ids_by_number: Option<&[ObjectId]>,
 ) -> Result<Vec<(ObjectId, i64)>> {
-    let page_resolver = page_ids_by_number
-        .is_none()
-        .then(|| PageTreeResolver::new(document))
-        .transpose()?;
+    let pages = PageLookup::new(document, page_ids_by_number)?;
     let mut targets = Vec::with_capacity(rotations.len());
     for rotation in rotations {
-        let page_id = if let Some(page_ids) = page_ids_by_number {
-            page_ids
-                .get(rotation.page_index as usize)
-                .copied()
-                .ok_or("Page rotation index is outside the supported range")?
-        } else {
-            let page_number = rotation
-                .page_index
-                .checked_add(1)
-                .ok_or("Page rotation index is outside the supported range")?;
-            page_resolver
-                .as_ref()
-                .ok_or("Page-tree resolver was not initialized")?
-                .page_id(document, page_number)?
-        };
+        let page_number = rotation
+            .page_index
+            .checked_add(1)
+            .ok_or("Page rotation index is outside the supported range")?;
+        let page_id = pages.page_id(document, page_number)?;
         let current = resolve_page_rotation(document, page_id)?;
         targets.push((
             page_id,
