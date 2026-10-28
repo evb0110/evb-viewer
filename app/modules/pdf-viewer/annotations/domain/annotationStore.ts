@@ -1,3 +1,4 @@
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
@@ -304,6 +305,8 @@ export class AnnotationStore {
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
+    /** A parse of the whole document has fed this store; only then can a parse of some pages extend it. */
+    #readWholeDocument = false;
     #batchDepth = 0;
     #batchEmissionPending = false;
     #bulkImportState: IBulkImportState | null = null;
@@ -610,17 +613,31 @@ export class AnnotationStore {
      * and returns false when those pages alone cannot stand for the whole
      * document: a parsed annotation that matches an entity on another page, or
      * a parsed thread without a reply this store holds, which may sit on a page
-     * the parse did not read.
+     * the parse did not read. It also changes nothing before a parse of the
+     * whole document has fed the store, which then holds no other pages.
      */
     replaceFromDocument(
         entities: readonly AnnotationEntity[],
         foreign: readonly IPdfForeignAnnotationRecord[],
         pageIndices?: readonly number[],
+        expectedUpserts: ReadonlyArray<Pick<AnnotationEntity, 'identity' | 'kind'>> = [],
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
-        if (!entities.every(inScope) || !foreign.every(inScope)) {
+        if (!entities.every(inScope) || !foreign.every(inScope) || (scope && !this.#readWholeDocument)) {
             return false;
+        }
+        if (scope) {
+            const recognized = new Map(entities.map(entity => [
+                normalizePdfJsAnnotationId(entity.identity.pdfRef),
+                entity.kind,
+            ]));
+            if (!expectedUpserts.every(expected => {
+                const ref = normalizePdfJsAnnotationId(expected.identity.pdfRef);
+                return ref && recognized.get(ref) === expected.kind;
+            })) {
+                return false;
+            }
         }
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();
@@ -821,6 +838,7 @@ export class AnnotationStore {
             ...this.#foreign.filter(record => !inScope(record)),
             ...foreign.map(record => structuredClone(record)),
         ].sort((left, right) => left.pageIndex - right.pageIndex);
+        this.#readWholeDocument = true;
         this.#mutationEpoch += 1;
         this.#emit();
         return true;

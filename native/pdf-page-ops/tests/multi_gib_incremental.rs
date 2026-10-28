@@ -2122,3 +2122,83 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
         .count();
     assert_eq!(font_reads, 1, "{calls}");
 }
+
+#[test]
+fn additive_annotation_saves_match_whole_and_scoped_readback_on_large_pdfs() {
+    use serde_json::json;
+    for kind in ["highlight", "shape", "text-box"] {
+        let small = temp_path("additive-small", "pdf");
+        let padded = temp_path("additive-padded", "pdf");
+        let large = temp_path("additive-large", "pdf");
+        let mutations = temp_path("additive-mutations", "json");
+        let _cleanup = TempFiles(vec![
+            small.clone(),
+            padded.clone(),
+            large.clone(),
+            mutations.clone(),
+        ]);
+        write_page_local_note_pdf(&small, false, false);
+        write_page_local_note_pdf(&padded, true, false);
+        write_page_local_note_pdf(&large, true, true);
+        let items = (0..2).map(|page| {
+            let key = format!("new-{kind}-{page}");
+            match kind {
+                "highlight" => json!({"subtype":"Highlight","pageIndex":page,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.025},"appAnnotationId":key,"source":"editor","color":"#ffff00","opacity":0.5}),
+                "shape" => json!({"type":"rectangle","pageIndex":page,"x":0.1,"y":0.2,"width":0.2,"height":0.1,"color":"#336699","opacity":1,"strokeWidth":2,"stableKey":key}),
+                _ => json!({"pageIndex":page,"stableKey":key,"text":"Additive text box","rect":[50,20,100,50],"rotation":0,"fontSize":12,"color":[17,24,39]}),
+            }
+        }).collect::<Vec<_>>();
+        let payload = match kind {
+            "highlight" => json!({"markup":{"hints":items}}),
+            "shape" => json!({"shapes":{"totalPages":2,"shapes":items}}),
+            _ => json!({"textBoxes":items}),
+        };
+        fs::write(&mutations, payload.to_string()).unwrap();
+        let mut padded_whole = None;
+        for pdf in [&small, &padded, &large] {
+            let output = append_mutations_in_place(pdf, &mutations);
+            assert!(
+                output.status.success(),
+                "{kind} {}: {}",
+                pdf.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let whole = if pdf == &large {
+                padded_whole.clone().unwrap()
+            } else {
+                parse_annotations(pdf, &qpdf_path(), None).1
+            };
+            if pdf == &padded {
+                padded_whole = Some(whole.clone());
+            }
+            for pages in [&[1][..], &[2], &[1, 2]] {
+                let (header, scoped) = parse_annotations(pdf, &qpdf_path(), Some(pages));
+                assert_eq!(header["pageCount"], 2);
+                let expected = whole
+                    .iter()
+                    .filter(|entry| {
+                        pages.contains(&(entry["pageIndex"].as_u64().unwrap() as u32 + 1))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(scoped, expected, "{kind} {} pages {pages:?}", pdf.display());
+                let added = scoped
+                    .iter()
+                    .filter(|entry| {
+                        entry["name"]
+                            .as_str()
+                            .is_some_and(|name| name.starts_with("new-"))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(added.len(), pages.len());
+                assert!(added.iter().all(|entry| entry["kind"] == kind));
+                if kind == "text-box" {
+                    assert!(added.iter().all(|entry| entry["recoveryData"]
+                        .as_str()
+                        .is_some_and(|data| !data.is_empty())));
+                }
+            }
+            assert_qpdf_check(pdf);
+        }
+    }
+}

@@ -672,7 +672,9 @@ fn load_native_mutation_base(
             if let Some(incremental) =
                 load_qpdf_page_local_incremental_pdf(input_path, qpdf_path, &edit)?
             {
-                return Ok(incremental);
+                if additive_targets_are_new(&incremental, mutations)? {
+                    return Ok(incremental);
+                }
             }
         }
     }
@@ -684,10 +686,9 @@ fn load_native_mutation_base(
 }
 
 /// The pages and annotations of an edit whose writers read only those:
-/// rotations, and notes created, edited or moved, except a note carrying a
-/// recovery graph, which can name objects on other pages. Every other
-/// mutation finds its targets across the document; a delete, for one, removes
-/// replies that other pages may list.
+/// rotations, notes without recovery imports, and additive markup, simple
+/// shapes and text boxes. Loaded targets must also pass `additive_targets_are_new`.
+/// Deletes can reach replies on other pages and always need whole discovery.
 fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
     let NativeMutationsFile {
         updates,
@@ -707,11 +708,27 @@ fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
     } = mutations;
     let notes = notes.iter().chain(free_text_notes);
     let page_local = deletes.is_empty()
-        && text_boxes.is_empty()
+        && text_boxes
+            .iter()
+            .all(|editor| editor.annotation_id.is_none() && editor.original_appearance.is_none())
         && page_labels.is_none()
         && bookmarks.is_none()
-        && shapes.is_none()
-        && markup.is_none()
+        && shapes.as_ref().is_none_or(|shapes| {
+            !shapes.rewrite_shape_state
+                && shapes.deleted_annotation_ids.is_empty()
+                && shapes.deleted_stable_keys.is_empty()
+                && shapes.shapes.iter().all(|shape| {
+                    shape.annotation_id.is_none()
+                        && normalize_managed_shape_stable_key(shape.stable_key.as_deref()).is_some()
+                        && matches!(
+                            shape.shape_type.as_str(),
+                            "rectangle" | "circle" | "line" | "arrow"
+                        )
+                })
+        })
+        && markup
+            .as_ref()
+            .is_none_or(|markup| markup.hints.iter().all(is_new_markup_hint_data))
         && placed_images.is_empty()
         && placed_image_geometry_updates.is_empty()
         && continuation.is_none()
@@ -730,6 +747,18 @@ fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
                     .iter()
                     .map(|update| (update.object_number, update.generation_number)),
             ),
+    );
+    edit.annotation_pages
+        .extend(text_boxes.iter().map(|editor| editor.page_index));
+    edit.annotation_pages.extend(
+        shapes
+            .iter()
+            .flat_map(|s| s.shapes.iter().map(|shape| shape.page_index)),
+    );
+    edit.annotation_pages.extend(
+        markup
+            .iter()
+            .flat_map(|m| m.hints.iter().map(|hint| hint.page_index)),
     );
     edit.pages.clone_from(&edit.annotation_pages);
     edit.pages
@@ -2023,5 +2052,69 @@ mod xref_stream_canary_tests {
         let appended = b"4294967295 0 obj\n<</Type/XRef/Size 4294967295/W[1 1 1]/Index[4294967295 2]/Length 6>>\nstream\n\x01\x00\x00\x01\x00\x00\nendstream\nendobj\nstartxref\n0\n%%EOF\n";
         let error = parse_incremental_xref_stream(appended, 0).unwrap_err();
         assert!(error.to_string().contains("object-number limit"));
+    }
+}
+
+#[cfg(test)]
+mod page_local_admission_tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    fn admitted(value: Value) -> bool {
+        page_local_edit(&serde_json::from_value(value).unwrap()).is_some()
+    }
+
+    #[test]
+    fn admits_only_additive_payloads_beside_existing_note_saves() {
+        let markup = json!({"subtype":"Highlight","pageIndex":7,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.02},"appAnnotationId":"new-highlight","source":"editor"});
+        let shape = json!({"type":"rectangle","pageIndex":7,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2,"stableKey":"new-shape"});
+        let text_box = json!({"pageIndex":7,"stableKey":"new-box","text":"new text","rect":[10,20,80,60],"rotation":0,"fontSize":12,"color":[0,0,0]});
+        for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+            let mut hint = markup.clone();
+            hint["subtype"] = json!(subtype);
+            assert!(admitted(json!({"markup":{"hints":[hint]}})));
+        }
+        for tool in ["rectangle", "circle", "line", "arrow"] {
+            let mut item = shape.clone();
+            item["type"] = json!(tool);
+            assert!(admitted(json!({"shapes":{"totalPages":8,"shapes":[item]}})));
+        }
+        assert!(admitted(json!({"textBoxes":[text_box.clone()]})));
+        for patch in [
+            json!({"annotationId":"12R"}),
+            json!({"originalAppearance":{"recoveryData":"00"}}),
+        ] {
+            let mut item = text_box.clone();
+            item.as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(!admitted(json!({"textBoxes":[item]})));
+        }
+        for patch in [json!({"annotationId":"12R"}), json!({"source":"pdf"})] {
+            let mut item = markup.clone();
+            item.as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(!admitted(json!({"markup":{"hints":[item]}})));
+        }
+        for patch in [
+            json!({"rewriteShapeState":true}),
+            json!({"deletedAnnotationIds":["12R"]}),
+            json!({"deletedStableKeys":["old"]}),
+            json!({"shapes":[{"annotationId":"12R", "type":"rectangle","pageIndex":7,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2}]}),
+        ] {
+            let mut shapes = json!({"totalPages":8,"shapes":[shape.clone()]});
+            shapes
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(!admitted(json!({"shapes":shapes})));
+        }
+        assert!(!admitted(
+            json!({"textBoxes":[text_box],"deletes":[{"pageIndex":7,"objectNumber":12,"generationNumber":0}]})
+        ));
+        assert!(!admitted(
+            json!({"placedImageGeometryUpdates":[{"pageIndex":7,"annotationId":"12R","x":0.1,"y":0.2,"width":0.3,"height":0.1}]})
+        ));
     }
 }

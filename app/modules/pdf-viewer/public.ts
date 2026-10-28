@@ -85,3 +85,5 @@ export type {
     IPdfDocument,
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+
+export {committedAffectedPageIndices} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';

@@ -1079,7 +1079,7 @@ pub(crate) fn validate_shapes_document_postconditions(
     let mut found_stable_keys = HashSet::new();
     let mut refs_by_key: HashMap<(ObjectId, String), Vec<ObjectId>> = HashMap::new();
     let mut refs_by_page: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, document.located_pages())?;
     let mut touched_page_ids = HashSet::new();
     for shape in &shapes.shapes {
         let page_number = shape
@@ -1129,7 +1129,7 @@ pub(crate) fn validate_shapes_document_postconditions(
         Ok(())
     };
     if FULL_POSTCONDITION_AUDIT {
-        page_resolver.for_each_page_id(document, &mut validate_page)?;
+        PageTreeResolver::new(document)?.for_each_page_id(document, &mut validate_page)?;
     } else {
         for page_id in touched_page_ids {
             validate_page(page_id)?;
@@ -1332,7 +1332,7 @@ pub(crate) fn validate_markup_document_postconditions(
     document: &impl PdfObjectSource,
     markup: &MarkupMutation,
 ) -> Result<()> {
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, document.located_pages())?;
     for hint in &markup.hints {
         match hint
             .annotation_id
@@ -1366,7 +1366,7 @@ pub(crate) fn validate_markup_document_postconditions(
 
 fn validate_new_markup_target(
     document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     hint: &MarkupSubtypeHint,
 ) -> Result<()> {
     let page_number = hint

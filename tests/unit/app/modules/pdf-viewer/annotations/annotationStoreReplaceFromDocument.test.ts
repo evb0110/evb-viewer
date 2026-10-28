@@ -13,6 +13,7 @@ import {
     type ITextBoxEntity,
     type INoteEntity,
     type ITextMarkupEntity,
+    type IShapeEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -658,4 +659,107 @@ describe('AnnotationStore.replaceFromDocument of some pages', () => {
         expect(store.replaceFromDocument([second([reply(9)])], [], [1])).toBe(true);
         expect(store.get(asAnnotationId('second'))).toMatchObject({contents: 'saved text'});
     });
+
+    it('changes nothing before a parse of the whole document fed the store', () => {
+        // A save can land before the document's opening parse finishes; the
+        // store then holds none of the pages a parse of some pages leaves out.
+        const store = new AnnotationStore();
+
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [], [0])).toBe(false);
+        expect(store.list({includeDeleted: true})).toEqual([]);
+
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [])).toBe(true);
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R', {contents: 'saved'})], [], [0])).toBe(true);
+        expect(store.get(asAnnotationId('first'))).toMatchObject({contents: 'saved'});
+    });
+});
+
+function simpleShape(id: string): IShapeEntity {
+    return {
+        ...note(id),
+        kind: 'shape',
+        tool: 'rectangle',
+        rect,
+        strokeColor: '#123456',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 1,
+    };
+}
+
+describe('scoped committed additive upserts', () => {
+    const factories = [
+        textMarkup,
+        textBox,
+        simpleShape,
+    ];
+    it.each(factories)('merges a recognized upsert and retains outside baselines', (factory) => {
+        const store = new AnnotationStore();
+        const outside = note('outside', {pageIndex: requirePageIndex(1)});
+        store.replaceFromDocument([outside], []);
+        const added = factory('added');
+        if (added.kind === 'shape') store.createShape(added);
+        else if (added.kind === 'text-box') store.createTextBox(added);
+        else store.createTextMarkup(added);
+        const frontier = store.beginSave();
+        store.markPersisted(frontier, [{
+            annotationId: 'added',
+            pdfRef: '50 0 R',
+        }]);
+        store.updateNote(outside.identity.id, {contents: 'newer outside edit'});
+        const parsed = {
+            ...added,
+            identity: {
+                ...added.identity,
+                pdfRef: '50 0 R',
+            },
+        };
+        expect(store.replaceFromDocument([parsed], [], [0], [parsed])).toBe(true);
+        expect(store.get(added.identity.id)).toMatchObject({
+            identity: {pdfRef: '50 0 R'},
+            persistedRevision: 0,
+        });
+        expect(store.get(outside.identity.id)).toMatchObject({contents: 'newer outside edit'});
+        expect(store.dirtyEntities().map(entity => entity.identity.id)).toEqual([outside.identity.id]);
+    });
+
+    for (const failure of [
+        'missing',
+        'foreign',
+        'wrong-ref',
+        'wrong-kind',
+    ] as const) {
+        it.each(factories)(`changes nothing when an expected upsert is ${failure}`, (factory) => {
+            const store = new AnnotationStore();
+            const added = factory('added');
+            const expected = {
+                ...added,
+                identity: {
+                    ...added.identity,
+                    pdfRef: '50 0 R',
+                },
+            };
+            store.replaceFromDocument([expected], []);
+            const before = store.list();
+            const epoch = store.mutationEpoch;
+            const entries = failure === 'wrong-ref' ? [{
+                ...expected,
+                identity: {
+                    ...expected.identity,
+                    pdfRef: '51 0 R',
+                },
+            }]
+                : failure === 'wrong-kind' ? [note('added', {identity: expected.identity})] : [];
+            const foreignRecords = failure === 'foreign' ? [{
+                ...foreign(),
+                pageIndex: requirePageIndex(0),
+                objectNumber: 50,
+            }] : [];
+            expect(store.replaceFromDocument(entries, foreignRecords, [0], [expected])).toBe(false);
+            expect(store.list()).toEqual(before);
+            expect(store.foreign).toEqual([]);
+            expect(store.mutationEpoch).toBe(epoch);
+            expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        });
+    }
 });

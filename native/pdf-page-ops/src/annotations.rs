@@ -704,7 +704,8 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    let located = incremental.located_pages.clone();
+    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
     let mut annotation_indexes = HashMap::new();
     let mut fonts = crate::text_box_font::SharedFonts::default();
     for editor in editors {
@@ -825,7 +826,7 @@ pub(crate) fn validate_text_box_targets(
     if mutations.text_boxes.is_empty() {
         return Ok(());
     }
-    let pages = PageTreeResolver::new(document)?;
+    let pages = PageLookup::new(document, document.located_pages())?;
     let mut indexes = HashMap::new();
     for editor in &mutations.text_boxes {
         let page_id = pages.page_id(document, mutation_page_number(editor.page_index)?)?;

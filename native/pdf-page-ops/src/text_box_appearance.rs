@@ -714,7 +714,7 @@ pub(crate) fn validate_text_box_document_postconditions(
     if editors.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, document.located_pages())?;
     for editor in editors {
         let page_number = editor
             .page_index

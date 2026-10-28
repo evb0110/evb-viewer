@@ -24,7 +24,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
-import {PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES} from '@contracts/pdfAnnotationParseSchemas';
+import {committedAffectedPageIndices} from '@app/modules/pdf-viewer/public';
 import type {
     TWorkspaceFailureSurface,
     TWorkspaceSaveFailureReason,
@@ -94,28 +94,8 @@ const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {
     /** False when a parse of some pages cannot replace the store; nothing changed. */
     replaceFromDocument?: (result: IPdfAnnotationParseResult) => boolean;
-    notePageIndices?: readonly number[];
+    affectedPageIndices?: readonly number[];
 };
-
-/**
- * The pages to read back after a save: those of the notes it wrote, when it
- * wrote no other annotation. Undefined reads the whole document.
- */
-function committedNotePageIndices(
-    saveTransaction: TSingleWriterSaveTransaction,
-    projection: INativePdfMutationProjection,
-) {
-    const pageIndices = saveTransaction.notePageIndices;
-    const notesOnly = !projection.textBoxes?.length
-        && projection.annotationDeletes.length === 0
-        && !projection.hasShapeMutations
-        && !projection.hasMarkupMutations
-        && !projection.placedImageGeometryUpdates?.length
-        && !projection.mutations.placedImages?.length;
-    return notesOnly && pageIndices?.length && pageIndices.length <= PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES
-        ? [...pageIndices]
-        : undefined;
-}
 
 async function validateWorkingCopy(
     plan: TWorkspaceSavePlan,
@@ -376,9 +356,8 @@ async function executeNativeMutationSave(
             ),
             () => ({pageCount: pageIndices?.length ?? 'all'}),
         );
-        // A note save rewrites only its notes' pages; the rest of the store
-        // already holds what a whole-document parse would read.
-        const pageIndices = committedNotePageIndices(saveTransaction, projection);
+        // Read only the complete affected scope of an additive annotation save.
+        const pageIndices = committedAffectedPageIndices(saveTransaction.affectedPageIndices, projection);
         const replacedPages = pageIndices !== undefined && await parse(pageIndices).then(
             parsed => saveTransaction.replaceFromDocument!(parsed),
             (error: unknown) => {

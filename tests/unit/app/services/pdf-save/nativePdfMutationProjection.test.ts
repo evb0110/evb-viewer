@@ -33,6 +33,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import {
     buildNativePdfMutationProjection,
+    committedAffectedPageIndices,
     type IPdfSaveRouteCapabilities,
 } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import { nativeNoteGeometryProjection } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection';
@@ -736,5 +737,67 @@ describe('native PDF save route', () => {
                 type: 'rectangle',
             })],
         });
+    });
+});
+
+
+describe('additive shape projection and affected-page scope', () => {
+    it('publishes only new shapes beside an already saved shape without a state rewrite', () => {
+        const application = new AnnotationApplication('additive-shapes');
+        const saved = createShapeEntity();
+        application.store.replaceFromDocument([saved], []);
+        const fresh = createShapeEntity({
+            identity: {id: asAnnotationId('fresh')},
+            revision: 0,
+            persistedRevision: -1,
+        });
+        application.store.createShape(fresh);
+        const session = application.beginSave();
+        expect(session.affectedPageIndices).toEqual([0]);
+        const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({shapes: [
+            toLegacyShapeAnnotation(saved),
+            toLegacyShapeAnnotation(fresh),
+        ]}));
+        expect(route.route).toBe('native-append');
+        if (route.route !== 'native-append') throw new Error('Expected an additive shape route');
+        const projection = route.nativeMutationProjection;
+        expect(projection.mutations.shapes).toMatchObject({
+            rewriteShapeState: false,
+            shapes: [{stableKey: 'evb-shape:fresh'}],
+        });
+        expect(projection.mutations.shapes?.shapes).toHaveLength(1);
+        expect(committedAffectedPageIndices(session.affectedPageIndices, projection)).toEqual([0]);
+        expect(committedAffectedPageIndices(Array.from({length: 4096}, (_, index) => index), projection)).toHaveLength(4096);
+        expect(committedAffectedPageIndices(Array.from({length: 4097}, (_, index) => index), projection)).toBeUndefined();
+        expect(committedAffectedPageIndices(null, projection)).toBeUndefined();
+        expect(committedAffectedPageIndices([], projection)).toBeUndefined();
+        expect(committedAffectedPageIndices([0], {
+            ...projection,
+            mutations: {
+                ...projection.mutations,
+                shapes: {
+                    ...projection.mutations.shapes!,
+                    rewriteShapeState: true,
+                },
+            },
+        })).toBeUndefined();
+        expect(committedAffectedPageIndices([0], {
+            ...projection,
+            mutations: {
+                ...projection.mutations,
+                shapes: {
+                    ...projection.mutations.shapes!,
+                    deletedStableKeys: ['retired'],
+                },
+            },
+        })).toBeUndefined();
+    });
+
+    it('requires whole readback for existing shape edits even with a page hint', () => {
+        const application = new AnnotationApplication('existing-shape');
+        const saved = createShapeEntity();
+        application.store.replaceFromDocument([saved], []);
+        application.store.updateShape(saved.identity.id, {strokeWidth: 3});
+        expect(application.beginSave().affectedPageIndices).toBeNull();
     });
 });
