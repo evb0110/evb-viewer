@@ -136,6 +136,36 @@ function copyLargeFixture(directories: string[], name: string) {
     return documentPath;
 }
 
+/** Where the page's placed images sit, as fractions of the page box. */
+function readPlacedImagePositions(page: Page) {
+    return page.evaluate((pageNumber: number) => {
+        const container = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active .page_container[data-page="${pageNumber}"]`,
+        );
+        const box = container?.getBoundingClientRect();
+        if (!container || !box || box.width <= 0 || box.height <= 0) return [];
+        return Array.from(container.querySelectorAll<HTMLElement>(
+            '.pdf-annotation-editor-layer [data-annotation-kind="placed-image"]',
+        )).map((entity) => {
+            const rect = entity.getBoundingClientRect();
+            return {
+                left: (rect.left - box.left) / box.width,
+                top: (rect.top - box.top) / box.height,
+            };
+        });
+    }, PAGE_NUMBER);
+}
+
+function isNear(position: {
+    left: number;
+    top: number
+}, expected: {
+    left: number;
+    top: number
+}) {
+    return Math.abs(position.left - expected.left) < 0.01 && Math.abs(position.top - expected.top) < 0.01;
+}
+
 /** Drags an entity with the Select tool and waits until it has moved. */
 async function dragEntity(page: Page, id: string) {
     await clickAnnotationTool(page, 'Select');
@@ -289,10 +319,18 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await finalizeImagePlacement(page);
         const image = await waitForNewEntity(page, 'placed-image', beforeImage);
         const placeSaveMs = await saveWithinBudget(page, 'Placed image save');
+        const [placedAt] = await readPlacedImagePositions(page);
+        expect(placedAt).toBeDefined();
 
         await dragEntity(page, image.id);
         await waitForSaveFrontierReady(page, 30_000);
         const moveSaveMs = await saveWithinBudget(page, 'Placed image move save');
+        const [movedTo] = await readPlacedImagePositions(page);
+        expect(movedTo).toBeDefined();
+        expect(isNear(movedTo!, placedAt!), JSON.stringify({
+            placedAt,
+            movedTo,
+        })).toBe(false);
         const savedCount = await readPanelAnnotationCount(page);
         expect(savedCount, 'The annotations panel shows a count after the saves').not.toBeNull();
 
@@ -314,7 +352,11 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await expectCleanAnnotationHydration(restartedPage);
         await openAnnotationsTab(restartedPage, 30_000);
         await expect.poll(() => readPanelAnnotationCount(restartedPage), {timeout: 60_000}).toBe(savedCount);
-        await expect.poll(async () => (await readCanonicalEntities(restartedPage))
-            .some(entity => entity.kind === 'placed-image'), {timeout: 60_000}).toBe(true);
+        // The reopened file must hold the image where the move left it.
+        await setupScrollToPage(restartedPage, PAGE_NUMBER);
+        await expect.poll(async () => {
+            const positions = await readPlacedImagePositions(restartedPage);
+            return positions.length === 1 && isNear(positions[0]!, movedTo!);
+        }, {timeout: 60_000}).toBe(true);
     }, LARGE_PDF_TIMEOUT_MS * 2);
 });
