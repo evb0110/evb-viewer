@@ -6,6 +6,8 @@ import type {
 import * as v from 'valibot';
 
 export type TPlatformFeatureSchema<TOutput = unknown> = v.GenericSchema<unknown, TOutput>;
+/** contextBridge proxies callbacks, but cannot transfer an AbortSignal. */
+export type TPlatformIpcAbortSubscription = (onAbort: () => void) => (() => void);
 type TSchemaValue = ReturnType<JSON['parse']>;
 
 type TPlatformBrowserSpec = {method: string} | {

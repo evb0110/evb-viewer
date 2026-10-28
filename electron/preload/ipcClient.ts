@@ -9,8 +9,10 @@ import type {
     TAnyDefinedPlatformFeature,
     TFeatureCapability,
     TFeatureDirectBindings,
+    TPlatformIpcAbortSubscription,
 } from '@contracts/platformFeature';
 import {createRequestId} from '@contracts/shared';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     CORE_IPC_SEND_CHANNELS,
     IPC_INVOKE_REQUEST_ID_FIELD,
@@ -28,7 +30,10 @@ type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unkn
 type TIpcPayloadDecoder<TPayload> = (value: unknown) => TPayload | null;
 type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<Record<TChannel, number>>>;
 
-interface IIpcInvokerOptions<TChannel extends string = string> { invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>; }
+interface IIpcInvokerOptions<TChannel extends string = string> {
+    invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>;
+    subscribeToAbort?: TPlatformIpcAbortSubscription;
+}
 
 interface IDecodedEventFailureState {
     lastLoggedAt: number;
@@ -112,53 +117,49 @@ export async function invokeWithChannelContext<TResult>(
     options?: IIpcInvokerOptions,
 ) {
     let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
+    let unsubscribe: (() => void) | undefined;
     const timeoutMs = options?.invokeTimeoutMsByChannel?.[channel];
-    // Only a timed invoke can be abandoned, so only a timed invoke needs an id
-    // for the main process to cancel it by.
-    const timed = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
-        ? {
-            requestId: createRequestId('ipc-invoke'),
-            timeoutMs,
-        }
+    const timed = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0;
+    const requestId = timed || options?.subscribeToAbort
+        ? createRequestId('ipc-invoke')
         : null;
     try {
-        const invokeArgs = timed === null
+        const invokeArgs = requestId === null
             ? args
             : [
                 ...args,
-                {[IPC_INVOKE_REQUEST_ID_FIELD]: timed.requestId},
+                {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId},
             ];
         const invokePromise = ipcRenderer.invoke(channel, ...invokeArgs) as Promise<TResult>;
-        if (timed === null) {
+        if (requestId === null) {
             return await invokePromise;
         }
 
         return await Promise.race([
             invokePromise,
             new Promise<never>((_resolve, reject) => {
-                timeoutHandle = setTimeout(() => {
-                    // Giving up on the reply is not the same as stopping the work.
-                    // Without this the handler keeps running and keeps its leases,
-                    // and a user retry runs a second copy of it against the same
-                    // document.
+                const cancel = (error: Error) => {
                     try {
-                        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, {[IPC_INVOKE_REQUEST_ID_FIELD]: timed.requestId});
+                        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId});
                     } catch {
-                        // Preserve the timeout identity if the renderer transport is already closing.
+                        // Preserve cancellation identity while the transport is closing.
                     }
-                    reject(new IpcInvokeTimeoutError(channel, timed.timeoutMs));
-                }, timed.timeoutMs);
-                timeoutHandle.unref?.();
+                    reject(error);
+                };
+                if (timed) {
+                    timeoutHandle = setTimeout(() => cancel(new IpcInvokeTimeoutError(channel, timeoutMs)), timeoutMs);
+                    timeoutHandle.unref?.();
+                }
+                unsubscribe = options?.subscribeToAbort?.(() => cancel(new DOMException('IPC invoke aborted', 'AbortError')));
             }),
         ]);
     } catch (error) {
-        // A timeout keeps its own identity. Wrapping it made every
-        // `instanceof IpcInvokeTimeoutError` upstream unreachable.
-        if (error instanceof IpcInvokeTimeoutError) {
+        if (error instanceof IpcInvokeTimeoutError || error instanceof DOMException && error.name === 'AbortError') {
             throw error;
         }
         throw new PlatformIpcInvokeError(channel, error);
     } finally {
+        unsubscribe?.();
         if (timeoutHandle) {
             clearTimeout(timeoutHandle);
         }
@@ -318,9 +319,18 @@ export function createPlatformFeaturePreloadClient<
             continue;
         }
         client[name] = (...publicArgs: unknown[]) => {
+            let subscribeToAbort: TPlatformIpcAbortSubscription | undefined;
+            const localArgs = publicArgs.map(value => {
+                if (!isRecord(value) || typeof value.signal !== 'function') return value;
+                const {
+                    signal, ...options
+                } = value;
+                subscribeToAbort = signal as TPlatformIpcAbortSubscription;
+                return options;
+            });
             let wireArgs = spec.client?.mapArgs
-                ? spec.client.mapArgs(...publicArgs as never[])
-                : publicArgs;
+                ? spec.client.mapArgs(...localArgs as never[])
+                : localArgs;
             // Scan-cleanup arguments can be reactive, so encode them as plain IPC values.
             if (feature.path[0] === 'scanCleanup') {
                 try {
@@ -333,7 +343,10 @@ export function createPlatformFeaturePreloadClient<
                     );
                 }
             }
-            return invoke(spec.channel, ...wireArgs);
+            return invokeWithChannelContext(ipcRenderer, spec.channel, wireArgs, {
+                invokeTimeoutMsByChannel,
+                ...(subscribeToAbort ? {subscribeToAbort} : {}),
+            });
         };
     }
     for (const [

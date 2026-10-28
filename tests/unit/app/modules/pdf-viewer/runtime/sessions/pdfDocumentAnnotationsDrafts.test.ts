@@ -452,12 +452,17 @@ describe('writer annotations shared by linked views', () => {
         } = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        const initialSignal: AbortSignal = parsePdfAnnotations.mock.calls.at(-1)![1].signal;
+        expect(initialSignal.aborted).toBe(false);
         replaceVersion();
         const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(pending.promise);
         const loading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
+        const signal: AbortSignal = parsePdfAnnotations.mock.calls.at(-1)![1].signal;
+        expect(signal.aborted).toBe(false);
         const id = annotations.application.value.store.list()[0]!.identity.id;
         annotations.application.value.store.updateTextBox(id, {text: 'Accepted local edit'});
+        expect(signal.aborted).toBe(true);
         pending.resolve(parsed('Late saved baseline'));
         await loading;
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Accepted local edit']);
