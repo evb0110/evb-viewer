@@ -199,6 +199,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "parse-annotations" => Operation::ParseAnnotations {
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
+            pages_file,
         },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
@@ -440,13 +441,22 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
-        Operation::ParseAnnotations { modified_at } => {
+        Operation::ParseAnnotations {
+            modified_at,
+            pages_file,
+        } => {
+            let pages = pages_file
+                .as_deref()
+                .map(read_pages_file)
+                .transpose()
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_annotation_parse_path(
                 &config.input_path,
                 output_path,
                 modified_at,
                 config.qpdf_path.as_deref(),
-            )
+                pages.as_deref(),
+            );
         }
         Operation::PageSizes { metadata_only } => {
             return write_page_sizes_path(
@@ -766,7 +776,7 @@ mod tests {
 
         assert!(matches!(
             config.operation,
-            Operation::ParseAnnotations { ref modified_at }
+            Operation::ParseAnnotations { ref modified_at, pages_file: None }
                 if modified_at == "D:20260830130000Z"
         ));
     }

@@ -272,6 +272,17 @@ export const PDF_ANNOTATION_PARSE_ENTITY_SCHEMA = v.variant('kind', [
     shapeSchema,
 ]);
 export const PDF_ANNOTATION_PARSE_FOREIGN_SCHEMA = foreignSchema;
+export const PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES = 4_096;
+/** A page-scoped parse reads only these pages: distinct, in ascending order. */
+const pageIndicesSchema = v.pipe(
+    v.array(nonNegativeInteger('annotation parse pageIndices')),
+    v.minLength(1, 'annotation parse pageIndices must not be empty'),
+    v.maxLength(PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES, 'annotation parse pageIndices exceeds its ceiling'),
+    v.check(
+        indices => indices.every((index, position) => position === 0 || index > indices[position - 1]!),
+        'annotation parse pageIndices must ascend without repeats',
+    ),
+);
 export const PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA = v.pipe(
     v.unknown(),
     v.check(value => isRecord(value) && typeof value.expectedDocumentRevisionToken === 'string',
@@ -288,13 +299,21 @@ export const PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA = v.pipe(
             )),
         )),
         workingCopyOnly: v.optional(v.literal(true)),
+        pageIndices: v.optional(pageIndicesSchema),
     }),
-    v.transform(({expectedDocumentRevisionToken}) => ({expectedDocumentRevisionToken})),
+    v.transform(({
+        expectedDocumentRevisionToken, pageIndices,
+    }) => ({
+        expectedDocumentRevisionToken,
+        ...(pageIndices === undefined ? {} : {pageIndices}),
+    })),
 );
 
 const parseResultShapeSchema = v.strictObject({
     documentRevisionToken: revisionTokenSchema,
     pageCount: nonNegativeInteger('annotation parse result pageCount'),
+    /** Present when the parse read only these pages. */
+    pageIndices: v.optional(pageIndicesSchema),
     entities: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTITY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
     foreign: v.pipe(v.array(foreignSchema), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
 }, 'contains unsupported field');
@@ -339,4 +358,5 @@ export const PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA = v.strictObject({
     schemaVersion: v.literal(1),
     pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
     chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES)),
+    pageIndices: v.optional(pageIndicesSchema),
 });

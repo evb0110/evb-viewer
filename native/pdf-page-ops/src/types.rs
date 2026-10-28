@@ -661,15 +661,23 @@ impl PdfObjectSource for Document {
 pub(crate) struct AppendedRevision<'a> {
     base: &'a Document,
     appended: &'a Document,
+    located_pages: Option<&'a LocatedPages>,
 }
 
 impl<'a> AppendedRevision<'a> {
     pub(crate) fn new(incremental: &'a IncrementalDocument) -> Self {
-        Self::from_documents(incremental.get_prev_documents(), &incremental.new_document)
+        Self {
+            located_pages: incremental.located_pages.as_ref(),
+            ..Self::from_documents(incremental.get_prev_documents(), &incremental.new_document)
+        }
     }
 
     pub(crate) fn from_documents(base: &'a Document, appended: &'a Document) -> Self {
-        Self { base, appended }
+        Self {
+            base,
+            appended,
+            located_pages: None,
+        }
     }
 }
 
@@ -684,9 +692,17 @@ impl PdfObjectSource for AppendedRevision<'_> {
     /// Appends rewrite page dictionaries, the catalog and annotation objects but
     /// never restructure the page tree, so page identity comes from the base
     /// revision. A mutation that adds or removes pages would have to walk the
-    /// appended tree instead.
+    /// appended tree instead. A page-local base holds only the pages it
+    /// located, by number.
     fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
-        self.base.get_pages()
+        match self.located_pages {
+            Some(located) => located
+                .ids
+                .iter()
+                .map(|(index, page_id)| (index + 1, *page_id))
+                .collect(),
+            None => self.base.get_pages(),
+        }
     }
 
     fn root_id(&self) -> Result<ObjectId> {
@@ -737,6 +753,7 @@ pub(crate) enum Operation {
     },
     ParseAnnotations {
         modified_at: String,
+        pages_file: Option<PathBuf>,
     },
     AnnotationNameIndex,
     EmbeddedShapeIndex,

@@ -51,6 +51,13 @@ export interface IAnnotationReadModel {
 export interface IAnnotationSaveSession {
     readonly frontier: IAnnotationSaveFrontier;
     readonly plan: ReturnType<typeof buildSerializationPlan>;
+    /**
+     * The pages of the notes this save writes, when it writes only notes that
+     * stay in the document: reading those pages back reads all it wrote.
+     * Null when another edit, or a deletion with its replies, may reach other
+     * pages.
+     */
+    readonly notePageIndices: readonly number[] | null;
 }
 
 
@@ -310,6 +317,7 @@ export class AnnotationApplication {
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
         const frontier = this.store.beginSave(documentRevisionToken);
         const dirty = this.store.dirtyEntities();
+        const notesOnly = dirty.length > 0 && dirty.every(entity => entity.kind === 'note' && !entity.deleted);
         return {
             frontier,
             plan: buildSerializationPlan(
@@ -317,6 +325,9 @@ export class AnnotationApplication {
                 dirty,
                 this.store.list({includeDeleted: true}),
             ),
+            notePageIndices: notesOnly
+                ? [...new Set(dirty.map(entity => entity.pageIndex))].sort((left, right) => left - right)
+                : null,
         };
     }
 

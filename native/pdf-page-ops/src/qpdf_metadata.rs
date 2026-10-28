@@ -1282,13 +1282,12 @@ mod platform {
         path: &Path,
         qpdf: &Path,
         edit: &PageLocalEdit,
-    ) -> Result<Option<(Document, Vec<ObjectId>)>> {
+    ) -> Result<Option<(Document, LocatedPages)>> {
         let Some(library) = adjacent_library(qpdf)? else {
             return Ok(None);
         };
         // Whole-object reads never consult the projection purpose.
         let reader = Reader::open(&library, path, QpdfMetadataPurpose::Geometry)?;
-        let page_ids_by_number = reader.page_ids()?;
         let mut document = Document::with_version(reader.version()?);
         document.trailer = reader.trailer()?;
         // qpdf counts objects only after resolving every one of them. The
@@ -1300,24 +1299,25 @@ mod platform {
             Some(size) => u32::try_from(size.saturating_sub(1))?,
             None => reader.max_object_number()?,
         };
-        complete_page_local_objects(
-            &mut document,
-            &page_ids_by_number,
-            edit,
-            |document, batch, retained| {
-                for id in batch {
-                    // qpdf reads a missing object as null; leave it absent,
-                    // as the eager reader and the JSON query do.
-                    let object = reader.object(*id, Context::Value)?;
-                    if !matches!(object, Object::Null) {
-                        *retained = charge_retained(*retained, &object)?;
-                        document.objects.insert(*id, object);
-                    }
+        let fetch = |document: &mut Document, batch: &BTreeSet<ObjectId>, retained: &mut usize| {
+            for id in batch {
+                // qpdf reads a missing object as null; leave it absent,
+                // as the eager reader and the JSON query do.
+                let object = reader.object(*id, Context::Value)?;
+                if !matches!(object, Object::Null) {
+                    *retained = charge_retained(*retained, &object)?;
+                    document.objects.insert(*id, object);
                 }
-                Ok(())
-            },
-        )?;
-        Ok(Some((document, page_ids_by_number)))
+            }
+            Ok(())
+        };
+        // qpdf numbers pages only after reading every page dictionary.
+        let located = match locate_pages_by_count(&mut document, &edit.located(), fetch)? {
+            Some(located) => located,
+            None => LocatedPages::from_list(&reader.page_ids()?, &edit.located())?,
+        };
+        complete_page_local_objects(&mut document, &located, edit, fetch)?;
+        Ok(Some((document, located)))
     }
 }
 
@@ -1327,7 +1327,7 @@ pub(crate) fn load_qpdf_page_local_objects(
     path: &Path,
     qpdf_path: &Path,
     edit: &PageLocalEdit,
-) -> Result<Option<(Document, Vec<ObjectId>)>> {
+) -> Result<Option<(Document, LocatedPages)>> {
     #[cfg(not(target_family = "wasm"))]
     {
         platform::load_page_local(path, qpdf_path, edit)

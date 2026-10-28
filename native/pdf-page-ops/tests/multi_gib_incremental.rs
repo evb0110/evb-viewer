@@ -355,7 +355,11 @@ fn write_free_text_marker_pdf(path: &Path, padding: Option<u64>) {
 /// and its popup. `heavy` adds five 900,000-element arrays, whose qpdf
 /// structure exceeds the 256 MiB retained-memory estimate, and a sparse
 /// stream that pads the file past the eager-load ceiling.
-fn write_page_local_note_pdf(path: &Path, heavy: bool) {
+/// Two pages under nested /Pages nodes with an inherited crop box and
+/// rotation, and a legacy note marker on page 1. A padded file is larger than
+/// the eager reader admits; a heavy one also holds arrays too large to load
+/// as a whole structure. Both number their objects alike.
+fn write_page_local_note_pdf(path: &Path, padded: bool, heavy: bool) {
     let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.7\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = Vec::new();
@@ -380,8 +384,8 @@ fn write_page_local_note_pdf(path: &Path, heavy: bool) {
         object.extend_from_slice(b"\nendobj\n");
         write_object(&mut file, &mut offsets, &object);
     }
-    if heavy {
-        let array = format!("[{}]", "0 ".repeat(900_000));
+    if padded {
+        let array = format!("[{}]", "0 ".repeat(if heavy { 900_000 } else { 1 }));
         for object_number in 14..19 {
             write_object(
                 &mut file,
@@ -515,30 +519,46 @@ fn parsed_annotation_entries(pdf: &Path) -> Vec<Value> {
 }
 
 fn parsed_annotation_entries_with_qpdf(pdf: &Path, qpdf: &Path) -> Vec<Value> {
+    parse_annotations(pdf, qpdf, None).1
+}
+
+/// The parse header and entries, of the given one-based pages only if any.
+fn parse_annotations(pdf: &Path, qpdf: &Path, pages: Option<&[u32]>) -> (Value, Vec<Value>) {
     let sidecar = temp_path("annotation-parse", "ndjson");
-    let _cleanup = TempFiles(vec![sidecar.clone()]);
-    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+    let pages_file = temp_path("annotation-parse-pages", "txt");
+    let _cleanup = TempFiles(vec![sidecar.clone(), pages_file.clone()]);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+    command
         .args(["parse-annotations", "--input"])
         .arg(pdf)
         .arg("--output")
         .arg(&sidecar)
         .arg("--qpdf")
         .arg(qpdf)
-        .args(["--modified-at", "D:20261009120000Z"])
-        .output()
-        .unwrap();
+        .args(["--modified-at", "D:20261009120000Z"]);
+    if let Some(pages) = pages {
+        let lines = pages
+            .iter()
+            .map(|page| format!("{page}\n"))
+            .collect::<String>();
+        fs::write(&pages_file, lines).unwrap();
+        command.arg("--pages-file").arg(&pages_file);
+    }
+    let output = command.output().unwrap();
     assert!(
         output.status.success(),
         "annotation parse failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    fs::read_to_string(&sidecar)
-        .unwrap()
-        .lines()
+    let contents = fs::read_to_string(&sidecar).unwrap();
+    let mut lines = contents.lines();
+    let header = serde_json::from_str(lines.next().unwrap()).unwrap();
+    let entries = lines
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter_map(|chunk| chunk["entries"].as_array().cloned())
         .flatten()
-        .collect()
+        .collect();
+    (header, entries)
 }
 
 fn qpdf_annotation_subtype(pdf: &Path, object_number: u32) -> String {
@@ -1197,11 +1217,18 @@ fn legacy_note_marker_recognition_matches_eager_and_structural_loads() {
 #[test]
 fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
     let small = temp_path("page-local-note-small", "pdf");
+    let padded = temp_path("page-local-note-padded", "pdf");
     let large = temp_path("page-local-note-large", "pdf");
     let mutations = temp_path("page-local-note-mutations", "json");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone(), mutations.clone()]);
-    write_page_local_note_pdf(&small, false);
-    write_page_local_note_pdf(&large, true);
+    let _cleanup = TempFiles(vec![
+        small.clone(),
+        padded.clone(),
+        large.clone(),
+        mutations.clone(),
+    ]);
+    write_page_local_note_pdf(&small, false, false);
+    write_page_local_note_pdf(&padded, true, false);
+    write_page_local_note_pdf(&large, true, true);
     assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
 
     // Note saves on a file whose structure exceeds the memory estimate: the
@@ -1228,7 +1255,8 @@ fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
         ),
     };
     let mut seen = Vec::new();
-    for pdf in [&small, &large] {
+    let mut parsed = Vec::new();
+    for pdf in [&small, &padded, &large] {
         let mut added = 0;
         for index in 0..3 {
             fs::write(&mutations, save(index, added)).unwrap();
@@ -1240,6 +1268,16 @@ fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
                 String::from_utf8_lossy(&output.stderr)
             );
             seen.push(note_pages_as_read(pdf));
+            // The large file's structure is too large to parse whole.
+            let whole = (pdf != &large).then(|| parse_annotations(pdf, &qpdf_path(), None).1);
+            let scoped = [&[1][..], &[2], &[1, 2]].map(|pages| {
+                let (header, entries) = parse_annotations(pdf, &qpdf_path(), Some(pages));
+                assert_eq!(header["pageCount"], 2);
+                let indices = pages.iter().map(|page| page - 1).collect::<Vec<_>>();
+                assert_eq!(header["pageIndices"], serde_json::json!(indices));
+                (indices, entries)
+            });
+            parsed.push((whole, scoped));
             if index == 1 {
                 added = page_annotations(pdf, 4)
                     .into_iter()
@@ -1256,7 +1294,31 @@ fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
     // inherited crop box and rotation place each note, names find notes
     // instead of duplicating them, and objects find their pages.
     let (small_states, large_states) = seen.split_at(3);
-    assert_eq!(large_states, small_states);
+    assert_eq!(&large_states[..3], small_states);
+    assert_eq!(&large_states[3..], small_states);
+    let large_states = &large_states[3..];
+
+    // Reading back only some pages, as the app does after a save, gives
+    // those pages' entries of a whole-document parse: of the same file, or for
+    // the large file, of the padded one that numbers its objects alike.
+    for (run, (_, scoped)) in parsed.iter().enumerate() {
+        let (file, save) = (run / 3, run % 3);
+        let whole = parsed[if file == 0 { run } else { 3 + save }]
+            .0
+            .as_ref()
+            .unwrap();
+        for (indices, entries) in scoped {
+            let expected = whole
+                .iter()
+                .filter(|entry| indices.contains(&(entry["pageIndex"].as_u64().unwrap() as u32)))
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                entries, &expected,
+                "file {file} save {save} pages {indices:?}"
+            );
+        }
+    }
     let after = |save: usize| large_states[save].concat().join("\n");
     assert!(after(1).contains("\"/Text\" \"legacy-marker\" \"edited legacy\""));
     assert!(after(1).contains("\"/Text\" \"uid:0:added\" \"added note edited\""));

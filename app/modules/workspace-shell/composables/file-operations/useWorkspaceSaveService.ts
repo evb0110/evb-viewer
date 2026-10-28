@@ -24,6 +24,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
+import {PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES} from '@contracts/pdfAnnotationParseSchemas';
 import type {
     TWorkspaceFailureSurface,
     TWorkspaceSaveFailureReason,
@@ -90,7 +91,31 @@ export type {
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 
-type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {replaceFromDocument?: (result: IPdfAnnotationParseResult) => void};
+type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {
+    /** False when a parse of some pages cannot replace the store; nothing changed. */
+    replaceFromDocument?: (result: IPdfAnnotationParseResult) => boolean;
+    notePageIndices?: readonly number[];
+};
+
+/**
+ * The pages to read back after a save: those of the notes it wrote, when it
+ * wrote no other annotation. Undefined reads the whole document.
+ */
+function committedNotePageIndices(
+    saveTransaction: TSingleWriterSaveTransaction,
+    projection: INativePdfMutationProjection,
+) {
+    const pageIndices = saveTransaction.notePageIndices;
+    const notesOnly = !projection.textBoxes?.length
+        && projection.annotationDeletes.length === 0
+        && !projection.hasShapeMutations
+        && !projection.hasMarkupMutations
+        && !projection.placedImageGeometryUpdates?.length
+        && !projection.mutations.placedImages?.length;
+    return notesOnly && pageIndices?.length && pageIndices.length <= PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES
+        ? [...pageIndices]
+        : undefined;
+}
 
 async function validateWorkingCopy(
     plan: TWorkspaceSavePlan,
@@ -340,14 +365,23 @@ async function executeNativeMutationSave(
     // parse belongs to that committed revision, not the pre-write plan token.
     const committedRevisionToken = deps.document.revisionToken.value;
     if (saveTransaction.replaceFromDocument && expectedWorkingPath && committedRevisionToken) {
-        const parsed = await timedSavePhase(
+        const parse = (pageIndices?: number[]) => timedSavePhase(
             'parse-committed-pdf-annotations',
             () => getDocumentWorkingCopyCapability().parsePdfAnnotations(
                 expectedWorkingPath,
-                {expectedDocumentRevisionToken: committedRevisionToken},
+                {
+                    expectedDocumentRevisionToken: committedRevisionToken,
+                    ...(pageIndices ? {pageIndices} : {}),
+                },
             ),
+            () => ({pageCount: pageIndices?.length ?? 'all'}),
         );
-        saveTransaction.replaceFromDocument(parsed);
+        // A note save rewrites only its notes' pages; the rest of the store
+        // already holds what a whole-document parse would read.
+        const pageIndices = committedNotePageIndices(saveTransaction, projection);
+        if (!pageIndices || !saveTransaction.replaceFromDocument(await parse(pageIndices))) {
+            saveTransaction.replaceFromDocument(await parse());
+        }
     }
     // A layer may be marked clean only if this save carried its edits. The
     // projection records the edits carried by the published revision.

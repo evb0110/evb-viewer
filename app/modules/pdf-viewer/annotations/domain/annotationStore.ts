@@ -147,6 +147,17 @@ function isDirty(entity: AnnotationEntity) {
     return entity.revision > entity.persistedRevision;
 }
 
+/** Whether a parsed thread still lists every reply the store's entity holds. */
+function keepsReplies(parsed: AnnotationEntity, current: AnnotationEntity) {
+    const replyKey = (reply: {
+        objectNumber: number;
+        generationNumber: number
+    }) =>
+        `${reply.objectNumber} ${reply.generationNumber}`;
+    const parsedReplies = new Set((parsed.replies ?? []).map(replyKey));
+    return (current.replies ?? []).every(reply => parsedReplies.has(replyKey(reply)));
+}
+
 function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
     const cloned = cloneEntity(entity);
     switch (cloned.kind) {
@@ -593,11 +604,24 @@ export class AnnotationStore {
      * Applies one document parse as one store transaction. Parsed entities are
      * the saved baseline. A dirty local entity keeps all authored properties,
      * but receives the parsed PDF object reference and baseline fingerprint.
+     *
+     * A parse of some pages (`pageIndices`) replaces only those pages; entities
+     * and foreign records on other pages stay as they are. It changes nothing
+     * and returns false when those pages alone cannot stand for the whole
+     * document: a parsed annotation that matches an entity on another page, or
+     * a parsed thread without a reply this store holds, which may sit on a page
+     * the parse did not read.
      */
     replaceFromDocument(
         entities: readonly AnnotationEntity[],
         foreign: readonly IPdfForeignAnnotationRecord[],
+        pageIndices?: readonly number[],
     ) {
+        const scope = pageIndices === undefined ? null : new Set(pageIndices);
+        const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
+        if (!entities.every(inScope) || !foreign.every(inScope)) {
+            return false;
+        }
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();
         const parsedById = new Map<AnnotationId, AnnotationEntity>();
@@ -608,7 +632,7 @@ export class AnnotationStore {
             if (!fingerprintCandidates) {
                 fingerprintCandidates = new Map();
                 this.#entities.forEach((current, id) => {
-                    if (current.deleted || usedCurrentIds.has(id)
+                    if (current.deleted || usedCurrentIds.has(id) || !inScope(current)
                         || !(current.persistedRevision >= 0 || current.kind === 'shape')) {
                         return;
                     }
@@ -642,7 +666,7 @@ export class AnnotationStore {
                 blankRefCandidates = new Map();
                 this.#entities.forEach((current, id) => {
                     const ref = current.identity.pdfRef;
-                    if (current.deleted || usedCurrentIds.has(id) || ref === undefined || ref.trim()) {
+                    if (current.deleted || usedCurrentIds.has(id) || !inScope(current) || ref === undefined || ref.trim()) {
                         return;
                     }
                     const bucket = blankRefCandidates!.get(ref) ?? new Set<AnnotationId>();
@@ -653,7 +677,7 @@ export class AnnotationStore {
             const bucket = blankRefCandidates.get(pdfRef);
             return bucket?.size === 1 ? bucket.values().next().value : undefined;
         };
-        entities.forEach((entity) => {
+        for (let entity of entities) {
             let id = entity.identity.id;
             if (!this.#entities.has(id)) {
                 const matchedId = referenceId(entity.identity.pdfRef) ?? uniqueFingerprintId(entity);
@@ -669,6 +693,10 @@ export class AnnotationStore {
                     };
                 }
             }
+            const matched = this.#entities.get(id);
+            if (scope && matched && (!inScope(matched) || !keepsReplies(entity, matched))) {
+                return false;
+            }
             if (parsedById.has(id)) {
                 throw new Error(`Duplicate parsed AnnotationId ${id}`);
             }
@@ -679,13 +707,21 @@ export class AnnotationStore {
                 blankRefCandidates?.get(currentRef)?.delete(id);
             }
             parsedById.set(id, cloneCanonicalEntity(entity));
-        });
+        }
 
         const next = new Map<AnnotationId, AnnotationEntity>();
         const nextBaseline = new Map<AnnotationId, ISavedSemanticEntry>();
         const forgotten = new Set<AnnotationId>();
         this.#entities.forEach((current, id) => {
             const parsed = parsedById.get(id);
+            if (!parsed && !current.deleted && !inScope(current)) {
+                next.set(id, cloneEntity(current));
+                const saved = this.#savedSemanticSnapshot.get(id);
+                if (saved !== undefined) {
+                    nextBaseline.set(id, saved);
+                }
+                return;
+            }
             if (!parsed) {
                 // A committed deletion is absent from the parse by design.
                 // Keep its command target so undo can recreate it without a
@@ -781,9 +817,13 @@ export class AnnotationStore {
         this.#replaceAllEntities(next);
         forgotten.forEach(id => this.#persistenceIdentities.forget(id));
         this.#savedSemanticSnapshot = nextBaseline;
-        this.#foreign = foreign.map(record => structuredClone(record));
+        this.#foreign = [
+            ...this.#foreign.filter(record => !inScope(record)),
+            ...foreign.map(record => structuredClone(record)),
+        ].sort((left, right) => left.pageIndex - right.pageIndex);
         this.#mutationEpoch += 1;
         this.#emit();
+        return true;
     }
 
     applyTextMarkupSelection(
