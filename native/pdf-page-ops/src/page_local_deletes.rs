@@ -8,18 +8,28 @@ pub(crate) struct DeleteScan {
 }
 
 impl DeleteScan {
+    /// `candidates` narrows the search to the objects a key index names;
+    /// without it, a referenced target is looked up directly (every caller's
+    /// `matches` rejects other objects then) and a named one is searched for.
     fn unique_target(
         &self,
         reference: Option<ObjectId>,
+        candidates: Option<&[ObjectId]>,
         matches: impl Fn(ObjectId, &Dictionary) -> bool,
         required: bool,
     ) -> Result<Option<ObjectId>> {
-        let mut found = self.listing.pages.keys().copied().filter(|id| {
-            Some(*id) == reference
-                || self
-                    .document
-                    .get_dictionary(*id)
-                    .is_ok_and(|dict| matches(*id, dict))
+        let searched: BTreeSet<ObjectId> = match (candidates, reference) {
+            (Some(ids), _) => ids.iter().copied().chain(reference).collect(),
+            (None, Some(id)) => BTreeSet::from([id]),
+            (None, None) => self.listing.pages.keys().copied().collect(),
+        };
+        let mut found = searched.into_iter().filter(|id| {
+            self.listing.pages.contains_key(id)
+                && (Some(*id) == reference
+                    || self
+                        .document
+                        .get_dictionary(*id)
+                        .is_ok_and(|dict| matches(*id, dict)))
         });
         let target = found.next();
         if found.next().is_some()
@@ -55,12 +65,13 @@ impl DeleteScan {
                     .map(|update| (update.object_number, update.generation_number)),
             )
         {
-            touched.extend(self.unique_target(Some(update), |_, _| false, true)?);
+            touched.extend(self.unique_target(Some(update), None, |_, _| false, true)?);
         }
         for delete in &mutations.deletes {
             let id = delete.object_number.zip(delete.generation_number);
             let target = self.unique_target(
                 id,
+                None,
                 |candidate, dict| {
                     annotation_subtype(dict) != "popup"
                         && id.is_none()
@@ -75,6 +86,7 @@ impl DeleteScan {
             let id = reference(editor.annotation_id.as_deref())?;
             touched.extend(self.unique_target(
                 id,
+                None,
                 |_, dict| {
                     id.is_none()
                         && annotation_subtype(dict) == "freetext"
@@ -97,6 +109,7 @@ impl DeleteScan {
                 let name = markup_annotation_name(hint);
                 touched.extend(self.unique_target(
                     id,
+                    None,
                     |_, dict| {
                         id.is_none()
                             && canonical_markup_subtype(dict).is_some()
@@ -111,46 +124,51 @@ impl DeleteScan {
             }
         }
         if let Some(shapes) = &mutations.shapes {
+            // One pass indexes the managed shapes by stable key; each shape
+            // target then checks only the objects its key names.
+            let mut by_key: HashMap<String, Vec<ObjectId>> = HashMap::new();
+            for id in self.listing.pages.keys() {
+                let Ok(dict) = self.document.get_dictionary(*id) else {
+                    continue;
+                };
+                if is_supported_shape_subtype(&annotation_subtype(dict)) {
+                    if let Some(key) = read_shape_stable_key(dict) {
+                        by_key.entry(key).or_default().push(*id);
+                    }
+                }
+            }
+            let owners = |key: Option<&str>| {
+                key.and_then(|key| by_key.get(key))
+                    .map_or(&[][..], Vec::as_slice)
+            };
             for shape in &shapes.shapes {
                 let id = reference(shape.annotation_id.as_deref())?;
                 let key = normalize_managed_shape_stable_key(shape.stable_key.as_deref());
                 touched.extend(self.unique_target(
                     id,
-                    |_, dict| {
-                        is_supported_shape_subtype(&annotation_subtype(dict))
-                            && key.as_ref().is_some_and(|key| {
-                                read_shape_stable_key(dict).as_ref() == Some(key)
-                            })
-                    },
+                    Some(owners(key.as_deref())),
+                    |_, _| true,
                     id.is_some(),
                 )?);
             }
             for id in &shapes.deleted_annotation_ids {
-                deleted.extend(self.unique_target(reference(Some(id))?, |_, _| false, true)?);
+                deleted.extend(self.unique_target(
+                    reference(Some(id))?,
+                    None,
+                    |_, _| false,
+                    true,
+                )?);
             }
             for key in &shapes.deleted_stable_keys {
                 deleted.extend(self.unique_target(
                     None,
-                    |_, dict| {
-                        is_supported_shape_subtype(&annotation_subtype(dict))
-                            && read_shape_stable_key(dict).as_deref() == Some(key.trim())
-                    },
+                    Some(owners(Some(key.trim()))),
+                    |_, _| true,
                     true,
                 )?);
             }
             if shapes.rewrite_shape_state {
-                touched.extend(
-                    self.listing
-                        .pages
-                        .keys()
-                        .filter(|id| {
-                            self.document.get_dictionary(**id).is_ok_and(|dict| {
-                                is_supported_shape_subtype(&annotation_subtype(dict))
-                                    && read_shape_stable_key(dict).is_some()
-                            })
-                        })
-                        .copied(),
-                );
+                touched.extend(by_key.values().flatten().copied());
             }
         }
         Ok((deleted, touched))
