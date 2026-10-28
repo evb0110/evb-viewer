@@ -379,7 +379,18 @@ async function executeNativeMutationSave(
         // A note save rewrites only its notes' pages; the rest of the store
         // already holds what a whole-document parse would read.
         const pageIndices = committedNotePageIndices(saveTransaction, projection);
-        if (!pageIndices || !saveTransaction.replaceFromDocument(await parse(pageIndices))) {
+        const replacedPages = pageIndices !== undefined && await parse(pageIndices).then(
+            parsed => saveTransaction.replaceFromDocument!(parsed),
+            (error: unknown) => {
+                // A whole-document parse fails the same way for these.
+                if (isStaleRevisionError(error) || (error instanceof Error && error.name === 'AbortError')) {
+                    throw error;
+                }
+                BrowserLogger.warn('workspace', 'Parsing the saved pages failed; parsing the whole document', {error});
+                return false;
+            },
+        );
+        if (!replacedPages) {
             saveTransaction.replaceFromDocument(await parse());
         }
     }

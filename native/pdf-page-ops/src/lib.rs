@@ -47,6 +47,7 @@ mod outline;
 mod overlay_destinations;
 mod overlay_sources;
 mod page_geometry;
+mod page_locator;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod page_tree_ops;
 mod placed_image_raster;
@@ -113,6 +114,7 @@ pub(crate) use ocr_layer_contents::*;
 pub(crate) use outline::*;
 pub(crate) use overlay_sources::*;
 pub(crate) use page_geometry::*;
+pub(crate) use page_locator::*;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) use page_tree_ops::*;
 pub(crate) use placed_image_raster::*;
