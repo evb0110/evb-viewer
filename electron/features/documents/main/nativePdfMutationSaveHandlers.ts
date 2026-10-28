@@ -428,7 +428,7 @@ async function runNativeWorkingCopyCommand(
                 }, {cleanupOnRelease: true});
                 staged = true;
                 const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
-                const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
+                const logTimings = totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log);
                 logTimings('Native working-copy mutation phase timings', {
                     command: 'save-mutations',
                     endedAtEpochMs: Date.now(),
@@ -550,7 +550,7 @@ export async function handleCommitStagedPdfNativeMutations(
         if (existsSync(stagedOutput.path)) await releaseStagedArtifact();
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
-    const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
+    const logTimings = totalMs >= 1_000 ? log.info.bind(log) : log.debug.bind(log);
     logTimings('Native staged mutation commit phase timings', {
         endedAtEpochMs: Date.now(),
         startedAtEpochMs: operationStartedAtEpochMs,
