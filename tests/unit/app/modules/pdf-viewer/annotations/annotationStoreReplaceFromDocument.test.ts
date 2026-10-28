@@ -659,6 +659,19 @@ describe('AnnotationStore.replaceFromDocument of some pages', () => {
         expect(store.replaceFromDocument([second([reply(9)])], [], [1])).toBe(true);
         expect(store.get(asAnnotationId('second'))).toMatchObject({contents: 'saved text'});
     });
+
+    it('changes nothing before a parse of the whole document fed the store', () => {
+        // A save can land before the document's opening parse finishes; the
+        // store then holds none of the pages a parse of some pages leaves out.
+        const store = new AnnotationStore();
+
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [], [0])).toBe(false);
+        expect(store.list({includeDeleted: true})).toEqual([]);
+
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [])).toBe(true);
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R', {contents: 'saved'})], [], [0])).toBe(true);
+        expect(store.get(asAnnotationId('first'))).toMatchObject({contents: 'saved'});
+    });
 });
 
 function simpleShape(id: string): IShapeEntity {
