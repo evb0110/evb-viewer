@@ -573,7 +573,14 @@ fn qpdf_annotation_subtype(pdf: &Path, object_number: u32) -> String {
         .to_string()
 }
 
+/// The bundled qpdf when present: its library is what page-local reads and
+/// the delete scan use in the app, while a system qpdf on PATH offers only the
+/// command line. Tests of the command-line route wrap qpdf in a script.
 fn qpdf_path() -> PathBuf {
+    let bundled = external_tool::bundled_tool_path("qpdf", "qpdf");
+    if env::var_os("QPDF_PATH").is_none() && bundled.is_file() {
+        return bundled;
+    }
     external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
 }
 

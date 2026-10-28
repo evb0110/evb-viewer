@@ -19,6 +19,19 @@ pub fn tool_path(override_var: &str, bundle: &str, name: &str) -> PathBuf {
             return PathBuf::from(name);
         }
     }
+    let bundled = bundled_tool_path(bundle, name);
+    assert!(
+        bundled.is_file(),
+        "{name} is not on PATH and {} is absent; install it, set {override_var}, \
+         or run `pnpm fetch:runtime-binaries`",
+        bundled.display(),
+    );
+    bundled
+}
+
+/// The copy the app bundles under `resources/<bundle>/<platform>/bin`, which
+/// may be absent before `pnpm fetch:runtime-binaries`.
+pub fn bundled_tool_path(bundle: &str, name: &str) -> PathBuf {
     let os = match env::consts::OS {
         "macos" => "darwin",
         "windows" => "win32",
@@ -29,17 +42,10 @@ pub fn tool_path(override_var: &str, bundle: &str, name: &str) -> PathBuf {
         "aarch64" => "arm64",
         arch => arch,
     };
-    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../resources")
         .join(bundle)
         .join(format!("{os}-{arch}"))
         .join("bin")
-        .join(&executable);
-    assert!(
-        bundled.is_file(),
-        "{name} is not on PATH and {} is absent; install it, set {override_var}, \
-         or run `pnpm fetch:runtime-binaries`",
-        bundled.display(),
-    );
-    bundled
+        .join(format!("{name}{}", env::consts::EXE_SUFFIX))
 }
