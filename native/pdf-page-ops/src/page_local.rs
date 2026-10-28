@@ -298,8 +298,15 @@ pub(crate) fn additive_targets_are_new(
                 .checked_add(1)
                 .ok_or("Invalid annotation page index")?,
         )?;
+        // Like the writers, skip an entry that is not an annotation dictionary.
         for object in get_page_annots(&source, page_id)? {
-            let dict = source.resolved(&object)?.as_dict()?;
+            let Some(dict) = source
+                .resolved(&object)
+                .ok()
+                .and_then(|object| object.as_dict().ok())
+            else {
+                continue;
+            };
             if [read_annotation_name(dict), read_shape_stable_key(dict)]
                 .into_iter()
                 .flatten()
