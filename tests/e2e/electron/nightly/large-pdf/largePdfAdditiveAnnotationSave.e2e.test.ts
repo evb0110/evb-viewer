@@ -170,11 +170,12 @@ function isNear(position: {
 /** Deletes the annotation whose sidebar card shows `text`, from that card. */
 async function deleteFromSidebar(page: Page, text: string) {
     const before = await readPanelAnnotationCount(page);
+    expect(before, 'The annotations panel shows a count before the delete').not.toBeNull();
     await clickFoundAsUser(page, (expected: string) => Array.from(
         globalThis.__evbE2E.getActiveWorkspaceHost()?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [],
     ).find(item => (item.querySelector('.note-item-text')?.textContent ?? '').includes(expected))
         ?.querySelector<HTMLButtonElement>('.note-item-delete'), text, {description: `sidebar delete for ${JSON.stringify(text)}`});
-    await expect.poll(() => readPanelAnnotationCount(page), {timeout: 10_000}).toBe((before ?? 0) - 1);
+    await expect.poll(() => readPanelAnnotationCount(page), {timeout: 10_000}).toBe(before! - 1);
 }
 
 /** Drags an entity with the Select tool and waits until it has moved. */
