@@ -25,12 +25,13 @@ import {
     readPdfAnnotationIndex,
     type IPdfAnnotationIndexEntry,
 } from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
-import {
-    requireDocumentRef,
-    type TLegacyDocumentRef,
-} from '@contracts/documentRef';
 import {resolveLargePdfFixtureAvailability} from '@tests/e2e/electron/helpers/fixtures';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    PLACED_IMAGE_JPEG,
+    finalizeImagePlacement,
+    installManagedJpegClipboard,
+    pasteImageFromVisibleMenu,
+} from '@tests/e2e/electron/helpers/placedImageClipboard';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clearTextSelection,
@@ -72,15 +73,9 @@ const MATRIX_PAGE_NUMBER = 25;
 const MATRIX_PAGE_INDEX = MATRIX_PAGE_NUMBER - 1;
 const PLACED_IMAGE_PAGE_NUMBER = 31;
 const PLACED_IMAGE_PAGE_INDEX = PLACED_IMAGE_PAGE_NUMBER - 1;
-const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
 const exactFixtureExpectation = resolveExactPdfFixtureExpectation();
 const exactFixtureArtifactDirectories: string[] = [];
 const execFileAsync = promisify(execFile);
-const PLACED_IMAGE_JPEG = Buffer.from(
-    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AntWpOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=',
-    'base64',
-);
-
 type TCanonicalKind = 'note' | 'placed-image' | 'shape' | 'text-box' | 'text-markup';
 type TCanonicalShapeTool = 'Circle' | 'Draw' | 'Line' | 'Rectangle' | 'Arrow';
 
@@ -901,81 +896,6 @@ async function hardRestartAfterSave(
     await waitForPdfLoaded(restarted.page, MATRIX_TIMEOUT_MS);
     await waitForViewerInteractive(restarted.page, MATRIX_TIMEOUT_MS);
     return restarted;
-}
-
-async function installManagedJpegClipboard(page: Page, imagePath: string) {
-    const documentPath = requireDocumentRef(imagePath);
-    const probe = await page.evaluate(async (input: {imagePath: TLegacyDocumentRef}) => {
-        const files = window.electronAPI?.documentFiles;
-        if (!files?.createManagedTempFileHandle) {
-            throw new Error('Managed image handles are unavailable');
-        }
-        const handle = await files.createManagedTempFileHandle(input.imagePath);
-        const NativeFile = window.File;
-        const ManagedFile = new Proxy(NativeFile, {construct(target, args) {
-            return Object.assign(Reflect.construct(target, args), {nativeSourceHandle: handle});
-        }});
-        Object.defineProperty(window, 'File', {
-            configurable: true,
-            value: ManagedFile,
-        });
-        const bytes = await files.readFile(input.imagePath);
-        const blob = new Blob([bytes as BlobPart], {type: 'image/jpeg'});
-        const probeFile = new ManagedFile([blob], 'clipboard-probe.jpg', {type: 'image/jpeg'});
-        const bitmap = await createImageBitmap(probeFile);
-        const dimensions = {
-            height: bitmap.height,
-            width: bitmap.width,
-        };
-        bitmap.close();
-        Object.defineProperty(navigator, 'clipboard', {
-            configurable: true,
-            value: {read: async () => [{
-                types: ['image/jpeg'],
-                getType: async () => blob,
-            }]},
-        });
-        return {
-            dimensions,
-            hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
-        };
-    }, {imagePath: documentPath});
-    expect(probe).toEqual({
-        dimensions: {
-            height: 40,
-            width: 64,
-        },
-        hasNativeSourceHandle: true,
-    });
-}
-
-async function pasteImageFromVisibleMenu(page: Page, pageNumber: number) {
-    await page.waitForFunction((targetPage: number) => {
-        const pageContainer = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${targetPage}"]`,
-        );
-        const rect = pageContainer?.getBoundingClientRect();
-        return Boolean(rect && rect.width > 0 && rect.height > 0);
-    }, {timeout: 5_000}, pageNumber);
-    const command = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
-    if (!command.called) {
-        throw new Error('Electron paste-image menu command was not available');
-    }
-    if (command.value !== true) {
-        throw new Error(`Electron paste-image command did not start placement: ${JSON.stringify(command)}`);
-    }
-    await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
-        timeout: 30_000,
-        visible: true,
-    });
-}
-
-async function finalizeImagePlacement(page: Page) {
-    await clickAsUser(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
-    await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
-        hidden: true,
-        timeout: 60_000,
-    });
 }
 
 async function resizeCanonicalEntity(
