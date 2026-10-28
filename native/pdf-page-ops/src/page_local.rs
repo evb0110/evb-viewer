@@ -1,6 +1,10 @@
 //! Bounded dependency completion for page-local annotation edits.
 use super::*;
 
+#[path = "page_local_mutations.rs"]
+mod mutations;
+pub(crate) use mutations::*;
+
 /// Fetches, in rounds, every object `page_local_dependencies` names until
 /// the loaded part of `document` names nothing new. qpdf leaves out an object
 /// that does not exist, so each object is requested at most once.
@@ -272,104 +276,6 @@ fn page_local_dependencies(
         }
     }
     Ok(needed)
-}
-
-/// Payload admission cannot distinguish a create from a name-based upsert.
-/// Check the same local targets the writers use before allowing a partial base.
-/// A duplicate name elsewhere cannot be rewritten by these local writers.
-pub(crate) fn additive_targets_are_new(
-    incremental: &IncrementalDocument,
-    mutations: &NativeMutationsFile,
-) -> Result<bool> {
-    let source = AppendedRevision::new(incremental);
-    let pages = PageLookup::new(&source, source.located_pages())?;
-    let mut targets = HashSet::<String>::new();
-    let mut names_on = |page_index: u32, name: String, prefixes: &[&str]| -> Result<bool> {
-        if targets
-            .iter()
-            .any(|existing| annotation_names_match(existing, &name, prefixes))
-        {
-            return Ok(false);
-        }
-        targets.insert(name.clone());
-        let page_id = pages.page_id(
-            &source,
-            page_index
-                .checked_add(1)
-                .ok_or("Invalid annotation page index")?,
-        )?;
-        // Like the writers, skip an entry that is not an annotation dictionary.
-        for object in get_page_annots(&source, page_id)? {
-            let Some(dict) = source
-                .resolved(&object)
-                .ok()
-                .and_then(|object| object.as_dict().ok())
-            else {
-                continue;
-            };
-            if [read_annotation_name(dict), read_shape_stable_key(dict)]
-                .into_iter()
-                .flatten()
-                .any(|existing| annotation_names_match(&existing, &name, prefixes))
-            {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    };
-    for editor in &mutations.text_boxes {
-        if !names_on(editor.page_index, text_box_name(editor), &["evb-freetext:"])? {
-            return Ok(false);
-        }
-    }
-    if let Some(shapes) = &mutations.shapes {
-        for shape in &shapes.shapes {
-            let Some(key) = normalize_managed_shape_stable_key(shape.stable_key.as_deref()) else {
-                return Ok(false);
-            };
-            if !names_on(shape.page_index, key, &["evb-shape:"])? {
-                return Ok(false);
-            }
-        }
-    }
-    if let Some(markup) = &mutations.markup {
-        for hint in &markup.hints {
-            let Some(name) = markup_annotation_name(hint) else {
-                return Ok(false);
-            };
-            if !names_on(hint.page_index, name, &["evb-markup:"])? {
-                return Ok(false);
-            }
-            // editor-live hints can also match existing markup by geometry.
-            if can_use_geometry_only_subtype_hint(hint) {
-                let page = pages.page_id(&source, hint.page_index + 1)?;
-                let view = resolve_page_view(&source, page)?;
-                let rotation = resolve_page_rotation(&source, page)?;
-                for object in get_page_annots(&source, page)? {
-                    if object
-                        .as_reference()
-                        .ok()
-                        .and_then(|id| {
-                            create_markup_candidate(
-                                incremental.get_prev_documents(),
-                                view,
-                                rotation,
-                                id,
-                                0,
-                            )
-                        })
-                        .is_some_and(|candidate| {
-                            marker_rect_iou(candidate.marker_rect, Some(hint.marker_rect))
-                                >= MIN_MARKUP_SUBTYPE_HINT_IOU
-                        })
-                    {
-                        return Ok(false);
-                    }
-                }
-            }
-        }
-    }
-    Ok(true)
 }
 
 #[cfg(test)]

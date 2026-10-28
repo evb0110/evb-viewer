@@ -514,35 +514,26 @@ pub(crate) fn validate_placed_image_document_postconditions(
         return Ok(());
     }
 
-    let page_resolver = PageTreeResolver::new(document)?;
+    let pages = PageLookup::new(document, document.located_pages())?;
     for (index, image) in images.iter().enumerate() {
         let page_number = image
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
-        let page_id = page_resolver.page_id(document, page_number)?;
+        let page_id = pages.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let expected_geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
-        let found = get_page_annots(document, page_id)?
-            .iter()
-            .filter_map(|object| object.as_reference().ok())
-            .any(|object_id| {
-                validate_placed_image_annotation(
-                    document,
-                    object_id,
-                    &expected_name,
-                    expected_geometry.rect,
-                    modified_at,
-                )
-                .is_ok()
-            });
-        if !found {
-            return Err("Placed image stamp annotation was not found".into());
-        }
         let stamp = resolve_placed_image_target(document, page_id, image, &expected_name)?
             .ok_or("Saved image target is missing")?;
+        validate_placed_image_annotation(
+            document,
+            stamp,
+            &expected_name,
+            expected_geometry.rect,
+            modified_at,
+        )?;
         let (appearance, image_ref) = placed_image_appearance_refs(document, stamp)
             .ok_or("Saved image resources are missing")?;
         let stream = document.object(image_ref)?.as_stream()?;
@@ -571,7 +562,7 @@ pub(crate) fn validate_placed_image_geometry_postconditions(
     if updates.is_empty() {
         return Ok(());
     }
-    let pages = PageTreeResolver::new(document)?;
+    let pages = PageLookup::new(document, document.located_pages())?;
     for update in updates {
         let page_id = pages.page_id(
             document,

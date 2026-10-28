@@ -319,7 +319,8 @@ export class AnnotationApplication {
         const pageLocal = dirty.length > 0 && dirty.every(entity => !entity.deleted && (
             entity.kind === 'note' ? !entity.recoveryData
                 : entity.kind === 'shape' ? isNewPageLocalShape(entity)
-                    : (entity.kind === 'text-markup' || entity.kind === 'text-box')
+                    : entity.kind === 'placed-image' ? Boolean(entity.identity.pdfRef) || 'kind' in entity.image
+                        : (entity.kind === 'text-markup' || entity.kind === 'text-box')
                         && entity.persistedRevision < 0 && !entity.identity.pdfRef
         ));
         return {

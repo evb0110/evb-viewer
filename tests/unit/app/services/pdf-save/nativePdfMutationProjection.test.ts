@@ -742,6 +742,66 @@ describe('native PDF save route', () => {
 
 
 describe('additive shape projection and affected-page scope', () => {
+    it('scopes new images and persisted moves, and keeps recovery and deletion whole', () => {
+        for (const mode of [
+            'create',
+            'move',
+            'recover',
+            'delete',
+        ] as const) {
+            const application = new AnnotationApplication(`image-${mode}`);
+            const image: IPlacedImageEntity = {
+                ...createShapeEntity(),
+                kind: 'placed-image',
+                identity: {
+                    id: asAnnotationId('image'),
+                    ...(mode === 'move' || mode === 'delete' ? {pdfRef: '50R'} : {}),
+                },
+                persistedRevision: mode === 'move' || mode === 'delete' ? 0 : -1,
+                rect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+                rotation: 0,
+                image: mode === 'create'
+                    ? {
+                        kind: 'raster',
+                        mimeType: 'image/png',
+                        dataBase64: 'cG5n',
+                        byteLength: 3,
+                        sha256: 'a'.repeat(64),
+                        width: 1,
+                        height: 1,
+                    }
+                    : {
+                        objectNumber: 42,
+                        generationNumber: 0,
+                        byteLength: 20,
+                        sha256: 'b'.repeat(64),
+                    },
+            };
+            application.store.import(image);
+            if (mode === 'move') application.store.updatePlacedImage(image.identity.id, {rotation: 25});
+            if (mode === 'delete') application.store.delete(image.identity.id);
+            const session = application.beginSave();
+            expect(session.affectedPageIndices).toEqual(mode === 'create' || mode === 'move' ? [0] : null);
+            const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({
+                shapes: [],
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    shapeStateDirty: false,
+                },
+            }));
+            expect(route.route).toBe('native-append');
+            if (route.route !== 'native-append') throw new Error('Expected image native append');
+            expect(committedAffectedPageIndices([0], route.nativeMutationProjection))
+                .toEqual(mode === 'create' || mode === 'move' ? [0] : undefined);
+        }
+    });
+
     it('publishes only new shapes beside an already saved shape without a state rewrite', () => {
         const application = new AnnotationApplication('additive-shapes');
         const saved = createShapeEntity();

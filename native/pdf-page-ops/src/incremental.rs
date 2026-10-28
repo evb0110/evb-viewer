@@ -685,87 +685,6 @@ fn load_native_mutation_base(
     }
 }
 
-/// The pages and annotations of an edit whose writers read only those:
-/// rotations, notes without recovery imports, and additive markup, simple
-/// shapes and text boxes. Loaded targets must also pass `additive_targets_are_new`.
-/// Deletes can reach replies on other pages and always need whole discovery.
-fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
-    let NativeMutationsFile {
-        updates,
-        geometry_updates,
-        notes,
-        free_text_notes,
-        text_boxes,
-        deletes,
-        page_rotations,
-        page_labels,
-        bookmarks,
-        shapes,
-        markup,
-        placed_images,
-        placed_image_geometry_updates,
-        continuation,
-    } = mutations;
-    let notes = notes.iter().chain(free_text_notes);
-    let page_local = deletes.is_empty()
-        && text_boxes
-            .iter()
-            .all(|editor| editor.annotation_id.is_none() && editor.original_appearance.is_none())
-        && page_labels.is_none()
-        && bookmarks.is_none()
-        && shapes.as_ref().is_none_or(|shapes| {
-            !shapes.rewrite_shape_state
-                && shapes.deleted_annotation_ids.is_empty()
-                && shapes.deleted_stable_keys.is_empty()
-                && shapes.shapes.iter().all(|shape| {
-                    shape.annotation_id.is_none()
-                        && normalize_managed_shape_stable_key(shape.stable_key.as_deref()).is_some()
-                        && matches!(
-                            shape.shape_type.as_str(),
-                            "rectangle" | "circle" | "line" | "arrow"
-                        )
-                })
-        })
-        && markup
-            .as_ref()
-            .is_none_or(|markup| markup.hints.iter().all(is_new_markup_hint_data))
-        && placed_images.is_empty()
-        && placed_image_geometry_updates.is_empty()
-        && continuation.is_none()
-        && notes.clone().all(|note| note.recovery_data.is_none());
-    let mut edit = PageLocalEdit::default();
-    edit.annotation_pages
-        .extend(notes.map(|note| note.page_index));
-    edit.annotation_pages
-        .extend(geometry_updates.iter().map(|update| update.page_index));
-    edit.annotations.extend(
-        updates
-            .iter()
-            .map(|update| (update.object_number, update.generation_number))
-            .chain(
-                geometry_updates
-                    .iter()
-                    .map(|update| (update.object_number, update.generation_number)),
-            ),
-    );
-    edit.annotation_pages
-        .extend(text_boxes.iter().map(|editor| editor.page_index));
-    edit.annotation_pages.extend(
-        shapes
-            .iter()
-            .flat_map(|s| s.shapes.iter().map(|shape| shape.page_index)),
-    );
-    edit.annotation_pages.extend(
-        markup
-            .iter()
-            .flat_map(|m| m.hints.iter().map(|hint| hint.page_index)),
-    );
-    edit.pages.clone_from(&edit.annotation_pages);
-    edit.pages
-        .extend(page_rotations.iter().map(|rotation| rotation.page_index));
-    (page_local && !(edit.pages.is_empty() && edit.annotations.is_empty())).then_some(edit)
-}
-
 /// Rotations, page labels and bookmarks read and rewrite only dictionaries.
 /// Annotation writers can read appearance, font or image streams.
 fn is_dictionary_only_mutation(mutations: &NativeMutationsFile) -> bool {
@@ -2113,7 +2032,7 @@ mod page_local_admission_tests {
         assert!(!admitted(
             json!({"textBoxes":[text_box],"deletes":[{"pageIndex":7,"objectNumber":12,"generationNumber":0}]})
         ));
-        assert!(!admitted(
+        assert!(admitted(
             json!({"placedImageGeometryUpdates":[{"pageIndex":7,"annotationId":"12R","x":0.1,"y":0.2,"width":0.3,"height":0.1}]})
         ));
     }
