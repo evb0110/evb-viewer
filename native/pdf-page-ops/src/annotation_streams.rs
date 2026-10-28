@@ -49,22 +49,14 @@ pub(crate) fn materialize_annotation_appearance_streams(
         let requested: Vec<ObjectId> = streams[start..end].iter().map(|(id, _)| *id).collect();
         // A run that fails is read one stream at a time, so only the streams
         // qpdf cannot read alone stay unread, and only their notes stay foreign.
-        let mut bytes_by_object = read_qpdf_stream_batch(input_path, qpdf_path, &requested)
-            .unwrap_or_else(|_| {
-                requested
-                    .iter()
-                    .filter_map(|object_id| {
-                        let bytes = read_qpdf_stream_bounded(
-                            input_path,
-                            qpdf_path,
-                            *object_id,
-                            MAX_STAMP_APPEARANCE_STREAM_BYTES,
-                        )
-                        .ok()?;
-                        Some((*object_id, bytes))
-                    })
-                    .collect()
-            });
+        // A few scoped raw reads avoid qpdf JSON's whole-file scan. Larger
+        // sets and whole-document consumers retain the shared batch transport.
+        let mut bytes_by_object = if incremental.located_pages.is_some() && requested.len() <= 8 {
+            read_individual_streams(input_path, qpdf_path, &requested)
+        } else {
+            read_qpdf_stream_batch(input_path, qpdf_path, &requested)
+                .unwrap_or_else(|_| read_individual_streams(input_path, qpdf_path, &requested))
+        };
         for (object_id, _) in &streams[start..end] {
             let Some(bytes) = bytes_by_object.remove(object_id) else {
                 continue;
@@ -351,6 +343,12 @@ pub(crate) fn read_qpdf_stream_batch(
     if object_ids.is_empty() {
         return Ok(HashMap::new());
     }
+    if object_ids.len() > MAX_BATCH_OBJECTS {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Annotation stream batch exceeds its object ceiling",
+        ));
+    }
     let mut arguments = vec![
         "--suppress-recovery".to_string(),
         "--json".to_string(),
@@ -371,7 +369,7 @@ pub(crate) fn read_qpdf_stream_batch(
         MAX_BATCH_OUTPUT_BYTES,
     )?;
     let (document, unavailable) = parse_qpdf_structure(&temp.structure, Some(path))?;
-    Ok(document
+    let streams: HashMap<_, _> = document
         .objects
         .into_iter()
         .filter(|(object_id, _)| !unavailable.contains(object_id))
@@ -379,7 +377,44 @@ pub(crate) fn read_qpdf_stream_batch(
             Object::Stream(stream) => Some((object_id, stream.content)),
             _ => None,
         })
-        .collect())
+        .collect();
+    let raw_bytes = streams
+        .values()
+        .map(Vec::len)
+        .try_fold(0usize, usize::checked_add);
+    if raw_bytes.is_none_or(|bytes| bytes > MAX_BATCH_RAW_BYTES) {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Annotation stream batch exceeds its raw byte ceiling",
+        ));
+    }
+    Ok(streams)
+}
+
+/// Both the small-set transport and failed-batch recovery share one raw
+/// byte ceiling. Each read also retains the per-appearance stream ceiling.
+fn read_individual_streams(
+    path: &Path,
+    qpdf: &Path,
+    ids: &[ObjectId],
+) -> HashMap<ObjectId, Vec<u8>> {
+    let mut remaining = MAX_BATCH_RAW_BYTES;
+    let mut streams = HashMap::new();
+    for id in ids.iter().take(MAX_BATCH_OBJECTS) {
+        if remaining == 0 {
+            break;
+        }
+        if let Ok(bytes) = read_qpdf_stream_bounded(
+            path,
+            qpdf,
+            *id,
+            remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES),
+        ) {
+            remaining -= bytes.len();
+            streams.insert(*id, bytes);
+        }
+    }
+    streams
 }
 
 /// A stream in qpdf's JSON. Inline data is the stream's raw bytes, which a

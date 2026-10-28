@@ -1,8 +1,15 @@
+import {PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES} from '@contracts/pdfAnnotationParseSchemas';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
+import {
+    isNewPageLocalShape,
+    isPageLocalShapeType,
+    toLegacyShapeAnnotation,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
+    IShapeEntity,
     AnnotationEntity,
     IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -736,11 +743,18 @@ function buildClassifiedNativeMutationProjection(
         return 'annotation-work-not-covered-by-native-mutations';
     }
 
+    // Workspace shape dirtiness requests a complete rewrite by default. The
+    // canonical frontier proves when only fresh shapes need publishing instead.
+    const changedShapes = plan.expected.filter((entity): entity is IShapeEntity => entity.kind === 'shape');
+    const additiveShapes = changedShapes.length > 0
+        && changedShapes.every(isNewPageLocalShape)
+        && capabilities.deletedEmbeddedShapeAnnotationIds.length === 0
+        && capabilities.deletedEmbeddedShapeStableKeys.length === 0;
     const shapes = buildNativeShapesMutationForSave({
         shapeStateDirty: admitted.dirtyState.shapeStateDirty,
-        rewriteShapeState: capabilities.rewriteShapeState,
+        rewriteShapeState: capabilities.rewriteShapeState && !additiveShapes,
         totalPageCount: capabilities.totalPageCount,
-        shapes: capabilities.shapes,
+        shapes: additiveShapes ? changedShapes.map(toLegacyShapeAnnotation) : capabilities.shapes,
         deletedAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
         deletedStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
     });
@@ -875,4 +889,24 @@ export function buildNativePdfMutationProjection(
         documentStructure: admitted.documentStructure,
         fallback: byteRoute,
     };
+}
+
+/** Whole parse unless the captured frontier and the published payload are local. */
+export function committedAffectedPageIndices(
+    pageIndices: readonly number[] | null | undefined,
+    projection: INativePdfMutationProjection,
+) {
+    const {mutations} = projection;
+    const shapes = mutations.shapes;
+    const local = projection.annotationDeletes.length === 0
+        && !projection.hasMetadataMutations
+        && !projection.placedImageGeometryUpdates?.length && !mutations.placedImages?.length
+        && !projection.freeTextNotes.some(note => note.recoveryData)
+        && !projection.textBoxes?.some(box => Boolean(box.annotationId) || Boolean(box.originalAppearance))
+        && (!shapes || (!shapes.rewriteShapeState && !shapes.deletedAnnotationIds.length
+            && !shapes.deletedStableKeys.length && shapes.shapes.every(shape => !shape.annotationId && isPageLocalShapeType(shape.type))))
+        && (!mutations.markup || mutations.markup.hints.every(hint => hint.source === 'editor'
+            && !normalizePdfJsAnnotationId(hint.annotationId)));
+    return local && pageIndices?.length && pageIndices.length <= PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES
+        ? [...pageIndices] : undefined;
 }

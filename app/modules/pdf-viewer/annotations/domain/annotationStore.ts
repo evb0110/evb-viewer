@@ -1,3 +1,4 @@
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
@@ -616,11 +617,24 @@ export class AnnotationStore {
         entities: readonly AnnotationEntity[],
         foreign: readonly IPdfForeignAnnotationRecord[],
         pageIndices?: readonly number[],
+        expectedUpserts: ReadonlyArray<Pick<AnnotationEntity, 'identity' | 'kind'>> = [],
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
         if (!entities.every(inScope) || !foreign.every(inScope)) {
             return false;
+        }
+        if (scope) {
+            const recognized = new Map(entities.map(entity => [
+                normalizePdfJsAnnotationId(entity.identity.pdfRef),
+                entity.kind,
+            ]));
+            if (!expectedUpserts.every(expected => {
+                const ref = normalizePdfJsAnnotationId(expected.identity.pdfRef);
+                return ref && recognized.get(ref) === expected.kind;
+            })) {
+                return false;
+            }
         }
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();

@@ -787,7 +787,7 @@ fn markup_hints_by_page(markup: &MarkupMutation) -> Result<HashMap<u32, Vec<Mark
 /// most once.
 fn resolve_markup_page_targets(
     document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     hints_by_page: HashMap<u32, Vec<MarkupHintState>>,
 ) -> Result<BTreeMap<ObjectId, Vec<MarkupHintState>>> {
     let mut targets: BTreeMap<ObjectId, Vec<MarkupHintState>> = BTreeMap::new();
@@ -1285,7 +1285,7 @@ pub(crate) fn apply_markup_mutations_internal(
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let hints_by_page = markup_hints_by_page(markup)?;
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, document.located_pages())?;
     let page_targets = resolve_markup_page_targets(document, &page_resolver, hints_by_page)?;
     let mut modified = false;
 
@@ -1374,7 +1374,7 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
     let hints_by_page = markup_hints_by_page(markup)?;
     let page_targets = {
         let document = incremental.get_prev_documents();
-        let page_resolver = PageTreeResolver::new(document)?;
+        let page_resolver = PageLookup::new(document, incremental.located_pages.as_ref())?;
         resolve_markup_page_targets(document, &page_resolver, hints_by_page)?
     };
     let mut modified = false;

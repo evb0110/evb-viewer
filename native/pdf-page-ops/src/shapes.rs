@@ -1141,7 +1141,7 @@ fn collect_known_shape_delete_targets(
 
 fn resolve_shape_page_ids(
     document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     shapes: &ShapesMutation,
 ) -> Result<HashSet<ObjectId>> {
     let mut page_ids = HashSet::new();
@@ -1213,7 +1213,7 @@ pub(crate) fn remove_shape_refs_from_pages_incremental(
 
 pub(crate) fn append_remaining_shape_annotations(
     document: &mut Document,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
@@ -1252,7 +1252,7 @@ pub(crate) fn append_remaining_shape_annotations(
 
 pub(crate) fn append_remaining_shape_annotations_incremental(
     incremental: &mut IncrementalDocument,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
@@ -1314,7 +1314,7 @@ pub(crate) fn apply_shape_annotations(
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     assert_mutation_page_count(document, shapes.total_pages, "Shape mutation")?;
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, None)?;
     let mut state = ShapeConsumptionState::new(&shapes.shapes);
     let deleted_refs = collect_deleted_shape_refs(shapes);
     let listing = OnceCell::new();
@@ -1385,7 +1385,8 @@ pub(crate) fn apply_shape_annotations_incremental(
         shapes.total_pages,
         "Shape mutation",
     )?;
-    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    let located = incremental.located_pages.clone();
+    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
     let mut state = ShapeConsumptionState::new(&shapes.shapes);
     let deleted_refs = collect_deleted_shape_refs(shapes);
     let listing = OnceCell::new();

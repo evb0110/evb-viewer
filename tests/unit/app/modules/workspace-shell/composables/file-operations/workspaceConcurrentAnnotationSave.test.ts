@@ -1,3 +1,5 @@
+import {mapPdfAnnotationParseEntity} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
+import type {TPdfAnnotationParseEntity} from '@contracts/pdfAnnotationParseTypes';
 import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import {
     afterEach,
@@ -256,4 +258,173 @@ describe('save requests while the document lease is held', () => {
         expect(service.isAnySaving.value).toBe(false);
         expect(service.isAnySaveAdmitted.value).toBe(false);
     });
+});
+
+function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box'): TPdfAnnotationParseEntity {
+    const base = {
+        pageIndex: requirePageIndex(0),
+        objectNumber: 50,
+        generationNumber: 0,
+        name: 'fresh',
+        author: null,
+        createdAt: null,
+        modifiedAt: null,
+    };
+    const rect = {
+        left: 0.1,
+        top: 0.2,
+        width: 0.3,
+        height: 0.1,
+    };
+    if (kind === 'highlight') return {
+        ...base,
+        kind,
+        subtype: 'Highlight',
+        quadPoints: [rect],
+        color: '#ffff00',
+        opacity: 0.5,
+        contents: '',
+    };
+    if (kind === 'text-box') return {
+        ...base,
+        kind,
+        text: 'Fresh text',
+        rect,
+        rotation: 0,
+        fontSize: 12,
+        color: '#123456',
+    };
+    return {
+        ...base,
+        kind,
+        stableKey: 'fresh',
+        pdfSubtype: 'Square',
+        type: 'rectangle',
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        color: '#123456',
+        fillColor: null,
+        opacity: 1,
+        strokeWidth: 2,
+        points: null,
+        strokes: null,
+        x2: null,
+        y2: null,
+        lineStartStyle: null,
+        lineEndStyle: null,
+    };
+}
+
+describe('scoped additive save readback through transaction and workspace service', () => {
+    afterEach(() => vi.restoreAllMocks());
+    for (const kind of [
+        'highlight',
+        'shape',
+        'text-box',
+    ] as const) {
+        it.each([
+            'recognized',
+            'missing',
+            'foreign',
+        ] as const)(`${kind} readback: %s`, async (readback) => {
+            const application = new AnnotationApplication('additive-save');
+            const outside = {
+                ...savedNote(),
+                pageIndex: requirePageIndex(1),
+            };
+            application.store.replaceFromDocument([outside], []);
+            const parsed = parsedAdditive(kind);
+            const mapped = mapPdfAnnotationParseEntity(parsed);
+            const fresh = {
+                ...mapped,
+                identity: {id: mapped.identity.id},
+                persistedRevision: -1,
+            };
+            if (fresh.kind === 'shape') application.store.createShape({
+                ...fresh,
+                materialized: false,
+            });
+            else if (fresh.kind === 'text-box') application.store.createTextBox(fresh);
+            else if (fresh.kind === 'text-markup') application.store.createTextMarkup(fresh);
+            const revision = ref(requireDocumentRevisionToken('rev-1'));
+            const {deps} = createDeps({
+                originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+                workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+                documentRevisionToken: revision,
+                totalPages: ref(2),
+                annotationDirty: ref(true),
+                hasAnnotationChanges: () => true,
+                hasShapeChanges: () => kind === 'shape',
+                getAnnotationSaveStateToken: () => application.store.mutationEpoch,
+                trySavePdfNativeMutations: vi.fn(async () => {
+                    revision.value = requireDocumentRevisionToken('rev-2');
+                    return {
+                        success: true,
+                        outPath: requireDocumentRef('/tmp/work.pdf'),
+                        saveMode: 'rewrite' as const,
+                        didSaveAs: false,
+                        materializedIdentityBindings: [{
+                            annotationId: 'fresh',
+                            pdfRef: '50 0 R',
+                        }],
+                    };
+                }),
+            });
+            deps.pdfDocument.value = cast({
+                ...deps.pdfDocument.value,
+                getPage: async () => ({
+                    view: [
+                        0,
+                        0,
+                        200,
+                        100,
+                    ],
+                    rotate: 0,
+                }),
+            });
+            const transaction = usePdfViewerSaveTransaction({
+                getPdfDocument: () => deps.pdfDocument.value,
+                annotationApplication: shallowRef(application),
+                documentRevisionToken: computed(() => revision.value),
+            });
+            deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+            const scopes: Array<readonly number[] | undefined> = [];
+            vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
+                scopes.push(options.pageIndices);
+                expect(options.expectedDocumentRevisionToken).toBe('rev-2');
+                if (!options.pageIndices) {
+                    // The rejected scoped parse must not have dropped the saved upsert.
+                    expect(application.store.get(mapped.identity.id)?.kind).toBe(mapped.kind);
+                }
+                return {
+                    documentRevisionToken: revision.value,
+                    pageCount: 2,
+                    ...(options.pageIndices ? {pageIndices: [...options.pageIndices]} : {}),
+                    entities: options.pageIndices && readback !== 'recognized' ? [] : [parsed],
+                    foreign: options.pageIndices && readback === 'foreign' ? [{
+                        kind: 'foreign',
+                        pageIndex: requirePageIndex(0),
+                        objectNumber: 50,
+                        generationNumber: 0,
+                        name: 'fresh',
+                        subtype: 'Unsupported',
+                        reason: 'unrecognized',
+                    }] : [],
+                };
+            });
+            await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
+            expect(scopes).toEqual(readback === 'recognized' ? [[0]] : [
+                [0],
+                undefined,
+            ]);
+            expect(application.store.get(mapped.identity.id)).toMatchObject({
+                kind: mapped.kind,
+                identity: {pdfRef: '50 0 R'},
+            });
+            if (readback === 'recognized') expect(application.store.get(outside.identity.id)).toEqual(outside);
+            expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+        });
+    }
 });

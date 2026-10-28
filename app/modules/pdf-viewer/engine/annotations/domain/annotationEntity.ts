@@ -160,6 +160,24 @@ function toLegacyLineEndpoints(entity: IShapeEntity) {
     };
 }
 
+/** The shapes the native writer adds from their page alone; a freehand drawing is not one. */
+const PAGE_LOCAL_SHAPE_TYPES: ReadonlySet<string> = new Set([
+    'rectangle',
+    'circle',
+    'line',
+    'arrow',
+]);
+
+export function isPageLocalShapeType(type: string) {
+    return PAGE_LOCAL_SHAPE_TYPES.has(type);
+}
+
+/** A shape no saved PDF holds yet, of a type the native writer adds from its page alone. */
+export function isNewPageLocalShape(shape: IShapeEntity) {
+    return !shape.deleted && shape.persistedRevision < 0 && !shape.identity.pdfRef
+        && !shape.materialized && isPageLocalShapeType(shape.tool);
+}
+
 export function toLegacyShapeStableKey(id: AnnotationId): string {
     return id.startsWith('evb-shape:') ? id : `evb-shape:${id}`;
 }

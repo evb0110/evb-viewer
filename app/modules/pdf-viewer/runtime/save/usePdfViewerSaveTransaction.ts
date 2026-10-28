@@ -59,7 +59,7 @@ interface IUsePdfViewerSaveTransactionOptions {
         verifyPath?(path: string, knownSize: number): Promise<void>;
         assertCurrent?(): Promise<void> | void;
         replaceFromDocument?(result: IPdfAnnotationParseResult): boolean;
-        notePageIndices?: readonly number[] | null;
+        affectedPageIndices?: readonly number[] | null;
         commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
     };
 }
@@ -143,22 +143,26 @@ export const usePdfViewerSaveTransaction = (
             return undefined;
         }
         const session = application.beginSave(input.documentRevisionToken);
+        let expectedUpserts = session.plan.expected.filter(entity => !entity.deleted);
         return {
             plan: session.plan,
             verify: () => Promise.resolve(),
             verifyPath: () => Promise.resolve(),
             assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
-            commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => application.acknowledgeSave(
-                session,
-                input.documentRevisionToken,
-                identityBindings,
-            ),
+            commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => {
+                application.acknowledgeSave(session, input.documentRevisionToken, identityBindings);
+                expectedUpserts = expectedUpserts.map(entity => ({
+                    ...entity,
+                    identity: application.store.get(entity.identity.id)?.identity ?? entity.identity,
+                }));
+            },
             replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
                 result.entities.map(entry => mapPdfAnnotationParseEntity(entry)),
                 result.foreign.map(mapPdfAnnotationParseForeign),
                 result.pageIndices,
+                expectedUpserts,
             ),
-            notePageIndices: session.notePageIndices,
+            affectedPageIndices: session.affectedPageIndices,
         };
     }
 
@@ -310,8 +314,8 @@ export const usePdfViewerSaveTransaction = (
             ...(canonicalSave?.replaceFromDocument
                 ? {replaceFromDocument: canonicalSave.replaceFromDocument}
                 : {}),
-            ...(canonicalSave?.notePageIndices
-                ? {notePageIndices: canonicalSave.notePageIndices}
+            ...(canonicalSave?.affectedPageIndices
+                ? {affectedPageIndices: canonicalSave.affectedPageIndices}
                 : {}),
         };
         // Routing is decided exactly once, here; every projector below consumes the result.
