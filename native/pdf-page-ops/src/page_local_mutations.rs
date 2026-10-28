@@ -2,14 +2,14 @@
 use super::*;
 
 /// What a page-local edit touches: page indexes it rewrites, the pages whose
-/// annotations it reads, and annotations it addresses by object, whose pages
-/// are found through their `/P`.
+/// annotations it reads, annotations it addresses by object, whose pages are
+/// found through their `/P`, and objects it reads with all they reference.
 #[derive(Default)]
 pub(crate) struct PageLocalEdit {
     pub(crate) pages: BTreeSet<u32>,
     pub(crate) annotation_pages: BTreeSet<u32>,
     pub(crate) annotations: BTreeSet<ObjectId>,
-    pub(crate) delete_closure: BTreeSet<ObjectId>,
+    pub(crate) closure: BTreeSet<ObjectId>,
 }
 
 impl PageLocalEdit {
@@ -20,7 +20,8 @@ impl PageLocalEdit {
 }
 
 /// Mutations whose writers can use selected pages and dependency closures.
-/// Annotation upserts and deletes discover ownership through the page-tree scan.
+/// Annotation upserts and deletes discover ownership through the page-tree scan;
+/// page labels and bookmarks rewrite the catalog.
 pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
     let NativeMutationsFile {
         updates,
@@ -42,8 +43,6 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
     let page_local = text_boxes
         .iter()
         .all(|editor| editor.original_appearance.is_none())
-        && page_labels.is_none()
-        && bookmarks.is_none()
         && shapes.as_ref().is_none_or(|shapes| {
             shapes.shapes.iter().all(|shape| {
                 shape_annotation_subtype_for_create(shape).is_some()
@@ -62,13 +61,28 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
         && placed_image_geometry_updates
             .iter()
             .all(|update| update.source_image.is_none())
-        && continuation.is_none()
+        && continuation.as_ref().is_none_or(is_catalog_continuation)
         && notes.clone().all(|note| note.recovery_data.is_none());
     let mut edit = PageLocalEdit::default();
-    edit.annotation_pages
-        .extend(notes.map(|note| note.page_index));
-    edit.annotation_pages
-        .extend(geometry_updates.iter().map(|update| update.page_index));
+    edit.annotation_pages.extend(
+        notes
+            .map(|note| note.page_index)
+            .chain(geometry_updates.iter().map(|update| update.page_index))
+            .chain(text_boxes.iter().map(|editor| editor.page_index))
+            .chain(
+                shapes
+                    .iter()
+                    .flat_map(|s| s.shapes.iter().map(|s| s.page_index)),
+            )
+            .chain(
+                markup
+                    .iter()
+                    .flat_map(|m| m.hints.iter().map(|h| h.page_index)),
+            )
+            .chain(placed_images.iter().map(|image| image.page_index))
+            .chain(placed_image_geometry_updates.iter().map(|i| i.page_index))
+            .chain(deletes.iter().map(|delete| delete.page_index)),
+    );
     edit.annotations.extend(
         updates
             .iter()
@@ -79,31 +93,12 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
                     .map(|update| (update.object_number, update.generation_number)),
             ),
     );
-    edit.annotation_pages
-        .extend(text_boxes.iter().map(|editor| editor.page_index));
-    edit.annotation_pages.extend(
-        shapes
-            .iter()
-            .flat_map(|s| s.shapes.iter().map(|shape| shape.page_index)),
-    );
-    edit.annotation_pages.extend(
-        markup
-            .iter()
-            .flat_map(|m| m.hints.iter().map(|hint| hint.page_index)),
-    );
-    edit.annotation_pages
-        .extend(placed_images.iter().map(|image| image.page_index));
-    edit.annotation_pages.extend(
-        placed_image_geometry_updates
-            .iter()
-            .map(|image| image.page_index),
-    );
-    edit.annotation_pages
-        .extend(deletes.iter().map(|delete| delete.page_index));
     edit.pages.clone_from(&edit.annotation_pages);
     edit.pages
         .extend(page_rotations.iter().map(|rotation| rotation.page_index));
-    (page_local && !(edit.pages.is_empty() && edit.annotations.is_empty() && shapes.is_none()))
+    edit.pages.extend(bookmark_pages(bookmarks.as_ref())?);
+    let writes = page_labels.is_some() || bookmarks.is_some() || shapes.is_some();
+    (page_local && (writes || !(edit.pages.is_empty() && edit.annotations.is_empty())))
         .then_some(edit)
 }
 
@@ -259,7 +254,7 @@ pub(crate) fn load_native_mutation_base(
                             .any(|hint| !is_new_markup_hint_data(hint))
                     });
                 if !existing {
-                    if let Some(base) = load_qpdf_page_local_incremental_pdf(path, qpdf, &edit)? {
+                    if let Some(base) = load_page_local_catalog(path, qpdf, mutations, &mut edit)? {
                         if additive_targets_are_new(&base, mutations, false)? {
                             return Ok(Some(base));
                         }

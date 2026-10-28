@@ -52,9 +52,10 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
                 document,
                 bookmarks,
                 &continuation.bookmark_path,
+                located_pages,
             )?;
         } else {
-            validate_bookmarks_document_postconditions(document, bookmarks)?;
+            validate_bookmarks_document_postconditions(document, bookmarks, located_pages)?;
         }
     }
     if let Some(shapes) = &mutations.shapes {
@@ -834,6 +835,7 @@ fn validate_page_labels_fragment_postconditions(
 pub(crate) fn validate_bookmarks_document_postconditions(
     document: &impl PdfObjectSource,
     bookmarks: &BookmarksMutation,
+    located_pages: Option<&LocatedPages>,
 ) -> Result<()> {
     let catalog = document.dictionary(document.root_id()?)?;
     let normalized = normalize_bookmark_entries(
@@ -855,10 +857,9 @@ pub(crate) fn validate_bookmarks_document_postconditions(
     }
     let first = outlines.get(b"First")?.as_reference()?;
     let last = outlines.get(b"Last")?.as_reference()?;
-    let page_resolver = PageTreeResolver::new(document)?;
     validate_bookmark_level(
         document,
-        &page_resolver,
+        &PageLookup::new(document, located_pages)?,
         &normalized,
         outlines_id,
         first,
@@ -867,26 +868,13 @@ pub(crate) fn validate_bookmarks_document_postconditions(
     )
 }
 
-fn outline_level_item_at_postcondition(
-    document: &impl PdfObjectSource,
-    parent_id: ObjectId,
-    index: u32,
-) -> Result<ObjectId> {
-    let parent = document.dictionary(parent_id)?;
-    let mut current = parent.get(b"First")?.as_reference()?;
-    for _ in 0..index {
-        current = document.dictionary(current)?.get(b"Next")?.as_reference()?;
-    }
-    Ok(current)
-}
-
 fn resolve_bookmark_parent_postcondition(
     document: &impl PdfObjectSource,
     outlines_id: ObjectId,
     path: &[u32],
 ) -> Result<ObjectId> {
     path.iter().try_fold(outlines_id, |parent_id, index| {
-        outline_level_item_at_postcondition(document, parent_id, *index)
+        outline_level_item_at(document, parent_id, *index)
     })
 }
 
@@ -894,6 +882,7 @@ fn validate_bookmarks_fragment_postconditions(
     document: &impl PdfObjectSource,
     bookmarks: &BookmarksMutation,
     bookmark_path: &[u32],
+    located_pages: Option<&LocatedPages>,
 ) -> Result<()> {
     let catalog = document.dictionary(document.root_id()?)?;
     let outlines_id = catalog.get(b"Outlines")?.as_reference()?;
@@ -922,7 +911,7 @@ fn validate_bookmarks_fragment_postconditions(
         .and_then(|value| value.as_reference().ok());
     validate_bookmark_level(
         document,
-        &PageTreeResolver::new(document)?,
+        &PageLookup::new(document, located_pages)?,
         &normalized,
         parent_id,
         first,
@@ -933,7 +922,7 @@ fn validate_bookmarks_fragment_postconditions(
 
 fn validate_bookmark_level(
     document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     items: &[BookmarkEntry],
     parent_id: ObjectId,
     first: ObjectId,

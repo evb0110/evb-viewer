@@ -219,7 +219,7 @@ impl DeleteScan {
             }
         }
         edit.pages.extend(&edit.annotation_pages);
-        edit.delete_closure.extend(deleted);
+        edit.closure.extend(deleted);
         Ok(())
     }
 }
@@ -252,7 +252,7 @@ pub(crate) fn page_local_delete_closure_loaded(
         source.located_pages(),
     )?;
     let mut actual = HashSet::new();
-    for id in &edit.delete_closure {
+    for id in &edit.closure {
         actual.extend(collect_annotation_refs_to_delete(
             base.get_prev_documents(),
             *id,
@@ -260,7 +260,7 @@ pub(crate) fn page_local_delete_closure_loaded(
         )?);
     }
     Ok(generic.is_subset(&actual)
-        && actual == edit.delete_closure.iter().copied().collect()
+        && actual == edit.closure.iter().copied().collect()
         && actual
             .iter()
             .all(|id| base.get_prev_documents().objects.contains_key(id)))

@@ -31,7 +31,7 @@ pub(crate) fn complete_page_local_objects(
             &pages,
             &annotation_pages,
             &edit.annotations,
-            &edit.delete_closure,
+            &edit.closure,
         )?
         .difference(&requested)
         .copied()
@@ -80,7 +80,7 @@ fn page_local_dependencies(
     pages: &BTreeSet<ObjectId>,
     annotation_pages: &BTreeSet<ObjectId>,
     annotations: &BTreeSet<ObjectId>,
-    delete_closure: &BTreeSet<ObjectId>,
+    closure: &BTreeSet<ObjectId>,
 ) -> Result<BTreeSet<ObjectId>> {
     let mut needed = BTreeSet::new();
     let mut values = Vec::new();
@@ -144,7 +144,7 @@ fn page_local_dependencies(
     }
     let addressed = annotations
         .iter()
-        .chain(delete_closure)
+        .chain(closure)
         .map(|id| Object::Reference(*id))
         .collect::<Vec<_>>();
     values.extend(&addressed);
@@ -260,7 +260,7 @@ mod tests {
             pages: BTreeSet::from([0]),
             annotation_pages: BTreeSet::from([0]),
             annotations: BTreeSet::new(),
-            delete_closure: BTreeSet::new(),
+            closure: BTreeSet::new(),
         };
         complete_page_local_objects(&mut partial, &located, &edit, |document, ids, retained| {
             for id in ids {

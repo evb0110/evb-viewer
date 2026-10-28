@@ -19,6 +19,13 @@ pub(crate) fn annotation_delete_effects(
     let source = AppendedRevision::new(base);
     let mut remaining = HashSet::new();
     for page in located.ids.values() {
+        // A page read only for its place in the tree, as a bookmark or rotation
+        // target is, keeps an annotation list the load left unread and unchanged.
+        if let Ok(Object::Reference(annots)) = source.dictionary(*page)?.get(b"Annots") {
+            if source.stored_object(*annots).is_none() {
+                continue;
+            }
+        }
         remaining.extend(
             get_page_annots(&source, *page)?
                 .iter()

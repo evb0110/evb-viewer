@@ -479,6 +479,68 @@ describe('scoped annotation save readback through transaction and workspace serv
     }
 });
 
+describe('bookmark-only save readback', () => {
+    afterEach(() => vi.restoreAllMocks());
+    it.each([
+        false,
+        true,
+    ])('reads every page back only before the store holds the whole document (read whole: %s)', async (readWhole) => {
+        const application = new AnnotationApplication('bookmark-save');
+        if (readWhole) application.store.replaceFromDocument([savedNote()], []);
+        const revision = ref(requireDocumentRevisionToken('rev-1'));
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            bookmarksDirty: ref(true),
+            bookmarkItems: ref(cast([{
+                title: 'First bookmark',
+                pageIndex: 0,
+                items: [],
+            }])),
+            trySavePdfNativeMutations: vi.fn(async () => {
+                revision.value = requireDocumentRevisionToken('rev-2');
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => revision.value),
+        });
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        const parse = vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async () => cast({
+            documentRevisionToken: revision.value,
+            pageCount: 1,
+            entities: [{
+                kind: 'note',
+                pageIndex: requirePageIndex(0),
+                objectNumber: 12,
+                generationNumber: 0,
+                name: 'saved-note',
+                author: null,
+                createdAt: null,
+                modifiedAt: null,
+                position: savedNote().position,
+                contents: 'saved text',
+                color: null,
+                open: false,
+            }],
+            foreign: [],
+        }));
+        await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
+        expect(parse.mock.calls.map(([
+            , options,
+        ]) => options.pageIndices)).toEqual(readWhole ? [] : [undefined]);
+        expect(application.listCommentSummaries().map(summary => summary.text)).toEqual(['saved text']);
+    });
+});
+
 describe('native deletion readback', () => {
     afterEach(() => vi.restoreAllMocks());
     for (const kind of [

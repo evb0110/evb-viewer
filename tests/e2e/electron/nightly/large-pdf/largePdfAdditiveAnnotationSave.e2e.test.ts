@@ -15,10 +15,10 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openAnnotationsTab, openPdfInApp, saveViaVisibleToolbarWithDeadline, setupScrollToPage, waitForPdfLoaded, waitForViewerInteractive,
+    openAnnotationsTab, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbarWithDeadline, setupScrollToPage, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    clearTextSelection, clickAnnotationTool, createCanonicalTextBoxWithPointer, createCanonicalTextMarkup, selectAllFocusedAnnotationText,
+    clearTextSelection, clickAnnotationTool, createCanonicalTextBoxWithPointer, createCanonicalTextMarkup, createStickyNoteWithPointer, selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     LARGE_PDF_SAVE_TIMEOUT_MS,
@@ -36,6 +36,9 @@ import { waitForSaveFrontierReady } from '@tests/e2e/electron/helpers/workspaceE
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
 const PAGE_NUMBER = 1;
+// A save that also reads every page's annotations back takes about 8.5 s on
+// the 21,601-page fixture; reading back only the saved page takes about 1.5 s.
+const PAGE_LOCAL_READBACK_SAVE_MS = 5_000;
 
 interface ICanonicalEntity {
     id: string;
@@ -178,6 +181,18 @@ async function deleteFromSidebar(page: Page, text: string) {
     ).find(item => (item.querySelector('.note-item-text')?.textContent ?? '').includes(expected))
         ?.querySelector<HTMLButtonElement>('.note-item-delete'), text, {description: `sidebar delete for ${JSON.stringify(text)}`});
     await expect.poll(() => readPanelAnnotationCount(page), {timeout: 10_000}).toBe(before! - 1);
+}
+
+function waitForBookmarkRow(page: Page, title: string) {
+    return page.waitForFunction((expected: string) => Array.from(document.querySelectorAll(
+        '.editor-pane.is-active .document-bookmark-item__row',
+    )).some(row => row.textContent?.trim() === expected), {timeout: 60_000}, title);
+}
+
+function waitForSidebarNoteText(page: Page, text: string) {
+    return page.waitForFunction((expected: string) => Array.from(document.querySelectorAll(
+        '.editor-pane.is-active .notes-list .note-item-text',
+    )).some(item => item.textContent?.includes(expected)), {timeout: 60_000}, text);
 }
 
 /** Drags an entity with the Select tool and waits until it has moved. */
@@ -573,5 +588,59 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await setupScrollToPage(restartedPage, PAGE_NUMBER);
         await expect.poll(async () => (await readCanonicalEntities(restartedPage))
             .filter(entity => entity.kind === 'text-markup' || entity.text === boxText).length, {timeout: 30_000}).toBe(0);
+    }, LARGE_PDF_TIMEOUT_MS * 2);
+    it('saves a note edit and a new bookmark, keeping both after restart', async () => {
+        const documentPath = copyLargeFixture(directories, 'bookmark.pdf');
+        const session = await sessionFixture.restart({clean: true});
+        const {page} = session!;
+        await openPdfInApp(page, documentPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+
+        const noteText = `large pdf note ${Date.now()}`;
+        await createStickyNoteWithPointer(page, noteText, {
+            x: 0.6,
+            y: 0.3,
+        }, PAGE_NUMBER);
+        await saveWithinBudget(page, 'Note save');
+        const textarea = await page.waitForSelector('textarea.note-window__textarea', {
+            visible: true,
+            timeout: 10_000,
+        });
+        await clickAsUser(page, textarea!);
+        await page.keyboard.press('End');
+        await page.keyboard.type(' edited', {delay: 10});
+        await page.keyboard.press('Tab');
+        const noteEditSaveMs = await saveWithinBudget(page, 'Note edit save');
+
+        const bookmarkTitle = `large pdf bookmark ${Date.now()}`;
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, '.editor-pane.is-active .document-bookmarks-toolbar__actions button');
+        await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.editor-pane.is-active button'))
+            .find(button => button.textContent?.trim() === title), 'Add first bookmark', {description: 'Add first bookmark'});
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type(bookmarkTitle);
+        await page.keyboard.press('Enter');
+        await waitForBookmarkRow(page, bookmarkTitle);
+        const bookmarkSaveMs = await saveWithinBudget(page, 'Bookmark save');
+        const timings = {
+            noteEditSaveMs,
+            bookmarkSaveMs,
+        };
+        console.info(`[large-pdf note edit and bookmark saves] ${JSON.stringify(timings)}`);
+        expect(noteEditSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
+        expect(bookmarkSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
+
+        await waitForCrashCheckpointPath(session!.name, realpathSync(documentPath));
+        const restarted = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+        });
+        const restartedPage = restarted!.page;
+        await waitForRestoredDocument(restartedPage, documentPath);
+        await openDocumentSidebarTab(restartedPage, 'Bookmarks');
+        await waitForBookmarkRow(restartedPage, bookmarkTitle);
+        await openAnnotationsTab(restartedPage, 30_000);
+        await waitForSidebarNoteText(restartedPage, `${noteText} edited`);
     }, LARGE_PDF_TIMEOUT_MS * 2);
 });

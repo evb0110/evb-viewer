@@ -5,6 +5,7 @@ use evb_native_support::pdf_catalog::{
     BookmarkSourceTarget, MAX_BOOKMARK_ACTION_SIZE,
 };
 use lopdf::dictionary;
+use std::collections::BTreeSet;
 
 mod actions;
 pub(crate) mod names;
@@ -351,7 +352,7 @@ fn validate_bookmark_source_references(
 
 fn source_bookmark_destination(
     document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     item: &BookmarkEntry,
 ) -> Result<Option<Object>> {
     use evb_native_support::pdf_catalog::BookmarkSourceTarget;
@@ -385,7 +386,7 @@ fn source_bookmark_destination(
 
 pub(crate) fn validate_bookmark_destination(
     document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     bookmark: &Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
@@ -447,7 +448,7 @@ pub(crate) fn resolve_bookmark_destination_position(
 
 pub(crate) fn set_bookmark_destination(
     base_document: &Document,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     dict: &mut Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
@@ -529,7 +530,7 @@ impl OutlineObjects {
     fn level(
         &mut self,
         source: &Document,
-        page_resolver: &PageTreeResolver,
+        page_resolver: &PageLookup<'_>,
         items: &[BookmarkEntry],
         parent_ref: ObjectId,
     ) -> Result<OutlineLevel> {
@@ -571,7 +572,7 @@ impl OutlineObjects {
     fn outline(
         &mut self,
         source: &Document,
-        page_resolver: &PageTreeResolver,
+        page_resolver: &PageLookup<'_>,
         items: &[BookmarkEntry],
     ) -> Result<Option<ObjectId>> {
         if items.is_empty() {
@@ -609,9 +610,40 @@ fn set_catalog_outlines(catalog: &mut Dictionary, outlines: Option<ObjectId>) {
     }
 }
 
+/// The pages a bookmark rewrite reads, or `None` when a destination names a
+/// page object, which only a walk of the whole page tree places.
+pub(crate) fn bookmark_pages(bookmarks: Option<&BookmarksMutation>) -> Option<BTreeSet<u32>> {
+    fn collect(items: &[BookmarkEntry], pages: &mut BTreeSet<u32>) -> Option<()> {
+        for item in items {
+            let target = item.original_destination.as_ref().map(|d| &d.source_target);
+            match (&item.named_dest, item.page_index, target) {
+                (Some(_), ..) | (None, None, None) => {}
+                (None, Some(index), _)
+                | (None, None, Some(&BookmarkSourceTarget::PageIndex(index))) => {
+                    pages.insert(index);
+                }
+                (None, None, Some(BookmarkSourceTarget::Reference { .. })) => return None,
+            }
+            collect(&item.items, pages)?;
+        }
+        Some(())
+    }
+    let mut pages = BTreeSet::new();
+    let Some(bookmarks) = bookmarks else {
+        return Some(pages);
+    };
+    let items = normalize_bookmark_entries(
+        &bookmarks.items,
+        bookmarks.total_pages,
+        &bookmarks.untitled_label,
+    );
+    collect(&items, &mut pages)?;
+    Some(pages)
+}
+
 fn normalized_bookmarks(
     source: &Document,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     bookmarks: &BookmarksMutation,
 ) -> Result<Vec<BookmarkEntry>> {
     assert_mutation_page_count_with_resolver(
@@ -629,7 +661,7 @@ fn normalized_bookmarks(
 }
 
 pub(crate) fn set_bookmarks(document: &mut Document, bookmarks: &BookmarksMutation) -> Result<()> {
-    let page_resolver = PageTreeResolver::new(document)?;
+    let page_resolver = PageLookup::new(document, None)?;
     let normalized = normalized_bookmarks(document, &page_resolver, bookmarks)?;
     let mut objects = OutlineObjects::after(document);
     let outlines = objects.outline(document, &page_resolver, &normalized)?;
@@ -643,7 +675,9 @@ pub(crate) fn set_bookmarks_incremental(
     bookmarks: &BookmarksMutation,
     continuation: Option<&NativeMutationContinuation>,
 ) -> Result<()> {
-    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    // A page-local load holds only the pages the bookmarks name.
+    let located = incremental.located_pages.clone();
+    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
     let normalized =
         normalized_bookmarks(incremental.get_prev_documents(), &page_resolver, bookmarks)?;
     if continuation.is_some_and(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
@@ -673,7 +707,11 @@ pub(crate) fn set_bookmarks_incremental(
     Ok(())
 }
 
-fn outline_level_item_at(document: &Document, parent_id: ObjectId, index: u32) -> Result<ObjectId> {
+pub(crate) fn outline_level_item_at(
+    document: &impl PdfObjectSource,
+    parent_id: ObjectId,
+    index: u32,
+) -> Result<ObjectId> {
     let parent = document.dictionary(parent_id)?;
     let mut current = parent.get(b"First")?.as_reference()?;
     for _ in 0..index {
@@ -684,7 +722,7 @@ fn outline_level_item_at(document: &Document, parent_id: ObjectId, index: u32) -
 
 fn append_bookmarks_incremental(
     incremental: &mut IncrementalDocument,
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     items: &[BookmarkEntry],
     bookmark_path: Option<&[u32]>,
 ) -> Result<()> {

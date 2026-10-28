@@ -341,10 +341,18 @@ async function executeNativeMutationSave(
     saveTransaction.commitAnnotationSave?.(
         persisted.materializedIdentityBindings ?? materializedIdentityBindings,
     );
+    // A layer may be marked clean only if this save carried its edits; the
+    // published mutations hold a key for each kind.
+    const {
+        bookmarks, pageLabels, ...annotationEdits
+    } = projection.mutations;
+    const annotationEditsWritten = Object.keys(annotationEdits).length > 0
+        || Boolean(projection.placedImageGeometryUpdates?.length);
     const expectedWorkingPath = persisted.didSaveAs ? deps.document.workingCopyPath.value : plan.target.expectedWorkingPath;
     // Bind read-back to the published revision.
     const committedRevisionToken = deps.document.revisionToken.value;
-    if (saveTransaction.replaceFromDocument && expectedWorkingPath && committedRevisionToken) {
+    if ((annotationEditsWritten || !saveTransaction.affectedPageIndices) && saveTransaction.replaceFromDocument
+        && expectedWorkingPath && committedRevisionToken) {
         const parse = (pageIndices?: number[]) => timedSavePhase(
             'parse-committed-pdf-annotations',
             () => getDocumentWorkingCopyCapability().parsePdfAnnotations(
@@ -371,15 +379,6 @@ async function executeNativeMutationSave(
             saveTransaction.replaceFromDocument(await parse());
         }
     }
-    // A layer may be marked clean only if this save carried its edits. The
-    // published mutations hold a key only for each kind of edit they carry.
-    const {
-        bookmarks, pageLabels, ...annotationEdits
-    } = projection.mutations;
-    const annotationEditsWritten = Object.keys(annotationEdits).length > 0
-        || Boolean(projection.placedImageGeometryUpdates?.length);
-    const bookmarkEditsWritten = bookmarks !== undefined;
-    const pageLabelEditsWritten = pageLabels !== undefined;
 
     return {
         status: 'saved',
@@ -388,10 +387,10 @@ async function executeNativeMutationSave(
         reloadWaiter: null,
         completion: {
             markAnnotationStateSaved: annotationEditsWritten,
-            markBookmarksStateSaved: bookmarkEditsWritten,
-            markPageLabelsStateSaved: pageLabelEditsWritten,
-            allowBookmarksSaveStateRefresh: bookmarkEditsWritten,
-            allowPageLabelsSaveStateRefresh: pageLabelEditsWritten,
+            markBookmarksStateSaved: bookmarks !== undefined,
+            markPageLabelsStateSaved: pageLabels !== undefined,
+            allowBookmarksSaveStateRefresh: bookmarks !== undefined,
+            allowPageLabelsSaveStateRefresh: pageLabels !== undefined,
         },
     };
 }
