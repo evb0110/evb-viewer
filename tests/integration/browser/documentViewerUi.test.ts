@@ -366,8 +366,6 @@ describe('browser document lifecycle UI', () => {
         }});
         const problems = collectConsoleProblems(page);
         try {
-            const cdp = await page.context().newCDPSession(page);
-            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
             // Setup injects a persistent PDF.js render rejection. The document and
             // all Open/Retry/link interactions still use the normal user path.
             await page.route('**/services/pdfjs/pdfViewerFacade.ts*', async route => {
@@ -401,6 +399,10 @@ describe('browser document lifecycle UI', () => {
                 buffer: bytes,
             });
             await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state: 'visible'});
+            // Slow only the interactions under test: a throttled dev-server
+            // startup alone can outlast the open-ready wait on CI runners.
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
             await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', true));
             await page.getByRole('button', {
                 name: 'Next Page',
