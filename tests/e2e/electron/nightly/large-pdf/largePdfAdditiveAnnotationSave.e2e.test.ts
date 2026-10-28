@@ -186,6 +186,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         // A save that lands before the open-time read of the whole document
         // finishes must still leave every annotation of the document listed.
         const savedCount = await readPanelAnnotationCount(page);
+        expect(savedCount, 'The annotations panel shows a count after the saves').not.toBeNull();
 
         const timings = {
             highlightSaveMs,
