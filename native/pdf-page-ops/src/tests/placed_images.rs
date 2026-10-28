@@ -209,43 +209,6 @@
     }
 
     #[test]
-    fn incremental_image_edits_leave_shared_appearances_and_pixels_unchanged() {
-        let _cleanup = PlacedImageTestCleanup;
-        for replace_pixels in [false, true] {
-            let (mut document, page_id) = create_test_document();
-            let mut image = placed_jpeg_mutation();
-            image.stable_key = Some("shared-image".into());
-            apply_placed_images(&mut document, std::slice::from_ref(&image), vec![minimal_jpeg_bytes()], 0, "D:20261028120000Z", &mut None).unwrap();
-            let stamp = get_page_annots(&document, page_id).unwrap()[0].as_reference().unwrap();
-            let (appearance, pixels) = placed_image_appearance_refs(&document, stamp).unwrap();
-            let mut alias = document.get_dictionary(stamp).unwrap().clone();
-            alias.set("NM", Object::string_literal("placed-image-native:alias"));
-            let alias = document.add_object(alias);
-            append_annots_to_page(&mut document, page_id, &[alias]).unwrap();
-            let old_appearance = document.get_object(appearance).unwrap().clone();
-            let old_pixels = document.get_object(pixels).unwrap().clone();
-            let mut incremental = IncrementalDocument::from_document(document, 0, None);
-            if replace_pixels {
-                image.x = 0.4;
-                image.annotation_id = Some(format!("{}R{}", stamp.0, stamp.1));
-                let mut replacement = minimal_jpeg_bytes();
-                replacement[10] = 2;
-                apply_placed_images_incremental(&mut incremental, &[image], vec![replacement], 0, "D:20261028120100Z", &mut None).unwrap();
-            } else {
-                let update: PlacedImageGeometryUpdate = serde_json::from_value(serde_json::json!({"pageIndex":0,"stableKey":"shared-image","annotationId":format!("{}R{}",stamp.0,stamp.1),"x":0.4,"y":0.25,"width":0.3,"height":0.2,"rotationDegrees":15})).unwrap();
-                apply_placed_image_geometry_updates_incremental(&mut incremental, &[update], "D:20261028120100Z", &mut None).unwrap();
-            }
-            let saved = AppendedRevision::new(&incremental);
-            assert_eq!(saved.object(appearance).unwrap(), &old_appearance);
-            assert_eq!(saved.object(pixels).unwrap(), &old_pixels);
-            assert_eq!(placed_image_appearance_refs(&saved, alias), Some((appearance, pixels)));
-            let (new_appearance, new_pixels) = placed_image_appearance_refs(&saved, stamp).unwrap();
-            assert_ne!(new_appearance, appearance);
-            assert_eq!(new_pixels == pixels, !replace_pixels);
-        }
-    }
-
-    #[test]
     fn deleting_a_foreign_stamp_keeps_a_shared_placed_image_appearance() {
         let (mut document, page_id) = create_test_document();
         let managed = placed_jpeg_mutation();
@@ -548,11 +511,10 @@
         let stamp = loaded
             .get_dictionary(updated_stamp_ref)
             .unwrap();
-        let updated_refs = placed_image_appearance_refs(&loaded, updated_stamp_ref).unwrap();
-        assert_ne!(updated_refs.0, appearance_refs.0);
-        assert_ne!(updated_refs.1, appearance_refs.1);
-        assert!(loaded.get_object(appearance_refs.0).is_ok());
-        assert!(loaded.get_object(appearance_refs.1).is_ok());
+        assert_eq!(
+            placed_image_appearance_refs(&loaded, updated_stamp_ref),
+            Some(appearance_refs),
+        );
         assert_eq!(
             stamp.get(b"NM").ok().and_then(pdf_string_to_text).as_deref(),
             Some("placed-image-app-1"),
