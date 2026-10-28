@@ -366,18 +366,19 @@ jobs:
         run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
 
   browser_integration:
-    name: Browser Integration (${{ matrix.shard }}/2)
+    name: Browser Integration (${{ matrix.shard }}/3)
     if: ${{ needs.changed_areas.outputs.browser_integration == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
-    # A WASM source change rebuilds the browser tools (about 2 minutes) before
-    # tests that take 4.5 to 6.5 minutes depending on the runner. The test step
-    # keeps its own limit so a hang still fails well before the job one.
+    # A WASM source change rebuilds the browser tools (about 2 minutes) inside
+    # the test step. Two shards grew to fill the step's 9 minutes on slow
+    # runners, so three shards keep each well inside it. The test step keeps
+    # its own limit so a hang still fails well before the job one.
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
 
     steps:
       - name: Checkout
@@ -400,7 +401,7 @@ jobs:
 
       - name: Browser integration tests
         timeout-minutes: 9
-        run: pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/2
+        run: pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/3
 
   scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles
