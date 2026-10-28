@@ -1,11 +1,29 @@
 //! Admission of mutations whose existing writers use a page-local base.
 use super::*;
 
+/// What a page-local edit touches: page indexes it rewrites, the pages whose
+/// annotations it reads, and annotations it addresses by object, whose pages
+/// are found through their `/P`.
+#[derive(Default)]
+pub(crate) struct PageLocalEdit {
+    pub(crate) pages: BTreeSet<u32>,
+    pub(crate) annotation_pages: BTreeSet<u32>,
+    pub(crate) annotations: BTreeSet<ObjectId>,
+    pub(crate) delete_closure: BTreeSet<ObjectId>,
+}
+
+impl PageLocalEdit {
+    /// The page indexes the load locates by number.
+    pub(crate) fn located(&self) -> BTreeSet<u32> {
+        self.pages.union(&self.annotation_pages).copied().collect()
+    }
+}
+
 /// The pages and annotations of an edit whose writers read only those:
 /// rotations, notes without recovery imports, and additive markup, simple
 /// shapes, text boxes and placed images, plus image moves. Loaded creates
 /// must also pass `additive_targets_are_new`.
-/// Deletes can reach replies on other pages and always need whole discovery.
+/// Deletes add their complete page-tree closure before loading.
 pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
     let NativeMutationsFile {
         updates,
@@ -24,10 +42,9 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
         continuation,
     } = mutations;
     let notes = notes.iter().chain(free_text_notes);
-    let page_local = deletes.is_empty()
-        && text_boxes
-            .iter()
-            .all(|editor| editor.annotation_id.is_none() && editor.original_appearance.is_none())
+    let page_local = text_boxes
+        .iter()
+        .all(|editor| editor.annotation_id.is_none() && editor.original_appearance.is_none())
         && page_labels.is_none()
         && bookmarks.is_none()
         && shapes.as_ref().is_none_or(|shapes| {
@@ -92,6 +109,8 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
             .iter()
             .map(|image| image.page_index),
     );
+    edit.annotation_pages
+        .extend(deletes.iter().map(|delete| delete.page_index));
     edit.pages.clone_from(&edit.annotation_pages);
     edit.pages
         .extend(page_rotations.iter().map(|rotation| rotation.page_index));
@@ -210,13 +229,159 @@ pub(crate) fn additive_targets_are_new(
     Ok(true)
 }
 
+/// Byte-admitted inputs retain the whole writer's orphan-page semantics.
+/// Above that ceiling, deletion ownership is the catalog page tree only:
+/// orphan pages are outside the document the viewer displays.
+pub(crate) fn load_native_mutation_base(
+    path: &Path,
+    qpdf: Option<&Path>,
+    mutations: &NativeMutationsFile,
+) -> Result<IncrementalDocument> {
+    if fs::metadata(path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
+        if let (Some(qpdf), Some(mut edit)) = (qpdf, page_local_edit(mutations)) {
+            let local = (|| {
+                if !mutations.deletes.is_empty() {
+                    extend_page_local_delete_edit(path, qpdf, mutations, &mut edit)?;
+                }
+                let incremental = load_qpdf_page_local_incremental_pdf(path, qpdf, &edit)?;
+                match incremental {
+                    Some(base)
+                        if additive_targets_are_new(&base, mutations)?
+                            && page_local_delete_closure_loaded(&base, mutations, &edit)? =>
+                    {
+                        Ok(Some(base))
+                    }
+                    _ => Ok(None),
+                }
+            })();
+            match local as Result<Option<IncrementalDocument>> {
+                Ok(Some(base)) => return Ok(base),
+                Err(error) if mutations.deletes.is_empty() => return Err(error),
+                _ => {}
+            }
+        }
+    }
+    if is_dictionary_only_mutation(mutations) {
+        load_dictionary_incremental_pdf_path(path, qpdf)
+    } else {
+        load_incremental_pdf_path(path, qpdf)
+    }
+}
+/// The page an addressed annotation names through its own `/P`, or a popup
+/// through its parent's: a page dictionary, or an object not loaded yet.
+pub(crate) fn addressed_annotation_page(
+    document: &Document,
+    annotation_id: ObjectId,
+) -> Option<ObjectId> {
+    let annotation = document.get_dictionary(annotation_id).ok()?;
+    let page = |dictionary: &Dictionary| {
+        dictionary
+            .get(b"P")
+            .and_then(Object::as_reference)
+            .ok()
+            .filter(|page| {
+                document.get_object(*page).map_or(true, |page| {
+                    page.as_dict()
+                        .and_then(|page| page.get(b"Type"))
+                        .and_then(Object::as_name)
+                        .is_ok_and(|kind| kind == b"Page")
+                })
+            })
+    };
+    page(annotation).or_else(|| {
+        let parent = annotation
+            .get(b"Parent")
+            .and_then(Object::as_reference)
+            .ok()?;
+        page(document.get_dictionary(parent).ok()?)
+    })
+}
+
+/// Whether every addressed annotation, or the parent of an addressed popup,
+/// is listed on the page its `/P` names, where the edit's writers look, and
+/// that page is in the page tree.
+pub(crate) fn page_local_annotations_located(
+    document: &Document,
+    edit: &PageLocalEdit,
+) -> Result<bool> {
+    for annotation_id in &edit.annotations {
+        let Some(page_id) = addressed_annotation_page(document, *annotation_id)
+            .filter(|page_id| document.objects.contains_key(page_id))
+        else {
+            return Ok(false);
+        };
+        if !page_in_tree(document, page_id) {
+            return Ok(false);
+        }
+        let listed = get_page_annots(document, page_id)?;
+        let parent = document
+            .get_dictionary(*annotation_id)
+            .and_then(|annotation| annotation.get(b"Parent"))
+            .and_then(Object::as_reference)
+            .ok();
+        if !listed.iter().any(|object| {
+            object
+                .as_reference()
+                .is_ok_and(|id| id == *annotation_id || Some(id) == parent)
+        }) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Whether each `/Parent` up from `page_id` lists the node below it among its
+/// `/Kids`, up to the catalog's `/Pages`: the page is in the page tree rather
+/// than an orphan that names a parent.
+fn page_in_tree(document: &Document, page_id: ObjectId) -> bool {
+    let Some(root_pages) = document
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .and_then(|root| document.get_dictionary(root))
+        .and_then(|catalog| catalog.get(b"Pages"))
+        .and_then(Object::as_reference)
+        .ok()
+    else {
+        return false;
+    };
+    let mut child = page_id;
+    for _ in 0..=MAX_PDF_STRUCTURAL_NESTING {
+        if child == root_pages {
+            return true;
+        }
+        let Some(parent) = document
+            .get_dictionary(child)
+            .and_then(|node| node.get(b"Parent"))
+            .and_then(Object::as_reference)
+            .ok()
+        else {
+            return false;
+        };
+        let lists_child = document
+            .get_dictionary(parent)
+            .and_then(|node| node.get(b"Kids"))
+            .and_then(|kids| match kids {
+                Object::Reference(id) => document.get_object(*id),
+                kids => Ok(kids),
+            })
+            .and_then(Object::as_array)
+            .is_ok_and(|kids| kids.contains(&Object::Reference(child)));
+        if !lists_child {
+            return false;
+        }
+        child = parent;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
     #[test]
-    fn image_admission_locates_requested_pages_but_never_accepts_deletion_hints() {
+    fn image_and_delete_admission_locates_requested_pages() {
         let image = json!({"pageIndex":21600,"stableKey":"new-image","x":0.1,"y":0.2,"width":0.3,"height":0.1,"mimeType":"image/png","bytesBase64":"AA==","byteLength":1,"sha256":"a".repeat(64)});
         let payload = |value| serde_json::from_value::<NativeMutationsFile>(value).unwrap();
         let edit = page_local_edit(&payload(json!({"placedImages":[image.clone()]}))).unwrap();
@@ -242,7 +407,7 @@ mod tests {
             json!({"pageIndex":21600,"objectNumber":50,"generationNumber":0}),
             json!({"pageIndex":0,"stableKey":"note"}),
         ] {
-            assert!(page_local_edit(&payload(json!({"deletes":[delete]}))).is_none());
+            assert!(page_local_edit(&payload(json!({"deletes":[delete]}))).is_some());
         }
     }
 }

@@ -661,6 +661,21 @@ describe('AnnotationStore.replaceFromDocument of some pages', () => {
         expect(store.get(asAnnotationId('second'))).toMatchObject({contents: 'saved text'});
     });
 
+    it('accepts only native-confirmed reply losses and keeps other missing replies guarded', () => {
+        const store = documentStore();
+        const parsed = parsedNote('second', '2 0 R', {
+            pageIndex: requirePageIndex(1),
+            replies: [],
+        });
+        const before = store.list({includeDeleted: true});
+        expect(store.replaceFromDocument([parsed], [], [1], [], ['10 0 R'])).toBe(false);
+        expect(store.list({includeDeleted: true})).toEqual(before);
+        expect(store.replaceFromDocument([parsed], [], [1], [], ['9 1 R'])).toBe(false);
+        expect(store.replaceFromDocument([parsed], [], [1], [], ['9 0 R'])).toBe(true);
+        expect(store.get(asAnnotationId('second'))?.replies).toEqual([]);
+        expect(store.get(asAnnotationId('first'))).toEqual(before.find(entity => entity.identity.id === 'first'));
+    });
+
     it('changes nothing before a parse of the whole document fed the store', () => {
         // A save can land before the document's opening parse finishes; the
         // store then holds none of the pages a parse of some pages leaves out.

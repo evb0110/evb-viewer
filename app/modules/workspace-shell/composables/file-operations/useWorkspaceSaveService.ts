@@ -93,7 +93,7 @@ const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 
 type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {
     /** False when a parse of some pages cannot replace the store; nothing changed. */
-    replaceFromDocument?: (result: IPdfAnnotationParseResult) => boolean;
+    replaceFromDocument?: (result: IPdfAnnotationParseResult, deletedReplyRefs?: readonly string[]) => boolean;
     affectedPageIndices?: readonly number[];
 };
 
@@ -321,6 +321,7 @@ async function executeNativeMutationSave(
         };
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
+    const deleteEffects = persisted.annotationDeleteEffects;
     if (plan.request.kind === 'save-as' && !persisted.didSaveAs) {
         const currentRevisionToken = deps.document.revisionToken.value;
         const saveAsPersisted = await timedSavePhase(
@@ -341,8 +342,7 @@ async function executeNativeMutationSave(
         persisted.materializedIdentityBindings ?? materializedIdentityBindings,
     );
     const expectedWorkingPath = persisted.didSaveAs ? deps.document.workingCopyPath.value : plan.target.expectedWorkingPath;
-    // Native persistence advances the document revision after publication. The
-    // parse belongs to that committed revision, not the pre-write plan token.
+    // Bind read-back to the published revision.
     const committedRevisionToken = deps.document.revisionToken.value;
     if (saveTransaction.replaceFromDocument && expectedWorkingPath && committedRevisionToken) {
         const parse = (pageIndices?: number[]) => timedSavePhase(
@@ -356,12 +356,10 @@ async function executeNativeMutationSave(
             ),
             () => ({pageCount: pageIndices?.length ?? 'all'}),
         );
-        // Read only the complete affected scope of an additive annotation save.
-        const pageIndices = committedAffectedPageIndices(saveTransaction.affectedPageIndices, projection);
+        const pageIndices = committedAffectedPageIndices(saveTransaction.affectedPageIndices, projection, deleteEffects);
         const replacedPages = pageIndices !== undefined && await parse(pageIndices).then(
-            parsed => saveTransaction.replaceFromDocument!(parsed),
+            parsed => saveTransaction.replaceFromDocument!(parsed, deleteEffects?.deletedReplyRefs),
             (error: unknown) => {
-                // A whole-document parse fails the same way for these.
                 if (isStaleRevisionError(error) || (error instanceof Error && error.name === 'AbortError')) {
                     throw error;
                 }

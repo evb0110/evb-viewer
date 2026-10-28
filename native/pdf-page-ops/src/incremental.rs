@@ -4,8 +4,9 @@ use evb_native_support::output::{AtomicOutput, PathRevisionWitness};
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 const XREF_STREAM_OFFSET_BYTES: usize = 8;
-const MAX_ANNOTATION_IDENTITY_BINDINGS: usize = 4_096;
-const MAX_ANNOTATION_IDENTITY_REPORT_BYTES: usize = 256 * 1024;
+#[path = "native_save_report.rs"]
+mod save_report;
+pub(crate) use save_report::*;
 
 pub(crate) trait AppendRollback: Write {
     fn rollback_to(&mut self, len: u64) -> std::io::Result<()>;
@@ -659,35 +660,9 @@ fn materialize_reused_base_streams(
     Ok(())
 }
 
-/// A large PDF loads only what a page-local edit reads; any other edit, a PDF
-/// the eager reader admits, or an addressed note its page does not list
-/// loads the whole base object graph.
-fn load_native_mutation_base(
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
-    mutations: &NativeMutationsFile,
-) -> Result<IncrementalDocument> {
-    if let (Some(qpdf_path), Some(edit)) = (qpdf_path, page_local_edit(mutations)) {
-        if fs::metadata(input_path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
-            if let Some(incremental) =
-                load_qpdf_page_local_incremental_pdf(input_path, qpdf_path, &edit)?
-            {
-                if additive_targets_are_new(&incremental, mutations)? {
-                    return Ok(incremental);
-                }
-            }
-        }
-    }
-    if is_dictionary_only_mutation(mutations) {
-        load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-    } else {
-        load_incremental_pdf_path(input_path, qpdf_path)
-    }
-}
-
 /// Rotations, page labels and bookmarks read and rewrite only dictionaries.
 /// Annotation writers can read appearance, font or image streams.
-fn is_dictionary_only_mutation(mutations: &NativeMutationsFile) -> bool {
+pub(crate) fn is_dictionary_only_mutation(mutations: &NativeMutationsFile) -> bool {
     (!mutations.page_rotations.is_empty()
         || mutations.page_labels.is_some()
         || mutations.bookmarks.is_some())
@@ -713,6 +688,7 @@ fn write_native_mutations_revision(
     destination_fence: Option<&Path>,
     identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
+    let delete_effects = annotation_delete_effects(incremental, mutations)?;
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let mut identity_bindings = Vec::new();
     if identity_bindings_path.is_some() {
@@ -726,7 +702,7 @@ fn write_native_mutations_revision(
         apply_native_mutations_incremental(incremental, mutations, modified_at)?;
     }
     let identity_bindings_report = identity_bindings_path
-        .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
+        .map(|_| serialize_native_save_report(&identity_bindings, delete_effects.as_ref()))
         .transpose()?;
 
     let previous_len = incremental.previous_len();
@@ -777,62 +753,6 @@ fn write_native_mutations_revision(
         }
     }
     result
-}
-
-#[cfg(test)]
-pub(crate) fn write_annotation_identity_bindings_report(
-    path: &Path,
-    bindings: &[AnnotationIdentityBinding],
-) -> Result<()> {
-    let bytes = serialize_annotation_identity_bindings_report(bindings)?;
-    fs::write(path, bytes)?;
-    Ok(())
-}
-
-fn serialize_annotation_identity_bindings_report(
-    bindings: &[AnnotationIdentityBinding],
-) -> Result<Vec<u8>> {
-    validate_annotation_identity_bindings(bindings)?;
-    let bytes = serde_json::to_vec(bindings)?;
-    if bytes.len() > MAX_ANNOTATION_IDENTITY_REPORT_BYTES {
-        return Err("Native annotation identity binding report is too large".into());
-    }
-    Ok(bytes)
-}
-
-fn validate_annotation_identity_bindings(bindings: &[AnnotationIdentityBinding]) -> Result<()> {
-    if bindings.len() > MAX_ANNOTATION_IDENTITY_BINDINGS {
-        return Err("Native annotation identity binding report exceeds its item limit".into());
-    }
-    let mut annotation_ids = HashSet::new();
-    let mut pdf_refs = HashSet::new();
-    for binding in bindings {
-        if binding.annotation_id.trim().is_empty()
-            || binding.annotation_id.len() > 2_048
-            || !annotation_ids.insert(binding.annotation_id.as_str())
-            || !pdf_refs.insert(binding.pdf_ref.as_str())
-        {
-            return Err(
-                "Native annotation identity binding report contains a duplicate or invalid binding"
-                    .into(),
-            );
-        }
-        let mut ref_parts = binding.pdf_ref.split(' ');
-        let object_number = ref_parts.next().and_then(|value| value.parse::<u64>().ok());
-        let generation_number = ref_parts.next().and_then(|value| value.parse::<u64>().ok());
-        if object_number.is_none()
-            || object_number == Some(0)
-            || generation_number.is_none()
-            || ref_parts.next() != Some("R")
-            || ref_parts.next().is_some()
-        {
-            return Err(
-                "Native annotation identity binding report contains an invalid PDF reference"
-                    .into(),
-            );
-        }
-    }
-    Ok(())
 }
 
 /// The non-append CLI form still has path-backed semantics. Seed its requested
@@ -2029,7 +1949,7 @@ mod page_local_admission_tests {
                 .extend(patch.as_object().unwrap().clone());
             assert!(!admitted(json!({"shapes":shapes})));
         }
-        assert!(!admitted(
+        assert!(admitted(
             json!({"textBoxes":[text_box],"deletes":[{"pageIndex":7,"objectNumber":12,"generationNumber":0}]})
         ));
         assert!(admitted(

@@ -326,23 +326,6 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     Ok((incremental, warned))
 }
 
-/// What a page-local edit touches: page indexes it rewrites, the pages whose
-/// annotations it reads, and annotations it addresses by object, whose pages
-/// are found through their `/P`.
-#[derive(Default)]
-pub(crate) struct PageLocalEdit {
-    pub(crate) pages: BTreeSet<u32>,
-    pub(crate) annotation_pages: BTreeSet<u32>,
-    pub(crate) annotations: BTreeSet<ObjectId>,
-}
-
-impl PageLocalEdit {
-    /// The page indexes the load locates by number.
-    pub(crate) fn located(&self) -> BTreeSet<u32> {
-        self.pages.union(&self.annotation_pages).copied().collect()
-    }
-}
-
 /// Load only what a page-local edit reads (see `page_local_dependencies`)
 /// rather than every object of a large PDF. The bundled library reads each
 /// object on demand; without it, qpdf's page-tree walk supplies the pages and

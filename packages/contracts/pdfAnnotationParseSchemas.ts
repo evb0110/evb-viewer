@@ -273,7 +273,6 @@ export const PDF_ANNOTATION_PARSE_ENTITY_SCHEMA = v.variant('kind', [
 ]);
 export const PDF_ANNOTATION_PARSE_FOREIGN_SCHEMA = foreignSchema;
 export const PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES = 4_096;
-/** A page-scoped parse reads only these pages: distinct, in ascending order. */
 const pageIndicesSchema = v.pipe(
     v.array(nonNegativeInteger('annotation parse pageIndices')),
     v.minLength(1, 'annotation parse pageIndices must not be empty'),
@@ -283,6 +282,7 @@ const pageIndicesSchema = v.pipe(
         'annotation parse pageIndices must ascend without repeats',
     ),
 );
+export {pageIndicesSchema as PDF_ANNOTATION_PARSE_PAGE_INDICES_SCHEMA};
 export const PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA = v.pipe(
     v.unknown(),
     v.check(value => isRecord(value) && typeof value.expectedDocumentRevisionToken === 'string',

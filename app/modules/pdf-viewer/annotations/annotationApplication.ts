@@ -53,8 +53,8 @@ export interface IAnnotationSaveSession {
     readonly frontier: IAnnotationSaveFrontier;
     readonly plan: ReturnType<typeof buildSerializationPlan>;
     /**
-     * The pages of notes and additive markup, simple shapes and text boxes.
-     * Null when an edit may reach outside those pages.
+     * Frontier pages for local saves; deletes also need native scope.
+     * Null for mutations requiring whole read-back.
      */
     readonly affectedPageIndices: readonly number[] | null;
 }
@@ -316,7 +316,7 @@ export class AnnotationApplication {
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
         const frontier = this.store.beginSave(documentRevisionToken);
         const dirty = this.store.dirtyEntities();
-        const pageLocal = dirty.length > 0 && dirty.every(entity => !entity.deleted && (
+        const pageLocal = dirty.length > 0 && dirty.every(entity => entity.deleted || (
             entity.kind === 'note' ? !entity.recoveryData
                 : entity.kind === 'shape' ? isNewPageLocalShape(entity)
                     : entity.kind === 'placed-image' ? Boolean(entity.identity.pdfRef) || 'kind' in entity.image

@@ -1,3 +1,6 @@
+import {
+    parseNativePdfSaveReport, mergeNativeAnnotationDeleteEffects, type TNativeAnnotationDeleteEffects,
+} from '@contracts/nativePdfSaveReport';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {withContentReadLease} from '@electron/features/documents/main/documentFileReadHandlers';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
@@ -197,7 +200,7 @@ function normalizeModifiedAt(modifiedAt: unknown): ReturnType<typeof normalizePd
 }
 
 function needsNativeIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
-    return collectExpectedNativeIdentityIds(mutations).length > 0;
+    return collectExpectedNativeIdentityIds(mutations).length > 0 || Boolean(mutations.deletes?.length);
 }
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
@@ -267,6 +270,8 @@ async function prepareNativeNoteMutation(options: {
         () => copyFileCopyOnWrite(options.sourcePath, options.tempPath),
     );
     const sourceBytes = (await stat(options.tempPath)).size;
+    const deleteEffects: TNativeAnnotationDeleteEffects[] = [];
+    let completeDeleteEffects = true;
     const identityBindings: Array<NonNullable<IPdfNativeNoteTextSaveResult['identityBindings']>[number]> = [];
     await measureNativeNotePhase(options.phaseTimings, 'native-command', () =>
         withLargePdfMutationAdmission(sourceBytes, options.mutationOperation.signal, async signal => {
@@ -324,19 +329,18 @@ async function prepareNativeNoteMutation(options: {
                 await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
                     assertNativeOutputReady(options.tempPath));
                 if (identityBindingsFileName) {
-                    const chunkBindings = await measureNativeNotePhase(
+                    const report = await measureNativeNotePhase(
                         options.phaseTimings,
                         'read-identity-bindings',
-                        async () => normalizePdfNativeAnnotationIdentityBindings(
+                        async () => parseNativePdfSaveReport(
                             JSON.parse(await readFile(join(dirname(payloadFilePath), identityBindingsFileName), 'utf8')),
-                            `native identity bindings chunk ${chunkIndex}`,
-                            {
-                                errorKind: 'error',
-                                scope: 'chunk',
-                            },
                         ),
                     );
-                    identityBindings.push(...chunkBindings);
+                    identityBindings.push(...report.identityBindings);
+                    if (chunk.deletes?.length) {
+                        if (report.annotationDeleteEffects) deleteEffects.push(report.annotationDeleteEffects);
+                        else completeDeleteEffects = false;
+                    }
                 }
             }
         }));
@@ -345,6 +349,7 @@ async function prepareNativeNoteMutation(options: {
         : undefined;
     return {
         validation: createNativeValidationResult(),
+        annotationDeleteEffects: completeDeleteEffects ? mergeNativeAnnotationDeleteEffects(deleteEffects) : undefined,
         ...(normalizedIdentityBindings === undefined ? {} : {identityBindings: normalizedIdentityBindings}),
     };
 }
@@ -408,6 +413,7 @@ async function runNativeWorkingCopyCommand(
                 const {
                     validation,
                     identityBindings,
+                    annotationDeleteEffects,
                 } = prepared;
 
                 const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
@@ -433,6 +439,7 @@ async function runNativeWorkingCopyCommand(
                     nativeMutationPostconditionsVerified: true,
                     stagedOutput,
                     ...(identityBindings === undefined ? {} : {identityBindings}),
+                    ...(annotationDeleteEffects === undefined ? {} : {annotationDeleteEffects}),
                 };
             });
         } catch (error) {

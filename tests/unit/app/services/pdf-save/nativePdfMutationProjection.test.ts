@@ -786,7 +786,7 @@ describe('additive shape projection and affected-page scope', () => {
             if (mode === 'move') application.store.updatePlacedImage(image.identity.id, {rotation: 25});
             if (mode === 'delete') application.store.delete(image.identity.id);
             const session = application.beginSave();
-            expect(session.affectedPageIndices).toEqual(mode === 'create' || mode === 'move' ? [0] : null);
+            expect(session.affectedPageIndices).toEqual(mode !== 'recover' ? [0] : null);
             const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({
                 shapes: [],
                 dirtyState: {
@@ -800,6 +800,71 @@ describe('additive shape projection and affected-page scope', () => {
             expect(committedAffectedPageIndices([0], route.nativeMutationProjection))
                 .toEqual(mode === 'create' || mode === 'move' ? [0] : undefined);
         }
+    });
+
+    it('uses native delete owners and surviving-thread pages, requiring an explicit proof', () => {
+        const application = new AnnotationApplication('deleted-scope');
+        const saved: INoteEntity = {
+            ...createShapeEntity(),
+            kind: 'note',
+            contents: 'note',
+            color: '#ffff00',
+            open: false,
+            position: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.02,
+                height: 0.02,
+            },
+        };
+        application.store.replaceFromDocument([saved], []);
+        application.store.delete(saved.identity.id);
+        const session = application.beginSave();
+        const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({
+            shapes: [],
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                shapeStateDirty: false,
+            },
+        }));
+        expect(route.route).toBe('native-append');
+        if (route.route !== 'native-append') throw new Error('Expected native deletion');
+        const projection = route.nativeMutationProjection;
+        expect(committedAffectedPageIndices(session.affectedPageIndices, projection)).toBeUndefined();
+        expect(committedAffectedPageIndices(session.affectedPageIndices, projection, {
+            affectedPageIndices: [
+                0,
+                2,
+                7,
+            ],
+            deletedReplyRefs: ['50 0 R'],
+        })).toEqual([
+            0,
+            2,
+            7,
+        ]);
+        expect(committedAffectedPageIndices([1], projection, {
+            affectedPageIndices: [
+                0,
+                2,
+            ],
+            deletedReplyRefs: [],
+        })).toEqual([
+            0,
+            1,
+            2,
+        ]);
+        expect(committedAffectedPageIndices([0], {
+            ...projection,
+            hasMetadataMutations: true,
+        }, {
+            affectedPageIndices: [
+                0,
+                2,
+            ],
+            deletedReplyRefs: [],
+        })).toBeUndefined();
     });
 
     it('publishes only new shapes beside an already saved shape without a state rewrite', () => {

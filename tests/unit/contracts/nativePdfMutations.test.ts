@@ -1,4 +1,7 @@
 import {
+    parseNativePdfSaveReport, mergeNativeAnnotationDeleteEffects,
+} from '@contracts/nativePdfSaveReport';
+import {
     describe,
     expect,
     it,
@@ -1276,5 +1279,70 @@ describe('rotated placed image canonical bounds', () => {
             width: 0.3,
             height: 0.05,
         });
+    });
+});
+
+describe('native deletion reports', () => {
+    it('preserves legacy bindings and validates bounded deletion proofs', () => {
+        expect(parseNativePdfSaveReport([])).toEqual({identityBindings: []});
+        const effects = {
+            affectedPageIndices: [
+                0,
+                2,
+            ],
+            deletedReplyRefs: ['9 0 R'],
+        };
+        expect(parseNativePdfSaveReport({
+            identityBindings: [],
+            annotationDeleteEffects: effects,
+        }).annotationDeleteEffects).toEqual(effects);
+        for (const invalid of [
+            {
+                ...effects,
+                affectedPageIndices: [
+                    2,
+                    0,
+                ],
+            },
+            {
+                ...effects,
+                affectedPageIndices: [],
+            },
+            {
+                ...effects,
+                deletedReplyRefs: ['9R'],
+            },
+            {
+                ...effects,
+                deletedReplyRefs: ['9007199254740993 0 R'],
+            },
+        ]) expect(() => parseNativePdfSaveReport({
+            identityBindings: [],
+            annotationDeleteEffects: invalid,
+        })).toThrow();
+        expect(mergeNativeAnnotationDeleteEffects([
+            effects,
+            {
+                affectedPageIndices: [
+                    1,
+                    2,
+                ],
+                deletedReplyRefs: [
+                    '9 0 R',
+                    '10 0 R',
+                ],
+            },
+        ]))
+            .toEqual({
+                affectedPageIndices: [
+                    0,
+                    1,
+                    2,
+                ],
+                deletedReplyRefs: [
+                    '9 0 R',
+                    '10 0 R',
+                ],
+            });
     });
 });

@@ -58,7 +58,7 @@ interface IUsePdfViewerSaveTransactionOptions {
         verify(bytes: Uint8Array): Promise<void>;
         verifyPath?(path: string, knownSize: number): Promise<void>;
         assertCurrent?(): Promise<void> | void;
-        replaceFromDocument?(result: IPdfAnnotationParseResult): boolean;
+        replaceFromDocument?(result: IPdfAnnotationParseResult, deletedReplyRefs?: readonly string[]): boolean;
         affectedPageIndices?: readonly number[] | null;
         commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
     };
@@ -156,11 +156,12 @@ export const usePdfViewerSaveTransaction = (
                     identity: application.store.get(entity.identity.id)?.identity ?? entity.identity,
                 }));
             },
-            replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
+            replaceFromDocument: (result: IPdfAnnotationParseResult, deletedReplyRefs?: readonly string[]) => application.store.replaceFromDocument(
                 result.entities.map(entry => mapPdfAnnotationParseEntity(entry)),
                 result.foreign.map(mapPdfAnnotationParseForeign),
                 result.pageIndices,
                 expectedUpserts,
+                deletedReplyRefs,
             ),
             affectedPageIndices: session.affectedPageIndices,
         };

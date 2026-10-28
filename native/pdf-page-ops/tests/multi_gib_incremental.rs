@@ -2388,3 +2388,249 @@ fn check_page_local_images(qpdf: &Path) {
         assert_qpdf_check(pdf);
     }
 }
+
+#[test]
+fn deleting_notes_above_the_ceiling_avoids_unrelated_structure() {
+    let pdf = temp_path("page-local-delete-heavy", "pdf");
+    let mutations = temp_path("page-local-delete-heavy", "json");
+    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    write_page_local_note_pdf(&pdf, true, true);
+    fs::write(&mutations, br#"{"deletes":[{"pageIndex":1,"objectNumber":6,"generationNumber":0}],"markup":{"hints":[{"subtype":"Highlight","pageIndex":1,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.03},"appAnnotationId":"mixed-new","source":"editor"}]}}"#).unwrap();
+    let output = append_mutations_in_place(&pdf, &mutations);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed = parse_annotations(&pdf, &qpdf_path(), Some(&[1, 2])).1;
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0]["kind"], "highlight");
+}
+
+fn write_delete_closure_pdf(path: &Path, padded: bool, heavy: bool, orphan: bool) {
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.7\n").unwrap();
+    let mut offsets = Vec::new();
+    let objects: [&[u8]; 17] = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Count 3/Kids[3 0 R 4 0 R 5 0 R]/MediaBox[0 0 200 100]>>",
+        if orphan { b"<</Type/Page/Parent 2 0 R/Annots[6 0 R 7 0 R 12 0 R]>>" } else { b"<</Type/Page/Parent 2 0 R/Annots[6 0 R 7 0 R 12 0 R 16 0 R]>>" },
+        b"<</Type/Page/Parent 2 0 R/Annots[6 0 R 8 0 R 9 0 R 13 0 R]>>",
+        b"<</Type/Page/Parent 2 0 R/Annots[10 0 R 11 0 R 14 0 R]>>",
+        b"<</Type/Annot/Subtype/Text/Rect[10 10 20 20]/Contents(parent)/NM(parent)/P 3 0 R/Popup 7 0 R/AP<</N 17 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Parent 6 0 R>>",
+        b"<</Type/Annot/Subtype/Text/Rect[10 10 20 20]/Contents(reply)/NM(reply)/IRT 6 0 R/RT/R/P 4 0 R/Popup 9 0 R>>",
+        b"<</Type/Annot/Subtype/Popup/Parent 8 0 R>>",
+        b"<</Type/Annot/Subtype/Text/Rect[10 10 20 20]/Contents(nested)/IRT 8 0 R/RT/R/P 5 0 R/Popup 11 0 R>>",
+        b"<</Type/Annot/Subtype/Popup/Parent 10 0 R>>",
+        b"<</Type/Annot/Subtype/Text/Rect[30 30 40 40]/Contents(survivor)/NM(survivor)/P 3 0 R>>",
+        b"<</Type/Annot/Subtype/Text/Rect[30 30 40 40]/Contents(delete reply)/IRT 12 0 R/RT/R/P 4 0 R>>",
+        b"<</Type/Annot/Subtype/Text/Rect[30 30 40 40]/Contents(keep reply)/IRT 12 0 R/RT/R/P 5 0 R>>",
+        if orphan { b"<</Type/Page/MediaBox[0 0 200 100]/Annots[6 0 R 16 0 R]>>" } else { b"null" },
+        if orphan { b"<</Type/Annot/Subtype/Text/Rect[10 10 20 20]/Contents(orphan reply)/IRT 6 0 R/RT/R/P 15 0 R>>" } else { b"<</Type/Annot/Subtype/Square/Rect[60 60 80 80]/Parent 12 0 R>>" },
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 10 10]/Length 0>>\nstream\n\nendstream",
+    ];
+    for (index, body) in objects.iter().enumerate() {
+        write_object(
+            &mut file,
+            &mut offsets,
+            &[
+                format!("{} 0 obj\n", index + 1).as_bytes(),
+                body,
+                b"\nendobj\n",
+            ]
+            .concat(),
+        );
+    }
+    for number in 18..23 {
+        let array = format!("[{}]", "0 ".repeat(if heavy { 900_000 } else { 1 }));
+        write_object(
+            &mut file,
+            &mut offsets,
+            format!("{number} 0 obj\n{array}\nendobj\n").as_bytes(),
+        );
+    }
+    offsets.push(file.stream_position().unwrap());
+    let stream_bytes = if padded {
+        STRUCTURAL_LOADER_STREAM_BYTES
+    } else {
+        0
+    };
+    file.write_all(format!("23 0 obj\n<</Length {stream_bytes}>>\nstream\n").as_bytes())
+        .unwrap();
+    file.seek(SeekFrom::Current(stream_bytes as i64)).unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+    let xref = file.stream_position().unwrap();
+    file.write_all(b"xref\n0 24\n0000000000 65535 f \n")
+        .unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size 24/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    )
+    .unwrap();
+}
+
+fn shown_object(pdf: &Path, number: u32) -> Vec<u8> {
+    let output = Command::new(qpdf_path())
+        .arg(pdf)
+        .arg(format!("--show-object={number}"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
+#[test]
+fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
+    let small = temp_path("delete-closure-small", "pdf");
+    let padded = temp_path("delete-closure-padded", "pdf");
+    let heavy = temp_path("delete-closure-heavy", "pdf");
+    let mutations = temp_path("delete-closure-mutations", "json");
+    let report = temp_path("delete-closure-report", "json");
+    let _cleanup = TempFiles(vec![
+        small.clone(),
+        padded.clone(),
+        heavy.clone(),
+        mutations.clone(),
+        report.clone(),
+    ]);
+    for (path, padded, heavy) in [
+        (&small, false, false),
+        (&padded, true, false),
+        (&heavy, true, true),
+    ] {
+        write_delete_closure_pdf(path, padded, heavy, false);
+    }
+    for payload in [
+        // A reply's surviving parent and sibling sit on other pages.
+        serde_json::json!({"deletes":[{"pageIndex":2,"objectNumber":13,"generationNumber":0}]}),
+        // A stale page hint must still delete every owner and nested reply.
+        serde_json::json!({"deletes":[{"pageIndex":2,"objectNumber":6,"generationNumber":0}]}),
+        // Popup /Parent follows a qualifying parent, using the same writer.
+        serde_json::json!({"deletes":[{"pageIndex":0,"objectNumber":16,"generationNumber":0}]}),
+    ] {
+        fs::write(&mutations, serde_json::to_vec(&payload).unwrap()).unwrap();
+        let mut states = Vec::new();
+        for path in [&small, &padded, &heavy] {
+            let output = save_mutations(
+                path,
+                &mutations,
+                &[
+                    "--append",
+                    "--append-in-place",
+                    "--identity-bindings-file",
+                    report.to_str().unwrap(),
+                ],
+            );
+            assert!(
+                output.status.success(),
+                "{}: {}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let effects: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+            if path != &small {
+                assert_eq!(
+                    effects["annotationDeleteEffects"]["affectedPageIndices"],
+                    if payload["deletes"][0]["objectNumber"] == 16 {
+                        serde_json::json!([0, 2])
+                    } else {
+                        serde_json::json!([0, 1, 2])
+                    }
+                );
+                if payload["deletes"][0]["objectNumber"] == 13 {
+                    assert_eq!(
+                        effects["annotationDeleteEffects"]["deletedReplyRefs"],
+                        serde_json::json!(["13 0 R"])
+                    );
+                }
+            }
+            states.push(
+                (3..=17)
+                    .map(|number| shown_object(path, number))
+                    .collect::<Vec<_>>(),
+            );
+            let whole = parse_annotations(path, &qpdf_path(), None).1;
+            let scoped = parse_annotations(path, &qpdf_path(), Some(&[1, 2, 3])).1;
+            assert_eq!(scoped, whole);
+        }
+        assert_eq!(states[0], states[1]);
+        assert_eq!(states[0], states[2]);
+    }
+}
+
+#[test]
+fn orphan_only_ownership_is_ignored_only_above_the_byte_ceiling() {
+    let mutations = temp_path("orphan-delete", "json");
+    fs::write(
+        &mutations,
+        br#"{"deletes":[{"pageIndex":0,"stableKey":"parent"}]}"#,
+    )
+    .unwrap();
+    let small = temp_path("orphan-delete-small", "pdf");
+    let large = temp_path("orphan-delete-large", "pdf");
+    let _cleanup = TempFiles(vec![mutations.clone(), small.clone(), large.clone()]);
+    for (path, padded) in [(&small, false), (&large, true)] {
+        write_delete_closure_pdf(path, padded, false, true);
+        let output = append_mutations_in_place(path, &mutations);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(shown_object(path, 6), b"null\n");
+        assert_eq!(shown_object(path, 16) == b"null\n", !padded);
+        assert_eq!(
+            shown_object(path, 15)
+                .windows(b"6 0 R".len())
+                .any(|part| part == b"6 0 R"),
+            padded
+        );
+        assert_eq!(
+            parse_annotations(path, &qpdf_path(), Some(&[1, 2, 3])).1,
+            parse_annotations(path, &qpdf_path(), None).1
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn delete_without_the_bundled_scan_keeps_the_whole_load_refusal() {
+    use std::os::unix::fs::PermissionsExt;
+    let pdf = temp_path("delete-no-library", "pdf");
+    let mutations = temp_path("delete-no-library", "json");
+    let wrapper = temp_path("delete-no-library", "sh");
+    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
+    write_page_local_note_pdf(&pdf, true, true);
+    let size = fs::metadata(&pdf).unwrap().len();
+    fs::write(
+        &mutations,
+        br#"{"deletes":[{"pageIndex":0,"objectNumber":6,"generationNumber":0}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec '{}' \"$@\"\n", qpdf_path().display()),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
+    let output = save_mutations_with_qpdf(
+        &pdf,
+        &mutations,
+        &["--append", "--append-in-place"],
+        &wrapper,
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("too-large"));
+    assert_eq!(fs::metadata(&pdf).unwrap().len(), size);
+    assert!(shown_object(&pdf, 6)
+        .windows(11)
+        .any(|part| part == b"legacy note"));
+}

@@ -1,3 +1,4 @@
+import type {TNativeAnnotationDeleteEffects} from '@contracts/nativePdfSaveReport';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
@@ -146,6 +147,7 @@ export interface IPdfPersistResult {
     didSaveAs: boolean;
     /** Native incremental saves may bind newly authored app identities to PDF refs. */
     materializedIdentityBindings?: readonly IPdfNativeAnnotationIdentityBinding[];
+    annotationDeleteEffects?: TNativeAnnotationDeleteEffects;
     /**
      * Why a `success: false` result stopped when nothing went wrong:
      * `cancelled` for a dismissed Save As dialog, `stale` for a document that
