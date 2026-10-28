@@ -128,6 +128,11 @@ function unmountStartupOverlay(reason: string, deps: IStartupOverlayLifecycleDep
 }
 
 export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDeps) {
+    // The window's placeholder about:blank document also runs the preload. It
+    // never shows the app, and main rejects its IPC as an untrusted sender.
+    if (window.location.protocol === 'about:') {
+        return;
+    }
     const overlayLifecycleStartedAt = Date.now();
     let waitingForStartupOpenVisual = false;
     let appReadySeen = false;

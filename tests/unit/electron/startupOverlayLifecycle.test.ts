@@ -9,6 +9,7 @@ import {
     vi,
 } from 'vitest';
 import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
+import { cast } from '@tests/helpers/cast';
 
 const OVERLAY_ID = 'evb-startup-overlay';
 
@@ -66,6 +67,20 @@ describe('installStartupOverlayLifecycle', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         Reflect.deleteProperty(process, 'defaultApp');
+    });
+
+    it('leaves the placeholder about:blank document without an overlay or log', () => {
+        const browser = cast<{happyDOM: {setURL: (url: string) => void}}>(window).happyDOM;
+        const url = window.location.href;
+        browser.setURL('about:blank');
+        try {
+            const deps = install();
+            vi.advanceTimersByTime(60_000);
+            expect(document.getElementById(OVERLAY_ID)).toBeNull();
+            expect(deps.forwardPreloadLogToMain).not.toHaveBeenCalled();
+        } finally {
+            browser.setURL(url);
+        }
     });
 
     it('retains app-ready-only startup until the startup-open claim arrives', () => {
