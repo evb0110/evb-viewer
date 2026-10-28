@@ -323,5 +323,12 @@ mod tests {
         };
         assert!(!additive_targets_are_new(&base, &text_box("old-box"), false).unwrap());
         assert!(additive_targets_are_new(&base, &text_box("new-box"), false).unwrap());
+        // After the ownership scan resolved existing targets, an existing key
+        // is an upsert, while a payload naming one target twice stays rejected.
+        let taken = json!({"type":"rectangle","pageIndex":0,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2,"stableKey":"taken"});
+        assert!(additive_targets_are_new(&base, &payload(vec![taken.clone()]), true).unwrap());
+        assert!(
+            !additive_targets_are_new(&base, &payload(vec![taken.clone(), taken]), true).unwrap()
+        );
     }
 }
