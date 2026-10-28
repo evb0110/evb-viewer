@@ -2520,8 +2520,8 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
         serde_json::json!({"deletes":[{"pageIndex":2,"objectNumber":13,"generationNumber":0}]}),
         // A stale page hint must still delete every owner and nested reply.
         serde_json::json!({"deletes":[{"pageIndex":2,"objectNumber":6,"generationNumber":0}]}),
-        // Popup /Parent follows a qualifying parent, using the same writer.
-        serde_json::json!({"deletes":[{"pageIndex":0,"objectNumber":16,"generationNumber":0}]}),
+        // Shape deletion also removes the qualifying parent and its replies.
+        serde_json::json!({"shapes":{"totalPages":3,"shapes":[],"deletedAnnotationIds":["16R"]}}),
     ] {
         fs::write(&mutations, serde_json::to_vec(&payload).unwrap()).unwrap();
         let mut states = Vec::new();
@@ -2546,7 +2546,7 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
             if path != &small {
                 assert_eq!(
                     effects["annotationDeleteEffects"]["affectedPageIndices"],
-                    if payload["deletes"][0]["objectNumber"] == 16 {
+                    if payload["shapes"].is_object() {
                         serde_json::json!([0, 2])
                     } else {
                         serde_json::json!([0, 1, 2])
@@ -2556,6 +2556,12 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
                     assert_eq!(
                         effects["annotationDeleteEffects"]["deletedReplyRefs"],
                         serde_json::json!(["13 0 R"])
+                    );
+                }
+                if payload["shapes"].is_object() {
+                    assert_eq!(
+                        effects["annotationDeleteEffects"]["deletedReplyRefs"],
+                        serde_json::json!(["14 0 R"])
                     );
                 }
             }
@@ -2640,4 +2646,289 @@ fn delete_without_the_bundled_scan_keeps_the_whole_load_refusal() {
     assert!(shown_object(&pdf, 6)
         .windows(11)
         .any(|part| part == b"legacy note"));
+}
+
+#[test]
+fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
+    use serde_json::json;
+    for kind in [
+        "shape-delete",
+        "shape-key-delete",
+        "recolor",
+        "named-recolor",
+        "subtype",
+        "move",
+        "named-move",
+        "text",
+        "named-text",
+        "rewrite",
+    ] {
+        let files = ["small", "padded", "heavy"]
+            .map(|size| temp_path(&format!("existing-{kind}-{size}"), "pdf"));
+        let mutations = temp_path("existing-edits", "json");
+        let report = temp_path("existing-edits-report", "json");
+        let _cleanup = TempFiles(
+            files
+                .iter()
+                .cloned()
+                .chain([mutations.clone(), report.clone()])
+                .collect(),
+        );
+        let shape = json!({"type":"rectangle","pageIndex":0,"x":0.1,"y":0.2,"width":0.2,"height":0.1,"color":"#336699","opacity":1,"strokeWidth":2,"stableKey":"evb-shape:editable"});
+        let highlight = json!({"subtype":"Highlight","pageIndex":0,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.025},"appAnnotationId":"editable-highlight","source":"editor","color":"#ffff00","opacity":0.5});
+        let text_box = json!({"pageIndex":0,"stableKey":"editable-box","text":"Before edit","rect":[50,20,100,50],"rotation":0,"fontSize":12,"color":[17,24,39]});
+        let mut seed = json!({"deletes":[{"pageIndex":0,"objectNumber":6,"generationNumber":0},{"pageIndex":0,"objectNumber":12,"generationNumber":0},{"pageIndex":0,"objectNumber":16,"generationNumber":0}],"shapes":{"totalPages":3,"shapes":[shape.clone()]},"markup":{"hints":[highlight.clone()]},"textBoxes":[text_box.clone()]});
+        let scope = if kind == "rewrite" {
+            let mut omitted = shape.clone();
+            omitted["pageIndex"] = json!(2);
+            omitted["stableKey"] = json!("evb-shape:omitted");
+            seed["shapes"]["shapes"]
+                .as_array_mut()
+                .unwrap()
+                .push(omitted);
+            vec![0, 2]
+        } else {
+            vec![0]
+        };
+        let mut appended = Vec::new();
+        let mut expected = None;
+        for (index, pdf) in files.iter().enumerate() {
+            write_delete_closure_pdf(pdf, index != 0, index == 2, false);
+            fs::write(&mutations, seed.to_string()).unwrap();
+            let mode = [
+                "--append",
+                "--append-in-place",
+                "--identity-bindings-file",
+                report.to_str().unwrap(),
+            ];
+            let output = save_mutations(pdf, &mutations, &mode);
+            assert!(
+                output.status.success(),
+                "seed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let bindings: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+            let bindings = bindings
+                .as_array()
+                .or_else(|| bindings["identityBindings"].as_array())
+                .unwrap();
+            let reference = |key: &str| {
+                let binding = bindings
+                    .iter()
+                    .find(|binding| binding["annotationId"] == key)
+                    .unwrap();
+                let parts = binding["pdfRef"]
+                    .as_str()
+                    .unwrap()
+                    .split(' ')
+                    .collect::<Vec<_>>();
+                format!("{}R{}", parts[0], parts[1])
+            };
+            let mut moved = shape.clone();
+            moved["annotationId"] = json!(reference("evb-shape:editable"));
+            moved["x"] = json!(0.4);
+            moved["strokeWidth"] = json!(4);
+            if kind == "named-move" {
+                moved.as_object_mut().unwrap().remove("annotationId");
+            }
+            let mut colored = highlight.clone();
+            colored["annotationId"] = json!(reference("editable-highlight"));
+            colored["source"] = json!("pdf");
+            colored["color"] = json!("#22c55e");
+            if kind == "named-recolor" {
+                colored.as_object_mut().unwrap().remove("annotationId");
+                colored["source"] = json!("editor");
+            }
+            if kind == "subtype" {
+                colored["subtype"] = json!("Underline");
+            }
+            let mut edited_box = text_box.clone();
+            if kind != "named-text" {
+                edited_box["annotationId"] = json!(reference("editable-box"));
+            }
+            edited_box["text"] = json!("After edit");
+            edited_box["rect"] = json!([55, 25, 125, 55]);
+            let payload = match kind {
+                "shape-delete" => {
+                    json!({"shapes":{"totalPages":3,"shapes":[],"deletedAnnotationIds":[reference("evb-shape:editable")]}})
+                }
+                "shape-key-delete" => {
+                    json!({"shapes":{"totalPages":3,"shapes":[],"deletedStableKeys":["evb-shape:editable"]}})
+                }
+                "recolor" | "named-recolor" | "subtype" => json!({"markup":{"hints":[colored]}}),
+                "move" | "named-move" | "rewrite" => {
+                    json!({"shapes":{"totalPages":3,"shapes":[moved],"rewriteShapeState":kind=="rewrite"}})
+                }
+                _ => json!({"textBoxes":[edited_box]}),
+            };
+            let before = fs::metadata(pdf).unwrap().len();
+            fs::write(&mutations, payload.to_string()).unwrap();
+            let output = save_mutations(pdf, &mutations, &mode);
+            assert!(
+                output.status.success(),
+                "{kind} {}: {}",
+                pdf.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let effects: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+            if index != 0 {
+                assert_eq!(
+                    effects["annotationDeleteEffects"]["affectedPageIndices"],
+                    json!(scope)
+                );
+            }
+            // qpdf orders dictionaries differently from the byte loader. Compare
+            // their canonical saved dictionaries and exact appearance/font bytes;
+            // absolute xref offsets also differ with the input padding.
+            let mut file = File::open(pdf).unwrap();
+            file.seek(SeekFrom::Start(before)).unwrap();
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).unwrap();
+            let xref = bytes
+                .windows(5)
+                .position(|bytes| bytes == b"xref\n")
+                .unwrap();
+            let objects = String::from_utf8_lossy(&bytes[..xref])
+                .lines()
+                .filter_map(|line| line.strip_suffix(" 0 obj")?.parse::<u32>().ok())
+                .map(|number| {
+                    let dictionary = shown_object(pdf, number);
+                    let stream = if dictionary.starts_with(b"Object is stream") {
+                        let output = Command::new(qpdf_path())
+                            .arg(pdf)
+                            .arg(format!("--show-object={number}"))
+                            .arg("--raw-stream-data")
+                            .output()
+                            .unwrap();
+                        assert!(output.status.success());
+                        output.stdout
+                    } else {
+                        Vec::new()
+                    };
+                    (number, dictionary, stream)
+                })
+                .collect::<Vec<_>>();
+            assert!(!objects.is_empty());
+            appended.push(objects);
+            let whole = if index == 2 {
+                expected.clone().unwrap()
+            } else {
+                parse_annotations(pdf, &qpdf_path(), None).1
+            };
+            if index == 1 {
+                expected = Some(whole.clone());
+            }
+            let pages = scope.iter().map(|index| index + 1).collect::<Vec<_>>();
+            let scoped = parse_annotations(pdf, &qpdf_path(), Some(&pages)).1;
+            assert_eq!(
+                scoped,
+                whole
+                    .iter()
+                    .filter(|entry| scope.iter().any(|page| entry["pageIndex"] == *page))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                "{kind}"
+            );
+            let target = scoped
+                .iter()
+                .find(|entry| entry["name"] == "evb-shape:editable");
+            assert_eq!(target.is_none(), kind.starts_with("shape-"));
+            if kind == "rewrite" {
+                // Preserve the whole writer's behavior outside its selected pages.
+                assert!(whole
+                    .iter()
+                    .any(|entry| entry["name"] == "evb-shape:omitted"));
+            }
+            if kind == "recolor" || kind == "named-recolor" {
+                assert!(scoped
+                    .iter()
+                    .any(|entry| entry["name"] == "editable-highlight"
+                        && entry["color"] == "#22c55e"));
+            }
+            if kind == "text" || kind == "named-text" {
+                assert!(scoped
+                    .iter()
+                    .any(|entry| entry["name"] == "editable-box" && entry["text"] == "After edit"));
+            }
+        }
+        assert_eq!(appended[0], appended[1], "{kind}: whole vs padded");
+        assert_eq!(appended[0], appended[2], "{kind}: whole vs heavy");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_targets_keep_whole_fallback_for_ambiguous_names_and_missing_library() {
+    use serde_json::json;
+    use std::os::unix::fs::PermissionsExt;
+    let pdf = temp_path("existing-fallback", "pdf");
+    let mutations = temp_path("existing-fallback", "json");
+    let wrapper = temp_path("existing-fallback", "sh");
+    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
+    let heavy = format!("[{}]", "0 ".repeat(900_000));
+    let shape = b"<</Type/Annot/Subtype/Square/Rect[10 10 30 30]/NM(evb-shape:duplicate)/P 3 0 R>>";
+    let markup = b"<</Type/Annot/Subtype/Highlight/Rect[10 10 30 30]/QuadPoints[10 30 30 30 10 10 30 10]/NM(duplicate-markup)/P 3 0 R>>";
+    let text = b"<</Type/Annot/Subtype/FreeText/Rect[10 10 80 30]/DA(/Helv 12 Tf 0 g)/Contents(before)/NM(duplicate-box)/P 3 0 R>>";
+    write_scanned_annotation_pdf(
+        &pdf,
+        STRUCTURAL_LOADER_STREAM_BYTES,
+        &[
+            shape,
+            shape,
+            markup,
+            markup,
+            text,
+            text,
+            heavy.as_bytes(),
+            heavy.as_bytes(),
+            heavy.as_bytes(),
+            heavy.as_bytes(),
+            heavy.as_bytes(),
+        ],
+        &[5, 6, 7, 8, 9, 10],
+    );
+    fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec '{}' \"$@\"\n", qpdf_path().display()),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
+    let size = fs::metadata(&pdf).unwrap().len();
+    for (payload, qpdf) in [
+        (
+            json!({"shapes":{"totalPages":1,"shapes":[],"deletedStableKeys":["evb-shape:duplicate"]}}),
+            qpdf_path(),
+        ),
+        (
+            json!({"textBoxes":[{"pageIndex":0,"stableKey":"duplicate-box","text":"after","rect":[10,10,80,30],"rotation":0,"fontSize":12,"color":[0,0,0]}]}),
+            qpdf_path(),
+        ),
+        (
+            json!({"markup":{"hints":[{"pageIndex":0,"appAnnotationId":"duplicate-markup","source":"editor","subtype":"Highlight","markerRect":{"left":0.05,"top":0.7,"width":0.1,"height":0.2}}]}}),
+            qpdf_path(),
+        ),
+        (
+            json!({"shapes":{"totalPages":1,"shapes":[],"deletedAnnotationIds":["5R"]}}),
+            wrapper.clone(),
+        ),
+        (
+            json!({"markup":{"hints":[{"pageIndex":0,"annotationId":"7R","source":"pdf","subtype":"Underline","markerRect":{"left":0.05,"top":0.7,"width":0.1,"height":0.2}}]}}),
+            wrapper.clone(),
+        ),
+        (
+            json!({"textBoxes":[{"pageIndex":0,"annotationId":"9R","stableKey":"duplicate-box","text":"after","rect":[10,10,80,30],"rotation":0,"fontSize":12,"color":[0,0,0]}]}),
+            wrapper.clone(),
+        ),
+    ] {
+        fs::write(&mutations, payload.to_string()).unwrap();
+        let output =
+            save_mutations_with_qpdf(&pdf, &mutations, &["--append", "--append-in-place"], &qpdf);
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("too-large"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::metadata(&pdf).unwrap().len(), size);
+    }
 }

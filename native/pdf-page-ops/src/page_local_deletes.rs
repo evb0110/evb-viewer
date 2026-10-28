@@ -8,7 +8,160 @@ pub(crate) struct DeleteScan {
 }
 
 impl DeleteScan {
-    pub(crate) fn extend_edit(&self, targets: &[ObjectId], edit: &mut PageLocalEdit) -> Result<()> {
+    fn unique_target(
+        &self,
+        reference: Option<ObjectId>,
+        matches: impl Fn(ObjectId, &Dictionary) -> bool,
+        required: bool,
+    ) -> Result<Option<ObjectId>> {
+        let mut found = self.listing.pages.keys().copied().filter(|id| {
+            Some(*id) == reference
+                || self
+                    .document
+                    .get_dictionary(*id)
+                    .is_ok_and(|dict| matches(*id, dict))
+        });
+        let target = found.next();
+        if found.next().is_some()
+            || (required && target.is_none())
+            || reference.is_some_and(|id| target != Some(id))
+        {
+            return Err("Annotation scan target is ambiguous or has no page-tree owner".into());
+        }
+        Ok(target)
+    }
+
+    fn mutation_targets(
+        &self,
+        mutations: &NativeMutationsFile,
+    ) -> Result<(Vec<ObjectId>, Vec<ObjectId>)> {
+        let reference = |id: Option<&str>| -> Result<Option<ObjectId>> {
+            id.map(|id| {
+                parse_pdfjs_annotation_object_id(id)
+                    .ok_or_else(|| "Invalid annotation reference".into())
+            })
+            .transpose()
+        };
+        let mut deleted = Vec::new();
+        let mut touched = Vec::new();
+        for update in mutations
+            .updates
+            .iter()
+            .map(|update| (update.object_number, update.generation_number))
+            .chain(
+                mutations
+                    .geometry_updates
+                    .iter()
+                    .map(|update| (update.object_number, update.generation_number)),
+            )
+        {
+            touched.extend(self.unique_target(Some(update), |_, _| false, true)?);
+        }
+        for delete in &mutations.deletes {
+            let id = delete.object_number.zip(delete.generation_number);
+            let target = self.unique_target(
+                id,
+                |candidate, dict| {
+                    annotation_subtype(dict) != "popup"
+                        && id.is_none()
+                        && annotation_matches_stable_delete_name(&self.document, candidate, delete)
+                            .unwrap_or(false)
+                },
+                true,
+            )?;
+            deleted.extend(target);
+        }
+        for editor in &mutations.text_boxes {
+            let id = reference(editor.annotation_id.as_deref())?;
+            touched.extend(self.unique_target(
+                id,
+                |_, dict| {
+                    id.is_none()
+                        && annotation_subtype(dict) == "freetext"
+                        && read_annotation_name(dict).is_some_and(|name| {
+                            annotation_names_match(
+                                &name,
+                                &text_box_name(editor),
+                                &["evb-freetext:"],
+                            )
+                        })
+                },
+                id.is_some(),
+            )?);
+        }
+        if let Some(markup) = &mutations.markup {
+            for hint in &markup.hints {
+                let id = normalize_hint_annotation_ref(hint)
+                    .as_deref()
+                    .and_then(parse_pdfjs_annotation_object_id);
+                let name = markup_annotation_name(hint);
+                touched.extend(self.unique_target(
+                    id,
+                    |_, dict| {
+                        id.is_none()
+                            && canonical_markup_subtype(dict).is_some()
+                            && name.as_ref().is_some_and(|name| {
+                                read_annotation_name(dict).is_some_and(|existing| {
+                                    annotation_names_match(&existing, name, &["evb-markup:"])
+                                })
+                            })
+                    },
+                    !is_new_markup_hint_data(hint),
+                )?);
+            }
+        }
+        if let Some(shapes) = &mutations.shapes {
+            for shape in &shapes.shapes {
+                let id = reference(shape.annotation_id.as_deref())?;
+                let key = normalize_managed_shape_stable_key(shape.stable_key.as_deref());
+                touched.extend(self.unique_target(
+                    id,
+                    |_, dict| {
+                        is_supported_shape_subtype(&annotation_subtype(dict))
+                            && key.as_ref().is_some_and(|key| {
+                                read_shape_stable_key(dict).as_ref() == Some(key)
+                            })
+                    },
+                    id.is_some(),
+                )?);
+            }
+            for id in &shapes.deleted_annotation_ids {
+                deleted.extend(self.unique_target(reference(Some(id))?, |_, _| false, true)?);
+            }
+            for key in &shapes.deleted_stable_keys {
+                deleted.extend(self.unique_target(
+                    None,
+                    |_, dict| {
+                        is_supported_shape_subtype(&annotation_subtype(dict))
+                            && read_shape_stable_key(dict).as_deref() == Some(key.trim())
+                    },
+                    true,
+                )?);
+            }
+            if shapes.rewrite_shape_state {
+                touched.extend(
+                    self.listing
+                        .pages
+                        .keys()
+                        .filter(|id| {
+                            self.document.get_dictionary(**id).is_ok_and(|dict| {
+                                is_supported_shape_subtype(&annotation_subtype(dict))
+                                    && read_shape_stable_key(dict).is_some()
+                            })
+                        })
+                        .copied(),
+                );
+            }
+        }
+        Ok((deleted, touched))
+    }
+
+    pub(crate) fn extend_edit(
+        &self,
+        targets: &[ObjectId],
+        touched: &[ObjectId],
+        edit: &mut PageLocalEdit,
+    ) -> Result<()> {
         let mut deleted = HashSet::new();
         for target in targets {
             deleted.extend(collect_annotation_refs_to_delete(
@@ -19,6 +172,13 @@ impl DeleteScan {
         }
         let mut thread = HashSet::new();
         let mut pending = deleted.iter().copied().collect::<Vec<_>>();
+        for target in touched {
+            pending.extend(collect_annotation_refs_to_delete(
+                &self.document,
+                *target,
+                &self.listing.replies,
+            )?);
+        }
         // A surviving parent and all its replies must be reparsed together.
         // Walk both directions, including recursive replies and unlisted roots.
         while let Some(id) = pending.pop() {
@@ -52,26 +212,10 @@ pub(crate) fn extend_page_local_delete_edit(
     mutations: &NativeMutationsFile,
     edit: &mut PageLocalEdit,
 ) -> Result<()> {
-    // Resolve names with the actual page-local index, including legacy marker
-    // recognition. Explicit refs retain the writer's stale-hint compatibility.
-    let targets = {
-        let base = load_qpdf_page_local_incremental_pdf(path, qpdf, edit)?
-            .ok_or("Delete target pages could not be loaded")?;
-        let source = AppendedRevision::new(&base);
-        let pages = PageLookup::new(&source, source.located_pages())?;
-        let mut targets = Vec::new();
-        for delete in &mutations.deletes {
-            let page = pages.page_id(&source, mutation_page_number(delete.page_index)?)?;
-            targets.extend(annotation_delete_targets(
-                &build_page_annotation_index(&source, page)?.0,
-                delete,
-            )?);
-        }
-        targets
-    };
-    let scan = scan_qpdf_annotation_deletes(path, qpdf, &targets)?
-        .ok_or("Bundled qpdf library is required for deletion discovery")?;
-    scan.extend_edit(&targets, edit)
+    let scan = scan_qpdf_annotation_deletes(path, qpdf, &[])?
+        .ok_or("Bundled qpdf library is required for annotation discovery")?;
+    let (deleted, touched) = scan.mutation_targets(mutations)?;
+    scan.extend_edit(&deleted, &touched, edit)
 }
 
 /// The loaded base must reproduce the scan's closure before writing anything.
@@ -80,19 +224,25 @@ pub(crate) fn page_local_delete_closure_loaded(
     mutations: &NativeMutationsFile,
     edit: &PageLocalEdit,
 ) -> Result<bool> {
-    if mutations.deletes.is_empty() {
-        return Ok(true);
-    }
     let source = AppendedRevision::new(base);
     let listing =
         AnnotationListing::new_for_pages(base.get_prev_documents(), source.located_pages());
-    let actual = collect_delete_refs(
+    let generic = collect_delete_refs(
         base.get_prev_documents(),
         &mutations.deletes,
         &listing.replies,
         source.located_pages(),
     )?;
-    Ok(actual == edit.delete_closure.iter().copied().collect()
+    let mut actual = HashSet::new();
+    for id in &edit.delete_closure {
+        actual.extend(collect_annotation_refs_to_delete(
+            base.get_prev_documents(),
+            *id,
+            &listing.replies,
+        )?);
+    }
+    Ok(generic.is_subset(&actual)
+        && actual == edit.delete_closure.iter().copied().collect()
         && actual
             .iter()
             .all(|id| base.get_prev_documents().objects.contains_key(id)))

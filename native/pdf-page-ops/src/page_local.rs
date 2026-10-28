@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn name_based_upserts_and_duplicate_create_targets_require_whole_loading() {
+    fn scanned_upserts_reject_duplicate_payload_targets() {
         let mut document = Document::with_version("1.7");
         document.trailer.set("Root", (1, 0));
         document.set_object((1, 0), dictionary! {"Type"=>"Catalog","Pages"=>(2,0)});
@@ -305,23 +305,23 @@ mod tests {
                 "Annots",
                 vec![Object::Reference((4, 0)), Object::Reference((5, 0))],
             );
-        let incremental = IncrementalDocument::from_document(document, 0, None);
+        let base = IncrementalDocument::from_document(document, 0, None);
         let shape = json!({"type":"rectangle","pageIndex":0,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2,"stableKey":"taken"});
         let payload = |items| {
             serde_json::from_value(json!({"shapes":{"totalPages":1,"shapes":items}})).unwrap()
         };
-        assert!(!additive_targets_are_new(&incremental, &payload(vec![shape.clone()])).unwrap());
+        assert!(!additive_targets_are_new(&base, &payload(vec![shape.clone()]), false).unwrap());
         let mut fresh = shape;
         fresh["stableKey"] = json!("fresh");
-        assert!(additive_targets_are_new(&incremental, &payload(vec![fresh.clone()])).unwrap());
+        assert!(additive_targets_are_new(&base, &payload(vec![fresh.clone()]), false).unwrap());
         assert!(
-            !additive_targets_are_new(&incremental, &payload(vec![fresh.clone(), fresh])).unwrap()
+            !additive_targets_are_new(&base, &payload(vec![fresh.clone(), fresh]), false).unwrap()
         );
         // The text-box writer finds `evb-freetext:old-box` by the bare name.
         let text_box = |key: &str| {
             serde_json::from_value(json!({"textBoxes":[{"pageIndex":0,"stableKey":key,"text":"t","rect":[10,20,80,60],"rotation":0,"fontSize":12,"color":[0,0,0]}]})).unwrap()
         };
-        assert!(!additive_targets_are_new(&incremental, &text_box("old-box")).unwrap());
-        assert!(additive_targets_are_new(&incremental, &text_box("new-box")).unwrap());
+        assert!(!additive_targets_are_new(&base, &text_box("old-box"), false).unwrap());
+        assert!(additive_targets_are_new(&base, &text_box("new-box"), false).unwrap());
     }
 }

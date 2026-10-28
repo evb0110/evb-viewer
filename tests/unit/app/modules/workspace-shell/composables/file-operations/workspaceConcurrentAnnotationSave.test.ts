@@ -19,6 +19,7 @@ import {requirePageIndex} from '@contracts/pageNumbers';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
     asAnnotationId,
+    toLegacyShapeAnnotation,
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
@@ -329,59 +330,191 @@ function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box' | 'stamp'): TPd
     };
 }
 
-describe('scoped additive save readback through transaction and workspace service', () => {
+describe('scoped annotation save readback through transaction and workspace service', () => {
+    afterEach(() => vi.restoreAllMocks());
+    for (const existing of [
+        false,
+        true,
+    ]) {
+        for (const kind of [
+            'highlight',
+            'shape',
+            'text-box',
+            'stamp',
+        ] as const) {
+            if (existing && kind === 'stamp') continue;
+            it.each([
+                'recognized',
+                'missing',
+                'foreign',
+            ] as const)(`${existing ? 'existing' : 'new'} ${kind} readback: %s`, async (readback) => {
+                const application = new AnnotationApplication('additive-save');
+                const outside = {
+                    ...savedNote(),
+                    pageIndex: requirePageIndex(1),
+                };
+                application.store.replaceFromDocument([outside], []);
+                const parsed = parsedAdditive(kind);
+                const mapped = mapPdfAnnotationParseEntity(parsed);
+                const fresh = {
+                    ...mapped,
+                    identity: {id: mapped.identity.id},
+                    persistedRevision: -1,
+                };
+                if (fresh.kind === 'shape') application.store.createShape({
+                    ...fresh,
+                    materialized: false,
+                });
+                else if (fresh.kind === 'text-box') application.store.createTextBox(fresh);
+                else if (fresh.kind === 'text-markup') application.store.createTextMarkup(fresh);
+                else if (fresh.kind === 'placed-image') application.store.createPlacedImage({
+                    ...fresh,
+                    image: {
+                        kind: 'raster',
+                        mimeType: 'image/png',
+                        dataBase64: 'cG5n',
+                        byteLength: 3,
+                        sha256: 'b'.repeat(64),
+                        width: 1,
+                        height: 1,
+                    },
+                });
+                if (existing) {
+                    application.store.replaceFromDocument([
+                        outside,
+                        mapped,
+                    ], []);
+                    if (mapped.kind === 'shape') application.store.updateShape(mapped.identity.id, {strokeWidth: 3});
+                    if (mapped.kind === 'text-markup') application.store.updateTextMarkup(mapped.identity.id, {color: '#22c55e'});
+                    if (mapped.kind === 'text-box') application.store.updateTextBox(mapped.identity.id, {text: 'edited'});
+                    if (mapped.kind === 'placed-image') application.store.updatePlacedImage(mapped.identity.id, {rotation: 30});
+                }
+                const revision = ref(requireDocumentRevisionToken('rev-1'));
+                const {deps} = createDeps({
+                    originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+                    workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+                    documentRevisionToken: revision,
+                    totalPages: ref(2),
+                    annotationDirty: ref(true),
+                    hasAnnotationChanges: () => true,
+                    hasShapeChanges: () => kind === 'shape',
+                    getAllShapes: () => application.store.list().filter(entity => entity.kind === 'shape').map(toLegacyShapeAnnotation),
+                    getAnnotationSaveStateToken: () => application.store.mutationEpoch,
+                    trySavePdfNativeMutations: vi.fn(async () => {
+                        revision.value = requireDocumentRevisionToken('rev-2');
+                        return {
+                            success: true,
+                            outPath: requireDocumentRef('/tmp/work.pdf'),
+                            saveMode: 'rewrite' as const,
+                            didSaveAs: false,
+                            ...(existing ? {annotationDeleteEffects: {
+                                affectedPageIndices: [0],
+                                deletedReplyRefs: [],
+                            }} : {}),
+                            materializedIdentityBindings: [{
+                                annotationId: 'fresh',
+                                pdfRef: '50 0 R',
+                            }],
+                        };
+                    }),
+                });
+                deps.pdfDocument.value = cast({
+                    ...deps.pdfDocument.value,
+                    getPage: async () => ({
+                        view: [
+                            0,
+                            0,
+                            200,
+                            100,
+                        ],
+                        rotate: 0,
+                    }),
+                });
+                const transaction = usePdfViewerSaveTransaction({
+                    getAllShapes: () => deps.getAllShapes?.() ?? [],
+                    getDeletedEmbeddedShapeAnnotationIds: () => deps.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
+                    getDeletedEmbeddedShapeStableKeys: () => deps.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+                    getPdfDocument: () => deps.pdfDocument.value,
+                    annotationApplication: shallowRef(application),
+                    documentRevisionToken: computed(() => revision.value),
+                });
+                deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+                const scopes: Array<readonly number[] | undefined> = [];
+                vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
+                    scopes.push(options.pageIndices);
+                    expect(options.expectedDocumentRevisionToken).toBe('rev-2');
+                    if (!options.pageIndices) {
+                    // The rejected scoped parse must not have dropped the saved upsert.
+                        expect(application.store.get(mapped.identity.id)?.kind).toBe(mapped.kind);
+                    }
+                    return {
+                        documentRevisionToken: revision.value,
+                        pageCount: 2,
+                        ...(options.pageIndices ? {pageIndices: [...options.pageIndices]} : {}),
+                        entities: options.pageIndices && readback !== 'recognized' ? [] : [parsed],
+                        foreign: options.pageIndices && readback === 'foreign' ? [{
+                            kind: 'foreign',
+                            pageIndex: requirePageIndex(0),
+                            objectNumber: 50,
+                            generationNumber: 0,
+                            name: 'fresh',
+                            subtype: 'Unsupported',
+                            reason: 'unrecognized',
+                        }] : [],
+                    };
+                });
+                await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
+                expect(scopes).toEqual(readback === 'recognized' ? [[0]] : [
+                    [0],
+                    undefined,
+                ]);
+                expect(application.store.get(mapped.identity.id)).toMatchObject({
+                    kind: mapped.kind,
+                    identity: {pdfRef: '50 0 R'},
+                });
+                if (readback === 'recognized') expect(application.store.get(outside.identity.id)).toEqual(outside);
+                expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+            });
+        }
+    }
+});
+
+describe('native deletion readback', () => {
     afterEach(() => vi.restoreAllMocks());
     for (const kind of [
-        'highlight',
+        'note',
         'shape',
-        'text-box',
-        'stamp',
     ] as const) {
         it.each([
-            'recognized',
-            'missing',
-            'foreign',
-        ] as const)(`${kind} readback: %s`, async (readback) => {
-            const application = new AnnotationApplication('additive-save');
+            'confirmed',
+            'no-proof',
+        ] as const)(`${kind} uses the published deletion scope: %s`, async mode => {
+            const application = new AnnotationApplication('delete-readback');
+            const deleted = kind === 'note' ? savedNote() : mapPdfAnnotationParseEntity(parsedAdditive('shape'));
             const outside = {
                 ...savedNote(),
-                pageIndex: requirePageIndex(1),
-            };
-            application.store.replaceFromDocument([outside], []);
-            const parsed = parsedAdditive(kind);
-            const mapped = mapPdfAnnotationParseEntity(parsed);
-            const fresh = {
-                ...mapped,
-                identity: {id: mapped.identity.id},
-                persistedRevision: -1,
-            };
-            if (fresh.kind === 'shape') application.store.createShape({
-                ...fresh,
-                materialized: false,
-            });
-            else if (fresh.kind === 'text-box') application.store.createTextBox(fresh);
-            else if (fresh.kind === 'text-markup') application.store.createTextMarkup(fresh);
-            else if (fresh.kind === 'placed-image') application.store.createPlacedImage({
-                ...fresh,
-                image: {
-                    kind: 'raster',
-                    mimeType: 'image/png',
-                    dataBase64: 'cG5n',
-                    byteLength: 3,
-                    sha256: 'b'.repeat(64),
-                    width: 1,
-                    height: 1,
+                identity: {
+                    id: asAnnotationId('outside'),
+                    pdfRef: '20R',
                 },
-            });
+                pageIndex: requirePageIndex(2),
+            };
+            application.store.replaceFromDocument([
+                deleted,
+                outside,
+            ], []);
+            application.store.delete(deleted.identity.id);
             const revision = ref(requireDocumentRevisionToken('rev-1'));
             const {deps} = createDeps({
                 originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
                 workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
                 documentRevisionToken: revision,
-                totalPages: ref(2),
+                totalPages: ref(3),
+                hasShapeChanges: () => kind === 'shape',
+                getDeletedEmbeddedShapeAnnotationIds: () => kind === 'shape' ? ['50R'] : [],
+                getDeletedEmbeddedShapeStableKeys: () => kind === 'shape' ? ['fresh'] : [],
                 annotationDirty: ref(true),
                 hasAnnotationChanges: () => true,
-                hasShapeChanges: () => kind === 'shape',
                 getAnnotationSaveStateToken: () => application.store.mutationEpoch,
                 trySavePdfNativeMutations: vi.fn(async () => {
                     revision.value = requireDocumentRevisionToken('rev-2');
@@ -390,26 +523,20 @@ describe('scoped additive save readback through transaction and workspace servic
                         outPath: requireDocumentRef('/tmp/work.pdf'),
                         saveMode: 'rewrite' as const,
                         didSaveAs: false,
-                        materializedIdentityBindings: [{
-                            annotationId: 'fresh',
-                            pdfRef: '50 0 R',
-                        }],
+                        ...(mode === 'no-proof' ? {} : {annotationDeleteEffects: {
+                            affectedPageIndices: [
+                                0,
+                                1,
+                            ],
+                            deletedReplyRefs: ['13 0 R'],
+                        }}),
                     };
                 }),
             });
-            deps.pdfDocument.value = cast({
-                ...deps.pdfDocument.value,
-                getPage: async () => ({
-                    view: [
-                        0,
-                        0,
-                        200,
-                        100,
-                    ],
-                    rotate: 0,
-                }),
-            });
             const transaction = usePdfViewerSaveTransaction({
+                getAllShapes: () => [],
+                getDeletedEmbeddedShapeAnnotationIds: () => deps.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
+                getDeletedEmbeddedShapeStableKeys: () => deps.getDeletedEmbeddedShapeStableKeys?.() ?? [],
                 getPdfDocument: () => deps.pdfDocument.value,
                 annotationApplication: shallowRef(application),
                 documentRevisionToken: computed(() => revision.value),
@@ -419,115 +546,24 @@ describe('scoped additive save readback through transaction and workspace servic
             vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
                 scopes.push(options.pageIndices);
                 expect(options.expectedDocumentRevisionToken).toBe('rev-2');
-                if (!options.pageIndices) {
-                    // The rejected scoped parse must not have dropped the saved upsert.
-                    expect(application.store.get(mapped.identity.id)?.kind).toBe(mapped.kind);
-                }
                 return {
                     documentRevisionToken: revision.value,
-                    pageCount: 2,
+                    pageCount: 3,
                     ...(options.pageIndices ? {pageIndices: [...options.pageIndices]} : {}),
-                    entities: options.pageIndices && readback !== 'recognized' ? [] : [parsed],
-                    foreign: options.pageIndices && readback === 'foreign' ? [{
-                        kind: 'foreign',
-                        pageIndex: requirePageIndex(0),
-                        objectNumber: 50,
-                        generationNumber: 0,
-                        name: 'fresh',
-                        subtype: 'Unsupported',
-                        reason: 'unrecognized',
-                    }] : [],
+                    entities: [],
+                    foreign: [],
                 };
             });
             await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
-            expect(scopes).toEqual(readback === 'recognized' ? [[0]] : [
-                [0],
-                undefined,
-            ]);
-            expect(application.store.get(mapped.identity.id)).toMatchObject({
-                kind: mapped.kind,
-                identity: {pdfRef: '50 0 R'},
-            });
-            if (readback === 'recognized') expect(application.store.get(outside.identity.id)).toEqual(outside);
-            expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+            expect(scopes).toEqual(mode === 'no-proof' ? [undefined] : [[
+                0,
+                1,
+            ]]);
+            if (mode !== 'no-proof') expect(application.store.get(outside.identity.id)).toEqual(outside);
+            expect(application.store.get(deleted.identity.id)?.deleted ?? true).toBe(true);
+            expect(application.store.undo()).toBe(true);
+            expect(application.store.get(deleted.identity.id)?.deleted).toBe(false);
+            expect(application.store.get(deleted.identity.id)?.identity.pdfRef).toBeUndefined();
         });
     }
-});
-
-describe('native deletion readback', () => {
-    afterEach(() => vi.restoreAllMocks());
-    it.each([
-        'confirmed',
-        'no-proof',
-    ] as const)('uses the published deletion scope: %s', async mode => {
-        const application = new AnnotationApplication('delete-readback');
-        const deleted = savedNote();
-        const outside = {
-            ...savedNote(),
-            identity: {
-                id: asAnnotationId('outside'),
-                pdfRef: '20R',
-            },
-            pageIndex: requirePageIndex(2),
-        };
-        application.store.replaceFromDocument([
-            deleted,
-            outside,
-        ], []);
-        application.store.delete(deleted.identity.id);
-        const revision = ref(requireDocumentRevisionToken('rev-1'));
-        const {deps} = createDeps({
-            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
-            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
-            documentRevisionToken: revision,
-            totalPages: ref(3),
-            annotationDirty: ref(true),
-            hasAnnotationChanges: () => true,
-            getAnnotationSaveStateToken: () => application.store.mutationEpoch,
-            trySavePdfNativeMutations: vi.fn(async () => {
-                revision.value = requireDocumentRevisionToken('rev-2');
-                return {
-                    success: true,
-                    outPath: requireDocumentRef('/tmp/work.pdf'),
-                    saveMode: 'rewrite' as const,
-                    didSaveAs: false,
-                    ...(mode === 'no-proof' ? {} : {annotationDeleteEffects: {
-                        affectedPageIndices: [
-                            0,
-                            1,
-                        ],
-                        deletedReplyRefs: ['13 0 R'],
-                    }}),
-                };
-            }),
-        });
-        const transaction = usePdfViewerSaveTransaction({
-            getPdfDocument: () => deps.pdfDocument.value,
-            annotationApplication: shallowRef(application),
-            documentRevisionToken: computed(() => revision.value),
-        });
-        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
-        const scopes: Array<readonly number[] | undefined> = [];
-        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
-            scopes.push(options.pageIndices);
-            expect(options.expectedDocumentRevisionToken).toBe('rev-2');
-            return {
-                documentRevisionToken: revision.value,
-                pageCount: 3,
-                ...(options.pageIndices ? {pageIndices: [...options.pageIndices]} : {}),
-                entities: [],
-                foreign: [],
-            };
-        });
-        await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
-        expect(scopes).toEqual(mode === 'no-proof' ? [undefined] : [[
-            0,
-            1,
-        ]]);
-        if (mode !== 'no-proof') expect(application.store.get(outside.identity.id)).toEqual(outside);
-        expect(application.store.get(deleted.identity.id)?.deleted ?? true).toBe(true);
-        expect(application.store.undo()).toBe(true);
-        expect(application.store.get(deleted.identity.id)?.deleted).toBe(false);
-        expect(application.store.get(deleted.identity.id)?.identity.pdfRef).toBeUndefined();
-    });
 });

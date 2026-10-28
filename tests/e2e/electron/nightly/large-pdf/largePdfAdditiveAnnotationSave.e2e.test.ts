@@ -7,7 +7,9 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from 'puppeteer-core';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser, clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     resolveLargePdfFixtureAvailability, selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -16,7 +18,7 @@ import {
     openAnnotationsTab, openPdfInApp, saveViaVisibleToolbarWithDeadline, setupScrollToPage, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    clearTextSelection, clickAnnotationTool, createCanonicalTextBoxWithPointer, createCanonicalTextMarkup,
+    clearTextSelection, clickAnnotationTool, createCanonicalTextBoxWithPointer, createCanonicalTextMarkup, selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     LARGE_PDF_SAVE_TIMEOUT_MS,
@@ -370,6 +372,153 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
             const positions = await readPlacedImagePositions(restartedPage);
             return positions.length === 1 && isNear(positions[0]!, movedTo!);
         }, {timeout: 60_000}).toBe(true);
+    }, LARGE_PDF_TIMEOUT_MS * 2);
+
+    it('edits saved annotations and deletes a saved rectangle, retaining each change after restart', async () => {
+        const documentPath = copyLargeFixture(directories, 'existing-edits.pdf');
+        const session = await sessionFixture.restart({clean: true});
+        const {page} = session!;
+        await openPdfInApp(page, documentPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(page, 30_000);
+        await setupScrollToPage(page, PAGE_NUMBER);
+        const textSpan = await page.waitForFunction((pageNumber: number) => {
+            const index = Array.from(document.querySelectorAll<HTMLElement>(
+                `.page_container[data-page="${pageNumber}"] .text-layer span`,
+            )).filter(span => (span.textContent ?? '').trim().length > 0)
+                .findIndex(span => span.firstChild instanceof Text);
+            return index >= 0 ? index : null;
+        }, {timeout: 30_000}, PAGE_NUMBER).then(handle => handle.jsonValue() as Promise<number>);
+        const before = await readCanonicalEntities(page);
+        await createCanonicalTextMarkup(page, 'Highlight', {
+            startPage: PAGE_NUMBER,
+            startSpan: textSpan,
+            endPage: PAGE_NUMBER,
+            endSpan: textSpan,
+        });
+        await clearTextSelection(page);
+        const highlight = await waitForNewEntity(page, 'text-markup', before);
+        const rectangle = await drawRectangle(page);
+        const originalText = `large pdf existing text box ${Date.now()}`;
+        const textBox = await createCanonicalTextBoxWithPointer(page, originalText, {
+            x: 0.6,
+            y: 0.7,
+        }, PAGE_NUMBER);
+        await saveWithinBudget(page, 'Save before existing edits');
+        const entitySelector = (id: string) => [
+            id,
+            `evb-shape:${id}`,
+        ]
+            .map(key => `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${key}"]`).join(', ');
+        const readAppearance = (targetPage: Page, id: string) => targetPage.$eval(entitySelector(id), (element) => {
+            const rect = element.getBoundingClientRect();
+            const container = element.closest('.page_container')!;
+            const box = container.getBoundingClientRect();
+            const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+            const canvasBox = canvas?.getBoundingClientRect();
+            let greenPixels = 0;
+            if (canvas && canvasBox?.width && canvasBox.height) {
+                const x = Math.max(0, Math.floor((rect.left - canvasBox.left) * canvas.width / canvasBox.width));
+                const y = Math.max(0, Math.floor((rect.top - canvasBox.top) * canvas.height / canvasBox.height));
+                const width = Math.min(canvas.width - x, Math.ceil(rect.width * canvas.width / canvasBox.width));
+                const height = Math.min(canvas.height - y, Math.ceil(rect.height * canvas.height / canvasBox.height));
+                if (width > 0 && height > 0) {
+                    const pixels = canvas.getContext('2d')?.getImageData(x, y, width, height).data ?? [];
+                    for (let i = 0; i < pixels.length; i += 4) {
+                        if (pixels[i + 1]! > pixels[i]! + 20 && pixels[i + 1]! > pixels[i + 2]! + 20) greenPixels++;
+                    }
+                }
+            }
+            return {
+                left: (rect.left - box.left) / box.width,
+                top: (rect.top - box.top) / box.height,
+                greenPixels,
+                color: getComputedStyle(Array.from(element.closest('.page_container')!.querySelectorAll('.pdf-annotation-editor-text-markup [data-annotation-visual]')).find(paint => getComputedStyle(paint).getPropertyValue('--annotation-color') === getComputedStyle(element).getPropertyValue('--annotation-color')) ?? element).fill,
+            };
+        });
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, entitySelector(highlight.id));
+        await clickAsUser(page, '.editor-pane.is-active .annotation-properties-inline[data-target="selection"] .swatch[aria-label="#22c55e"]');
+        await expect.poll(async () => (await readAppearance(page, highlight.id)).color).toBe('rgb(34, 197, 94)');
+        const recolorSaveMs = await saveWithinBudget(page, 'Existing highlight recolor');
+
+        // Stable shape identity can gain its PDF name prefix after the first save.
+        const shape = (await readCanonicalEntities(page)).find(entity => entity.kind === 'shape'
+            && [
+                rectangle.id,
+                `evb-shape:${rectangle.id}`,
+            ].includes(entity.id));
+        expect(shape).toBeDefined();
+        const shapeId = shape!.id;
+        const originalPosition = await readAppearance(page, shapeId);
+        await dragEntity(page, shapeId);
+        await waitForSaveFrontierReady(page, 30_000);
+        const moved = await readAppearance(page, shapeId);
+        expect(isNear(moved, originalPosition)).toBe(false);
+        const moveSaveMs = await saveWithinBudget(page, 'Existing rectangle move');
+
+        await clickAsUser(page, entitySelector(textBox), {count: 2});
+        await page.waitForSelector(`.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${textBox}"] [contenteditable="true"]`, {visible: true});
+        await selectAllFocusedAnnotationText(page);
+        const editedText = `${originalText} edited`;
+        await page.keyboard.type(editedText);
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        await page.keyboard.press('Enter');
+        await page.keyboard.up(modifier);
+        await waitForSaveFrontierReady(page, 30_000);
+        const textSaveMs = await saveWithinBudget(page, 'Existing text box edit');
+
+        const deleted = await drawRectangle(page);
+        await saveWithinBudget(page, 'Save rectangle before deletion');
+        const deleteId = (await readCanonicalEntities(page)).find(entity => entity.kind === 'shape'
+            && [
+                deleted.id,
+                `evb-shape:${deleted.id}`,
+            ].includes(entity.id))!.id;
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, entitySelector(deleteId));
+        await page.keyboard.press('Delete');
+        await expect.poll(async () => (await readCanonicalEntities(page)).some(entity => entity.id === deleteId)).toBe(false);
+        const deleteSaveMs = await saveWithinBudget(page, 'Existing rectangle delete');
+        const timings = {
+            recolorSaveMs,
+            moveSaveMs,
+            textSaveMs,
+            deleteSaveMs,
+        };
+        console.info(`[large-pdf existing edits] ${JSON.stringify(timings)}`);
+        for (const duration of Object.values(timings)) expect(duration, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        const savedCount = await readPanelAnnotationCount(page);
+        expect(savedCount).not.toBeNull();
+        await waitForCrashCheckpointPath(session!.name, realpathSync(documentPath));
+        const restarted = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+        });
+        const restored = restarted!.page;
+        await waitForRestoredDocument(restored, documentPath);
+        await expectCleanAnnotationHydration(restored);
+        await openAnnotationsTab(restored, 30_000);
+        await setupScrollToPage(restored, PAGE_NUMBER);
+        await expect.poll(() => readPanelAnnotationCount(restored), {timeout: 60_000}).toBe(savedCount);
+        // Reopened original appearances are painted into the PDF canvas.
+        await expect.poll(async () => (await readAppearance(restored, highlight.id)).greenPixels).toBeGreaterThan(10);
+        await expect.poll(async () => isNear(await readAppearance(restored, shapeId), moved)).toBe(true);
+        await expect.poll(async () => {
+            const entities = await readCanonicalEntities(restored);
+            return {
+                text: entities.find(entity => entity.id === textBox)?.text,
+                deleted: entities.some(entity => [
+                    deleteId,
+                    `evb-shape:${deleteId}`,
+                ].includes(entity.id)),
+            };
+        }).toEqual({
+            text: editedText,
+            deleted: false,
+        });
     }, LARGE_PDF_TIMEOUT_MS * 2);
     it('deletes a saved highlight and text box and keeps them deleted after restart', async () => {
         const documentPath = copyLargeFixture(directories, 'delete.pdf');

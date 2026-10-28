@@ -918,11 +918,29 @@ describe('additive shape projection and affected-page scope', () => {
         })).toBeUndefined();
     });
 
-    it('requires whole readback for existing shape edits even with a page hint', () => {
+    it('requires native ownership proof for existing shape edits', () => {
         const application = new AnnotationApplication('existing-shape');
         const saved = createShapeEntity();
         application.store.replaceFromDocument([saved], []);
         application.store.updateShape(saved.identity.id, {strokeWidth: 3});
-        expect(application.beginSave().affectedPageIndices).toBeNull();
+        const session = application.beginSave();
+        expect(session.affectedPageIndices).toEqual([0]);
+        const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({shapes: [toLegacyShapeAnnotation({
+            ...saved,
+            strokeWidth: 3,
+        })]}));
+        expect(route.route).toBe('native-append');
+        if (route.route !== 'native-append') throw new Error('Expected native shape edit');
+        expect(committedAffectedPageIndices([0], route.nativeMutationProjection)).toBeUndefined();
+        expect(committedAffectedPageIndices([0], route.nativeMutationProjection, {
+            affectedPageIndices: [
+                0,
+                2,
+            ],
+            deletedReplyRefs: [],
+        })).toEqual([
+            0,
+            2,
+        ]);
     });
 });

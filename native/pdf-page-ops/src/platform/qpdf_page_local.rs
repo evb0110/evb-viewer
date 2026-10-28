@@ -105,7 +105,14 @@ pub(crate) fn scan_deletes(
             continue;
         }
         let mut dict = Dictionary::new();
-        for key in [c"/IRT", c"/Popup", c"/Parent", c"/Subtype", c"/NM"] {
+        for key in [
+            c"/IRT",
+            c"/Popup",
+            c"/Parent",
+            c"/Subtype",
+            c"/NM",
+            c"/EVBShapeKey",
+        ] {
             if unsafe { (reader.api.has_key)(reader.data, handle.value, key.as_ptr()) } == 0 {
                 continue;
             }
