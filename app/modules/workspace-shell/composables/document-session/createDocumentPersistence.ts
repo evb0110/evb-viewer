@@ -854,7 +854,7 @@ export function createDocumentPersistence(
         const operationStart = performance.now();
         const logRendererTimings = (status: string, extra?: Record<string, unknown>) => {
             const totalMs = roundDurationMs(performance.now() - operationStart);
-            const log = totalMs >= 1_000 ? BrowserLogger.warn : BrowserLogger.debug;
+            const log = totalMs >= 1_000 ? BrowserLogger.info : BrowserLogger.debug;
             log('workspace', 'Native PDF mutation save renderer timings', {
                 status,
                 saveMode: opts.saveMode,

@@ -804,6 +804,49 @@ fn note_pages_as_read(pdf: &Path) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// The first page's rotation and the catalog's page labels and outline as qpdf
+/// reads them, with each outline item's own object number left out: files that
+/// number their objects differently compare equal when their outlines do.
+fn catalog_outline_as_read(pdf: &Path) -> Value {
+    let object = |id: &str| {
+        let output = Command::new(qpdf_path())
+            .args(["--json=1", "--json-key=objects", "--json-stream-data=none"])
+            .arg(format!(
+                "--json-object={}",
+                id.split_whitespace().next().unwrap()
+            ))
+            .arg("--")
+            .arg(pdf)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "qpdf object query failed");
+        let mut value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        value["objects"][id].take()
+    };
+    fn items(object: &dyn Fn(&str) -> Value, mut next: Value) -> Vec<Value> {
+        let mut read = Vec::new();
+        while let Some(id) = next.as_str().map(str::to_string) {
+            let item = object(&id);
+            read.push(serde_json::json!({
+                "title": item["/Title"],
+                "dest": item["/Dest"],
+                "count": item["/Count"],
+                "items": items(object, item["/First"].clone()),
+            }));
+            next = item["/Next"].clone();
+        }
+        read
+    }
+    let catalog = object("1 0 R");
+    let outlines = catalog["/Outlines"].as_str().map(object);
+    serde_json::json!({
+        "rotate": object("4 0 R")["/Rotate"],
+        "pageLabels": catalog["/PageLabels"],
+        "count": outlines.as_ref().map(|outlines| outlines["/Count"].clone()),
+        "items": outlines.map(|outlines| items(&object, outlines["/First"].clone())),
+    })
+}
+
 fn sha256_prefix(path: &Path, length: u64) -> [u8; 32] {
     let mut file = File::open(path).unwrap();
     let mut hasher = Sha256::new();
@@ -1344,6 +1387,57 @@ fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
     assert!(large_states[2][1]
         .iter()
         .any(|annotation| annotation.contains("\"uid:0:added\"")));
+}
+
+#[test]
+fn catalog_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_writer() {
+    let small = temp_path("page-local-catalog-small", "pdf");
+    let large = temp_path("page-local-catalog-large", "pdf");
+    let mutations = temp_path("page-local-catalog-mutations", "json");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone(), mutations.clone()]);
+    write_page_local_note_pdf(&small, false, false);
+    write_page_local_note_pdf(&large, true, true);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    // A bookmark on the second page with a named child, then page labels with
+    // the outline rewritten to point at both pages, then a rotation of the
+    // annotated first page, then later chunks of a long outline (under the
+    // second item and at the top) and of a long label set, which extend what
+    // the earlier chunks wrote. The large file reads the catalog, its outline
+    // and label trees and the named pages alone.
+    let saves = [
+        r#"{"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"Second","pageIndex":1,"pageYRatio":0.5,"items":[{"title":"Named","pageIndex":null,"namedDest":"chapter","items":[]}]}]}}"#,
+        r#"{"pageLabels":{"totalPages":2,"ranges":[{"startPage":2,"style":"r","prefix":"P-","startNumber":3}]},"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"First","pageIndex":0,"items":[]},{"title":"Second","pageIndex":1,"pageYRatio":0.25,"items":[]}]}}"#,
+        r#"{"pageRotations":[{"pageIndex":0,"angle":90}]}"#,
+        r#"{"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"Later child","pageIndex":0,"items":[]}]},"continuation":{"family":"bookmarks","chunkIndex":1,"chunkCount":2,"bookmarkPath":[1]}}"#,
+        r#"{"bookmarks":{"totalPages":2,"untitledLabel":"Untitled","items":[{"title":"Later top","pageIndex":1,"items":[]}]},"continuation":{"family":"bookmarks","chunkIndex":1,"chunkCount":2}}"#,
+        r#"{"pageLabels":{"totalPages":2,"ranges":[{"startPage":1,"style":"A","prefix":"","startNumber":1}]},"continuation":{"family":"pageLabels","chunkIndex":1,"chunkCount":2}}"#,
+    ];
+    let mut read = Vec::new();
+    for pdf in [&small, &large] {
+        for save in saves {
+            fs::write(&mutations, save).unwrap();
+            let output = append_mutations_in_place(pdf, &mutations);
+            assert!(
+                output.status.success(),
+                "{} catalog save failed: {}",
+                pdf.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            read.push(catalog_outline_as_read(pdf));
+        }
+        assert_qpdf_check(pdf);
+    }
+    assert_eq!(read[6..], read[..6]);
+    assert_eq!(read[0]["items"][0]["dest"][0], "12 0 R");
+    assert_eq!(read[0]["items"][0]["items"][0]["title"], "Named");
+    assert_eq!(read[1]["items"][0]["dest"][0], "4 0 R");
+    assert_eq!(read[1]["pageLabels"]["/Nums"][2], 1);
+    assert_eq!(read[2]["rotate"], 180);
+    assert_eq!(read[3]["items"][1]["items"][0]["title"], "Later child");
+    assert_eq!(read[4]["items"][2]["title"], "Later top");
+    assert_eq!(read[5]["pageLabels"]["/Nums"][0], 0);
+    assert_eq!(read[5]["pageLabels"]["/Nums"][2], 1);
 }
 
 #[test]

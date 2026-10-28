@@ -807,7 +807,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
     set_bookmarks(&mut document, &bookmarks).unwrap();
 
     validate_page_labels_document_postconditions(&document, &page_labels).unwrap();
-    validate_bookmarks_document_postconditions(&document, &bookmarks).unwrap();
+    validate_bookmarks_document_postconditions(&document, &bookmarks, None).unwrap();
 
     let outlines_id = catalog(&document)
         .get(b"Outlines")

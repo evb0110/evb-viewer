@@ -296,7 +296,6 @@ export class AnnotationStore {
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
-    /** A parse of the whole document has fed this store; only then can a parse of some pages extend it. */
     #readWholeDocument = false;
     #batchDepth = 0;
     #batchEmissionPending = false;
@@ -604,8 +603,7 @@ export class AnnotationStore {
      * and returns false when those pages alone cannot stand for the whole
      * document: a parsed annotation that matches an entity on another page, or
      * a parsed thread without a reply this store holds, which may sit on a page
-     * the parse did not read. It also changes nothing before a parse of the
-     * whole document has fed the store, which then holds no other pages.
+     * the parse did not read; or before `readWholeDocument`.
      */
     replaceFromDocument(
         entities: readonly AnnotationEntity[],
@@ -1098,6 +1096,8 @@ export class AnnotationStore {
     redo() { return this.#history.redo(); }
     get canUndo() { return this.#history.canUndo; }
     get canRedo() { return this.#history.canRedo; }
+    /** A parse of the whole document has fed this store; only then can a parse of some pages extend it. */
+    get readWholeDocument() { return this.#readWholeDocument; }
 
     #assertNewEntity(entity: AnnotationEntity) {
         if (entity.revision !== 0 || entity.persistedRevision !== -1) {

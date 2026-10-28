@@ -398,12 +398,11 @@ pub(crate) fn assert_mutation_page_count(
     total_pages: u32,
     label: &str,
 ) -> Result<()> {
-    let page_resolver = PageTreeResolver::new(document)?;
-    assert_mutation_page_count_with_resolver(&page_resolver, total_pages, label)
+    assert_mutation_page_count_with_resolver(&PageLookup::new(document, None)?, total_pages, label)
 }
 
 pub(super) fn assert_mutation_page_count_with_resolver(
-    page_resolver: &PageTreeResolver,
+    page_resolver: &PageLookup<'_>,
     total_pages: u32,
     label: &str,
 ) -> Result<()> {
@@ -480,6 +479,51 @@ fn collect_existing_page_label_entries(
     Ok(entries)
 }
 
+/// A later chunk of a bookmark or page-label save, which extends what the
+/// earlier chunks wrote.
+pub(crate) fn is_catalog_continuation(continuation: &NativeMutationContinuation) -> bool {
+    matches!(
+        continuation.family,
+        NativeMutationContinuationFamily::Bookmarks | NativeMutationContinuationFamily::PageLabels
+    )
+}
+
+/// The page-local base for `edit`. A catalog continuation also reads the
+/// outline or page-label tree it extends, with everything that tree references.
+pub(crate) fn load_page_local_catalog(
+    path: &Path,
+    qpdf: &Path,
+    mutations: &NativeMutationsFile,
+    edit: &mut PageLocalEdit,
+) -> Result<Option<IncrementalDocument>> {
+    let base = load_qpdf_page_local_incremental_pdf(path, qpdf, edit)?;
+    // Each family reads only its own tree: an outline can link to a large
+    // structure tree that a page-label chunk has no use for.
+    let key = match mutations.continuation.as_ref().map(|value| value.family) {
+        Some(NativeMutationContinuationFamily::Bookmarks) => b"Outlines".as_slice(),
+        Some(NativeMutationContinuationFamily::PageLabels) => b"PageLabels",
+        _ => return Ok(base),
+    };
+    let Some(document) = base.as_ref().map(IncrementalDocument::get_prev_documents) else {
+        return Ok(base);
+    };
+    let catalog = document.dictionary(document.root_id()?)?;
+    let mut values = catalog.get(key).ok().into_iter().collect::<Vec<_>>();
+    let read = edit.closure.len();
+    while let Some(value) = values.pop() {
+        match value {
+            Object::Reference(id) => drop(edit.closure.insert(*id)),
+            Object::Array(items) => values.extend(items),
+            Object::Dictionary(dictionary) => values.extend(dictionary.iter().map(|(_, v)| v)),
+            _ => {}
+        }
+    }
+    if edit.closure.len() == read {
+        return Ok(base);
+    }
+    load_qpdf_page_local_incremental_pdf(path, qpdf, edit)
+}
+
 pub(crate) fn set_page_labels(
     document: &mut Document,
     page_labels: &PageLabelsMutation,
@@ -496,8 +540,11 @@ pub(crate) fn set_page_labels_incremental(
     page_labels: &PageLabelsMutation,
     continuation: bool,
 ) -> Result<()> {
-    assert_mutation_page_count(
-        incremental.get_prev_documents(),
+    assert_mutation_page_count_with_resolver(
+        &PageLookup::new(
+            incremental.get_prev_documents(),
+            incremental.located_pages.as_ref(),
+        )?,
         page_labels.total_pages,
         "Page-label mutation",
     )?;

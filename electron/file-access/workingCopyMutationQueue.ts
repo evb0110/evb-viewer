@@ -146,8 +146,9 @@ function getMutationKind(kind: string | undefined) {
     return normalizedKind;
 }
 
-function getQueueLogLevel(durationMs: number) {
-    return durationMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
+/** Waiting behind another mutation is contention; a long mutation is only its own work. */
+function getQueueLogLevel(durationMs: number, slow: 'info' | 'warn') {
+    return durationMs >= 1_000 ? log[slow].bind(log) : log.debug.bind(log);
 }
 
 /**
@@ -237,7 +238,7 @@ export function enqueueWorkingCopyMutation<T>(
             const grantedAt = performance.now();
             const waitedMs = Math.round((grantedAt - enqueuedAt) * 10) / 10;
             activeWorkingCopyMutations.set(queueKey, entry);
-            getQueueLogLevel(waitedMs)('Working-copy mutation granted', {
+            getQueueLogLevel(waitedMs, 'warn')('Working-copy mutation granted', {
                 queueKey,
                 operationId: entry.operationId,
                 kind: entry.kind,
@@ -266,7 +267,7 @@ export function enqueueWorkingCopyMutation<T>(
                 return await runWithWorkingCopyMutationCommitSignal(mutationOperation, () => operation(mutationOperation));
             } finally {
                 const durationMs = Math.round((performance.now() - grantedAt) * 10) / 10;
-                getQueueLogLevel(durationMs)('Working-copy mutation settled', {
+                getQueueLogLevel(durationMs, 'info')('Working-copy mutation settled', {
                     queueKey,
                     operationId: entry.operationId,
                     kind: entry.kind,

@@ -263,6 +263,14 @@ impl<'a> PageLookup<'a> {
             Self::Tree(resolver) => resolver.page_id(document, page_number),
         }
     }
+
+    /// The page count the page tree declares.
+    pub(crate) fn page_count(&self) -> u32 {
+        match self {
+            Self::Located(located) => located.count,
+            Self::Tree(resolver) => resolver.page_count(),
+        }
+    }
 }
 
 fn resolve_page_rotation_targets(
