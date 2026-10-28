@@ -239,7 +239,6 @@ pub(crate) fn load_native_mutation_base(
         if let (Some(qpdf), Some(mut edit)) = (qpdf, page_local_edit(mutations)) {
             let local = (|| {
                 let existing = !mutations.deletes.is_empty()
-                    || !edit.annotations.is_empty()
                     || mutations.shapes.as_ref().is_some_and(|shapes| {
                         shapes.rewrite_shape_state
                             || !shapes.deleted_annotation_ids.is_empty()
