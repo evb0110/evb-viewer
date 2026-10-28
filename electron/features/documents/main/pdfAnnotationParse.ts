@@ -24,6 +24,8 @@ import {
     PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA,
 } from '@contracts/pdfAnnotationParseSchemas';
 import * as v from 'valibot';
+import {writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
 import {
@@ -56,6 +58,7 @@ import {
 
 const PARSE_DIRECTORY_PREFIX = 'pdf-annotation-parse-';
 const PARSE_FILE_NAME = 'annotations.jsonl';
+const PARSE_PAGES_FILE_NAME = 'pages.txt';
 const PARSE_NATIVE_TIMEOUT_MS = 30 * 60 * 1_000;
 const PARSE_NATIVE_STDOUT_BYTES = 64 * 1_024;
 const PARSE_NATIVE_STDERR_BYTES = 512 * 1_024;
@@ -105,10 +108,14 @@ function rejectUnknownFields(value: Record<string, unknown>, label: string, allo
     }
 }
 
-function decodeHeader(value: unknown) {
+function decodeHeader(value: unknown, pageIndices: readonly number[] | undefined) {
     const header = v.safeParse(PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA, value, {abortEarly: true});
     if (!header.success) {
         throw new Error(`PDF annotation parse sidecar has an unsupported header: ${v.summarize(header.issues)}`);
+    }
+    const read = header.output.pageIndices;
+    if (read?.length !== pageIndices?.length || read?.some((index, position) => index !== pageIndices![position])) {
+        throw new Error('PDF annotation parse sidecar read other pages than requested');
     }
     return header.output.pageCount;
 }
@@ -168,7 +175,7 @@ function clearParseTtlTimerIfIdle() {
     }
 }
 
-function buildParseCommandArgs(inputPath: string, outputPath: string, qpdfPath: string) {
+function buildParseCommandArgs(inputPath: string, outputPath: string, qpdfPath: string, pagesPath?: string) {
     return [
         'parse-annotations',
         '--input',
@@ -179,6 +186,10 @@ function buildParseCommandArgs(inputPath: string, outputPath: string, qpdfPath: 
         qpdfPath,
         '--modified-at',
         PARSE_MODIFIED_AT,
+        ...(pagesPath === undefined ? [] : [
+            '--pages-file',
+            pagesPath,
+        ]),
     ];
 }
 
@@ -187,6 +198,7 @@ async function runParseNative(
     outputPath: string,
     signal: AbortSignal,
     cancelGroup: string,
+    pagesPath?: string,
 ) {
     const nativePath = resolveNativePageOpsPath();
     if (!nativePath) {
@@ -194,7 +206,7 @@ async function runParseNative(
     }
     await runNativeToolCommand(
         nativePath,
-        buildParseCommandArgs(inputPath, outputPath, getPdfNativeToolPaths().qpdf),
+        buildParseCommandArgs(inputPath, outputPath, getPdfNativeToolPaths().qpdf, pagesPath),
         {
             timeoutMs: PARSE_NATIVE_TIMEOUT_MS,
             maxStdoutBytes: PARSE_NATIVE_STDOUT_BYTES,
@@ -258,6 +270,9 @@ export async function beginPdfAnnotationParse(
     ensureParseTtlTimer();
     const {abortController} = session;
     const {sidecarPath} = session;
+    // The page tool reads one-based page numbers.
+    const {pageIndices} = options;
+    const pagesPath = pageIndices === undefined ? undefined : join(session.sidecarDirectory, PARSE_PAGES_FILE_NAME);
     const handleMainAbort = () => cancel('PDF annotation parsing canceled');
     mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
 
@@ -267,6 +282,9 @@ export async function beginPdfAnnotationParse(
         handleMainAbort,
         cleanupSession,
         async () => {
+            if (pagesPath !== undefined) {
+                await writeFile(pagesPath, pageIndices!.map(index => `${index + 1}\n`).join(''), {mode: 0o600});
+            }
             await runWithWorkingCopyReadBacking(
                 resolvedPath,
                 physicalPath => runParseNative(
@@ -274,6 +292,7 @@ export async function beginPdfAnnotationParse(
                     sidecarPath,
                     abortController.signal,
                     session.cancelGroup,
+                    pagesPath,
                 ),
                 context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId},
             );
@@ -292,7 +311,7 @@ export async function beginPdfAnnotationParse(
                         maxLineBytes: PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
                         label: 'PDF annotation parse',
                         signal,
-                        decodeHeader,
+                        decodeHeader: value => decodeHeader(value, pageIndices),
                         decodeDataLine: (value) => {
                             const entries = decodeDataLine(value);
                             const chunkIndex = (value as Record<string, unknown>).chunkIndex;
@@ -312,6 +331,7 @@ export async function beginPdfAnnotationParse(
         documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
+        ...(pageIndices === undefined ? {} : {pageIndices: [...pageIndices]}),
         entryCount: session.index.entryCount,
         totalBytes: session.index.dataBytes,
     };
@@ -418,6 +438,7 @@ export async function parsePdfAnnotations(
         return {
             documentRevisionToken: session.documentRevisionToken,
             pageCount: session.pageCount,
+            ...(session.pageIndices === undefined ? {} : {pageIndices: session.pageIndices}),
             entities,
             foreign,
         };

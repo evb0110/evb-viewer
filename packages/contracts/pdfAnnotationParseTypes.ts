@@ -43,6 +43,8 @@ export interface IPdfAnnotationParseSession {
     documentRef: TDocumentRef;
     documentRevisionToken: TDocumentRevisionToken;
     pageCount: number;
+    /** Present when the parse read only these pages. */
+    pageIndices?: number[];
     entryCount: number;
     totalBytes: number;
 }

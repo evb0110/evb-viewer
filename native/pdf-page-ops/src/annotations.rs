@@ -278,11 +278,8 @@ pub(crate) fn update_note_geometry_incremental(
     if updates.is_empty() {
         return Ok(());
     }
-    let page_ids_by_number = incremental.page_ids_by_number.clone();
-    let page_resolver = PageLookup::new(
-        incremental.get_prev_documents(),
-        page_ids_by_number.as_deref(),
-    )?;
+    let located_pages = incremental.located_pages.clone();
+    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located_pages.as_ref())?;
     for update in updates {
         let target_id = (update.object_number, update.generation_number);
         let target = resolve_note_target(incremental.get_prev_documents(), target_id)?;
@@ -485,11 +482,8 @@ where
         return Ok(());
     }
 
-    let page_ids_by_number = incremental.page_ids_by_number.clone();
-    let page_resolver = PageLookup::new(
-        incremental.get_prev_documents(),
-        page_ids_by_number.as_deref(),
-    )?;
+    let located_pages = incremental.located_pages.clone();
+    let page_resolver = PageLookup::new(incremental.get_prev_documents(), located_pages.as_ref())?;
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in &notes {

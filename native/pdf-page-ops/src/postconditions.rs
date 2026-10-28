@@ -15,7 +15,7 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
     document: &impl PdfObjectSource,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    page_ids_by_number: Option<&[ObjectId]>,
+    located_pages: Option<&LocatedPages>,
 ) -> Result<()> {
     validate_note_text_document_postconditions(document, &mutations.updates, modified_at)?;
     validate_note_geometry_document_postconditions(
@@ -23,22 +23,17 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
         &mutations.geometry_updates,
         &mutations.text_boxes,
         modified_at,
-        page_ids_by_number,
+        located_pages,
     )?;
     for notes in [&mutations.notes, &mutations.free_text_notes] {
-        validate_text_note_document_postconditions(
-            document,
-            notes,
-            modified_at,
-            page_ids_by_number,
-        )?;
+        validate_text_note_document_postconditions(document, notes, modified_at, located_pages)?;
     }
     validate_text_box_document_postconditions(document, &mutations.text_boxes, modified_at)?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     validate_page_rotation_document_postconditions(
         document,
         &mutations.page_rotations,
-        page_ids_by_number,
+        located_pages,
     )?;
     if let Some(page_labels) = &mutations.page_labels {
         if mutations.continuation.as_ref().is_some_and(|continuation| {
@@ -84,12 +79,12 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
 fn validate_page_rotation_document_postconditions(
     document: &impl PdfObjectSource,
     rotations: &[PageRotationMutation],
-    page_ids_by_number: Option<&[ObjectId]>,
+    located_pages: Option<&LocatedPages>,
 ) -> Result<()> {
     if rotations.is_empty() {
         return Ok(());
     }
-    let pages = PageLookup::new(document, page_ids_by_number)?;
+    let pages = PageLookup::new(document, located_pages)?;
     for rotation in rotations {
         let page_number = rotation
             .page_index
@@ -198,12 +193,12 @@ pub(crate) fn validate_note_geometry_document_postconditions(
     updates: &[NoteGeometryUpdate],
     text_boxes: &[TextBoxMutation],
     modified_at: &str,
-    page_ids_by_number: Option<&[ObjectId]>,
+    located_pages: Option<&LocatedPages>,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
     }
-    let page_resolver = PageLookup::new(document, page_ids_by_number)?;
+    let page_resolver = PageLookup::new(document, located_pages)?;
     for update in updates {
         let page_number = update
             .page_index
@@ -340,13 +335,13 @@ pub(crate) fn validate_text_note_document_postconditions(
     document: &impl PdfObjectSource,
     notes: &[TextNote],
     modified_at: &str,
-    page_ids_by_number: Option<&[ObjectId]>,
+    located_pages: Option<&LocatedPages>,
 ) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
 
-    let page_resolver = PageLookup::new(document, page_ids_by_number)?;
+    let page_resolver = PageLookup::new(document, located_pages)?;
     for note in notes {
         let page_number = note
             .page_index

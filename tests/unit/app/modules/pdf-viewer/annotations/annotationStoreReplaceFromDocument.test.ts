@@ -554,3 +554,108 @@ describe('AnnotationStore.replaceFromDocument', () => {
         expect(store.get(existing.identity.id)).toEqual(existing);
     });
 });
+
+describe('AnnotationStore.replaceFromDocument of some pages', () => {
+    const reply = (objectNumber: number) => ({
+        objectNumber,
+        generationNumber: 0,
+        contents: 'reply',
+        author: null,
+        createdAt: null,
+        modifiedAt: null,
+    });
+    const parsedNote = (id: string, pdfRef: string, overrides: Partial<INoteEntity> = {}) => note(id, {
+        identity: {
+            id: asAnnotationId(id),
+            pdfRef,
+        },
+        ...overrides,
+    });
+    const foreignOn = (pageIndex: number, objectNumber: number) => ({
+        ...foreign(),
+        pageIndex: requirePageIndex(pageIndex),
+        objectNumber,
+    });
+
+    /** A document read whole: notes on pages 1 and 2, a text box on page 3. */
+    function documentStore() {
+        const store = new AnnotationStore();
+        store.replaceFromDocument([
+            parsedNote('first', '1 0 R', {contents: 'page one'}),
+            parsedNote('gone', '4 0 R'),
+            parsedNote('second', '2 0 R', {
+                pageIndex: requirePageIndex(1),
+                replies: [reply(9)],
+            }),
+            textBox('third', {
+                identity: {
+                    id: asAnnotationId('third'),
+                    pdfRef: '3 0 R',
+                },
+                pageIndex: requirePageIndex(2),
+            }),
+        ], [
+            foreignOn(0, 40),
+            foreignOn(1, 41),
+            foreignOn(2, 42),
+        ]);
+        return store;
+    }
+
+    it('replaces only the pages it read and keeps the rest of the document', () => {
+        const store = documentStore();
+        const untouched = [
+            store.get(asAnnotationId('second')),
+            store.get(asAnnotationId('third')),
+        ];
+
+        expect(store.replaceFromDocument([
+            parsedNote('first', '1 0 R', {contents: 'saved text'}),
+            parsedNote('added', '5 0 R', {contents: 'added note'}),
+        ], [foreignOn(0, 43)], [0])).toBe(true);
+
+        expect(store.get(asAnnotationId('first'))).toMatchObject({contents: 'saved text'});
+        expect(store.get(asAnnotationId('added'))).toMatchObject({identity: {pdfRef: '5 0 R'}});
+        expect(store.get(asAnnotationId('gone'))).toBeNull();
+        expect([
+            store.get(asAnnotationId('second')),
+            store.get(asAnnotationId('third')),
+        ]).toEqual(untouched);
+        expect(store.foreign.map(record => record.objectNumber)).toEqual([
+            43,
+            41,
+            42,
+        ]);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('changes nothing for a parsed annotation the store holds on another page', () => {
+        const store = documentStore();
+        const before = store.list({includeDeleted: true});
+
+        expect(store.replaceFromDocument([parsedNote('second', '6 0 R')], [], [0])).toBe(false);
+
+        expect(store.list({includeDeleted: true})).toEqual(before);
+        expect(store.foreign.map(record => record.objectNumber)).toEqual([
+            40,
+            41,
+            42,
+        ]);
+    });
+
+    it('changes nothing for a thread without a reply that may sit on a page it did not read', () => {
+        const store = documentStore();
+        const before = store.list({includeDeleted: true});
+        const second = (replies: Array<ReturnType<typeof reply>>) => parsedNote('second', '2 0 R', {
+            pageIndex: requirePageIndex(1),
+            contents: 'saved text',
+            replies,
+        });
+
+        expect(store.replaceFromDocument([second([])], [], [1])).toBe(false);
+        expect(store.list({includeDeleted: true})).toEqual(before);
+
+        expect(store.replaceFromDocument([second([reply(9)])], [], [1])).toBe(true);
+        expect(store.get(asAnnotationId('second'))).toMatchObject({contents: 'saved text'});
+    });
+});

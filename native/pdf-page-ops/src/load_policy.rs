@@ -1914,9 +1914,16 @@ mod tests {
         let [sizes, eager_sizes, parse, eager_parse] = &sidecar_paths;
         write_page_sizes_path(&input_path, sizes, Some(&qpdf_path), true).unwrap();
         write_page_sizes_path(&input_path, eager_sizes, None, true).unwrap();
-        write_annotation_parse_path(&input_path, parse, "D:20261009120000Z", Some(&qpdf_path))
+        write_annotation_parse_path(
+            &input_path,
+            parse,
+            "D:20261009120000Z",
+            Some(&qpdf_path),
+            None,
+        )
+        .unwrap();
+        write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None, None)
             .unwrap();
-        write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None).unwrap();
         assert_eq!(
             std::fs::read(sizes).unwrap(),
             std::fs::read(eager_sizes).unwrap()

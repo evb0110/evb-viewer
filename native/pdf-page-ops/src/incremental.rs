@@ -399,7 +399,7 @@ pub(crate) fn append_native_mutations_to_bytes(
         &AppendedRevision::new(&incremental),
         mutations,
         modified_at,
-        incremental.page_ids_by_number.as_deref(),
+        incremental.located_pages.as_ref(),
     )?;
     validate_annotation_identity_bindings(&identity_bindings)?;
     let output_len = input.len().checked_add(revision.len()).ok_or_else(|| {
@@ -804,7 +804,7 @@ fn write_native_mutations_revision(
         &AppendedRevision::new(incremental),
         mutations,
         modified_at,
-        incremental.page_ids_by_number.as_deref(),
+        incremental.located_pages.as_ref(),
     )?;
 
     let result = write_incremental_revision(

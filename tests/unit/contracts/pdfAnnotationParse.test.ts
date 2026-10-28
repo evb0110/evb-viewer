@@ -551,6 +551,50 @@ describe('PDF annotation parse IPC contracts', () => {
             foreign: [],
         })).toThrow(/more than/iu);
     });
+
+    it('carries a page scope only as distinct ascending page indices', () => {
+        const parseOf = (pageIndices: unknown) => workingCopyParseCodec.decodeArgs([
+            '/tmp/document.pdf',
+            {
+                expectedDocumentRevisionToken: token,
+                pageIndices,
+            },
+        ]);
+        expect(parseOf([
+            0,
+            3,
+            21600,
+        ])[1]).toEqual({
+            expectedDocumentRevisionToken: token,
+            pageIndices: [
+                0,
+                3,
+                21600,
+            ],
+        });
+        for (const pageIndices of [
+            [],
+            [
+                3,
+                0,
+            ],
+            [
+                2,
+                2,
+            ],
+            [-1],
+            [0.5],
+        ]) {
+            expect(() => parseOf(pageIndices)).toThrow(/pageIndices/iu);
+        }
+        expect(workingCopyParseCodec.decodeResult({
+            documentRevisionToken: token,
+            pageCount: 21601,
+            pageIndices: [21600],
+            entities: [],
+            foreign: [],
+        }).pageIndices).toEqual([21600]);
+    });
 });
 
 it('admits exact native text-box source descriptors and bounded original appearance recovery', () => {

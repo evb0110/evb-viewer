@@ -58,7 +58,8 @@ interface IUsePdfViewerSaveTransactionOptions {
         verify(bytes: Uint8Array): Promise<void>;
         verifyPath?(path: string, knownSize: number): Promise<void>;
         assertCurrent?(): Promise<void> | void;
-        replaceFromDocument?(result: IPdfAnnotationParseResult): void;
+        replaceFromDocument?(result: IPdfAnnotationParseResult): boolean;
+        notePageIndices?: readonly number[] | null;
         commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
     };
 }
@@ -155,7 +156,9 @@ export const usePdfViewerSaveTransaction = (
             replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
                 result.entities.map(entry => mapPdfAnnotationParseEntity(entry)),
                 result.foreign.map(mapPdfAnnotationParseForeign),
+                result.pageIndices,
             ),
+            notePageIndices: session.notePageIndices,
         };
     }
 
@@ -306,6 +309,9 @@ export const usePdfViewerSaveTransaction = (
             },
             ...(canonicalSave?.replaceFromDocument
                 ? {replaceFromDocument: canonicalSave.replaceFromDocument}
+                : {}),
+            ...(canonicalSave?.notePageIndices
+                ? {notePageIndices: canonicalSave.notePageIndices}
                 : {}),
         };
         // Routing is decided exactly once, here; every projector below consumes the result.

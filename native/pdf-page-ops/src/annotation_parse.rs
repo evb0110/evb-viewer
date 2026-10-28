@@ -2,7 +2,7 @@ use super::*;
 use evb_native_support::output::AtomicOutput;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     io::Write,
     path::Path,
 };
@@ -192,24 +192,74 @@ pub(crate) struct AnnotationParseScan {
     pub(crate) entry_count: u64,
 }
 
+/// The pages one parse reads, in page order: every page of the document, or
+/// the pages a page-local load located.
+enum ParsePages<'a> {
+    All(PageTreeResolver),
+    Located(&'a LocatedPages),
+}
+
+impl<'a> ParsePages<'a> {
+    fn new(document: &impl PdfObjectSource, scope: Option<&'a LocatedPages>) -> Result<Self> {
+        Ok(match scope {
+            Some(located) => Self::Located(located),
+            None => Self::All(PageTreeResolver::new(document)?),
+        })
+    }
+
+    fn page_count(&self) -> u32 {
+        match self {
+            Self::All(resolver) => resolver.page_count(),
+            Self::Located(located) => located.count,
+        }
+    }
+
+    /// Visits each page with its index; returns the document's page count.
+    fn for_each(
+        &self,
+        document: &impl PdfObjectSource,
+        mut visit: impl FnMut(u64, ObjectId) -> Result<()>,
+    ) -> Result<u64> {
+        match self {
+            Self::All(resolver) => {
+                let mut page_index = 0_u64;
+                resolver.for_each_page_id_with_count(document, |page_id| {
+                    visit(page_index, page_id)?;
+                    page_index = page_index
+                        .checked_add(1)
+                        .ok_or("PDF annotation parse page index overflow")?;
+                    Ok(())
+                })
+            }
+            Self::Located(located) => {
+                for (page_index, page_id) in &located.ids {
+                    visit(u64::from(*page_index), *page_id)?;
+                }
+                Ok(u64::from(located.count))
+            }
+        }
+    }
+}
+
 /// Scan the document one page at a time. The callback receives only the
 /// current entry, so callers can stream a large document without retaining its
-/// entity set in the renderer or native process.
+/// entity set in the renderer or native process. A scope reads only its pages:
+/// replies and names then come from those pages alone.
 pub(crate) fn scan_parsed_annotations<F>(
     document: &impl PdfObjectSource,
     _modified_at: &str,
+    scope: Option<&LocatedPages>,
     mut on_entry: F,
 ) -> Result<AnnotationParseScan>
 where
     F: FnMut(PdfAnnotationParseEntry) -> Result<()>,
 {
-    let resolver = PageTreeResolver::new(document)?;
+    let pages = ParsePages::new(document, scope)?;
     let mut scan = AnnotationParseScan::default();
-    let mut page_index = 0_u64;
     let mut existing_names = HashSet::new();
     let mut reply_children: HashMap<ObjectId, Vec<(ObjectId, u64)>> = HashMap::new();
     let mut reply_count = 0;
-    resolver.for_each_page_id(document, |page_id| {
+    pages.for_each(document, |page_index, page_id| {
         let annots = get_page_annots(document, page_id)?;
         if annots.len() > MAX_PAGE_ANNOTATIONS {
             return Err(domain_error(
@@ -234,10 +284,8 @@ where
                 .or_default()
                 .push((reply_id, page_index));
         }
-        page_index += 1;
         Ok(())
     })?;
-    page_index = 0;
     // One document scan shares the existing raw graph cap (hex output is twice that size).
     let mut remaining_recovery_bytes = MAX_RECOVERY_BYTES;
     let mut emit = |mut entry| {
@@ -253,21 +301,16 @@ where
         }
         on_entry(entry)
     };
-    scan.page_count = resolver.for_each_page_id_with_count(document, |page_id| {
-        let current_page_index = page_index;
+    scan.page_count = pages.for_each(document, |page_index, page_id| {
         scan_page_annotations(
             document,
             page_id,
-            current_page_index,
+            page_index,
             &mut emit,
             &mut scan.entry_count,
             &mut existing_names,
             &reply_children,
-        )?;
-        page_index = page_index
-            .checked_add(1)
-            .ok_or("PDF annotation parse page index overflow")?;
-        Ok(())
+        )
     })?;
     Ok(scan)
 }
@@ -278,6 +321,7 @@ where
 pub(crate) fn write_annotation_parse_stream<F>(
     document: &impl PdfObjectSource,
     modified_at: &str,
+    scope: Option<&LocatedPages>,
     chunk_limit: usize,
     mut sink: F,
 ) -> Result<AnnotationParseScan>
@@ -290,15 +334,23 @@ where
             "Annotation parse chunk limit must fit its JSON envelope and stay within 4 MiB",
         ));
     }
-    let page_count = u64::from(PageTreeResolver::new(document)?.page_count());
+    let page_count = ParsePages::new(document, scope)?.page_count();
+    // A scoped parse names its pages; the reader replaces only theirs.
+    let page_indices = scope
+        .map(|located| {
+            serde_json::to_string(&located.ids.keys().collect::<Vec<_>>())
+                .map(|indices| format!(",\"pageIndices\":{indices}"))
+        })
+        .transpose()?
+        .unwrap_or_default();
     let header = format!(
-        "{{\"format\":\"{ANNOTATION_PARSE_FORMAT}\",\"schemaVersion\":{ANNOTATION_PARSE_SCHEMA_VERSION},\"pageCount\":{page_count},\"chunkBytes\":{chunk_limit}}}\n"
+        "{{\"format\":\"{ANNOTATION_PARSE_FORMAT}\",\"schemaVersion\":{ANNOTATION_PARSE_SCHEMA_VERSION},\"pageCount\":{page_count},\"chunkBytes\":{chunk_limit}{page_indices}}}\n"
     );
     sink(header.as_bytes())?;
 
     let mut chunk = AnnotationParseChunk::new(0);
     let mut next_chunk_index = 0_u64;
-    let scan = scan_parsed_annotations(document, modified_at, |entry| {
+    let scan = scan_parsed_annotations(document, modified_at, scope, |entry| {
         let encoded_entry = serde_json::to_vec(&entry)?;
         if !chunk.try_push(&encoded_entry, chunk_limit) {
             if chunk.entry_count == 0 {
@@ -328,11 +380,13 @@ where
     Ok(scan)
 }
 
+/// `pages` are one-based page numbers: the parse reads only those pages.
 pub(crate) fn write_annotation_parse_path(
     input_path: &Path,
     output_path: &Path,
     modified_at: &str,
     qpdf_path: Option<&Path>,
+    pages: Option<&[u32]>,
 ) -> Result<()> {
     if annotation_index_paths_alias(input_path, output_path)? {
         return Err(domain_error(
@@ -341,9 +395,14 @@ pub(crate) fn write_annotation_parse_path(
         ));
     }
 
-    let mut incremental =
-        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Annotations)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let indexes = pages.map(|pages| {
+        pages
+            .iter()
+            .map(|page| page.saturating_sub(1))
+            .collect::<BTreeSet<_>>()
+    });
+    let mut incremental = load_annotation_parse_base(input_path, qpdf_path, indexes.as_ref())
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
             NativeErrorCode::Encrypted,
@@ -361,6 +420,7 @@ pub(crate) fn write_annotation_parse_path(
     write_annotation_parse_stream(
         &AppendedRevision::new(&incremental),
         modified_at,
+        incremental.located_pages.as_ref(),
         ANNOTATION_PARSE_CHUNK_BYTES,
         |bytes| {
             let next_total = total_bytes
@@ -379,6 +439,36 @@ pub(crate) fn write_annotation_parse_path(
     )?;
     output.publish()?;
     Ok(())
+}
+
+/// The document a parse reads. A page scope of a PDF too large to load whole
+/// reads only its pages, as a page-local save does; otherwise the whole
+/// document loads as for a full parse and the scope locates its pages in it.
+fn load_annotation_parse_base(
+    input_path: &Path,
+    qpdf_path: Option<&Path>,
+    indexes: Option<&BTreeSet<u32>>,
+) -> Result<IncrementalDocument> {
+    if let (Some(indexes), Some(qpdf_path)) = (indexes, qpdf_path) {
+        if fs::metadata(input_path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
+            let edit = PageLocalEdit {
+                pages: indexes.clone(),
+                annotation_pages: indexes.clone(),
+                annotations: BTreeSet::new(),
+            };
+            return load_qpdf_page_local_incremental_pdf(input_path, qpdf_path, &edit)?
+                .ok_or_else(|| "A page-local parse addresses no annotation by object".into());
+        }
+    }
+    let mut incremental =
+        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Annotations)?;
+    if let Some(indexes) = indexes {
+        incremental.located_pages = Some(LocatedPages::resolve(
+            &AppendedRevision::new(&incremental),
+            indexes,
+        )?);
+    }
+    Ok(incremental)
 }
 
 /// A page annotation with recovery objects or stamp streams,
@@ -425,6 +515,7 @@ pub(crate) fn serialize_annotation_parse(
     write_annotation_parse_stream(
         document,
         modified_at,
+        None,
         ANNOTATION_PARSE_CHUNK_BYTES,
         |bytes| {
             let next_len = output
@@ -456,7 +547,7 @@ pub(crate) fn collect_parsed_annotations(
     modified_at: &str,
 ) -> Result<Vec<PdfAnnotationParseEntry>> {
     let mut entries = Vec::new();
-    scan_parsed_annotations(document, modified_at, |entry| {
+    scan_parsed_annotations(document, modified_at, None, |entry| {
         entries.push(entry);
         Ok(())
     })?;

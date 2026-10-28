@@ -224,21 +224,21 @@ pub(crate) fn resolve_page_rotation(
     ))
 }
 
-/// Finds a page by number: in qpdf's page-tree walk when a page-local load
-/// supplied it (that load holds no other page-tree nodes), otherwise by
-/// walking the loaded page tree.
+/// Finds a page by number: among the pages a page-local load located (that
+/// load holds no other page-tree nodes), otherwise by walking the loaded page
+/// tree.
 pub(crate) enum PageLookup<'a> {
-    Walked(&'a [ObjectId]),
+    Located(&'a LocatedPages),
     Tree(PageTreeResolver),
 }
 
 impl<'a> PageLookup<'a> {
     pub(crate) fn new(
         document: &impl PdfObjectSource,
-        page_ids_by_number: Option<&'a [ObjectId]>,
+        located_pages: Option<&'a LocatedPages>,
     ) -> Result<Self> {
-        Ok(match page_ids_by_number {
-            Some(page_ids) => Self::Walked(page_ids),
+        Ok(match located_pages {
+            Some(located) => Self::Located(located),
             None => Self::Tree(PageTreeResolver::new(document)?),
         })
     }
@@ -249,14 +249,14 @@ impl<'a> PageLookup<'a> {
         page_number: u32,
     ) -> Result<ObjectId> {
         match self {
-            Self::Walked(page_ids) => page_number
+            Self::Located(located) => page_number
                 .checked_sub(1)
-                .and_then(|index| page_ids.get(index as usize))
+                .and_then(|index| located.ids.get(&index))
                 .copied()
                 .ok_or_else(|| {
                     format!(
-                        "Page {page_number} is outside the document page range 1-{}",
-                        page_ids.len()
+                        "Page {page_number} was not located in the document page range 1-{}",
+                        located.count
                     )
                     .into()
                 }),
@@ -268,9 +268,9 @@ impl<'a> PageLookup<'a> {
 fn resolve_page_rotation_targets(
     document: &impl PdfObjectSource,
     rotations: &[PageRotationMutation],
-    page_ids_by_number: Option<&[ObjectId]>,
+    located_pages: Option<&LocatedPages>,
 ) -> Result<Vec<(ObjectId, i64)>> {
-    let pages = PageLookup::new(document, page_ids_by_number)?;
+    let pages = PageLookup::new(document, located_pages)?;
     let mut targets = Vec::with_capacity(rotations.len());
     for rotation in rotations {
         let page_number = rotation
@@ -313,7 +313,7 @@ pub(crate) fn rotate_pages_incremental(
     let targets = resolve_page_rotation_targets(
         incremental.get_prev_documents(),
         rotations,
-        incremental.page_ids_by_number.as_deref(),
+        incremental.located_pages.as_ref(),
     )?;
     for (page_id, rotation) in targets {
         incremental.opt_clone_object_to_new_document(page_id)?;
