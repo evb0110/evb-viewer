@@ -153,11 +153,19 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 return false;
             }
             const targetStoreMutationEpoch = targetStore.mutationEpoch;
+            const unsubscribe = targetStore.subscribe(() => {
+                if (targetStore.mutationEpoch > targetStoreMutationEpoch) abortController.abort();
+            });
             try {
-                const result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(parsePath, {
-                    expectedDocumentRevisionToken: expectedRevisionToken,
-                    signal: abortController.signal,
-                });
+                let result: IPdfAnnotationParseResult;
+                try {
+                    result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(parsePath, {
+                        expectedDocumentRevisionToken: expectedRevisionToken,
+                        signal: abortController.signal,
+                    });
+                } finally {
+                    unsubscribe();
+                }
                 if (isCurrent()) await recordPdfDocumentOriginalAnnotations(document, result, async () => {
                     const snapshot = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(parsePath);
                     try {

@@ -195,8 +195,10 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         };
         console.info(`[large-pdf additive saves] ${JSON.stringify(timings)}`);
         // The first save lands while the document's opening read is still
-        // running, which the save abandons, so that save reads the whole
-        // document back once. Later saves read back only their own pages.
+        // running. The edit stops that read, so this save reads the whole
+        // document back once without waiting on it; later saves read back
+        // only their own pages.
+        expect(highlightSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
         expect(rectangleSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
         expect(textBoxSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
 

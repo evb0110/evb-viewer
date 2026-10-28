@@ -1,5 +1,7 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 import type * as TViMockOriginalModule2 from '@electron/utils/abort';
+import type * as TMainOperationLifecycleModule from '@electron/operation-lifecycle/mainOperationLifecycle';
+import type {IPdfAnnotationParseOptions} from '@contracts/pdfAnnotationParseTypes';
 
 import {
     existsSync,
@@ -20,6 +22,16 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {IpcMainInvokeEvent} from 'electron';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
+import {DOCUMENT_WORKING_COPY_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
+import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
+import {
+    IPC_INVOKE_REQUEST_ID_FIELD, CORE_IPC_SEND_CHANNELS,
+} from '@electron/platform-ipc/coreContract';
+import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 import {
@@ -58,7 +70,11 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
 }));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
-vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: (...args: unknown[]) => mocks.registerMainOperation(...args)}));
+vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', async importOriginal => ({
+    ...(await importOriginal<typeof TMainOperationLifecycleModule>()),
+    registerMainOperation: (...args: unknown[]) => mocks.registerMainOperation(...args),
+}));
+vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({isTrustedIpcInvokeSender: () => true}));
 vi.mock('@electron/features/documents/main/nativePdfMetadata', () => ({registerNativePdfSenderCleanup: (...args: unknown[]) => mocks.registerNativePdfSenderCleanup(...args)}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: (...args: unknown[]) => mocks.getAppTempDir(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: (...args: unknown[]) => mocks.createLogger(...args)}));
@@ -155,11 +171,80 @@ describe('PDF annotation parse main session', () => {
     });
 
     afterEach(() => {
+        vi.unstubAllGlobals();
         if (tempRoot) {
             rmSync(tempRoot, {
                 force: true,
                 recursive: true,
             });
+        }
+    });
+
+    it('cancels native parsing and removes its sidecar when the renderer aborts its IPC invoke', async () => {
+        const lifecycle = await vi.importActual<typeof TMainOperationLifecycleModule>(
+            '@electron/operation-lifecycle/mainOperationLifecycle',
+        );
+        mocks.registerMainOperation.mockImplementation(lifecycle.registerMainOperation);
+        const {createValidatedIpcMainRegistrar} = await import('@electron/platform-ipc/validatedIpcRegistrar');
+        let handler: ((event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unknown>) | undefined;
+        const feature = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE;
+        const channel = feature.invokeChannels.parsePdfAnnotations;
+        const registrar = createValidatedIpcMainRegistrar({handle: (_channel, registered) => {
+            handler = registered as typeof handler;
+        }}, {codecs: feature.ipcCodecs});
+        registrar.handle(channel, (_event, path: string, options: IPdfAnnotationParseOptions) => parsePdfAnnotations(context, path, options));
+        const sender = {id: context.senderId} as IpcMainInvokeEvent['sender'];
+        const mainReplies: Array<Promise<unknown>> = [];
+        const ipcRenderer = {
+            invoke: vi.fn((_channel: string, ...args: unknown[]) => {
+                const reply = handler!({sender} as IpcMainInvokeEvent, ...structuredClone(args));
+                mainReplies.push(reply);
+                return reply;
+            }),
+            send: vi.fn((cancelChannel: string, metadata) => {
+                expect(cancelChannel).toBe(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled);
+                cancelIpcInvoke(sender, requireRequestId(metadata[IPC_INVOKE_REQUEST_ID_FIELD]));
+            }),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const preload = createPlatformFeaturePreloadClient(ipcRenderer as never, feature);
+        vi.stubGlobal('window', {electronAPI: {documentWorkingCopy: preload}});
+        const nativeStarted = Promise.withResolvers<{
+            signal: AbortSignal;
+            cancelGroup: string
+        }>();
+        mocks.runNativeToolCommand.mockImplementation(async (_nativePath: string, args: string[], options) => {
+            sidecarPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(sidecarPath, 'partial native output');
+            nativeStarted.resolve(options);
+            await new Promise((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => reject(options.signal.reason), {once: true});
+            });
+        });
+        const controller = new AbortController();
+        try {
+            const pending = getRawElectronPlatformApi()!.documentWorkingCopy.parsePdfAnnotations(
+                requireDocumentRef('/logical/working.pdf'),
+                {
+                    expectedDocumentRevisionToken: revisionToken,
+                    signal: controller.signal,
+                },
+            );
+            const rejected = expect(pending).rejects.toMatchObject({name: 'AbortError'});
+            const native = await nativeStarted.promise;
+            expect(existsSync(sidecarPath)).toBe(true);
+            controller.abort();
+            await rejected;
+            expect(native.signal.aborted).toBe(true);
+            expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(native.cancelGroup);
+            await expect(mainReplies[0]).rejects.toThrow(/canceled/iu);
+            expect(existsSync(dirname(sidecarPath))).toBe(false);
+            expect(lifecycle.snapshotMainOperations()).toEqual([]);
+        } finally {
+            controller.abort();
+            registrar.claimExisting(channel)();
+            lifecycle.resetMainOperationLifecycleForTests();
         }
     });
 

@@ -54,7 +54,8 @@ describe('platform runtime detection', () => {
 
         const { getPlatformAPI } = await import('@app/utils/platform');
 
-        expect(getPlatformAPI()).toBe(electronAPI);
+        await getPlatformAPI().shell.openExternal('https://example.com');
+        expect(electronAPI.shell.openExternal).toHaveBeenCalledWith('https://example.com');
         expect(browserPlatformImportCount).toBe(0);
 
         vi.unstubAllGlobals();
