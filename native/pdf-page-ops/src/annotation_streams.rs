@@ -102,7 +102,17 @@ fn managed_stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(Obj
             if !is_managed_placed_image_stamp(dictionary) {
                 continue;
             }
-            if let Ok(graph) = stamp_image_graph(document, dictionary) {
+            if let Ok(mut graph) = stamp_image_graph(document, dictionary) {
+                // The raster identity binds its alpha samples as well as its
+                // colors. Materialize the soft mask before recognizing it.
+                if let Some(mask) = graph
+                    .last()
+                    .and_then(|(_, stream)| stream.dict.get(b"SMask").ok()?.as_reference().ok())
+                {
+                    if let Ok(Object::Stream(stream)) = document.object(mask) {
+                        graph.push((mask, stream));
+                    }
+                }
                 for (object_id, stream) in graph {
                     let is_image = stream
                         .dict

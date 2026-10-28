@@ -900,7 +900,8 @@ export function committedAffectedPageIndices(
     const shapes = mutations.shapes;
     const local = projection.annotationDeletes.length === 0
         && !projection.hasMetadataMutations
-        && !projection.placedImageGeometryUpdates?.length && !mutations.placedImages?.length
+        && !projection.placedImageGeometryUpdates?.some(update => update.sourceImage)
+        && !mutations.placedImages?.some(image => Boolean(image.annotationId) || !image.stableKey)
         && !projection.freeTextNotes.some(note => note.recoveryData)
         && !projection.textBoxes?.some(box => Boolean(box.annotationId) || Boolean(box.originalAppearance))
         && (!shapes || (!shapes.rewriteShapeState && !shapes.deletedAnnotationIds.length

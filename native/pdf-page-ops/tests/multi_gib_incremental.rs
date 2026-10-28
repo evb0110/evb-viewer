@@ -30,12 +30,16 @@ impl Drop for TempFiles {
 }
 
 fn temp_path(label: &str, extension: &str) -> PathBuf {
+    // Tests run in parallel threads and the clock can repeat a value, so a
+    // per-process sequence keeps two paths with the same label apart.
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     env::temp_dir().join(format!(
-        "evb-pdf-page-ops-{label}-{}-{nonce}.{extension}",
+        "evb-pdf-page-ops-{label}-{}-{nonce}-{sequence}.{extension}",
         std::process::id()
     ))
 }
@@ -598,6 +602,10 @@ fn append_mutations_in_place(pdf: &Path, mutations: &Path) -> Output {
 }
 
 fn save_mutations(pdf: &Path, mutations: &Path, mode: &[&str]) -> Output {
+    save_mutations_with_qpdf(pdf, mutations, mode, &qpdf_path())
+}
+
+fn save_mutations_with_qpdf(pdf: &Path, mutations: &Path, mode: &[&str], qpdf: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["save-mutations", "--input"])
         .arg(pdf)
@@ -606,7 +614,7 @@ fn save_mutations(pdf: &Path, mutations: &Path, mode: &[&str]) -> Output {
         .arg("--mutations-file")
         .arg(mutations)
         .arg("--qpdf")
-        .arg(qpdf_path())
+        .arg(qpdf)
         .args(["--modified-at", "D:20260827230000Z"])
         .args(mode)
         .output()
@@ -2200,5 +2208,183 @@ fn additive_annotation_saves_match_whole_and_scoped_readback_on_large_pdfs() {
             }
             assert_qpdf_check(pdf);
         }
+    }
+}
+
+/// First, middle and last pages have different ancestors; skipped siblings
+/// must not change the numbering of a partially loaded tree.
+fn write_page_local_image_pdf(path: &Path, padded: bool, heavy: bool) {
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.7\n").unwrap();
+    let mut offsets = Vec::new();
+    let objects: [&[u8]; 8] = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Count 3/Kids[3 0 R 5 0 R]/MediaBox[0 0 200 100]/CropBox[10 5 190 95]/Rotate 90>>",
+        b"<</Type/Pages/Parent 2 0 R/Count 1/Kids[4 0 R]>>",
+        b"<</Type/Page/Parent 3 0 R/Resources<<>>>>",
+        b"<</Type/Pages/Parent 2 0 R/Count 2/Kids[6 0 R]>>",
+        b"<</Type/Pages/Parent 5 0 R/Count 2/Kids[7 0 R 8 0 R]>>",
+        b"<</Type/Page/Parent 6 0 R/Resources<<>>>>",
+        b"<</Type/Page/Parent 6 0 R/Resources<<>>>>",
+    ];
+    for (index, body) in objects.iter().enumerate() {
+        write_object(
+            &mut file,
+            &mut offsets,
+            format!(
+                "{} 0 obj\n{}\nendobj\n",
+                index + 1,
+                String::from_utf8_lossy(body)
+            )
+            .as_bytes(),
+        );
+    }
+    if padded {
+        for number in 9..14 {
+            let array = "0 ".repeat(if heavy { 900_000 } else { 1 });
+            write_object(
+                &mut file,
+                &mut offsets,
+                format!("{number} 0 obj\n[{array}]\nendobj\n").as_bytes(),
+            );
+        }
+        offsets.push(file.stream_position().unwrap());
+        write!(
+            file,
+            "14 0 obj\n<</Length {STRUCTURAL_LOADER_STREAM_BYTES}>>\nstream\n"
+        )
+        .unwrap();
+        file.seek(SeekFrom::Current(STRUCTURAL_LOADER_STREAM_BYTES as i64))
+            .unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+    }
+    let xref = file.stream_position().unwrap();
+    let size = offsets.len() + 1;
+    write!(file, "xref\n0 {size}\n0000000000 65535 f \n").unwrap();
+    for offset in offsets {
+        writeln!(file, "{offset:010} 00000 n ").unwrap();
+    }
+    write!(
+        file,
+        "trailer\n<</Size {size}/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n"
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+}
+
+#[test]
+fn placed_images_create_and_move_on_deep_large_trees_match_whole_readback() {
+    check_page_local_images(&qpdf_path());
+}
+
+#[cfg(unix)]
+#[test]
+fn placed_images_through_cli_match_whole_readback() {
+    use std::os::unix::fs::PermissionsExt;
+    let wrapper = temp_path("images-qpdf-cli", "sh");
+    let _cleanup = TempFiles(vec![wrapper.clone()]);
+    fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec '{}' \"$@\"\n", qpdf_path().display()),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
+    check_page_local_images(&wrapper);
+}
+
+fn check_page_local_images(qpdf: &Path) {
+    use base64::Engine;
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    let mut png = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png, 2, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&[255, 0, 0, 128, 0, 255, 0, 255])
+            .unwrap();
+    }
+    let hash = Sha256::digest(&png)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let small = temp_path("images-small", "pdf");
+    let padded = temp_path("images-padded", "pdf");
+    let large = temp_path("images-large", "pdf");
+    let mutations = temp_path("images-mutations", "json");
+    let _cleanup = TempFiles(vec![
+        small.clone(),
+        padded.clone(),
+        large.clone(),
+        mutations.clone(),
+    ]);
+    write_page_local_image_pdf(&small, false, false);
+    write_page_local_image_pdf(&padded, true, false);
+    write_page_local_image_pdf(&large, true, true);
+    let mut oracle: Vec<Vec<Value>> = Vec::new();
+    for pdf in [&small, &padded, &large] {
+        for moving in [false, true] {
+            let images = (0..3).map(|page| {
+                let mut image = json!({"pageIndex":page,"stableKey":format!("image-{page}"),"x":if moving {0.25} else {0.1},"y":0.2,"width":0.3,"height":0.15,"rotationDegrees":if moving {25} else {0}});
+                if !moving {
+                    image["mimeType"] = json!("image/png");
+                    image["bytesBase64"] = json!(base64::engine::general_purpose::STANDARD.encode(&png));
+                    image["byteLength"] = json!(png.len());
+                    image["sha256"] = json!(hash);
+                }
+                image
+            }).collect::<Vec<_>>();
+            fs::write(
+                &mutations,
+                json!({if moving {"placedImageGeometryUpdates"} else {"placedImages"}:images})
+                    .to_string(),
+            )
+            .unwrap();
+            let output =
+                save_mutations_with_qpdf(pdf, &mutations, &["--append", "--append-in-place"], qpdf);
+            assert!(
+                output.status.success(),
+                "{} move={moving}: {}",
+                pdf.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let whole = if pdf == &large {
+                oracle[usize::from(moving)].clone()
+            } else {
+                parse_annotations(pdf, qpdf, None).1
+            };
+            assert_eq!(whole.len(), 3);
+            assert!(
+                whole
+                    .iter()
+                    .all(|entry| entry["kind"] == "stamp" && entry["image"]["sha256"] == hash),
+                "{whole:?}"
+            );
+            if pdf == &padded {
+                oracle.push(whole.clone());
+            }
+            for page in 1..=3 {
+                let (header, scoped) = parse_annotations(pdf, qpdf, Some(&[page]));
+                assert_eq!(header["pageCount"], 3);
+                let expected = whole
+                    .iter()
+                    .filter(|entry| entry["pageIndex"] == page - 1)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    scoped,
+                    expected,
+                    "{} page={page} move={moving}",
+                    pdf.display()
+                );
+                assert!(
+                    (scoped[0]["rect"]["left"].as_f64().unwrap() - if moving { 0.25 } else { 0.1 })
+                        .abs()
+                        < 1e-6
+                );
+            }
+        }
+        assert_qpdf_check(pdf);
     }
 }

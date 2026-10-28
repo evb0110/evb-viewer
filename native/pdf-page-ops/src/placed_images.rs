@@ -939,7 +939,10 @@ pub(crate) fn apply_placed_images_incremental(
         return Ok(());
     }
 
-    let page_map = incremental.get_prev_documents().get_pages();
+    let pages = PageLookup::new(
+        incremental.get_prev_documents(),
+        incremental.located_pages.as_ref(),
+    )?;
     if images.len() != image_bytes.len() {
         return Err("Placed image validation cache does not match its manifest".into());
     }
@@ -950,7 +953,7 @@ pub(crate) fn apply_placed_images_incremental(
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = pages.page_id(incremental.get_prev_documents(), page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
             entry.insert(build_incremental_page_annotation_index(incremental, page_id)?.0);
@@ -1046,13 +1049,14 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
     modified_at: &str,
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
-    let page_map = incremental.get_prev_documents().get_pages();
+    let located = incremental.located_pages.clone();
+    let pages = PageLookup::new(incremental.get_prev_documents(), located.as_ref())?;
     for update in updates {
         let page_number = update
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = pages.page_id(incremental.get_prev_documents(), page_number)?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let probe = placed_image_geometry_probe(update);

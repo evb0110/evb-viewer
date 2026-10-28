@@ -374,16 +374,14 @@ async function executeNativeMutationSave(
         }
     }
     // A layer may be marked clean only if this save carried its edits. The
-    // projection records the edits carried by the published revision.
-    const annotationEditsWritten = projection.noteTextUpdates.length > 0
-        || (projection.noteGeometryUpdates?.length ?? 0) > 0
-        || projection.freeTextNotes.length > 0
-        || (projection.textBoxes?.length ?? 0) > 0
-        || projection.annotationDeletes.length > 0
-        || projection.hasMarkupMutations
-        || projection.hasShapeMutations;
-    const bookmarkEditsWritten = projection.mutations.bookmarks !== undefined;
-    const pageLabelEditsWritten = projection.mutations.pageLabels !== undefined;
+    // published mutations hold a key only for each kind of edit they carry.
+    const {
+        bookmarks, pageLabels, ...annotationEdits
+    } = projection.mutations;
+    const annotationEditsWritten = Object.keys(annotationEdits).length > 0
+        || Boolean(projection.placedImageGeometryUpdates?.length);
+    const bookmarkEditsWritten = bookmarks !== undefined;
+    const pageLabelEditsWritten = pageLabels !== undefined;
 
     return {
         status: 'saved',

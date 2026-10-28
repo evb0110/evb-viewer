@@ -14,6 +14,7 @@ import {
     type INoteEntity,
     type ITextMarkupEntity,
     type IShapeEntity,
+    type IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -687,11 +688,27 @@ function simpleShape(id: string): IShapeEntity {
     };
 }
 
+function placedImage(id: string): IPlacedImageEntity {
+    return {
+        ...note(id),
+        kind: 'placed-image',
+        rect,
+        rotation: 0,
+        image: {
+            objectNumber: 42,
+            generationNumber: 0,
+            byteLength: 20,
+            sha256: 'a'.repeat(64),
+        },
+    };
+}
+
 describe('scoped committed additive upserts', () => {
     const factories = [
         textMarkup,
         textBox,
         simpleShape,
+        placedImage,
     ];
     it.each(factories)('merges a recognized upsert and retains outside baselines', (factory) => {
         const store = new AnnotationStore();
@@ -700,6 +717,7 @@ describe('scoped committed additive upserts', () => {
         const added = factory('added');
         if (added.kind === 'shape') store.createShape(added);
         else if (added.kind === 'text-box') store.createTextBox(added);
+        else if (added.kind === 'placed-image') store.createPlacedImage(added);
         else store.createTextMarkup(added);
         const frontier = store.beginSave();
         store.markPersisted(frontier, [{

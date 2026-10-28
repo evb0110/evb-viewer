@@ -260,7 +260,7 @@ describe('save requests while the document lease is held', () => {
     });
 });
 
-function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box'): TPdfAnnotationParseEntity {
+function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box' | 'stamp'): TPdfAnnotationParseEntity {
     const base = {
         pageIndex: requirePageIndex(0),
         objectNumber: 50,
@@ -294,6 +294,18 @@ function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box'): TPdfAnnotatio
         fontSize: 12,
         color: '#123456',
     };
+    if (kind === 'stamp') return {
+        ...base,
+        kind,
+        rect,
+        rotation: 0,
+        image: {
+            objectNumber: 42,
+            generationNumber: 0,
+            byteLength: 20,
+            sha256: 'a'.repeat(64),
+        },
+    };
     return {
         ...base,
         kind,
@@ -323,6 +335,7 @@ describe('scoped additive save readback through transaction and workspace servic
         'highlight',
         'shape',
         'text-box',
+        'stamp',
     ] as const) {
         it.each([
             'recognized',
@@ -348,6 +361,18 @@ describe('scoped additive save readback through transaction and workspace servic
             });
             else if (fresh.kind === 'text-box') application.store.createTextBox(fresh);
             else if (fresh.kind === 'text-markup') application.store.createTextMarkup(fresh);
+            else if (fresh.kind === 'placed-image') application.store.createPlacedImage({
+                ...fresh,
+                image: {
+                    kind: 'raster',
+                    mimeType: 'image/png',
+                    dataBase64: 'cG5n',
+                    byteLength: 3,
+                    sha256: 'b'.repeat(64),
+                    width: 1,
+                    height: 1,
+                },
+            });
             const revision = ref(requireDocumentRevisionToken('rev-1'));
             const {deps} = createDeps({
                 originalPath: ref(requireDocumentRef('/tmp/source.pdf')),

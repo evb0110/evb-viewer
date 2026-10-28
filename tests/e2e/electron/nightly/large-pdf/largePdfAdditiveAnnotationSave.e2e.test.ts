@@ -2,7 +2,7 @@ import {
     afterAll, describe, expect, it,
 } from 'vitest';
 import {
-    constants, copyFileSync, mkdtempSync, realpathSync, rmSync,
+    constants, copyFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +24,11 @@ import {
     waitForCrashCheckpointPath,
     waitForRestoredDocument,
 } from './largePdfAnnotationSaveShared';
+import {
+    PLACED_IMAGE_JPEG, finalizeImagePlacement, installManagedJpegClipboard, pasteImageFromVisibleMenu,
+} from '@tests/e2e/electron/helpers/placedImageClipboard';
+import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
+import { waitForSaveFrontierReady } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
@@ -115,6 +120,82 @@ async function saveWithinBudget(page: Page, label: string) {
     return Date.now() - startedAt;
 }
 
+function copyLargeFixture(directories: string[], name: string) {
+    const fixtureSourcePath = largePdfFixture.path;
+    if (!fixtureSourcePath) {
+        throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
+    }
+    const directory = mkdtempSync(join(tmpdir(), 'evb-large-pdf-additive-'));
+    directories.push(directory);
+    const documentPath = join(directory, name);
+    try {
+        copyFileSync(fixtureSourcePath, documentPath, constants.COPYFILE_FICLONE);
+    } catch {
+        copyFileSync(fixtureSourcePath, documentPath);
+    }
+    return documentPath;
+}
+
+/** Where the page's placed images sit, as fractions of the page box. */
+function readPlacedImagePositions(page: Page) {
+    return page.evaluate((pageNumber: number) => {
+        const container = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active .page_container[data-page="${pageNumber}"]`,
+        );
+        const box = container?.getBoundingClientRect();
+        if (!container || !box || box.width <= 0 || box.height <= 0) return [];
+        return Array.from(container.querySelectorAll<HTMLElement>(
+            '.pdf-annotation-editor-layer [data-annotation-kind="placed-image"]',
+        )).map((entity) => {
+            const rect = entity.getBoundingClientRect();
+            return {
+                left: (rect.left - box.left) / box.width,
+                top: (rect.top - box.top) / box.height,
+            };
+        });
+    }, PAGE_NUMBER);
+}
+
+function isNear(position: {
+    left: number;
+    top: number
+}, expected: {
+    left: number;
+    top: number
+}) {
+    return Math.abs(position.left - expected.left) < 0.01 && Math.abs(position.top - expected.top) < 0.01;
+}
+
+/** Drags an entity with the Select tool and waits until it has moved. */
+async function dragEntity(page: Page, id: string) {
+    await clickAnnotationTool(page, 'Select');
+    const readRect = () => page.evaluate((annotationId: string) => {
+        const rect = document.querySelector(
+            `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+        )?.getBoundingClientRect();
+        return rect ? {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+        } : null;
+    }, id);
+    const before = await readRect();
+    if (!before) {
+        throw new Error(`Entity ${id} is not on screen to drag`);
+    }
+    const x = before.left + before.width / 2;
+    const y = before.top + before.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 48, y + 32, {steps: 8});
+    await page.mouse.up();
+    await expect.poll(async () => {
+        const after = await readRect();
+        return after !== null && Math.abs(after.left - before.left) > 4 && Math.abs(after.top - before.top) > 4;
+    }, {timeout: 10_000}).toBe(true);
+}
+
 largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-large-pdf-additive-${Date.now()}`,
@@ -132,18 +213,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
     });
 
     it('saves a new highlight, rectangle and text box separately and reopens them', async () => {
-        const fixtureSourcePath = largePdfFixture.path;
-        if (!fixtureSourcePath) {
-            throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
-        }
-        const directory = mkdtempSync(join(tmpdir(), 'evb-large-pdf-additive-'));
-        directories.push(directory);
-        const documentPath = join(directory, 'additive.pdf');
-        try {
-            copyFileSync(fixtureSourcePath, documentPath, constants.COPYFILE_FICLONE);
-        } catch {
-            copyFileSync(fixtureSourcePath, documentPath);
-        }
+        const documentPath = copyLargeFixture(directories, 'additive.pdf');
 
         const session = sessionFixture.getSession();
         const {page} = session;
@@ -230,5 +300,63 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
             rectangle: true,
             textBox: true,
         });
+    }, LARGE_PDF_TIMEOUT_MS * 2);
+    it('places an image, moves it, saves each step and reopens it', async () => {
+        const documentPath = copyLargeFixture(directories, 'image.pdf');
+        const session = await sessionFixture.restart({clean: true});
+        const {page} = session!;
+        await openPdfInApp(page, documentPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(page, 30_000);
+        await setupScrollToPage(page, PAGE_NUMBER);
+        const imagePath = join(electronAppTempDirPath(session!.name), `large-pdf-placed-image-${process.pid}.jpg`);
+        writeFileSync(imagePath, PLACED_IMAGE_JPEG);
+        await installManagedJpegClipboard(page, imagePath);
+
+        const beforeImage = await readCanonicalEntities(page);
+        await pasteImageFromVisibleMenu(page, PAGE_NUMBER);
+        await finalizeImagePlacement(page);
+        const image = await waitForNewEntity(page, 'placed-image', beforeImage);
+        const placeSaveMs = await saveWithinBudget(page, 'Placed image save');
+        const [placedAt] = await readPlacedImagePositions(page);
+        expect(placedAt).toBeDefined();
+
+        await dragEntity(page, image.id);
+        await waitForSaveFrontierReady(page, 30_000);
+        const moveSaveMs = await saveWithinBudget(page, 'Placed image move save');
+        const [movedTo] = await readPlacedImagePositions(page);
+        expect(movedTo).toBeDefined();
+        expect(isNear(movedTo!, placedAt!), JSON.stringify({
+            placedAt,
+            movedTo,
+        })).toBe(false);
+        const savedCount = await readPanelAnnotationCount(page);
+        expect(savedCount, 'The annotations panel shows a count after the saves').not.toBeNull();
+
+        const timings = {
+            placeSaveMs,
+            moveSaveMs,
+        };
+        console.info(`[large-pdf placed image saves] ${JSON.stringify(timings)}`);
+        expect(placeSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        expect(moveSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+
+        await waitForCrashCheckpointPath(session!.name, realpathSync(documentPath));
+        const restarted = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+        });
+        const restartedPage = restarted!.page;
+        await waitForRestoredDocument(restartedPage, documentPath);
+        await expectCleanAnnotationHydration(restartedPage);
+        await openAnnotationsTab(restartedPage, 30_000);
+        await expect.poll(() => readPanelAnnotationCount(restartedPage), {timeout: 60_000}).toBe(savedCount);
+        // The reopened file must hold the image where the move left it.
+        await setupScrollToPage(restartedPage, PAGE_NUMBER);
+        await expect.poll(async () => {
+            const positions = await readPlacedImagePositions(restartedPage);
+            return positions.length === 1 && isNear(positions[0]!, movedTo!);
+        }, {timeout: 60_000}).toBe(true);
     }, LARGE_PDF_TIMEOUT_MS * 2);
 });
