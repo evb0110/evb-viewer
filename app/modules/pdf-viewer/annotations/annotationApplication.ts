@@ -16,7 +16,6 @@ import type {
 
 import {
     asAnnotationId,
-    isNewPageLocalShape,
     isReadOnlyAnnotation,
     mintAnnotationId,
     toLegacyShapeAnnotation,
@@ -53,7 +52,7 @@ export interface IAnnotationSaveSession {
     readonly frontier: IAnnotationSaveFrontier;
     readonly plan: ReturnType<typeof buildSerializationPlan>;
     /**
-     * Frontier pages for local saves; deletes also need native scope.
+     * Frontier pages; existing targets also require native ownership proof.
      * Null for mutations requiring whole read-back.
      */
     readonly affectedPageIndices: readonly number[] | null;
@@ -318,10 +317,8 @@ export class AnnotationApplication {
         const dirty = this.store.dirtyEntities();
         const pageLocal = dirty.length > 0 && dirty.every(entity => entity.deleted || (
             entity.kind === 'note' ? !entity.recoveryData
-                : entity.kind === 'shape' ? isNewPageLocalShape(entity)
-                    : entity.kind === 'placed-image' ? Boolean(entity.identity.pdfRef) || 'kind' in entity.image
-                        : (entity.kind === 'text-markup' || entity.kind === 'text-box')
-                        && entity.persistedRevision < 0 && !entity.identity.pdfRef
+                : entity.kind === 'placed-image' ? Boolean(entity.identity.pdfRef) || 'kind' in entity.image
+                    : entity.kind === 'shape' || entity.kind === 'text-markup' || entity.kind === 'text-box'
         ));
         return {
             frontier,

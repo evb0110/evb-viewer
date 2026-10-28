@@ -1,4 +1,4 @@
-//! Bounded identity and deletion effects emitted after successful native saves.
+//! Bounded identity, affected-page and confirmed deletion effects after saves.
 use super::*;
 const MAX_ANNOTATION_IDENTITY_BINDINGS: usize = 4_096;
 const MAX_ANNOTATION_IDENTITY_REPORT_BYTES: usize = 256 * 1024;
@@ -12,32 +12,27 @@ pub(crate) struct AnnotationDeleteEffects {
 
 pub(crate) fn annotation_delete_effects(
     base: &IncrementalDocument,
-    mutations: &NativeMutationsFile,
 ) -> Result<Option<AnnotationDeleteEffects>> {
-    let Some(located) = base
-        .located_pages
-        .as_ref()
-        .filter(|_| !mutations.deletes.is_empty())
-    else {
+    let Some(located) = base.located_pages.as_ref() else {
         return Ok(None);
     };
     let source = AppendedRevision::new(base);
-    let listing = AnnotationListing::new_for_pages(base.get_prev_documents(), Some(located));
-    let deleted = collect_delete_refs(
-        base.get_prev_documents(),
-        &mutations.deletes,
-        &listing.replies,
-        Some(located),
-    )?;
-    let mut replies = deleted
-        .into_iter()
-        .filter(|id| {
-            source
-                .dictionary(*id)
-                .is_ok_and(|dict| dict.get(b"IRT").and_then(Object::as_reference).is_ok())
-        })
+    let mut remaining = HashSet::new();
+    for page in located.ids.values() {
+        remaining.extend(
+            get_page_annots(&source, *page)?
+                .iter()
+                .filter_map(|object| object.as_reference().ok()),
+        );
+    }
+    let mut replies = AnnotationListing::new_for_pages(base.get_prev_documents(), Some(located))
+        .replies
+        .into_values()
+        .flatten()
+        .filter(|id| !remaining.contains(id))
         .collect::<Vec<_>>();
     replies.sort_unstable();
+    replies.dedup();
     // Oversized read-back scopes retain the existing whole-parse fallback.
     if located.ids.len() > MAX_ANNOTATION_IDENTITY_BINDINGS
         || replies.len() > MAX_ANNOTATION_IDENTITY_BINDINGS

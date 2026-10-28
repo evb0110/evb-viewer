@@ -19,11 +19,8 @@ impl PageLocalEdit {
     }
 }
 
-/// The pages and annotations of an edit whose writers read only those:
-/// rotations, notes without recovery imports, and additive markup, simple
-/// shapes, text boxes and placed images, plus image moves. Loaded creates
-/// must also pass `additive_targets_are_new`.
-/// Deletes add their complete page-tree closure before loading.
+/// Mutations whose writers can use selected pages and dependency closures.
+/// Annotation upserts and deletes discover ownership through the page-tree scan.
 pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLocalEdit> {
     let NativeMutationsFile {
         updates,
@@ -44,25 +41,17 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
     let notes = notes.iter().chain(free_text_notes);
     let page_local = text_boxes
         .iter()
-        .all(|editor| editor.annotation_id.is_none() && editor.original_appearance.is_none())
+        .all(|editor| editor.original_appearance.is_none())
         && page_labels.is_none()
         && bookmarks.is_none()
         && shapes.as_ref().is_none_or(|shapes| {
-            !shapes.rewrite_shape_state
-                && shapes.deleted_annotation_ids.is_empty()
-                && shapes.deleted_stable_keys.is_empty()
-                && shapes.shapes.iter().all(|shape| {
-                    shape.annotation_id.is_none()
-                        && normalize_managed_shape_stable_key(shape.stable_key.as_deref()).is_some()
-                        && matches!(
-                            shape.shape_type.as_str(),
-                            "rectangle" | "circle" | "line" | "arrow"
-                        )
-                })
+            shapes.shapes.iter().all(|shape| {
+                shape_annotation_subtype_for_create(shape).is_some()
+                    && (shape.annotation_id.is_some()
+                        || normalize_managed_shape_stable_key(shape.stable_key.as_deref())
+                            .is_some())
+            })
         })
-        && markup
-            .as_ref()
-            .is_none_or(|markup| markup.hints.iter().all(is_new_markup_hint_data))
         && placed_images.iter().all(|image| {
             image.annotation_id.is_none()
                 && image
@@ -114,55 +103,72 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
     edit.pages.clone_from(&edit.annotation_pages);
     edit.pages
         .extend(page_rotations.iter().map(|rotation| rotation.page_index));
-    (page_local && !(edit.pages.is_empty() && edit.annotations.is_empty())).then_some(edit)
+    (page_local && !(edit.pages.is_empty() && edit.annotations.is_empty() && shapes.is_none()))
+        .then_some(edit)
 }
 
-/// Payload admission cannot distinguish a create from a name-based upsert.
-/// Check the same local targets the writers use before allowing a partial base.
-/// A duplicate name elsewhere cannot be rewritten by these local writers.
+/// Raster replacement and geometry-only markup matching keep the whole path.
+/// Scanned targets may upsert; fresh creates retain target-page admission.
 pub(crate) fn additive_targets_are_new(
     incremental: &IncrementalDocument,
     mutations: &NativeMutationsFile,
+    scanned: bool,
 ) -> Result<bool> {
     let source = AppendedRevision::new(incremental);
     let pages = PageLookup::new(&source, source.located_pages())?;
     let mut targets = HashSet::<String>::new();
-    let mut names_on = |page_index: u32, name: String, prefixes: &[&str]| -> Result<bool> {
-        if targets
-            .iter()
-            .any(|existing| annotation_names_match(existing, &name, prefixes))
-        {
-            return Ok(false);
-        }
-        targets.insert(name.clone());
-        let page_id = pages.page_id(
-            &source,
-            page_index
-                .checked_add(1)
-                .ok_or("Invalid annotation page index")?,
-        )?;
-        // Like the writers, skip an entry that is not an annotation dictionary.
-        for object in get_page_annots(&source, page_id)? {
-            let Some(dict) = source
-                .resolved(&object)
-                .ok()
-                .and_then(|object| object.as_dict().ok())
-            else {
-                continue;
-            };
-            if [read_annotation_name(dict), read_shape_stable_key(dict)]
-                .into_iter()
-                .flatten()
-                .any(|existing| annotation_names_match(&existing, &name, prefixes))
+    let mut names_on =
+        |page_index: u32, name: String, prefixes: &[&str], existing: bool| -> Result<bool> {
+            if targets
+                .iter()
+                .any(|existing| annotation_names_match(existing, &name, prefixes))
             {
                 return Ok(false);
             }
-        }
-        Ok(true)
-    };
+            targets.insert(name.clone());
+            if existing {
+                return Ok(true);
+            }
+            let page_id = pages.page_id(
+                &source,
+                page_index
+                    .checked_add(1)
+                    .ok_or("Invalid annotation page index")?,
+            )?;
+            // Like the writers, skip an entry that is not an annotation dictionary.
+            for object in get_page_annots(&source, page_id)? {
+                let Some(dict) = source
+                    .resolved(&object)
+                    .ok()
+                    .and_then(|object| object.as_dict().ok())
+                else {
+                    continue;
+                };
+                if [read_annotation_name(dict), read_shape_stable_key(dict)]
+                    .into_iter()
+                    .flatten()
+                    .any(|existing| annotation_names_match(&existing, &name, prefixes))
+                {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        };
     for editor in &mutations.text_boxes {
-        if !names_on(editor.page_index, text_box_name(editor), &["evb-freetext:"])? {
+        if !names_on(
+            editor.page_index,
+            text_box_name(editor),
+            &["evb-freetext:"],
+            scanned,
+        )? {
             return Ok(false);
+        }
+    }
+    for shape in mutations.shapes.iter().flat_map(|shapes| &shapes.shapes) {
+        if let Some(key) = normalize_managed_shape_stable_key(shape.stable_key.as_deref()) {
+            if !names_on(shape.page_index, key, &["evb-shape:"], scanned)? {
+                return Ok(false);
+            }
         }
     }
     for image in &mutations.placed_images {
@@ -175,30 +181,22 @@ pub(crate) fn additive_targets_are_new(
                 .trim()
                 .to_owned(),
             &["placed-image-native:"],
+            false,
         )? {
             return Ok(false);
         }
     }
-    if let Some(shapes) = &mutations.shapes {
-        for shape in &shapes.shapes {
-            let Some(key) = normalize_managed_shape_stable_key(shape.stable_key.as_deref()) else {
-                return Ok(false);
-            };
-            if !names_on(shape.page_index, key, &["evb-shape:"])? {
-                return Ok(false);
-            }
-        }
-    }
     if let Some(markup) = &mutations.markup {
         for hint in &markup.hints {
-            let Some(name) = markup_annotation_name(hint) else {
-                return Ok(false);
-            };
-            if !names_on(hint.page_index, name, &["evb-markup:"])? {
-                return Ok(false);
+            if let Some(name) = markup_annotation_name(hint) {
+                if !names_on(hint.page_index, name, &["evb-markup:"], scanned)? {
+                    return Ok(false);
+                }
             }
             // editor-live hints can also match existing markup by geometry.
-            if can_use_geometry_only_subtype_hint(hint) {
+            if can_use_geometry_only_subtype_hint(hint)
+                && normalize_hint_annotation_ref(hint).is_none()
+            {
                 let page = pages.page_id(&source, hint.page_index + 1)?;
                 let view = resolve_page_view(&source, page)?;
                 let rotation = resolve_page_rotation(&source, page)?;
@@ -240,13 +238,38 @@ pub(crate) fn load_native_mutation_base(
     if fs::metadata(path)?.len() > MAX_ENCODED_PDF_BYTES as u64 {
         if let (Some(qpdf), Some(mut edit)) = (qpdf, page_local_edit(mutations)) {
             let local = (|| {
-                if !mutations.deletes.is_empty() {
-                    extend_page_local_delete_edit(path, qpdf, mutations, &mut edit)?;
+                let existing = !mutations.deletes.is_empty()
+                    || mutations.shapes.as_ref().is_some_and(|shapes| {
+                        shapes.rewrite_shape_state
+                            || !shapes.deleted_annotation_ids.is_empty()
+                            || !shapes.deleted_stable_keys.is_empty()
+                            || shapes
+                                .shapes
+                                .iter()
+                                .any(|shape| shape.annotation_id.is_some())
+                    })
+                    || mutations
+                        .text_boxes
+                        .iter()
+                        .any(|editor| editor.annotation_id.is_some())
+                    || mutations.markup.as_ref().is_some_and(|markup| {
+                        markup
+                            .hints
+                            .iter()
+                            .any(|hint| !is_new_markup_hint_data(hint))
+                    });
+                if !existing {
+                    if let Some(base) = load_qpdf_page_local_incremental_pdf(path, qpdf, &edit)? {
+                        if additive_targets_are_new(&base, mutations, false)? {
+                            return Ok(Some(base));
+                        }
+                    }
                 }
+                extend_page_local_delete_edit(path, qpdf, mutations, &mut edit)?;
                 let incremental = load_qpdf_page_local_incremental_pdf(path, qpdf, &edit)?;
                 match incremental {
                     Some(base)
-                        if additive_targets_are_new(&base, mutations)?
+                        if additive_targets_are_new(&base, mutations, true)?
                             && page_local_delete_closure_loaded(&base, mutations, &edit)? =>
                     {
                         Ok(Some(base))
@@ -254,10 +277,8 @@ pub(crate) fn load_native_mutation_base(
                     _ => Ok(None),
                 }
             })();
-            match local as Result<Option<IncrementalDocument>> {
-                Ok(Some(base)) => return Ok(base),
-                Err(error) if mutations.deletes.is_empty() => return Err(error),
-                _ => {}
+            if let Ok(Some(base)) = local as Result<Option<IncrementalDocument>> {
+                return Ok(base);
             }
         }
     }

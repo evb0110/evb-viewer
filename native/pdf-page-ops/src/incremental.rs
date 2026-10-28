@@ -688,7 +688,6 @@ fn write_native_mutations_revision(
     destination_fence: Option<&Path>,
     identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
-    let delete_effects = annotation_delete_effects(incremental, mutations)?;
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let mut identity_bindings = Vec::new();
     if identity_bindings_path.is_some() {
@@ -701,6 +700,7 @@ fn write_native_mutations_revision(
     } else {
         apply_native_mutations_incremental(incremental, mutations, modified_at)?;
     }
+    let delete_effects = annotation_delete_effects(incremental)?;
     let identity_bindings_report = identity_bindings_path
         .map(|_| serialize_native_save_report(&identity_bindings, delete_effects.as_ref()))
         .transpose()?;
@@ -1904,7 +1904,7 @@ mod page_local_admission_tests {
     }
 
     #[test]
-    fn admits_only_additive_payloads_beside_existing_note_saves() {
+    fn admits_scan_resolved_edits_beside_existing_note_saves() {
         let markup = json!({"subtype":"Highlight","pageIndex":7,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.02},"appAnnotationId":"new-highlight","source":"editor"});
         let shape = json!({"type":"rectangle","pageIndex":7,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2,"stableKey":"new-shape"});
         let text_box = json!({"pageIndex":7,"stableKey":"new-box","text":"new text","rect":[10,20,80,60],"rotation":0,"fontSize":12,"color":[0,0,0]});
@@ -1919,22 +1919,15 @@ mod page_local_admission_tests {
             assert!(admitted(json!({"shapes":{"totalPages":8,"shapes":[item]}})));
         }
         assert!(admitted(json!({"textBoxes":[text_box.clone()]})));
-        for patch in [
-            json!({"annotationId":"12R"}),
-            json!({"originalAppearance":{"recoveryData":"00"}}),
-        ] {
-            let mut item = text_box.clone();
-            item.as_object_mut()
-                .unwrap()
-                .extend(patch.as_object().unwrap().clone());
-            assert!(!admitted(json!({"textBoxes":[item]})));
-        }
+        let mut item = text_box.clone();
+        item["originalAppearance"] = json!({"recoveryData":"00"});
+        assert!(!admitted(json!({"textBoxes":[item]})));
         for patch in [json!({"annotationId":"12R"}), json!({"source":"pdf"})] {
             let mut item = markup.clone();
             item.as_object_mut()
                 .unwrap()
                 .extend(patch.as_object().unwrap().clone());
-            assert!(!admitted(json!({"markup":{"hints":[item]}})));
+            assert!(admitted(json!({"markup":{"hints":[item]}})));
         }
         for patch in [
             json!({"rewriteShapeState":true}),
@@ -1947,7 +1940,7 @@ mod page_local_admission_tests {
                 .as_object_mut()
                 .unwrap()
                 .extend(patch.as_object().unwrap().clone());
-            assert!(!admitted(json!({"shapes":shapes})));
+            assert!(admitted(json!({"shapes":shapes})));
         }
         assert!(admitted(
             json!({"textBoxes":[text_box],"deletes":[{"pageIndex":7,"objectNumber":12,"generationNumber":0}]})

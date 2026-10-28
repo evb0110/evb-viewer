@@ -6,7 +6,6 @@ import type {
 } from '@app/types/annotations';
 import {
     isNewPageLocalShape,
-    isPageLocalShapeType,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
@@ -892,7 +891,6 @@ export function buildNativePdfMutationProjection(
     };
 }
 
-/** Whole parse unless the captured frontier and the published payload are local. */
 export function committedAffectedPageIndices(
     pageIndices: readonly number[] | null | undefined,
     projection: INativePdfMutationProjection,
@@ -900,22 +898,21 @@ export function committedAffectedPageIndices(
 ) {
     const {mutations} = projection;
     const shapes = mutations.shapes;
-    pageIndices = projection.annotationDeletes.length > 0
-        ? pageIndices?.length && deleteEffects
-            ? [...new Set([
-                ...pageIndices,
-                ...deleteEffects.affectedPageIndices,
-            ])].sort((a, b) => a - b) : undefined
-        : pageIndices;
+    const needsEffects = projection.annotationDeletes.length > 0 || (shapes !== undefined && (
+        shapes.rewriteShapeState || shapes.deletedAnnotationIds.length > 0 || shapes.deletedStableKeys.length > 0
+        || shapes.shapes.some(shape => Boolean(shape.annotationId))))
+        || projection.textBoxes?.some(box => Boolean(box.annotationId)) === true
+        || mutations.markup?.hints.some(hint => hint.source !== 'editor' || Boolean(normalizePdfJsAnnotationId(hint.annotationId))) === true;
+    if (needsEffects && !deleteEffects) return undefined;
+    if (deleteEffects && pageIndices?.length) pageIndices = [...new Set([
+        ...pageIndices,
+        ...deleteEffects.affectedPageIndices,
+    ])].sort((a, b) => a - b);
     const local = !projection.hasMetadataMutations
         && !projection.placedImageGeometryUpdates?.some(update => update.sourceImage)
         && !mutations.placedImages?.some(image => Boolean(image.annotationId) || !image.stableKey)
         && !projection.freeTextNotes.some(note => note.recoveryData)
-        && !projection.textBoxes?.some(box => Boolean(box.annotationId) || Boolean(box.originalAppearance))
-        && (!shapes || (!shapes.rewriteShapeState && !shapes.deletedAnnotationIds.length
-            && !shapes.deletedStableKeys.length && shapes.shapes.every(shape => !shape.annotationId && isPageLocalShapeType(shape.type))))
-        && (!mutations.markup || mutations.markup.hints.every(hint => hint.source === 'editor'
-            && !normalizePdfJsAnnotationId(hint.annotationId)));
+        && !projection.textBoxes?.some(box => Boolean(box.originalAppearance));
     return local && pageIndices?.length && pageIndices.length <= PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES
         ? [...pageIndices] : undefined;
 }

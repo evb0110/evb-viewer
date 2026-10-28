@@ -199,8 +199,13 @@ function normalizeModifiedAt(modifiedAt: unknown): ReturnType<typeof normalizePd
     }
 }
 
-function needsNativeIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
-    return collectExpectedNativeIdentityIds(mutations).length > 0 || Boolean(mutations.deletes?.length);
+function needsNativeSaveReport(mutations: IPdfNativeMutationSet) {
+    return collectExpectedNativeIdentityIds(mutations).length > 0 || [
+        mutations.deletes?.length,
+        mutations.shapes,
+        mutations.markup,
+        mutations.textBoxes?.length,
+    ].some(Boolean);
 }
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
@@ -263,7 +268,7 @@ async function prepareNativeNoteMutation(options: {
     tempPath: string;
 }) {
     const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(options.mutations);
-    const needsBindings = needsNativeIdentityBindingsReport(options.mutations);
+    const needsBindings = needsNativeSaveReport(options.mutations);
     await measureNativeNotePhase(
         options.phaseTimings,
         'clone-working-to-temp',
@@ -337,10 +342,8 @@ async function prepareNativeNoteMutation(options: {
                         ),
                     );
                     identityBindings.push(...report.identityBindings);
-                    if (chunk.deletes?.length) {
-                        if (report.annotationDeleteEffects) deleteEffects.push(report.annotationDeleteEffects);
-                        else completeDeleteEffects = false;
-                    }
+                    if (report.annotationDeleteEffects) deleteEffects.push(report.annotationDeleteEffects);
+                    else completeDeleteEffects = false;
                 }
             }
         }));
