@@ -834,6 +834,8 @@ export function createDocumentPersistence(
 
         const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
         let stagedSaveAsResult: IPdfPersistResult | null = null;
+        let materializedIdentityBindings: IPdfNativeAnnotationIdentityBinding[] = [];
+        let annotationDeleteEffects: IPdfNativeSaveResult['annotationDeleteEffects'];
         const workingPath = state.workingCopyPath.value;
         const expectedOriginalPath = state.originalPath.value;
         if (!workingPath) {
@@ -910,18 +912,15 @@ export function createDocumentPersistence(
                     }
                     const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
                     const assertBeforeExpose = opts.assertBeforeExpose;
-                    let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
                     try {
-                        appliedIdentityBindings = validateNativeIdentityBindings(
+                        materializedIdentityBindings = validateNativeIdentityBindings(
                             applied.identityBindings,
                             expectedNativeIdentityIds,
                             'Native staged identity bindings',
                         );
-                        // The native writer validates the projected mutation set against
-                        // the staged appended revision before it returns. Reopening a large
-                        // staged PDF in renderer PDF.js repeats those checks and can add
-                        // seconds of visible save latency. Older/native-adjacent callers
-                        // without the explicit proof retain the renderer verification.
+                        annotationDeleteEffects = applied.annotationDeleteEffects;
+                        // Verified native postconditions replace the renderer reopen.
+                        // Callers without that proof still verify the staged bytes.
                         if (
                             verifyPathBeforeExpose
                             && applied.nativeMutationPostconditionsVerified !== true
@@ -965,7 +964,8 @@ export function createDocumentPersistence(
                             if (stagedSaveAsResult.success) {
                                 stagedSaveAsResult = {
                                     ...stagedSaveAsResult,
-                                    materializedIdentityBindings: appliedIdentityBindings,
+                                    materializedIdentityBindings,
+                                    ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
                                 };
                             }
                             return applied;
@@ -1000,8 +1000,8 @@ export function createDocumentPersistence(
                                     warnings: [],
                                 },
                                 nativeMutationPostconditionsVerified: true,
-                                ...(appliedIdentityBindings.length > 0
-                                    ? {identityBindings: appliedIdentityBindings}
+                                ...(materializedIdentityBindings.length > 0
+                                    ? {identityBindings: materializedIdentityBindings}
                                     : {}),
                             }
                             : {
@@ -1019,7 +1019,7 @@ export function createDocumentPersistence(
                             createNativeStagedCommitOptions(
                                 expectedDocumentRevisionToken,
                                 mutations,
-                                appliedIdentityBindings,
+                                materializedIdentityBindings,
                             ),
                         ),
                     );
@@ -1031,7 +1031,7 @@ export function createDocumentPersistence(
                         expectedNativeIdentityIds,
                         'Native committed identity bindings',
                     );
-                    if (!haveSameNativeIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
+                    if (!haveSameNativeIdentityBindings(materializedIdentityBindings, committedIdentityBindings)) {
                         throw new Error('Native identity bindings changed between staging and commit');
                     }
                     return committed;
@@ -1065,11 +1065,6 @@ export function createDocumentPersistence(
                     ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),
                 };
             }
-            const materializedIdentityBindings = validateNativeIdentityBindings(
-                result.identityBindings,
-                expectedNativeIdentityIds,
-                'Native identity bindings',
-            );
             const commitWorkingPath = state.workingCopyPath.value;
             if (!commitWorkingPath || state.originalPath.value !== expectedOriginalPath) {
                 BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save completion', {
@@ -1108,12 +1103,11 @@ export function createDocumentPersistence(
             }
             state.lastSaveMode.value = opts.saveMode;
             logRendererTimings('applied');
-            return materializedIdentityBindings.length > 0
-                ? {
-                    ...createPersistResult(true, opts.saveMode, false),
-                    materializedIdentityBindings,
-                }
-                : createPersistResult(true, opts.saveMode, false);
+            return {
+                ...createPersistResult(true, opts.saveMode, false),
+                ...(materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {}),
+                ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
+            };
         } catch (saveError) {
             if (isStaleRevisionError(saveError)) {
                 throw saveError;

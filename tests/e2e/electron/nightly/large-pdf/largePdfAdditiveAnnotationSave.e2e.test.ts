@@ -7,6 +7,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from 'puppeteer-core';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
     resolveLargePdfFixtureAvailability, selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -164,6 +165,17 @@ function isNear(position: {
     top: number
 }) {
     return Math.abs(position.left - expected.left) < 0.01 && Math.abs(position.top - expected.top) < 0.01;
+}
+
+/** Deletes the annotation whose sidebar card shows `text`, from that card. */
+async function deleteFromSidebar(page: Page, text: string) {
+    const before = await readPanelAnnotationCount(page);
+    expect(before, 'The annotations panel shows a count before the delete').not.toBeNull();
+    await clickFoundAsUser(page, (expected: string) => Array.from(
+        globalThis.__evbE2E.getActiveWorkspaceHost()?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [],
+    ).find(item => (item.querySelector('.note-item-text')?.textContent ?? '').includes(expected))
+        ?.querySelector<HTMLButtonElement>('.note-item-delete'), text, {description: `sidebar delete for ${JSON.stringify(text)}`});
+    await expect.poll(() => readPanelAnnotationCount(page), {timeout: 10_000}).toBe(before! - 1);
 }
 
 /** Drags an entity with the Select tool and waits until it has moved. */
@@ -358,5 +370,59 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
             const positions = await readPlacedImagePositions(restartedPage);
             return positions.length === 1 && isNear(positions[0]!, movedTo!);
         }, {timeout: 60_000}).toBe(true);
+    }, LARGE_PDF_TIMEOUT_MS * 2);
+    it('deletes a saved highlight and text box and keeps them deleted after restart', async () => {
+        const documentPath = copyLargeFixture(directories, 'delete.pdf');
+        const session = await sessionFixture.restart({clean: true});
+        const {page} = session!;
+        await openPdfInApp(page, documentPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(page, 30_000);
+        await setupScrollToPage(page, PAGE_NUMBER);
+        const textSpan = await page.waitForFunction((pageNumber: number) => {
+            const index = Array.from(document.querySelectorAll<HTMLElement>(
+                `.page_container[data-page="${pageNumber}"] .text-layer span`,
+            )).filter(span => (span.textContent ?? '').trim().length > 0)
+                .findIndex(span => span.firstChild instanceof Text);
+            return index >= 0 ? index : null;
+        }, {timeout: 30_000}, PAGE_NUMBER).then(handle => handle.jsonValue() as Promise<number>);
+
+        const highlightText = (await createCanonicalTextMarkup(page, 'Highlight', {
+            startPage: PAGE_NUMBER,
+            startSpan: textSpan,
+            endPage: PAGE_NUMBER,
+            endSpan: textSpan,
+        })).trim();
+        await clearTextSelection(page);
+        const boxText = `large pdf deleted text box ${Date.now()}`;
+        await createCanonicalTextBoxWithPointer(page, boxText, {
+            x: 0.6,
+            y: 0.7,
+        }, PAGE_NUMBER);
+        await saveWithinBudget(page, 'Save before delete');
+        const countWithBoth = await readPanelAnnotationCount(page);
+        expect(countWithBoth, 'The annotations panel shows a count after the first save').not.toBeNull();
+
+        await deleteFromSidebar(page, boxText);
+        await deleteFromSidebar(page, highlightText);
+        const deleteSaveMs = await saveWithinBudget(page, 'Delete save');
+        console.info(`[large-pdf delete save] ${JSON.stringify({deleteSaveMs})}`);
+        expect(deleteSaveMs).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        expect(await readPanelAnnotationCount(page)).toBe(countWithBoth! - 2);
+
+        await waitForCrashCheckpointPath(session!.name, realpathSync(documentPath));
+        const restarted = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+        });
+        const restartedPage = restarted!.page;
+        await waitForRestoredDocument(restartedPage, documentPath);
+        await expectCleanAnnotationHydration(restartedPage);
+        await openAnnotationsTab(restartedPage, 30_000);
+        await expect.poll(() => readPanelAnnotationCount(restartedPage), {timeout: 60_000}).toBe(countWithBoth! - 2);
+        await setupScrollToPage(restartedPage, PAGE_NUMBER);
+        await expect.poll(async () => (await readCanonicalEntities(restartedPage))
+            .filter(entity => entity.kind === 'text-markup' || entity.text === boxText).length, {timeout: 30_000}).toBe(0);
     }, LARGE_PDF_TIMEOUT_MS * 2);
 });

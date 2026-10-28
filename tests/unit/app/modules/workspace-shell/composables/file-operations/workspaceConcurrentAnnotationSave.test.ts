@@ -453,3 +453,81 @@ describe('scoped additive save readback through transaction and workspace servic
         });
     }
 });
+
+describe('native deletion readback', () => {
+    afterEach(() => vi.restoreAllMocks());
+    it.each([
+        'confirmed',
+        'no-proof',
+    ] as const)('uses the published deletion scope: %s', async mode => {
+        const application = new AnnotationApplication('delete-readback');
+        const deleted = savedNote();
+        const outside = {
+            ...savedNote(),
+            identity: {
+                id: asAnnotationId('outside'),
+                pdfRef: '20R',
+            },
+            pageIndex: requirePageIndex(2),
+        };
+        application.store.replaceFromDocument([
+            deleted,
+            outside,
+        ], []);
+        application.store.delete(deleted.identity.id);
+        const revision = ref(requireDocumentRevisionToken('rev-1'));
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            totalPages: ref(3),
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => true,
+            getAnnotationSaveStateToken: () => application.store.mutationEpoch,
+            trySavePdfNativeMutations: vi.fn(async () => {
+                revision.value = requireDocumentRevisionToken('rev-2');
+                return {
+                    success: true,
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                    ...(mode === 'no-proof' ? {} : {annotationDeleteEffects: {
+                        affectedPageIndices: [
+                            0,
+                            1,
+                        ],
+                        deletedReplyRefs: ['13 0 R'],
+                    }}),
+                };
+            }),
+        });
+        const transaction = usePdfViewerSaveTransaction({
+            getPdfDocument: () => deps.pdfDocument.value,
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => revision.value),
+        });
+        deps.runSaveTransaction = request => transaction.runSaveTransaction(request);
+        const scopes: Array<readonly number[] | undefined> = [];
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async (_path, options) => {
+            scopes.push(options.pageIndices);
+            expect(options.expectedDocumentRevisionToken).toBe('rev-2');
+            return {
+                documentRevisionToken: revision.value,
+                pageCount: 3,
+                ...(options.pageIndices ? {pageIndices: [...options.pageIndices]} : {}),
+                entities: [],
+                foreign: [],
+            };
+        });
+        await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
+        expect(scopes).toEqual(mode === 'no-proof' ? [undefined] : [[
+            0,
+            1,
+        ]]);
+        if (mode !== 'no-proof') expect(application.store.get(outside.identity.id)).toEqual(outside);
+        expect(application.store.get(deleted.identity.id)?.deleted ?? true).toBe(true);
+        expect(application.store.undo()).toBe(true);
+        expect(application.store.get(deleted.identity.id)?.deleted).toBe(false);
+        expect(application.store.get(deleted.identity.id)?.identity.pdfRef).toBeUndefined();
+    });
+});

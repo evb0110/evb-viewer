@@ -1,3 +1,4 @@
+import {PDF_NATIVE_ANNOTATION_DELETE_EFFECTS_SCHEMA} from '@contracts/nativePdfSaveReport';
 import {
     FILE_STAT_RESULT_SCHEMA,
     MANAGED_TEMP_FILE_HANDLE_SCHEMA,
@@ -466,6 +467,7 @@ const nativeSaveResultSchema = v.object({
     )),
     error: v.exactOptional(nativeErrorEnvelopeSchema),
     stagedOutput: v.exactOptional(stagedOutputSchema),
+    annotationDeleteEffects: v.exactOptional(PDF_NATIVE_ANNOTATION_DELETE_EFFECTS_SCHEMA),
 });
 const conformanceResultSchema = v.object({
     isSigned: v.boolean(),

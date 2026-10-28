@@ -4,6 +4,9 @@ use super::*;
 #[path = "page_local_mutations.rs"]
 mod mutations;
 pub(crate) use mutations::*;
+#[path = "page_local_deletes.rs"]
+mod deletes;
+pub(crate) use deletes::*;
 
 /// Fetches, in rounds, every object `page_local_dependencies` names until
 /// the loaded part of `document` names nothing new. qpdf leaves out an object
@@ -23,11 +26,16 @@ pub(crate) fn complete_page_local_objects(
         retained = charge_retained(retained, object)?;
     }
     loop {
-        let missing =
-            page_local_dependencies(document, &pages, &annotation_pages, &edit.annotations)?
-                .difference(&requested)
-                .copied()
-                .collect::<BTreeSet<_>>();
+        let missing = page_local_dependencies(
+            document,
+            &pages,
+            &annotation_pages,
+            &edit.annotations,
+            &edit.delete_closure,
+        )?
+        .difference(&requested)
+        .copied()
+        .collect::<BTreeSet<_>>();
         if missing.is_empty() {
             break;
         }
@@ -60,111 +68,6 @@ pub(crate) fn charge_retained(retained: usize, object: &Object) -> Result<usize>
         })
 }
 
-/// The page an addressed annotation names through its own `/P`, or a popup
-/// through its parent's: a page dictionary, or an object not loaded yet.
-fn addressed_annotation_page(document: &Document, annotation_id: ObjectId) -> Option<ObjectId> {
-    let annotation = document.get_dictionary(annotation_id).ok()?;
-    let page = |dictionary: &Dictionary| {
-        dictionary
-            .get(b"P")
-            .and_then(Object::as_reference)
-            .ok()
-            .filter(|page| {
-                document.get_object(*page).map_or(true, |page| {
-                    page.as_dict()
-                        .and_then(|page| page.get(b"Type"))
-                        .and_then(Object::as_name)
-                        .is_ok_and(|kind| kind == b"Page")
-                })
-            })
-    };
-    page(annotation).or_else(|| {
-        let parent = annotation
-            .get(b"Parent")
-            .and_then(Object::as_reference)
-            .ok()?;
-        page(document.get_dictionary(parent).ok()?)
-    })
-}
-
-/// Whether every addressed annotation, or the parent of an addressed popup,
-/// is listed on the page its `/P` names, where the edit's writers look, and
-/// that page is in the page tree.
-pub(super) fn page_local_annotations_located(
-    document: &Document,
-    edit: &PageLocalEdit,
-) -> Result<bool> {
-    for annotation_id in &edit.annotations {
-        let Some(page_id) = addressed_annotation_page(document, *annotation_id)
-            .filter(|page_id| document.objects.contains_key(page_id))
-        else {
-            return Ok(false);
-        };
-        if !page_in_tree(document, page_id) {
-            return Ok(false);
-        }
-        let listed = get_page_annots(document, page_id)?;
-        let parent = document
-            .get_dictionary(*annotation_id)
-            .and_then(|annotation| annotation.get(b"Parent"))
-            .and_then(Object::as_reference)
-            .ok();
-        if !listed.iter().any(|object| {
-            object
-                .as_reference()
-                .is_ok_and(|id| id == *annotation_id || Some(id) == parent)
-        }) {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-/// Whether each `/Parent` up from `page_id` lists the node below it among its
-/// `/Kids`, up to the catalog's `/Pages`: the page is in the page tree rather
-/// than an orphan that names a parent.
-fn page_in_tree(document: &Document, page_id: ObjectId) -> bool {
-    let Some(root_pages) = document
-        .trailer
-        .get(b"Root")
-        .and_then(Object::as_reference)
-        .and_then(|root| document.get_dictionary(root))
-        .and_then(|catalog| catalog.get(b"Pages"))
-        .and_then(Object::as_reference)
-        .ok()
-    else {
-        return false;
-    };
-    let mut child = page_id;
-    for _ in 0..=MAX_PDF_STRUCTURAL_NESTING {
-        if child == root_pages {
-            return true;
-        }
-        let Some(parent) = document
-            .get_dictionary(child)
-            .and_then(|node| node.get(b"Parent"))
-            .and_then(Object::as_reference)
-            .ok()
-        else {
-            return false;
-        };
-        let lists_child = document
-            .get_dictionary(parent)
-            .and_then(|node| node.get(b"Kids"))
-            .and_then(|kids| match kids {
-                Object::Reference(id) => document.get_object(*id),
-                kids => Ok(kids),
-            })
-            .and_then(Object::as_array)
-            .is_ok_and(|kids| kids.contains(&Object::Reference(child)));
-        if !lists_child {
-            return false;
-        }
-        child = parent;
-    }
-    false
-}
-
 /// The base objects a page-local edit reads, as far as the loaded part of
 /// `document` names them: each page and its `/Pages` ancestors with their
 /// inheritable boxes and rotation; for `annotation_pages`, and the pages that
@@ -177,6 +80,7 @@ fn page_local_dependencies(
     pages: &BTreeSet<ObjectId>,
     annotation_pages: &BTreeSet<ObjectId>,
     annotations: &BTreeSet<ObjectId>,
+    delete_closure: &BTreeSet<ObjectId>,
 ) -> Result<BTreeSet<ObjectId>> {
     let mut needed = BTreeSet::new();
     let mut values = Vec::new();
@@ -240,6 +144,7 @@ fn page_local_dependencies(
     }
     let addressed = annotations
         .iter()
+        .chain(delete_closure)
         .map(|id| Object::Reference(*id))
         .collect::<Vec<_>>();
     values.extend(&addressed);
@@ -355,6 +260,7 @@ mod tests {
             pages: BTreeSet::from([0]),
             annotation_pages: BTreeSet::from([0]),
             annotations: BTreeSet::new(),
+            delete_closure: BTreeSet::new(),
         };
         complete_page_local_objects(&mut partial, &located, &edit, |document, ids, retained| {
             for id in ids {

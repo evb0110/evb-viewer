@@ -454,7 +454,7 @@ fn load_annotation_parse_base(
             let edit = PageLocalEdit {
                 pages: indexes.clone(),
                 annotation_pages: indexes.clone(),
-                annotations: BTreeSet::new(),
+                ..PageLocalEdit::default()
             };
             return load_qpdf_page_local_incremental_pdf(input_path, qpdf_path, &edit)?
                 .ok_or_else(|| "A page-local parse addresses no annotation by object".into());

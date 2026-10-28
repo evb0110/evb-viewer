@@ -1278,47 +1278,8 @@ mod platform {
         Ok(Some((incremental, reader.diagnostic_bytes.get() != 0)))
     }
 
-    pub(super) fn load_page_local(
-        path: &Path,
-        qpdf: &Path,
-        edit: &PageLocalEdit,
-    ) -> Result<Option<(Document, LocatedPages)>> {
-        let Some(library) = adjacent_library(qpdf)? else {
-            return Ok(None);
-        };
-        // Whole-object reads never consult the projection purpose.
-        let reader = Reader::open(&library, path, QpdfMetadataPurpose::Geometry)?;
-        let mut document = Document::with_version(reader.version()?);
-        document.trailer = reader.trailer()?;
-        // qpdf counts objects only after resolving every one of them. The
-        // admitted cross-reference chain bounds object numbers without that.
-        let largest_size = path_xref_chain(path, fs::metadata(path)?.len())
-            .ok()
-            .and_then(|chain| chain.largest_size);
-        document.max_id = match largest_size {
-            Some(size) => u32::try_from(size.saturating_sub(1))?,
-            None => reader.max_object_number()?,
-        };
-        let fetch = |document: &mut Document, batch: &BTreeSet<ObjectId>, retained: &mut usize| {
-            for id in batch {
-                // qpdf reads a missing object as null; leave it absent,
-                // as the eager reader and the JSON query do.
-                let object = reader.object(*id, Context::Value)?;
-                if !matches!(object, Object::Null) {
-                    *retained = charge_retained(*retained, &object)?;
-                    document.objects.insert(*id, object);
-                }
-            }
-            Ok(())
-        };
-        // qpdf numbers pages only after reading every page dictionary.
-        let located = match locate_pages_by_count(&mut document, &edit.located(), fetch)? {
-            Some(located) => located,
-            None => LocatedPages::from_list(&reader.page_ids()?, &edit.located())?,
-        };
-        complete_page_local_objects(&mut document, &located, edit, fetch)?;
-        Ok(Some((document, located)))
-    }
+    mod qpdf_page_local;
+    pub(super) use qpdf_page_local::{load_page_local, scan_deletes};
 }
 
 /// The base objects a page-local edit reads, through the bundled library.
@@ -1335,6 +1296,22 @@ pub(crate) fn load_qpdf_page_local_objects(
     #[cfg(target_family = "wasm")]
     {
         let _ = (path, qpdf_path, edit);
+        Ok(None)
+    }
+}
+
+pub(crate) fn scan_qpdf_annotation_deletes(
+    path: &Path,
+    qpdf: &Path,
+    targets: &[ObjectId],
+) -> Result<Option<DeleteScan>> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        platform::scan_deletes(path, qpdf, targets)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (path, qpdf, targets);
         Ok(None)
     }
 }

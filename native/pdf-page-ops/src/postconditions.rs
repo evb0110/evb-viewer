@@ -1,6 +1,6 @@
 use super::*;
 
-const FULL_POSTCONDITION_AUDIT: bool = false;
+pub(crate) const FULL_POSTCONDITION_AUDIT: bool = false;
 
 #[cfg(test)]
 pub(crate) fn validate_appended_revision_postconditions(
@@ -440,65 +440,6 @@ pub(crate) fn validate_text_note_document_postconditions(
             != Some(page_id)
         {
             return Err("Text note Popup /P did not match its page".into());
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_annotation_delete_document_postconditions(
-    document: &impl PdfObjectSource,
-    deletes: &[AnnotationDelete],
-) -> Result<()> {
-    if deletes.is_empty() {
-        return Ok(());
-    }
-
-    let page_resolver = PageTreeResolver::new(document)?;
-    let mut refs_to_delete = HashSet::new();
-    let mut touched_page_ids = HashSet::new();
-    for delete in deletes {
-        let page_number = delete
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid annotation delete page index")?;
-        let page_id = page_resolver.page_id(document, page_number)?;
-        touched_page_ids.insert(page_id);
-        if let (Some(object_number), Some(generation_number)) =
-            (delete.object_number, delete.generation_number)
-        {
-            refs_to_delete.insert((object_number, generation_number));
-        }
-    }
-    for object_id in &refs_to_delete {
-        if let Some(page_id) = annotation_page_id(document, *object_id) {
-            touched_page_ids.insert(page_id);
-        }
-    }
-
-    let mut validate_page = |page_id| {
-        for object in get_page_annots(document, page_id)? {
-            if let Ok(object_id) = object.as_reference() {
-                if refs_to_delete.contains(&object_id) {
-                    return Err("Deleted annotation is still referenced from page Annots".into());
-                }
-                for delete in deletes {
-                    if annotation_matches_stable_delete_name(document, object_id, delete)? {
-                        return Err(
-                            "Stable-key deleted annotation is still referenced from page Annots"
-                                .into(),
-                        );
-                    }
-                }
-            }
-        }
-        Ok(())
-    };
-
-    if FULL_POSTCONDITION_AUDIT {
-        page_resolver.for_each_page_id(document, &mut validate_page)?;
-    } else {
-        for page_id in touched_page_ids {
-            validate_page(page_id)?;
         }
     }
     Ok(())

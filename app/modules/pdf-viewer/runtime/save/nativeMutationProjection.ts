@@ -1,3 +1,4 @@
+import type {TNativeAnnotationDeleteEffects} from '@contracts/nativePdfSaveReport';
 import {PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES} from '@contracts/pdfAnnotationParseSchemas';
 import type {
     IAnnotationCommentSummary,
@@ -895,11 +896,18 @@ export function buildNativePdfMutationProjection(
 export function committedAffectedPageIndices(
     pageIndices: readonly number[] | null | undefined,
     projection: INativePdfMutationProjection,
+    deleteEffects?: TNativeAnnotationDeleteEffects,
 ) {
     const {mutations} = projection;
     const shapes = mutations.shapes;
-    const local = projection.annotationDeletes.length === 0
-        && !projection.hasMetadataMutations
+    pageIndices = projection.annotationDeletes.length > 0
+        ? pageIndices?.length && deleteEffects
+            ? [...new Set([
+                ...pageIndices,
+                ...deleteEffects.affectedPageIndices,
+            ])].sort((a, b) => a - b) : undefined
+        : pageIndices;
+    const local = !projection.hasMetadataMutations
         && !projection.placedImageGeometryUpdates?.some(update => update.sourceImage)
         && !mutations.placedImages?.some(image => Boolean(image.annotationId) || !image.stableKey)
         && !projection.freeTextNotes.some(note => note.recoveryData)

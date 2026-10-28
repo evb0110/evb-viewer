@@ -1,4 +1,6 @@
-import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
+import {
+    admitsAnnotationReadback, keepsReplies,
+} from './annotationReadbackGuards';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
@@ -146,17 +148,6 @@ function liveIdentityOf(entity: AnnotationEntity | null | undefined) {
 
 function isDirty(entity: AnnotationEntity) {
     return entity.revision > entity.persistedRevision;
-}
-
-/** Whether a parsed thread still lists every reply the store's entity holds. */
-function keepsReplies(parsed: AnnotationEntity, current: AnnotationEntity) {
-    const replyKey = (reply: {
-        objectNumber: number;
-        generationNumber: number
-    }) =>
-        `${reply.objectNumber} ${reply.generationNumber}`;
-    const parsedReplies = new Set((parsed.replies ?? []).map(replyKey));
-    return (current.replies ?? []).every(reply => parsedReplies.has(replyKey(reply)));
 }
 
 function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
@@ -621,24 +612,12 @@ export class AnnotationStore {
         foreign: readonly IPdfForeignAnnotationRecord[],
         pageIndices?: readonly number[],
         expectedUpserts: ReadonlyArray<Pick<AnnotationEntity, 'identity' | 'kind'>> = [],
+        deletedReplyRefs: readonly string[] = [],
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
-        if (!entities.every(inScope) || !foreign.every(inScope) || (scope && !this.#readWholeDocument)) {
-            return false;
-        }
-        if (scope) {
-            const recognized = new Map(entities.map(entity => [
-                normalizePdfJsAnnotationId(entity.identity.pdfRef),
-                entity.kind,
-            ]));
-            if (!expectedUpserts.every(expected => {
-                const ref = normalizePdfJsAnnotationId(expected.identity.pdfRef);
-                return ref && recognized.get(ref) === expected.kind;
-            })) {
-                return false;
-            }
-        }
+        if (!admitsAnnotationReadback(entities, foreign, scope, this.#readWholeDocument, expectedUpserts)) return false;
+        const confirmedDeletedReplies = new Set(deletedReplyRefs);
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();
         const parsedById = new Map<AnnotationId, AnnotationEntity>();
@@ -711,7 +690,7 @@ export class AnnotationStore {
                 }
             }
             const matched = this.#entities.get(id);
-            if (scope && matched && (!inScope(matched) || !keepsReplies(entity, matched))) {
+            if (scope && matched && (!inScope(matched) || !keepsReplies(entity, matched, confirmedDeletedReplies))) {
                 return false;
             }
             if (parsedById.has(id)) {
