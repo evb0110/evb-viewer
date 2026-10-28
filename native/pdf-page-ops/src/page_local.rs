@@ -318,7 +318,7 @@ pub(crate) fn additive_targets_are_new(
         Ok(true)
     };
     for editor in &mutations.text_boxes {
-        if !names_on(editor.page_index, text_box_name(editor), &[])? {
+        if !names_on(editor.page_index, text_box_name(editor), &["evb-freetext:"])? {
             return Ok(false);
         }
     }
@@ -481,6 +481,18 @@ mod tests {
             dictionary! {"Type"=>"Page","Parent"=>(2,0),"Annots"=>vec![Object::Reference((4,0))]},
         );
         document.set_object((4,0),dictionary!{"Subtype"=>"Square","NM"=>Object::string_literal("other-name"),"EVBShapeKey"=>Object::string_literal("taken")});
+        document.set_object(
+            (5, 0),
+            dictionary! {"Subtype"=>"FreeText","NM"=>Object::string_literal("evb-freetext:old-box")},
+        );
+        document
+            .get_object_mut((3, 0))
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .set(
+                "Annots",
+                vec![Object::Reference((4, 0)), Object::Reference((5, 0))],
+            );
         let incremental = IncrementalDocument::from_document(document, 0, None);
         let shape = json!({"type":"rectangle","pageIndex":0,"x":0.1,"y":0.2,"width":0.3,"height":0.1,"color":"#123456","opacity":1,"strokeWidth":2,"stableKey":"taken"});
         let payload = |items| {
@@ -493,5 +505,11 @@ mod tests {
         assert!(
             !additive_targets_are_new(&incremental, &payload(vec![fresh.clone(), fresh])).unwrap()
         );
+        // The text-box writer finds `evb-freetext:old-box` by the bare name.
+        let text_box = |key: &str| {
+            serde_json::from_value(json!({"textBoxes":[{"pageIndex":0,"stableKey":key,"text":"t","rect":[10,20,80,60],"rotation":0,"fontSize":12,"color":[0,0,0]}]})).unwrap()
+        };
+        assert!(!additive_targets_are_new(&incremental, &text_box("old-box")).unwrap());
+        assert!(additive_targets_are_new(&incremental, &text_box("new-box")).unwrap());
     }
 }
