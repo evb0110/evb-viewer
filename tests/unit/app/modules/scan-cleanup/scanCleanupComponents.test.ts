@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as scanCleanupWorkspaceSessionModule from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 
 import {
     afterEach,
@@ -64,15 +65,23 @@ import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tab
 import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
 const workspaceSession = vi.hoisted(() => ({value: null as Record<string, unknown> | null}));
-const workspaceSessionOptions = vi.hoisted(() => ({value: null as Record<string, () => unknown> | null}));
+const realWorkspaceSession = vi.hoisted(() => ({
+    create: null as typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession | null,
+    value: null as ReturnType<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession> | null,
+}));
+const workspaceSessionOptions = vi.hoisted(() => ({value: null as Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0] | null}));
 const workspaceSessionInitial = vi.hoisted(() => ({value: null as {
     page: unknown;
     viewMode: unknown;
 } | null}));
 
 vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', () => ({useScanCleanupWorkspaceSession: (
-    options: Record<string, () => unknown>,
+    options: Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0],
 ) => {
+    if (realWorkspaceSession.create) {
+        realWorkspaceSession.value = realWorkspaceSession.create(options);
+        return realWorkspaceSession.value;
+    }
     workspaceSessionOptions.value = options;
     workspaceSessionInitial.value = {
         page: options.initialPreviewPage?.(),
@@ -1316,15 +1325,79 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
     };
 }
 
+async function mountRealWorkspace(documentKey: string) {
+    const {useScanCleanupWorkspaceSession} = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>(
+        '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession',
+    );
+    const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
+    realWorkspaceSession.create = useScanCleanupWorkspaceSession;
+    const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
+        sourcePath,
+        documentKey,
+        currentPage: 1,
+        totalPages: 2,
+        toolbarActive: true,
+    })}));
+    await nextTick();
+    return {
+        ...harness,
+        session: realWorkspaceSession.value!,
+    };
+}
+
 afterEach(() => {
     toastAdd.mockClear();
     for (const unmount of activeUnmounts) unmount();
     document.body.innerHTML = '';
     localStorage.clear();
     resetScanCleanupPreferencesStore();
+    realWorkspaceSession.create = null;
+    realWorkspaceSession.value = null;
 });
 
 describe('Scan cleanup components', () => {
+    it('links page margins without changing the document or other pages', async () => {
+        const harness = await mountRealWorkspace('page-margin-link');
+        const {
+            settings, selection,
+        } = harness.session;
+        settings.setMarginsLinked(false);
+        Object.assign(settings.values.marginsMm, {
+            leftMm: 2,
+            topMm: 4,
+            rightMm: 6,
+            bottomMm: 8,
+        });
+        settings.values.pageOverrides['1'] = createScanCleanupPageOverride({marginsMm: {
+            leftMm: 11,
+            topMm: 12,
+            rightMm: 13,
+            bottomMm: 14,
+        }});
+        selection.setSettingsScope('page');
+        await nextTick();
+        const checkbox = harness.host.querySelector<HTMLInputElement>('[data-margins-link]')!;
+        expect(checkbox.checked).toBe(false);
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+
+        expect.soft(settings.values.marginsMm).toEqual({
+            leftMm: 2,
+            topMm: 4,
+            rightMm: 6,
+            bottomMm: 8,
+        });
+        expect(settings.values.pageOverrides['1']?.marginsMm)
+            .toEqual({
+                leftMm: 12,
+                topMm: 12,
+                rightMm: 12,
+                bottomMm: 12,
+            });
+        expect(settings.values.pageOverrides['2']?.marginsMm).toBeUndefined();
+    });
+
     it('publishes matched-canvas point dimensions for spread and mixed-scale outputs', () => {
         const renderOutput = (output: IScanCleanupPreviewResult['outputs'][number]) => ({
             canvasStyle: {},
