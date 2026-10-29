@@ -14,10 +14,7 @@ import type {
     IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import {
-    assertAnnotationBackendSemanticConformance,
-    projectAnnotationBackendMutations,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
+import {assertAnnotationBackendSemanticConformance} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type {
     ISerializationPlan,
@@ -797,7 +794,6 @@ function buildClassifiedNativeMutationProjection(
     canonical.pendingTexts.clear();
     canonical.pendingDeletes.splice(0);
     return {
-        canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
         mutations: {
             ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
             ...(noteGeometryUpdates.length > 0 ? {geometryUpdates: noteGeometryUpdates} : {}),
