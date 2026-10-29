@@ -5,6 +5,11 @@ import {
     vi,
 } from 'vitest';
 import {createStagedRasterWindow} from '@evb/scan-cleanup/core/createStagedRasterWindow';
+import {
+    mkdtemp, readFile, readdir, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 function createRecordingWindow(
     pages: readonly number[],
@@ -42,6 +47,61 @@ function createRecordingWindow(
 }
 
 describe('createStagedRasterWindow', () => {
+    it('keeps physical raster occupancy bounded when unlink is refused', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-eviction-regression-'));
+        let refuseUnlink = true;
+        let peakFiles = 0;
+        const controller = createStagedRasterWindow({
+            pages: [
+                1,
+                2,
+                3,
+                4,
+                5,
+            ],
+            window: 1,
+            stage: async pageNumber => {
+                await writeFile(join(root, `${pageNumber}.ppm`), `raster-${pageNumber}`);
+                peakFiles = Math.max(peakFiles, (await readdir(root)).length);
+            },
+            unstage: async pageNumber => {
+                if (refuseUnlink) {
+                    throw Object.assign(new Error('raster unlink denied'), {code: 'EACCES'});
+                }
+                await rm(join(root, `${pageNumber}.ppm`));
+            },
+            isStaged: async pageNumber => (await readdir(root)).includes(`${pageNumber}.ppm`),
+        });
+        try {
+            for (const pageNumber of [
+                1,
+                2,
+                3,
+                4,
+                5,
+            ]) {
+                try {
+                    await controller.acquire(pageNumber);
+                } catch (error) {
+                    // Failing admission with the filesystem cause is valid;
+                    // admitting another raster over the physical bound is not.
+                    expect(error).toMatchObject({message: expect.stringContaining('unlink denied')});
+                    break;
+                }
+                expect(await readFile(join(root, `${pageNumber}.ppm`), 'utf8')).toBe(`raster-${pageNumber}`);
+                controller.release(pageNumber);
+            }
+            expect(peakFiles).toBeLessThanOrEqual(1);
+        } finally {
+            refuseUnlink = false;
+            await controller.dispose();
+            await rm(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('fills free slots concurrently ahead of the first lease', async () => {
         const pages = Array.from({length: 8}, (_, index) => index + 1);
         const resident = new Set<number>();
