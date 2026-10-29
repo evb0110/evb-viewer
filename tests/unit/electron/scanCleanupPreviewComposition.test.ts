@@ -43,6 +43,7 @@ import {
     isWorkingCopyQuarantined,
 } from '@electron/file-access/workingCopyQuarantine';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const HOST_RAM_BYTES = 16 * 1024 * 1024 * 1024;
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
@@ -154,6 +155,53 @@ it('preserves preview inputs and quarantines the source when close cannot prove 
     } finally {
         await service.dispose();
         await pending;
+    }
+});
+
+it('retires document geometry after close requested while detection still holds the document', async () => {
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const geometry = createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
+    deps.getPageSizeStore = async () => geometry;
+    const entered = Promise.withResolvers<undefined>();
+    deps.runSidecar = async (_binary, _manifestPath, signal) => {
+        entered.resolve(undefined);
+        await new Promise<never>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+        });
+    };
+    const service = scanCleanupPreviewLifecycle(deps);
+    const owner = lifecycleSender(732);
+    const detection = {
+        ...detectionRequest,
+        sourcePdfPath: join(dir, 'source.pdf'),
+    };
+    try {
+        const started = await service.detectAll(owner, detection);
+        await entered.promise;
+        await expect(geometry.getPage(1)).resolves.toMatchObject({pageNumber: 1});
+
+        // Document close reaches preview cancellation before the registered
+        // detection operation unwinds. Its live geometry claim must defer
+        // retirement, rather than discard the close intent.
+        service.cancel(owner, detection);
+        await expect(geometry.getPage(1)).resolves.toMatchObject({pageNumber: 1});
+        const operations = cancelMainOperationsForClosingWorkingCopy(
+            detection.sourcePdfPath,
+            'Document closed during detection',
+            {isRegistrationCurrent: () => true},
+        );
+        expect(operations).toHaveLength(1);
+        await Promise.all(operations!.map(operation => operation.settled));
+
+        expect(service.getDetectionJobState(owner, started.jobId, detection)?.status).toBe('canceled');
+        await expect.soft(Promise.resolve().then(() => geometry.getPage(1)), 'closed documents must release their geometry reader').rejects.toThrow(/closed/iu);
+        const rasterRoots = (await readdir(dir)).filter(name => name.startsWith('scan-cleanup-rasters-'));
+        const retainedDocuments = (await Promise.all(rasterRoots.map(root => readdir(join(dir, root))))).flat();
+        expect(retainedDocuments, 'document close must retire the document directory once detection releases it').toEqual([]);
+    } finally {
+        await service.dispose();
     }
 });
 
