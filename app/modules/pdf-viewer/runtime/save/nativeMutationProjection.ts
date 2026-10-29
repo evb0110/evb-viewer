@@ -14,10 +14,7 @@ import type {
     IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import {
-    assertAnnotationBackendSemanticConformance,
-    projectAnnotationBackendMutations,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
+import {assertAnnotationBackendSemanticConformance} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type {
     ISerializationPlan,
@@ -302,15 +299,15 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         textBoxes: input.nativeTextBoxes ?? [],
         ...(placedImageGeometryUpdates === undefined ? {} : {placedImageGeometryUpdates}),
     });
+    const commentsByStableKey = Map.groupBy<string, IAnnotationCommentSummary>(input.comments, comment => comment.stableKey);
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
-        const matchingComments = input.comments.filter(candidate => candidate.stableKey === stableKey);
         const [
-            matchingComment,
-            ...otherMatchingComments
-        ] = matchingComments;
-        if (matchingComment && otherMatchingComments.length === 0) {
-            addCommentIdentityAliases(ids, matchingComment);
+            comment,
+            duplicate,
+        ] = commentsByStableKey.get(stableKey) ?? [];
+        if (comment && !duplicate) {
+            addCommentIdentityAliases(ids, comment);
         }
     });
     input.pendingDeletes.forEach((comment) => {
@@ -797,7 +794,6 @@ function buildClassifiedNativeMutationProjection(
     canonical.pendingTexts.clear();
     canonical.pendingDeletes.splice(0);
     return {
-        canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
         mutations: {
             ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
             ...(noteGeometryUpdates.length > 0 ? {geometryUpdates: noteGeometryUpdates} : {}),

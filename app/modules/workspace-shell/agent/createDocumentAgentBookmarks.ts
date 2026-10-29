@@ -789,21 +789,30 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return left.length === right.length && left.every((value, index) => value === right[index]);
     }
 
-    function pathStartsWith(path: number[], prefix: number[]) {
-        return prefix.length <= path.length && prefix.every((value, index) => value === path[index]);
+    /**
+     * Whether `path` or one of its ancestors is among `keys`, which hold
+     * paths joined by "/". A set lookup per depth keeps bulk selections over
+     * a broad outline linear instead of comparing every pair of paths.
+     */
+    function hasPathOrAncestorIn(path: number[], keys: ReadonlySet<string>) {
+        for (let length = 0; length <= path.length; length += 1) {
+            if (keys.has(path.slice(0, length).join('/'))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function resolveRootBookmarkPaths(paths: number[][]) {
         const roots: number[][] = [];
-        const sorted = [...paths].sort(compareAgentBookmarkPaths);
-        for (const path of sorted) {
-            if (path.length === 0) {
-                continue;
-            }
-            if (roots.some(rootPath => pathStartsWith(path, rootPath))) {
+        const rootKeys = new Set<string>();
+        // Sorted, an ancestor precedes its descendants.
+        for (const path of [...paths].sort(compareAgentBookmarkPaths)) {
+            if (path.length === 0 || hasPathOrAncestorIn(path, rootKeys)) {
                 continue;
             }
             roots.push(path);
+            rootKeys.add(path.join('/'));
         }
         return roots;
     }
@@ -811,21 +820,16 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     function removeBookmarkPaths(
         items: TAgentMutableBookmarkEntry[],
         paths: number[][],
-        parentPath: number[] = [],
     ): TAgentMutableBookmarkEntry[] {
-        return items.flatMap((item, index) => {
-            const path = [
-                ...parentPath,
-                index,
-            ];
-            if (paths.some(targetPath => pathsAreEqual(path, targetPath))) {
-                return [];
-            }
-            return [{
+        const removedKeys = new Set(paths.map(path => path.join('/')));
+        const remove = (list: TAgentMutableBookmarkEntry[], parentKey: string): TAgentMutableBookmarkEntry[] => list.flatMap((item, index) => {
+            const key = parentKey === '' ? String(index) : `${parentKey}/${index}`;
+            return removedKeys.has(key) ? [] : [{
                 ...item,
-                items: removeBookmarkPaths(item.items, paths, path),
+                items: remove(item.items, key),
             }];
         });
+        return remove(items, '');
     }
 
     function normalizeAgentBookmarkEntry(input: Record<string, unknown>, actionId: string): TAgentMutableBookmarkEntry {
@@ -1122,8 +1126,9 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         if (getAgentBooleanInput(input, 'includeDescendants') !== true) {
             return selectedPaths;
         }
+        const selectedKeys = new Set(selectedPaths.map(path => path.join('/')));
         return flattenBookmarks(bookmarks)
-            .filter(entry => selectedPaths.some(target => pathStartsWith(entry.path, target)))
+            .filter(entry => hasPathOrAncestorIn(entry.path, selectedKeys))
             .map(entry => entry.path);
     }
 
