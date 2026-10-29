@@ -462,16 +462,51 @@ impl NormalizedText {
         let groups = GROUPS.get_or_init(|| Regex::new(
             r"(?:[\u{1100}-\u{1112}][\u{1161}-\u{1175}][\u{11a8}-\u{11c2}]?|[\u{ac00}-\u{d7a3}][\u{11a8}-\u{11c2}]|\P{M})\p{M}*|\p{M}+",
         ).expect("canonical search grouping is valid"));
-        for group in groups.find_iter(value) {
-            let text = normalize_search_fragment(group.as_str());
-            let normalized_start = normalized.text.len();
-            normalized.text.push_str(&text);
-            if text != group.as_str() {
-                normalized
-                    .spans
-                    .push((normalized_start..normalized.text.len(), group.range()));
+        // Every ASCII character starts a group, so only a run of non-ASCII
+        // text, with the ASCII base a leading mark combines with, can change.
+        // ASCII between runs, and runs or groups the quick check passes, are
+        // copied: one long s used to send a whole page through a fragment per
+        // scalar.
+        let unchanged = |text: &str| {
+            is_nfc_quick(text.chars()) == IsNormalized::Yes
+                && text
+                    .chars()
+                    .all(|character| fold_search_ligature(character).is_none())
+        };
+        let bytes = value.as_bytes();
+        let mut copied = 0;
+        while let Some(first) = bytes[copied..].iter().position(|byte| !byte.is_ascii()) {
+            let first = copied + first;
+            let start = first.saturating_sub(1).max(copied);
+            let end = bytes[first..]
+                .iter()
+                .position(u8::is_ascii)
+                .map_or(bytes.len(), |offset| first + offset);
+            if unchanged(&value[start..end]) {
+                normalized.text.push_str(&value[copied..end]);
+                copied = end;
+                continue;
             }
+            normalized.text.push_str(&value[copied..start]);
+            for group in groups.find_iter(&value[start..end]) {
+                let original = group.as_str();
+                if unchanged(original) {
+                    normalized.text.push_str(original);
+                    continue;
+                }
+                let text = normalize_search_fragment(original);
+                let normalized_start = normalized.text.len();
+                normalized.text.push_str(&text);
+                if text != original {
+                    normalized.spans.push((
+                        normalized_start..normalized.text.len(),
+                        start + group.start()..start + group.end(),
+                    ));
+                }
+            }
+            copied = end;
         }
+        normalized.text.push_str(&value[copied..]);
         normalized
     }
 
@@ -700,21 +735,33 @@ fn search_index<R: Read + Seek>(
                     mapped_utf16 + text[bytes.0..bytes.1].encode_utf16().count(),
                 )
             };
-            results.push_back(SearchMatch {
-                page_number: record.page_number,
-                page_match_index,
-                match_index,
-                start_offset: utf16.0,
-                end_offset: utf16.1,
-                excerpt: build_excerpt(&text, bytes, utf16.0, options.context_chars),
-            });
+            results.push_back((record_index, page_match_index, match_index, utf16, bytes));
             if results.len() > options.limit {
                 results.pop_front();
             }
         }
     }
+    // Excerpts are built only for the matches kept: the last window used to
+    // build one for every match in the document and discard all but `limit`.
+    let mut page: Option<(usize, String)> = None;
+    let mut kept = Vec::with_capacity(results.len());
+    for (record_index, page_match_index, match_index, utf16, bytes) in results {
+        let record = index.records[record_index];
+        if page.as_ref().is_none_or(|(read, _)| *read != record_index) {
+            page = Some((record_index, index.page_text(&record)?));
+        }
+        let text = page.as_ref().map_or("", |(_, text)| text.as_str());
+        kept.push(SearchMatch {
+            page_number: record.page_number,
+            page_match_index,
+            match_index,
+            start_offset: utf16.0,
+            end_offset: utf16.1,
+            excerpt: build_excerpt(text, bytes, utf16.0, options.context_chars),
+        });
+    }
     Ok(SearchResponse {
-        results: results.into(),
+        results: kept,
         truncated,
         page_count: index.page_count,
         coverage: index.coverage(),
