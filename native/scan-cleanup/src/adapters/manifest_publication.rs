@@ -70,7 +70,7 @@ struct ManifestPublicationTransaction {
 }
 
 impl ManifestPublicationTransaction {
-    fn begin(manifest_path: &Path, manifest: &ManifestV3) -> Result<Self, String> {
+    fn begin(manifest_path: &Path, destinations: Vec<PathBuf>) -> Result<Self, String> {
         let journal_path = publication_journal_path(manifest_path);
         match fs::symlink_metadata(&journal_path) {
             Ok(_) => {
@@ -87,11 +87,6 @@ impl ManifestPublicationTransaction {
                 ));
             }
         }
-        let destinations = manifest
-            .destination_paths()
-            .into_iter()
-            .map(Path::to_path_buf)
-            .collect::<Vec<_>>();
         let mut transaction = Self {
             destinations,
             backups: Vec::new(),
@@ -278,8 +273,27 @@ pub(super) fn run_manifest_transaction(
     manifest: &ManifestV3,
     operation: impl FnOnce() -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
+    run_publication_transaction(
+        manifest_path,
+        manifest
+            .destination_paths()
+            .into_iter()
+            .map(Path::to_path_buf)
+            .collect(),
+        operation,
+    )
+}
+
+/// Publishes `destinations` all or nothing: a failed or panicking operation
+/// restores every original. `journal_anchor` names the request the recovery
+/// journal sits beside, a manifest or a direct invocation's output.
+pub(super) fn run_publication_transaction(
+    journal_anchor: &Path,
+    destinations: Vec<PathBuf>,
+    operation: impl FnOnce() -> Result<(), Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
     let transaction =
-        ManifestPublicationTransaction::begin(manifest_path, manifest).map_err(|error| {
+        ManifestPublicationTransaction::begin(journal_anchor, destinations).map_err(|error| {
             NativeError::new(
                 NativeErrorCode::Io,
                 format!("Unable to prepare scan-cleanup output transaction: {error}"),
