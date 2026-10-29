@@ -69,6 +69,12 @@ import {
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@contracts/scan-cleanup/inputLimits';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {
+    PDFDocument, PDFDict, PDFName, PDFString,
+} from 'pdf-lib';
+import {
+    resolveCliNativeToolPath, runCliNativeToolCommand,
+} from '@scripts/scanCleanupCliAdapters';
 
 const roots: string[] = [];
 const PNG = Buffer.from(encodePng({
@@ -500,6 +506,75 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it.each([
+        'provenance',
+        'bookmarks',
+    ] as const)('retains child PDF %s when merging bounded conversion output', async field => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-catalog-merge-regression-'));
+        roots.push(root);
+        const inputs: string[] = [];
+        for (const name of [
+            'first',
+            'second',
+        ]) {
+            const document = await PDFDocument.create();
+            const page = document.addPage([
+                72,
+                72,
+            ]);
+            document.setTitle('Cleanup output');
+            const info = document.context.lookup(document.context.trailerInfo.Info, PDFDict);
+            info.set(PDFName.of('EVBScanCleanup'), PDFString.of('retained-cleanup-provenance'));
+            const outlines = document.context.obj({
+                Type: 'Outlines',
+                Count: 1,
+            });
+            const outlinesRef = document.context.register(outlines);
+            const bookmark = document.context.register(document.context.obj({
+                Title: PDFString.of('Retained source bookmark'),
+                Parent: outlinesRef,
+                Dest: [
+                    page.ref,
+                    PDFName.of('Fit'),
+                ],
+            }));
+            outlines.set(PDFName.of('First'), bookmark);
+            outlines.set(PDFName.of('Last'), bookmark);
+            document.catalog.set(PDFName.of('Outlines'), outlinesRef);
+            const path = join(root, `${name}.pdf`);
+            await writeFile(path, await document.save());
+            inputs.push(path);
+        }
+        const inputPath = join(root, 'batch-outputs.jsonl');
+        const stagedPdfPath = join(root, 'merged.pdf');
+        await writeFile(inputPath, `${inputs.map(path => JSON.stringify({path})).join('\n')}\n`);
+        const qpdfBinary = resolveCliNativeToolPath('qpdf', 'qpdf', process.cwd());
+        expect(qpdfBinary, 'the existing unit lane installs bundled qpdf').not.toBeNull();
+        await mergeScanCleanupPdfPathSidecar({
+            inputPath,
+            inputCount: 2,
+            scratch: root,
+            stagedPdfPath,
+            qpdfBinary: qpdfBinary!,
+            signal: new AbortController().signal,
+            log: () => undefined,
+            runCommand: runCliNativeToolCommand,
+        });
+        const merged = await PDFDocument.load(await readFile(stagedPdfPath));
+        expect(merged.getPageCount()).toBe(2);
+        if (field === 'provenance') {
+            const info = merged.context.lookup(merged.context.trailerInfo.Info, PDFDict);
+            const stamp = info?.get(PDFName.of('EVBScanCleanup'));
+            expect(stamp).toBeInstanceOf(PDFString);
+            expect((stamp as PDFString).decodeText()).toBe('retained-cleanup-provenance');
+        } else {
+            expect(merged.catalog.has(PDFName.of('Outlines'))).toBe(true);
+            const outlines = merged.catalog.lookup(PDFName.of('Outlines'), PDFDict);
+            const first = outlines.lookup(PDFName.of('First'), PDFDict);
+            expect(first?.lookup(PDFName.of('Title'), PDFString)?.decodeText()).toBe('Retained source bookmark');
+        }
+    });
+
     it('publishes real per-output mappings and page records in streaming report sidecars', async () => {
         const fixture = await conversionRegressionFixture(1_025);
         const summary = await fixture.run({sourcePageNumbers: [1]});
