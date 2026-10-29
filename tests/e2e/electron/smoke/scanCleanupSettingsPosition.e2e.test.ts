@@ -41,7 +41,7 @@ describe('scan cleanup settings position', () => {
         const analyzing = await position('analyzing');
         await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
         await page.waitForFunction(() => {
-            const button = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-redetect');
+            const button = document.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect');
             return button !== null && !button.disabled;
         });
         const stopped = await position('stopped');
@@ -49,7 +49,7 @@ describe('scan cleanup settings position', () => {
             analyzing,
             stopped,
         })).toEqual(analyzing);
-        await clickAsUser(page, '.scan-cleanup-toolbar-redetect');
+        await clickAsUser(page, '.scan-thumbnail-redetect');
         await page.waitForSelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, {visible: true});
         expect(await position('restarted')).toEqual(stopped);
     });

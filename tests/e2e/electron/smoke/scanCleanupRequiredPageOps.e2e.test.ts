@@ -208,7 +208,7 @@ describe('scan cleanup required page ops', () => {
             await clickAsUser(session.page, '[role="radio"][aria-label="Grayscale"]');
             if (path === plainPath) {
                 await waitForSettledDetection(session);
-                await clickAsUser(session.page, '.scan-cleanup-toolbar-redetect');
+                await clickAsUser(session.page, '.scan-thumbnail-redetect');
                 await waitForSettledDetection(session);
             }
             await clickAsUser(session.page, '.scan-cleanup-toolbar-primary-action');

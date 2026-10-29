@@ -2105,36 +2105,11 @@ describe('Electron E2E - Viewer Smoke', () => {
             activeScope: 'all',
             hasTabs: false,
         });
-        const readPlacementGridY = () => document.querySelector('.scan-cleanup-alignment-grid')
-            ?.getBoundingClientRect().y ?? null;
-        const placementYAllScope = await session.page.evaluate(readPlacementGridY);
-        await clickAsUser(session.page, '[data-settings-scope="page"]');
-        const pageScopePlacement = await session.page.evaluate(() => {
-            const placement = document.querySelector<HTMLElement>('.scan-cleanup-alignment-grid');
-            const outputMode = document.querySelector<HTMLElement>('[aria-label="Output mode"]');
-            return {
-                outputModeY: outputMode?.getBoundingClientRect().y ?? null,
-                outputModeVisible: Boolean(
-                    outputMode
-                    && outputMode.getBoundingClientRect().height > 0
-                    && getComputedStyle(outputMode).display !== 'none',
-                ),
-                placementY: placement?.getBoundingClientRect().y ?? null,
-            };
-        });
-        // The scope-specific output-mode row follows placement, so switching
-        // scope must not shift the shared placement control.
-        expect(Number.isFinite(placementYAllScope)).toBe(true);
-        expect(Number.isFinite(pageScopePlacement.placementY)).toBe(true);
-        expect(Number.isFinite(pageScopePlacement.outputModeY)).toBe(true);
-        expect(pageScopePlacement.outputModeVisible).toBe(true);
-        expect(pageScopePlacement.placementY).toBe(placementYAllScope);
-        expect(pageScopePlacement.outputModeY)
-            .toBeGreaterThan(pageScopePlacement.placementY as number);
-        await clickAsUser(session.page, '[data-settings-scope="all"]');
-        const restoredPlacementY = await session.page.evaluate(readPlacementGridY);
-        expect(Number.isFinite(restoredPlacementY)).toBe(true);
-        expect(restoredPlacementY).toBe(placementYAllScope);
+        expect(await session.page.$('[role="combobox"][aria-label="Output mode"]')).toBeNull();
+        await clickAsUser(session.page, '[role="radio"][aria-label="Page 1"]');
+        await session.page.waitForSelector('[role="combobox"][aria-label="Output mode"]', {visible: true});
+        await clickAsUser(session.page, '[role="radio"][aria-label="All pages"]');
+        expect(await session.page.$('[role="combobox"][aria-label="Output mode"]')).toBeNull();
         const headerBottomEdges = await session.page.$$eval(
             '.scan-thumbnail-rail-header, .preview-header, .scan-cleanup-settings-header',
             headers => headers.map(header => header.getBoundingClientRect().bottom),
@@ -2237,19 +2212,13 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(previewText).not.toContain('could not be cloned');
         expect(previewText).not.toContain('Could not be cloned');
 
-        const marginControls = await session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
-            .map(input => input.dataset.marginSide));
-        expect([...marginControls].sort()).toEqual([
-            'bottomMm',
-            'leftMm',
-            'rightMm',
-            'topMm',
-        ]);
+        expect(await session.page.$eval('[data-margins-link]', button => button.getAttribute('aria-checked'))).toBe('true');
+        expect(await session.page.$$eval('input[data-margin-side]', inputs => inputs.length)).toBe(1);
 
         const readAllMargins = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
             .map(input => Number(input.value));
         const marginsBefore = await session.page.evaluate(readAllMargins);
-        await session.page.focus('input[data-margin-side="topMm"]');
+        await session.page.focus('input[data-margin-side="all"]');
         // A pixel can be visible while the previous preview frame is pinned.
         // Capture the first complete visible geometry in the same page task that
         // waits for it, so detection cannot expose a replacement gap to baseline.
@@ -2265,7 +2234,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(baselineGeometry).not.toBeNull();
         expect(baselineGeometry?.contained).toBe(true);
         const incrementCenter = await session.page.evaluate(() => {
-            const input = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            const input = document.querySelector<HTMLInputElement>('input[data-margin-side="all"]');
             let scope: HTMLElement | null = input;
             while (scope && !scope.querySelector('[data-slot="increment"] button')) {
                 scope = scope.parentElement;
@@ -2286,8 +2255,8 @@ describe('Electron E2E - Viewer Smoke', () => {
         }
         const marginsAfterClicks = await session.page.evaluate(readAllMargins);
         expect(marginsAfterClicks).toEqual(marginsBefore.map(value => value + 3));
-        await clickAsUser(session.page, 'input[data-margin-side="topMm"]', {count: 3});
-        await session.page.type('input[data-margin-side="topMm"]', '25');
+        await clickAsUser(session.page, 'input[data-margin-side="all"]', {count: 3});
+        await session.page.type('input[data-margin-side="all"]', '25');
         await session.page.keyboard.press('Enter');
         const sweptGeometryHandle = await waitForFunctionInPage(
             session.page,
@@ -2306,15 +2275,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             return rail ? getComputedStyle(rail).scrollbarGutter : null;
         });
         expect(railGutter).toBe('stable both-edges');
-        const readSettingsAnchorX = () => document.querySelector<HTMLElement>('input[data-margin-side]')
-            ?.getBoundingClientRect().x ?? null;
-        const anchorLinked = await session.page.evaluate(readSettingsAnchorX);
-        const fieldCountLinked = await session.page.evaluate(() => document.querySelectorAll('input[data-margin-side]').length);
-        await clickAsUser(session.page, '[data-margins-link]');
-        const fieldCountUnlinked = await session.page.evaluate(() => document.querySelectorAll('input[data-margin-side]').length);
-        expect(fieldCountUnlinked).toBe(fieldCountLinked);
-        const anchorUnlinked = await session.page.evaluate(readSettingsAnchorX);
-        expect(anchorUnlinked).toBe(anchorLinked);
+        await clickAsUser(session.page, '[data-margins-link][role="switch"]');
+        await session.page.waitForSelector('input[data-margin-side="topMm"]', {visible: true});
+        expect(await session.page.$eval('[data-margins-link]', button => button.getAttribute('aria-checked'))).toBe('false');
+        expect(await session.page.$$eval('input[data-margin-side]', inputs => inputs.length)).toBe(4);
 
         const documentTopMargin = await session.page.$eval(
             'input[data-margin-side="topMm"]',

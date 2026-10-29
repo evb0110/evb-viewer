@@ -17,7 +17,10 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
-import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import {
+    toastDescription,
+    toastDescriptionContaining,
+} from '@tests/helpers/toastDescription';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 const diagnosticMocks = vi.hoisted(() => ({
@@ -844,6 +847,83 @@ describe('scan cleanup run coordinator', () => {
             expect(error).toContain('"available":"520.0 MB"');
             expect(error).toContain('"required":"1.07 GB"');
             expect(error).not.toContain('raw ENOSPC detail');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it.each([
+        {
+            spreadsSplit: 0,
+            offcutsDiscarded: 0,
+            blankPagesSkipped: 0,
+            excludedPages: 0,
+        },
+        {
+            spreadsSplit: 2,
+            offcutsDiscarded: 0,
+            blankPagesSkipped: 3,
+            excludedPages: 0,
+        },
+        {
+            spreadsSplit: 0,
+            offcutsDiscarded: 4,
+            blankPagesSkipped: 0,
+            excludedPages: 5,
+        },
+    ])('lists only nonzero completion facts for %j', async (facts) => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = stubCapability(callback => { listener = callback; }, () => 'summary-job');
+        const toastAdd = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: async () => true,
+            createCompletedOutputSaveAs: () => async () => undefined,
+            t: translate,
+            toast: {add: toastAdd},
+        });
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            });
+            const state = completedState('summary-job');
+            if (state.status !== 'completed') throw new Error('Expected completed fixture');
+            Object.assign(state.summary, facts);
+            listener(state);
+            const details = [
+                [
+                    'spreads',
+                    facts.spreadsSplit,
+                ],
+                [
+                    'offcuts',
+                    facts.offcutsDiscarded,
+                ],
+                [
+                    'blank',
+                    facts.blankPagesSkipped,
+                ],
+                [
+                    'excluded',
+                    facts.excludedPages,
+                ],
+            ] as const;
+            const expected = [
+                'scanCleanup.summary:{"input":1,"output":1}',
+                ...details.filter(([
+                    , count,
+                ]) => count > 0)
+                    .map(([
+                        fact,
+                        count,
+                    ]) => `scanCleanup.summaryDetails.${fact}:{"count":${count}}`),
+            ].join(' ');
+            await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'success',
+                description: toastDescription(expected),
+            })));
         } finally {
             cleanup();
         }
