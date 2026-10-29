@@ -2243,7 +2243,8 @@ mod tests {
             checksum.update(normalized.row(y));
         }
 
-        assert_eq!(checksum.finalize(), 3_785_375_702);
+        // Re-pinned with the exact integer area-tap background reduction.
+        assert_eq!(checksum.finalize(), 320_625_173);
     }
 
     #[test]
@@ -2618,22 +2619,24 @@ mod tests {
     /// Both fits stay pinned to the pre-flattening model at a tolerance far
     /// below one output-luminance quantum. The fixed-chunk accumulator changes
     /// only floating-point reduction grouping; the separate thread-count test
-    /// requires that grouping to remain deterministic.
+    /// requires that grouping to remain deterministic. The probes were last
+    /// re-pinned when the background reduction moved to exact integer area
+    /// taps, which changes the reduced field the fits see, not the fits.
     #[test]
     fn both_surface_fits_reproduce_their_pre_flattening_models() {
         const CHOLESKY: [f64; 5] = [
-            256.505283631078,
-            255.894672768757,
-            253.836236216943,
-            250.488668187166,
-            256.092520277839,
+            255.858782016274,
+            258.676637944154,
+            253.648001385545,
+            250.035479730120,
+            255.968139778069,
         ];
         const GAUSSIAN: [f64; 5] = [
-            254.965646558837,
-            253.771107792774,
-            252.505474184266,
-            253.285006782184,
-            257.269583508447,
+            255.004815573390,
+            253.729905722550,
+            252.459927110234,
+            252.873666952078,
+            257.254882185427,
         ];
         let (small, candidate) = reconstructed_background(&gutter_fixture());
         let fit = fit_masked_surface(&small, &candidate, None).expect("gutter fixture must fit");

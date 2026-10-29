@@ -5,8 +5,7 @@ use crate::engine::page_statistics::trusted_selection_is_incomplete;
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached_cancellable,
     clean_detail_page_with_color_cancellable, clean_page_with_color_and_document_prior_cached,
-    downscale_rgb_to_dimensions, CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources,
-    LayeredForegroundKind,
+    CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources, LayeredForegroundKind,
 };
 use crate::engine::render::{quantize_decimal, CleanupWarningEvent};
 use crate::engine::staged_input::{invalid, map_raster_error};
@@ -747,11 +746,8 @@ pub(crate) fn run_page(
                             if color.width() != background_width
                                 || color.height() != background_height
                             {
-                                let background = downscale_rgb_to_dimensions(
-                                    color,
-                                    background_width,
-                                    background_height,
-                                );
+                                let background = color
+                                    .resample_to_dimensions(background_width, background_height);
                                 write_layer_background(background_path, &background)?;
                             } else {
                                 write_layer_background(background_path, color)?;

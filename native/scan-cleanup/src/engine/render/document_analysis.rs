@@ -567,7 +567,7 @@ fn prepare_analysis_plane(input: AnalysisPlaneInput<'_>) -> AnalysisPlaneOutput 
     } = build_analysis_level(source, options.dpi, analysis_dpi_ceiling);
     let rotated = rotate_orthogonal(&image, options.rotation);
     let analysis_rgb = color_source
-        .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
+        .map(|rgb| rgb.resample_to_dimensions(image.width(), image.height()))
         .map(|rgb| rotate_rgb_orthogonal(&rgb, options.rotation));
     let (full_width, full_height) = match options.rotation {
         OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {

@@ -3961,46 +3961,6 @@ fn reserve_rgb_endpoints(value: [u8; 3]) -> [u8; 3] {
     }
 }
 
-pub(crate) fn downscale_rgb_to_dimensions(
-    source: &RgbImage,
-    width: usize,
-    height: usize,
-) -> RgbImage {
-    if source.width() == width && source.height() == height {
-        return source.clone();
-    }
-    let mut output = RgbImage::new(width, height, [255; 3]);
-    for output_y in 0..height {
-        let source_y0 = output_y * source.height() / height;
-        let source_y1 = ((output_y + 1) * source.height() / height)
-            .max(source_y0 + 1)
-            .min(source.height());
-        for output_x in 0..width {
-            let source_x0 = output_x * source.width() / width;
-            let source_x1 = ((output_x + 1) * source.width() / width)
-                .max(source_x0 + 1)
-                .min(source.width());
-            let mut sums = [0u64; 3];
-            let mut count = 0u64;
-            for source_y in source_y0..source_y1 {
-                for source_x in source_x0..source_x1 {
-                    let pixel = source.get(source_x, source_y);
-                    for channel in 0..3 {
-                        sums[channel] += u64::from(pixel[channel]);
-                    }
-                    count += 1;
-                }
-            }
-            output.set(
-                output_x,
-                output_y,
-                sums.map(|sum| (sum / count.max(1)) as u8),
-            );
-        }
-    }
-    output
-}
-
 fn rotate_rgb_orthogonal(source: &RgbImage, rotation: OrthogonalRotation) -> RgbImage {
     let (width, height) = (source.width(), source.height());
     match rotation {
