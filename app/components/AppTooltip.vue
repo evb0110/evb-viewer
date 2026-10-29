@@ -63,12 +63,8 @@ const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
 // placed against its first element, read whenever it positions. Storing that
 // element after mount re-rendered every tooltip once more, which made the
 // 4,000 note markers of a dense page spend over a second in Vue's queue.
-const reference = {
-    getBoundingClientRect: () => referenceElement()?.getBoundingClientRect() ?? new DOMRect(),
-    get contextElement() {
-        return referenceElement();
-    },
-};
+let measuredElement: HTMLElement | undefined;
+const reference = shallowRef(createReference());
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
 const tooltipProps = computed(() => {
     const props: Record<string, unknown> = {disabled: disabled || !isUseful.value};
@@ -83,7 +79,7 @@ const tooltipProps = computed(() => {
     if (disableHoverableContent !== undefined) props.disableHoverableContent = disableHoverableContent;
     if (disableClosingTrigger !== undefined) props.disableClosingTrigger = disableClosingTrigger;
     if (ignoreNonKeyboardFocus !== undefined) props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
-    props.reference = reference;
+    props.reference = reference.value;
     props.ui = {
         content: 'app-tooltip-content',
         text: 'app-tooltip-text',
@@ -93,6 +89,18 @@ const tooltipProps = computed(() => {
 
 function updateOpen(value: boolean) {
     emit('update:open', value);
+}
+
+function createReference() {
+    return {
+        getBoundingClientRect: () => {
+            measuredElement = referenceElement();
+            return measuredElement?.getBoundingClientRect() ?? new DOMRect();
+        },
+        get contextElement() {
+            return referenceElement();
+        },
+    };
 }
 
 function referenceElement() {
@@ -137,6 +145,14 @@ function refreshUsefulness() {
 
 watch(() => usefulness, refreshUsefulness);
 onMounted(refreshUsefulness);
+// A tooltip that has positioned against an element its trigger then replaced
+// takes a new reference, so floating-ui observes the replacement.
+onUpdated(() => {
+    if (measuredElement && measuredElement !== referenceElement()) {
+        measuredElement = undefined;
+        reference.value = createReference();
+    }
+});
 </script>
 
 <style scoped>
