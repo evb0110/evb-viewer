@@ -26,6 +26,7 @@ import {
     createScanCleanupRasterBatchRenderer,
     type IScanCleanupRasterBatchFileSystem,
 } from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 // Keep all 1,024 real PNG encodes and pixel checks without thousands of disk
 // operations. Other cases below still publish through the real filesystem.
@@ -105,6 +106,42 @@ afterEach(async () => {
 });
 
 describe('scan cleanup raster batch renderer', () => {
+    it('preserves partial Poppler output when native termination is unproven', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
+        roots.push(root);
+        let partialPath = '';
+        const failure = markUnprovenNativeTermination(
+            new DOMException('Poppler cancellation could not stop its writer', 'AbortError'),
+            'Poppler process tree remains unproven',
+        );
+        const renderBatch = createScanCleanupRasterBatchRenderer(async (_binary, args) => {
+            partialPath = `${args.at(-1)!}-1.ppm`;
+            await writeFile(partialPath, PPM);
+            throw failure;
+        }, createFileSystem());
+
+        await expect(renderBatch({
+            dpi: 150,
+            log: vi.fn(),
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: join(root, 'source.pdf'),
+            targets: [{
+                pageNumber: 1,
+                outputPath: join(root, 'page-1.png'),
+                limits: {
+                    expectedHeightPx: 1,
+                    expectedWidthPx: 1,
+                    maxPixels: 100,
+                    maxDimensionPx: 10,
+                },
+            }],
+        })).rejects.toBe(failure);
+
+        await expect(readFile(partialPath), 'the unproven native writer must retain its batch directory and partial bytes').resolves.toEqual(PPM);
+        await expect(stat(join(root, 'page-1.png'))).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
     it('renders one contiguous window with one Poppler process and publishes every target', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
         roots.push(root);
