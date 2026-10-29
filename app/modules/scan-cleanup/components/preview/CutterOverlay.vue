@@ -2,7 +2,7 @@
     <button
         v-if="visible"
         class="cutter-control"
-        :class="{'is-refreshing': refreshing}"
+        :class="{'is-refreshing': refreshing, 'is-horizontal': horizontal}"
         type="button"
         :style="style"
         :aria-label="label"
@@ -14,11 +14,13 @@
         @lostpointercapture="$emit('lost-pointer-capture', $event)"
         @keydown.esc.stop.prevent="$emit('cancel')"
         @dblclick.prevent="$emit('reset')"
-        @keydown.left.prevent="$emit('nudge', -1, $event.shiftKey)"
-        @keydown.right.prevent="$emit('nudge', 1, $event.shiftKey)"
+        @keydown.left.prevent="!horizontal && $emit('nudge', -1, $event.shiftKey)"
+        @keydown.right.prevent="!horizontal && $emit('nudge', 1, $event.shiftKey)"
+        @keydown.up.prevent="horizontal && $emit('nudge', -1, $event.shiftKey)"
+        @keydown.down.prevent="horizontal && $emit('nudge', 1, $event.shiftKey)"
     >
-        <span class="cutter-line" aria-hidden="true" />
-        <span class="cutter-grab-handle" aria-hidden="true">
+        <span class="cutter-line" :class="{'is-horizontal': horizontal}" aria-hidden="true" />
+        <span class="cutter-grab-handle" :class="{'is-horizontal': horizontal}" aria-hidden="true">
             <UIcon name="i-ph-dots-six-vertical" class="size-4" />
         </span>
     </button>
@@ -30,6 +32,8 @@ import type {CSSProperties} from 'vue';
 
 defineProps<{
     hint: string;
+    /** The split runs across the shown scan, as it does on a quarter-turned original. */
+    horizontal?: boolean;
     label: string;
     refreshing: boolean;
     style: CSSProperties;

@@ -243,6 +243,26 @@
     opacity: var(--app-scan-preview-stale-opacity);
 }
 
+.cutter-control.is-horizontal {
+    inset-block: auto;
+    width: auto;
+    height: var(--app-space-9xl);
+    transform: translateY(-50%);
+}
+
+.cutter-line.is-horizontal {
+    inset-block: auto;
+    inset-block-start: 50%;
+    inset-inline: 0;
+    width: auto;
+    height: var(--app-space-xs);
+    transform: translateY(-50%);
+}
+
+.cutter-grab-handle.is-horizontal {
+    transform: translate(-50%, -50%) rotate(90deg);
+}
+
 .cutter-line {
     position: absolute;
     inset-block: 0;
@@ -260,6 +280,12 @@
 .cutter-control:focus-visible .cutter-line {
     width: var(--app-space-sm);
     background: var(--ui-primary-hover);
+}
+
+.cutter-control.is-horizontal:hover .cutter-line,
+.cutter-control.is-horizontal:focus-visible .cutter-line {
+    width: auto;
+    height: var(--app-space-sm);
 }
 
 .cutter-grab-handle {

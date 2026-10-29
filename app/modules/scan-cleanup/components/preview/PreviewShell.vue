@@ -358,6 +358,7 @@
                 <CutterOverlay
                     :hint="t('scanCleanup.preview.cutterHint')"
                     :label="t('scanCleanup.preview.cutter')"
+                    :horizontal="originalCutterAxis.horizontal"
                     :refreshing="loading && !cutterSourceUnderlayVisible"
                     :style="cutterStyle"
                     :visible="showCutter"
@@ -1051,15 +1052,18 @@ const cutterXPx = computed(() => resolveNormalizedManualSplitX(props.manualSplit
 const displayedCutterX = computed(() => activeCutterDraft.value
     ? resolveNormalizedManualSplitX(activeCutterDraft.value.value, analysisWidth.value) ?? cutterXPx.value
     : cutterXPx.value);
-// The split lives on the rotated analysis plane. Original shows the raw
-// scan, whose x axis is that plane's only when the page is upright or turned
-// half way (mirrored); after a quarter turn the split is a raw row, so the
-// cutter is offered where the plane is shown, in Cleaned.
+// The split is a column of the rotated analysis plane, but Original shows the
+// raw scan. After a quarter turn that column is a raw row, read from raw Y; a
+// clockwise quarter turn and a half turn also reverse the raw axis.
 const cutterRotation = computed(() => presentationResult.value?.pageMetadata.rotationDegrees ?? 0);
-const cutterAxisMirroredInOriginal = computed(() => effectiveViewMode.value === 'original'
-    && cutterRotation.value === 180);
+const originalCutterAxis = computed(() => {
+    const original = effectiveViewMode.value === 'original';
+    return {
+        horizontal: original && (cutterRotation.value === 90 || cutterRotation.value === 270),
+        mirrored: original && (cutterRotation.value === 90 || cutterRotation.value === 180),
+    };
+});
 const showCutter = computed(() => props.zoneEditing !== true
-    && !(effectiveViewMode.value === 'original' && (cutterRotation.value === 90 || cutterRotation.value === 270))
     && (
         activeCutterDraft.value !== null
         || Boolean(presentationResult.value) && (
@@ -1134,8 +1138,17 @@ const losslessCropOverlayStyles = computed(() => {
 });
 const cutterStyle = computed(() => {
     const analysisRatio = scanCleanupCutterRatio(displayedCutterX.value, analysisWidth.value);
-    const sourceRatio = cutterAxisMirroredInOriginal.value ? 1 - analysisRatio : analysisRatio;
+    const sourceRatio = originalCutterAxis.value.mirrored ? 1 - analysisRatio : analysisRatio;
     const outputs = presentationResult.value?.outputs ?? [];
+    if (originalCutterAxis.value.horizontal) {
+        const frame = originalFitPlacement.value;
+        return {
+            insetInlineStart: `${frame.left}px`,
+            insetBlockStart: `${frame.top + frame.height * sourceRatio}px`,
+            insetBlockEnd: 'auto',
+            width: `${frame.width}px`,
+        };
+    }
     return resolvePreviewCutterStyle({
         canvases: frozenViewportFrame.value.outputs,
         fallbackCanvas: {
@@ -1240,11 +1253,17 @@ function startCutterDrag(event: PointerEvent) {
         stageRect,
         fitScale: sourceFrame.width * transformScale / Math.max(1, analysisWidth.value),
         update: (pointerEvent, snapshot) => {
-            const frameRatio = (
-                (pointerEvent.clientX - snapshot.stageRect.x) / snapshot.fitScale
-                / Math.max(1, analysisWidth.value)
-            ) - sourceFrame.left / sourceFrame.width;
-            const ratio = cutterAxisMirroredInOriginal.value ? 1 - frameRatio : frameRatio;
+            const {
+                horizontal, mirrored,
+            } = originalCutterAxis.value;
+            const frameRatio = horizontal
+                ? (pointerEvent.clientY - snapshot.stageRect.y) / (sourceFrame.height * transformScale)
+                    - sourceFrame.top / Math.max(1, sourceFrame.height)
+                : (
+                    (pointerEvent.clientX - snapshot.stageRect.x) / snapshot.fitScale
+                    / Math.max(1, analysisWidth.value)
+                ) - sourceFrame.left / sourceFrame.width;
+            const ratio = mirrored ? 1 - frameRatio : frameRatio;
             return {
                 kind: 'cutter',
                 value: normalizeManualSplitX(
@@ -1268,7 +1287,7 @@ function startCutterDrag(event: PointerEvent) {
 
 function nudgeCutter(direction: -1 | 1, coarse: boolean) {
     // An arrow moves the line the way it points on screen.
-    const step = analysisWidth.value * (coarse ? 0.05 : 0.01) * (cutterAxisMirroredInOriginal.value ? -1 : 1);
+    const step = analysisWidth.value * (coarse ? 0.05 : 0.01) * (originalCutterAxis.value.mirrored ? -1 : 1);
     emit('update:manualSplit', normalizeManualSplitX(Math.min(
         analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MAX,
         Math.max(analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MIN, cutterXPx.value + direction * step),
