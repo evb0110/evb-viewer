@@ -3759,26 +3759,6 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
-    it('releases completed detection evidence when the source closes', async () => {
-        const harness = capabilityHarness();
-        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/closed-detection.pdf'));
-        capability.value = harness.value;
-        const mounted = mountSession(`closed-detection-${Date.now()}`, {sourcePath: () => sourcePath.value});
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
-        harness.emitDetection(detectionState('detect-1', 'completed'));
-        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-
-        vi.mocked(harness.value.cancelDetection).mockClear();
-        sourcePath.value = null;
-        await nextTick();
-
-        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-1', {
-            ownerId: mounted.session.run.ownerId,
-            documentRevision: expect.any(String),
-        });
-        mounted.unmount();
-    });
-
     it('stores text-axis results and clears them before a fresh detection pass', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

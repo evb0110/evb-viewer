@@ -597,7 +597,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     function invalidateDetectionEvidence() {
         const previousJobId = jobId;
         const previousJobState = jobState.value;
-        releaseCompletedDetectionEvidence();
         requestGeneration += 1;
         if (previousJobId && previousJobState && !detectionIsTerminal(previousJobState)) {
             void enqueueDetectionRetirement(
@@ -618,16 +617,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         clearDetectionEvidence();
         const key = options.lifecycleDocumentKey.value;
         if (key !== null) detectionSessionCache.delete(key);
-    }
-
-    function releaseCompletedDetectionEvidence() {
-        if (!jobId || jobState.value?.status !== 'completed') {
-            return;
-        }
-        void getScanCleanupCapability()?.cancelDetection(jobId, {
-            ownerId: options.ownerId,
-            documentRevision: jobDocumentRevision ?? options.documentRevision.value,
-        }).catch(() => undefined);
     }
 
     function clearDetectionEvidenceForPage(pageNumber: number, invalidatePlacementCalibration = true) {
@@ -1481,9 +1470,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         }
-        if (previousKey !== undefined && previousKey !== key) {
-            releaseCompletedDetectionEvidence();
-        }
         if (key === null) {
             // The workspace can stay mounted while its document is closed.
             // This is the actual lifecycle boundary for detection state; a
@@ -1530,7 +1516,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // observe a null transition of its own.
         discardScanCleanupDetectionStateForAliases([...documentAliases]);
         documentAliases.clear();
-        releaseCompletedDetectionEvidence();
         clearDetectionEvidence();
     });
     watch(options.active, active => {
@@ -1594,7 +1579,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (!documentChanged && !pageCountChanged && changedPages.size === 0) {
                 return;
             }
-            releaseCompletedDetectionEvidence();
             const key = options.lifecycleDocumentKey.value;
             if (key !== null) detectionSessionCache.delete(key);
             if (!isDetecting.value) {
