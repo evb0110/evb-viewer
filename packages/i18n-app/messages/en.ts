@@ -856,7 +856,7 @@ export default {
             },
         },
         'rasterNotice': 'Color preserves scan color; grayscale converts it to gray. Pages are rasterized at the detected source resolution (150–600 DPI).',
-        'lossNotice': 'Source text and annotations are preserved on the cleaned pages. A page whose curvature is corrected or that is otherwise reshaped (non-affine) keeps only its image, so a run that would reshape a page with annotations stops. Turn off page curvature correction or turn on Preserve original quality to keep them. Forms, attachments, and vector drawings are not carried over.',
+        'lossNotice': 'Source text and annotations are preserved on the cleaned pages. A page whose curvature is corrected or that is otherwise reshaped (non-affine) keeps only its image, so a run that would reshape a page with annotations stops. Turn off page curvature correction or turn on Keep original images to keep them. Forms, attachments, and vector drawings are not carried over.',
         'imageOnly': 'Pages are rebuilt as images —',
         'details': 'Details',
         'cleanUp': 'Clean up',

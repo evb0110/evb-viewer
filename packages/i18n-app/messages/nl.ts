@@ -373,7 +373,7 @@ export default {
             },
         },
         'rasterNotice': 'Kleur behoudt de scankleur; grijswaarden converteert het naar grijs. Pagina\'s worden gerasterd met de gedetecteerde bronresolutie (150–600 DPI).',
-        'lossNotice': 'Brontekst en annotaties blijven behouden op de opgeschoonde pagina’s. Een pagina waarvan de kromming wordt gecorrigeerd of die anders wordt vervormd (niet-affien) behoudt alleen haar afbeelding, dus een verwerking die een pagina met annotaties zou vervormen, stopt. Zet de correctie van paginakromming uit of ‘Behoud originele kwaliteit’ aan om ze te behouden. Formulieren, bijlagen en vectortekeningen worden niet overgedragen.',
+        'lossNotice': 'Brontekst en annotaties blijven behouden op de opgeschoonde pagina’s. Een pagina waarvan de kromming wordt gecorrigeerd of die anders wordt vervormd (niet-affien) behoudt alleen haar afbeelding, dus een verwerking die een pagina met annotaties zou vervormen, stopt. Zet de correctie van paginakromming uit of ‘Originele afbeeldingen behouden’ aan om ze te behouden. Formulieren, bijlagen en vectortekeningen worden niet overgedragen.',
         'imageOnly': 'Pagina’s worden opnieuw opgebouwd als afbeeldingen —',
         'details': 'Details',
         'cleanUp': 'Opschonen',

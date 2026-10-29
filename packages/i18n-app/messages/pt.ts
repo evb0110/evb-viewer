@@ -373,7 +373,7 @@ export default {
             },
         },
         'rasterNotice': 'A cor preserva as cores da digitalização; os tons de cinzento convertem-nas em cinzento. As páginas são rasterizadas na resolução de origem detetada (150–600 DPI).',
-        'lossNotice': 'O texto de origem e as anotações são preservados nas páginas limpas. Uma página cuja curvatura é corrigida ou que é deformada de outro modo (não afim) mantém apenas a imagem, pelo que um processamento que deformaria uma página com anotações é interrompido. Desative a correção da curvatura da página ou ative «Preservar a qualidade original» para as manter. Formulários, anexos e desenhos vetoriais não são transferidos.',
+        'lossNotice': 'O texto de origem e as anotações são preservados nas páginas limpas. Uma página cuja curvatura é corrigida ou que é deformada de outro modo (não afim) mantém apenas a imagem, pelo que um processamento que deformaria uma página com anotações é interrompido. Desative a correção da curvatura da página ou ative «Manter as imagens originais» para as manter. Formulários, anexos e desenhos vetoriais não são transferidos.',
         'imageOnly': 'As páginas são reconstruídas como imagens —',
         'details': 'Detalhes',
         'cleanUp': 'Limpar',

@@ -26,9 +26,9 @@ const data = workerData as {
     paths: IScanCleanupWorkerPaths;
     runtimePolicy?: unknown;
     /** The main job this run belongs to, so its lines join the job's. */
-    jobId?: string;
+    jobId: string;
 };
-const jobId = data.jobId ?? null;
+const {jobId} = data;
 const logger = createLogger('scan-cleanup-worker');
 function logScanCleanupWorkerMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {

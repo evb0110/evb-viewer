@@ -373,7 +373,7 @@ export default {
             },
         },
         'rasterNotice': 'Il colore conserva il colore della scansione; la scala di grigi lo converte in grigio. Le pagine vengono rasterizzate alla risoluzione sorgente rilevata (150–600 DPI).',
-        'lossNotice': 'Il testo di origine e le annotazioni vengono conservati sulle pagine pulite. Una pagina di cui si corregge la curvatura o che viene altrimenti deformata (non affine) conserva solo la sua immagine, quindi un’elaborazione che deformerebbe una pagina con annotazioni si interrompe. Disattiva la correzione della curvatura della pagina o attiva «Conserva la qualità originale» per mantenerle. Moduli, allegati e disegni vettoriali non vengono trasferiti.',
+        'lossNotice': 'Il testo di origine e le annotazioni vengono conservati sulle pagine pulite. Una pagina di cui si corregge la curvatura o che viene altrimenti deformata (non affine) conserva solo la sua immagine, quindi un’elaborazione che deformerebbe una pagina con annotazioni si interrompe. Disattiva la correzione della curvatura della pagina o attiva «Mantieni le immagini originali» per mantenerle. Moduli, allegati e disegni vettoriali non vengono trasferiti.',
         'imageOnly': 'Le pagine vengono ricostruite come immagini —',
         'details': 'Dettagli',
         'cleanUp': 'Pulisci',

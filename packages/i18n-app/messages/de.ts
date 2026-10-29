@@ -373,7 +373,7 @@ export default {
             },
         },
         'rasterNotice': 'Farbe erhält die Farben des Scans; Graustufen wandeln ihn in Grau um. Die Seiten werden mit der erkannten Quellauflösung (150–600 DPI) gerastert.',
-        'lossNotice': 'Quelltext und Anmerkungen bleiben auf den bereinigten Seiten erhalten. Eine Seite, deren Krümmung korrigiert oder die anders umgeformt wird (nicht affin), behält nur ihr Bild; ein Lauf, der eine Seite mit Anmerkungen umformen würde, bricht daher ab. Schalten Sie die Korrektur der Seitenkrümmung aus oder „Originalqualität beibehalten“ ein, um sie zu behalten. Formulare, Anhänge und Vektorgrafiken werden nicht übernommen.',
+        'lossNotice': 'Quelltext und Anmerkungen bleiben auf den bereinigten Seiten erhalten. Eine Seite, deren Krümmung korrigiert oder die anders umgeformt wird (nicht affin), behält nur ihr Bild; ein Lauf, der eine Seite mit Anmerkungen umformen würde, bricht daher ab. Schalten Sie die Korrektur der Seitenkrümmung aus oder „Originalbilder behalten“ ein, um sie zu behalten. Formulare, Anhänge und Vektorgrafiken werden nicht übernommen.',
         'imageOnly': 'Seiten werden als Bilder neu aufgebaut –',
         'details': 'Details',
         'cleanUp': 'Bereinigen',
