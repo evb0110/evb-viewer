@@ -609,7 +609,10 @@ export function createScanCleanupService(
                         previous.jobId,
                         ownerActor(sender, previous.request),
                     ));
+                    // A job whose cancel was accepted is retiring: it stays
+                    // owned until it settles, but a new start never joins it.
                     if (previousState && ![
+                        'canceling',
                         'completed',
                         'failed',
                         'canceled',
