@@ -1686,6 +1686,8 @@ fn split_histogram_bands(
             best = Some((valley, depth));
         }
     }
+    // Recursion must not keep every frame's maxima alive.
+    drop(right_peaks);
     if let Some((valley, _)) = best {
         split_histogram_bands(histogram, start, valley, minimum_rows, output);
         split_histogram_bands(histogram, valley, end, minimum_rows, output);
