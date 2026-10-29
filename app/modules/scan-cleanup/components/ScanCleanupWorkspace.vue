@@ -350,45 +350,6 @@ const {
     recommendedOutputModeReasonByPage,
     textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
-// A failed analysis is told once, when this workspace is the one on screen: an
-// expected refusal as a warning, a defect with its Error ID. The toolbar keeps
-// the reason on its status line meanwhile.
-const EXPECTED_DETECTION_REFUSALS = new Set([
-    'insufficient-scratch',
-    'encrypted',
-    'needs-password',
-    'too-large',
-]);
-let toldDetectionError = '';
-watch([
-    detectionError,
-    () => workspaceActive.value,
-], ([
-    message,
-    active,
-]) => {
-    if (message === '') {
-        toldDetectionError = '';
-        return;
-    }
-    if (!active || message === toldDetectionError) {
-        return;
-    }
-    toldDetectionError = message;
-    if (EXPECTED_DETECTION_REFUSALS.has(detectionErrorCode.value ?? '')) {
-        presentNoticeToast({
-            tone: 'warning',
-            title: t('scanCleanup.detectAll.failed'),
-            description: message,
-        });
-        return;
-    }
-    presentFailureToast({
-        failure: BrowserLogger.error('scan-cleanup', 'Scan cleanup page analysis failed', message, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'}),
-        title: t('scanCleanup.detectAll.failed'),
-        description: message,
-    });
-}, {immediate: true});
 const {
     clearDetail: clearPreviewDetail,
     error: previewError,
@@ -420,6 +381,49 @@ const {
     runDisabledReason,
     run,
 } = workspaceSession.run;
+// A failed analysis is told once, when this workspace is the one on screen: an
+// expected refusal as a warning, a defect with its Error ID. The toolbar keeps
+// the reason on its status line meanwhile.
+const EXPECTED_DETECTION_REFUSALS = new Set([
+    'insufficient-scratch',
+    'encrypted',
+    'needs-password',
+    'too-large',
+]);
+let toldDetectionError = '';
+watch([
+    detectionError,
+    () => workspaceActive.value,
+], ([
+    message,
+    active,
+]) => {
+    if (message === '') {
+        toldDetectionError = '';
+        return;
+    }
+    if (!active || message === toldDetectionError) {
+        return;
+    }
+    toldDetectionError = message;
+    // A cleanup queued behind this analysis reports the failure as its own.
+    if (isRunning.value) {
+        return;
+    }
+    if (EXPECTED_DETECTION_REFUSALS.has(detectionErrorCode.value ?? '')) {
+        presentNoticeToast({
+            tone: 'warning',
+            title: t('scanCleanup.detectAll.failed'),
+            description: message,
+        });
+        return;
+    }
+    presentFailureToast({
+        failure: BrowserLogger.error('scan-cleanup', 'Scan cleanup page analysis failed', message, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'}),
+        title: t('scanCleanup.detectAll.failed'),
+        description: message,
+    });
+}, {immediate: true});
 const marginBoundaryVisible = ref(false);
 let pageMappingConsumed = false;
 watch(() => sessionState?.pageMapping, (mapping, previousMapping) => {
@@ -585,6 +589,9 @@ const scopeOverrideCounts = computed(() => {
         placement: 0,
         rotation: 0,
     };
+    if (settingsScope.value === 'all') {
+        return counts;
+    }
     const pages = scopePageNumbers.value;
     for (const page of pages) {
         if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
