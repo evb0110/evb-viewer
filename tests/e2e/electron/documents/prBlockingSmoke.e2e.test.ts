@@ -1071,8 +1071,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             x: number;
             y: number
         };
+        // The notice's version may be hours old, so viewing it checks again and
+        // the dialog shows that check's verdict. An unpackaged build has none to
+        // offer, which tells the fresh answer apart from the stale 9.9.9 offer.
         await page.mouse.click(viewUpdate.x, viewUpdate.y);
-        await waitForVisibleText('Download and Install', '[role="dialog"] *');
+        await waitForVisibleText('Updates unavailable', '[role="dialog"] *');
         await page.keyboard.press('Escape');
         await waitForFunctionInPage(page, () => !document.querySelector('[role="dialog"]'), {timeout: UPDATE_OFFER_UI_TIMEOUT_MS});
 

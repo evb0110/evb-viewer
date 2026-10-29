@@ -362,7 +362,6 @@ const {
     downloadUpdate,
     ensureInitialized: ensureUpdatesInitialized,
     installUpdateNow,
-    showUpdateDialog,
     skipUpdateVersion,
     status: updatesStatus,
 } = useAppUpdates();
@@ -567,7 +566,7 @@ const {
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
     updatesStatus,
     updatesDialog,
-    showUpdateDialog,
+    checkForUpdates,
     updatesDialogVersion,
     closeUpdatesDialog,
     deferUpdate,
