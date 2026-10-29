@@ -44,7 +44,6 @@ import {createScanCleanupDiagnosticsManifestScope} from './scan-cleanup-diagnost
 import {loadGrayscaleImage} from './load-grayscale-image.mjs';
 import {
     composePreviewTransition,
-    createForcedPostSettleMovementProbeLeaves,
     measurePreviewPresentationStability,
 } from './scan-cleanup-preview-presentation.mjs';
 
@@ -89,10 +88,6 @@ const [
         transformPreviewContentBox,
     },
     {
-        commitScanCleanupPreviewPresentationSettle,
-        resolveScanCleanupPreviewPresentationCommit,
-    },
-    {
         buildScanCleanupPlacementAnchorSummary,
         resolveScanCleanupPlacementAnchorsFromResult,
     },
@@ -114,7 +109,6 @@ const [
     importTs('../../packages/contracts/scan-cleanup/scanCleanupSettings.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
-    importTs('../../app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts'),
     importTs('../../packages/scan-cleanup/core/placementAnchors.ts'),
     importTs('../../packages/contracts/scan-cleanup/createScanCleanupDetectionSignature.ts'),
     importTs('../../packages/scan-cleanup/core/fileBackedResultStore.ts'),
@@ -343,9 +337,7 @@ function normalizedMargins(bitmap) {
     };
 }
 
-async function measureMargins(path) {
-    return normalizedMargins(await readGray(path));
-}
+
 
 function lineBands(bitmap, bounds) {
     const minimumRowInk = Math.max(3, Math.round((bounds.right - bounds.left) * 0.0015));
@@ -1379,18 +1371,9 @@ async function main() {
             await composeSpread(finalLeaves, finalComposite);
             const eyeballComposite = join(pageDirectory, 'provisional-vs-settled-composite.png');
             await composePreviewTransition(provisionalComposite, previewComposite, eyeballComposite);
-            const forcedProbeDirectory = join(pageDirectory, 'forced-post-settle-movement-probe');
-            const forcedProbeLeaves = await createForcedPostSettleMovementProbeLeaves(previewLeaves, forcedProbeDirectory);
-            const presentationStability = await measurePreviewPresentationStability({
-                commitSettle: commitScanCleanupPreviewPresentationSettle,
-                compareMargins,
-                forcedProbeLeaves,
-                measureMargins,
-                previewLeaves,
-                provisionalLeaves,
-                resolveCommit: resolveScanCleanupPreviewPresentationCommit,
-                transitionKey: `preview-session:page-${String(pageNumber)}:user-0`,
-            });
+            // This offline oracle does not sample the renderer presentation boundary.
+            // Explicitly report the unobserved temporal check instead of self-pairs.
+            const presentationStability = await measurePreviewPresentationStability({});
             const placementSignatures = previewLeaves.map((leaf, index) => {
                 const finalLeaf = finalLeaves[index];
                 const forcedOffsetXPx = args.forcePlacementOffsetDivergence

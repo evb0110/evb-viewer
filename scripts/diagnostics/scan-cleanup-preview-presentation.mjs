@@ -120,49 +120,49 @@ export async function createForcedPostSettleMovementProbeLeaves(leaves, outputDi
     }));
 }
 
+// Only independently captured frames can establish temporal stability. Native
+// candidate files and a simulation of the commit policy are not observations.
 export async function measurePreviewPresentationStability({
-    commitSettle,
+    observations,
     compareMargins,
-    forcedProbeLeaves,
     measureMargins,
-    previewLeaves,
-    provisionalLeaves,
-    resolveCommit,
-    transitionKey,
 }) {
-    const firstCommit = resolveCommit(null, transitionKey, false);
-    const firstProvisionalCommit = resolveCommit(firstCommit.pin, transitionKey, false);
-    const secondProvisionalCommit = resolveCommit(firstProvisionalCommit.pin, transitionKey, false);
-    const settleCommit = resolveCommit(secondProvisionalCommit.pin, transitionKey, true);
-    const settledLoadingCommit = resolveCommit(settleCommit.pin, transitionKey, true);
-    const postSettleCommit = resolveCommit(commitSettle(settleCommit.pin), transitionKey, true);
-    const [
-        firstProvisionalComparisons,
-        secondProvisionalComparisons,
-        settleCommitComparisons,
-        postSettleComparisons,
-        forcedPostSettleMovementComparisons,
-    ] = await Promise.all([
-        compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
-        compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
-        compareDisplayedPreviewLeaves(provisionalLeaves, previewLeaves, measureMargins, compareMargins),
-        compareDisplayedPreviewLeaves(previewLeaves, previewLeaves, measureMargins, compareMargins),
-        compareDisplayedPreviewLeaves(previewLeaves, forcedProbeLeaves, measureMargins, compareMargins),
-    ]);
-    return createPreviewPresentationStabilityReport({
-        firstProvisionalCommit,
-        firstProvisionalComparisons,
-        forcedPostSettleMovementComparisons,
-        postSettleCommit,
-        postSettleComparisons,
-        settleCommitComparisons,
-        settleCommit,
-        settledLoadingCommit,
-        previewHalves: previewLeaves.map(leaf => leaf.half),
-        provisionalHalves: provisionalLeaves.map(leaf => leaf.half),
-        secondProvisionalCommit,
-        secondProvisionalComparisons,
-    });
+    const skipped = {
+        status: 'skipped',
+        reason: 'Temporal stability requires independently observed provisional and settled frames at the renderer presentation boundary.',
+        violations: [],
+    };
+    if (!Array.isArray(observations)) return skipped;
+    const phases = [
+        'provisional',
+        'settled',
+    ];
+    const comparisons = [];
+    for (const phase of phases) {
+        const samples = observations.filter(sample => sample.phase === phase);
+        if (samples.length < 2) return skipped;
+        for (let index = 1; index < samples.length; index++) {
+            const before = samples[index - 1];
+            const after = samples[index];
+            if (!Number.isFinite(before.atMs) || !(after.atMs > before.atMs)
+                || before.leaves.length === 0 || after.leaves.length === 0
+                || before.leaves.some(leaf => after.leaves.some(next => next.metricsPath === leaf.metricsPath))) return skipped;
+            comparisons.push({
+                phase,
+                fromMs: before.atMs,
+                toMs: after.atMs,
+                leaves: await compareDisplayedPreviewLeaves(before.leaves, after.leaves, measureMargins, compareMargins),
+            });
+        }
+    }
+    const violations = phases.flatMap(phase => comparisons.some(comparison =>
+        comparison.phase === phase && comparison.leaves.some(comparisonMoved))
+        ? [phase === 'settled' ? 'presentation-post-settle-movement' : 'presentation-provisional-movement'] : []);
+    return {
+        status: violations.length === 0 ? 'pass' : 'fail',
+        comparisons,
+        violations,
+    };
 }
 
 export function createPreviewPresentationStabilityReport({
@@ -228,24 +228,20 @@ export function createPreviewPresentationStabilityReport({
     return {
         provisionalCandidates: [
             {
-                atMs: 1_000,
                 action: firstProvisionalCommit.action,
                 leaves: firstProvisionalComparisons,
             },
             {
-                atMs: 1_500,
                 action: secondProvisionalCommit.action,
                 leaves: secondProvisionalComparisons,
             },
         ],
         phaseEdgeSettle: {
-            atMs: 10_000,
             action: settleCommit.action,
             leaves: settleCommitComparisons,
         },
         settledLoadingCandidate: {action: settledLoadingCommit.action},
         postSettle: {
-            atMs: 10_500,
             action: postSettleCommit.action,
             leaves: postSettleComparisons,
         },
