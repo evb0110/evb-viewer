@@ -58,6 +58,29 @@ mod tests {
     }
 
     #[test]
+    fn identity_gray_alpha_field_keeps_zero_edges_unprotected() {
+        for size in [1, 3] {
+            let source = GrayImage::new(size, size, 0);
+            assert_eq!(
+                render_gray_field(&source, size, size, Some).data(),
+                source.data(),
+                "an identity alpha field must not import white protection along the image edge"
+            );
+        }
+    }
+
+    #[test]
+    fn identity_gray_alpha_field_keeps_a_single_protected_pixel_in_place() {
+        let mut source = GrayImage::new(5, 5, 0);
+        source.set(2, 2, 255);
+        assert_eq!(
+            render_gray_field(&source, 5, 5, Some).data(),
+            source.data(),
+            "identity alpha sampling must retain a 255 peak at (2,2) without spreading or shifting it"
+        );
+    }
+
+    #[test]
     fn semantic_region_output_maps_payload_and_metadata_once() {
         let mut color = RgbImage::new(2, 2, [0, 0, 0]);
         color.set(1, 0, [12, 34, 56]);

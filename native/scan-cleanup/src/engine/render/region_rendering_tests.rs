@@ -519,6 +519,11 @@ fn raster_stage_keeps_optional_color_and_alpha_planes_aligned() {
     );
     let rendered_alpha = output.rendered_tone_alpha.expect("alpha plane is present");
     assert_eq!((rendered_alpha.width(), rendered_alpha.height()), (3, 2));
+    assert_eq!(
+        rendered_alpha.data(),
+        alpha.data(),
+        "an identity render must preserve tone-protection alpha bytes"
+    );
     assert_eq!(output.rendered_gray, GrayImage::new(3, 2, 255));
 }
 
