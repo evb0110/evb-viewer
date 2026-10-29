@@ -3,7 +3,9 @@
 
 use super::*;
 use crate::catalog::{read_number_tree, CatalogWalkState};
-use crate::internal_destinations::{remap_internal_destination, resolve_destination};
+use crate::internal_destinations::{
+    remap_internal_destination, resolve_destination, NamedDestinations,
+};
 use crate::split_catalog::SplitCatalog;
 use lopdf::dictionary;
 
@@ -457,8 +459,9 @@ pub(crate) fn split_destination_mapper<'a>(
     for page in pages {
         by_source.entry(page.0).or_default().push(*page);
     }
+    let names = NamedDestinations::new(source);
     move |destination| {
-        let Some(array) = resolve_destination(source, destination)? else {
+        let Some(array) = names.resolve(destination)? else {
             return Ok(None);
         };
         let id = array
