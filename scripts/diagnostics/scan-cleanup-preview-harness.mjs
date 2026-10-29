@@ -513,14 +513,22 @@ export function compareMetrics(preview, final) {
     );
     const lineRatioDeviation = relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio);
     const wordVarianceDeviation = wordVarianceResidualPx / representativeWordRunPx;
+    // Runs are measured on the same display raster. Allow one pixel for the
+    // two thresholded edges' quantization (the measured camera residual is
+    // 0.609 px), then gate the absolute weight as well as its uniformity.
+    const wordWeightResidualPx = Math.abs(preview.wordRunMedianPx - final.wordRunMedianPx);
+    const wordWeightDeviation = Math.max(0, wordWeightResidualPx - 1) / representativeWordRunPx;
     return {
         measurable: true,
         lineRatioDeviation: round(lineRatioDeviation),
         wordVarianceResidualPx: round(wordVarianceResidualPx),
         wordVarianceDeviation: round(wordVarianceDeviation),
+        wordWeightResidualPx: round(wordWeightResidualPx),
+        wordWeightDeviation: round(wordWeightDeviation),
         weightDeviation: round(Math.max(
             lineRatioDeviation,
             wordVarianceDeviation,
+            wordWeightDeviation,
         )),
     };
 }

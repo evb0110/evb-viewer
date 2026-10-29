@@ -122,6 +122,24 @@ describe('scan cleanup preview weight agreement', () => {
         expect(comparison.weightDeviation).toBeLessThanOrEqual(0.15);
     });
 
+    it('rejects uniform threefold thickening on the same raster grid', () => {
+        const original = weightUniformity(textBitmap([
+            4,
+            4,
+            4,
+            4,
+        ]));
+        const thickened = weightUniformity(textBitmap([
+            12,
+            12,
+            12,
+            12,
+        ]));
+        expect(weightAgreementViolations(compareMetrics(original, original))).toEqual([]);
+        expect(weightAgreementViolations(compareMetrics(original, thickened)))
+            .toEqual(['preview-final-weight-agreement']);
+    });
+
     it('rejects a real two-word weight divergence', () => {
         const preview = weightUniformity(textBitmap([
             4,
