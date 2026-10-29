@@ -10,7 +10,7 @@ use crate::{
     BinarizationMode,
 };
 use scan_primitives::{
-    distance::{find_peaks, squared_euclidean_distance, InfluenceMap},
+    distance::{find_peaks, squared_euclidean_distance},
     morphology::{dilate, open},
     threshold::{threshold_local, LocalThreshold},
     BinaryImage, Component, ComponentMap, GrayImage, Rect,
@@ -2103,7 +2103,7 @@ fn build_trim_proposal(
     component_blocks: &[usize],
     active: &[bool],
     text_mask: &BinaryImage,
-    garbage_influence: &InfluenceMap,
+    garbage_influence: &[u32],
     calibration: PageCalibration,
 ) -> Option<TrimProposal> {
     let geometry = build_trim_geometry(side, current, blocks, active, calibration)?;
@@ -2135,7 +2135,7 @@ fn build_trim_proposal(
     let mut garbage_distance_sum = 0.0;
     for (x, y) in removed_pixels {
         content_distance_sum += f64::from(content_influence[y * content.width() + x]).sqrt();
-        garbage_distance_sum += f64::from(garbage_influence.squared_distance_at(x, y)).sqrt();
+        garbage_distance_sum += f64::from(garbage_influence[y * content.width() + x]).sqrt();
     }
     let score = content_distance_sum / (content_distance_sum + garbage_distance_sum).max(1.0);
     let threshold = trimming_bias(side, text_area, calibration.content_text_bias_area_cap());
@@ -2220,11 +2220,13 @@ fn build_trim_geometry(
     })
 }
 
-fn garbage_influence(width: usize, height: usize, labels: &[u32]) -> Option<InfluenceMap> {
-    labels
-        .iter()
-        .any(|&label| label != 0)
-        .then(|| InfluenceMap::from_seed_labels(width, height, labels))
+/// Exact squared distance from every pixel to the nearest garbage seed.
+fn garbage_influence(width: usize, height: usize, labels: &[u32]) -> Option<Vec<u32>> {
+    labels.iter().any(|&label| label != 0).then(|| {
+        squared_euclidean_distance(&BinaryImage::from_fn_parallel(width, height, |x, y| {
+            labels[y * width + x] != 0
+        }))
+    })
 }
 
 fn trimming_bias(side: TrimSide, text_area: usize, text_area_cap: usize) -> f64 {
