@@ -496,6 +496,28 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('returns native page warnings on both sides of the 1,024-page threshold', async () => {
+        for (const documentPageCount of [
+            1_024,
+            1_025,
+        ]) {
+            const fixture = await conversionRegressionFixture(documentPageCount);
+            const native = fixture.dependencies.runSidecar;
+            fixture.dependencies.runSidecar = async (...args) => {
+                await native(...args);
+                const manifest = JSON.parse(await readFile(args[1], 'utf8'));
+                const output = manifest.pages[0].outputs[0];
+                await writeFile(output.metadataPath, JSON.stringify({
+                    ...textOutputMetadata(),
+                    warnings: ['source warning retained for the caller'],
+                }));
+            };
+            const summary = await fixture.run({sourcePageNumbers: [1]});
+            expect(summary.outputPages).toBe(1);
+            expect(summary.warnings).toContain('Page 1: source warning retained for the caller');
+        }
+    });
+
     it('assembles a native mixed page with a valid one-channel P5 soft-alpha layer', async () => {
         const fixture = await conversionRegressionFixture(1);
         const native = fixture.dependencies.runSidecar;
