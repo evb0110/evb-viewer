@@ -2382,6 +2382,41 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
+    it('keeps another documents running job out of this workspaces controls', async () => {
+        const harness = capabilityHarness();
+        const canceledJobs: string[] = [];
+        vi.mocked(harness.value.cancel).mockImplementation(async jobId => {
+            canceledJobs.push(jobId);
+            return true;
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('document-b');
+        onTestFinished(() => mounted.unmount());
+        Object.assign(scanCleanupRun, {
+            activeJobId: requireJobId('document-a-job'),
+            inFlight: true,
+            ownerId: 'document-a-owner',
+            ownerDocumentRef: requireDocumentRef('/docs/document-a.pdf'),
+            ownerDocumentRevision: 'document-a-revision',
+            jobState: {
+                jobId: requireJobId('document-a-job'),
+                status: 'running',
+                progress: {
+                    stage: 'rendering',
+                    completedUnits: 1,
+                    totalUnits: 3,
+                    percent: 33,
+                },
+                updatedAtMs: requireEpochMs(1_000),
+            },
+        });
+
+        expect.soft(mounted.session.run.isRunning.value).toBe(false);
+        expect(mounted.session.run.jobProgress.value).toBeNull();
+        await mounted.session.run.cancel();
+        expect(canceledJobs).toEqual([]);
+    });
+
     it('coalesces document setting writes and flushes the old document before switching', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
