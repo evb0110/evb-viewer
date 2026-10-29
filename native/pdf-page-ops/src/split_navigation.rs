@@ -182,7 +182,8 @@ pub(crate) fn rebind_retained_destinations(
     }
     drop(remap);
     let restored = restore_source_catalog(&mut incremental, source_path, instructions, qpdf_path)?;
-    if rebound.is_empty() && !restored {
+    let stamp = instructions.provenance_stamp_hex.as_deref();
+    if rebound.is_empty() && !restored && stamp.is_none() {
         return Ok(());
     }
     for (annotation_id, annotation) in rebound {
@@ -198,6 +199,9 @@ pub(crate) fn rebind_retained_destinations(
                 .set_object(annotation_id, annotation);
         }
     }
+    if let Some(stamp) = stamp {
+        stamp_document_provenance(&mut incremental, stamp);
+    }
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision_bytes = build_incremental_revision(&mut incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
@@ -207,6 +211,36 @@ pub(crate) fn rebind_retained_destinations(
         &revision_bytes,
         &expected_object_ids,
     )
+}
+
+/// Records the run's stamp in this revision's Info, keeping the other Info
+/// entries the document already had: an Info object is revised in place, as
+/// every other object this revision changes.
+fn stamp_document_provenance(incremental: &mut IncrementalDocument, stamp: &str) {
+    let previous = incremental.get_prev_documents();
+    let info_reference = previous
+        .trailer
+        .get(b"Info")
+        .ok()
+        .and_then(|info| info.as_reference().ok());
+    let mut info = previous
+        .trailer
+        .get(b"Info")
+        .ok()
+        .and_then(|info| previous.dereference(info).ok())
+        .and_then(|(_, info)| info.as_dict().ok().cloned())
+        .unwrap_or_default();
+    info.set(
+        "EVBScanCleanup",
+        Object::string_literal(stamp.as_bytes().to_vec()),
+    );
+    match info_reference {
+        Some(info_id) => incremental.new_document.set_object(info_id, info),
+        None => {
+            let info_id = incremental.new_document.add_object(info);
+            incremental.new_document.trailer.set("Info", info_id);
+        }
+    }
 }
 
 /// Rebuild navigation once against the final page tree, after qpdf interleaves

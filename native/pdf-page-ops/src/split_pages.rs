@@ -24,7 +24,7 @@ pub(crate) fn read_split_pages_file(path: &Path) -> Result<SplitPagesFile> {
     Ok(instructions)
 }
 
-fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
+pub(crate) fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
     if stamp.is_empty()
         || !stamp.len().is_multiple_of(2)
         || stamp

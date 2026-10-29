@@ -45,6 +45,9 @@ pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
             return Err("overlay-text outputPageIndex values must be unique".into());
         }
     }
+    if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
+        crate::split_pages::validate_provenance_stamp_hex(stamp)?;
+    }
     Ok(instructions)
 }
 
@@ -53,6 +56,10 @@ pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
 pub(crate) struct TextLayerFile {
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) pages: Vec<TextLayerInstruction>,
+    /// A run assembled from several batches has one provenance stamp for the
+    /// whole document; the overlay is the one pass over that document.
+    #[serde(default)]
+    pub(crate) provenance_stamp_hex: Option<String>,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -469,7 +476,12 @@ fn rebase_overlay_source_instructions(
     if batch_pages.is_empty() {
         return Err("overlay-text source batch has no matching instructions".into());
     }
-    Ok(TextLayerFile { pages: batch_pages })
+    // A source batch copies text only; the run stamp is written once, with
+    // the final navigation.
+    Ok(TextLayerFile {
+        pages: batch_pages,
+        provenance_stamp_hex: None,
+    })
 }
 
 fn try_write_overlay_source_batch(

@@ -1073,6 +1073,7 @@ fn overlays_high_index_pages_in_million_page_batches_without_a_full_page_walk() 
         let target = create_flat_million_page_overlay_target();
         let mut incremental = IncrementalDocument::from_document(target, 0, None);
         let instructions = TextLayerFile {
+            provenance_stamp_hex: None,
             pages: vec![TextLayerInstruction {
                 source_page_index,
                 output_page_index,
@@ -1113,6 +1114,7 @@ fn overlays_multiple_instructions_for_one_target_page_without_resetting_contents
     let (target, target_page_id) = create_aliasing_overlay_target();
     let mut incremental = IncrementalDocument::from_document(target, 0, None);
     let instructions = TextLayerFile {
+        provenance_stamp_hex: None,
         pages: vec![
             TextLayerInstruction {
                 source_page_index: 0,
@@ -1154,6 +1156,7 @@ fn overlays_source_batches_for_one_target_page_without_resetting_prior_batch() {
     let (target, target_page_id) = create_aliasing_overlay_target();
     let mut incremental = IncrementalDocument::from_document(target, 0, None);
     let instruction = |source_page_index, output_page_index| TextLayerFile {
+        provenance_stamp_hex: None,
         pages: vec![TextLayerInstruction {
             source_page_index,
             output_page_index,
@@ -1189,6 +1192,43 @@ fn finalize_cleanup_copy(target: &mut Document, source: &Document, instructions:
     *target = Document::load(&output_path).unwrap();
     remove_file(source_path).unwrap();
     remove_file(output_path).unwrap();
+}
+
+#[test]
+fn final_overlay_records_the_run_provenance_stamp_and_keeps_other_info() {
+    let source = create_overlay_source_document();
+    let mut target = create_overlay_source_document();
+    let info = target.add_object(dictionary! {
+        "Title" => Object::string_literal("Merged batches"),
+        "EVBScanCleanup" => Object::string_literal("6261746368"),
+    });
+    target.trailer.set("Info", info);
+    let instructions = TextLayerFile {
+        provenance_stamp_hex: Some("72756e".to_owned()),
+        pages: vec![TextLayerInstruction {
+            source_page_index: 0,
+            output_page_index: 0,
+            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            filter_to_output_page: false,
+            normalize_greek_micro_sign: false,
+            link_only: true,
+            unmapped_geometry: false,
+            source_region: None,
+        }],
+    };
+    finalize_cleanup_copy(&mut target, &source, &instructions);
+    let info = target
+        .dereference(target.trailer.get(b"Info").unwrap())
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap();
+    assert_eq!(
+        info.get(b"EVBScanCleanup").unwrap().as_str().unwrap(),
+        b"72756e",
+        "the run's stamp replaces the batch stamp"
+    );
+    assert_eq!(info.get(b"Title").unwrap().as_str().unwrap(), b"Merged batches");
 }
 
 #[test]
@@ -1250,6 +1290,7 @@ fn cleanup_overlay_preserves_notes_replies_and_markup_at_affine_positions() {
         .unwrap()
         .set("Annots", annots);
     let instructions = TextLayerFile {
+        provenance_stamp_hex: None,
         pages: vec![TextLayerInstruction {
             source_page_index: 0,
             output_page_index: 1,
@@ -1430,6 +1471,7 @@ fn cleanup_split_keeps_notes_with_their_owner_and_markup_on_both_halves() {
             .unwrap()
             .set("Annots", annots);
         let instructions = TextLayerFile {
+            provenance_stamp_hex: None,
             pages: (0..2)
                 .map(|output_page_index| TextLayerInstruction {
                     source_page_index: 0,
