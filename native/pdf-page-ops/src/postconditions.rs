@@ -766,9 +766,8 @@ pub(crate) fn validate_page_labels_document_postconditions(
         return Ok(());
     }
 
-    let page_labels_object = catalog.get(b"PageLabels")?;
-    let page_labels_dict = resolve_dictionary_object(document, page_labels_object, "PageLabels")?;
-    let nums = page_labels_dict.get(b"Nums")?.as_array()?;
+    let dict = resolve_dictionary_object(document, catalog.get(b"PageLabels")?, "PageLabels")?;
+    let nums = dict.get(b"Nums")?.as_array()?;
     let expected_ranges = normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages);
     if nums.len() != expected_ranges.len() * 2 {
         return Err("PageLabels Nums length did not match requested ranges".into());
@@ -812,22 +811,23 @@ fn validate_page_labels_fragment_postconditions(
     page_labels: &PageLabelsMutation,
 ) -> Result<()> {
     let catalog = document.dictionary(document.root_id()?)?;
-    let page_labels_object = catalog.get(b"PageLabels")?;
-    let page_labels_dict = resolve_dictionary_object(document, page_labels_object, "PageLabels")?;
-    let nums = page_labels_dict.get(b"Nums")?.as_array()?;
+    let dict = resolve_dictionary_object(document, catalog.get(b"PageLabels")?, "PageLabels")?;
+    let nums = dict.get(b"Nums")?.as_array()?;
     if nums.len() % 2 != 0 {
         return Err("PageLabels Nums must contain key/value pairs".into());
     }
     let expected_ranges = normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages);
-    for expected in expected_ranges {
-        let expected_start = i64::from(expected.start_page.saturating_sub(1));
+    // A continuation writes no default page 1 range.
+    let skip = usize::from(page_labels.ranges.iter().all(|range| range.start_page > 1));
+    for expected in expected_ranges.iter().skip(skip) {
+        let start = i64::from(expected.start_page.saturating_sub(1));
         let Some(objects) = nums
             .chunks_exact(2)
-            .find(|objects| objects[0].as_i64().ok() == Some(expected_start))
+            .find(|objects| objects[0].as_i64().ok() == Some(start))
         else {
             return Err("PageLabels continuation range was not retained".into());
         };
-        validate_page_label_entry(objects, &expected)?;
+        validate_page_label_entry(objects, expected)?;
     }
     Ok(())
 }
