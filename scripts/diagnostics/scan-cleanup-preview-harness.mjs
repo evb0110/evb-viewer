@@ -18,7 +18,8 @@
  * overlay excludes more than 1% of ink (with no robust ink edge overrun above
  * 3%), or preview/final materialized placement differs. --preview-render-dpi
  * is a diagnostic-only override for isolating
- * resolution-sensitive native stages; omit it for the app-exact preview path.
+ * resolution-sensitive native stages. This command is a native replay diagnostic,
+ * not the desktop preview composition. See README.md, "Preview oracle scope".
  */
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -131,6 +132,9 @@ const INDEPENDENT_WRONG_CALIBRATION_OFFSET_MIN_PX = 40;
 function printUsage() {
     process.stderr.write([
         'Usage: node scripts/diagnostics/scan-cleanup-preview-harness.mjs --source <pdf> --pages <list> --out <dir> [flags]',
+        '',
+        'Native replay diagnostic: does not certify desktop preview parity or temporal stability.',
+        'See scripts/diagnostics/README.md, Preview oracle scope.',
         '',
         'Flags:',
         '  --check                       Enforce the 15% weight-agreement / 3% ink-margin guard',
@@ -1113,6 +1117,10 @@ async function main() {
         ]));
         const report = {
             schemaVersion: 1,
+            desktopPreviewParity: {
+                status: 'skipped',
+                reason: 'Native stage replay uses a document-minimum canvas DPI and a single working raster, without the desktop canonical analysis input or retained preview lifecycle. See scripts/diagnostics/README.md, Preview oracle scope.',
+            },
             source: args.source,
             pages: args.pages,
             previewDpi: basePreviewDpi,

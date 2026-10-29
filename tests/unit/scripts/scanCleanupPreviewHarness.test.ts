@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {
     mkdtemp, rm, writeFile,
 } from 'node:fs/promises';
@@ -63,6 +64,15 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
 }
 
 describe('scan cleanup preview weight agreement', () => {
+    it('states the native replay scope in the diagnostic CLI', () => {
+        const result = spawnSync(process.execPath, [
+            'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
+            '--help',
+        ], {encoding: 'utf8'});
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('does not certify desktop preview parity');
+    });
+
     it('counts an ink pixel whose cell intersects a subpixel overlay edge', () => {
         const bitmap = {
             data: (() => {

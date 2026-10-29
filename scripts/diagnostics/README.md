@@ -432,3 +432,36 @@ EVB_E2E_ARNOLD_PDF_PATH=/path/to/arnold-grammar.pdf pnpm run diag:arnold-pdf-ope
 The default fixture is `.devkit/manual-pdf-fixtures/arnold-grammar.pdf`. Artifacts
 remain `.devkit/arnold-pdf-open-diagnostics.json` and
 `.devkit/arnold-pdf-open-console.log`.
+
+
+## Preview oracle scope
+
+`scan-cleanup-preview-harness.mjs` is an offline native-stage replay diagnostic.
+Its `--check` result covers the weight, placement, overlay and ink-margin
+comparisons it actually runs. It does not certify desktop preview parity or
+temporal presentation stability. Reports mark those unobserved checks `skipped`
+with a reason; native candidate images are not independently observed frames.
+
+The command deliberately retains `--preview-render-dpi` for isolating
+resolution-sensitive native stages. It builds a document canvas at the minimum
+matched preview DPI and renders one working PNG. Its native manifest omits
+`analysisInputPath` and `analysisDpi`, so native derives its capped analysis plane
+by downsampling that PNG. Desktop `scanCleanupPreviewRenderer` instead chooses
+per-page working DPI using bounded document raster facts and supplies the
+separate canonical raster selected by `resolveScanCleanupAnalysisDpi`. Direct
+canonical rasterization and downsampling a working raster can yield different
+pixels, especially on mixed-DPI or oversized documents. The diagnostic also
+replays provisional layouts itself and does not exercise retained document,
+base-analysis, or renderer presentation ownership.
+
+We keep this command for native stage isolation rather than representing its
+independent composition as the desktop pipeline. Importing the product renderer
+under tsx was verified to work; importability is not the obstacle. Reusing it
+would require replacing this command's manifest/canvas replay with the product
+`scanCleanupPreviewRenderer` **and** `scanCleanupRasterRetention`, supplying real
+page-size-store, native raster, scratch admission and publication adapters, and
+reading their returned preview payloads. Copying just the DPI formula would
+leave another composition to drift. That replacement is intentionally not
+claimed by this patch. Until it is made, use the existing real-app scan-cleanup
+lane to assess desktop preview behavior and independently captured presentation
+frames to assess temporal stability.
