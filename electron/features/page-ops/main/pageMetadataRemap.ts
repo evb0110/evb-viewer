@@ -12,12 +12,13 @@ import type {
 } from '@contracts/electronApiPageOps';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
-import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {createPageIdentityDeltaPageMapper} from '@contracts/electronApiPageOps';
 import {
     requirePageIndex,
     pageIndexToPageNumber,
     pageNumberToPageIndex,
 } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
@@ -31,10 +32,10 @@ const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
 
 function remapBookmarkItems(
     items: readonly IPdfBookmarkEntry[],
-    delta: IPageIdentityDelta,
+    mapPageNumber: (pageNumber: TPageNumber) => TPageNumber | null,
 ): IPdfBookmarkEntry[] {
     return items.flatMap(item => {
-        const children = remapBookmarkItems(item.items, delta);
+        const children = remapBookmarkItems(item.items, mapPageNumber);
         const sourceIndex = item.pageIndex ?? (typeof item.originalDestination?.sourceTarget === 'number'
             ? requirePageIndex(item.originalDestination.sourceTarget) : null);
         if (sourceIndex === null) {
@@ -43,10 +44,7 @@ function remapBookmarkItems(
                 items: children,
             }];
         }
-        const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
-            delta,
-            pageIndexToPageNumber(sourceIndex),
-        );
+        const mappedPageNumber = mapPageNumber(pageIndexToPageNumber(sourceIndex));
         if (mappedPageNumber === null) {
             return children;
         }
@@ -205,7 +203,21 @@ function remapCompactPageLabelRanges(
     };
     const appendMappedRange = (sourceStartPage: number, destinationStartPage: number, count: number) => {
         const sourceEndPage = sourceStartPage + count - 1;
-        for (const sourceRange of sourceRanges) {
+        // The source ranges are sorted and contiguous, so the ones a span
+        // overlaps follow the first that reaches it; scanning them all for
+        // each span made a fragmented reorder quadratic.
+        let first = 0;
+        for (let last = sourceRanges.length; first < last;) {
+            const middle = (first + last) >>> 1;
+            if ((sourceRanges[middle]?.endPage ?? Infinity) < sourceStartPage) {
+                first = middle + 1;
+            } else {
+                last = middle;
+            }
+        }
+        for (let index = first; index < sourceRanges.length; index += 1) {
+            const sourceRange = sourceRanges[index]!;
+            if (sourceRange.startPage > sourceEndPage) break;
             const overlapStart = Math.max(sourceStartPage, sourceRange.startPage);
             const overlapEnd = Math.min(sourceEndPage, sourceRange.endPage);
             if (overlapStart > overlapEnd) continue;
@@ -294,7 +306,7 @@ export function remapPageMetadata(
         result.bookmarks = {
             totalPages: nextPageCount ?? 0,
             untitledLabel: metadata.untitledBookmarkLabel,
-            items: remapBookmarkItems(metadata.bookmarks, delta),
+            items: remapBookmarkItems(metadata.bookmarks, createPageIdentityDeltaPageMapper(delta)),
         };
     }
     return result satisfies Pick<IPdfNativeMutationSet, 'pageLabels' | 'bookmarks'>;

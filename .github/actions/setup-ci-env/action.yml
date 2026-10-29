@@ -35,8 +35,21 @@ runs:
       shell: bash
       run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-    # Keyed on the crates the two WASM builds link (scripts/native-build-id.mjs
-    # hashes the same closure to decide whether a restored build is current).
+    # Keyed on the native build IDs ensure-wasm-artifacts.mjs compares, so a
+    # restored build is current exactly when the key matches. A hand-written
+    # list of crates missed scan-cleanup, whose changes then restored a stale
+    # build that the strict build rebuilt without the WASM target.
+    - name: Identify browser WASM sources
+      if: inputs.wasm == 'true'
+      id: wasm-sources
+      shell: bash
+      run: |
+        node --input-type=module -e "
+          import {computeNativeBuildId} from './scripts/native-build-id.mjs';
+          import {WASM_ARTIFACTS} from './scripts/wasm-artifacts.mjs';
+          console.log('build-ids=' + WASM_ARTIFACTS.map(artifact => computeNativeBuildId(process.cwd(), artifact.crateName)).join('-'));
+        " >> "$GITHUB_OUTPUT"
+
     - name: Restore browser WASM builds
       if: inputs.wasm == 'true'
       id: wasm-cache
@@ -45,7 +58,7 @@ runs:
         path: |
           public/wasm
           .tmp/wasm-build-ids.json
-        key: wasm-v1-${{ runner.os }}-${{ hashFiles('native/Cargo.toml', 'native/Cargo.lock', 'native/rust-toolchain.toml', 'native/pdf-page-ops/Cargo.toml', 'native/pdf-page-ops/src/**', 'native/pdf-image-combine/Cargo.toml', 'native/pdf-image-combine/src/**', 'native/evb-native-support/Cargo.toml', 'native/evb-native-support/src/**', 'native/evb-raster-io/Cargo.toml', 'native/evb-raster-io/src/**', 'native/jbig2-codec/Cargo.toml', 'native/jbig2-codec/src/**', 'native/scan-primitives/Cargo.toml', 'native/scan-primitives/src/**', 'public/fonts/annotation/DejaVuSans.ttf', 'scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs', 'scripts/lib/build-environment.mjs') }}
+        key: wasm-v2-${{ runner.os }}-${{ steps.wasm-sources.outputs.build-ids }}-${{ hashFiles('scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs', 'scripts/lib/build-environment.mjs') }}
 
     - name: Build browser WASM
       if: inputs.wasm == 'true' && steps.wasm-cache.outputs.cache-hit != 'true'

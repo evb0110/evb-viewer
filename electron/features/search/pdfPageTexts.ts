@@ -32,6 +32,10 @@ const POPPLER_TEXT_PAGE_WINDOW_SIZE = 256;
 // a large scan takes most of a second and up to twice its size in memory, and
 // the report of 2,048 densely recognized pages stays within its byte limit.
 const VISIBILITY_WINDOWS_PER_LOAD = 8;
+// One pdfinfo reads the page boxes of this many contiguous windows. Each run
+// opens the whole PDF, a third of a second for a 760 MB report, and the boxes
+// of 2,048 pages stay under a megabyte of output.
+const PAGE_BOX_WINDOWS_PER_READ = 8;
 const log = createLogger('search-page-text');
 
 const PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA = v.object({
@@ -419,6 +423,8 @@ async function* streamPdfPageTextRanges(
         visibility: new Map(),
     };
     let inspectedWindows = 0;
+    let measuredWindows = 0;
+    let measuredAreas = new Map<number, IPopplerTextArea>();
     for (const [
         index,
         window,
@@ -454,7 +460,18 @@ async function* streamPdfPageTextRanges(
                 if (inspection.reason !== 'native-tool-failed') inspectedWindows = windows.length;
             }
         }
-        const areas = visiblePageOnly ? await readCroppedPageAreas(pdfPath, window, signal) : new Map<number, IPopplerTextArea>();
+        if (visiblePageOnly && index >= measuredWindows) {
+            measuredWindows = index + 1;
+            while (measuredWindows < Math.min(windows.length, index + PAGE_BOX_WINDOWS_PER_READ)
+                && windows[measuredWindows]?.firstPage === (windows[measuredWindows - 1]?.lastPage ?? 0) + 1) {
+                measuredWindows += 1;
+            }
+            measuredAreas = await readCroppedPageAreas(pdfPath, {
+                firstPage: window.firstPage,
+                lastPage: windows[measuredWindows - 1]?.lastPage ?? window.lastPage,
+            }, signal);
+        }
+        const areas = new Map([...measuredAreas].filter(([page]) => page >= window.firstPage && page <= window.lastPage));
         const decoded = readDecodedOcrLayers(window, inspection, areas);
         const poppler = await readRemainingPopplerPageTexts(pdfPath, window, decoded, areas, signal);
         if (poppler === null) {
