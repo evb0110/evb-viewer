@@ -326,34 +326,54 @@ v.check(evidence => Object.values(evidence.outputs).every(output => output === u
 export const SCAN_CLEANUP_PAGE_PLAN_EVIDENCE_SCHEMA = pagePlanEvidenceSchema;
 export type IScanCleanupPagePlanEvidence = v.InferOutput<typeof pagePlanEvidenceSchema>;
 
+// The same geometry domain pdf-page-ops publishes and core decodes: signed
+// finite origins, positive dimensions, and each optional box whole or absent.
+const positiveSafeFinite = v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER));
+const allOrNone = (values: readonly unknown[]) => values.every(value => value === undefined)
+    || values.every(value => value !== undefined);
 const sourcePageMetadataSchema = v.message(v.pipe(
     v.object({
         pageNumber: pageNumberSchema,
         xPoints: safeFinite,
         yPoints: safeFinite,
-        widthPoints: v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER)),
-        heightPoints: v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER)),
+        widthPoints: positiveSafeFinite,
+        heightPoints: positiveSafeFinite,
         rotation: v.pipe(v.number(), v.check(rotation => SCAN_CLEANUP_PAGE_ROTATIONS.some(item => item === rotation))),
-        sourceDpi: v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER)),
+        sourceDpi: positiveSafeFinite,
+        userUnit: v.exactOptional(positiveSafeFinite),
+        mediaXPoints: v.exactOptional(safeFinite),
+        mediaYPoints: v.exactOptional(safeFinite),
+        mediaWidthPoints: v.exactOptional(positiveSafeFinite),
+        mediaHeightPoints: v.exactOptional(positiveSafeFinite),
+        cropXPoints: v.exactOptional(safeFinite),
+        cropYPoints: v.exactOptional(safeFinite),
+        cropWidthPoints: v.exactOptional(positiveSafeFinite),
+        cropHeightPoints: v.exactOptional(positiveSafeFinite),
         renderBox: v.exactOptional(v.picklist([
             'cropbox',
             'mediabox',
         ])),
-        dominantImageWidthPx: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
-        dominantImageHeightPx: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
-        dominantImageWidthPoints: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
-        dominantImageHeightPoints: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
+        dominantImageWidthPx: v.exactOptional(positiveSafeFinite),
+        dominantImageHeightPx: v.exactOptional(positiveSafeFinite),
+        dominantImageWidthPoints: v.exactOptional(positiveSafeFinite),
+        dominantImageHeightPoints: v.exactOptional(positiveSafeFinite),
     }),
-    v.check(metadata => {
-        const dimensions = [
-            metadata.dominantImageWidthPx,
-            metadata.dominantImageHeightPx,
-            metadata.dominantImageWidthPoints,
-            metadata.dominantImageHeightPoints,
-        ];
-        return metadata.xPoints >= 0 && metadata.yPoints >= 0
-            && (dimensions.every(value => value === undefined) || dimensions.every(value => value !== undefined));
-    }),
+    v.check(metadata => allOrNone([
+        metadata.dominantImageWidthPx,
+        metadata.dominantImageHeightPx,
+        metadata.dominantImageWidthPoints,
+        metadata.dominantImageHeightPoints,
+    ]) && allOrNone([
+        metadata.mediaXPoints,
+        metadata.mediaYPoints,
+        metadata.mediaWidthPoints,
+        metadata.mediaHeightPoints,
+    ]) && allOrNone([
+        metadata.cropXPoints,
+        metadata.cropYPoints,
+        metadata.cropWidthPoints,
+        metadata.cropHeightPoints,
+    ])),
 ), 'invalid scan-cleanup source page metadata');
 export const SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA = sourcePageMetadataSchema;
 export type IScanCleanupSourcePageMetadata = v.InferOutput<typeof sourcePageMetadataSchema>;
