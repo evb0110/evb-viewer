@@ -25,6 +25,8 @@ import {
 import type {IFailureToastAction} from '@app/composables/useFailureToast';
 import EN_MESSAGES from '@i18n-app/messages/en';
 import type {
+    IScanCleanupCapability,
+    TScanCleanupDetectionJobState,
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
@@ -37,6 +39,9 @@ import type {
     TScanCleanupProgress,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import type {TJobId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
@@ -1431,6 +1436,130 @@ describe('Scan cleanup components', () => {
         expect.soft(text).toMatch(/(?:retain|preserv)[^.]*text|text[^.]*\b(?:retained|preserved)\b/i);
         expect.soft(text).toMatch(/annotation/i);
         expect(text).toMatch(/dewarp|non.affine/i);
+    });
+
+    it('retires the captured run when the workspace source changes during final preview preparation', async () => {
+        vi.useFakeTimers();
+        const capabilityModule = await import('@app/utils/getScanCleanupCapability');
+        const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        const finalRequested = Promise.withResolvers<undefined>();
+        let emitDetection: (state: TScanCleanupDetectionJobState) => void = () => undefined;
+        let job = 0;
+        const queued = (jobId: TJobId): TScanCleanupDetectionJobState => ({
+            jobId,
+            status: 'queued',
+            results: [],
+            progress: {
+                stage: 'detecting',
+                completedUnits: 0,
+                totalUnits: 2,
+                percent: 0,
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        });
+        const requests: Array<Parameters<IScanCleanupCapability['start']>[0]> = [];
+        const capability: IScanCleanupCapability = {
+            preview: vi.fn(async request => {
+                if (request.visible && request.layoutDetectionComplete) {
+                    finalRequested.resolve(undefined);
+                    return finalPreview.promise;
+                }
+                return spreadPreviewResult(request.pageNumber);
+            }),
+            cancelPreview: vi.fn(async () => true),
+            detectAll: vi.fn<IScanCleanupCapability['detectAll']>(async () => ({
+                started: true,
+                jobId: requireJobId(`identity-detect-${++job}`),
+            })),
+            subscribeDetectionJob: vi.fn(async id => queued(id)),
+            getDetectionJobState: vi.fn(async () => null),
+            cancelDetection: vi.fn(async () => true),
+            onDetectionJobState: vi.fn(listener => {emitDetection = listener; return () => undefined;}),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
+            start: vi.fn<IScanCleanupCapability['start']>(async request => {requests.push(request); return {
+                started: false,
+                jobId: requireJobId('identity-rejected-job'),
+                errorCode: 'internal',
+                error: 'probe boundary',
+            };}),
+            cancel: vi.fn(async () => true),
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(async () => 0),
+        };
+        const capabilitySpy = vi.spyOn(capabilityModule, 'getScanCleanupCapability').mockReturnValue(capability);
+        const actual = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession');
+        realWorkspaceSession.create = actual.useScanCleanupWorkspaceSession;
+        const source = ref(requireDocumentRef('/docs/identity-A.pdf'));
+        const revision = ref('identity-A');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
+            sourcePath: source.value,
+            documentKey: revision.value,
+            documentRevision: revision.value,
+            currentPage: 1,
+            totalPages: 2,
+            toolbarActive: true,
+        })}));
+        const session = realWorkspaceSession.value!;
+        let running: Promise<void> | undefined;
+        try {
+            session.settings.values.outputMode = 'grayscale';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(250);
+            expect(session.preview.resultCurrent.value).toBe(true);
+            emitDetection({
+                ...queued(requireJobId('identity-detect-1')),
+                status: 'completed',
+                results: [
+                    1,
+                    2,
+                ].map(pageNumber => ({
+                    pageNumber: requirePageNumber(pageNumber),
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: false,
+                    clusterAgreement: 0,
+                    documentPrior: null,
+                    pagePlanEvidence: {
+                        pageNumber: requirePageNumber(pageNumber),
+                        rotationDegrees: 0,
+                        layoutClassification: 'single-uncut-page',
+                        outputs: {},
+                    },
+                })),
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: 2,
+                    totalUnits: 2,
+                    percent: 100,
+                    completedPageNumbers: [
+                        1,
+                        2,
+                    ],
+                },
+            });
+            await nextTick();
+            running = session.run.run();
+            await vi.advanceTimersByTimeAsync(0);
+            await finalRequested.promise;
+            source.value = requireDocumentRef('/docs/identity-B.pdf');
+            revision.value = 'identity-B';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(requests).toEqual([]);
+        } finally {
+            finalPreview.resolve(spreadPreviewResult());
+            await vi.advanceTimersByTimeAsync(0);
+            await running;
+            harness.unmount();
+            capabilitySpy.mockRestore();
+            vi.useRealTimers();
+        }
     });
 
     it('publishes matched-canvas point dimensions for spread and mixed-scale outputs', () => {
