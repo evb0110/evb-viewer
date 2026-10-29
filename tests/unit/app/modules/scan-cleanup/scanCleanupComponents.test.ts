@@ -3541,8 +3541,9 @@ describe('Scan cleanup components', () => {
             readingOrder: 'ltr',
         })}));
 
+        // The visible raw frame is page 2, so its alternative names page 2.
         expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
-            .toBe('Original scan preview for page 1');
+            .toBe('Original scan preview for page 2');
         expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
 

@@ -483,8 +483,13 @@
     touch-action: none;
 }
 
+.content-overlay.is-pass-through {
+    pointer-events: none;
+}
+
 .content-handle {
     position: absolute;
+    pointer-events: auto;
     width: var(--app-scan-content-handle-hit-size);
     height: var(--app-scan-content-handle-hit-size);
     border: 0;
