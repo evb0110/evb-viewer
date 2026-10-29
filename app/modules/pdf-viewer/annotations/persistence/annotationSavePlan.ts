@@ -218,7 +218,6 @@ export function buildSerializationPlan(
     entities: readonly AnnotationEntity[] = dirty,
     inputs: ISerializationPlanInputs = {},
 ): ISerializationPlan {
-    const steps: IAnnotationMutationStep[] = [];
     // History retains deleted drafts for undo, but the PDF never contained
     // them. Delete only entities with evidence of an existing PDF object.
     const serializableDirty = dirty.filter(entity => (
@@ -228,10 +227,19 @@ export function buildSerializationPlan(
     const knownPdfRefs = entities
         .map(entity => entity.identity.pdfRef)
         .filter((value): value is string => Boolean(value));
+    // Each entity's earlier step ids, in order: its bind step depends on them.
+    const stepIdsByAnnotation = new Map<string, string[]>();
+    const steps: IAnnotationMutationStep[] = [];
+    const addStep = (step: IAnnotationMutationStep) => {
+        steps.push(step);
+        const ids = stepIdsByAnnotation.get(step.annotationId) ?? [];
+        ids.push(step.id);
+        stepIdsByAnnotation.set(step.annotationId, ids);
+    };
     serializableDirty.forEach((entity) => {
         const prefix = entity.identity.id;
         if (entity.deleted) {
-            steps.push({
+            addStep({
                 id: `${prefix}:delete`,
                 annotationId: entity.identity.id,
                 operation: 'delete-annotation',
@@ -246,14 +254,14 @@ export function buildSerializationPlan(
         }
         if (entity.kind === 'note' || entity.kind === 'text-box') {
             const prepareId = `${prefix}:prepare-free-text`;
-            steps.push({
+            addStep({
                 id: prepareId,
                 annotationId: entity.identity.id,
                 operation: 'prepare-free-text-appearance',
                 dependsOn: [],
                 fields: {position: entity.kind === 'note' ? entity.position : entity.rect},
             });
-            steps.push({
+            addStep({
                 id: `${prefix}:contents`,
                 annotationId: entity.identity.id,
                 operation: 'write-free-text-contents',
@@ -265,7 +273,7 @@ export function buildSerializationPlan(
             // image writer. Geometry-only edits are projected into that writer
             // after this plan is frozen.
         } else {
-            steps.push({
+            addStep({
                 id: `${prefix}:write`,
                 annotationId: entity.identity.id,
                 operation: entity.kind === 'shape' ? 'write-shape' : 'write-text-markup',
@@ -273,11 +281,11 @@ export function buildSerializationPlan(
                 fields: allowedFields(entity),
             });
         }
-        steps.push({
+        addStep({
             id: `${prefix}:bind`,
             annotationId: entity.identity.id,
             operation: 'bind-identities',
-            dependsOn: steps.filter(step => step.annotationId === entity.identity.id).map(step => step.id),
+            dependsOn: [...(stepIdsByAnnotation.get(entity.identity.id) ?? [])],
             fields: {
                 identity: entity.identity,
                 pageIndex: entity.pageIndex,
@@ -351,13 +359,15 @@ export function selectSerializationBackend(
 }
 
 function assertValidAnnotationSerializationPlan(steps: readonly IAnnotationMutationStep[]) {
-    const ids = new Set(steps.map(step => step.id));
+    // The first step for each id, as a search through the steps would find.
+    const stepsById = new Map<string, IAnnotationMutationStep>();
+    steps.forEach(step => stepsById.has(step.id) || stepsById.set(step.id, step));
     steps.forEach((step) => {
         step.dependsOn.forEach((dependency) => {
-            if (!ids.has(dependency)) throw new Error(`Missing annotation-plan dependency ${dependency}`);
+            if (!stepsById.has(dependency)) throw new Error(`Missing annotation-plan dependency ${dependency}`);
         });
         if (step.operation === 'write-free-text-contents') {
-            const hasPrepare = step.dependsOn.some(id => steps.find(candidate => candidate.id === id)?.operation === 'prepare-free-text-appearance');
+            const hasPrepare = step.dependsOn.some(id => stepsById.get(id)?.operation === 'prepare-free-text-appearance');
             if (!hasPrepare) throw new Error('FreeText contents require a prepared blank appearance and point rect');
         }
     });
