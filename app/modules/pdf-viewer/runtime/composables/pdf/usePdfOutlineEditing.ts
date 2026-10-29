@@ -9,7 +9,6 @@ import { requirePageIndex } from '@contracts/pageNumbers';
 import { clamp } from 'es-toolkit/math';
 import {
     collectBookmarkIds,
-    findBookmarkById,
     findBookmarkLocation,
     flattenBookmarks,
     normalizeBookmarkColor,
@@ -170,9 +169,10 @@ export const usePdfOutlineEditing = (
     function resolveRootBookmarkIds(ids: Iterable<string>) {
         const selectedIds = new Set(ids);
         const roots = new Set<string>();
+        const order = bookmarkOrderIndexMap.value;
 
         for (const id of selectedIds) {
-            if (!findBookmarkLocation(bookmarks.value, id)) {
+            if (!order.has(id)) {
                 continue;
             }
 
@@ -192,7 +192,6 @@ export const usePdfOutlineEditing = (
             }
         }
 
-        const order = bookmarkOrderIndexMap.value;
         return [...roots].sort((left, right) => (
             (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER)
         ));
@@ -307,22 +306,17 @@ export const usePdfOutlineEditing = (
      * itself alone. Unlike removal, descendants are not implied, so every
      * selected id is a target of its own.
      */
-    function resolveBookmarkStyleTargetIds(id: string) {
+    function resolveBookmarkStyleTargets(id: string) {
         const ids = selectedBookmarkIds.value.has(id)
-            ? [...selectedBookmarkIds.value]
-            : [id];
-        const order = bookmarkOrderIndexMap.value;
-        return ids
-            .filter(targetId => findBookmarkById(bookmarks.value, targetId) !== null)
-            .sort((left, right) => (
-                (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER)
-            ));
+            ? selectedBookmarkIds.value
+            : new Set([id]);
+        // One walk in tree order finds and orders every target; a lookup per
+        // selected id made a select-all restyle quadratic in the outline.
+        return flattenBookmarks(bookmarks.value).filter(item => ids.has(item.id));
     }
 
-    function resolveBookmarkStyleTargets(id: string) {
-        return resolveBookmarkStyleTargetIds(id)
-            .map(targetId => findBookmarkById(bookmarks.value, targetId))
-            .filter((item): item is IBookmarkItem => item !== null);
+    function resolveBookmarkStyleTargetIds(id: string) {
+        return resolveBookmarkStyleTargets(id).map(item => item.id);
     }
 
     function resolveBookmarkStyleSummary(id: string) {
@@ -360,12 +354,7 @@ export const usePdfOutlineEditing = (
         updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
     ) {
         let changed = false;
-        for (const targetId of resolveBookmarkStyleTargetIds(id)) {
-            const item = findBookmarkById(bookmarks.value, targetId);
-            if (!item) {
-                continue;
-            }
-
+        for (const item of resolveBookmarkStyleTargets(id)) {
             const nextStyle = resolveBookmarkStyle(item, updates);
             if (!hasBookmarkStyleChanged(item, nextStyle)) {
                 continue;
