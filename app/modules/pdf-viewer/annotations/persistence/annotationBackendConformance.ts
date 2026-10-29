@@ -56,12 +56,16 @@ export function projectAnnotationBackendMutations(
     plan: ISerializationPlan,
     backend: TAnnotationPersistenceBackend,
 ): readonly IBackendAnnotationMutation[] {
-    return orderSteps(plan.steps).map((step, order) => ({
+    const ordered = orderSteps(plan.steps);
+    // One clone for the program: every bind step names the plan's known
+    // references, and a clone per step copied them once per dirty entity.
+    const fields = structuredClone(ordered.map(step => step.fields));
+    return ordered.map((step, order) => ({
         backend,
         order,
         annotationId: step.annotationId,
         operation: step.operation,
-        fields: structuredClone(step.fields),
+        fields: fields[order] ?? step.fields,
     }));
 }
 
@@ -83,11 +87,16 @@ export function assertAnnotationBackendSemanticConformance(plan: ISerializationP
     const programs = ANNOTATION_PERSISTENCE_BACKENDS.map(backend => (
         semanticProgram(projectAnnotationBackendMutations(plan, backend))
     ));
-    const expected = JSON.stringify(programs[0]);
-    if (programs.some(program => JSON.stringify(program) !== expected)) {
+    const [
+        program,
+        ...others
+    ] = programs;
+    // A single backend's program cannot diverge from itself.
+    const expected = others.length > 0 ? JSON.stringify(program) : '';
+    if (others.some(other => JSON.stringify(other) !== expected)) {
         throw new Error('Annotation persistence backends produced divergent semantic programs');
     }
-    return programs[0] ?? [];
+    return program ?? [];
 }
 
 export interface IAnnotationPersistenceBackendAdapter extends IAnnotationReopenReader {

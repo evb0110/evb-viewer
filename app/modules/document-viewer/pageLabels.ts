@@ -6,6 +6,7 @@ import type {
 import {
     buildPageLabelsFromRanges,
     buildPageLabelSegments,
+    findPageLabelSegment,
     formatPageLabelForDisplay,
     isImplicitDefaultPageLabels,
 } from '@pdf-core/pdfPageLabels';
@@ -87,7 +88,7 @@ export function getVisiblePageLabel(page: number, pageLabels: TDocumentPageLabel
     if (isPageLabelArray(pageLabels)) {
         return formatPageLabelForDisplay((pageLabels[page - 1] ?? '').trim()) || null;
     }
-    const segment = pageLabels?.segments.find(candidate => page >= candidate.startPage && page <= candidate.endPage);
+    const segment = pageLabels ? findPageLabelSegment(pageLabels.segments, page) : undefined;
     return segment ? formatPageLabelForDisplay(segment, page - segment.startPage).trim() || null : null;
 }
 
@@ -129,11 +130,12 @@ export function getMaxPageIndicatorLength(
     if (!isPageLabelArray(pageLabels)) {
         let maxLength = String(totalPages).length;
         for (const segment of pageLabels.segments) {
-            const candidatePages = [
+            // A one-page segment, the usual shape of literal labels, has one candidate.
+            const candidatePages = new Set([
                 segment.startPage,
                 segment.endPage,
                 Math.min(segment.endPage, segment.startPage + 1),
-            ];
+            ]);
             for (const page of candidatePages) {
                 maxLength = Math.max(
                     maxLength,

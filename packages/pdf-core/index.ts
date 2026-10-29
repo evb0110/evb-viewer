@@ -133,15 +133,18 @@ export {
     createPageLabelModel,
     derivePageLabelRangesFromLabels,
     findPageByPageLabelInput,
+    findPageLabelSegment,
     getPageLabelAt,
     getPageLabelWindow,
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
     readPageLabelWindow,
     replacePageLabelRange,
+    replacePageLabelRanges,
     setPageLabelAt,
 } from '@pdf-core/pdfPageLabels';
 export type {
+    IDocumentPageLabelEdit,
     IDocumentPageLabelModel,
     IDocumentPageLabelRange,
     IDocumentPageLabelSegment,

@@ -45,7 +45,6 @@ vi.mock('@app/utils/platformDocuments', async importOriginal => ({
 
 const RECOVERY_CLONE_REF = requireDocumentRef('browser://documents/recovery-clone.pdf');
 const RECOVERY_PROJECTION = cast<never>({
-    canonicalAnnotationProgram: [],
     mutations: {updates: []},
     noteTextUpdates: [],
     freeTextNotes: [],
