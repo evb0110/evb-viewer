@@ -155,28 +155,40 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
             const pdfPath = join(directory, 'search-text-crop.pdf');
             const document = await PDFDocument.create();
             const font = await document.embedFont(StandardFonts.Helvetica);
+            const setups = [
+                {rotation: 0},
+                {rotation: 90},
+                {rotation: 180},
+                {rotation: 270},
+                {
+                    rotation: 0,
+                    invisible: true,
+                },
+                {
+                    rotation: 0,
+                    uncropped: true,
+                },
+            ];
+            // The same pages again from page 257 start the next 256-page
+            // window, whose page boxes are read together with the first's.
+            const secondWindowStart = 256;
             // Each cropped page shows CROP_SHOWN_<n> and hides CROP_HIDDEN_<n> above its CropBox.
             for (const [
                 index,
                 setup,
             ] of [
-                    {rotation: 0},
-                    {rotation: 90},
-                    {rotation: 180},
-                    {rotation: 270},
-                    {
+                    ...setups,
+                    ...Array.from({length: secondWindowStart - setups.length}, () => ({
                         rotation: 0,
-                        invisible: true,
-                    },
-                    {
-                        rotation: 0,
-                        uncropped: true,
-                    },
+                        blank: true,
+                    })),
+                    ...setups,
                 ].entries()) {
                 const page = document.addPage([
                     600,
                     800,
                 ]);
+                if ('blank' in setup) continue;
                 if (!setup.uncropped) page.setCropBox(100, 100, 300, 400);
                 page.setRotation(degrees(setup.rotation));
                 if (setup.invisible) page.pushOperators(pushGraphicsState(), setTextRenderingMode(TextRenderingMode.Invisible));
@@ -202,10 +214,16 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
                 return pages;
             };
             const visible = await readAll(true);
-            expect(visible).toHaveLength(6);
-            visible.forEach((text, index) => expect(text).toContain(`CROP_SHOWN_${index + 1}`));
-            expect(visible.slice(0, 5).join('\n')).not.toContain('CROP_HIDDEN');
-            expect(visible[5]).toContain('CROP_HIDDEN_6');
+            expect(visible).toHaveLength(secondWindowStart + setups.length);
+            for (const first of [
+                0,
+                secondWindowStart,
+            ]) {
+                const pages = visible.slice(first, first + setups.length);
+                pages.forEach((text, index) => expect(text).toContain(`CROP_SHOWN_${first + index + 1}`));
+                expect(pages.slice(0, 5).join('\n')).not.toContain('CROP_HIDDEN');
+                expect(pages[5]).toContain(`CROP_HIDDEN_${first + 6}`);
+            }
             // Export and assistant reads keep reading the whole page.
             expect((await readAll(false)).join('\n')).toContain('CROP_HIDDEN_1');
         } finally {
