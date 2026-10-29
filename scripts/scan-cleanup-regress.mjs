@@ -366,6 +366,26 @@ export function validateWordLossReport(report, name, pages, baseline) {
     if (selected.length === 0) {
         throw new Error(`${name} word-loss report did not contain an audited page row`);
     }
+    if (
+        report.summary?.auditCoverageComplete !== true
+        || !Number.isSafeInteger(report.summary?.expectedOutputPages)
+        || report.summary.expectedOutputPages < 1
+        || report.summary.analyzedOutputPages !== report.summary.expectedOutputPages
+        || selected.some(page => page.status !== 'analyzed')
+    ) {
+        throw new Error(`${name} word-loss report has incomplete analyzed output coverage`);
+    }
+    if (pages !== undefined) {
+        assertSamePages(selected.map(row => row.page), [...pages].sort((a, b) => a - b), `${name} selected page coverage`);
+    }
+    if (
+        report.summary?.suppressedCount !== 0
+        || !Array.isArray(report.summary?.suppressedPages)
+        || report.summary.suppressedPages.length > 0
+        || selected.some(page => page.comparisonSuppressed !== undefined)
+    ) {
+        throw new Error(`${name} word-loss report has suppressed text-loss comparisons`);
+    }
     if (baseline === null) {
         const badRows = selected.filter(page => (
             page.flagged === true
