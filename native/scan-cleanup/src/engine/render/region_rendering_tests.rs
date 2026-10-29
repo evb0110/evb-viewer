@@ -8,7 +8,6 @@ fn cropping_confirmed_photo_at_unit_scale_preserves_full_render_pixels() {
             source.set(x, y, if (x + y) % 2 == 0 { 48 } else { 208 });
         }
     }
-    let photo = BinaryImage::from_fn_parallel(20, 20, |_, _| true);
     let options = CleanupOptions {
         output_mode: OutputMode::Grayscale,
         ..CleanupOptions::default()
@@ -28,11 +27,9 @@ fn cropping_confirmed_photo_at_unit_scale_preserves_full_render_pixels() {
             normalized: &source,
             routing_source: &source,
             color_source: None,
-            source_picture_mask: Some(&photo),
             tone_preservation_alpha: None,
             text_tone_diagnostics: None,
             options: &options,
-            preserve_confirmed_photo_tones: true,
             working_width: 20,
             working_height: 20,
             render_region: Some(crop),

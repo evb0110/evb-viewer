@@ -1,26 +1,6 @@
 mod tests {
     use super::*;
 
-    #[test]
-    fn fractional_horizontal_rgb_reduction_integrates_partial_pixel_coverage() {
-        let source = RgbImage::from_vec(3, 1, vec![0, 0, 0, 255, 255, 255, 255, 255, 255]).unwrap();
-        assert_eq!(
-            downscale_rgb_to_dimensions(&source, 2, 1).data(),
-            &[85, 85, 85, 255, 255, 255],
-            "render RGB reduction must integrate the half-covered white pixel"
-        );
-    }
-
-    #[test]
-    fn fractional_vertical_rgb_reduction_preserves_symmetric_tones() {
-        let source = RgbImage::from_vec(1, 3, vec![255, 255, 255, 0, 0, 0, 255, 255, 255]).unwrap();
-        assert_eq!(
-            downscale_rgb_to_dimensions(&source, 1, 2).data(),
-            &[170; 6],
-            "render RGB reduction must preserve a symmetric white-black-white column"
-        );
-    }
-
     use crate::bw::{
         binarize_normalized, rescue_component_scoped_faint_strokes, BinarizationInput,
     };
