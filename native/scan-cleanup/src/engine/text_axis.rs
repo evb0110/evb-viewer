@@ -137,11 +137,15 @@ fn supported_line_count_one_way(profile: &[f64], estimated_period: usize) -> usi
         .map(|(value, local)| (value - local).max(0.0))
         .collect();
     let mean = residual.iter().sum::<f64>() / residual.len() as f64;
-    let deviation = residual
+    // The standard deviation: sum of squares over n, then the root. Dividing
+    // the sum by sqrt(n) gave variance times sqrt(n), so a long or high-ink
+    // profile raised the peak floor above every line it had.
+    let deviation = (residual
         .iter()
         .map(|value| (value - mean).powi(2))
         .sum::<f64>()
-        / (residual.len().max(1) as f64).sqrt();
+        / residual.len().max(1) as f64)
+        .sqrt();
     let peak_floor = mean + deviation * 0.35;
     let half_window = (estimated_period * 2 / 5).clamp(3, 24);
     let min_separation = (estimated_period * 3 / 5).clamp(4, 36);
