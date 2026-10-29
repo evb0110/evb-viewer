@@ -43,6 +43,10 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
+    ScanCleanupPdfValidationError,
+    ScanCleanupStreamingEvidenceError,
+} from '@evb/scan-cleanup/core/errors';
+import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
@@ -762,6 +766,7 @@ export async function main() {
         : IMAGE_COMBINE_FALLBACK;
     const img2pdfBinary = process.env.EVB_SCAN_CLEANUP_IMG2PDF_PATH ?? 'img2pdf';
     const magickBinary = process.env.EVB_SCAN_CLEANUP_MAGICK_PATH ?? 'magick';
+    let retainTemporaryRoot = false;
     const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-'));
     const detectionEvidenceDirectory = join(temporaryRoot, 'detection-evidence');
     const conversionEvidenceDirectory = join(temporaryRoot, 'conversion-evidence');
@@ -1107,14 +1112,24 @@ export async function main() {
             );
         }
         process.stderr.write(`[scan-cleanup] wrote ${summaryPath}\n`);
+    } catch (error) {
+        // This CLI owns the scratch the run wrote; an invalid output it names
+        // is the diagnostic, so it stays where the error says it is.
+        retainTemporaryRoot = error instanceof ScanCleanupPdfValidationError
+            || error instanceof ScanCleanupStreamingEvidenceError;
+        throw error;
     } finally {
         try {
             await detectionResultStore?.close();
         } finally {
-            await rm(temporaryRoot, {
-                force: true,
-                recursive: true,
-            });
+            if (retainTemporaryRoot) {
+                process.stderr.write(`[scan-cleanup] kept diagnostics in ${temporaryRoot}\n`);
+            } else {
+                await rm(temporaryRoot, {
+                    force: true,
+                    recursive: true,
+                });
+            }
         }
     }
 }
