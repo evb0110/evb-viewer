@@ -5206,6 +5206,44 @@ describe('scan cleanup pipeline', () => {
         };
     }
 
+    it('uses the matched raster grid on both sides of the 1,024-page threshold', async () => {
+        for (const pageCount of [
+            1_024,
+            1_025,
+        ]) {
+            const fixture = await setup();
+            const harness = losslessMatchedHarness(Array.from({length: pageCount}, (_, index) => ({
+                widthPoints: index === 1 ? 200 : 400,
+                heightPoints: index === 1 ? 100 : 200,
+            })));
+            harness.pipelineDependencies.getPageCount = async () => pageCount;
+            await runScanCleanupPipeline({
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                sourcePageNumbers: [1],
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                    crop: false,
+                    matchPageSize: true,
+                },
+            }, {
+                ...pipelinePaths(fixture.dir, true),
+                pdfimagesBinary: '/pdfimages',
+            }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+            // Matching a half-size page changes the document's quality route,
+            // including when the selected page itself already fits the canvas.
+            expect(harness.readRenderedManifest()).toMatchObject({documentCanvas: {
+                widthPoints: 400,
+                heightPoints: 200,
+                widthPx: Math.ceil(400 / 72 * 300),
+                heightPx: Math.ceil(200 / 72 * 300),
+            }});
+            expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+        }
+    });
+
     it('renders a matched run instead of claiming lossless when a page has to change resolution', async () => {
         const fixture = await setup();
         const harness = losslessMatchedHarness([
