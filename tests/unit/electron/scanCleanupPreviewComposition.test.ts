@@ -6,6 +6,7 @@ import {
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
+import {existsSync} from 'node:fs';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
     defaultDependencies, scanCleanupPreviewLifecycle,
@@ -37,6 +38,11 @@ import {
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    clearWorkingCopyQuarantinesForTests,
+    isWorkingCopyQuarantined,
+} from '@electron/file-access/workingCopyQuarantine';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const HOST_RAM_BYTES = 16 * 1024 * 1024 * 1024;
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
@@ -97,10 +103,58 @@ async function previewDependencies() {
 }
 
 afterEach(async () => {
+    clearWorkingCopyQuarantinesForTests();
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         recursive: true,
         force: true,
     })));
+});
+
+it('preserves preview inputs and quarantines the source when close cannot prove native termination', async () => {
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const entered = Promise.withResolvers<string>();
+    deps.runSidecar = async (_binary, manifestPath, signal) => {
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
+        entered.resolve(manifest.pages[0]!.inputPath);
+        await new Promise<never>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(markUnprovenNativeTermination(
+                new DOMException('Preview reader may still be alive', 'AbortError'),
+                'Preview native tree was not proven stopped',
+            )), {once: true});
+        });
+    };
+    const service = scanCleanupPreviewLifecycle(deps);
+    const owner = lifecycleSender(731);
+    const previewRequest = {
+        ...request,
+        sourcePdfPath: join(dir, 'source.pdf'),
+        options: {
+            ...request.options,
+            matchPageSize: false,
+        },
+    };
+    const pending = service.preview(owner, previewRequest).catch((error: unknown) => error);
+    try {
+        const inputPath = await entered.promise;
+        const inputBytes = await readFile(inputPath);
+        const operations = cancelMainOperationsForClosingWorkingCopy(
+            previewRequest.sourcePdfPath,
+            'Document closed during preview',
+            {isRegistrationCurrent: () => true},
+        );
+        expect(operations).toHaveLength(1);
+        await Promise.all(operations!.map(operation => operation.settled));
+        await pending;
+
+        expect.soft(isWorkingCopyQuarantined(previewRequest.sourcePdfPath), 'close must preserve a source with an unproven native reader').toBe(true);
+        expect.soft(existsSync(inputPath), 'the unproven reader must retain its raster input').toBe(true);
+        if (existsSync(inputPath)) await expect(readFile(inputPath)).resolves.toEqual(inputBytes);
+    } finally {
+        await service.dispose();
+        await pending;
+    }
 });
 
 async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecommendation: 'mixed' | undefined): Promise<void> {
