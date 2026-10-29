@@ -402,14 +402,19 @@ watch([
         toldDetectionError = '';
         return;
     }
-    if (!active || message === toldDetectionError) {
+    if (message === toldDetectionError) {
+        return;
+    }
+    // A cleanup queued behind this analysis reports the failure as its own,
+    // whether or not this workspace is on screen when it fails.
+    if (isRunning.value) {
+        toldDetectionError = message;
+        return;
+    }
+    if (!active) {
         return;
     }
     toldDetectionError = message;
-    // A cleanup queued behind this analysis reports the failure as its own.
-    if (isRunning.value) {
-        return;
-    }
     if (EXPECTED_DETECTION_REFUSALS.has(detectionErrorCode.value ?? '')) {
         presentNoticeToast({
             tone: 'warning',
