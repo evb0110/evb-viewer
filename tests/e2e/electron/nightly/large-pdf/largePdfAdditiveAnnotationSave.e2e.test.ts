@@ -57,6 +57,21 @@ function readCanonicalEntities(page: Page) {
     })), PAGE_NUMBER) as Promise<ICanonicalEntity[]>;
 }
 
+async function waitForSelectableTextSpanIndex(page: Page) {
+    // Match the selection helper's indexing, including marked-content wrappers.
+    // A selectable first span has index zero, so return a truthy object to the wait.
+    const match = await page.waitForFunction((pageNumber: number) => {
+        const index = Array.from(document.querySelectorAll<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"] .text-layer span`,
+        )).filter(span => (span.textContent ?? '').trim().length > 0)
+            .findIndex(span => span.firstChild instanceof Text);
+        return index >= 0 ? {index} : null;
+    }, {timeout: 30_000}, PAGE_NUMBER);
+    const result = await match.jsonValue();
+    await match.dispose();
+    return result!.index;
+}
+
 async function waitForNewEntity(page: Page, kind: string, before: readonly ICanonicalEntity[]) {
     const beforeIds = before.map(entity => entity.id);
     await page.waitForFunction((input: {
@@ -252,15 +267,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
         await openAnnotationsTab(page, 30_000);
         await setupScrollToPage(page, PAGE_NUMBER);
-        // The selection helper indexes non-empty spans in document order; a
-        // marked-content wrapper is one of them but holds no text node itself.
-        const textSpan = await page.waitForFunction((pageNumber: number) => {
-            const index = Array.from(document.querySelectorAll<HTMLElement>(
-                `.page_container[data-page="${pageNumber}"] .text-layer span`,
-            )).filter(span => (span.textContent ?? '').trim().length > 0)
-                .findIndex(span => span.firstChild instanceof Text);
-            return index >= 0 ? index : null;
-        }, {timeout: 30_000}, PAGE_NUMBER).then(handle => handle.jsonValue() as Promise<number>);
+        const textSpan = await waitForSelectableTextSpanIndex(page);
 
         const beforeHighlight = await readCanonicalEntities(page);
         await createCanonicalTextMarkup(page, 'Highlight', {
@@ -399,13 +406,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
         await openAnnotationsTab(page, 30_000);
         await setupScrollToPage(page, PAGE_NUMBER);
-        const textSpan = await page.waitForFunction((pageNumber: number) => {
-            const index = Array.from(document.querySelectorAll<HTMLElement>(
-                `.page_container[data-page="${pageNumber}"] .text-layer span`,
-            )).filter(span => (span.textContent ?? '').trim().length > 0)
-                .findIndex(span => span.firstChild instanceof Text);
-            return index >= 0 ? index : null;
-        }, {timeout: 30_000}, PAGE_NUMBER).then(handle => handle.jsonValue() as Promise<number>);
+        const textSpan = await waitForSelectableTextSpanIndex(page);
         const before = await readCanonicalEntities(page);
         await createCanonicalTextMarkup(page, 'Highlight', {
             startPage: PAGE_NUMBER,
@@ -546,13 +547,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
         await openAnnotationsTab(page, 30_000);
         await setupScrollToPage(page, PAGE_NUMBER);
-        const textSpan = await page.waitForFunction((pageNumber: number) => {
-            const index = Array.from(document.querySelectorAll<HTMLElement>(
-                `.page_container[data-page="${pageNumber}"] .text-layer span`,
-            )).filter(span => (span.textContent ?? '').trim().length > 0)
-                .findIndex(span => span.firstChild instanceof Text);
-            return index >= 0 ? index : null;
-        }, {timeout: 30_000}, PAGE_NUMBER).then(handle => handle.jsonValue() as Promise<number>);
+        const textSpan = await waitForSelectableTextSpanIndex(page);
 
         const highlightText = (await createCanonicalTextMarkup(page, 'Highlight', {
             startPage: PAGE_NUMBER,
