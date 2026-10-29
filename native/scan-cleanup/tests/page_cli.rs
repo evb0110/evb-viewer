@@ -57,6 +57,78 @@ fn unmatched_options() -> CleanupOptions {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn allowed_path_root_rejects_symlink_followed_by_parent_before_publication() {
+    use std::os::unix::fs::symlink;
+
+    let scratch = Scratch::new("allowed-root-symlink-parent");
+    let root = scratch.path("allowed");
+    let outside = scratch.path("outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(outside.join("inner")).unwrap();
+    symlink(outside.join("inner"), root.join("link")).unwrap();
+    let input = root.join("input.png");
+    fs::write(&input, encode_gray(&GrayImage::new(80, 60, 120)).unwrap()).unwrap();
+    let victim = outside.join("output.png");
+    let decoy = root.join("output.png");
+    let sentinel = b"outside bytes must survive admission\0";
+    fs::write(&victim, sentinel).unwrap();
+    fs::write(&decoy, b"inside decoy").unwrap();
+    let escaped = root.join("link/../output.png");
+    assert_eq!(
+        fs::canonicalize(&escaped).unwrap(),
+        fs::canonicalize(&victim).unwrap()
+    );
+    let metadata = root.join("output.json");
+    let page_metadata = root.join("page.json");
+    let manifest = root.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    layout: LayoutMode::Single,
+                    ..unmatched_options()
+                },
+                "outputs": [{"outputPath": escaped, "metadataPath": metadata}],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .args(["--allowed-path-root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        fs::read(&victim).ok().as_deref(),
+        Some(sentinel.as_slice()),
+        "symlink/.. traversal must not publish outside the allowed root; status={}, stderr={}",
+        result.status,
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        !result.status.success(),
+        "an escaped destination must fail admission"
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+    assert_eq!(fs::read(&decoy).unwrap(), b"inside decoy");
+    assert!(!metadata.exists() && !page_metadata.exists());
+}
+
 fn assert_native_canvas_owns_image(metadata: &Value) {
     assert!(
         metadata["pdfImagePlacement"].is_null(),
