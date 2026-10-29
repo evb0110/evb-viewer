@@ -4,6 +4,7 @@ import type { TPdfViewRotation } from '@contracts/shared';
 import type {IPdfLayerRenderResult} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type { IPdfAnnotation } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
 type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
@@ -465,7 +466,7 @@ export function createPdfPageRenderState() {
             const id = normalizePdfJsAnnotationId(pdfRef);
             const input = rendered?.annotationInput;
             const output = rendered?.annotationOutput;
-            const annotation = input?.annotations.find(entry => normalizePdfJsAnnotationId(entry.id) === id);
+            const annotation = id && input ? annotationsByNormalizedId(input.annotations).get(id) : undefined;
             if (slot.canvasReadiness !== 'ready' || !id || !input || !output || input.excludedIds.has(id) || !annotation
                 || input.nativeAnnotationAppearance?.annotations.some(entry => entry.id === id && entry.action !== 'retain')) return false;
             if (!annotation.hasOwnCanvas || !output.requestedSeparateCanvas) return true;
@@ -730,3 +731,20 @@ export function createPdfPageRenderState() {
 }
 
 export type TPdfPageRenderState = ReturnType<typeof createPdfPageRenderState>;
+
+// A committed render's annotations by normalized PDF.js id, the first entry
+// for an id winning. Each marker of a dense page asks for its own, and
+// scanning the page's 500 annotations for each one is quadratic in the page.
+const committedAnnotationIndexes = new WeakMap<readonly IPdfAnnotation[], ReadonlyMap<string, IPdfAnnotation>>();
+
+function annotationsByNormalizedId(annotations: readonly IPdfAnnotation[]) {
+    const indexed = committedAnnotationIndexes.get(annotations);
+    if (indexed) return indexed;
+    const index = new Map<string, IPdfAnnotation>();
+    for (const entry of annotations) {
+        const id = normalizePdfJsAnnotationId(entry.id);
+        if (id && !index.has(id)) index.set(id, entry);
+    }
+    committedAnnotationIndexes.set(annotations, index);
+    return index;
+}
