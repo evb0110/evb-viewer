@@ -52,6 +52,7 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {
     getScanCleanupPreferencesStore,
+    flushScanCleanupDocumentPreferencesStore,
     resetScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {
@@ -2415,6 +2416,36 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.run.jobProgress.value).toBeNull();
         await mounted.session.run.cancel();
         expect(canceledJobs).toEqual([]);
+    });
+
+    it('retains both mounted views page edits when they share a source document', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const identity = {sourceSha256: () => 'd'.repeat(64)};
+        const first = mountSession('shared-source-settings', identity);
+        const second = mountSession('shared-source-settings', identity);
+        onTestFinished(() => { first.unmount(); second.unmount(); });
+        await nextTick();
+        expect(first.session.settings.documentSettingsReady.value).toBe(true);
+        expect(second.session.settings.documentSettingsReady.value).toBe(true);
+
+        first.session.selection.updateRotation(90, [1]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+        second.session.selection.updateRotation(180, [2]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+
+        const reopened = mountSession('shared-source-settings', identity);
+        onTestFinished(() => reopened.unmount());
+        await nextTick();
+        const expected = {
+            '1': {rotationDegrees: 90},
+            '2': {rotationDegrees: 180},
+        };
+        expect.soft(reopened.session.settings.values.pageOverrides).toMatchObject(expected);
+        expect.soft(first.session.settings.values.pageOverrides).toMatchObject(expected);
+        expect.soft(second.session.settings.values.pageOverrides).toMatchObject(expected);
     });
 
     it('coalesces document setting writes and flushes the old document before switching', async () => {
