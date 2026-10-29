@@ -429,6 +429,19 @@ jobs:
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
 
+      - name: Build image combiner for native-backed TypeScript checks
+        run: pnpm run build:pdf-image-combine
+
+      - name: Native-backed detection, large output, and diagnostics checks
+        env:
+          EVB_REQUIRE_SCAN_CLEANUP_NATIVE_TESTS: '1'
+          PYTHON: /usr/bin/python3
+        run: >-
+          pnpm exec vitest run --project unit-electron --project unit-scripts
+          tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts
+          tests/unit/electron/scanCleanupPipeline.test.ts
+          tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts
+
   landing:
     name: Landing
     if: ${{ needs.changed_areas.outputs.landing == 'true' }}

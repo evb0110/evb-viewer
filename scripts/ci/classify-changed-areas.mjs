@@ -11,6 +11,9 @@ import { getCiChangedAreaPolicy } from '../release/policy.mjs';
 // Inputs consumed by scan-cleanup-oracles.sh in addition to the release policy.
 // Keep CI selection here while diagnostics-only changes are independently owned.
 const scanCleanupExportInputs = [
+    'tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts',
+    'tests/unit/electron/scanCleanupPipeline.test.ts',
+    'tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts',
     'native/pdf-page-ops/**',
     ...getNativeExternalBuildInputs('pdf-page-ops'),
     'scripts/lib/**',
