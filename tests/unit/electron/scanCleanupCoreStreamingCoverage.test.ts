@@ -330,6 +330,119 @@ function pageMetadata() {
     };
 }
 
+// Exercise the real coordinator with file-backed native inputs/outputs. The
+// adapters stand in for binaries; assertions below inspect public summaries,
+// native wire manifests, published evidence and the live scratch filesystem.
+async function conversionRegressionFixture(documentPageCount: number) {
+    const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-core-regression-'));
+    roots.push(root);
+    const scratch = join(root, 'scratch');
+    await mkdir(scratch);
+    const sourcePdfPath = join(root, 'source.pdf');
+    const outputPdfPath = join(root, 'output.pdf');
+    await writeFile(sourcePdfPath, '%PDF-source');
+    const pageSizes = Array.from({length: documentPageCount}, (_, index) => pageGeometry(index + 1));
+    const render: IRunScanCleanupPipelineDependencies['renderPage'] = async (
+        _paths, _log, _page, _source, outputPath,
+    ) => {
+        await writeFile(outputPath, outputPath.endsWith('.ppm') ? PPM : PNG);
+    };
+    const dependencies: IRunScanCleanupPipelineDependencies = {
+        getPageCount: async () => documentPageCount,
+        getPageSizeStore: async () => createArrayBackedPdfPageSizeStore(pageSizes),
+        detectSourceDpi: async () => ({
+            detected: true,
+            documentDpi: 300,
+            compactLayeredPageCount: 0,
+            compactLayeredPageCountComplete: true,
+            getPageRaster: () => ({
+                dpi: 300,
+                width: 300,
+                height: 300,
+            }),
+        }),
+        getAvailableScratchBytes: async () => null,
+        hashNativeBinary: async () => 'a'.repeat(64),
+        renderPage: render,
+        renderPagePpm: render,
+        runSidecar: async (_binary, manifestPath, _signal, _log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                sourcePageIndex: number;
+                pageMetadataPath: string;
+                options: {excluded: boolean};
+                outputs: Array<{
+                    outputPath: string;
+                    metadataPath: string
+                }>;
+            }>;};
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                const excluded = page.options.excluded;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    ...pageMetadata(),
+                    sourcePageIndex: page.sourcePageIndex,
+                    excluded,
+                    outputCount: excluded ? 0 : 1,
+                }));
+                if (!excluded && page.outputs[0]) {
+                    await writeFile(page.outputs[0].outputPath, PNG);
+                    await writeFile(page.outputs[0].metadataPath, JSON.stringify(textOutputMetadata()));
+                }
+                onProgress({
+                    stage: 'page-complete',
+                    pageNumber: requirePageNumber(index + 1),
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                });
+            }
+        },
+        runCommand: async (_binary, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
+            if (args[0] !== '--check') {
+                const outputIndex = args.indexOf('--output');
+                const output = outputIndex >= 0 ? args[outputIndex + 1]! : args.at(-1)!;
+                await writeFile(output, '%PDF-adapter-output');
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        },
+    };
+    const workerPaths = {
+        ...paths(root),
+        scratchDir: scratch,
+        pdfimagesBinary: '/pdfimages',
+    };
+    const run = (request: Partial<Parameters<typeof runScanCleanupConversion>[0]> = {}) => runScanCleanupConversion(
+        {
+            sourcePdfPath,
+            outputPdfPath,
+            options,
+            ...request,
+        },
+        workerPaths,
+        new AbortController().signal,
+        () => undefined,
+        policy,
+        () => undefined,
+        dependencies,
+    );
+    return {
+        root,
+        scratch,
+        sourcePdfPath,
+        outputPdfPath,
+        pageSizes,
+        dependencies,
+        run,
+    };
+}
+
 function sidecarPage(pageNumber: number) {
     return {
         pageNumber,
@@ -383,6 +496,48 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it.each([
+        1,
+        SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+    ])(
+        'hydrates locked Auto decisions from a supplied detection store for %i source pages', async documentPageCount => {
+            const fixture = await conversionRegressionFixture(documentPageCount);
+            const summary = await fixture.run({
+                sourcePageNumbers: [1],
+                detectionResultStore: createBoundedDetectionResultStore(documentPageCount),
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+            });
+            expect(summary).toMatchObject({
+                inputPages: 1,
+                outputPages: 1,
+            });
+            expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+        },
+    );
+
+    it('hydrates accepted MediaBox geometry from a supplied small detection store', async () => {
+        const fixture = await conversionRegressionFixture(1);
+        const store = createBoundedDetectionResultStore(1);
+        const result = detectionResultForPage(1);
+        result.sourcePageMetadata = {
+            ...result.sourcePageMetadata!,
+            widthPoints: 144,
+            heightPoints: 72,
+            renderBox: 'mediabox',
+        };
+        store.getPage = async () => result;
+        store.readRange = async () => [result];
+        await fixture.run({detectionResultStore: store});
+        const manifest = JSON.parse(await readFile(join(fixture.scratch, 'cleanup-manifest-0.json'), 'utf8'));
+        expect(manifest.pages[0].pdfPage).toMatchObject({
+            widthPoints: 144,
+            heightPoints: 72,
+        });
+    });
+
     it('validates the fallback used when source DPI metadata is absent', () => {
         expect(resolveSourceDpi(undefined, 72.4)).toBe(72);
         expect(resolveSourceDpi(null, Number.NaN)).toBe(300);
