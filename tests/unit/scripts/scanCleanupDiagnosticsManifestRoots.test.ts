@@ -14,6 +14,7 @@ import {
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
+import * as corpusVerifier from '@scripts/diagnostics/scan-cleanup-corpus-verify.mjs';
 import {createScanCleanupDiagnosticsManifestScope} from '@scripts/diagnostics/scan-cleanup-diagnostics-manifest.mjs';
 import {
     afterAll,
@@ -170,5 +171,21 @@ describe('scan cleanup diagnostics manifest scope', () => {
             .toThrow(/requires an allowed path root/u);
         expect(() => createScanCleanupDiagnosticsManifestScope(scopedRoot, undefined))
             .toThrow(/requires the runnable manifest builder/u);
+    });
+});
+
+
+describe('corpus verifier staged native paths', () => {
+    it('uses the builder Windows target tag for every executable', () => {
+        const paths = corpusVerifier.resolveCorpusNativeBinaryPaths('/repo', {
+            platform: 'win32',
+            arch: 'x64',
+        });
+        expect(paths).toEqual({
+            scanCleanup: join('/repo', '.tmp/scan-cleanup/win32-x64/bin/evb-scan-cleanup.exe'),
+            combine: join('/repo', '.tmp/pdf-image-combine/win32-x64/bin/evb-pdf-image-combine.exe'),
+            pageOps: join('/repo', '.tmp/pdf-page-ops/win32-x64/bin/evb-pdf-page-ops.exe'),
+        });
+        expect(Object.values(paths).some(path => path.includes('/win-x64/'))).toBe(false);
     });
 });
