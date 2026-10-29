@@ -496,6 +496,35 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('assembles a native mixed page with a valid one-channel P5 soft-alpha layer', async () => {
+        const fixture = await conversionRegressionFixture(1);
+        const native = fixture.dependencies.runSidecar;
+        fixture.dependencies.runSidecar = async (...args) => {
+            await native(...args);
+            const manifest = JSON.parse(await readFile(args[1], 'utf8'));
+            const output = manifest.pages[0].outputs[0];
+            await writeFile(output.backgroundOutputPath, PPM);
+            await writeFile(output.foregroundAlphaOutputPath, Buffer.from('P5\n1 1\n255\n\x80', 'binary'));
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...textOutputMetadata(),
+                outputMode: 'mixed',
+                layeredWritten: true,
+                layeredForegroundKind: 'soft-alpha',
+                layeredBackgroundDpi: 300,
+                layeredForegroundDpi: 300,
+            }));
+        };
+        const summary = await fixture.run({options: {
+            ...options,
+            outputMode: 'mixed',
+        }});
+        expect(summary.outputPages).toBe(1);
+        const report = JSON.parse(await readFile(join(fixture.scratch, 'scan-cleanup-representation-report.json'), 'utf8'));
+        expect(report.pages[0].representation).toBe('mixed');
+        expect(await readFile(join(fixture.scratch, 'combine-manifest.tsv'), 'utf8')).toContain('soft-layered-jpeg\t');
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+    });
+
     it.each([
         1,
         SCAN_CLEANUP_STREAMING_BATCH_PAGES,
