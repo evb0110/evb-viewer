@@ -2595,6 +2595,27 @@ describe('Scan cleanup components', () => {
             .toContain('Cleanup is finishing and can no longer be canceled.');
     });
 
+    it('explains a disabled Clean up action in the toolbar status line', async () => {
+        const reason = 'Include at least one page to clean up.';
+        const canRun = ref(false);
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
+            canRun: canRun.value,
+            runDisabledReason: reason,
+            outputEstimate: '6 source pages → about 6 output pages',
+        }))));
+
+        expect(harness.host.querySelector<HTMLButtonElement>(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR)?.disabled)
+            .toBe(true);
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain(reason);
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
+            .not.toContain('6 source pages');
+
+        canRun.value = true;
+        await nextTick();
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).not.toContain(reason);
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain('6 source pages');
+    });
+
     it('prioritizes and dismisses a persisted cleanup failure while detection restarts', () => {
         const dismiss = vi.fn();
         const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
