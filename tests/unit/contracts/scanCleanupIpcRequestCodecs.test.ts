@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA} from '@contracts/scan-cleanup/domain';
+import {SCAN_CLEANUP_DETECTION_RESULT_SCHEMA} from '@contracts/scan-cleanup/ipcResultCodecs';
 import * as v from 'valibot';
 import {
     SCAN_CLEANUP_DETECTION_ARGS_SCHEMA,
@@ -127,6 +128,42 @@ function requestWithOverrides(pageOverrides: Record<string, unknown>) {
 }
 
 describe('scan-cleanup IPC request codecs', () => {
+    it.each([
+        {
+            xPoints: -72,
+            yPoints: 0,
+        },
+        {
+            xPoints: 0,
+            yPoints: -36,
+        },
+        {
+            xPoints: -72,
+            yPoints: -36,
+        },
+    ])('round-trips signed PDF origins through detection and start IPC: $xPoints,$yPoints', origin => {
+        const sourcePageMetadata = {
+            pageNumber: 12,
+            ...origin,
+            widthPoints: 144,
+            heightPoints: 144,
+            rotation: 0,
+            sourceDpi: 150,
+        };
+        const detected = v.parse(SCAN_CLEANUP_DETECTION_RESULT_SCHEMA, {
+            pageNumber: 12,
+            classification: 'single-uncut-page',
+            confidence: 1,
+            cutterXPx: null,
+            sourcePageMetadata,
+        });
+        const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
+            ...request,
+            sourcePageMetadataByPage: {'12': detected.sourcePageMetadata},
+        }])[0];
+        expect(started.sourcePageMetadataByPage?.['12']).toEqual(sourcePageMetadata);
+    });
+
     it('rejects null instead of defaulting optional scan-cleanup options', () => {
         for (const field of [
             'binarization',
