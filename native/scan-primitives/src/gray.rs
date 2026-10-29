@@ -307,6 +307,26 @@ mod tests {
     }
 
     #[test]
+    fn fractional_horizontal_reduction_integrates_partial_pixel_coverage() {
+        let source = GrayImage::from_vec(3, 1, 3, vec![0, 255, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(2, 1).data(),
+            &[85, 255],
+            "the first output cell covers one black pixel and half a white pixel"
+        );
+    }
+
+    #[test]
+    fn fractional_vertical_reduction_preserves_symmetric_tones() {
+        let source = GrayImage::from_vec(1, 3, 1, vec![255, 0, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(1, 2).data(),
+            &[170, 170],
+            "equal fractional coverage must preserve the symmetry of a white-black-white column"
+        );
+    }
+
+    #[test]
     fn upscaling_keeps_ink_where_the_page_scale_puts_it() {
         // A bar across the middle fifth of a small page: scaling the page to
         // twice its size has to put the bar across the middle fifth of the

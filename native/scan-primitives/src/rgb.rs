@@ -135,6 +135,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fractional_horizontal_reduction_integrates_partial_pixel_coverage() {
+        let source = RgbImage::from_vec(3, 1, vec![0, 0, 0, 255, 255, 255, 255, 255, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(2, 1).data(),
+            &[85, 85, 85, 255, 255, 255],
+            "RGB reduction must integrate the half-covered white pixel"
+        );
+    }
+
+    #[test]
+    fn fractional_vertical_reduction_preserves_symmetric_tones() {
+        let source = RgbImage::from_vec(1, 3, vec![255, 255, 255, 0, 0, 0, 255, 255, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(1, 2).data(),
+            &[170; 6],
+            "RGB reduction must preserve the symmetry of a white-black-white column"
+        );
+    }
+
+    #[test]
     fn construction_rows_and_mutation_match_the_scan_cleanup_type() {
         let mut image = RgbImage::new(2, 2, [17, 34, 51]);
 
