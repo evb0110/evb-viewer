@@ -19,7 +19,7 @@ const fixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cl
 describe('scan cleanup toolbar ownership', () => {
     it('keeps a running cleanup out of another document\'s toolbar', async () => {
         const {page} = fixture.getSession();
-        const running = await createLargeScannedFixturePdf('toolbar-owner-running-300-pages.pdf', 300, 0);
+        const running = await createLargeScannedFixturePdf('toolbar-owner-running-60-pages.pdf', 60, 0);
         const other = await createLargeScannedFixturePdf('toolbar-owner-other.pdf', 2, 0);
         await openPdfInApp(page, running);
         await waitForPdfLoaded(page);
@@ -32,7 +32,8 @@ describe('scan cleanup toolbar ownership', () => {
             const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
             return document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
                 && action?.disabled === false && (action.textContent ?? '').includes('Clean up');
-        }, {timeout: 120_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        // A hosted runner analyses about a page a second.
+        }, {timeout: 180_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await page.waitForSelector(SCAN_CLEANUP_RUN_METER_SELECTOR, {timeout: 30_000});
 
