@@ -163,6 +163,28 @@ describe('scan cleanup preview weight agreement', () => {
             .toEqual(['preview-final-weight-agreement']);
     });
 
+    it('compares a final raster rendered at twice the preview resolution on the preview grid', () => {
+        const preview = weightUniformity(textBitmap([
+            4,
+            4,
+            4,
+            4,
+        ]));
+        const finerFinal = weightUniformity(textBitmap([
+            8,
+            8,
+            8,
+            8,
+        ]));
+        expect(weightAgreementViolations(compareMetrics(preview, finerFinal, 0.5))).toEqual([]);
+        expect(weightAgreementViolations(compareMetrics(preview, weightUniformity(textBitmap([
+            12,
+            12,
+            12,
+            12,
+        ])), 0.5))).toEqual(['preview-final-weight-agreement']);
+    });
+
     it('rejects a real two-word weight divergence', () => {
         const preview = weightUniformity(textBitmap([
             4,

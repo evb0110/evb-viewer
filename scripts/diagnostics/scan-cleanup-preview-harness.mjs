@@ -483,7 +483,10 @@ function relativeDifference(left, right) {
     return Math.abs(left - right) / Math.max(Math.abs(right), 1e-6);
 }
 
-export function compareMetrics(preview, final) {
+// `finalToPreviewScale` maps final raster pixels onto the preview grid; the
+// two leaves are rendered at their own resolutions, so absolute run widths are
+// compared on one grid.
+export function compareMetrics(preview, final, finalToPreviewScale = 1) {
     if (!preview || !final) {
         return {
             measurable: false,
@@ -498,21 +501,22 @@ export function compareMetrics(preview, final) {
     const previewWordVariancePx = Number.isFinite(preview.wordVariancePx)
         ? preview.wordVariancePx
         : preview.wordVarianceProxy * preview.wordRunMedianPx;
-    const finalWordVariancePx = Number.isFinite(final.wordVariancePx)
+    const finalWordRunMedianPx = final.wordRunMedianPx * finalToPreviewScale;
+    const finalWordVariancePx = (Number.isFinite(final.wordVariancePx)
         ? final.wordVariancePx
-        : final.wordVarianceProxy * final.wordRunMedianPx;
+        : final.wordVarianceProxy * final.wordRunMedianPx) * finalToPreviewScale;
     const wordVarianceResidualPx = Math.abs(previewWordVariancePx - finalWordVariancePx);
     const representativeWordRunPx = Math.max(
         preview.wordRunMedianPx,
-        final.wordRunMedianPx,
+        finalWordRunMedianPx,
         1,
     );
     const lineRatioDeviation = relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio);
     const wordVarianceDeviation = wordVarianceResidualPx / representativeWordRunPx;
-    // Runs are measured on the same display raster. Allow one pixel for the
-    // two thresholded edges' quantization (the measured camera residual is
-    // 0.609 px), then gate the absolute weight as well as its uniformity.
-    const wordWeightResidualPx = Math.abs(preview.wordRunMedianPx - final.wordRunMedianPx);
+    // On the preview grid, allow one pixel for the two thresholded edges'
+    // quantization (the measured camera residual is 0.609 px), then gate the
+    // absolute weight as well as its uniformity.
+    const wordWeightResidualPx = Math.abs(preview.wordRunMedianPx - finalWordRunMedianPx);
     const wordWeightDeviation = Math.max(0, wordWeightResidualPx - 1) / representativeWordRunPx;
     return {
         measurable: true,
@@ -1426,7 +1430,7 @@ async function main() {
                 const finalWeight = weightUniformity(finalBitmap);
                 const previewMargins = normalizedMargins(previewBitmap);
                 const finalMargins = normalizedMargins(finalBitmap);
-                const weightComparison = compareMetrics(previewWeight, finalWeight);
+                const weightComparison = compareMetrics(previewWeight, finalWeight, previewBitmap.width / finalBitmap.width);
                 const marginComparison = compareMargins(previewMargins, finalMargins);
                 const violations = weightAgreementViolations(weightComparison);
                 if (marginComparison === null) violations.push('ink-margin-unmeasurable');
