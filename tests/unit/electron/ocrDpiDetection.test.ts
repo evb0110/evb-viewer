@@ -329,6 +329,13 @@ describe('ocr dpi detection', () => {
                 '/tmp/input.pdf',
             ],
         ]);
+        // A one-page probe still starts pdfimages and opens the whole PDF.
+        expect(mocks.runOcrCommand.mock.calls.map(([
+            , , options,
+        ]) => options?.timeoutMs)).toEqual([
+            5_625,
+            5_625,
+        ]);
     });
 
     it('probes every page in bounded chunks for long documents', async () => {
