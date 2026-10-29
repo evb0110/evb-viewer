@@ -27,7 +27,7 @@
                         square
                         icon="i-ph-arrows-clockwise"
                         :aria-label="t('scanCleanup.detectAll.action')"
-                        :disabled="!canRedetect"
+                        :disabled="disabled || !canRedetect"
                         @click="emit('redetect')"
                     />
                 </AppTooltip>
