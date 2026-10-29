@@ -441,6 +441,7 @@ export default {
             'noIncludedPages': 'Inclua pelo menos uma página antes de iniciar a limpeza.',
             'invalidMargins': 'As margens devem estar entre 0 e 25 mm.',
             'unavailable': 'A limpeza de digitalização não está disponível neste sistema.',
+            'otherDocumentRunning': 'Outro documento está sendo limpo. Inicie este quando terminar.',
         },
         'completedTitle': 'Limpeza de digitalização concluída',
         'completedPartialTitle': 'Páginas selecionadas limpas',

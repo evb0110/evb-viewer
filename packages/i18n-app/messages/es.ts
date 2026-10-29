@@ -441,6 +441,7 @@ export default {
             'noIncludedPages': 'Incluye al menos una página antes de iniciar la limpieza.',
             'invalidMargins': 'Los márgenes deben estar entre 0 y 25 mm.',
             'unavailable': 'La limpieza de escaneos no está disponible en este sistema.',
+            'otherDocumentRunning': 'Se está limpiando otro documento. Inicia este cuando termine.',
         },
         'completedTitle': 'Limpieza del escaneo completada',
         'completedPartialTitle': 'Páginas seleccionadas limpiadas',

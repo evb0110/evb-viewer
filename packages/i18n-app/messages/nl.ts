@@ -441,6 +441,7 @@ export default {
             'noIncludedPages': 'Neem ten minste één pagina op voordat u de opschoning start.',
             'invalidMargins': 'De marges moeten tussen 0 en 25 mm liggen.',
             'unavailable': 'Scanopschoning is niet beschikbaar op dit systeem.',
+            'otherDocumentRunning': 'Er wordt een ander document opgeschoond. Start dit document wanneer dat klaar is.',
         },
         'completedTitle': 'Scanopschoning voltooid',
         'completedPartialTitle': 'Geselecteerde pagina\'s opgeschoond',

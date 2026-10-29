@@ -924,6 +924,7 @@ export default {
             'noIncludedPages': 'Include at least one page before starting cleanup.',
             'invalidMargins': 'Margins must be between 0 and 25 mm.',
             'unavailable': 'Scan cleanup is unavailable on this system.',
+            'otherDocumentRunning': 'Another document is being cleaned up. Start this one when it finishes.',
         },
         'completedTitle': 'Scan cleanup complete',
         'completedPartialTitle': 'Selected pages cleaned',

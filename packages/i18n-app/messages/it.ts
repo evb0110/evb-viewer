@@ -441,6 +441,7 @@ export default {
             'noIncludedPages': 'Includi almeno una pagina prima di avviare la pulizia.',
             'invalidMargins': 'I margini devono essere compresi tra 0 e 25 mm.',
             'unavailable': 'La pulizia delle scansioni non è disponibile su questo sistema.',
+            'otherDocumentRunning': 'È in corso la pulizia di un altro documento. Avvia questo al termine.',
         },
         'completedTitle': 'Pulizia delle scansioni completata',
         'completedPartialTitle': 'Pagine selezionate pulite',

@@ -441,6 +441,7 @@ export default {
             'noIncludedPages': 'Incluez au moins une page avant de lancer le nettoyage.',
             'invalidMargins': 'Les marges doivent être comprises entre 0 et 25 mm.',
             'unavailable': 'Le nettoyage des scans n’est pas disponible sur ce système.',
+            'otherDocumentRunning': 'Un autre document est en cours de nettoyage. Lancez celui-ci une fois terminé.',
         },
         'completedTitle': 'Nettoyage des scans terminé',
         'completedPartialTitle': 'Pages sélectionnées nettoyées',

@@ -441,6 +441,7 @@ export default {
             'noIncludedPages': 'Nehmen Sie vor dem Start der Bereinigung mindestens eine Seite in die Ausgabe auf.',
             'invalidMargins': 'Die Ränder müssen zwischen 0 und 25 mm liegen.',
             'unavailable': 'Die Scanbereinigung ist auf diesem System nicht verfügbar.',
+            'otherDocumentRunning': 'Ein anderes Dokument wird gerade bereinigt. Starten Sie dieses, wenn es fertig ist.',
         },
         'completedTitle': 'Scanbereinigung abgeschlossen',
         'completedPartialTitle': 'Ausgewählte Seiten bereinigt',
