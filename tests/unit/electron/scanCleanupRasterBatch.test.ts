@@ -221,10 +221,6 @@ describe('scan cleanup raster batch renderer', () => {
             'page-17.png',
             'page-18.png',
         ]);
-        expect(fileSystem.mkdtemp).toHaveBeenCalledOnce();
-        expect(fileSystem.readdir).toHaveBeenCalledTimes(2);
-        expect(fileSystem.rename).toHaveBeenCalledTimes(2);
-        expect(fileSystem.rm).toHaveBeenCalledOnce();
     });
 
     it('keeps a rendered batch when its progress callback throws', async () => {

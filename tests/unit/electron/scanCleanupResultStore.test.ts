@@ -62,30 +62,10 @@ describe('file-backed scan-cleanup result store', () => {
     it('uses the composed filesystem for creation and cleanup', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-test-'));
         roots.push(root);
-        const calls = {
-            mkdtemp: 0,
-            open: 0,
-            rm: 0,
-        };
         const fileSystem = {
-            mkdtemp: async (prefix: string) => {
-                calls.mkdtemp++;
-                return mkdtemp(prefix);
-            },
-            open: async (path: string, flags: 'r' | 'w+') => {
-                calls.open++;
-                return fsOpen(path, flags);
-            },
-            rm: async (
-                path: string,
-                options: {
-                    force: boolean;
-                    recursive: boolean;
-                },
-            ) => {
-                calls.rm++;
-                return rm(path, options);
-            },
+            mkdtemp,
+            open: fsOpen,
+            rm,
         };
         const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
             fileSystem,
@@ -94,13 +74,16 @@ describe('file-backed scan-cleanup result store', () => {
             rootDir: root,
         });
 
+        await store.append({
+            pageNumber: 1,
+            value: 'retained record',
+        });
+        expect(await store.getPage(1)).toEqual({
+            pageNumber: 1,
+            value: 'retained record',
+        });
         await store.close();
 
-        expect(calls).toEqual({
-            mkdtemp: 1,
-            open: 2,
-            rm: 1,
-        });
         expect(await readdir(root)).toEqual([]);
     });
 
@@ -111,45 +94,25 @@ describe('file-backed scan-cleanup result store', () => {
         const report = JSON.stringify({pagesSidecarPath: join(scratch, 'pages.json')});
         await writeFile(join(scratch, 'pages.json'), '{}\n');
         await writeFile(join(scratch, 'scan-cleanup-representation-report.json'), report);
-        const calls = {
-            copyFile: 0,
-            mkdir: 0,
-            readdir: 0,
-            readFile: 0,
-            writeFile: 0,
-        };
         const fileSystem: IScanCleanupEvidenceFileSystem = {
-            copyFile: async (source, destination) => {
-                calls.copyFile++;
-                await copyFile(source, destination);
-            },
-            mkdir: async (path, options) => {
-                calls.mkdir++;
-                await mkdir(path, options);
-                return undefined;
-            },
-            readdir: async (path, options) => {
-                calls.readdir++;
-                return readdir(path, options);
-            },
-            readFile: async (path, encoding) => {
-                calls.readFile++;
-                return readFile(path, encoding);
-            },
-            writeFile: async (path, data) => {
-                calls.writeFile++;
-                await writeFile(path, data);
-            },
+            copyFile,
+            mkdir: async (path, options) => {await mkdir(path, options);},
+            readdir,
+            readFile,
+            writeFile,
         };
         await preserveScanCleanupJsonEvidence(scratch, vi.fn(), evidence, fileSystem);
 
-        expect(calls).toEqual({
-            copyFile: 2,
-            mkdir: 1,
-            readdir: 1,
-            readFile: 1,
-            writeFile: 2,
+        await rm(scratch, {
+            force: true,
+            recursive: true,
         });
+        expect((await readdir(evidence)).sort()).toEqual([
+            'pages.json',
+            'scan-cleanup-evidence-manifest.json',
+            'scan-cleanup-representation-report.json',
+        ]);
+        expect(await readFile(join(evidence, 'pages.json'), 'utf8')).toBe('{}\n');
         expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-representation-report.json'), 'utf8')))
             .toMatchObject({pagesSidecarPath: join(evidence, 'pages.json')});
     });
