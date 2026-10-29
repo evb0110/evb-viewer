@@ -1398,6 +1398,25 @@ describe('Scan cleanup components', () => {
         expect(settings.values.pageOverrides['2']?.marginsMm).toBeUndefined();
     });
 
+    it.each([
+        'all',
+        'selected',
+    ] as const)('shows mixed deskew for automatic followed by manual in %s scope', async (scope) => {
+        const harness = await mountRealWorkspace(`mixed-deskew-${scope}`);
+        harness.session.settings.values.pageOverrides['2'] = createScanCleanupPageOverride({manualSkewDegrees: 3});
+        if (scope === 'selected') harness.session.selection.selectPage(2, 'toggle', [
+            1,
+            2,
+        ]);
+        harness.session.selection.setSettingsScope(scope);
+        await nextTick();
+        const row = Array.from(harness.host.querySelectorAll('.scan-cleanup-auto-value-row'))
+            .find(element => element.textContent?.includes('Deskew angle'))!;
+
+        expect(row.querySelector('[data-auto-value-state="mixed"]')?.textContent?.trim()).toBe('Mixed');
+        expect(row.querySelector('[data-auto-value-state="auto"]')).toBeNull();
+    });
+
     it('publishes matched-canvas point dimensions for spread and mixed-scale outputs', () => {
         const renderOutput = (output: IScanCleanupPreviewResult['outputs'][number]) => ({
             canvasStyle: {},
