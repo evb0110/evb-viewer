@@ -111,6 +111,12 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                 }
                 page_number = Some(parsed);
             }
+            "--annotation-ownership-cache" if command == "save-mutations" => {
+                set_annotation_ownership_cache(PathBuf::from(
+                    args.next()
+                        .ok_or("Missing --annotation-ownership-cache value")?,
+                ))
+            }
             "--qpdf" | "--qpdf-path" => {
                 qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?))
             }

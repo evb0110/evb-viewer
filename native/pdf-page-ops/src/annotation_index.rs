@@ -1,5 +1,8 @@
 use super::*;
 use evb_native_support::output::AtomicOutput;
+#[path = "annotation_ownership.rs"]
+mod ownership;
+pub(crate) use ownership::*;
 use serde::Serialize;
 use std::{fs, io::Write, path::Path};
 
