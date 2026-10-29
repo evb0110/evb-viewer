@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
@@ -30,6 +31,20 @@ const DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
     'needs-password',
     'corrupt-xref',
 ]);
+
+// A document-level failure repeats for every later request on the same
+// bytes: the 760 MB report failed each of five OCR batches after 35-47 s,
+// and each assistant page read after 34 s. Recent ones are remembered per
+// file identity, which any write to the file replaces.
+const UNREADABLE_DOCUMENTS_REMEMBERED = 8;
+const unreadableDocuments = new Map<string, string>();
+
+async function readDocumentIdentity(pdfPath: string) {
+    const fileStat = await stat(pdfPath, {bigint: true}).catch(() => null);
+    return fileStat
+        ? `${pdfPath}\0${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeNs}:${fileStat.ctimeNs}`
+        : null;
+}
 
 export type TOcrPdfTextVisibilityAnalysis =
     | {
@@ -70,6 +85,16 @@ export async function inspectPdfPageTextVisibility(input: {
             visibility: new Map(),
         };
     }
+    const identity = await readDocumentIdentity(input.pdfPath);
+    const knownFailure = identity === null ? undefined : unreadableDocuments.get(identity);
+    if (knownFailure !== undefined) {
+        return {
+            status: 'degraded',
+            reason: 'document-unreadable',
+            message: knownFailure,
+            visibility: new Map(),
+        };
+    }
     const pagesPath = join(input.tempDir, `ocr-text-visibility-${randomUUID()}.txt`);
     try {
         await writeFile(pagesPath, `${[...new Set(input.pageNumbers)].join('\n')}\n`);
@@ -105,12 +130,21 @@ export async function inspectPdfPageTextVisibility(input: {
         if (isAbortError(error) || input.signal?.aborted) {
             throw error;
         }
+        const message = `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`;
+        const documentUnreadable = hasNativeErrorCode(error) && DOCUMENT_FAILURE_CODES.has(error.code)
+            || DOCUMENT_FAILURE.test(getErrorMessage(error));
+        if (documentUnreadable && identity !== null) {
+            unreadableDocuments.delete(identity);
+            unreadableDocuments.set(identity, message);
+            for (const oldest of unreadableDocuments.keys()) {
+                if (unreadableDocuments.size <= UNREADABLE_DOCUMENTS_REMEMBERED) break;
+                unreadableDocuments.delete(oldest);
+            }
+        }
         return {
             status: 'degraded',
-            reason: hasNativeErrorCode(error) && DOCUMENT_FAILURE_CODES.has(error.code) || DOCUMENT_FAILURE.test(getErrorMessage(error))
-                ? 'document-unreadable'
-                : 'native-tool-failed',
-            message: `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`,
+            reason: documentUnreadable ? 'document-unreadable' : 'native-tool-failed',
+            message,
             visibility: new Map(),
         };
     } finally {
