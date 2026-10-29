@@ -24,7 +24,7 @@ struct TempFiles(Vec<PathBuf>);
 impl Drop for TempFiles {
     fn drop(&mut self) {
         for path in &self.0 {
-            let _ = fs::remove_file(path);
+            let _ = fs::remove_file(path).or_else(|_| fs::remove_dir_all(path));
         }
     }
 }
@@ -2654,12 +2654,15 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
     let heavy = temp_path("delete-closure-heavy", "pdf");
     let mutations = temp_path("delete-closure-mutations", "json");
     let report = temp_path("delete-closure-report", "json");
+    // Each later delete reads the ownership snapshot the earlier one wrote.
+    let cache = temp_path("delete-closure-ownership", "d");
     let _cleanup = TempFiles(vec![
         small.clone(),
         padded.clone(),
         heavy.clone(),
         mutations.clone(),
         report.clone(),
+        cache.clone(),
     ]);
     for (path, padded, heavy) in [
         (&small, false, false),
@@ -2687,6 +2690,8 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
                     "--append-in-place",
                     "--identity-bindings-file",
                     report.to_str().unwrap(),
+                    "--annotation-ownership-cache",
+                    cache.to_str().unwrap(),
                 ],
             );
             assert!(
@@ -2730,6 +2735,8 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
         assert_eq!(states[0], states[1]);
         assert_eq!(states[0], states[2]);
     }
+    // The larger files read pages alone, and each of their saves leaves a snapshot.
+    assert!(fs::read_dir(&cache).unwrap().count() > 0);
 }
 
 #[test]
@@ -2820,11 +2827,13 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
             .map(|size| temp_path(&format!("existing-{kind}-{size}"), "pdf"));
         let mutations = temp_path("existing-edits", "json");
         let report = temp_path("existing-edits-report", "json");
+        // The edit reads the ownership snapshot the seed's deletes wrote.
+        let cache = temp_path("existing-edits-ownership", "d");
         let _cleanup = TempFiles(
             files
                 .iter()
                 .cloned()
-                .chain([mutations.clone(), report.clone()])
+                .chain([mutations.clone(), report.clone(), cache.clone()])
                 .collect(),
         );
         let shape = json!({"type":"rectangle","pageIndex":0,"x":0.1,"y":0.2,"width":0.2,"height":0.1,"color":"#336699","opacity":1,"strokeWidth":2,"stableKey":"evb-shape:editable"});
@@ -2853,6 +2862,8 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
                 "--append-in-place",
                 "--identity-bindings-file",
                 report.to_str().unwrap(),
+                "--annotation-ownership-cache",
+                cache.to_str().unwrap(),
             ];
             let output = save_mutations(pdf, &mutations, &mode);
             assert!(
@@ -3006,6 +3017,10 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
         }
         assert_eq!(appended[0], appended[1], "{kind}: whole vs padded");
         assert_eq!(appended[0], appended[2], "{kind}: whole vs heavy");
+        assert!(
+            fs::read_dir(&cache).unwrap().count() > 0,
+            "{kind}: no snapshot"
+        );
     }
 }
 
