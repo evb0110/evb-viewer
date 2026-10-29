@@ -426,59 +426,217 @@ fn component_ridge_width(source: &BinaryImage, map: &ComponentMap, label: u32) -
     ridge_width_of_isolated_component(&isolated)
 }
 
-fn ridge_width_of_isolated_component(component: &BinaryImage) -> f64 {
-    if component.count_black() == 0 {
-        return 0.0;
-    }
-    let padding = 2usize;
-    let width = component.width() + padding * 2;
-    let height = component.height() + padding * 2;
+const RIDGE_PADDING: usize = 2;
+
+/// The component's L2.5 chamfer distance field, padded so every component
+/// pixel has the two-pixel neighbourhood the masks read.
+fn padded_component_distances(component: &BinaryImage) -> (Vec<u32>, usize, usize) {
+    let width = component.width() + RIDGE_PADDING * 2;
+    let height = component.height() + RIDGE_PADDING * 2;
     let mut distances = vec![0u32; width * height];
     for y in 0..component.height() {
         for x in 0..component.width() {
             if component.get(x, y) {
-                distances[(y + padding) * width + x + padding] = DISTANCE_L2_5_INFINITY;
+                distances[(y + RIDGE_PADDING) * width + x + RIDGE_PADDING] = DISTANCE_L2_5_INFINITY;
             }
         }
     }
-    for y in padding..height - padding {
-        for x in padding..width - padding {
+    relax_chamfer_distances(
+        &mut distances,
+        width,
+        RIDGE_PADDING..width - RIDGE_PADDING,
+        RIDGE_PADDING..height - RIDGE_PADDING,
+    );
+    (distances, width, height)
+}
+
+/// The two chamfer passes over a window whose foreground holds the
+/// infinity sentinel. Distances outside the window are read as final, so a
+/// window holding every pixel an edit can change ends with the values a
+/// pass over the whole field would give.
+fn relax_chamfer_distances(
+    distances: &mut [u32],
+    width: usize,
+    columns: std::ops::Range<usize>,
+    rows: std::ops::Range<usize>,
+) {
+    for y in rows.clone() {
+        for x in columns.clone() {
             let index = y * width + x;
             if distances[index] != DISTANCE_L2_5_INFINITY {
                 continue;
             }
-            distances[index] = distance_l2_5_forward(&distances, width, x, y);
+            distances[index] = distance_l2_5_forward(distances, width, x, y);
         }
     }
-    for y in (padding..height - padding).rev() {
-        for x in (padding..width - padding).rev() {
+    for y in rows.rev() {
+        for x in columns.clone().rev() {
             let index = y * width + x;
             if distances[index] == 0 {
                 continue;
             }
-            distances[index] =
-                distances[index].min(distance_l2_5_backward(&distances, width, x, y));
+            distances[index] = distances[index].min(distance_l2_5_backward(distances, width, x, y));
         }
     }
+}
+
+/// The distance at a padded pixel when it is a ridge maximum of its 3x3
+/// neighbourhood, otherwise zero.
+fn ridge_value(distances: &[u32], width: usize, x: usize, y: usize) -> u32 {
+    let value = distances[y * width + x];
+    if value == 0 {
+        return 0;
+    }
+    let mut local_maximum = 0u32;
+    for neighbor_y in y - 1..=y + 1 {
+        for neighbor_x in x - 1..=x + 1 {
+            local_maximum = local_maximum.max(distances[neighbor_y * width + neighbor_x]);
+        }
+    }
+    if value == local_maximum {
+        value
+    } else {
+        0
+    }
+}
+
+fn ridge_width_px(value: u32) -> f64 {
+    f64::from(value as f32 * DISTANCE_L2_5_SCALE) * 2.0
+}
+
+fn ridge_width_of_isolated_component(component: &BinaryImage) -> f64 {
+    if component.count_black() == 0 {
+        return 0.0;
+    }
+    let (distances, width, height) = padded_component_distances(component);
     let mut ridge = Vec::new();
-    for y in padding..height - padding {
-        for x in padding..width - padding {
-            let value = distances[y * width + x];
-            if value == 0 {
-                continue;
-            }
-            let mut local_maximum = 0u32;
-            for neighbor_y in y - 1..=y + 1 {
-                for neighbor_x in x - 1..=x + 1 {
-                    local_maximum = local_maximum.max(distances[neighbor_y * width + neighbor_x]);
-                }
-            }
-            if value == local_maximum {
-                ridge.push(f64::from(value as f32 * DISTANCE_L2_5_SCALE) * 2.0);
+    for y in RIDGE_PADDING..height - RIDGE_PADDING {
+        for x in RIDGE_PADDING..width - RIDGE_PADDING {
+            let value = ridge_value(&distances, width, x, y);
+            if value != 0 {
+                ridge.push(ridge_width_px(value));
             }
         }
     }
     median_f64(&mut ridge).unwrap_or_default()
+}
+
+/// A component's distance field and ridge, kept current while boundary
+/// pixels are removed one at a time. A removal lowers distances only within
+/// the field's largest distance of the pixel, so the passes rerun on that
+/// window and the ridge is retallied around it; measuring the whole
+/// component after every removal cost a dense 600 DPI page over half a
+/// second.
+struct RidgeField {
+    distances: Vec<u32>,
+    width: usize,
+    height: usize,
+    ridge: Vec<u32>,
+    ridge_counts: std::collections::BTreeMap<u32, usize>,
+    ridge_total: usize,
+    reach: usize,
+    black: usize,
+}
+
+impl RidgeField {
+    fn new(component: &BinaryImage) -> Self {
+        let (distances, width, height) = padded_component_distances(component);
+        let largest = distances.iter().copied().max().unwrap_or(0);
+        let mut field = Self {
+            reach: (largest / DISTANCE_L2_5_CARDINAL) as usize + 1,
+            ridge: vec![0; distances.len()],
+            distances,
+            width,
+            height,
+            ridge_counts: std::collections::BTreeMap::new(),
+            ridge_total: 0,
+            black: component.count_black(),
+        };
+        field.retally_ridge(
+            RIDGE_PADDING..width - RIDGE_PADDING,
+            RIDGE_PADDING..height - RIDGE_PADDING,
+        );
+        field
+    }
+
+    /// Makes component pixel `(x, y)` paper.
+    fn remove(&mut self, x: usize, y: usize) {
+        let (x, y) = (x + RIDGE_PADDING, y + RIDGE_PADDING);
+        if self.distances[y * self.width + x] == 0 {
+            return;
+        }
+        self.distances[y * self.width + x] = 0;
+        self.black -= 1;
+        let window = |center: usize, size: usize, margin: usize| {
+            center.saturating_sub(margin).max(RIDGE_PADDING)
+                ..(center + margin + 1).min(size - RIDGE_PADDING)
+        };
+        let (columns, rows) = (
+            window(x, self.width, self.reach),
+            window(y, self.height, self.reach),
+        );
+        for row in rows.clone() {
+            for column in columns.clone() {
+                let distance = &mut self.distances[row * self.width + column];
+                if *distance != 0 {
+                    *distance = DISTANCE_L2_5_INFINITY;
+                }
+            }
+        }
+        relax_chamfer_distances(&mut self.distances, self.width, columns, rows);
+        self.retally_ridge(
+            window(x, self.width, self.reach + 1),
+            window(y, self.height, self.reach + 1),
+        );
+    }
+
+    fn retally_ridge(&mut self, columns: std::ops::Range<usize>, rows: std::ops::Range<usize>) {
+        for y in rows {
+            for x in columns.clone() {
+                let index = y * self.width + x;
+                let value = ridge_value(&self.distances, self.width, x, y);
+                let previous = std::mem::replace(&mut self.ridge[index], value);
+                if previous == value {
+                    continue;
+                }
+                if previous != 0 {
+                    let count = self.ridge_counts.entry(previous).or_default();
+                    *count -= 1;
+                    if *count == 0 {
+                        self.ridge_counts.remove(&previous);
+                    }
+                    self.ridge_total -= 1;
+                }
+                if value != 0 {
+                    *self.ridge_counts.entry(value).or_default() += 1;
+                    self.ridge_total += 1;
+                }
+            }
+        }
+    }
+
+    /// The median ridge width, as `ridge_width_of_isolated_component` measures it.
+    fn width(&self) -> f64 {
+        if self.black == 0 || self.ridge_total == 0 {
+            return 0.0;
+        }
+        let nth = |rank: usize| {
+            let mut seen = 0;
+            for (&value, &count) in &self.ridge_counts {
+                seen += count;
+                if seen > rank {
+                    return value;
+                }
+            }
+            0
+        };
+        let middle = self.ridge_total / 2;
+        if self.ridge_total % 2 == 0 {
+            (ridge_width_px(nth(middle - 1)) + ridge_width_px(nth(middle))) * 0.5
+        } else {
+            ridge_width_px(nth(middle))
+        }
+    }
 }
 
 fn distance_l2_5_forward(distances: &[u32], width: usize, x: usize, y: usize) -> u32 {
@@ -739,17 +897,19 @@ where
         }
     }
     let mut removed = 0usize;
+    let mut field = RidgeField::new(component);
     for (x, y) in boundary {
         if component.get(x, y) && can_remove(component, x, y) {
             component.set(x, y, false);
+            field.remove(x, y);
             removed += 1;
-            let current_width = ridge_width_of_isolated_component(component);
+            let current_width = field.width();
             if current_width <= target_width_px {
                 return (removed, current_width);
             }
         }
     }
-    (removed, ridge_width_of_isolated_component(component))
+    (removed, field.width())
 }
 
 fn topology_preserving_boundary_removal(component: &BinaryImage, x: usize, y: usize) -> bool {
@@ -4030,6 +4190,46 @@ mod tests {
             (diamond_width - 7.193_786_6).abs() < 0.000_01,
             "diamond width {diamond_width}"
         );
+    }
+
+    #[test]
+    fn ridge_field_matches_a_full_measurement_after_every_removal() {
+        let mut seed = 0x9e37_79b9_u32;
+        let mut random = move |bound: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed as usize % bound
+        };
+        for _ in 0..40 {
+            let (width, height) = (8 + random(40), 8 + random(30));
+            let mut component = BinaryImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    let (dx, dy) = (x.abs_diff(width / 2), y.abs_diff(height / 2));
+                    if dx * dx * height * height + dy * dy * width * width
+                        < width * width * height * height / 5
+                        || random(9) == 0
+                    {
+                        component.set(x, y, true);
+                    }
+                }
+            }
+            let mut field = RidgeField::new(&component);
+            for _ in 0..component.count_black() {
+                let (x, y) = (random(width), random(height));
+                if !component.get(x, y) {
+                    continue;
+                }
+                component.set(x, y, false);
+                field.remove(x, y);
+                assert_eq!(field.distances, padded_component_distances(&component).0);
+                assert_eq!(
+                    field.width().to_bits(),
+                    ridge_width_of_isolated_component(&component).to_bits()
+                );
+            }
+        }
     }
 
     #[test]
