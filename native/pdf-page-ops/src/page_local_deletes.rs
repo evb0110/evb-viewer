@@ -230,9 +230,8 @@ pub(crate) fn extend_page_local_delete_edit(
     mutations: &NativeMutationsFile,
     edit: &mut PageLocalEdit,
 ) -> Result<()> {
-    let scan = scan_qpdf_annotation_deletes(path, qpdf, &[])?
-        .ok_or("Bundled qpdf library is required for annotation discovery")?;
-    let (deleted, touched) = scan.mutation_targets(mutations)?;
+    let (scan, (deleted, touched)) =
+        annotation_ownership_scan(path, qpdf, |scan| scan.mutation_targets(mutations))?;
     scan.extend_edit(&deleted, &touched, edit)
 }
 

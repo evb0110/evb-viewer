@@ -317,6 +317,8 @@ async function prepareNativeNoteMutation(options: {
                         : []),
                     '--qpdf',
                     getPdfNativeToolPaths().qpdf,
+                    '--annotation-ownership-cache',
+                    join(getAppTempDir(), 'annotation-ownership'),
                     '--modified-at',
                     options.modifiedAt,
                     '--append',

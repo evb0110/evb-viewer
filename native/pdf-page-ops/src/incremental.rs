@@ -641,7 +641,9 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         true,
         None,
         identity_bindings_path,
-    )
+    )?;
+    record_annotation_ownership(&incremental, output_path);
+    Ok(())
 }
 
 /// Reads reused stamp streams that a structural load left unread.
