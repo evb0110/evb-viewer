@@ -12,7 +12,9 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
+import {
+    chromium, type Page,
+} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -25,6 +27,16 @@ let server: Server;
 let origin = '';
 let bundlePath = '';
 let temporaryDirectory = '';
+
+// Playwright inlines a script given by path and returns once it is appended,
+// before a module script has run; wait for the entry's globals before use.
+async function injectAcceptanceBundle(page: Page) {
+    await page.addScriptTag({
+        path: bundlePath,
+        type: 'module',
+    });
+    await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbReadMaintenanceDocument') === 'function');
+}
 
 beforeAll(async () => {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
@@ -76,14 +88,8 @@ describe('browser document maintenance acceptance in Chromium', () => {
                 pageB.goto(origin),
             ]);
             await Promise.all([
-                pageA.addScriptTag({
-                    path: bundlePath,
-                    type: 'module',
-                }),
-                pageB.addScriptTag({
-                    path: bundlePath,
-                    type: 'module',
-                }),
+                injectAcceptanceBundle(pageA),
+                injectAcceptanceBundle(pageB),
             ]);
             const setup = await pageA.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbCreateMaintenanceAcceptanceDocuments');
@@ -123,10 +129,7 @@ describe('browser document maintenance acceptance in Chromium', () => {
                 recentFiles: retainedRefs,
             });
             await pageA.reload();
-            await pageA.addScriptTag({
-                path: bundlePath,
-                type: 'module',
-            });
+            await injectAcceptanceBundle(pageA);
             const reloaded = await pageA.evaluate(async ({
                 orphan,
                 retained,
