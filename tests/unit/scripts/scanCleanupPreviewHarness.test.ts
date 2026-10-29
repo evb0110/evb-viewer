@@ -1,10 +1,23 @@
 import {
+    mkdtemp, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {omit} from 'es-toolkit';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {
+    createScanCleanupDetectionCacheKey, writeScanCleanupDetectionCacheStore,
+} from '@scripts/scanCleanupDetectionCache';
+import {
     describe,
     expect,
     it,
 } from 'vitest';
 import {
     compareMetrics,
+    loadDetection,
     independentReaderScale,
     independentReaderWrongCalibrationOffset,
     measureOverlayContainment,
@@ -165,5 +178,67 @@ describe('scan cleanup preview weight agreement', () => {
         });
         expect(comparison.weightDeviation).toBeGreaterThan(0.15);
         expect(weightAgreementViolations(comparison)).toEqual(['preview-final-weight-agreement']);
+    });
+});
+
+
+describe('preview oracle detection cache', () => {
+    it('reads selected pages from a valid 1025-page descriptor and rejects a missing cache', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'preview-cache-'));
+        const source = join(root, 'source.pdf');
+        const options = {
+            ...omit(DEFAULT_SCAN_CLEANUP_PREFERENCES, ['firstRunGuidanceDismissed']),
+            outputMode: 'auto' as const,
+            pageOverrides: {},
+        };
+        const tools = {
+            pdftoppm: process.execPath,
+            scanCleanup: process.execPath,
+        };
+        await writeFile(source, 'source identity');
+        const key = await createScanCleanupDetectionCacheKey(source, options, {
+            pdftoppmBinaryPath: tools.pdftoppm,
+            scanCleanupBinaryPath: tools.scanCleanup,
+        });
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            rootDir: root,
+            pageCount: 1025,
+        });
+        try {
+            for (let page = 1; page <= 1025; page++) {
+                await store.append({
+                    pageNumber: requirePageNumber(page),
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    documentPrior: null,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: true,
+                    clusterAgreement: 1,
+                });
+            }
+            await writeScanCleanupDetectionCacheStore(join(root, 'cache'), key, store);
+            const detection = await loadDetection({
+                source,
+                detectionCache: join(root, 'cache'),
+            }, tools);
+            try {
+                expect(detection.resultStore.pageCount).toBe(1025);
+                expect((await detection.resultStore.getPage(1025))?.pageNumber).toBe(1025);
+                expect(detection).not.toHaveProperty('results');
+            } finally {
+                await detection.resultStore.close();
+            }
+            await expect(loadDetection({
+                source,
+                detectionCache: join(root, 'missing'),
+            }, tools)).rejects.toThrow();
+        } finally {
+            await store.close();
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });
