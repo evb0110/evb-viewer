@@ -1005,31 +1005,6 @@ export function isPageMoveOperationNoOp(move: TPageMoveOperation) {
     return isPageMoveRanges(move) ? isPageMoveRangesNoOp(move) : isPageMoveNoOp(move);
 }
 
-function selectedOffsetForPage(page: number, move: IPageMoveRanges) {
-    let offset = 0;
-    for (const segment of move.ranges) {
-        if (page < segment.startPage) {
-            break;
-        }
-        if (page <= segment.endPage) {
-            return offset + page - segment.startPage;
-        }
-        offset += segment.endPage - segment.startPage + 1;
-    }
-    return null;
-}
-
-function selectedPagesBeforePage(page: number, move: IPageMoveRanges) {
-    let count = 0;
-    for (const segment of move.ranges) {
-        if (segment.startPage >= page) {
-            break;
-        }
-        count += Math.min(segment.endPage, page - 1) - segment.startPage + 1;
-    }
-    return count;
-}
-
 function selectedPageAtOffset(offset: number, move: IPageMoveRanges) {
     let remaining = offset;
     for (const segment of move.ranges) {
@@ -1056,17 +1031,32 @@ function restPageAtIndex(restIndex: number, move: IPageMoveRanges) {
     return nextPage + remaining <= move.pageCount ? nextPage + remaining : null;
 }
 
-function mapPageNumberAfterPageMoveRanges(page: number, move: IPageMoveRanges) {
-    const selectedOffset = selectedOffsetForPage(page, move);
+/**
+ * Resolves the move once so each page maps by binary search; rescanning the
+ * ranges per page made mapping a fragmented selection quadratic.
+ */
+function createPageNumberAfterPageMoveRanges(move: IPageMoveRanges) {
     const restInsertIndex = pageMoveRangesRestInsertIndex(move);
     const selectedCount = pageMoveRangesSelectedPageCount(move);
-    if (selectedOffset !== null) {
-        return restInsertIndex + selectedOffset + 1;
-    }
-    const restIndex = page - 1 - selectedPagesBeforePage(page, move);
-    return restIndex < restInsertIndex
-        ? restIndex + 1
-        : restIndex + selectedCount + 1;
+    const segmentEnds = move.ranges.map(segment => segment.endPage);
+    const selectedBeforeSegment: number[] = [];
+    move.ranges.reduce((count, segment) => {
+        selectedBeforeSegment.push(count);
+        return count + segment.endPage - segment.startPage + 1;
+    }, 0);
+    return (page: number) => {
+        normalizeSelectionPage(page, move.pageCount);
+        const index = lowerBoundPage(segmentEnds, page);
+        const segment = move.ranges[index];
+        const selectedBefore = selectedBeforeSegment[index] ?? selectedCount;
+        if (segment && segment.startPage <= page) {
+            return restInsertIndex + selectedBefore + page - segment.startPage + 1;
+        }
+        const restIndex = page - 1 - selectedBefore;
+        return restIndex < restInsertIndex
+            ? restIndex + 1
+            : restIndex + selectedCount + 1;
+    };
 }
 
 function mapPageNumberBeforePageMoveRanges(page: number, move: IPageMoveRanges) {
@@ -1082,10 +1072,16 @@ function mapPageNumberBeforePageMoveRanges(page: number, move: IPageMoveRanges) 
     return restPageAtIndex(restIndex, move);
 }
 
-export function mapPageNumberAfterPageMove(page: number, move: TPageMoveOperation) {
+/** Maps original pages after `move`; create it once to map many pages. */
+export function createPageNumberAfterPageMove(move: TPageMoveOperation): (page: number) => number {
+    return isPageMoveRanges(move)
+        ? createPageNumberAfterPageMoveRanges(move)
+        : page => mapPageNumberAfterPageMove(page, move);
+}
+
+export function mapPageNumberAfterPageMove(page: number, move: TPageMoveOperation): number {
     if (isPageMoveRanges(move)) {
-        normalizeSelectionPage(page, move.pageCount);
-        return mapPageNumberAfterPageMoveRanges(page, move);
+        return createPageNumberAfterPageMoveRanges(move)(page);
     }
     normalizeSelectionPage(page, move.pageCount);
     if (isPageMoveNoOp(move)) {
