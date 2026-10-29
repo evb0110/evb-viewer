@@ -1,6 +1,9 @@
 import {
     formatPageLabelForDisplay, pageLabelMatchesText, pageLabelValuesMatch,
 } from '@pdf-core/pdfPageLabelFormatting';
+import {
+    findPageLabelSegment, replacePageLabelRanges,
+} from '@pdf-core/pdfPageLabels';
 import { admitPdfPageLabelStartNumber } from '@contracts/pdfPageLabels';
 import type { Ref } from 'vue';
 import { isEqual } from 'es-toolkit/predicate';
@@ -298,25 +301,6 @@ function chooseBaseRanges(
         : currentRanges;
 }
 
-function applyPageLabelSegmentToRanges(
-    ranges: IPdfPageLabelRange[],
-    segment: Record<string, unknown>,
-    totalPages: number,
-    actionId: string,
-) {
-    const range = normalizePageLabelRangeInput(segment, totalPages, actionId);
-    const endPage = normalizeEndPageInput(segment, range.startPage, totalPages, actionId);
-    return applyPageLabelRange(
-        totalPages,
-        ranges,
-        {
-            startPage: range.startPage,
-            endPage,
-        },
-        range,
-    );
-}
-
 function applyExplicitLabelsToRanges(
     ranges: IPdfPageLabelRange[],
     input: Record<string, unknown>,
@@ -404,14 +388,20 @@ function createRangesFromPageLabelInput(
 
     const rawSegments = input.segments;
     if (Array.isArray(rawSegments)) {
-        let ranges = chooseBaseRanges(input, totalPages, currentRanges);
-        const segments = rawSegments.filter(isRecord);
-        for (const segment of segments) {
-            ranges = applyPageLabelSegmentToRanges(ranges, segment, totalPages, actionId);
-        }
+        const edits = rawSegments.filter(isRecord).map((segment) => {
+            const range = normalizePageLabelRangeInput(segment, totalPages, actionId);
+            return {
+                target: {
+                    startPage: range.startPage,
+                    endPage: normalizeEndPageInput(segment, range.startPage, totalPages, actionId),
+                },
+                replacement: range,
+            };
+        });
+        const ranges = chooseBaseRanges(input, totalPages, currentRanges);
         return {
             inputMode: 'segments' as const,
-            ranges,
+            ranges: edits.length > 0 ? replacePageLabelRanges(totalPages, ranges, edits) : ranges,
         };
     }
 
@@ -469,7 +459,7 @@ function lookupLabel(lookup: TDocumentPageLabelLookup, page: number) {
     if (isPageLabelArray(lookup)) {
         return formatPageLabelForDisplay(lookup[page - 1] ?? '');
     }
-    const segment = lookup?.segments.find(range => range.startPage <= page && range.endPage >= page);
+    const segment = lookup ? findPageLabelSegment(lookup.segments, page) : undefined;
     return segment ? formatPageLabelForDisplay(segment, page - segment.startPage) : '';
 }
 
@@ -481,7 +471,7 @@ function lookupMatchesModel(
     if (isPageLabelArray(lookup)) {
         return lookup.length === totalPages
             && lookup.every((label, index) => {
-                const segment = model.segments.find(range => range.startPage <= index + 1 && range.endPage >= index + 1);
+                const segment = findPageLabelSegment(model.segments, index + 1);
                 return segment !== undefined && pageLabelMatchesText(segment, index + 1 - segment.startPage, label);
             });
     }
@@ -495,7 +485,7 @@ function isPageLabelArray(
 }
 
 function createPageLabelSamples(
-    ranges: IPdfPageLabelRange[],
+    segments: readonly IAgentPageLabelSegment[],
     lookup: TDocumentPageLabelLookup,
     totalPages: number,
 ) {
@@ -511,7 +501,7 @@ function createPageLabelSamples(
         }
     });
 
-    for (const segment of createPageLabelSegments(ranges, lookup, totalPages)) {
+    for (const segment of segments) {
         [
             segment.startPage,
             segment.startPage + 1,
@@ -577,11 +567,11 @@ function createDuplicateLabelIssues(
 
 function createPageLabelIssues(
     ranges: IPdfPageLabelRange[],
+    segments: readonly IAgentPageLabelSegment[],
     lookup: TDocumentPageLabelLookup,
     totalPages: number,
 ) {
     const issues = createDuplicateLabelIssues(ranges, lookup, totalPages);
-    const segments = createPageLabelSegments(ranges, lookup, totalPages);
     for (const segment of segments) {
         if (segment.style === null && segment.pageCount > 1) {
             pushIssue(issues, {
@@ -657,7 +647,8 @@ export function createAgentPageLabelSnapshot(options: {
                 : null
         )
         ?? createPageLabelLookup(totalPages, ranges, labels);
-    const issues = createPageLabelIssues(ranges, lookup, totalPages);
+    const segments = createPageLabelSegments(ranges, lookup, totalPages);
+    const issues = createPageLabelIssues(ranges, segments, lookup, totalPages);
     return {
         totalPages,
         dirty: options.dirty,
@@ -670,8 +661,8 @@ export function createAgentPageLabelSnapshot(options: {
         },
         issues,
         ranges,
-        segments: createPageLabelSegments(ranges, lookup, totalPages),
-        samples: createPageLabelSamples(ranges, lookup, totalPages),
+        segments,
+        samples: createPageLabelSamples(segments, lookup, totalPages),
         labels,
     };
 }
@@ -750,7 +741,7 @@ function createPageLabelDiff(options: {
             const before = lookupLabel(beforeLookup, page);
             const after = lookupLabel(afterLookup, page);
             const beforeRange = beforeLookup && !isPageLabelArray(beforeLookup)
-                ? beforeLookup.segments.find(segment => segment.startPage <= page && segment.endPage >= page)
+                ? findPageLabelSegment(beforeLookup.segments, page)
                 : {
                     startPage: page,
                     style: null,
@@ -758,7 +749,7 @@ function createPageLabelDiff(options: {
                     startNumber: 1,
                 };
             const afterRange = afterLookup && !isPageLabelArray(afterLookup)
-                ? afterLookup.segments.find(segment => segment.startPage <= page && segment.endPage >= page)
+                ? findPageLabelSegment(afterLookup.segments, page)
                 : {
                     startPage: page,
                     style: null,

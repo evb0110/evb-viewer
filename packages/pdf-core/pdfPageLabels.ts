@@ -116,7 +116,7 @@ function parseAlphabetic(value: string) {
 
 function findRangeIndexForPage(
     page: number,
-    ranges: readonly IDocumentPageLabelRange[],
+    ranges: ReadonlyArray<{ startPage: number }>,
 ) {
     let low = 0;
     let high = ranges.length - 1;
@@ -290,6 +290,15 @@ export function buildPageLabelSegments(
         Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0,
         normalizedRanges,
     );
+}
+
+/** The segment holding `page` among canonical, sorted segments. */
+export function findPageLabelSegment(
+    segments: readonly IDocumentPageLabelSegment[],
+    page: number,
+): IDocumentPageLabelSegment | undefined {
+    const segment = segments[findRangeIndexForPage(page, segments)];
+    return segment && segment.startPage <= page && page <= segment.endPage ? segment : undefined;
 }
 
 function normalizeWindowBounds(
@@ -502,55 +511,118 @@ function normalizePageRangeForEdit(
     };
 }
 
+export interface IDocumentPageLabelEdit {
+    target: IDocumentPageRange;
+    replacement: Omit<IDocumentPageLabelRange, 'startPage'>;
+}
+
+/** `range`'s numbering carried on from `page`, a page it covers. */
+function continuePageLabelRange(range: IDocumentPageLabelRange, page: number): IDocumentPageLabelRange {
+    return range.startPage === page ? range : {
+        ...range,
+        startPage: page,
+        startNumber: range.style === null
+            ? range.startNumber
+            : toPositiveInt(range.startNumber + (page - range.startPage), Number.MAX_SAFE_INTEGER),
+    };
+}
+
 /**
- * Replace one inclusive page span while retaining the old numbering after the
- * span. This is range surgery, so a million-page document costs O(rangeCount)
- * and never needs a labels array.
+ * Replace inclusive page spans in order: a page takes the last edit that
+ * covers it and every other page keeps its old numbering. This is range
+ * surgery over the spans' boundaries, so a million-page document never
+ * needs a labels array and many edits cost one sort, not one pass each.
  */
+export function replacePageLabelRanges(
+    totalPages: number,
+    ranges: readonly IDocumentPageLabelRange[],
+    edits: readonly IDocumentPageLabelEdit[],
+): IDocumentPageLabelRange[] {
+    const normalizedTotalPages = Number.isSafeInteger(totalPages)
+        ? Math.max(0, totalPages)
+        : 0;
+    const currentRanges = normalizePageLabelRanges(ranges, normalizedTotalPages);
+    const spans = edits.flatMap(({
+        target, replacement,
+    }) => {
+        const span = normalizePageRangeForEdit(normalizedTotalPages, target);
+        const style = normalizeStyle(replacement.style);
+        return span ? [{
+            ...span,
+            range: {
+                startPage: span.startPage,
+                style,
+                prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
+                startNumber: admitPdfPageLabelStartNumber(style, toPositiveInt(replacement.startNumber, 1)),
+            },
+        }] : [];
+    });
+    if (spans.length === 0) {
+        return currentRanges;
+    }
+
+    // Pieces between consecutive span boundaries; the last span covering a
+    // piece owns it. Spans are painted newest first and `nextUnpainted`
+    // skips owned pieces, so each piece is painted once.
+    const pieces = [...new Set([
+        1,
+        ...spans.flatMap(span => [
+            span.startPage,
+            span.endPage + 1,
+        ]),
+    ])]
+        .filter(page => page <= normalizedTotalPages)
+        .sort((left, right) => left - right)
+        .map(startPage => ({
+            startPage,
+            owner: -1,
+        }));
+    const nextUnpainted = Array.from({ length: pieces.length + 1 }, (_, index) => index);
+    const findUnpainted = (piece: number) => {
+        let root = piece;
+        while (nextUnpainted[root] !== root) {
+            root = nextUnpainted[root] ?? pieces.length;
+        }
+        for (let node = piece; node !== root;) {
+            const next = nextUnpainted[node] ?? root;
+            nextUnpainted[node] = root;
+            node = next;
+        }
+        return root;
+    };
+    for (let owner = spans.length - 1; owner >= 0; owner -= 1) {
+        const endPage = spans[owner]?.endPage ?? 0;
+        let piece = findUnpainted(findRangeIndexForPage(spans[owner]?.startPage ?? 1, pieces));
+        for (let current = pieces[piece]; current && current.startPage <= endPage; current = pieces[piece]) {
+            current.owner = owner;
+            nextUnpainted[piece] = piece + 1;
+            piece = findUnpainted(piece + 1);
+        }
+    }
+
+    const nextRanges = currentRanges.filter(range => pieces[findRangeIndexForPage(range.startPage, pieces)]?.owner === -1);
+    for (const {
+        startPage, owner,
+    } of pieces) {
+        const range = spans[owner]?.range ?? getRangeForPage(startPage, currentRanges);
+        if (owner !== -1 || range.startPage !== startPage) {
+            nextRanges.push(continuePageLabelRange(range, startPage));
+        }
+    }
+    return normalizePageLabelRanges(nextRanges, normalizedTotalPages);
+}
+
+/** Replace one inclusive page span while retaining the old numbering after it. */
 export function replacePageLabelRange(
     totalPages: number,
     ranges: readonly IDocumentPageLabelRange[],
     target: IDocumentPageRange,
     replacement: Omit<IDocumentPageLabelRange, 'startPage'>,
 ): IDocumentPageLabelRange[] {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
-    const normalizedTarget = normalizePageRangeForEdit(normalizedTotalPages, target);
-    if (!normalizedTarget) {
-        return [];
-    }
-
-    const currentRanges = normalizePageLabelRanges(ranges, normalizedTotalPages);
-    const nextRanges: IDocumentPageLabelRange[] = currentRanges.filter(
-        range => range.startPage < normalizedTarget.startPage,
-    );
-    nextRanges.push({
-        startPage: normalizedTarget.startPage,
-        style: normalizeStyle(replacement.style),
-        prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
-        startNumber: admitPdfPageLabelStartNumber(normalizeStyle(replacement.style), toPositiveInt(replacement.startNumber, 1)),
-    });
-
-    if (normalizedTarget.endPage < normalizedTotalPages) {
-        const pageAfterTarget = normalizedTarget.endPage + 1;
-        const previousRange = getRangeForPage(pageAfterTarget, currentRanges);
-        if (previousRange.startPage < pageAfterTarget) {
-            nextRanges.push({
-                ...previousRange,
-                startPage: pageAfterTarget,
-                startNumber: previousRange.style === null
-                    ? previousRange.startNumber
-                    : toPositiveInt(
-                        previousRange.startNumber + (pageAfterTarget - previousRange.startPage),
-                        Number.MAX_SAFE_INTEGER,
-                    ),
-            });
-        }
-        nextRanges.push(...currentRanges.filter(range => range.startPage > normalizedTarget.endPage));
-    }
-
-    return normalizePageLabelRanges(nextRanges, normalizedTotalPages);
+    return replacePageLabelRanges(totalPages, ranges, [{
+        target,
+        replacement,
+    }]);
 }
 
 /** Alias kept descriptive at call sites that apply a configured span. */
@@ -590,7 +662,10 @@ export function applySparsePageLabelUpdates(
     ranges: readonly IDocumentPageLabelRange[],
     updates: Iterable<IDocumentPageLabelUpdate>,
 ): IDocumentPageLabelRange[] {
-    let nextRanges = normalizePageLabelRanges(ranges, totalPages);
+    const currentRanges = normalizePageLabelRanges(ranges, totalPages);
+    // A page keeps its numbering until an update changes its text, and from
+    // then on is a one-page literal holding its last update.
+    const literals = new Map<number, string>();
     for (const update of updates) {
         if (!Number.isFinite(update.page)) {
             continue;
@@ -599,14 +674,26 @@ export function applySparsePageLabelUpdates(
         if (page < 1 || page > totalPages) {
             continue;
         }
-        const currentRange = getRangeForPage(page, nextRanges);
+        const currentRange = getRangeForPage(page, currentRanges);
         const nextLabel = typeof update.label === 'string' ? update.label : '';
-        if (pageLabelMatchesText(currentRange, page - currentRange.startPage, nextLabel)) {
-            continue;
+        if (literals.has(page) || !pageLabelMatchesText(currentRange, page - currentRange.startPage, nextLabel)) {
+            literals.set(page, nextLabel);
         }
-        nextRanges = setPageLabelAt(totalPages, nextRanges, page, nextLabel);
     }
-    return nextRanges;
+    return replacePageLabelRanges(totalPages, currentRanges, Array.from(literals, ([
+        page,
+        label,
+    ]) => ({
+        target: {
+            startPage: page,
+            endPage: page,
+        },
+        replacement: {
+            style: null,
+            prefix: label,
+            startNumber: 1,
+        },
+    })));
 }
 
 /**

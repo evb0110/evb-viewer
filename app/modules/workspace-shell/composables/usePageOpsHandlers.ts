@@ -11,10 +11,10 @@ import {
     createAllPageSelection,
     createExplicitPageSelection,
     createMappedPageSelection,
+    createPageNumberAfterPageMove,
     invertPageSelection,
     iteratePageSelectionRanges,
     materializePageSelection,
-    mapPageNumberAfterPageMove,
     pageMoveRangesSelectedPageCount,
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
@@ -483,7 +483,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         const didMove = await runStructuralPageMutation(
             () => pageOpsMove(move),
             selection => selection
-                .map(page => mapPageNumberAfterPageMove(page, move))
+                .map(createPageNumberAfterPageMove(move))
                 .sort((left, right) => left - right),
             {
                 kind: 'move',

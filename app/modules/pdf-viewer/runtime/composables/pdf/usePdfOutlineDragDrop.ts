@@ -15,47 +15,27 @@ type TBookmarkDropDestination =
         payload: IBookmarkDropPayload;
     };
 
+/** Removes the dragged roots, collecting them in tree order into `draggedItems`. */
 function removeDraggedBookmarkItems(
     items: readonly IBookmarkItem[],
     draggedIds: ReadonlySet<string>,
-): {
-    items: IBookmarkItem[];
-    draggedItems: IBookmarkItem[];
-} {
-    return items.reduce<{
-        items: IBookmarkItem[];
-        draggedItems: IBookmarkItem[];
-    }>((result, item) => {
+    draggedItems: IBookmarkItem[],
+): IBookmarkItem[] {
+    const remaining: IBookmarkItem[] = [];
+    for (const item of items) {
         if (draggedIds.has(item.id)) {
-            return {
-                ...result,
-                draggedItems: [
-                    ...result.draggedItems,
-                    item,
-                ],
-            };
+            draggedItems.push(item);
+            continue;
         }
-
-        const childResult = removeDraggedBookmarkItems(item.items, draggedIds);
-        return {
-            items: [
-                ...result.items,
-                {
-                    ...item,
-                    items: childResult.items,
-                },
-            ],
-            draggedItems: [
-                ...result.draggedItems,
-                ...childResult.draggedItems,
-            ],
-        };
-    }, {
-        items: [],
-        draggedItems: [],
-    });
+        remaining.push({
+            ...item,
+            items: removeDraggedBookmarkItems(item.items, draggedIds, draggedItems),
+        });
+    }
+    return remaining;
 }
 
+/** `inserted` is whether the destination was found; `draggedItems` is never empty. */
 function insertBookmarkItems(
     items: readonly IBookmarkItem[],
     draggedItems: readonly IBookmarkItem[],
@@ -66,19 +46,20 @@ function insertBookmarkItems(
     inserted: boolean;
 } {
     if (destination.kind === 'root-end') {
-        const nextItems = [
-            ...items,
-            ...draggedItems,
-        ];
         return {
-            items: nextItems,
+            items: [
+                ...items,
+                ...draggedItems,
+            ],
             expandedBookmarkId: null,
-            inserted: JSON.stringify(nextItems) !== JSON.stringify(items),
+            inserted: true,
         };
     }
 
+    let inserted = false;
     const nextItems = items.flatMap((item) => {
         if (item.id === destination.payload.targetId) {
+            inserted = true;
             if (destination.payload.position === 'before') {
                 return [
                     ...draggedItems,
@@ -101,6 +82,7 @@ function insertBookmarkItems(
         }
 
         const childResult = insertBookmarkItems(item.items, draggedItems, destination);
+        inserted ||= childResult.inserted;
         return [{
             ...item,
             items: childResult.items,
@@ -109,7 +91,6 @@ function insertBookmarkItems(
     const targetExpanded = destination.payload.position === 'child'
         ? destination.payload.targetId
         : null;
-    const inserted = JSON.stringify(nextItems) !== JSON.stringify(items);
 
     return {
         items: nextItems,
@@ -118,14 +99,26 @@ function insertBookmarkItems(
     };
 }
 
+/**
+ * A move only reorders nodes, so it is a no-op exactly when every position
+ * holds the same id with the same children. Serializing both trees to learn
+ * that cost more than the move itself on a broad outline.
+ */
+function haveSameBookmarkOrder(left: readonly IBookmarkItem[], right: readonly IBookmarkItem[]): boolean {
+    return left.length === right.length && left.every((item, index) => {
+        const other = right[index];
+        return other !== undefined && other.id === item.id && haveSameBookmarkOrder(item.items, other.items);
+    });
+}
+
 function moveBookmarkNodes(
     items: readonly IBookmarkItem[],
     draggedRootIds: readonly string[],
     destination: TBookmarkDropDestination,
 ) {
-    const draggedIdSet = new Set(draggedRootIds);
-    const extraction = removeDraggedBookmarkItems(items, draggedIdSet);
-    const draggedById = new Map(extraction.draggedItems.map(item => [
+    const extractedItems: IBookmarkItem[] = [];
+    const remainingItems = removeDraggedBookmarkItems(items, new Set(draggedRootIds), extractedItems);
+    const draggedById = new Map(extractedItems.map(item => [
         item.id,
         item,
     ]));
@@ -142,8 +135,8 @@ function moveBookmarkNodes(
         };
     }
 
-    const insertion = insertBookmarkItems(extraction.items, draggedItems, destination);
-    const moved = insertion.inserted && JSON.stringify(insertion.items) !== JSON.stringify(items);
+    const insertion = insertBookmarkItems(remainingItems, draggedItems, destination);
+    const moved = insertion.inserted && !haveSameBookmarkOrder(insertion.items, items);
     return {
         bookmarks: insertion.items,
         expandedBookmarkId: insertion.expandedBookmarkId,
