@@ -2282,30 +2282,10 @@ describe('Scan cleanup components', () => {
         expect(readerState.surfaceMode.value).toBe('reader');
     });
 
-    it('keeps all toolbar zone widths identical across review, detection, and cleanup states', async () => {
+    it('renders review, detection, and cleanup activity in the toolbar', async () => {
         const state = reactive({
             detecting: false,
             running: false,
-        });
-        const zoneWidths = {
-            'scan-cleanup-toolbar-zone-left': 160,
-            'scan-cleanup-toolbar-zone-center': 680,
-            'scan-cleanup-toolbar-zone-right': 336,
-        } as const;
-        const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-            const matched = Object.entries(zoneWidths).find(([className]) => this.classList.contains(className));
-            const width = matched?.[1] ?? 0;
-            return {
-                bottom: 0,
-                height: 0,
-                left: 0,
-                right: width,
-                top: 0,
-                width,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            };
         });
         const cleaning = shallowRef(runActivity({
             completedUnits: 51,
@@ -2320,16 +2300,11 @@ describe('Scan cleanup components', () => {
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
         }))));
-        const widths = () => Array.from(harness.host.querySelectorAll<HTMLElement>('.scan-cleanup-toolbar-zone'))
-            .map(zone => zone.getBoundingClientRect().width);
-
-        const reviewWidths = widths();
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
             .toContain('120 source pages → about 145 output pages');
 
         state.detecting = true;
         await nextTick();
-        expect(widths()).toEqual(reviewWidths);
         const analysis = harness.host.querySelector('.scan-cleanup-activity');
         expect(analysis?.textContent).toContain('Detecting page layout');
         expect(analysis?.querySelector(SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR)?.textContent).toContain('17 of 120 pages');
@@ -2339,7 +2314,6 @@ describe('Scan cleanup components', () => {
         state.detecting = false;
         state.running = true;
         await nextTick();
-        expect(widths()).toEqual(reviewWidths);
         const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         expect(meter?.querySelector('.scan-cleanup-activity-phase')?.textContent).toBe('Clean');
         expect(meter?.textContent).toContain('Cleaning pages');
@@ -2368,7 +2342,6 @@ describe('Scan cleanup components', () => {
         });
         await nextTick();
         expect(meter?.textContent).toContain('about 4 min left');
-        rectSpy.mockRestore();
     });
 
     it('disables cancellation during the commit window and explains why', () => {

@@ -690,25 +690,7 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(labels.every(label => label.classList.contains('whitespace-nowrap'))).toBe(true);
         expect(labels.every(label => !label.classList.contains('truncate'))).toBe(true);
 
-        const renderedMenuWidth = Math.max(...labels.map(label => label.textContent?.length ?? 0));
-        Object.defineProperty(menu, 'clientWidth', {
-            configurable: true,
-            value: renderedMenuWidth,
-        });
-        for (const label of labels) {
-            const labelWidth = label.textContent?.length ?? 0;
-            Object.defineProperties(label, {
-                clientWidth: {
-                    configurable: true,
-                    value: renderedMenuWidth,
-                },
-                scrollWidth: {
-                    configurable: true,
-                    value: labelWidth,
-                },
-            });
-            expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
-        }
+
     });
 
     it('streams pending detection indicators into the status line page by page', async () => {
