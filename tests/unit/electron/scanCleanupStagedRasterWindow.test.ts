@@ -301,14 +301,11 @@ describe('createStagedRasterWindow', () => {
         expect(harness.unstaged).toEqual([]);
     });
 
-    it('keeps a refused eviction off the lease that needed the slot and drops it at disposal', async () => {
-        const refusals = new Map([[
-            1,
-            1,
-        ]]);
+    it('fails the lease that needed a slot whose raster could not be dropped, and drops it at disposal', async () => {
+        // The filesystem refuses every drop until disposal begins.
+        let disposing = false;
         const log = vi.fn();
         const resident = new Set<number>();
-        const unstaged: number[] = [];
         const controller = createStagedRasterWindow({
             pages: [
                 1,
@@ -319,12 +316,7 @@ describe('createStagedRasterWindow', () => {
                 resident.add(pageNumber);
             },
             async unstage(pageNumber) {
-                unstaged.push(pageNumber);
-                const remaining = refusals.get(pageNumber) ?? 0;
-                if (remaining > 0) {
-                    refusals.set(pageNumber, remaining - 1);
-                    throw new Error(`unstage refused for page ${pageNumber}`);
-                }
+                if (!disposing) throw new Error(`unstage refused for page ${pageNumber}`);
                 resident.delete(pageNumber);
             },
             async isStaged(pageNumber) {
@@ -335,31 +327,22 @@ describe('createStagedRasterWindow', () => {
         await controller.acquire(1);
         controller.release(1);
         // A window of one: page 2 can only be admitted by dropping page 1, and
-        // the filesystem refuses that drop. Reclaiming a slot is housekeeping,
-        // so the lease the consumer is waiting for still succeeds.
-        await expect(controller.acquire(2)).resolves.toBeUndefined();
-        expect(resident.has(2)).toBe(true);
-        expect(log.mock.calls.some(([
-            level,
-            message,
-        ]) => level === 'warn'
-            && message.includes('page 1')
-            && message.includes('unstage refused for page 1'))).toBe(true);
-        // The slot is accounted as free even though the file outlived the
-        // eviction, so the window keeps shrinking rather than stalling on a
-        // raster it has already given up on.
-        expect(controller.residentPages()).toEqual([2]);
-        controller.release(2);
+        // the filesystem refuses that drop. The window was admitted for one
+        // raster's bytes, so staging page 2 beside it would exceed the disk
+        // bound; the lease fails with the filesystem cause instead.
+        await expect(controller.acquire(2)).rejects.toThrow('unstage refused for page 1');
+        expect([...resident]).toEqual([1]);
+        expect(controller.residentPages()).toEqual([1]);
 
         // The refused page stayed admitted, so disposal drops it again, and
         // this time the drop is accepted.
+        disposing = true;
         await controller.dispose();
-        expect(unstaged.filter(pageNumber => pageNumber === 1)).toHaveLength(2);
         expect(resident.size).toBe(0);
         expect(controller.residentPages()).toEqual([]);
     });
 
-    it('finishes the run and raises no unhandled rejection when every eviction is refused', async () => {
+    it('never holds more rasters than its window and raises no unhandled rejection when every eviction is refused', async () => {
         const unhandled: unknown[] = [];
         const onUnhandled = (reason: unknown) => {
             unhandled.push(reason);
@@ -367,6 +350,7 @@ describe('createStagedRasterWindow', () => {
         process.on('unhandledRejection', onUnhandled);
         const log = vi.fn();
         const resident = new Set<number>();
+        let peakResident = 0;
         const controller = createStagedRasterWindow({
             pages: [
                 1,
@@ -376,6 +360,7 @@ describe('createStagedRasterWindow', () => {
             window: 1,
             async stage(pageNumber) {
                 resident.add(pageNumber);
+                peakResident = Math.max(peakResident, resident.size);
             },
             async unstage(pageNumber) {
                 throw new Error(`unstage refused for page ${pageNumber}`);
@@ -386,14 +371,9 @@ describe('createStagedRasterWindow', () => {
             log,
         });
         try {
-            for (const pageNumber of [
-                1,
-                2,
-                3,
-            ]) {
-                await expect(controller.acquire(pageNumber)).resolves.toBeUndefined();
-                controller.release(pageNumber);
-            }
+            await expect(controller.acquire(1)).resolves.toBeUndefined();
+            controller.release(1);
+            await expect(controller.acquire(2)).rejects.toThrow('unstage refused for page 1');
             await expect(controller.dispose()).resolves.toBeUndefined();
             // Node reports an unhandled rejection on a later turn than the one
             // that created it, so give it one before reading the record.
@@ -402,13 +382,7 @@ describe('createStagedRasterWindow', () => {
             process.off('unhandledRejection', onUnhandled);
         }
         expect(unhandled).toEqual([]);
-        // Every refusal was reported: two evictions and the pages disposal
-        // could not drop either.
-        expect(log.mock.calls.filter(([
-            level,
-            message,
-        ]) => level === 'warn' && message.includes('unstage refused for page')).length)
-            .toBeGreaterThanOrEqual(3);
+        expect(peakResident).toBe(1);
     });
 
     it('stops read-ahead at a page it could not stage so that page can still be leased', async () => {
