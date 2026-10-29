@@ -569,6 +569,28 @@ export function decodeScanCleanupPageOverrides(value: unknown, budget = createSc
     return parsed;
 }
 
+/**
+ * Page-level override edits: a page's whole override, or null where the page
+ * returned to its inherited settings. The store merges them into its map, so
+ * two views of one document only ever write the pages they edited.
+ */
+export function decodeScanCleanupPageOverrideEdits(value: unknown, budget = createScanCleanupInputBudget()) {
+    const parsed = v.parse(v.pipe(
+        v.unknown(),
+        pageOverrideInputCaps,
+        v.record(pageKey, v.nullable(v.unknown())),
+        v.maxEntries(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES),
+    ), value, {abortEarly: true});
+    const overrides = decodeScanCleanupPageOverrides(Object.fromEntries(
+        Object.entries(parsed).filter(([
+            , override,
+        ]) => override !== null),
+    ), budget);
+    const edits: Record<string, (typeof overrides)[string] | null> = {};
+    for (const page of Object.keys(parsed)) edits[page] = overrides[page] ?? null;
+    return edits;
+}
+
 export type TScanCleanupOwnerContext = v.InferOutput<typeof ownerContextSchema>;
 export type TScanCleanupStartRequest = v.InferOutput<typeof startRequestShapeSchema>;
 export type TScanCleanupPreviewRequest = v.InferOutput<typeof previewRequestSchema>;

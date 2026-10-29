@@ -12,6 +12,7 @@ import {
     DEFAULT_SCAN_CLEANUP_PREFERENCES,
     decodeScanCleanupGlobalPreferences,
     decodeScanCleanupMarginsMm,
+    applyScanCleanupDocumentPreferencePatch,
     decodeScanCleanupSettingsFileWithDiagnostics,
     isScanCleanupSourceSha256,
     scanCleanupPreferenceRecord,
@@ -552,23 +553,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                     ...(previous ?? {}),
                     lastUsedAtMs: now(),
                 };
-                const resetToEmptyOverrides = patch.resetOverrides === true
-                    && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
-                if (resetToEmptyOverrides) {
-                    Reflect.deleteProperty(nextEntry, 'overrides');
-                    Reflect.deleteProperty(nextEntry, 'pageOverrideDefaults');
-                } else if (patch.overrides !== undefined) {
-                    nextEntry.overrides = patch.overrides;
-                }
-                if (patch.pageOverrideDefaults !== undefined && !resetToEmptyOverrides) {
-                    nextEntry.pageOverrideDefaults = patch.pageOverrideDefaults;
-                }
-                if (patch.marginsMm !== undefined) {
-                    nextEntry.marginsMm = patch.marginsMm;
-                }
-                if (patch.outputMode !== undefined) {
-                    nextEntry.outputMode = patch.outputMode;
-                }
+                applyScanCleanupDocumentPreferencePatch(nextEntry, patch);
                 const hasDocumentValues = nextEntry.overrides !== undefined
                     || nextEntry.pageOverrideDefaults !== undefined
                     || nextEntry.marginsMm !== undefined

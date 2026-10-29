@@ -49,6 +49,8 @@ interface IUseScanCleanupDocumentSettingsOptions {
     sourceSha256?: ComputedRef<string | null>;
     legacyDocumentKey?: ComputedRef<string | null>;
     preferenceDocumentKey?: ComputedRef<string | null>;
+    /** Whether this view is the one on screen; it re-reads the store on showing. */
+    active?: () => boolean;
 }
 
 interface IPreviousDocumentContext {
@@ -376,7 +378,13 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
         documentSettingsReady.value = true;
         const patch: IScanCleanupDocumentPreferencePatch = {};
-        if (documentIntents.has('overrides')) patch.overrides = values.pageOverrides;
+        if (documentIntents.has('overrides') && overridesReset) patch.overrides = values.pageOverrides;
+        else if (documentIntents.has('overrides')) {
+            patch.overrideEdits = Object.fromEntries([...overrideIntents.keys()].map(page => [
+                page,
+                values.pageOverrides[page] ?? null,
+            ]));
+        }
         if (documentIntents.has('pageOverrideDefaults')) patch.pageOverrideDefaults = values.pageOverrideDefaults;
         if (documentIntents.has('marginsMm')) patch.marginsMm = values.marginsMm;
         if (documentIntents.has('outputMode')) patch.outputMode = values.outputMode;
@@ -520,6 +528,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             loadDocumentSettingsForCurrentSource(true);
         }
     });
+    // Another view of this document may have saved since this one loaded. A
+    // view coming on screen reads the stored map again, and its own unsaved
+    // edits are applied over it as on every load.
+    if (options.active) {
+        watch(options.active, active => {
+            if (active && documentSettingsReady.value && !loadingDocument.value) {
+                loadDocumentSettingsForCurrentSource(true);
+            }
+        });
+    }
     watch(() => cloneScanCleanupPreferenceValue(values.pageOverrides), (overrides, previous) => {
         if (applyingDocumentSettings) {
             return;
@@ -535,10 +553,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             } else {
                 const intent = overrideIntents.get(page) ?? {};
                 recordEditedFields(intent, current, previous[page] ?? createScanCleanupPageOverride());
-                if (Object.keys(intent).length > 0) overrideIntents.set(page, intent);
+                // A page given its own entry is an edit even at default values.
+                if (Object.keys(intent).length > 0 || previous[page] === undefined) overrideIntents.set(page, intent);
             }
         }
-        scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {overrides});
+        // Only the pages this view edited: the store merges them into the map
+        // it holds, so another view of this document keeps its own edits.
+        scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {overrideEdits: Object.fromEntries([...overrideIntents.keys()].map(page => [
+            page,
+            overrides[page] ?? null,
+        ]))});
     });
     watch(() => cloneScanCleanupPreferenceValue(values.pageOverrideDefaults), (pageOverrideDefaults, previous) => {
         attachScanCleanupPageOverrideDefaults(

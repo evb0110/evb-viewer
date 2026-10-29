@@ -18,6 +18,7 @@ import {
     assertFiniteScanCleanupPreferences,
     cloneScanCleanupPreferenceValue,
     decodeScanCleanupGlobalPreferences,
+    applyScanCleanupDocumentPreferencePatch,
     decodeScanCleanupMarginsMm,
     parseScanCleanupPreferenceJson,
     scanCleanupPreferenceRecord,
@@ -29,6 +30,7 @@ import {
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     decodeScanCleanupPageOverride,
+    decodeScanCleanupPageOverrideEdits,
     decodeScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 
@@ -275,28 +277,18 @@ export function saveScanCleanupDocumentPreferences(
     const entries = loadDocumentEntries(storage);
     const existingEntry = scanCleanupPreferenceRecord(entries[documentKey]);
     const nextEntry = {...(existingEntry ?? {})};
-    let writesUpdatedAt = false;
-    const resetToEmptyOverrides = patch.resetOverrides === true
-        && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
-    if (resetToEmptyOverrides) {
-        Reflect.deleteProperty(nextEntry, 'overrides');
-        Reflect.deleteProperty(nextEntry, 'pageOverrideDefaults');
-    } else if (patch.overrides !== undefined) {
-        nextEntry.overrides = decodeScanCleanupPageOverrides(patch.overrides);
-        writesUpdatedAt = true;
-    }
-    if (patch.pageOverrideDefaults !== undefined && !resetToEmptyOverrides) {
-        nextEntry.pageOverrideDefaults = decodeScanCleanupPageOverride(patch.pageOverrideDefaults);
-        writesUpdatedAt = true;
-    }
-    if (patch.marginsMm !== undefined) {
-        nextEntry.marginsMm = decodeScanCleanupMarginsMm(patch.marginsMm);
-        writesUpdatedAt = true;
-    }
-    if (patch.outputMode !== undefined) {
-        nextEntry.outputMode = patch.outputMode;
-        writesUpdatedAt = true;
-    }
+    // Validated here because this store reads renderer storage, not IPC.
+    const writesUpdatedAt = applyScanCleanupDocumentPreferencePatch(nextEntry, {
+        ...patch,
+        ...(patch.overrides === undefined ? {} : {overrides: decodeScanCleanupPageOverrides(patch.overrides)}),
+        ...(patch.overrideEdits === undefined
+            ? {}
+            : {overrideEdits: decodeScanCleanupPageOverrideEdits(patch.overrideEdits)}),
+        ...(patch.pageOverrideDefaults === undefined
+            ? {}
+            : {pageOverrideDefaults: decodeScanCleanupPageOverride(patch.pageOverrideDefaults)}),
+        ...(patch.marginsMm === undefined ? {} : {marginsMm: decodeScanCleanupMarginsMm(patch.marginsMm)}),
+    });
     if (writesUpdatedAt) {
         nextEntry.updatedAt = Date.now();
     }
