@@ -500,6 +500,43 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it.each([
+        'first',
+        'last',
+    ] as const)('publishes a globally nonempty run when the %s child has no output', async emptyChild => {
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await conversionRegressionFixture(1_025, undefined, pipeline.runScanCleanupConversion);
+        const excludedPages = emptyChild === 'first' ? [
+            1,
+            2,
+        ] : [1_025];
+        const summary = await fixture.run({
+            sourcePageNumbers: [
+                1,
+                2,
+                1_025,
+            ],
+            options: {
+                ...options,
+                pageOverrides: Object.fromEntries(excludedPages.map(page => [
+                    String(page),
+                    {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: true,
+                        manualSplit: null,
+                    },
+                ])),
+            },
+        });
+        expect(summary).toMatchObject({
+            inputPages: 3,
+            outputPages: 3 - excludedPages.length,
+            excludedPages: excludedPages.length,
+        });
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+    });
+
     it('releases source and cleaned raster files after each completed streaming batch', async () => {
         const filesAfterBatch: string[][] = [];
         const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
