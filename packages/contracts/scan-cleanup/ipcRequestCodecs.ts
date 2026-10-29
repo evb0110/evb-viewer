@@ -484,6 +484,8 @@ const previewRequestSchema = v.pipe(v.object({
     layoutByPage: v.exactOptional(layoutByPageSchema),
     layoutDetectionComplete: v.exactOptional(v.message(v.boolean(), 'invalid scan-cleanup preview request')),
     pagePlanEvidence: v.exactOptional(pagePlanEvidenceSchema),
+    /** The page view detection accepted with that plan, when it was not the CropBox. */
+    sourcePageMetadata: v.exactOptional(sourcePageMetadataSchema),
     placementAnchors: v.exactOptional(placementAnchorsSchema),
     detail: v.exactOptional(v.pipe(v.object({
         viewports: v.strictObject({
@@ -495,8 +497,9 @@ const previewRequestSchema = v.pipe(v.object({
     }), v.check(detail => Object.values(detail.viewports).some(viewport => viewport !== undefined),
         'invalid scan-cleanup detail preview request'))),
     visible: v.exactOptional(v.message(v.boolean(), 'invalid scan-cleanup preview request')),
-}), v.check(request => request.pagePlanEvidence === undefined
-    || request.pagePlanEvidence.pageNumber === request.pageNumber,
+}), v.check(request => (request.pagePlanEvidence === undefined
+    || request.pagePlanEvidence.pageNumber === request.pageNumber)
+    && (request.sourcePageMetadata === undefined || request.sourcePageMetadata.pageNumber === request.pageNumber),
 'invalid scan-cleanup page-plan evidence'));
 export const SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA = previewRequestSchema;
 const detectionRequestSchema = v.object({

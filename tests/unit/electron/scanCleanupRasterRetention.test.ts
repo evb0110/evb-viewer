@@ -480,6 +480,55 @@ export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): P
 
 }
 
+export async function scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails(): Promise<void> {
+
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
+    // 2,550 px across 612 pt is a measured 300 dpi page image.
+    const page = {
+        ...DOCUMENT_PAGE_SIZES[0]!,
+        pageNumber: 1,
+        widthPoints: 612,
+        heightPoints: 792,
+        dominantImageWidthPx: 2_550,
+        dominantImageHeightPx: 3_300,
+        dominantImageWidthPoints: 612,
+        dominantImageHeightPoints: 792,
+    };
+    const store: IPdfPageSizeStore = {
+        pageCount: 1,
+        getPage: vi.fn(async () => page),
+        readRange: vi.fn(async () => [page]),
+        forEachChunk: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+        fork: vi.fn(() => store),
+    };
+    deps.getPageCount = vi.fn(async () => 1);
+    deps.getPageSizeStore = vi.fn(() => store);
+    deps.isRasterDetectionAvailable = () => true;
+    deps.detectRasterPages = vi.fn(async () => {
+        throw new Error('pdfimages failed');
+    });
+    const retention = scanCleanupRasterRetention(deps);
+    const document = await retention.openDocument({
+        sourcePdfPath: join(dir, 'source.pdf'),
+        documentRevision: 'revision-1',
+    });
+    const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+
+    const raster = await Promise.resolve(rasterSource.getPageRaster(1));
+    expect(raster).toMatchObject({
+        dpi: 300,
+        width: 2_550,
+        height: 3_300,
+    });
+    expect(raster?.hasBilevelLayer).not.toBe(true);
+    await retention.dispose();
+
+}
+
 export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLegacyArrays(): Promise<void> {
 
     const {
@@ -1594,6 +1643,10 @@ describe('scanCleanupRasterRetentionTest', () => {
         [
             'reject raster fact reads when the native probe fails',
             scenarioRejectsRasterFactReadsWhenTheNativeProbeFails,
+        ],
+        [
+            'keep measured raster facts when the structure probe fails',
+            scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails,
         ],
         [
             'serve forked page-size reads',

@@ -126,6 +126,9 @@ export async function scanCleanupPreviewRenderer(
     let detailAnalysisKey: string | null = null;
     let unprovenTermination = false;
     const claimedRasterPages = new Map<string, [number, number]>();
+    // Every raster this preview renders shares its page view, so the view is
+    // kept once beside the claims it qualifies.
+    let claimedRasterView: 'mediabox' | undefined;
     const rememberRasterClaim = (pageNumber: number, dpi: number) => {
         if (claimId !== undefined) {
             claimedRasterPages.set(`${String(pageNumber)}\u0000${String(dpi)}`, [
@@ -150,7 +153,21 @@ export async function scanCleanupPreviewRenderer(
                 request,
                 signal,
             );
-            pageSize = boundedGeometry.pageSize;
+            // A page whose plan detection measured on its wider MediaBox view is
+            // previewed through that view, as cleanup renders it; replaying the
+            // normalized plan onto the narrower CropBox raster would cut the
+            // wrong content.
+            pageSize = request.sourcePageMetadata?.renderBox === 'mediabox' && boundedGeometry.pageSize !== undefined
+                ? {
+                    ...boundedGeometry.pageSize,
+                    xPoints: request.sourcePageMetadata.xPoints,
+                    yPoints: request.sourcePageMetadata.yPoints,
+                    widthPoints: request.sourcePageMetadata.widthPoints,
+                    heightPoints: request.sourcePageMetadata.heightPoints,
+                    renderBox: 'mediabox',
+                }
+                : boundedGeometry.pageSize;
+            claimedRasterView = pageSize?.renderBox === 'mediabox' ? 'mediabox' : undefined;
             const pageDpiByNumber = new Map<number, number>();
             if (boundedGeometry.pageSourceDpi !== undefined) {
                 pageDpiByNumber.set(request.pageNumber, boundedGeometry.pageSourceDpi);
@@ -839,6 +856,7 @@ export async function scanCleanupPreviewRenderer(
                 pageNumber,
                 dpi,
                 claimId,
+                claimedRasterView,
             )));
             await retention.release(document, claimId);
             if (managedScratchPath === undefined) {

@@ -59,8 +59,14 @@ export function createScanCleanupPathOperationQueue() {
     return enqueue;
 }
 
-export function stableScanCleanupRasterPath(dir: string, pageNumber: number, dpi: number) {
-    return join(dir, `page-${pageNumber}-${dpi}.png`);
+/**
+ * A page rendered through its MediaBox is a different raster from its CropBox
+ * render at the same DPI, so the view is part of the raster's identity.
+ */
+export type TScanCleanupRasterView = 'mediabox' | undefined;
+
+export function stableScanCleanupRasterPath(dir: string, pageNumber: number, dpi: number, view?: TScanCleanupRasterView) {
+    return join(dir, `page-${pageNumber}-${dpi}${view === undefined ? '' : `-${view}`}.png`);
 }
 
 export function createScanCleanupReadLifecycle() {
@@ -144,6 +150,7 @@ export function createScanCleanupRasterKey(
     document: IRetainedDocument,
     pageNumber: number,
     dpi: number,
+    view?: TScanCleanupRasterView,
 ) {
     return JSON.stringify([
         document.sourcePdfPath,
@@ -151,6 +158,7 @@ export function createScanCleanupRasterKey(
         document.sourceStatIdentity,
         pageNumber,
         dpi,
+        ...(view === undefined ? [] : [view]),
     ]);
 }
 

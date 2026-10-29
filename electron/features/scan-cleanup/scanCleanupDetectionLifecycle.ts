@@ -798,11 +798,15 @@ export function scanCleanupDetectionOwner(
             }) : null;
             try {
                 const result = await (store ?? lease?.resultStore)?.getPage(request.pageNumber);
+                // The plan travels with the page view it was measured on.
                 return result?.pagePlanEvidence === undefined
                     ? request
                     : {
                         ...request,
                         pagePlanEvidence: result.pagePlanEvidence,
+                        ...(result.sourcePageMetadata?.renderBox === 'mediabox'
+                            ? {sourcePageMetadata: result.sourcePageMetadata}
+                            : {}),
                     };
             } finally {
                 await lease?.release();
