@@ -90,11 +90,42 @@ export function toNativeTextBox(
     };
 }
 
-/** Native parse identity is bound to its captured revision, never a clean-state guess. */
+interface IParsedAnnotationIndex {
+    entities: readonly TPdfAnnotationParseEntity[];
+    length: number;
+    byName: Map<string, TPdfAnnotationParseEntity>;
+    byRef: Map<string, TPdfAnnotationParseEntity>;
+}
+
+const parsedAnnotationIndexes = new WeakMap<IPdfAnnotationParseResult, IParsedAnnotationIndex>();
+
+/**
+ * Native parse identity is bound to its captured revision, never a
+ * clean-state guess. Page templates ask this for every annotation they
+ * paint, so a parse is indexed once, first entry per name and per
+ * reference, instead of being searched whole for each annotation.
+ */
 export function parsedAnnotationForEntity(entity: AnnotationEntity, parsed: IPdfAnnotationParseResult | null) {
-    return parsed?.entities.find(entry => entry.name === entity.identity.id)
-        ?? parsed?.entities.find(entry => normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`)
-            === normalizePdfJsAnnotationId(entity.identity.pdfRef));
+    if (!parsed) {
+        return undefined;
+    }
+    let index = parsedAnnotationIndexes.get(parsed);
+    if (index?.entities !== parsed.entities || index.length !== parsed.entities.length) {
+        index = {
+            entities: parsed.entities,
+            length: parsed.entities.length,
+            byName: new Map(),
+            byRef: new Map(),
+        };
+        for (const entry of parsed.entities) {
+            if (!index.byName.has(entry.name)) index.byName.set(entry.name, entry);
+            const ref = normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`);
+            if (ref !== null && !index.byRef.has(ref)) index.byRef.set(ref, entry);
+        }
+        parsedAnnotationIndexes.set(parsed, index);
+    }
+    const ref = normalizePdfJsAnnotationId(entity.identity.pdfRef);
+    return index.byName.get(entity.identity.id) ?? (ref === null ? undefined : index.byRef.get(ref));
 }
 
 export function originalAnnotationPaintRef(document: IPdfDocument | null, entity: AnnotationEntity) {
