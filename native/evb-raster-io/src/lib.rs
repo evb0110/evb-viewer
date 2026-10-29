@@ -1457,7 +1457,9 @@ fn validate_inflated_rows(
     let expected_rows = row_length
         .checked_mul(height)
         .ok_or_else(|| RasterError::invalid("PNG scanline length overflow"))?;
-    let mut row_position = 0usize;
+    // Only a scanline's first byte is its filter type, so step from one to
+    // the next instead of testing the row position of every inflated byte.
+    let mut next_filter = 0usize;
     loop {
         let count = expected
             .saturating_sub(decoded)
@@ -1467,19 +1469,21 @@ fn validate_inflated_rows(
         if read == 0 {
             break;
         }
-        for &byte in &buffer[..read] {
-            if row_position % row_length == 0 && byte > 4 {
+        let end = decoded
+            .checked_add(read)
+            .ok_or_else(|| RasterError::invalid("PNG image data length overflow"))?;
+        while next_filter < end {
+            let byte = buffer[next_filter - decoded];
+            if byte > 4 {
                 return Err(RasterError::invalid(format!(
                     "Unsupported PNG filter: {byte}"
                 )));
             }
-            row_position = row_position
-                .checked_add(1)
+            next_filter = next_filter
+                .checked_add(row_length)
                 .ok_or_else(|| RasterError::invalid("PNG row position overflow"))?;
         }
-        decoded = decoded
-            .checked_add(read)
-            .ok_or_else(|| RasterError::invalid("PNG image data length overflow"))?;
+        decoded = end;
         if decoded > expected {
             return Err(RasterError::invalid(format!(
                 "PNG image data is longer than expected: expected {expected} bytes"
@@ -1491,7 +1495,7 @@ fn validate_inflated_rows(
             "PNG image data length mismatch: expected {expected} bytes, got {decoded}"
         )));
     }
-    if row_position != expected_rows {
+    if decoded != expected_rows {
         return Err(RasterError::invalid("PNG scanline length mismatch"));
     }
     Ok(())

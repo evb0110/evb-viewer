@@ -163,10 +163,18 @@ pub(crate) fn resolve_destination(
     source: &Document,
     destination: &Object,
 ) -> Result<Option<Vec<Object>>> {
+    resolve_destination_with(source, destination, |name| named_destination(source, name))
+}
+
+fn resolve_destination_with(
+    source: &Document,
+    destination: &Object,
+    named_destination: impl FnOnce(&[u8]) -> Result<Option<Object>>,
+) -> Result<Option<Vec<Object>>> {
     let mut object = source.dereference(destination)?.1.clone();
     if let Object::Name(name) | Object::String(name, _) = &object {
         let name = name.clone();
-        let Some(named) = named_destination(source, &name)? else {
+        let Some(named) = named_destination(&name)? else {
             return Ok(None);
         };
         object = named;
@@ -177,6 +185,92 @@ pub(crate) fn resolve_destination(
         other => other,
     };
     Ok(Some(object.as_array()?.clone()))
+}
+
+/// A document's named destinations for resolving many navigation entries.
+/// The first named lookup indexes them all, first value per name in the
+/// order `named_destination` searches; searching the tree again for every
+/// entry made a split with 20,000 named bookmarks take 8 s. A tree the index
+/// cannot read through keeps the names before the damage, and any other
+/// name goes through the search, so it fails exactly where it did.
+pub(crate) struct NamedDestinations<'a> {
+    source: &'a Document,
+    index: std::cell::OnceCell<(HashMap<Vec<u8>, Object>, bool)>,
+}
+
+impl<'a> NamedDestinations<'a> {
+    pub(crate) fn new(source: &'a Document) -> Self {
+        Self {
+            source,
+            index: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// `resolve_destination` through the index.
+    pub(crate) fn resolve(&self, destination: &Object) -> Result<Option<Vec<Object>>> {
+        resolve_destination_with(self.source, destination, |name| {
+            let (index, complete) = self.index.get_or_init(|| {
+                let mut index = HashMap::new();
+                let complete = index_named_destinations(self.source, &mut index).is_ok();
+                (index, complete)
+            });
+            match index.get(name) {
+                Some(value) => Ok(Some(value.clone())),
+                None if *complete => Ok(None),
+                None => named_destination(self.source, name),
+            }
+        })
+    }
+}
+
+fn index_named_destinations(source: &Document, index: &mut HashMap<Vec<u8>, Object>) -> Result<()> {
+    let catalog = source.catalog()?;
+    if let Ok((_, dests)) = catalog
+        .get(b"Dests")
+        .and_then(|dests| source.dereference(dests))
+    {
+        if let Ok(dests) = dests.as_dict() {
+            for (name, value) in dests.iter() {
+                index.entry(name.clone()).or_insert_with(|| value.clone());
+            }
+        }
+    }
+    let Ok((_, names)) = catalog
+        .get(b"Names")
+        .and_then(|names| source.dereference(names))
+    else {
+        return Ok(());
+    };
+    let Ok(tree) = names.as_dict().and_then(|names| names.get(b"Dests")) else {
+        return Ok(());
+    };
+    index_name_tree(source, tree, index, 0)
+}
+
+/// `name_tree_value`'s walk over the whole tree, keeping each name's first value.
+fn index_name_tree(
+    source: &Document,
+    node: &Object,
+    index: &mut HashMap<Vec<u8>, Object>,
+    depth: usize,
+) -> Result<()> {
+    if depth > MAX_NAME_TREE_DEPTH {
+        return Ok(());
+    }
+    let node = source.dereference(node)?.1.as_dict()?;
+    if let Ok(names) = node.get(b"Names") {
+        for pair in source.dereference(names)?.1.as_array()?.chunks_exact(2) {
+            if let Ok(key) = source.dereference(&pair[0])?.1.as_str() {
+                index.entry(key.to_vec()).or_insert_with(|| pair[1].clone());
+            }
+        }
+    }
+    if let Ok(kids) = node.get(b"Kids") {
+        for kid in source.dereference(kids)?.1.as_array()? {
+            index_name_tree(source, kid, index, depth + 1)?;
+        }
+    }
+    Ok(())
 }
 
 /// The catalog's legacy /Dests dictionary first, then the /Names /Dests tree.

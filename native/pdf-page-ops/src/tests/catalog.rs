@@ -421,6 +421,94 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
 }
 
 #[test]
+fn continues_page_labels_after_a_first_page_with_its_own_start_number() {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_ids = (0..3)
+        .map(|_| document.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id}))
+        .collect::<Vec<_>>();
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => 3,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        },
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    let input_path = temp_pdf_path("continue-page-labels-input");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&input_path, &original_bytes).unwrap();
+
+    let range = |start_page, style: &str, start_number| PageLabelRange {
+        start_page,
+        style: Some(style.to_string()),
+        prefix: String::new(),
+        start_number,
+    };
+    // The page-label limit splits a long label list; only the first fragment
+    // names page 1, here with a start number of its own.
+    let fragments = [
+        (vec![range(1, "D", 5), range(2, "D", 10)], None),
+        (
+            vec![range(3, "r", 1)],
+            Some(NativeMutationContinuation {
+                family: NativeMutationContinuationFamily::PageLabels,
+                chunk_index: 1,
+                chunk_count: 2,
+                bookmark_path: Vec::new(),
+            }),
+        ),
+    ];
+    for (ranges, continuation) in fragments {
+        append_native_mutations(
+            &input_path,
+            &input_path,
+            &NativeMutationsFile {
+                updates: Vec::new(),
+                geometry_updates: Vec::new(),
+                notes: Vec::new(),
+                free_text_notes: Vec::new(),
+                text_boxes: Vec::new(),
+                deletes: Vec::new(),
+                page_rotations: Vec::new(),
+                page_labels: Some(PageLabelsMutation {
+                    total_pages: 3,
+                    ranges,
+                }),
+                bookmarks: None,
+                shapes: None,
+                markup: None,
+                placed_images: Vec::new(),
+                placed_image_geometry_updates: Vec::new(),
+                continuation,
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+    }
+
+    let loaded = Document::load(&input_path).unwrap();
+    let labels = read_pdf_combine_catalog(&loaded).unwrap().page_labels;
+    assert_eq!(
+        labels
+            .iter()
+            .map(|label| (label.page_index, label.style.as_deref(), label.start))
+            .collect::<Vec<_>>(),
+        vec![
+            (0, Some("D"), Some(5)),
+            (1, Some("D"), Some(10)),
+            (2, Some("r"), None),
+        ],
+    );
+
+    let _ = remove_file(input_path);
+}
+
+#[test]
 fn appends_metadata_removal_as_incremental_revision() {
     let (mut document, _page_id) = create_test_document();
     set_page_labels(

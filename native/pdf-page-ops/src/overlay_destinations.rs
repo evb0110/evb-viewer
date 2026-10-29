@@ -1,11 +1,12 @@
 use super::*;
-use crate::internal_destinations::resolve_destination;
+use crate::internal_destinations::NamedDestinations;
 use crate::split_navigation::page_index_by_id;
 
 /// The source document's destinations as source page indices. Built from the
 /// structural probe, which reads dictionaries and no stream bodies.
 pub(crate) struct OverlayDestinations<'a> {
     probe: &'a Document,
+    names: NamedDestinations<'a>,
     page_index_by_id: HashMap<ObjectId, usize>,
     /// The source pages an instruction maps. A link to any other page resolves nowhere.
     mapped: HashSet<usize>,
@@ -21,6 +22,7 @@ impl<'a> OverlayDestinations<'a> {
             .collect();
         Ok(Self {
             probe,
+            names: NamedDestinations::new(probe),
             page_index_by_id,
             mapped,
         })
@@ -53,7 +55,7 @@ impl<'a> OverlayDestinations<'a> {
                 let Some(destination) = annotation_destination(self.probe, annotation) else {
                     continue;
                 };
-                let Some(array) = resolve_destination(self.probe, &destination)? else {
+                let Some(array) = self.names.resolve(&destination)? else {
                     continue;
                 };
                 let target = array.first().and_then(|object| object.as_reference().ok());

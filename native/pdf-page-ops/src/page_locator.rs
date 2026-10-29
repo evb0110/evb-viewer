@@ -115,6 +115,11 @@ pub(crate) fn locate_pages_by_count(
             _ => None,
         }
     };
+    // Each node's kids and the pages counted through each kid read so far.
+    // The indexes ascend, so a node is read only as far as its largest index
+    // needs and each kid's count once; restarting at the root and recounting
+    // the kids before every page made a flat 20,000-page tree take 30 s.
+    let mut nodes = BTreeMap::<ObjectId, (Vec<ObjectId>, Vec<u64>)>::new();
     let mut walked = BTreeMap::new();
     for index in indexes {
         let mut node = root_pages;
@@ -127,45 +132,52 @@ pub(crate) fn locate_pages_by_count(
             if dictionary.get(b"Type").and_then(Object::as_name).ok() != Some(b"Pages".as_slice()) {
                 break;
             }
-            let kids = match dictionary.get(b"Kids") {
-                Ok(Object::Reference(id)) => {
-                    let id = *id;
-                    load(document, &[id])?;
-                    document
-                        .get_object(id)
-                        .and_then(Object::as_array)
-                        .ok()
-                        .cloned()
-                }
-                Ok(kids) => kids.as_array().ok().cloned(),
-                Err(_) => None,
-            };
-            let Some(kids) = kids
-                .unwrap_or_default()
-                .iter()
-                .map(|kid| kid.as_reference().ok())
-                .collect::<Option<Vec<_>>>()
-            else {
-                return Ok(None);
-            };
-            // Skip each kid by its count, as PDF.js numbers pages, reading
-            // only the kids before the one that holds the page.
-            let mut next = None;
-            for kid in &kids {
-                load(document, &[*kid])?;
-                let Some(kid_count) = node_count(document, *kid) else {
+            if let std::collections::btree_map::Entry::Vacant(slot) = nodes.entry(node) {
+                let kids = match dictionary.get(b"Kids") {
+                    Ok(Object::Reference(id)) => {
+                        let id = *id;
+                        load(document, &[id])?;
+                        document
+                            .get_object(id)
+                            .and_then(Object::as_array)
+                            .ok()
+                            .cloned()
+                    }
+                    Ok(kids) => kids.as_array().ok().cloned(),
+                    Err(_) => None,
+                };
+                let Some(kids) = kids
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|kid| kid.as_reference().ok())
+                    .collect::<Option<Vec<_>>>()
+                else {
                     return Ok(None);
                 };
-                if remaining < kid_count {
-                    next = Some(*kid);
-                    break;
-                }
-                remaining -= kid_count;
+                slot.insert((kids, Vec::new()));
             }
-            let Some(next) = next else {
+            let (kids, ends) = nodes
+                .get_mut(&node)
+                .expect("the node's kids were just read");
+            // Skip each kid by its count, as PDF.js numbers pages, reading
+            // only the kids up to the one that holds the page.
+            while ends.len() < kids.len() && ends.last().is_none_or(|end| *end <= remaining) {
+                let kid = kids[ends.len()];
+                load(document, &[kid])?;
+                let Some(end) = node_count(document, kid)
+                    .and_then(|count| ends.last().copied().unwrap_or(0).checked_add(count))
+                else {
+                    return Ok(None);
+                };
+                ends.push(end);
+            }
+            let position = ends.partition_point(|end| *end <= remaining);
+            let before = position.checked_sub(1).map_or(0, |last| ends[last]);
+            remaining -= before;
+            let Some(next) = kids.get(position).filter(|_| position < ends.len()) else {
                 break;
             };
-            node = next;
+            node = *next;
         }
         if remaining == 0 && node_count(document, node) == Some(1) {
             walked.insert(*index, node);

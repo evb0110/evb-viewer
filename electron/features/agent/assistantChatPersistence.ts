@@ -2,7 +2,10 @@ import {
     createHash,
     randomBytes,
 } from 'node:crypto';
-import {mkdirSync} from 'fs';
+import {
+    mkdirSync,
+    type BigIntStats,
+} from 'fs';
 import {
     appendFile,
     mkdir,
@@ -91,6 +94,13 @@ interface IAssistantChatSessionEntry {
     session: IPersistedAssistantChatSession;
     lastAccessedAtMs: number;
     sizeBytes: number;
+}
+
+type TAssistantChatSessionIndexEntry = Omit<IAssistantChatSessionEntry, 'session'>;
+
+/** A session file's identity: any write, repair or replacement changes it. */
+function sessionFileIdentity(fileStat: BigIntStats) {
+    return `${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeNs}:${fileStat.ctimeNs}`;
 }
 
 type TPersistedAssistantChatRecord =
@@ -543,6 +553,8 @@ export class AssistantChatPersistence {
     private readonly queues = new Map<string, Promise<void>>();
     private readonly pendingSnapshots = new Map<string, IPendingAssistantChatSnapshot>();
     private readonly activeSnapshotCounts = new Map<string, number>();
+    /** Index metadata of each recovered session file, with the identity it was read at. */
+    private readonly indexedSessionFiles = new Map<string, TAssistantChatSessionIndexEntry & {identity: string}>();
     private writeQueue: Promise<void> = Promise.resolve();
     private writeOutcome: Promise<void> = Promise.resolve();
 
@@ -1086,7 +1098,7 @@ export class AssistantChatPersistence {
     }
 
     private async pruneSessions() {
-        const entries = await this.readSessionEntries();
+        const entries = await this.readSessionIndexEntries();
         if (entries.length <= this.maxSessions) {
             return entries;
         }
@@ -1116,52 +1128,99 @@ export class AssistantChatPersistence {
         );
     }
 
-    private async readSessionEntries() {
-        const entries: IAssistantChatSessionEntry[] = [];
+    private async listSessionFiles() {
         let sessionEntries;
         try {
             sessionEntries = await readdir(this.sessionsDir, { withFileTypes: true });
         } catch (error) {
             if (isErrnoException(error) && error.code === 'ENOENT') {
-                return entries;
+                return [];
             }
             throw error;
         }
-        for (const entry of sessionEntries) {
-            if (!entry.isFile()) {
-                continue;
-            }
-            await new Promise<void>(resolve => setImmediate(resolve));
+        return sessionEntries.flatMap((entry) => {
             const key = decodePersistenceSessionFileName(entry.name);
-            if (key === null && !entry.name.endsWith('.jsonl')) {
-                continue;
-            }
-            const filePath = join(this.sessionsDir, entry.name);
-            let recovered: IRecoveredAssistantChatSessionFile | null;
-            try {
-                recovered = await this.recoverSessionFileAsync(filePath, key ?? undefined);
-            } catch (error) {
-                if (!(error instanceof AssistantChatPersistenceError)) {
-                    try {
-                        await this.quarantineCorruptSession(filePath);
-                    } catch (quarantineError) {
-                        this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
-                    }
+            return entry.isFile() && (key !== null || entry.name.endsWith('.jsonl'))
+                ? [{
+                    name: entry.name,
+                    key,
+                    filePath: join(this.sessionsDir, entry.name),
+                }]
+                : [];
+        });
+    }
+
+    /** Recovers one session file, quarantining a corrupt one, and records its index metadata. */
+    private async readSessionEntry(file: {
+        name: string;
+        key: string | null;
+        filePath: string
+    }) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        let recovered: IRecoveredAssistantChatSessionFile | null;
+        try {
+            recovered = await this.recoverSessionFileAsync(file.filePath, file.key ?? undefined);
+        } catch (error) {
+            if (!(error instanceof AssistantChatPersistenceError)) {
+                try {
+                    await this.quarantineCorruptSession(file.filePath);
+                } catch (quarantineError) {
+                    this.onError(`Failed to quarantine corrupt assistant chat session "${file.key ?? file.name}"`, quarantineError);
                 }
-                this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
-                continue;
             }
-            const fileStat = await stat(filePath).catch(() => null);
-            if (!recovered || !fileStat) {
-                continue;
-            }
-            entries.push({
-                filePath,
-                key: recovered.key,
-                session: recovered.session,
-                lastAccessedAtMs: recovered.session.lastAccessedAtMs,
-                sizeBytes: fileStat.size,
-            });
+            this.onError(`Failed to recover assistant chat session "${file.key ?? file.name}"`, error);
+            return null;
+        }
+        const fileStat = await stat(file.filePath, {bigint: true}).catch(() => null);
+        if (!recovered || !fileStat) {
+            return null;
+        }
+        const entry: IAssistantChatSessionEntry = {
+            filePath: file.filePath,
+            key: recovered.key,
+            session: recovered.session,
+            lastAccessedAtMs: recovered.session.lastAccessedAtMs,
+            sizeBytes: Number(fileStat.size),
+        };
+        this.indexedSessionFiles.set(file.filePath, {
+            identity: sessionFileIdentity(fileStat),
+            filePath: entry.filePath,
+            key: entry.key,
+            lastAccessedAtMs: entry.lastAccessedAtMs,
+            sizeBytes: entry.sizeBytes,
+        });
+        return entry;
+    }
+
+    private async readSessionEntries() {
+        const entries: IAssistantChatSessionEntry[] = [];
+        for (const file of await this.listSessionFiles()) {
+            const entry = await this.readSessionEntry(file);
+            if (entry) entries.push(entry);
+        }
+        return entries;
+    }
+
+    /**
+     * The index's view of every retained session. A persisted snapshot
+     * rewrites one transcript, so files whose identity is unchanged keep the
+     * metadata they were recovered with; recovering all of them per snapshot
+     * reread every retained transcript, 105 MB at 64 large sessions.
+     */
+    private async readSessionIndexEntries() {
+        const files = await this.listSessionFiles();
+        const listed = new Set(files.map(file => file.filePath));
+        for (const filePath of this.indexedSessionFiles.keys()) {
+            if (!listed.has(filePath)) this.indexedSessionFiles.delete(filePath);
+        }
+        const entries: TAssistantChatSessionIndexEntry[] = [];
+        for (const file of files) {
+            const fileStat = await stat(file.filePath, {bigint: true}).catch(() => null);
+            const indexed = this.indexedSessionFiles.get(file.filePath);
+            const entry = fileStat && indexed?.identity === sessionFileIdentity(fileStat)
+                ? indexed
+                : await this.readSessionEntry(file);
+            if (entry) entries.push(entry);
         }
         return entries;
     }
@@ -1182,7 +1241,7 @@ export class AssistantChatPersistence {
         await this.writeIndex();
     }
 
-    private async writeIndex(entries?: IAssistantChatSessionEntry[]) {
+    private async writeIndex(entries?: readonly TAssistantChatSessionIndexEntry[]) {
         const sessions = entries ?? await this.readSessionEntries();
         await atomicWriteJsonFile(this.indexPath, {
             schemaVersion: ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION,

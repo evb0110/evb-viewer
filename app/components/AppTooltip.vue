@@ -59,7 +59,12 @@ const {
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
-const referenceElement = shallowRef<HTMLElement | undefined>();
+// The trigger wrapper has `display: contents` and no box, so the tooltip is
+// placed against its first element, read whenever it positions. Storing that
+// element after mount re-rendered every tooltip once more, which made the
+// 4,000 note markers of a dense page spend over a second in Vue's queue.
+let measuredElement: HTMLElement | undefined;
+const reference = shallowRef(createReference());
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
 const tooltipProps = computed(() => {
     const props: Record<string, unknown> = {disabled: disabled || !isUseful.value};
@@ -74,7 +79,7 @@ const tooltipProps = computed(() => {
     if (disableHoverableContent !== undefined) props.disableHoverableContent = disableHoverableContent;
     if (disableClosingTrigger !== undefined) props.disableClosingTrigger = disableClosingTrigger;
     if (ignoreNonKeyboardFocus !== undefined) props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
-    if (referenceElement.value !== undefined) props.reference = referenceElement.value;
+    props.reference = reference.value;
     props.ui = {
         content: 'app-tooltip-content',
         text: 'app-tooltip-text',
@@ -86,11 +91,23 @@ function updateOpen(value: boolean) {
     emit('update:open', value);
 }
 
-function refreshReferenceElement() {
-    const root = triggerRef.value;
-    const reference = root?.firstElementChild;
+function createReference() {
+    return {
+        getBoundingClientRect: () => {
+            measuredElement = referenceElement();
+            return measuredElement?.getBoundingClientRect() ?? new DOMRect();
+        },
+        get contextElement() {
+            return referenceElement();
+        },
+    };
+}
 
-    referenceElement.value = reference instanceof HTMLElement ? reference : root ?? undefined;
+function referenceElement() {
+    const root = triggerRef.value;
+    const element = root?.firstElementChild;
+
+    return element instanceof HTMLElement ? element : root ?? undefined;
 }
 
 function hasUsefulText(element: HTMLElement) {
@@ -120,20 +137,22 @@ function refreshUsefulness() {
         return;
     }
 
-    refreshReferenceElement();
-
-    const hasText = hasUsefulText(root);
-    const isOverflowing = hasOverflowingContent(root);
-
     isUseful.value = usefulness === 'always'
-        || (usefulness === 'no-text' && !hasText)
-        || (usefulness === 'overflow' && isOverflowing)
-        || (usefulness === 'auto' && (!hasText || isOverflowing));
+        || (usefulness === 'no-text' && !hasUsefulText(root))
+        || (usefulness === 'overflow' && hasOverflowingContent(root))
+        || (usefulness === 'auto' && (!hasUsefulText(root) || hasOverflowingContent(root)));
 }
 
 watch(() => usefulness, refreshUsefulness);
 onMounted(refreshUsefulness);
-onUpdated(refreshReferenceElement);
+// A tooltip that has positioned against an element its trigger then replaced
+// takes a new reference, so floating-ui observes the replacement.
+onUpdated(() => {
+    if (measuredElement && measuredElement !== referenceElement()) {
+        measuredElement = undefined;
+        reference.value = createReference();
+    }
+});
 </script>
 
 <style scoped>
