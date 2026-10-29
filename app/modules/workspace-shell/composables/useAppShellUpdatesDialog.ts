@@ -9,7 +9,7 @@ import type { IUpdateDialogState } from '@app/composables/useAppUpdates';
 interface IUseAppShellUpdatesDialogOptions {
     updatesStatus: Ref<IAppUpdateStatus>;
     updatesDialog: Ref<IUpdateDialogState>;
-    showUpdateDialog: () => void;
+    checkForUpdates: () => Promise<void>;
     updatesDialogVersion: ComputedRef<string | null | undefined>;
     closeUpdatesDialog: () => void;
     deferUpdate: () => Promise<void>;
@@ -28,6 +28,8 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
 
     // An offer found by the scheduled check must not take the window from the
     // reader, so it waits in a notice that opens the dialog on request.
+    // The notice can wait for hours, so opening it checks again and the dialog
+    // offers the latest release rather than the one the notice names.
     // Dismissing the notice neither skips the version nor approves the update.
     // Each notice keeps the id the toaster generated: a removed id is filtered
     // out of the toaster later, which would also drop a new notice reusing it.
@@ -62,7 +64,7 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
                 label: t('updates.viewAction'),
                 color: 'neutral',
                 variant: 'outline',
-                onClick: options.showUpdateDialog,
+                onClick: () => void options.checkForUpdates(),
             }],
         }).id;
     }, { immediate: true });
