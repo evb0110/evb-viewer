@@ -32,10 +32,17 @@ const DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
     'corrupt-xref',
 ]);
 
-// A document-level failure repeats for every later request on the same
-// bytes: the 760 MB report failed each of five OCR batches after 35-47 s,
-// and each assistant page read after 34 s. Recent ones are remembered per
-// file identity, which any write to the file replaces.
+// A failure the bytes alone decide repeats for every later request: the
+// 760 MB report's structure exceeded qpdf's memory estimate on each of five
+// OCR batches after 35-47 s, and on each assistant page read after 34 s.
+// Recent ones are remembered per file identity, which any write replaces.
+// A qpdf run that timed out, was killed or failed to start also reports a
+// document failure, and a later request can pass, so it is not remembered.
+const PERSISTENT_DOCUMENT_FAILURE = /qpdf (?:structure|structural|object)\b.*\b(?:exceeds|overflow)\b/u;
+const PERSISTENT_DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
+    'encrypted',
+    'needs-password',
+]);
 const UNREADABLE_DOCUMENTS_REMEMBERED = 8;
 const unreadableDocuments = new Map<string, string>();
 
@@ -133,7 +140,9 @@ export async function inspectPdfPageTextVisibility(input: {
         const message = `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`;
         const documentUnreadable = hasNativeErrorCode(error) && DOCUMENT_FAILURE_CODES.has(error.code)
             || DOCUMENT_FAILURE.test(getErrorMessage(error));
-        if (documentUnreadable && identity !== null) {
+        const persistent = hasNativeErrorCode(error) && PERSISTENT_DOCUMENT_FAILURE_CODES.has(error.code)
+            || PERSISTENT_DOCUMENT_FAILURE.test(getErrorMessage(error));
+        if (persistent && identity !== null) {
             unreadableDocuments.delete(identity);
             unreadableDocuments.set(identity, message);
             for (const oldest of unreadableDocuments.keys()) {
