@@ -7,7 +7,6 @@
         <ScanCleanupToolbar
             :activity="activity"
             :activity-timeline="activityTimeline"
-            :can-detect-all="canDetectAll"
             :can-run="canRun"
             :cancel-requested="cancelRequested"
             :cancel-status-text="cancelStatusText"
@@ -20,17 +19,11 @@
             :output-estimate="outputEstimate"
             :run-label="runLabel"
             :run-disabled-reason="runDisabledReason"
-            :settings-badges="settingsBadges"
-            :zone-editing="zoneEditing"
             @cancel="cancel"
             @cancel-detection="cancelDetection"
-            @detect-all="detectAllPages"
             @dismiss-run-error="dismissRunError"
             @done="done"
-            @remove-setting="removeSettingBadge"
-            @reset-settings="resetSettingsToDefaults"
-            @run="runWithSettingsToast"
-            @update:zone-editing="zoneEditing = $event"
+            @run="run"
         />
     </Teleport>
     <section
@@ -47,12 +40,12 @@
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
                     :blank-page-count="blankPageCount"
+                    :changed-settings="changedSettings"
                     :content-boxes="scopeContentBoxes"
                     :customized-counts="scopeCustomizedCounts"
                     :excluded="scopeExcluded"
                     :has-scope-overrides="hasScopeOverrides"
                     :highlighted-scope="highlightedScope"
-                    :inclusion-items="scopeInclusionItems"
                     :layout="scopeLayout"
                     :layout-items="scopeLayoutItems"
                     :manual-split="scopeManualSplit"
@@ -64,6 +57,7 @@
                     :output-mode-override="scopeOutputModeOverride"
                     :output-mode-override-items="scopeOutputModeOverrideItems"
                     :override-counts="scopeOverrideCounts"
+                    :page-facts="pageFacts"
                     :page-number="selectionLeader"
                     :placement-alignment="scopePlacementAlignment"
                     :reading-order-items="readingOrderItems"
@@ -79,6 +73,7 @@
                     @reset-manual-split="resetScopeManualSplit"
                     @reset-manual-skew="resetScopeManualSkew"
                     @reset-scope-overrides="resetScopeOverrides"
+                    @reset-settings="resetSettingsToDefaults"
                     @margin-interaction="marginBoundaryVisible = $event"
                     @thickness-input="handleThicknessInput"
                     @update-inclusion="handleScopeInclusion"
@@ -104,17 +99,17 @@
                 :overrides="settings.pageOverrides"
                 :classifications="authoritativeLayoutByPage"
                 :confidences="detectedLayoutConfidenceByPage"
-                :diagnostics="previewMetadataByPage"
                 :document-output-mode="settings.outputMode"
                 :preserve-original-quality="settings.preserveOriginalQuality === true"
                 :recommended-output-modes="recommendedOutputModeByPage"
-                :recommended-output-mode-confidences="recommendedOutputModeConfidenceByPage"
-                :recommended-output-mode-reasons="recommendedOutputModeReasonByPage"
                 :text-axes="detectedTextAxisByPage"
                 :disabled="isRunning"
+                :can-redetect="canDetectAll && !detectionPending"
                 :processed-pages="processedPages"
                 :detection-active="detectionPending"
                 :settled-pages="detectionSettledPages"
+                @inspect-page="inspectPage"
+                @redetect="detectAllPages"
                 @select-page="selectPage"
                 @update:override="updatePageOverride"
             />
@@ -156,6 +151,7 @@
                     @invalidate-detail="clearPreviewDetail"
                     @request-detail="requestPreviewDetail"
                     @update:view-mode="previewViewMode = $event"
+                @update:zone-editing="zoneEditing = $event"
                     @update:manual-split="updateCurrentManualSplit"
                     @update:manual-content-box="updateCurrentManualContentBox"
                     @update:manual-zones="updateCurrentManualZones"
@@ -171,6 +167,7 @@
 
 <script setup lang="ts">
 import { useFailureToast } from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -184,10 +181,8 @@ import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/ele
 import {
     resetScanCleanupOptionsToDefaults,
     resolveScanCleanupNonDefaultSettings,
-    type TScanCleanupNonDefaultSettingKey,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSettingsBadges';
 import {formatScanCleanupSettingsBadge} from '@app/modules/scan-cleanup/runtime/formatScanCleanupSettingsBadge';
-import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     attachScanCleanupPageOverrideDefaults,
     areScanCleanupMarginsMmEqual,
@@ -210,6 +205,7 @@ import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanup
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import type {TScanCleanupOverrideControl} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
+import type {IScanCleanupPageFacts} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 import {resolveScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import {
     updateScanCleanupPageOverrideRotation,
@@ -221,9 +217,6 @@ import {
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupApplyScope';
 
 const { t } = useTypedI18n();
-const toast = typeof useToast === 'function'
-    ? useToast()
-    : {add: () => undefined};
 const {
     sourcePath,
     currentPage = 1,
@@ -294,7 +287,10 @@ const {
     updateMargin: updateDocumentMargin,
     values: settings,
 } = workspaceSession.settings;
-const { presentFailureToast } = useFailureToast();
+const {
+    presentFailureToast,
+    presentNoticeToast,
+} = useFailureToast();
 let toldSettingsLoadFailure: typeof documentSettingsLoadFailure.value = null;
 // Settings that did not load are told once, with Retry, when this workspace
 // is the one on screen; the rail keeps its defaults meanwhile.
@@ -343,6 +339,7 @@ const {
     confidenceByPage: detectedLayoutConfidenceByPage,
     detectAllPages,
     error: detectionError,
+    errorCode: detectionErrorCode,
     layoutDetectionComplete,
     outputEstimate,
     pending: detectionPending,
@@ -353,6 +350,45 @@ const {
     recommendedOutputModeReasonByPage,
     textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
+// A failed analysis is told once, when this workspace is the one on screen: an
+// expected refusal as a warning, a defect with its Error ID. The toolbar keeps
+// the reason on its status line meanwhile.
+const EXPECTED_DETECTION_REFUSALS = new Set([
+    'insufficient-scratch',
+    'encrypted',
+    'needs-password',
+    'too-large',
+]);
+let toldDetectionError = '';
+watch([
+    detectionError,
+    () => workspaceActive.value,
+], ([
+    message,
+    active,
+]) => {
+    if (message === '') {
+        toldDetectionError = '';
+        return;
+    }
+    if (!active || message === toldDetectionError) {
+        return;
+    }
+    toldDetectionError = message;
+    if (EXPECTED_DETECTION_REFUSALS.has(detectionErrorCode.value ?? '')) {
+        presentNoticeToast({
+            tone: 'warning',
+            title: t('scanCleanup.detectAll.failed'),
+            description: message,
+        });
+        return;
+    }
+    presentFailureToast({
+        failure: BrowserLogger.error('scan-cleanup', 'Scan cleanup page analysis failed', message, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'}),
+        title: t('scanCleanup.detectAll.failed'),
+        description: message,
+    });
+}, {immediate: true});
 const {
     clearDetail: clearPreviewDetail,
     error: previewError,
@@ -405,10 +441,10 @@ const {
     activity,
     activityTimeline,
 } = workspaceSession;
-const settingsBadges = computed(() => resolveScanCleanupNonDefaultSettings(settings).map(badge => ({
-    id: badge.key,
-    label: formatScanCleanupSettingsBadge(t, badge.key, badge.value),
-})));
+// Settings persist from one document to the next, so the rail names the ones
+// that differ from the defaults where they can be reset in one click.
+const changedSettings = computed(() => resolveScanCleanupNonDefaultSettings(settings)
+    .map(setting => formatScanCleanupSettingsBadge(t, setting.key, setting.value)));
 const zoneEditing = ref(false);
 
 const allScopeDefaultOverride = computed(() => settings.pageOverrideDefaults
@@ -427,41 +463,6 @@ function resetSettingsToDefaults() {
     }
     resetScanCleanupOptionsToDefaults(settings);
     resetPageOverrides();
-}
-
-function removeSettingBadge(id: string) {
-    if (isRunning.value) {
-        return;
-    }
-    const key = id as TScanCleanupNonDefaultSettingKey;
-    if (key === 'pageOverrides') {
-        resetPageOverrides();
-        return;
-    }
-    if (key === 'marginsMm') {
-        Object.assign(settings.marginsMm, DEFAULT_SCAN_CLEANUP_PREFERENCES.marginsMm);
-        return;
-    }
-    if (key === 'autoDewarp') {
-        settings.autoDewarp = DEFAULT_SCAN_CLEANUP_PREFERENCES.autoDewarp;
-        settings.autoDewarpDepth = DEFAULT_SCAN_CLEANUP_PREFERENCES.autoDewarpDepth;
-        return;
-    }
-    if (key === 'outputMode') {
-        settings.outputMode = 'auto';
-        return;
-    }
-    Object.assign(settings, {[key]: DEFAULT_SCAN_CLEANUP_PREFERENCES[key]});
-}
-
-function runWithSettingsToast() {
-    if (settingsBadges.value.length > 0) {
-        toast.add({
-            title: t('scanCleanup.settingsBadges.toastTitle'),
-            description: t('scanCleanup.settingsBadges.toastDescription', {settings: settingsBadges.value.map(badge => badge.label).join(', ')}),
-        });
-    }
-    void run();
 }
 
 const scopePageNumbers = computed<TScanCleanupPageScope | readonly number[]>(() => settingsScope.value === 'all'
@@ -573,43 +574,9 @@ const scopePlacementAlignment = computed(() => settingsScope.value === 'all'
         'right',
     ] as const).map(half => resolveScanCleanupOutputPlacement(settings.pageAlignment, override, half)))));
 const scopeMarginsLinked = computed(() => documentMarginsLinked.value);
-function countAllScopeOverrides(
-    isOverride: (override: ReturnType<typeof getScanCleanupPageOverride>) => boolean,
-) {
-    const defaultIsOverride = isOverride(allScopeDefaultOverride.value);
-    let count = defaultIsOverride
-        ? Math.max(1, Math.trunc(previewTotalPages.value))
-        : 0;
-    for (const pageKey of Object.keys(settings.pageOverrides)) {
-        const page = Number(pageKey);
-        if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
-            continue;
-        }
-        const pageIsOverride = isOverride(getPageOverride(page));
-        if (pageIsOverride !== defaultIsOverride) {
-            count += pageIsOverride ? 1 : -1;
-        }
-    }
-    return count;
-}
+// Only the Page and Selected scopes mark a control as overridden: All edits the
+// defaults that every page without its own setting follows.
 const scopeOverrideCounts = computed(() => {
-    if (settingsScope.value === 'all') {
-        return {
-            inclusion: countAllScopeOverrides(override => override.excluded
-                !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded),
-            layout: countAllScopeOverrides(override => resolveScanCleanupPageLayout(
-                settings.layoutMode,
-                override.layoutOverride,
-            ) !== settings.layoutMode),
-            margins: countAllScopeOverrides(override => override.marginsMm !== undefined
-                && !areScanCleanupMarginsMmEqual(override.marginsMm, settings.marginsMm)),
-            outputMode: countAllScopeOverrides(override => override.outputModeOverride !== undefined),
-            placement: countAllScopeOverrides(override => Object.values(override.placementOverrides ?? {})
-                .some(alignment => alignment !== settings.pageAlignment)),
-            rotation: countAllScopeOverrides(override => override.rotationDegrees
-                !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees),
-        };
-    }
     const counts = {
         inclusion: 0,
         layout: 0,
@@ -740,21 +707,6 @@ const previewOutputMode = computed<TScanCleanupOutputMode | undefined>(() =>
                 ?? previewResult.value.pageMetadata.recommendedOutputMode
             : undefined,
     }));
-const scopeInclusionItems = computed(() => [
-    ...(scopeExcluded.value.mixed ? [{
-        value: 'mixed' as const,
-        label: t('scanCleanup.settings.mixed'),
-        disabled: true,
-    }] : []),
-    {
-        value: 'included' as const,
-        label: t('scanCleanup.pages.includeInOutput'),
-    },
-    {
-        value: 'excluded' as const,
-        label: t('scanCleanup.pages.excludedFromOutput'),
-    },
-]);
 const applyScopeItems = computed(() => {
     const actions = ([
         [
@@ -787,6 +739,33 @@ const applyScopeItems = computed(() => {
         },
         ...actions,
     ];
+});
+
+// The rail's warning marker opens the page in Page scope, where its findings
+// and the controls that fix them are.
+function inspectPage(page: number) {
+    if (isRunning.value) {
+        return;
+    }
+    selectPage(page, 'single', [page]);
+    setSettingsScope('page');
+}
+
+const pageFacts = computed<IScanCleanupPageFacts | null>(() => {
+    if (settingsScope.value !== 'page') {
+        return null;
+    }
+    const page = selectionLeader.value;
+    return {
+        classification: authoritativeLayoutByPage.value.get(page),
+        diagnostics: previewMetadataByPage.get(page),
+        layoutConfidence: detectedLayoutConfidenceByPage.get(page),
+        override: currentPageOverride.value,
+        recommendedOutputMode: recommendedOutputModeByPage.get(page),
+        recommendedOutputModeConfidence: recommendedOutputModeConfidenceByPage.get(page),
+        recommendedOutputModeReason: recommendedOutputModeReasonByPage.get(page),
+        textAxis: detectedTextAxisByPage.get(page),
+    };
 });
 
 function done() {
@@ -1096,145 +1075,6 @@ watch(isRunning, running => {
     opacity: var(--app-scan-disabled-opacity);
 }
 
-.scan-cleanup-settings-content {
-    min-width: 0;
-}
-
-.scan-cleanup-selection-hint {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-    line-height: var(--app-line-height-body);
-}
-
-/* Help text that is gated by another setting keeps its line reserved, so
-   ticking a checkbox or changing scope never moves the controls below it. */
-.scan-cleanup-selection-hint.is-reserved {
-    min-height: calc(var(--app-text-size-kicker) * var(--app-line-height-body));
-}
-
-.scan-cleanup-selection-hint.is-reserved.is-two-lines {
-    min-height: calc(var(--app-text-size-kicker) * var(--app-line-height-body) * 2);
-}
-
-/* A control whose value no longer applies stays in place and dims, matching
-   ScanCleanupAutoValueRow, instead of unmounting and collapsing its row. */
-.scan-cleanup-field-disabled {
-    opacity: var(--app-scan-disabled-opacity);
-}
-
-/* Conditional badges, override markers and reset buttons are taller than the
-   label text they sit beside; the row reserves their height in every state. */
-.scan-cleanup-selection-field-label,
-.scan-cleanup-margins-header {
-    min-height: var(--app-scan-settings-affordance-height);
-}
-
-.scan-cleanup-lossless-explanation {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.scan-cleanup-option-group {
-    display: grid;
-    gap: var(--app-space-3xl);
-    padding-block-end: var(--app-space-5xl);
-}
-
-.scan-cleanup-option-group + .scan-cleanup-option-group {
-    border-block-start: var(--app-hairline-height) solid var(--ui-border);
-    padding-block-start: var(--app-space-5xl);
-}
-
-.scan-cleanup-option-group h3 {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-    font-weight: var(--app-font-weight-bold);
-    letter-spacing: var(--app-letter-spacing-caps);
-    text-transform: uppercase;
-}
-
-.scan-cleanup-scale {
-    display: flex;
-    justify-content: space-between;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.scan-cleanup-alignment-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--app-space-sm);
-}
-
-.scan-cleanup-alignment-grid > * {
-    justify-content: center;
-}
-
-/* Not one of the nine anchors: it spans the row above them and carries its
-   own label, so the grid still reads as a 3x3 compass. */
-.scan-cleanup-alignment-ink {
-    grid-column: 1 / -1;
-}
-
-.scan-cleanup-selection-field {
-    display: grid;
-    gap: var(--app-space-sm);
-}
-
-.scan-cleanup-margins-control {
-    display: grid;
-    gap: var(--app-space-3xl);
-}
-
-.scan-cleanup-margins-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--app-space-sm);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-margins-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--app-space-3xl);
-}
-
-.scan-cleanup-selection-field-label {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-sm);
-}
-
-.scan-cleanup-selection-field-label {
-    justify-content: space-between;
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-footnote {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.scan-cleanup-details-trigger:focus-visible {
-    outline: var(--app-hairline-height) solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
-}
-
-.scan-cleanup-details-popover {
-    display: grid;
-    max-width: var(--app-scan-details-width);
-    gap: var(--app-space-9xl);
-    padding: var(--app-space-12xl);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body-sm);
-}
-
 .scan-cleanup-preview-hero {
     position: relative;
     min-width: 0;
@@ -1242,22 +1082,4 @@ watch(isRunning, running => {
     overflow: hidden;
 }
 
-.scan-cleanup-reset-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--app-space-sm);
-}
-
-.scan-cleanup-reset-confirmation {
-    display: grid;
-    max-width: var(--app-scan-reset-confirmation-width);
-    gap: var(--app-space-5xl);
-    padding: var(--app-space-9xl);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-reset-confirmation > span {
-    color: var(--ui-text-muted);
-}
 </style>

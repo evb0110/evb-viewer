@@ -73,8 +73,9 @@ const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\
     align-items: center;
     justify-content: space-between;
     gap: var(--app-space-sm);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    font-weight: var(--app-font-weight-medium);
 }
 
 /* The automatic and manual tags are the same box: only the manual one carries a
@@ -95,9 +96,11 @@ const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\
     font-weight: var(--app-font-weight-bold);
 }
 
+/* Automatic is the quiet default: plain text, no chip. */
 .scan-cleanup-auto-value-state.is-auto {
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-muted);
+    background: transparent;
+    padding-inline: 0;
+    color: var(--ui-text-dimmed);
     font-weight: var(--app-font-weight-medium);
 }
 

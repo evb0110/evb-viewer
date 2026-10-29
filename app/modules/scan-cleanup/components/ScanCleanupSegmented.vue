@@ -84,11 +84,12 @@ function handleKeydown(event: KeyboardEvent, index: number) {
 </script>
 
 <style scoped>
+/* Options share one row while they fit and wrap rather than clip, so every
+   choice stays visible in a narrow rail or a longer language. */
 .scan-cleanup-segmented {
-    display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
-    overflow: hidden;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--app-space-3xs);
     border: var(--app-hairline-height) solid var(--ui-border);
     border-radius: var(--app-radius-md);
     background: var(--ui-bg-muted);
@@ -97,6 +98,7 @@ function handleKeydown(event: KeyboardEvent, index: number) {
 
 .scan-cleanup-segmented-option {
     min-width: 0;
+    flex: 1 0 auto;
     border: 0;
     border-radius: var(--app-radius-sm);
     background: transparent;
