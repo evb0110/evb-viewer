@@ -41,6 +41,7 @@ import {
     snapshotMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupDetectionJobState} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
@@ -366,7 +367,7 @@ describe('closing a source document during scan cleanup', () => {
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: manifest.pages.length,
-                    pageNumber: index + 1,
+                    pageNumber: requirePageNumber(index + 1),
                     classification: 'single-uncut-page',
                     confidence: 0.9,
                 });
@@ -378,7 +379,8 @@ describe('closing a source document during scan cleanup', () => {
         webContents.send.mockImplementation((channel: string, frame: TScanCleanupDetectionJobState) => {
             if (channel !== SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState) return;
             if (frame.status === 'completed') completed.resolve(frame);
-            if (frame.status === 'failed' || frame.status === 'canceled') completed.reject(new Error(frame.error ?? frame.status));
+            if (frame.status === 'failed') completed.reject(new Error(frame.error));
+            if (frame.status === 'canceled') completed.reject(new Error(frame.status));
         });
         const detection = {
             ...startRequest(workingPath),

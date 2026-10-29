@@ -46,7 +46,11 @@ import {
     resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import { shouldExtractTrustedMrcForeground } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
+import {
+    resolveSourceMrcLayerRejection,
+    resolveSourceMrcReuseRejection,
+    shouldExtractTrustedMrcForeground,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 
 
 import { getErrorMessage } from '@electron/utils/error';
@@ -514,10 +518,15 @@ export async function scanCleanupPreviewRenderer(
             && (pageOverride.manualZones?.fill.length ?? 0) === 0
             && sourceHasBilevelLayer
             && dependencies.extractMrcLayers !== undefined
+            // The page's own layers stand in for its pixels only under the
+            // geometry proof conversion requires, so preview shows the
+            // representation the output will have.
+            && pageSize !== undefined
+            && resolveSourceMrcReuseRejection(pageSize, boundedRasterPage) === undefined
         ) {
             const extractionStartedAt = performance.now();
             try {
-                trustedMrcLayers = await dependencies.extractMrcLayers(
+                const extracted = await dependencies.extractMrcLayers(
                     document.sourcePdfPath,
                     request.pageNumber,
                     join(scratch, 'source-mrc-selection.png'),
@@ -525,6 +534,9 @@ export async function scanCleanupPreviewRenderer(
                     signal,
                     logScanCleanupMessage,
                 );
+                trustedMrcLayers = extracted !== null && resolveSourceMrcLayerRejection(pageSize, extracted) === undefined
+                    ? extracted
+                    : null;
                 logger.debug(
                     `Scan cleanup preview source-layer extraction page ${String(request.pageNumber)} `
                     + `reused=${String(trustedMrcLayers !== null)} `

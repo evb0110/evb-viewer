@@ -207,6 +207,24 @@ it('retires document geometry after close requested while detection still holds 
 
 async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecommendation: 'mixed' | undefined): Promise<void> {
     const {deps} = await previewDependencies();
+    // Reuse is proven as conversion requires: page 1's 1000x1400 px, 150 DPI
+    // image fills its zero-origin page, and the extracted 300 DPI foreground
+    // covers the same 480x672 pt.
+    const provenPages = DOCUMENT_PAGE_SIZES.map(page => page.pageNumber !== 1 ? page : {
+        ...page,
+        widthPoints: 480,
+        heightPoints: 672,
+        mediaXPoints: 0,
+        mediaYPoints: 0,
+        mediaWidthPoints: 480,
+        mediaHeightPoints: 672,
+        dominantImageWidthPx: 1_000,
+        dominantImageHeightPx: 1_400,
+        dominantImageWidthPoints: 480,
+        dominantImageHeightPoints: 672,
+    });
+    deps.getPageSizes = vi.fn(async () => provenPages);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(provenPages));
     deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
         pages: [1],
         bilevelLayerPages: [1],
@@ -230,7 +248,7 @@ async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecomme
         return {
             backgroundDpi: 100,
             backgroundPath: backgroundOutputPath,
-            foregroundDpi: 600,
+            foregroundDpi: 300,
             foregroundHeight: 2_800,
             foregroundPath,
             foregroundWidth: 2_000,
