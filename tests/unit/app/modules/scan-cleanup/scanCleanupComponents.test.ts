@@ -4740,6 +4740,117 @@ describe('Scan cleanup components', () => {
         });
     });
 
+    it.each([
+        'move',
+        'resize',
+    ] as const)('commits a zone %s at pointer release rather than the last move', async (operation) => {
+        const zones = ref<IScanCleanupManualZones>({
+            picture: [{
+                layer: 'painter2',
+                polygon: {
+                    rotationDegrees: 0,
+                    points: [
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.3,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.3,
+                            yNormalized: 0.3,
+                        },
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.3,
+                        },
+                    ],
+                },
+            }],
+            fill: [],
+        });
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            frame: {
+                left: 0,
+                top: 0,
+                width: 100,
+                height: 100,
+            },
+            manualZones: zones.value,
+            rotationDegrees: 0,
+            selected: {
+                kind: 'picture',
+                index: 0,
+            },
+            zoneKind: 'picture',
+            'onUpdate:manualZones': (value: IScanCleanupManualZones) => { zones.value = value; },
+        })}));
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        mockPointerCapture(editor);
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 100, 100));
+        const target = harness.host.querySelector(operation === 'move'
+            ? '.zone-editor-polygon'
+            : '.zone-editor-handle.is-se')!;
+        target.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            pointerId: 7,
+            button: 0,
+            clientX: operation === 'move' ? 20 : 30,
+            clientY: operation === 'move' ? 20 : 30,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            pointerId: 7,
+            clientX: 40,
+            clientY: 40,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 7,
+            clientX: 60,
+            clientY: 60,
+        }));
+        await nextTick();
+
+        expect(zones.value.picture[0]!.polygon.points).toEqual(operation === 'move' ? [
+            {
+                xNormalized: 0.5,
+                yNormalized: 0.5,
+            },
+            {
+                xNormalized: 0.7,
+                yNormalized: 0.5,
+            },
+            {
+                xNormalized: 0.7,
+                yNormalized: 0.7,
+            },
+            {
+                xNormalized: 0.5,
+                yNormalized: 0.7,
+            },
+        ] : [
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.1,
+            },
+            {
+                xNormalized: 0.6,
+                yNormalized: 0.1,
+            },
+            {
+                xNormalized: 0.6,
+                yNormalized: 0.6,
+            },
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.6,
+            },
+        ]);
+    });
+
     it('draws a manual zone at navigation zoom without giving the pointer to preview pan', async () => {
         const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
         const harness = mountPreviewZoomHarness({
