@@ -12,6 +12,8 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {
     decodeSerializableErrorEnvelope,
     encodeSerializableErrorEnvelope,
@@ -457,6 +459,11 @@ export function scanCleanupPreviewRenderingOwner(
                         : 'prefetch',
             };
             const entryStateRef: {current?: IPreviewEntry} = {};
+            // Canceled resources are released when the job settles, not when
+            // cancel is asked: a native reader may still hold them until then,
+            // and one whose stop is unproven keeps them for the process lifetime.
+            const jobSettledRef: {current?: Promise<unknown>} = {};
+            let unprovenTermination = false;
             const jobId = createJobId('scan-cleanup-preview');
             const claimId = `${brokerOwnerId(sender, request)}:${jobId}`;
             const handle = previewJobs.start({
@@ -482,7 +489,8 @@ export function scanCleanupPreviewRenderingOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
-                onCancel: reason => {
+                onCancel: reason => void (jobSettledRef.current ?? Promise.resolve()).then(() => {
+                    if (unprovenTermination) return;
                     if (reason === RENDERER_DESTROYED_CANCELLATION_REASON
                         || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
                         rawRasterRetention.invalidateSender(sender.id);
@@ -494,7 +502,7 @@ export function scanCleanupPreviewRenderingOwner(
                         entryStateRef.current?.sourcePdfPath,
                     );
                     visiblePages.delete(documentPrefix);
-                },
+                }),
                 run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('scan-cleanup-preview-', async scratchPath => {
                     let materialized;
                     try {
@@ -547,6 +555,13 @@ export function scanCleanupPreviewRenderingOwner(
                         },
                     );
                 })).catch(error => {
+                    // As a full run does: the source a surviving native child
+                    // may still read is recorded against its path, not dropped.
+                    const unproven = getUnprovenNativeTerminationDetail(error);
+                    if (unproven !== undefined) {
+                        unprovenTermination = true;
+                        quarantineWorkingCopy(entryStateRef.current?.sourcePdfPath ?? request.sourcePdfPath, unproven);
+                    }
                     if (isPreviewCancellation(error)) {
                         throw error;
                     }
@@ -557,6 +572,7 @@ export function scanCleanupPreviewRenderingOwner(
                     }));
                 }),
             });
+            jobSettledRef.current = handle.settled;
             const tail: Promise<TScanCleanupPreviewWireResult> = handle.terminal.then(snapshot => {
                 if (snapshot.status === 'completed') {
                     return snapshot.result;

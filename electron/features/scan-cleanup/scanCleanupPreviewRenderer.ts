@@ -50,6 +50,7 @@ import { shouldExtractTrustedMrcForeground } from '@evb/scan-cleanup/core/policy
 
 
 import { getErrorMessage } from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {createLogger} from '@electron/utils/createLogger';
 import type { TScanCleanupWarningEvent } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {
@@ -123,6 +124,7 @@ export async function scanCleanupPreviewRenderer(
             throw error;
         });
     let detailAnalysisKey: string | null = null;
+    let unprovenTermination = false;
     const claimedRasterPages = new Map<string, [number, number]>();
     const rememberRasterClaim = (pageNumber: number, dpi: number) => {
         if (claimId !== undefined) {
@@ -813,6 +815,9 @@ export async function scanCleanupPreviewRenderer(
             );
         }
         return result;
+    } catch (error) {
+        unprovenTermination = getUnprovenNativeTerminationDetail(error) !== undefined;
+        throw error;
     } finally {
         if (detailAnalysisKey !== null) {
             if (releaseBaseAnalysisPin) releaseBaseAnalysisPin(detailAnalysisKey);
@@ -822,21 +827,26 @@ export async function scanCleanupPreviewRenderer(
                 else baseAnalysisPins.set(detailAnalysisKey, pins - 1);
             }
         }
-        await Promise.all([...claimedRasterPages.values()].map(([
-            pageNumber,
-            dpi,
-        ]) => retention.releaseRaster(
-            document,
-            pageNumber,
-            dpi,
-            claimId,
-        )));
-        await retention.release(document, claimId);
-        if (managedScratchPath === undefined) {
-            await fileSystem.rm(scratch, {
-                recursive: true,
-                force: true,
-            });
+        // A native reader whose stop is unproven may still hold these inputs.
+        if (unprovenTermination) {
+            logger.warn(`Retaining scan-cleanup preview inputs until the native sidecar is reaped: ${request.sourcePdfPath}`);
+        } else {
+            await Promise.all([...claimedRasterPages.values()].map(([
+                pageNumber,
+                dpi,
+            ]) => retention.releaseRaster(
+                document,
+                pageNumber,
+                dpi,
+                claimId,
+            )));
+            await retention.release(document, claimId);
+            if (managedScratchPath === undefined) {
+                await fileSystem.rm(scratch, {
+                    recursive: true,
+                    force: true,
+                });
+            }
         }
     }
 }
