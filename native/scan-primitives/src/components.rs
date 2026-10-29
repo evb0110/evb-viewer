@@ -149,6 +149,22 @@ impl ComponentMap {
         maxima
     }
 
+    /// Sums of the x and of the y coordinates of each foreground component's
+    /// pixels. A run of n pixels on row y adds n * y and the arithmetic
+    /// series of its columns, so no pixel is visited one at a time.
+    pub fn coordinate_sums_by_component(&self) -> (Vec<u64>, Vec<u64>) {
+        let mut sums_x = vec![0u64; self.components.len() + 1];
+        let mut sums_y = vec![0u64; self.components.len() + 1];
+        for y in 0..self.height {
+            for run in &self.runs[self.row_offsets[y]..self.row_offsets[y + 1]] {
+                let (start, end) = (u64::from(run.start), u64::from(run.end));
+                sums_x[run.label as usize] += (start + end - 1) * (end - start) / 2;
+                sums_y[run.label as usize] += y as u64 * (end - start);
+            }
+        }
+        (sums_x, sums_y)
+    }
+
     /// Luminance sum and sample count under each foreground component.
     pub fn gray_sums_by_component(&self, image: &GrayImage) -> (Vec<u64>, Vec<usize>) {
         assert_eq!((image.width(), image.height()), (self.width, self.height));
