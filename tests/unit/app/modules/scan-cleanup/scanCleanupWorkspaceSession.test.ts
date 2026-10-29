@@ -2952,6 +2952,59 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('settles cancellation while final preview preparation remains pending', async () => {
+        vi.useFakeTimers();
+        const harness = capabilityHarness();
+        const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        const finalRequested = Promise.withResolvers<undefined>();
+        const admittedJobs: string[] = [];
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.visible === true && request.layoutDetectionComplete) {
+                finalRequested.resolve(undefined);
+                return finalPreview.promise;
+            }
+            return previewResult(request.pageNumber, 'single-uncut-page');
+        });
+        vi.mocked(harness.value.start).mockImplementation(async request => {
+            admittedJobs.push(request.sourcePdfPath);
+            return {
+                started: false,
+                jobId: requireJobId('unexpected-canceled-run'),
+                error: 'Unexpected cleanup admission',
+                errorCode: 'internal',
+            };
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('cancel-pending-final-preview');
+        let running: Promise<void> | undefined;
+        try {
+            mounted.session.settings.values.outputMode = 'grayscale';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(250);
+            expect(mounted.session.preview.resultCurrent.value).toBe(true);
+            harness.emitDetection(detectionState('detect-1', 'completed'));
+            await nextTick();
+            expect(mounted.session.preview.resultCurrent.value).toBe(false);
+            let settled = false;
+            running = mounted.session.run.run().finally(() => { settled = true; });
+            await vi.advanceTimersByTimeAsync(0);
+            await finalRequested.promise;
+            expect(mounted.session.run.starting.value).toBe(true);
+
+            await mounted.session.run.cancel();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect.soft(settled).toBe(true);
+            expect.soft(mounted.session.run.isRunning.value).toBe(false);
+            expect(admittedJobs).toEqual([]);
+        } finally {
+            finalPreview.resolve(previewResult(1, 'single-uncut-page'));
+            await running;
+            mounted.unmount();
+            vi.useRealTimers();
+        }
+    });
+
     it('refreshes stale provisional geometry before cleanup pauses the preview', async () => {
         const harness = capabilityHarness();
         const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
