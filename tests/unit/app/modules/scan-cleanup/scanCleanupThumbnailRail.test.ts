@@ -501,7 +501,8 @@ describe('ScanCleanupThumbnailRail', () => {
             2,
             3,
         ]);
-        expect(harness!.host.textContent).toContain('3 source pages');
+        // The heading counts the rows the rail renders, not the stale total.
+        expect(harness!.host.querySelector('[aria-label="3 source pages"]')?.textContent?.trim()).toBe('3');
         expect(pageRow(harness!.host, 3).querySelector('.scan-thumbnail-options-toggle')?.getAttribute('aria-label'))
             .toBe('Page 3 settings');
     });
