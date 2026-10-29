@@ -746,6 +746,71 @@ mod tests {
     }
 
     #[test]
+    fn abstained_content_detection_keeps_full_page_unscaled_without_matched_margins() {
+        let mut outputs = [output(
+            PageHalf::Full,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            (100, 100),
+        )];
+        outputs[0].content_box = None;
+        let options = CleanupOptions {
+            dpi: 100.0,
+            crop_content: true,
+            match_page_size: true,
+            ..options([5.08; 4], PageAlignment::TopCenter)
+        };
+        let canvas = DocumentCanvas {
+            width_points: 72.0,
+            height_points: 72.0,
+            width_px: 100,
+            height_px: 100,
+        };
+        let raster = crate::engine::output_geometry::plan_canvas_placement_for(
+            100,
+            100,
+            100.0,
+            100.0,
+            false,
+            &options,
+            PageHalf::Full,
+            &canvas,
+        );
+        assert!(raster.margins_unavailable);
+        assert_eq!(raster.requested_margins, [0; 4]);
+        plan_lossless_page(
+            &mut outputs,
+            &PdfPageGeometry {
+                source_dpi: 100.0,
+                ..page(72.0, 72.0, 0)
+            },
+            OrthogonalRotation::None,
+            &options,
+            Some(canvas),
+            true,
+        );
+        let placement = outputs[0].pdf_placement.as_ref().unwrap();
+        let preview = placement.preview.unwrap();
+        assert_eq!(
+            preview.margins,
+            AppliedMargins::from([0.0; 4]),
+            "lossless placement must omit unavailable margins just as raster placement does"
+        );
+        assert!(
+            !placement.content_scaled,
+            "abstaining must retain the full page at its original scale"
+        );
+        assert!(placement.content_transform.is_none());
+        assert_eq!(
+            (preview.content_width_px, preview.content_height_px),
+            (100, 100)
+        );
+        assert_eq!((preview.offset_x_px, preview.offset_y_px), (0, 0));
+        assert!(placement
+            .warning_events
+            .contains(&CleanupWarningEvent::MatchedCanvasMarginsUnavailable));
+    }
+
+    #[test]
     fn maps_an_analysis_rect_through_the_display_rotation() {
         let rect = Rect::new(10.0, 20.0, 30.0, 40.0);
         let upright = analysis_rect_to_pdf(
