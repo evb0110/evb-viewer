@@ -274,9 +274,9 @@ const translations: Record<string, string> = {
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
     'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
     'scanCleanup.pages.outputModeLosslessControlHint': 'Per-page output mode is unavailable because preserving original quality forces color.',
-    'scanCleanup.imageOnly': 'Output is image-only —',
-    'scanCleanup.rasterNotice': 'Pages are rasterized.',
-    'scanCleanup.lossNotice': 'Original PDF objects are not carried over.',
+    'scanCleanup.imageOnly': EN_MESSAGES.scanCleanup.imageOnly,
+    'scanCleanup.rasterNotice': EN_MESSAGES.scanCleanup.rasterNotice,
+    'scanCleanup.lossNotice': EN_MESSAGES.scanCleanup.lossNotice,
     'scanCleanup.workspaceTitle': 'Scan cleanup',
     'scanCleanup.button': 'Scan cleanup',
     'scanCleanup.description': 'Clean scanned pages.',
@@ -1415,6 +1415,22 @@ describe('Scan cleanup components', () => {
 
         expect(row.querySelector('[data-auto-value-state="mixed"]')?.textContent?.trim()).toBe('Mixed');
         expect(row.querySelector('[data-auto-value-state="auto"]')).toBeNull();
+    });
+
+    it('describes conditional source text and annotation preservation in compact output Details', async () => {
+        const harness = await mountRealWorkspace('compact-preservation-details');
+        harness.session.settings.values.preserveOriginalQuality = false;
+        await nextTick();
+        const details = harness.host.querySelector('.scan-cleanup-details-popover')!;
+        const text = details.textContent?.replace(/\s+/g, ' ') ?? '';
+
+        // sourceTextLayer.ts maps source text through affine geometry, and
+        // assembleCompactScanCleanupPages.ts overlays text and annotations.
+        // Non-affine dewarping cannot safely reuse those positioned objects.
+        expect.soft(harness.host.querySelector('.scan-cleanup-footnote')?.textContent).not.toMatch(/image-only/i);
+        expect.soft(text).toMatch(/(?:retain|preserv)[^.]*text|text[^.]*\b(?:retained|preserved)\b/i);
+        expect.soft(text).toMatch(/annotation/i);
+        expect(text).toMatch(/dewarp|non.affine/i);
     });
 
     it('publishes matched-canvas point dimensions for spread and mixed-scale outputs', () => {
