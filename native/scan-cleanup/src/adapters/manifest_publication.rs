@@ -1,5 +1,5 @@
 use crate::{
-    io::{write_atomic, StagedFileBackup},
+    io::{write_atomic, FileSnapshot, StagedFileBackup},
     protocol::manifest_v3::ManifestV3,
 };
 use evb_native_support::{NativeError, NativeErrorCode};
@@ -99,35 +99,28 @@ impl ManifestPublicationTransaction {
             manifest_path: manifest_path.to_path_buf(),
             journal_entries: Vec::new(),
         };
+        // One journal write records every snapshot and absent destination
+        // before any original is removed. A write per destination made a
+        // 500-page batch rewrite and sync a growing journal 6,500 times.
+        let mut snapshots = Vec::new();
         for path in transaction.destinations.clone() {
             match fs::symlink_metadata(&path) {
-                Ok(metadata) if metadata.is_file() => {
-                    match StagedFileBackup::stage_with_hook(&path, |original, backup| {
+                Ok(metadata) if metadata.is_file() => match FileSnapshot::take(&path) {
+                    Ok(snapshot) => {
                         transaction.journal_entries.push(PublicationJournalEntry {
-                            original: original.to_path_buf(),
-                            backup: Some(backup.to_path_buf()),
+                            original: path.clone(),
+                            backup: snapshot.backup().map(Path::to_path_buf),
                             remove: false,
                         });
-                        if let Err(error) = write_publication_journal(
-                            &transaction.journal_path,
-                            &transaction.manifest_path,
-                            false,
-                            &transaction.journal_entries,
-                        ) {
-                            transaction.journal_entries.pop();
-                            return Err(error);
-                        }
-                        Ok(())
-                    }) {
-                        Ok(backup) => transaction.backups.push(backup),
-                        Err(error) => {
-                            return Err(transaction.abort_begin(format!(
-                                "Unable to snapshot existing output destination {}: {error}",
-                                path.display()
-                            )));
-                        }
+                        snapshots.push((path, snapshot));
                     }
-                }
+                    Err(error) => {
+                        return Err(transaction.abort_begin(format!(
+                            "Unable to snapshot existing output destination {}: {error}",
+                            path.display()
+                        )));
+                    }
+                },
                 Ok(metadata) if metadata.is_dir() => {}
                 Ok(_) => {
                     return Err(transaction.abort_begin(format!(
@@ -137,26 +130,35 @@ impl ManifestPublicationTransaction {
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     transaction.journal_entries.push(PublicationJournalEntry {
-                        original: path.clone(),
+                        original: path,
                         backup: None,
                         remove: true,
                     });
-                    if let Err(error) = write_publication_journal(
-                        &transaction.journal_path,
-                        &transaction.manifest_path,
-                        false,
-                        &transaction.journal_entries,
-                    ) {
-                        transaction.journal_entries.pop();
-                        return Err(transaction.abort_begin(format!(
-                            "Unable to record absent output destination {}: {error}",
-                            path.display()
-                        )));
-                    }
                 }
                 Err(error) => {
                     return Err(transaction.abort_begin(format!(
                         "Unable to inspect output destination {}: {error}",
+                        path.display()
+                    )));
+                }
+            }
+        }
+        if let Err(error) = write_publication_journal(
+            &transaction.journal_path,
+            &transaction.manifest_path,
+            false,
+            &transaction.journal_entries,
+        ) {
+            return Err(
+                transaction.abort_begin(format!("Unable to record output destinations: {error}"))
+            );
+        }
+        for (path, snapshot) in snapshots {
+            match snapshot.stage() {
+                Ok(backup) => transaction.backups.push(backup),
+                Err(error) => {
+                    return Err(transaction.abort_begin(format!(
+                        "Unable to snapshot existing output destination {}: {error}",
                         path.display()
                     )));
                 }
@@ -420,6 +422,16 @@ mod tests {
         }
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = run_manifest_transaction(&manifest_path, &manifest, || {
+                // A sidecar killed here leaves Electron this journal to
+                // replay: every removed original must have its backup.
+                let journal: Value = serde_json::from_slice(&fs::read(&journal_path)?)?;
+                let entries = journal["entries"].as_array().unwrap();
+                assert_eq!(entries.len(), destinations.len());
+                for (entry, path) in entries.iter().zip(&destinations) {
+                    assert_eq!(entry["original"], path.to_string_lossy().as_ref());
+                    assert!(!path.exists());
+                    assert!(Path::new(entry["backup"].as_str().unwrap()).is_file());
+                }
                 for path in &destinations[..4] {
                     fs::write(path, b"partial replacement")?;
                 }

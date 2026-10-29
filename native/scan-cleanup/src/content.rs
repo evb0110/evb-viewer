@@ -1655,9 +1655,23 @@ fn split_histogram_bands(
         return;
     }
     let mut best: Option<(usize, f64)> = None;
-    for valley in start + minimum_rows..=end - minimum_rows {
-        let left_peak = histogram[start..valley].iter().copied().max().unwrap_or(0);
-        let right_peak = histogram[valley..end].iter().copied().max().unwrap_or(0);
+    // Running maxima give each candidate valley its two peaks without
+    // rescanning the band per candidate.
+    let mut right_peaks = vec![0; end - start + 1];
+    for row in (start..end).rev() {
+        right_peaks[row - start] = right_peaks[row - start + 1].max(histogram[row]);
+    }
+    let first_valley = start + minimum_rows;
+    let mut left_peak = histogram[start..first_valley]
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0);
+    for valley in first_valley..=end - minimum_rows {
+        if valley > first_valley {
+            left_peak = left_peak.max(histogram[valley - 1]);
+        }
+        let right_peak = right_peaks[valley - start];
         let smaller = left_peak.min(right_peak);
         let larger = left_peak.max(right_peak);
         if smaller.saturating_mul(20) < larger || larger == 0 {
@@ -1672,6 +1686,8 @@ fn split_histogram_bands(
             best = Some((valley, depth));
         }
     }
+    // Recursion must not keep every frame's maxima alive.
+    drop(right_peaks);
     if let Some((valley, _)) = best {
         split_histogram_bands(histogram, start, valley, minimum_rows, output);
         split_histogram_bands(histogram, valley, end, minimum_rows, output);

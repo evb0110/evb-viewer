@@ -88,19 +88,9 @@ impl PageCalibration {
         let ink_fraction = binary.count_black() as f64 / pixel_count as f64;
         let map = ComponentMap::from_binary(binary);
         let distance_to_white = squared_euclidean_distance(&binary.invert());
-        let mut component_maxima = vec![0u32; map.components().len() + 1];
-        for y in 0..binary.height() {
-            for x in 0..binary.width() {
-                let label = map.label_at(x, y) as usize;
-                if label != 0 {
-                    component_maxima[label] =
-                        component_maxima[label].max(distance_to_white[y * binary.width() + x]);
-                }
-            }
-        }
         Self::estimate_from_components(
             map.components(),
-            &component_maxima,
+            &map.maximum_values_by_component(&distance_to_white),
             ink_fraction,
             effective_dpi,
             config,

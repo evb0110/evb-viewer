@@ -300,9 +300,13 @@ pub(crate) fn run_page(
     let canonical_analysis_input = page
         .analysis_input_path
         .as_ref()
-        .map(|path| {
-            raster::read_image(path, options.max_pixels, options.max_dimension)
-                .map_err(|error| map_raster_error(error, path, page.source_page_index))
+        .map(|path| match &color_input {
+            // A preview names one raster as both its input and its analysis
+            // plane; a second decode of it cost ~65 ms at four megapixels.
+            Some(input) if *path == page.input_path => Ok(Arc::clone(input)),
+            _ => raster::read_image(path, options.max_pixels, options.max_dimension)
+                .map(Arc::new)
+                .map_err(|error| map_raster_error(error, path, page.source_page_index)),
         })
         .transpose()?;
     if let Some(canonical) = canonical_analysis_input.as_ref() {
