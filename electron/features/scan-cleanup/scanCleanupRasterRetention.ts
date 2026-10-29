@@ -384,10 +384,9 @@ export function scanCleanupRasterRetention(
                 return read;
             };
             const pageRasterCache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
-            const pendingRasterReads = new Map<number, {
-                reject: (error: unknown) => void;
-                resolve: (raster: IDetectedPageRaster | undefined) => void
-            }>();
+            // One read per page until it settles: the LRU below may evict a
+            // pending promise, and a second request must join it, not replace it.
+            const pendingRasterReads = new Map<number, PromiseWithResolvers<IDetectedPageRaster | undefined>>();
             let rasterReadFlushScheduled = false;
             let documentDpi: number | null = null;
             const observeRaster = (raster: IDetectedPageRaster | undefined) => {
@@ -464,16 +463,17 @@ export function scanCleanupRasterRetention(
                     }
                 });
             };
-            const readRasterPage = (pageNumber: number) => new Promise<IDetectedPageRaster | undefined>((resolve, reject) => {
-                pendingRasterReads.set(pageNumber, {
-                    resolve,
-                    reject,
-                });
+            const readRasterPage = (pageNumber: number) => {
+                const pending = pendingRasterReads.get(pageNumber);
+                if (pending !== undefined) return pending.promise;
+                const read = Promise.withResolvers<IDetectedPageRaster | undefined>();
+                pendingRasterReads.set(pageNumber, read);
                 if (!rasterReadFlushScheduled) {
                     rasterReadFlushScheduled = true;
                     void Promise.resolve().then(flushRasterReads);
                 }
-            });
+                return read.promise;
+            };
             const getPageRaster = (pageNumber: number) => {
                 const cached = pageRasterCache.get(pageNumber);
                 if (cached !== undefined) {
