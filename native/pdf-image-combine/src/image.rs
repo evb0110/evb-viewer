@@ -16,8 +16,9 @@ use evb_native_support::bounded_io::read_open_file_bounded;
 #[cfg(test)]
 use evb_native_support::{NativeError, NativeErrorCode};
 use evb_raster_io::{
-    decode_png, decode_png_composited_rgb, read_png_metadata, read_png_passthrough, CompressedPng,
-    DecodeLimits, PassthroughLimits, PngColorType, PngDensity, PngMetadata,
+    decode_png, decode_png_composited_rgb, decode_png_gray, read_png_metadata,
+    read_png_passthrough, CompressedPng, DecodeLimits, PassthroughLimits, PngColorType, PngDensity,
+    PngMetadata,
 };
 
 use crate::{
@@ -540,7 +541,7 @@ fn read_png_jpeg_page(
     )?;
     let (channels, pixels) = match png.color_type {
         PngColorType::Gray8 if png.transparency.is_none() => {
-            let decoded = decode_png(
+            let decoded = decode_png_gray(
                 bytes,
                 DecodeLimits {
                     max_pixels,
@@ -548,7 +549,7 @@ fn read_png_jpeg_page(
                     max_compressed_bytes: bytes.len(),
                 },
             )?;
-            (1, Cow::Owned(decoded.gray.into_data()))
+            (1, Cow::Owned(decoded.into_data()))
         }
         PngColorType::Rgb8 if png.transparency.is_none() => {
             let decoded = decode_png(
@@ -598,9 +599,8 @@ fn read_png_jpeg_page(
         processing,
         page_size,
     )?;
-    let (prepared, quality) =
+    let (prepared, _, (data, color_space)) =
         encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
-    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
     if use_flate_fallback {
         let flate = encode_prepared_netpbm_as_flate(&prepared)?;
         if flate.data.len() < data.len() {
@@ -795,10 +795,8 @@ fn read_netpbm_jpeg_page_data(
     use_flate_fallback: bool,
 ) -> Result<ImagePage> {
     let prepared = prepare_netpbm_for_jpeg(netpbm, max_pixels, processing, page_size)?;
-    let (prepared, quality) =
+    let (prepared, _, (jpeg_data, jpeg_color_space)) =
         encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
-
-    let (jpeg_data, jpeg_color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
     if use_flate_fallback {
         let flate = encode_prepared_netpbm_as_flate(&prepared)?;
         if flate.data.len() < jpeg_data.len() {
@@ -827,10 +825,13 @@ fn read_netpbm_jpeg_page_data(
     })
 }
 
+/// JPEG bytes and the PDF colour space they decode to.
+type EncodedJpeg = (Vec<u8>, &'static str);
+
 fn encode_prepared_netpbm_as_jpeg(
     prepared: &PreparedNetpbmPixels<'_>,
     quality: u8,
-) -> Result<(Vec<u8>, &'static str)> {
+) -> Result<EncodedJpeg> {
     let width = u16::try_from(prepared.width)
         .map_err(|_| format!("JPEG width is too large to encode: {}", prepared.width))?;
     let height = u16::try_from(prepared.height)
@@ -866,64 +867,73 @@ fn encode_prepared_netpbm_as_jpeg(
     Ok((data, color_space))
 }
 
+/// Encodes `prepared` as JPEG. With a guardrail, a page over its size
+/// ceiling is encoded again at a lower quality and then downscaled. Returns
+/// the pixels and quality of the accepted encoding together with it, so the
+/// caller never encodes the same pixels a second time.
 fn encode_with_size_guardrail<'a>(
     prepared: PreparedNetpbmPixels<'a>,
     max_pixels: u64,
     quality: u8,
     page_size: Option<PdfPageSize>,
     guardrail: Option<JpegSizeGuardrail>,
-) -> Result<(PreparedNetpbmPixels<'a>, u8)> {
+) -> Result<(PreparedNetpbmPixels<'a>, u8, EncodedJpeg)> {
+    let encoded = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
     let Some(guardrail) = guardrail else {
-        return Ok((prepared, quality));
+        return Ok((prepared, quality, encoded));
     };
-    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
-    let size_ceiling = jpeg_size_ceiling_bytes(&prepared, color_space, page_size);
-    if data.len() <= size_ceiling {
-        return Ok((prepared, quality));
+    let size_ceiling = jpeg_size_ceiling_bytes(&prepared, encoded.1, page_size);
+    if encoded.0.len() <= size_ceiling {
+        return Ok((prepared, quality, encoded));
     }
 
     let mut current_prepared = prepared;
     let mut current_quality = quality;
-    let mut current_bytes = data.len();
+    let mut current = encoded;
 
+    // Each replacement drops the encoding it replaces before it is made.
     let lower_quality = quality.saturating_sub(10).max(JPEG_GUARDRAIL_QUALITY_FLOOR);
     if lower_quality < quality {
-        let (quality_data, _) = encode_prepared_netpbm_as_jpeg(&current_prepared, lower_quality)?;
+        let replaced_bytes = current.0.len();
+        drop(current);
+        let lower = encode_prepared_netpbm_as_jpeg(&current_prepared, lower_quality)?;
         emit_guardrail_action(
             guardrail,
             "quality",
             &quality.to_string(),
             &lower_quality.to_string(),
-            current_bytes,
-            quality_data.len(),
+            replaced_bytes,
+            lower.0.len(),
         );
         current_quality = lower_quality;
-        current_bytes = quality_data.len();
+        current = lower;
     }
 
-    if current_bytes > size_ceiling {
+    if current.0.len() > size_ceiling {
         if let Some((next_width, next_height)) = downscale_dimensions_to_effective_ppi(
             &current_prepared,
             page_size,
             JPEG_GUARDRAIL_PPI_CAP,
         ) {
             let from = format!("{}x{}", current_prepared.width, current_prepared.height);
+            let replaced_bytes = current.0.len();
+            drop(current);
             current_prepared =
                 resize_prepared_netpbm(current_prepared, next_width, next_height, max_pixels)?;
-            let (downscaled_data, _) =
-                encode_prepared_netpbm_as_jpeg(&current_prepared, current_quality)?;
+            let downscaled = encode_prepared_netpbm_as_jpeg(&current_prepared, current_quality)?;
             emit_guardrail_action(
                 guardrail,
                 "downscale",
                 &from,
                 &format!("{}x{}", current_prepared.width, current_prepared.height),
-                current_bytes,
-                downscaled_data.len(),
+                replaced_bytes,
+                downscaled.0.len(),
             );
+            current = downscaled;
         }
     }
 
-    Ok((current_prepared, current_quality))
+    Ok((current_prepared, current_quality, current))
 }
 
 /// A JPEG decoded and encoded again by [`recompress_jpeg`].
@@ -1572,7 +1582,7 @@ mod tests {
             ),
         };
 
-        let (prepared, quality) = encode_with_size_guardrail(
+        let (prepared, quality, _) = encode_with_size_guardrail(
             prepared,
             1_000_000,
             85,
@@ -1614,7 +1624,7 @@ mod tests {
             5_625
         );
 
-        let (prepared, quality) = encode_with_size_guardrail(
+        let (prepared, quality, _) = encode_with_size_guardrail(
             prepared_100_ppi,
             1_000_000,
             85,
@@ -1664,7 +1674,7 @@ mod tests {
             ]),
         };
 
-        let (prepared, quality) = encode_with_size_guardrail(
+        let (prepared, quality, _) = encode_with_size_guardrail(
             prepared,
             1_000_000,
             85,
