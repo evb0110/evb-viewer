@@ -4684,6 +4684,62 @@ describe('Scan cleanup components', () => {
         expect(harness.surface.classList).not.toContain('is-panning-preview');
     });
 
+    it.each([
+        {
+            rotationDegrees: 90,
+            clientX: 200,
+            clientY: 100,
+            expected: 0.75,
+        },
+        {
+            rotationDegrees: 180,
+            clientX: 200,
+            clientY: 100,
+            expected: 0.6,
+        },
+        {
+            rotationDegrees: 270,
+            clientX: 200,
+            clientY: 100,
+            expected: 0.25,
+        },
+    ] as const)('maps the original cutter through $rotationDegrees degree rotation', async ({
+        rotationDegrees, clientX, clientY, expected,
+    }) => {
+        const result = spreadPreviewResult();
+        result.pageMetadata.rotationDegrees = rotationDegrees;
+        result.pageMetadata.cutterXPx = 200;
+        for (const output of result.outputs) output.metadata.rotationDegrees = rotationDegrees;
+        const harness = mountPreviewZoomHarness({
+            viewMode: 'original',
+            result,
+        });
+        await nextTick();
+        const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
+        mockPointerCapture(cutter);
+        // The original 1000x800 scan fits into a 500x400 frame. Quarter-turn
+        // analysis X therefore comes from raw Y; a half-turn reverses raw X.
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            pointerId: 9,
+            button: 0,
+            clientX,
+            clientY,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 9,
+            clientX,
+            clientY,
+        }));
+        await nextTick();
+
+        expect(harness.splitUpdates.at(-1)).toEqual({
+            xNormalized: expected,
+            rotationDegrees,
+        });
+    });
+
     it('draws a manual zone at navigation zoom without giving the pointer to preview pan', async () => {
         const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
         const harness = mountPreviewZoomHarness({
