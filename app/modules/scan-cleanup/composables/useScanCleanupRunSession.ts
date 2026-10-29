@@ -504,6 +504,28 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         const stopWait = new Promise<void>(resolve => {
             interruptPendingTransition = resolve;
         });
+        // The attempt belongs to the document the click captured. Every wait
+        // before admission can outlive that document, so each one ends by
+        // asking again; a replaced document retires the attempt.
+        let attemptRetired = false;
+        const retireIfDocumentChanged = () => {
+            if (attemptRetired) return true;
+            if (
+                requestSourcePdfPath === options.sourcePath.value
+                && requestDocumentRevision === options.documentRevision.value
+            ) {
+                return false;
+            }
+            attemptRetired = true;
+            reportScanCleanupRunError(
+                options.ownerId,
+                t('scanCleanup.documentChangedBeforeRun'),
+                requestSourcePdfPath,
+                'internal',
+                requestDocumentRevision,
+            );
+            return true;
+        };
         let detectionRecoveryAttempted = false;
         const refreshDetectionOnce = async () => {
             if (detectionRecoveryAttempted) {
@@ -520,6 +542,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 !result.started
                 && result.errorCode === 'detection-results-unavailable'
                 && await refreshDetectionOnce()
+                && !retireIfDocumentChanged()
             ) {
                 result = await startScanCleanup(buildRequest());
             }
@@ -543,17 +566,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 return;
             }
-            if (
-                requestSourcePdfPath !== options.sourcePath.value
-                || requestDocumentRevision !== options.documentRevision.value
-            ) {
-                reportScanCleanupRunError(
-                    options.ownerId,
-                    t('scanCleanup.documentChangedBeforeRun'),
-                    requestSourcePdfPath,
-                    'internal',
-                    requestDocumentRevision,
-                );
+            if (retireIfDocumentChanged()) {
                 return;
             }
             const detectionStatus = options.detectionStatus.value;
@@ -669,7 +682,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             await nextTick();
             await options.beforeRun(stopWait);
             setScanCleanupRunError(options.ownerId, '');
-            if (isStopRequested()) {
+            if (isStopRequested() || retireIfDocumentChanged()) {
                 return;
             }
             const result = await startCleanupWithDetectionRecovery();
@@ -679,6 +692,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 if (result.started) await requestActiveJobCancellation(result.jobId);
                 return;
             }
+            if (attemptRetired) return;
             if (!result.started) {
                 reportScanCleanupRunError(
                     options.ownerId,
