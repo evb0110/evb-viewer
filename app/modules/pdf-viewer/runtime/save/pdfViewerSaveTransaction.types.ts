@@ -5,7 +5,6 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type {ISerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {
     IPdfNativeAnnotationIdentityBinding,
     IPdfNativeAnnotationDelete,
@@ -137,7 +136,6 @@ export interface IPdfViewerSaveTransactionDirtyState {
 }
 
 export interface INativePdfMutationProjection {
-    canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
     mutations: IPdfNativeMutationSet;
     /** Geometry-only updates are carried separately so persistence cannot lose them while adapting the payload. */
     placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];

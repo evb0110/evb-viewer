@@ -50,7 +50,6 @@ const cloneRefsByProjection: TDocumentRef[] = [];
 let nextCloneIndex = 0;
 
 const PRINT_PROJECTION: INativePdfMutationProjection = {
-    canonicalAnnotationProgram: [],
     mutations: {updates: []},
     noteTextUpdates: [],
     freeTextNotes: [],
