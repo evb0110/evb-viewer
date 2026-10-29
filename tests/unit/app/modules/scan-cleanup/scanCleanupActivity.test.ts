@@ -227,6 +227,29 @@ describe('scan cleanup activity', () => {
         expect(activity.steps.find(step => step.id === 'compare')?.count).toEqual({completed: 12});
     });
 
+    it('counts only re-checked pages during compare instead of showing a completed analysis total', () => {
+        for (const recheckedUnits of [
+            undefined,
+            0,
+            12,
+        ]) {
+            const activity = resolveScanCleanupActivity({
+                detection: analysis({
+                    analyzedPages: 148,
+                    progress: progress({
+                        completedUnits: 148,
+                        rasterizedUnits: 148,
+                        ...(recheckedUnits === undefined ? {} : {recheckedUnits}),
+                    }),
+                }),
+                run: null,
+            })!;
+
+            expect(activity.step).toBe('compare');
+            expect(activity.count).toEqual(recheckedUnits ? {completed: recheckedUnits} : null);
+        }
+    });
+
     it('continues the analysis account when Clean up is clicked during analysis', () => {
         const detection = analysis({
             analyzedPages: 56,

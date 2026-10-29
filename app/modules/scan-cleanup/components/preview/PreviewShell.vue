@@ -37,6 +37,21 @@
                 />
             </div>
             <div class="preview-controls">
+                <AppTooltip :disabled="disabled" :text="t('scanCleanup.zones.toggleHint')" usefulness="always">
+                    <UButton
+                        class="preview-zone-editor-toggle"
+                        type="button"
+                        :color="zoneEditing ? 'primary' : 'neutral'"
+                        :variant="zoneEditing ? 'soft' : 'ghost'"
+                        size="sm"
+                        square
+                        icon="i-ph-bounding-box"
+                        :aria-label="t('scanCleanup.zones.toggle')"
+                        :aria-pressed="zoneEditing === true"
+                        :disabled="disabled"
+                        @click="$emit('update:zoneEditing', zoneEditing !== true)"
+                    />
+                </AppTooltip>
                 <div
                     class="preview-zoom-controls"
                     role="group"
@@ -646,6 +661,7 @@ const emit = defineEmits<{
     next: [];
     retry: [];
     'update:viewMode': [value: 'original' | 'cleaned'];
+    'update:zoneEditing': [value: boolean];
     'update:manualSplit': [value: IScanCleanupNormalizedSplit | null];
     'update:manualContentBox': [half: TScanCleanupOutputHalf, value: IScanCleanupNormalizedRect | null];
     'update:manualZones': [value: IScanCleanupManualZones];

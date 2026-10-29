@@ -20,21 +20,6 @@
         </div>
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-center">
-            <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
-                <UButton
-                    class="scan-cleanup-toolbar-zone-editor"
-                    type="button"
-                    :color="zoneEditing ? 'primary' : 'neutral'"
-                    :variant="zoneEditing ? 'soft' : 'ghost'"
-                    size="xs"
-                    square
-                    icon="i-ph-bounding-box"
-                    :aria-label="t('scanCleanup.zones.toggle')"
-                    :aria-pressed="zoneEditing"
-                    :disabled="isRunning"
-                    @click="emit('update:zoneEditing', !zoneEditing)"
-                />
-            </AppTooltip>
             <!-- Analysis and a run share this slot and its size, so clicking
                  Clean up while pages are analyzed continues the same meter. -->
             <div class="scan-cleanup-toolbar-main-slot">
@@ -45,20 +30,6 @@
                     :notice="cancelStatusText"
                 />
                 <template v-else>
-                    <AppTooltip :text="t('scanCleanup.detectAll.redetect')">
-                        <UButton
-                            class="scan-cleanup-toolbar-redetect"
-                            type="button"
-                            color="neutral"
-                            variant="ghost"
-                            size="xs"
-                            icon="i-ph-arrows-clockwise"
-                            :label="t('scanCleanup.detectAll.redetect')"
-                            :aria-label="t('scanCleanup.detectAll.redetect')"
-                            :disabled="!canDetectAll || isDetecting"
-                            @click="emit('detect-all')"
-                        />
-                    </AppTooltip>
                     <div class="scan-cleanup-toolbar-status-slot">
                         <template v-if="runError">
                             <AppTooltip :text="runError" usefulness="overflow">
@@ -83,6 +54,13 @@
                                 {{ detectionError }}
                             </span>
                         </AppTooltip>
+                        <!-- A disabled button shows no tooltip, so the reason it is
+                             disabled is said where the estimate would be. -->
+                        <span
+                            v-else-if="!canRun && runDisabledReason"
+                            class="scan-cleanup-toolbar-estimate"
+                            data-run-disabled-reason
+                        >{{ runDisabledReason }}</span>
                         <span v-else-if="outputEstimate" class="scan-cleanup-toolbar-estimate">
                             {{ outputEstimate }}
                         </span>
@@ -109,41 +87,6 @@
         </div>
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
-            <div
-                v-if="settingsBadges.length > 0 && !isRunning"
-                class="scan-cleanup-settings-badges"
-                role="status"
-                :aria-label="t('scanCleanup.settingsBadges.title')"
-            >
-                    <span
-                        v-for="badge in settingsBadges"
-                        :key="badge.id"
-                        class="scan-cleanup-settings-badge"
-                    >
-                        <span class="scan-cleanup-settings-badge-label">{{ badge.label }}</span>
-                        <UButton
-                            class="scan-cleanup-settings-badge-remove"
-                            type="button"
-                            color="neutral"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-x"
-                            :aria-label="t('scanCleanup.settingsBadges.remove', {setting: badge.label})"
-                            @click="emit('remove-setting', badge.id)"
-                        />
-                    </span>
-                <UButton
-                    class="scan-cleanup-settings-reset"
-                    type="button"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    icon="i-ph-arrow-u-up-left"
-                    :label="t('scanCleanup.settingsBadges.reset')"
-                    @click="emit('reset-settings')"
-                />
-            </div>
             <div class="scan-cleanup-toolbar-primary-slot">
                 <UButton
                     v-if="isRunning"
@@ -189,7 +132,6 @@ import {
 const {
     activity = null,
     activityTimeline = null,
-    canDetectAll,
     canRun,
     cancelRequested,
     cancelStatusText = '',
@@ -202,12 +144,9 @@ const {
     runError = '',
     runLabel,
     runDisabledReason,
-    settingsBadges = [],
-    zoneEditing,
 } = defineProps<{
     activity?: IScanCleanupActivity | null;
     activityTimeline?: IScanCleanupActivityTimeline | null;
-    canDetectAll: boolean;
     canRun: boolean;
     cancelRequested: boolean;
     cancelStatusText?: string;
@@ -220,22 +159,13 @@ const {
     runError?: string;
     runLabel: string;
     runDisabledReason: string;
-    settingsBadges?: ReadonlyArray<{
-        id: string;
-        label: string
-    }>;
-    zoneEditing?: boolean;
 }>();
 const emit = defineEmits<{
     cancel: [];
     'cancel-detection': [];
-    'detect-all': [];
     'dismiss-run-error': [];
     done: [];
-    'remove-setting': [id: string];
-    'reset-settings': [];
     run: [];
-    'update:zoneEditing': [value: boolean];
 }>();
 const {t} = useTypedI18n();
 // A failed run stays readable until dismissed, even while analysis restarts.
@@ -301,12 +231,6 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     white-space: nowrap;
 }
 
-.scan-cleanup-toolbar-redetect {
-    width: var(--app-scan-toolbar-redetect-width);
-    flex: none;
-    justify-content: center;
-}
-
 .scan-cleanup-toolbar-main-slot {
     display: flex;
     min-width: 0;
@@ -318,7 +242,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 .scan-cleanup-toolbar-status-slot {
     height: var(--app-control-height-xs);
     flex: 1 1 auto;
-    justify-content: flex-start;
+    justify-content: center;
     gap: var(--app-space-sm);
     overflow: hidden;
 }
@@ -343,47 +267,6 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     justify-content: center;
 }
 
-.scan-cleanup-settings-badges {
-    position: relative;
-    z-index: var(--app-z-floating-chrome);
-    display: flex;
-    min-width: 0;
-    max-width: calc(var(--app-scan-toolbar-right-zone-width) * 3);
-    flex-wrap: nowrap;
-    flex: 0 1 auto;
-    align-items: center;
-    justify-content: flex-start;
-    overflow: auto hidden;
-    gap: var(--app-space-xs);
-}
-
-.scan-cleanup-settings-badge {
-    display: inline-flex;
-    min-width: max-content;
-    flex: 0 0 auto;
-    align-items: center;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.scan-cleanup-settings-badge-label {
-    overflow: hidden;
-    padding-inline-start: var(--app-space-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.scan-cleanup-settings-badge-remove {
-    flex: none;
-}
-
-.scan-cleanup-settings-reset {
-    flex: none;
-}
-
 @media (width <= 64rem) {
     .scan-cleanup-toolbar {
         height: auto;
@@ -401,10 +284,6 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     .scan-cleanup-toolbar-zone-center {
         grid-column: 1 / -1;
         grid-row: 2;
-    }
-
-    .scan-cleanup-settings-reset [data-slot='label'] {
-        display: none;
     }
 }
 

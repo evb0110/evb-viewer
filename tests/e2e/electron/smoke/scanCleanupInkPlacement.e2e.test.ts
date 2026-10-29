@@ -296,7 +296,7 @@ describe('scan cleanup ink placement', () => {
             // and ends only once detection, open after that change, has
             // settled and its preview is shown: the first detection finishing
             // before the click lands cannot end it early.
-            const marginInput = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            const marginInput = document.querySelector<HTMLInputElement>('input[data-margin-side="all"]');
             const initialMargin = marginInput?.value;
             let marginChanged = false;
             let rerunOpen = false;
@@ -330,7 +330,7 @@ describe('scan cleanup ink placement', () => {
             });
         });
 
-        await clickAsUser(page, '[data-margin-side="topMm"] ~ [data-slot="increment"] button');
+        await clickAsUser(page, '[data-margin-side="all"] ~ [data-slot="increment"] button');
         await waitForFunctionInPage(page, () => (window as IRerunProbeWindow).rerunFrames?.done === true, {timeout: 240_000});
         const frames = await page.evaluate(() => (window as IRerunProbeWindow).rerunFrames?.frames ?? []);
         const status = await page.evaluate(() => document.querySelector('.scan-cleanup-surface')

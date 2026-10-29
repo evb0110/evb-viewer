@@ -28,8 +28,8 @@ export const formatScanCleanupDuration = formatElapsedClock;
 
 /** The widest time text, so the time slot can reserve its box. */
 export const resolveScanCleanupTimeWidestText = (t: TTranslateFn) => [
-    t('scanCleanup.activity.etaMinutes', {minutes: 999}),
-    t('scanCleanup.activity.etaSeconds', {seconds: 55}),
+    `88:88 · ${t('scanCleanup.activity.etaMinutes', {minutes: 999})}`,
+    `88:88 · ${t('scanCleanup.activity.etaSeconds', {seconds: 55})}`,
     t('scanCleanup.activity.elapsed', {time: '88:88'}),
 ].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest);
 

@@ -1,422 +1,350 @@
 <template>
     <div class="scan-cleanup-settings-content">
         <header class="scan-cleanup-settings-header">
-            <strong>{{ t('scanCleanup.settings.scope.label') }}</strong>
-            <UPopover
-                v-if="hasScopeOverrides"
-                v-model:open="resetOpen"
-                portal
-                :content="{side: 'bottom', align: 'end'}"
+            <strong>{{ t('scanCleanup.settings.title') }}</strong>
+            <AppTooltip
+                v-if="changedSettings.length > 0"
+                :text="t('scanCleanup.settings.changedFromDefaults', {settings: changedSettings.join(', ')})"
+                usefulness="always"
             >
                 <UButton
                     type="button"
-                    class="scan-cleanup-scope-reset"
+                    class="scan-cleanup-settings-reset"
                     color="neutral"
-                    variant="outline"
+                    variant="ghost"
                     size="xs"
-                    :label="resetLabel"
+                    icon="i-ph-arrow-u-up-left"
+                    :label="t('scanCleanup.settingsBadges.reset')"
+                    @click="$emit('reset-settings')"
                 />
-                <template #content>
-                    <div class="scan-cleanup-reset-confirmation">
-                        <strong>{{ t('scanCleanup.settings.resetScope.confirm') }}</strong>
-                        <span>{{ resetConfirmationBody }}</span>
-                        <div class="scan-cleanup-reset-actions">
-                            <UButton
-                                type="button"
-                                color="neutral"
-                                variant="ghost"
-                                size="sm"
-                                :label="t('common.cancel')"
-                                @click="resetOpen = false"
-                            />
-                            <UButton
-                                type="button"
-                                color="primary"
-                                size="sm"
-                                :label="t('scanCleanup.pages.resetAction')"
-                                @click="confirmReset"
-                            />
-                        </div>
-                    </div>
-                </template>
-            </UPopover>
+            </AppTooltip>
         </header>
 
         <div class="scan-cleanup-settings-scroll app-scrollbar app-scroll-region--balanced">
-            <div class="scan-cleanup-scope-area">
-            <ScanCleanupScopeSelector
-                :model-value="scope"
-                :customized-counts="customizedCounts"
-                :highlighted-scope="highlightedScope"
-                :page-number="pageNumber"
-                :selected-count="selectedCount"
-                :total-pages="totalPages"
-                @update:model-value="$emit('update:scope', $event)"
-            />
-            </div>
-
-        <section class="scan-cleanup-option-group">
-            <h3>{{ t('scanCleanup.groups.pageSettings') }}</h3>
-            <div class="scan-cleanup-selection-field">
-                <div class="scan-cleanup-selection-field-label">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.layout.label') }}</span>
-                        <span
-                            v-if="scope !== 'all' && overrideCounts.layout > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="layout"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="layout.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
-                        <UBadge
-                            v-if="scope === 'all' && overrideCounts.layout > 0"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            data-override-count="layout"
-                            :title="overrideCountTitle(overrideCounts.layout)"
-                        >{{ overrideCounts.layout }}</UBadge>
-                        <UButton
-                            v-if="scope !== 'all' && overrideCounts.layout > 0"
-                            type="button"
-                            color="primary"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="layout"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'layout')"
-                        />
-                    </div>
-                </div>
-                <USelect
-                    :model-value="layoutModelValue"
-                    :items="layoutItems"
-                    value-key="value"
-                    class="w-full"
-                    :aria-label="t('scanCleanup.layout.label')"
-                    @update:model-value="$emit('update-layout', $event)"
+            <section class="scan-cleanup-option-group" data-settings-group="output">
+                <h3>{{ t('scanCleanup.output.label') }}</h3>
+                <ScanCleanupSegmented
+                    :model-value="settings.outputMode"
+                    :items="outputItems.map(item => ({...item, ariaLabel: item.fullLabel}))"
+                    :group-label="t('scanCleanup.output.label')"
+                    :disabled="lossless"
+                    @update:model-value="updateDocument('outputMode', $event)"
                 />
-            </div>
-            <div class="scan-cleanup-selection-field">
-                <div class="scan-cleanup-selection-field-label">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.settings.rotation') }}</span>
-                        <span
-                            v-if="scope !== 'all' && overrideCounts.rotation > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="rotation"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="rotation.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
-                        <UBadge
-                            v-if="scope === 'all' && overrideCounts.rotation > 0"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            data-override-count="rotation"
-                            :title="overrideCountTitle(overrideCounts.rotation)"
-                        >{{ overrideCounts.rotation }}</UBadge>
-                        <UButton
-                            v-if="scope !== 'all' && overrideCounts.rotation > 0"
-                            type="button"
-                            color="primary"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="rotation"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'rotation')"
-                        />
-                    </div>
-                </div>
-                <USelect
-                    :model-value="rotationModelValue"
-                    :items="rotationItems"
-                    value-key="value"
-                    class="w-full"
-                    :aria-label="t('scanCleanup.settings.rotation')"
-                    @update:model-value="$emit('update-rotation', $event)"
-                />
-            </div>
-            <div class="scan-cleanup-selection-field">
-                <div class="scan-cleanup-selection-field-label">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.settings.inOutput') }}</span>
-                        <span
-                            v-if="scope !== 'all' && overrideCounts.inclusion > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="inclusion"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="excluded.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
-                        <UBadge
-                            v-if="scope === 'all' && overrideCounts.inclusion > 0"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            data-override-count="inclusion"
-                            :title="overrideCountTitle(overrideCounts.inclusion)"
-                        >{{ overrideCounts.inclusion }}</UBadge>
-                        <UButton
-                            v-if="scope !== 'all' && overrideCounts.inclusion > 0"
-                            type="button"
-                            color="primary"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="inclusion"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'inclusion')"
-                        />
-                    </div>
-                </div>
-                <USelect
-                    :model-value="inclusionModelValue"
-                    :items="inclusionItems"
-                    value-key="value"
-                    class="w-full"
-                    :aria-label="t('scanCleanup.settings.inOutput')"
-                    @update:model-value="$emit('update-inclusion', $event)"
-                />
-            </div>
-
-            <div
-                class="scan-cleanup-margins-control"
-                @focusin="$emit('margin-interaction', true)"
-                @focusout="handleMarginFocusOut"
-            >
-                <div class="scan-cleanup-margins-header">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.margins.title') }}</span>
-                        <span
-                            v-if="scope !== 'all' && overrideCounts.margins > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="margins"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="margins.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
-                        <UBadge
-                            v-if="scope === 'all' && overrideCounts.margins > 0"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            data-override-count="margins"
-                            :title="overrideCountTitle(overrideCounts.margins)"
-                        >{{ overrideCounts.margins }}</UBadge>
-                        <UButton
-                            v-if="scope !== 'all' && overrideCounts.margins > 0"
-                            type="button"
-                            color="primary"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="margins"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'margins')"
-                        />
-                    </div>
-                </div>
-                <div class="scan-cleanup-margins-grid">
-                    <UFormField
-                        v-for="side in SCAN_CLEANUP_MARGIN_SIDES"
-                        :key="side.key"
-                        :label="t(side.labelKey)"
-                    >
-                        <UInputNumber
-                            :model-value="margins.mixed ? null : margins.value?.[side.key] ?? null"
-                            :data-margin-side="side.key"
-                            :min="0"
-                            :max="SCAN_CLEANUP_MARGIN_MAX_MM"
-                            :step="1"
-                            @change="handleMarginChange(side.key, $event)"
-                            @update:model-value="emitMargin(side.key, $event)"
-                        />
-                    </UFormField>
-                </div>
+                <p class="scan-cleanup-option-description" data-output-description>{{ outputDescription }}</p>
                 <UCheckbox
-                    class="w-full"
-                    data-margins-link
-                    :model-value="marginsLinked"
-                    :label="t('scanCleanup.margins.link')"
-                    :title="t('scanCleanup.margins.linkTooltip')"
-                    @update:model-value="$emit('update:margins-linked', $event === true)"
+                    :model-value="lossless"
+                    :label="t('scanCleanup.output.preserveOriginalQuality')"
+                    @update:model-value="updateDocument('preserveOriginalQuality', $event === true)"
                 />
-            </div>
-
-            <ScanCleanupAutoValueRow
-                :label="manualSkewLabel"
-                :state="manualSkewState"
-                :value-text="manualSkewValueText"
-                :hint="manualSkewHint"
-                reserve-hint
-                :disabled="settings.preserveOriginalQuality === true"
-                @reset="$emit('reset-manual-skew')"
-            >
-                <template #entry>
-                    <UInputNumber
-                        class="scan-cleanup-manual-skew-input"
-                        :model-value="manualSkewEntryValue"
-                        :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
-                        :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
-                        :step="0.1"
-                        :increment-disabled="manualSkew.mixed"
-                        :decrement-disabled="manualSkew.mixed"
-                        :aria-label="`${manualSkewLabel} (${manualSkewRange})`"
-                        :disabled="settings.preserveOriginalQuality === true"
-                        @update:model-value="emitManualSkew"
-                    />
-                </template>
-            </ScanCleanupAutoValueRow>
-            <ScanCleanupAutoValueRow
-                :label="t('scanCleanup.settings.manualSplit')"
-                :state="manualSplitState"
-                @reset="$emit('reset-manual-split')"
-            />
-            <ScanCleanupAutoValueRow
-                :label="t('scanCleanup.settings.contentBox')"
-                :state="contentBoxesState"
-                @reset="$emit('reset-content-boxes')"
-            />
-
-            <div class="scan-cleanup-selection-field">
-                <div class="scan-cleanup-selection-field-label">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.settings.contentPlacement') }}</span>
-                        <span
-                            v-if="scope !== 'all' && overrideCounts.placement > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="placement"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="placementAlignment.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
-                        <UBadge
-                            v-if="scope === 'all' && overrideCounts.placement > 0"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            data-override-count="placement"
-                            :title="overrideCountTitle(overrideCounts.placement)"
-                        >{{ overrideCounts.placement }}</UBadge>
-                        <UButton
-                            v-if="scope !== 'all' && overrideCounts.placement > 0"
-                            type="button"
-                            color="primary"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="placement"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'placement')"
-                        />
-                    </div>
-                </div>
-                <div
-                    class="scan-cleanup-alignment-grid"
-                    role="radiogroup"
-                    :aria-label="t('scanCleanup.settings.contentPlacement')"
+                <UFormField
+                    :class="{'scan-cleanup-field-disabled': !bilevelOutput}"
+                    :label="t('scanCleanup.thickness.label', {value: thicknessLabel})"
                 >
-                    <UButton
-                        v-for="item in alignmentItems"
-                        :key="item.value"
-                        :class="item.value === 'ink' ? 'scan-cleanup-alignment-ink' : undefined"
-                        :aria-label="item.label"
-                        :aria-checked="!placementAlignment.mixed && placementAlignment.value === item.value"
-                        :color="!placementAlignment.mixed && placementAlignment.value === item.value ? 'primary' : 'neutral'"
-                        :variant="!placementAlignment.mixed && placementAlignment.value === item.value ? 'soft' : 'outline'"
-                        :disabled="!settings.matchPageSize"
-                        role="radio"
-                        size="sm"
-                        :icon="item.icon"
-                        v-bind="item.value === 'ink' ? {label: item.label} : {}"
-                        @click="$emit('update-placement', item.value)"
+                    <USlider
+                        color="primary"
+                        :min="-5"
+                        :max="5"
+                        :step="1"
+                        :model-value="settings.thickness"
+                        :aria-label="t('scanCleanup.thickness.control')"
+                        :disabled="!bilevelOutput"
+                        @update:model-value="$emit('thickness-input', $event ?? settings.thickness)"
+                    />
+                    <div class="scan-cleanup-scale" aria-hidden="true">
+                        <span>{{ t('scanCleanup.thickness.thinner') }}</span>
+                        <span>{{ t('scanCleanup.thickness.default') }}</span>
+                        <span>{{ t('scanCleanup.thickness.thicker') }}</span>
+                    </div>
+                </UFormField>
+            </section>
+
+            <section class="scan-cleanup-option-group" data-settings-group="document">
+                <h3>{{ t('scanCleanup.groups.documentSettings') }}</h3>
+                <UCheckbox
+                    :model-value="settings.crop"
+                    :label="t('scanCleanup.crop.label')"
+                    @update:model-value="updateDocument('crop', $event === true)"
+                />
+                <UCheckbox
+                    :model-value="settings.matchPageSize"
+                    :label="t('scanCleanup.pageSize.match')"
+                    v-bind="lossless && settings.matchPageSize ? {description: t('scanCleanup.pageSize.matchLosslessNote')} : {}"
+                    @update:model-value="updateDocument('matchPageSize', $event === true)"
+                />
+                <div class="scan-cleanup-inline-row">
+                    <UCheckbox
+                        :model-value="settings.skipBlankPages"
+                        :label="t('scanCleanup.crop.skipBlank')"
+                        :disabled="lossless"
+                        @update:model-value="updateDocument('skipBlankPages', $event === true)"
+                    />
+                    <span
+                        v-if="blankPageCount > 0"
+                        class="scan-cleanup-inline-note"
+                    >{{ t('scanCleanup.crop.blankDetected', {count: blankPageCount}) }}</span>
+                </div>
+                <div class="scan-cleanup-selection-field">
+                    <ScanCleanupSettingLabel :label="t('scanCleanup.layout.readingOrder')" />
+                    <ScanCleanupSegmented
+                        :model-value="settings.readingOrder"
+                        :items="readingOrderItems"
+                        :group-label="t('scanCleanup.layout.readingOrder')"
+                        @update:model-value="updateDocument('readingOrder', $event)"
                     />
                 </div>
-                <p class="scan-cleanup-selection-hint is-reserved is-two-lines">
-                    {{ placementHint }}&nbsp;
-                </p>
-            </div>
+            </section>
 
-            <!--
-                Kept in the layout for every scope, so switching between all
-                pages and one page does not move the settings below it.
-            -->
-            <div
-                class="scan-cleanup-selection-field"
-                :class="{invisible: scope === 'all'}"
-                :aria-hidden="scope === 'all' ? 'true' : undefined"
-                :inert="scope === 'all' ? true : undefined"
-            >
-                <div class="scan-cleanup-selection-field-label">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.output.pageLabel') }}</span>
-                        <span
-                            v-if="overrideCounts.outputMode > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="output-mode"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="outputModeOverride.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
+            <section class="scan-cleanup-option-group" data-settings-group="pages">
+                <h3>{{ t('scanCleanup.groups.pageSettings') }}</h3>
+                <ScanCleanupScopeSelector
+                    :model-value="scope"
+                    :customized-counts="customizedCounts"
+                    :highlighted-scope="highlightedScope"
+                    :page-number="pageNumber"
+                    :selected-count="selectedCount"
+                    @update:model-value="$emit('update:scope', $event)"
+                />
+                <div class="scan-cleanup-scope-context" data-scope-context>
+                    <span>{{ scopeContext }}</span>
+                    <UPopover
+                        v-if="hasScopeOverrides"
+                        v-model:open="resetOpen"
+                        portal
+                        :content="{side: 'bottom', align: 'end'}"
+                    >
                         <UButton
-                            v-if="overrideCounts.outputMode > 0"
                             type="button"
+                            class="scan-cleanup-scope-reset"
                             color="primary"
-                            variant="ghost"
+                            variant="link"
                             size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="output-mode"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'output-mode')"
+                            :label="t(`scanCleanup.settings.resetScope.${scope}`)"
                         />
+                        <template #content>
+                            <div class="scan-cleanup-reset-confirmation">
+                                <strong>{{ t('scanCleanup.settings.resetScope.confirm') }}</strong>
+                                <span>{{ resetConfirmationBody }}</span>
+                                <div class="scan-cleanup-reset-actions">
+                                    <UButton
+                                        type="button"
+                                        color="neutral"
+                                        variant="ghost"
+                                        size="sm"
+                                        :label="t('common.cancel')"
+                                        @click="resetOpen = false"
+                                    />
+                                    <UButton
+                                        type="button"
+                                        color="primary"
+                                        size="sm"
+                                        :label="t('scanCleanup.pages.resetAction')"
+                                        @click="confirmReset"
+                                    />
+                                </div>
+                            </div>
+                        </template>
+                    </UPopover>
+                </div>
+
+                <ScanCleanupPageFindings
+                    v-if="scope === 'page' && pageFacts"
+                    :facts="pageFacts"
+                    :page-number="pageNumber"
+                />
+
+                <div class="scan-cleanup-selection-field">
+                    <ScanCleanupSettingLabel
+                        control="layout"
+                        :label="t('scanCleanup.layout.label')"
+                        :mixed="layout.mixed"
+                        :overridden="scoped && overrideCounts.layout > 0"
+                        @reset="$emit('reset-control-override', 'layout')"
+                    />
+                    <USelect
+                        :model-value="layoutModelValue"
+                        :items="layoutItems"
+                        value-key="value"
+                        class="w-full"
+                        :aria-label="t('scanCleanup.layout.label')"
+                        @update:model-value="$emit('update-layout', $event)"
+                    />
+                </div>
+
+                <div class="scan-cleanup-selection-field">
+                    <ScanCleanupSettingLabel
+                        control="rotation"
+                        :label="t('scanCleanup.settings.rotation')"
+                        :mixed="rotation.mixed"
+                        :overridden="scoped && overrideCounts.rotation > 0"
+                        @reset="$emit('reset-control-override', 'rotation')"
+                    />
+                    <ScanCleanupSegmented
+                        :model-value="rotationModelValue"
+                        :items="rotationSegments"
+                        :group-label="t('scanCleanup.settings.rotation')"
+                        @update:model-value="$emit('update-rotation', $event)"
+                    />
+                </div>
+
+                <div v-if="scoped" class="scan-cleanup-selection-field">
+                    <ScanCleanupSettingLabel
+                        control="output-mode"
+                        :label="t('scanCleanup.output.pageLabel')"
+                        :mixed="outputModeOverride.mixed"
+                        :overridden="overrideCounts.outputMode > 0"
+                        @reset="$emit('reset-control-override', 'output-mode')"
+                    />
+                    <USelect
+                        :model-value="outputModeOverrideModelValue"
+                        :items="outputModeOverrideItems"
+                        value-key="value"
+                        class="w-full"
+                        :aria-label="t('scanCleanup.output.pageLabel')"
+                        :disabled="lossless"
+                        @update:model-value="$emit('update-output-mode', $event)"
+                    />
+                    <p v-if="outputModeHint" class="scan-cleanup-option-description">{{ outputModeHint }}</p>
+                </div>
+
+                <div
+                    class="scan-cleanup-margins-control"
+                    @focusin="$emit('margin-interaction', true)"
+                    @focusout="handleMarginFocusOut"
+                >
+                    <ScanCleanupSettingLabel
+                        control="margins"
+                        :label="t('scanCleanup.margins.title')"
+                        :mixed="margins.mixed"
+                        :overridden="scoped && overrideCounts.margins > 0"
+                        @reset="$emit('reset-control-override', 'margins')"
+                    >
+                        <AppTooltip :text="t('scanCleanup.margins.linkTooltip')" usefulness="always">
+                            <UButton
+                                type="button"
+                                data-margins-link
+                                :color="marginsLinked ? 'primary' : 'neutral'"
+                                variant="ghost"
+                                size="xs"
+                                square
+                                :icon="marginsLinked ? 'i-ph-link-simple' : 'i-ph-link-simple-break'"
+                                role="switch"
+                                :aria-checked="marginsLinked"
+                                :aria-label="t('scanCleanup.margins.link')"
+                                @click="$emit('update:margins-linked', !marginsLinked)"
+                            />
+                        </AppTooltip>
+                    </ScanCleanupSettingLabel>
+                    <UInputNumber
+                        v-if="marginsLinked"
+                        data-margin-side="all"
+                        :model-value="linkedMarginValue"
+                        :min="0"
+                        :max="SCAN_CLEANUP_MARGIN_MAX_MM"
+                        :step="1"
+                        :aria-label="t('scanCleanup.margins.all')"
+                        @change="handleMarginChange('all', $event)"
+                        @update:model-value="emitMargin('all', $event)"
+                    />
+                    <div v-else class="scan-cleanup-margins-grid">
+                        <UFormField
+                            v-for="side in SCAN_CLEANUP_MARGIN_SIDES"
+                            :key="side.key"
+                            :label="t(side.labelKey)"
+                        >
+                            <UInputNumber
+                                :model-value="margins.mixed ? null : margins.value?.[side.key] ?? null"
+                                :data-margin-side="side.key"
+                                :min="0"
+                                :max="SCAN_CLEANUP_MARGIN_MAX_MM"
+                                :step="1"
+                                @change="handleMarginChange(side.key, $event)"
+                                @update:model-value="emitMargin(side.key, $event)"
+                            />
+                        </UFormField>
                     </div>
                 </div>
-                <USelect
-                    :model-value="outputModeOverrideModelValue"
-                    :items="outputModeOverrideItems"
-                    value-key="value"
-                    class="w-full"
-                    :aria-label="t('scanCleanup.output.pageLabel')"
-                    :title="settings.preserveOriginalQuality
-                        ? t('scanCleanup.pages.outputModeLosslessControlHint')
-                        : undefined"
-                    :disabled="settings.preserveOriginalQuality === true"
-                    @update:model-value="$emit('update-output-mode', $event)"
-                />
-                <p
-                    v-if="settings.preserveOriginalQuality"
-                    class="scan-cleanup-lossless-explanation"
-                >{{ t('scanCleanup.pages.outputModeLosslessControlHint') }}</p>
-            </div>
 
-            <div class="scan-cleanup-apply-page-area">
+                <ScanCleanupAutoValueRow
+                    :label="manualSkewLabel"
+                    :state="manualSkewState"
+                    :value-text="manualSkewValueText"
+                    :hint="manualSkewHint"
+                    reserve-hint
+                    :disabled="lossless"
+                    @reset="$emit('reset-manual-skew')"
+                >
+                    <template #entry>
+                        <UInputNumber
+                            class="scan-cleanup-manual-skew-input"
+                            :model-value="manualSkewEntryValue"
+                            :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
+                            :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
+                            :step="0.1"
+                            :increment-disabled="manualSkew.mixed"
+                            :decrement-disabled="manualSkew.mixed"
+                            :aria-label="`${manualSkewLabel} (${manualSkewRange})`"
+                            :disabled="lossless"
+                            @update:model-value="emitManualSkew"
+                        />
+                    </template>
+                </ScanCleanupAutoValueRow>
+
+                <div v-if="settings.matchPageSize" class="scan-cleanup-selection-field">
+                    <ScanCleanupSettingLabel
+                        control="placement"
+                        :label="t('scanCleanup.settings.contentPlacement')"
+                        :mixed="placementAlignment.mixed"
+                        :overridden="scoped && overrideCounts.placement > 0"
+                        @reset="$emit('reset-control-override', 'placement')"
+                    />
+                    <div
+                        class="scan-cleanup-alignment-grid"
+                        role="radiogroup"
+                        :aria-label="t('scanCleanup.settings.contentPlacement')"
+                    >
+                        <UButton
+                            v-for="item in alignmentItems"
+                            :key="item.value"
+                            :class="item.value === 'ink' ? 'scan-cleanup-alignment-ink' : undefined"
+                            :aria-label="item.label"
+                            :aria-checked="!placementAlignment.mixed && placementAlignment.value === item.value"
+                            :color="!placementAlignment.mixed && placementAlignment.value === item.value ? 'primary' : 'neutral'"
+                            :variant="!placementAlignment.mixed && placementAlignment.value === item.value ? 'soft' : 'outline'"
+                            role="radio"
+                            size="sm"
+                            :icon="item.icon"
+                            v-bind="item.value === 'ink' ? {label: item.label} : {}"
+                            @click="$emit('update-placement', item.value)"
+                        />
+                    </div>
+                    <p v-if="placementHint" class="scan-cleanup-option-description">{{ placementHint }}</p>
+                </div>
+
+                <UCheckbox
+                    v-if="scoped"
+                    :model-value="excluded.mixed ? 'indeterminate' : excluded.value !== true"
+                    :label="t('scanCleanup.pages.includeInOutput')"
+                    data-page-inclusion
+                    @update:model-value="$emit('update-inclusion', $event === true ? 'included' : 'excluded')"
+                />
+
+                <ScanCleanupAutoValueRow
+                    v-if="manualSplitState !== 'auto'"
+                    :label="t('scanCleanup.settings.manualSplit')"
+                    :state="manualSplitState"
+                    @reset="$emit('reset-manual-split')"
+                />
+                <ScanCleanupAutoValueRow
+                    v-if="contentBoxesState !== 'auto'"
+                    :label="t('scanCleanup.settings.contentBox')"
+                    :state="contentBoxesState"
+                    @reset="$emit('reset-content-boxes')"
+                />
+
                 <UDropdownMenu
+                    v-if="scope === 'page'"
                     :items="applyScopeItems"
                     :content="{side: 'bottom', align: 'end'}"
-                    :disabled="scope !== 'page'"
                 >
                     <UButton
                         type="button"
@@ -426,90 +354,10 @@
                         size="sm"
                         :label="t('scanCleanup.settings.applyThisPageTo')"
                         trailing-icon="i-ph-caret-down"
-                        :disabled="scope !== 'page'"
-                        :aria-describedby="scope === 'page' ? undefined : applyPageHintId"
                     />
                 </UDropdownMenu>
-                <p
-                    :id="applyPageHintId"
-                    class="scan-cleanup-selection-hint is-reserved is-two-lines"
-                >
-                    {{ scope === 'page' ? '' : t('scanCleanup.settings.applyThisPageToHint') }}&nbsp;
-                </p>
-            </div>
-        </section>
+            </section>
 
-        <section class="scan-cleanup-option-group">
-            <h3>{{ t('scanCleanup.groups.documentSettings') }}</h3>
-            <UCheckbox
-                :model-value="settings.preserveOriginalQuality === true"
-                :label="t('scanCleanup.output.preserveOriginalQuality')"
-                @update:model-value="updateDocument('preserveOriginalQuality', $event === true)"
-            />
-            <ScanCleanupSegmented
-                :model-value="settings.outputMode"
-                :items="outputItems.map(item => ({...item, ariaLabel: item.fullLabel}))"
-                :group-label="t('scanCleanup.output.label')"
-                :disabled="settings.preserveOriginalQuality === true"
-                @update:model-value="updateDocument('outputMode', $event)"
-            />
-            <UFormField
-                :class="{'scan-cleanup-field-disabled': !thicknessApplies}"
-                :label="t('scanCleanup.thickness.label', {value: thicknessLabel})"
-            >
-                <USlider
-                    color="primary"
-                    :min="-5"
-                    :max="5"
-                    :step="1"
-                    :model-value="settings.thickness"
-                    :aria-label="t('scanCleanup.thickness.control')"
-                    :disabled="!thicknessApplies"
-                    @update:model-value="$emit('thickness-input', $event ?? settings.thickness)"
-                />
-                <div class="scan-cleanup-scale" aria-hidden="true">
-                    <span>{{ t('scanCleanup.thickness.thinner') }}</span>
-                    <span>{{ t('scanCleanup.thickness.default') }}</span>
-                    <span>{{ t('scanCleanup.thickness.thicker') }}</span>
-                </div>
-            </UFormField>
-            <p v-if="settings.preserveOriginalQuality" class="scan-cleanup-lossless-explanation">
-                {{ t('scanCleanup.output.losslessDisabledOptions') }}
-            </p>
-            <UFormField :label="t('scanCleanup.layout.readingOrder')">
-                <USelect
-                    :model-value="settings.readingOrder"
-                    :items="readingOrderItems"
-                    value-key="value"
-                    class="w-full"
-                    @update:model-value="updateDocument('readingOrder', $event)"
-                />
-            </UFormField>
-            <UCheckbox
-                :model-value="settings.crop"
-                :label="t('scanCleanup.crop.label')"
-                @update:model-value="updateDocument('crop', $event === true)"
-            />
-            <UCheckbox
-                :model-value="settings.matchPageSize"
-                :label="t('scanCleanup.pageSize.match')"
-                @update:model-value="updateDocument('matchPageSize', $event === true)"
-            />
-            <p class="scan-cleanup-selection-hint is-reserved is-two-lines">
-                {{ settings.preserveOriginalQuality && settings.matchPageSize
-                    ? t('scanCleanup.pageSize.matchLosslessNote')
-                    : '' }}&nbsp;
-            </p>
-            <UCheckbox
-                :model-value="settings.skipBlankPages"
-                :label="t('scanCleanup.crop.skipBlank')"
-                :disabled="settings.preserveOriginalQuality === true"
-                @update:model-value="updateDocument('skipBlankPages', $event === true)"
-            />
-            <p
-                v-if="blankPageCount > 0"
-                class="scan-cleanup-blank-detected-hint"
-            >{{ t('scanCleanup.crop.blankDetected', {count: blankPageCount}) }}</p>
             <UCollapsible
                 v-model:open="advancedOpen"
                 :unmount-on-hide="false"
@@ -537,7 +385,7 @@
                                 :items="binarizationItems"
                                 value-key="value"
                                 class="w-full"
-                                :disabled="settings.preserveOriginalQuality === true"
+                                :disabled="lossless"
                                 @update:model-value="updateDocument('binarization', $event)"
                             />
                         </UFormField>
@@ -548,21 +396,20 @@
                                 :items="despeckleItems"
                                 value-key="value"
                                 class="w-full"
-                                :disabled="settings.preserveOriginalQuality === true
-                                    || (settings.outputMode !== 'bw' && settings.outputMode !== 'mixed')"
+                                :disabled="!bilevelOutput"
                                 @update:model-value="updateDocument('despeckleLevel', $event)"
                             />
                         </UFormField>
                         <UCheckbox
                             :model-value="settings.normalizeIllumination ?? true"
                             :label="t('scanCleanup.advanced.normalizeIllumination')"
-                            :disabled="settings.preserveOriginalQuality === true"
+                            :disabled="lossless"
                             @update:model-value="updateDocument('normalizeIllumination', $event === true)"
                         />
                         <UCheckbox
                             :model-value="settings.autoDewarp ?? false"
                             :label="t('scanCleanup.advanced.autoDewarp')"
-                            :disabled="settings.preserveOriginalQuality === true"
+                            :disabled="lossless"
                             @update:model-value="updateDocument('autoDewarp', $event === true)"
                         />
                         <ScanCleanupAutoValueRow
@@ -584,34 +431,30 @@
                                 />
                             </template>
                         </ScanCleanupAutoValueRow>
-                        <p v-if="settings.preserveOriginalQuality" class="scan-cleanup-selection-hint">
-                            {{ t('scanCleanup.advanced.losslessDisabled') }}
-                        </p>
                     </div>
                 </template>
             </UCollapsible>
-        </section>
 
-        <div v-if="!settings.preserveOriginalQuality" class="scan-cleanup-footnote">
-            <span>{{ t('scanCleanup.imageOnly') }}</span>
-            <UPopover>
-                <UButton
-                    type="button"
-                    class="scan-cleanup-details-trigger"
-                    color="primary"
-                    variant="link"
-                    size="xs"
-                    icon="i-ph-info"
-                    :label="t('scanCleanup.details')"
-                />
-                <template #content>
-                    <div class="scan-cleanup-details-popover">
-                        <p>{{ t('scanCleanup.rasterNotice') }}</p>
-                        <p>{{ t('scanCleanup.lossNotice') }}</p>
-                    </div>
-                </template>
-            </UPopover>
-        </div>
+            <div v-if="!lossless" class="scan-cleanup-footnote">
+                <span>{{ t('scanCleanup.imageOnly') }}</span>
+                <UPopover>
+                    <UButton
+                        type="button"
+                        class="scan-cleanup-details-trigger"
+                        color="primary"
+                        variant="link"
+                        size="xs"
+                        icon="i-ph-info"
+                        :label="t('scanCleanup.details')"
+                    />
+                    <template #content>
+                        <div class="scan-cleanup-details-popover">
+                            <p>{{ t('scanCleanup.rasterNotice') }}</p>
+                            <p>{{ t('scanCleanup.lossNotice') }}</p>
+                        </div>
+                    </template>
+                </UPopover>
+            </div>
         </div>
     </div>
 </template>
@@ -636,18 +479,24 @@ import {
     SCAN_CLEANUP_MARGIN_MAX_MM,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
+import ScanCleanupPageFindings from '@app/modules/scan-cleanup/components/settings/ScanCleanupPageFindings.vue';
 import ScanCleanupScopeSelector from '@app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue';
+import ScanCleanupSettingLabel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingLabel.vue';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import type {
     TScanCleanupOverrideControl,
     TScanCleanupSettingsScope,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
+import {
+    scanCleanupPageOutputModeHint,
+    type IScanCleanupPageFacts,
+} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 import type {IScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
-import type {
-    TScanCleanupMarginSide,
-    TScanCleanupMarginTarget,
+import type {TScanCleanupMarginTarget} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
+import {
+    SCAN_CLEANUP_MARGIN_SIDES,
+    scanCleanupMarginsUniform,
 } from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
-import {SCAN_CLEANUP_MARGIN_SIDES} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 
 interface ISelectItem<TValue extends string = string> {
     value: TValue;
@@ -681,13 +530,14 @@ const props = defineProps<{
         }
     >;
     blankPageCount: number;
+    /** Labels of the settings that differ from the defaults. */
+    changedSettings: readonly string[];
     contentBoxes: IScanCleanupMixedValue<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>;
     customizedCounts: Record<TScanCleanupSettingsScope, number>;
     detectedSkewDegrees: number | undefined;
     excluded: IScanCleanupMixedValue<boolean>;
     hasScopeOverrides: boolean;
     highlightedScope: TScanCleanupSettingsScope | null;
-    inclusionItems: ISelectItem[];
     layout: IScanCleanupMixedValue<IScanCleanupOptions['layoutMode'] | TScanCleanupPageLayoutOverride>;
     layoutItems: ISelectItem[];
     manualSplit: IScanCleanupMixedValue<IScanCleanupNormalizedSplit | null>;
@@ -698,6 +548,8 @@ const props = defineProps<{
     outputModeOverride: IScanCleanupMixedValue<TScanCleanupOutputMode | undefined>;
     outputModeOverrideItems: ISelectItem[];
     overrideCounts: IScanCleanupOverrideCounts;
+    /** What is known about the page in Page scope, for its findings and hints. */
+    pageFacts: IScanCleanupPageFacts | null;
     pageNumber: number;
     placementAlignment: IScanCleanupMixedValue<TScanCleanupPageAlignment>;
     readingOrderItems: Array<ISelectItem<IScanCleanupOptions['readingOrder']>>;
@@ -716,6 +568,7 @@ const emit = defineEmits<{
     'reset-manual-split': [];
     'reset-manual-skew': [];
     'reset-scope-overrides': [];
+    'reset-settings': [];
     'thickness-input': [value: number | number[]];
     'update-inclusion': [value: string | number];
     'update-layout': [value: string | number];
@@ -729,23 +582,38 @@ const emit = defineEmits<{
     'update:scope': [value: TScanCleanupSettingsScope];
 }>();
 const {t} = useTypedI18n();
+const resetOpen = ref(false);
+const advancedOpen = ref(false);
+const lossless = computed(() => props.settings.preserveOriginalQuality === true);
+// Page and Selected scopes edit their own pages; All edits the defaults every
+// page starts from, so only the scoped views mark controls as overridden.
+const scoped = computed(() => props.scope !== 'all');
+const outputDescription = computed(() => lossless.value
+    ? t('scanCleanup.output.losslessDisabledOptions')
+    : t(`scanCleanup.output.description.${props.settings.outputMode}`));
+const scopeContext = computed(() => {
+    if (props.scope === 'page') {
+        return t('scanCleanup.settings.scope.pageContext', {page: props.pageNumber});
+    }
+    if (props.scope === 'selected') {
+        return t('scanCleanup.settings.scope.selectedContext', {count: props.selectedCount});
+    }
+    return props.hasScopeOverrides
+        ? t('scanCleanup.settings.scope.allContextCustomized')
+        : t('scanCleanup.settings.scope.allContext');
+});
 // Automatic dewarping replaces the detected content boxes with a reshaped
 // page, so `ink` has nothing to anchor to and every output falls back to the
 // top-centre position. Say so where the choice is made rather than letting the
 // preview quietly disagree with the setting.
-const placementHint = computed(() => {
-    if (!props.settings.matchPageSize) {
-        return t('scanCleanup.settings.enableMatchPageSize');
-    }
-    return !props.placementAlignment.mixed
-        && props.placementAlignment.value === 'ink'
-        && props.settings.autoDewarp === true
-        ? t('scanCleanup.settings.inkNeedsContentBoxes')
-        : '';
-});
-const resetOpen = ref(false);
-const advancedOpen = ref(false);
-const applyPageHintId = 'scan-cleanup-apply-page-hint';
+const placementHint = computed(() => !props.placementAlignment.mixed
+    && props.placementAlignment.value === 'ink'
+    && props.settings.autoDewarp === true
+    ? t('scanCleanup.settings.inkNeedsContentBoxes')
+    : '');
+const outputModeHint = computed(() => props.scope === 'page' && props.pageFacts
+    ? scanCleanupPageOutputModeHint(t, props.pageFacts, props.settings.outputMode, lossless.value)
+    : '');
 const binarizationItems = computed(() => ([
     'auto',
     'otsu',
@@ -766,13 +634,17 @@ const despeckleItems = computed(() => ([
 })));
 
 const layoutModelValue = computed(() => props.layout.mixed ? 'mixed' : props.layout.value ?? 'auto');
-const rotationModelValue = computed(() => props.rotation.mixed ? 'mixed' : String(props.rotation.value ?? 0));
+const rotationModelValue = computed(() => props.rotation.mixed ? '' : String(props.rotation.value ?? 0));
+const rotationSegments = computed(() => props.rotationItems.filter(item => item.value !== 'mixed'));
 const outputModeOverrideModelValue = computed(() => props.outputModeOverride.mixed
     ? 'mixed-values'
     : props.outputModeOverride.value ?? 'auto');
-const inclusionModelValue = computed(() => props.excluded.mixed
-    ? 'mixed'
-    : props.excluded.value ? 'excluded' : 'included');
+const linkedMarginValue = computed(() => {
+    const margins = props.margins;
+    return margins.mixed || !margins.value || !scanCleanupMarginsUniform(margins.value)
+        ? null
+        : margins.value.topMm;
+});
 const hasContentBoxes = computed(() => props.contentBoxes.mixed
     || Object.keys(props.contentBoxes.value ?? {}).length > 0);
 const manualSkewState = computed(() => props.manualSkew.mixed
@@ -808,25 +680,19 @@ const manualSplitState = computed(() => props.manualSplit.mixed
 const contentBoxesState = computed(() => props.contentBoxes.mixed
     ? 'mixed'
     : hasContentBoxes.value ? 'manual' : 'auto');
-// Text thickness only affects bilevel output, but it keeps its place in the
-// panel and disables instead of unmounting: switching B&W/gray/colour must not
-// move the controls below it.
-const thicknessApplies = computed(() => props.settings.preserveOriginalQuality !== true
+// Text thickness and speckle removal only affect black-and-white output, which
+// Auto produces for text pages. They keep their place and disable instead of
+// unmounting: switching B&W/gray/colour must not move the controls below them.
+const bilevelOutput = computed(() => !lossless.value
     && (props.settings.outputMode === 'auto'
         || props.settings.outputMode === 'bw'
         || props.settings.outputMode === 'mixed'));
 const autoDewarpDepthState = computed(() => props.settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
-const autoDewarpDepthDisabled = computed(() => props.settings.preserveOriginalQuality === true
-    || !(props.settings.autoDewarp ?? false));
-const resetLabel = computed(() => t(`scanCleanup.settings.resetScope.${props.scope}`));
+const autoDewarpDepthDisabled = computed(() => lossless.value || !(props.settings.autoDewarp ?? false));
 const resetConfirmationBody = computed(() => t(`scanCleanup.settings.resetScope.${props.scope}Body`, {
     count: props.scope === 'selected' ? props.selectedCount : props.totalPages,
     page: props.pageNumber,
 }));
-
-function overrideCountTitle(count: number) {
-    return t('scanCleanup.settings.overrideCount', {count});
-}
 
 function confirmReset() {
     emit('reset-scope-overrides');
@@ -839,7 +705,7 @@ function emitMargin(target: TScanCleanupMarginTarget, value: number | null | und
     }
 }
 
-function handleMarginChange(target: TScanCleanupMarginSide, value: unknown) {
+function handleMarginChange(target: TScanCleanupMarginTarget, value: unknown) {
     const rawValue = value instanceof Event && value.target instanceof HTMLInputElement
         ? value.target.value
         : value;
@@ -854,7 +720,8 @@ function handleMarginChange(target: TScanCleanupMarginSide, value: unknown) {
     ) {
         return;
     }
-    if (nextValue !== props.margins.value?.[target]) {
+    const current = target === 'all' ? linkedMarginValue.value : props.margins.value?.[target];
+    if (nextValue !== current) {
         emitMargin(target, nextValue);
     }
 }
@@ -918,22 +785,150 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
     font-size: var(--app-text-size-secondary);
 }
 
+/* One column that never grows past the rail: a long option such as a per-page
+   output mode truncates inside its select instead of widening the panel. */
 .scan-cleanup-settings-scroll {
+    display: grid;
     min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
     flex: 1;
+    align-content: start;
+    gap: var(--app-space-5xl);
     overflow: hidden auto;
     overscroll-behavior: contain;
     padding: var(--app-space-9xl);
 }
 
-.scan-cleanup-scope-area {
+.scan-cleanup-option-group {
     display: grid;
-    gap: var(--app-space-3xl);
-    padding-block-end: var(--app-space-5xl);
+    gap: var(--app-space-5xl);
+}
+
+.scan-cleanup-option-group + .scan-cleanup-option-group,
+.scan-cleanup-advanced {
+    border-block-start: var(--app-hairline-height) solid var(--ui-border);
+    padding-block-start: var(--app-space-9xl);
+}
+
+.scan-cleanup-option-group h3 {
+    margin: 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    font-weight: var(--app-font-weight-bold);
+    letter-spacing: var(--app-letter-spacing-caps);
+    text-transform: uppercase;
+}
+
+.scan-cleanup-option-group,
+.scan-cleanup-selection-field {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.scan-cleanup-selection-field {
+    display: grid;
+    gap: var(--app-space-sm);
+}
+
+/* A control whose value no longer applies stays in place and dims, matching
+   ScanCleanupAutoValueRow, instead of unmounting and collapsing its row. */
+.scan-cleanup-field-disabled {
+    opacity: var(--app-scan-disabled-opacity);
+}
+
+.scan-cleanup-scale {
+    display: flex;
+    justify-content: space-between;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.scan-cleanup-option-description,
+.scan-cleanup-inline-note {
+    margin: 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-body);
+}
+
+/* The description below the output modes always holds two lines, so choosing
+   a mode with a shorter sentence does not move the settings under it. */
+[data-output-description] {
+    min-height: calc(var(--app-text-size-kicker) * var(--app-line-height-body) * 2);
+}
+
+.scan-cleanup-inline-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-space-sm);
+}
+
+.scan-cleanup-scope-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-space-sm);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-body);
 }
 
 .scan-cleanup-scope-reset {
-    min-width: 0;
+    padding-inline: 0;
+}
+
+.scan-cleanup-margins-control {
+    display: grid;
+    gap: var(--app-space-sm);
+}
+
+.scan-cleanup-margins-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--app-space-3xl);
+}
+
+.scan-cleanup-alignment-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--app-space-sm);
+}
+
+.scan-cleanup-alignment-grid > * {
+    justify-content: center;
+}
+
+/* Not one of the nine anchors: it spans the row above them and carries its
+   own label, so the grid still reads as a 3x3 compass. */
+.scan-cleanup-alignment-ink {
+    grid-column: 1 / -1;
+}
+
+.scan-cleanup-apply-page {
+    width: 100%;
+    justify-content: center;
+}
+
+.scan-cleanup-reset-confirmation {
+    display: grid;
+    max-width: var(--app-scan-reset-confirmation-width);
+    gap: var(--app-space-5xl);
+    padding: var(--app-space-9xl);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+}
+
+.scan-cleanup-reset-confirmation > span {
+    color: var(--ui-text-muted);
+}
+
+.scan-cleanup-reset-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--app-space-sm);
 }
 
 .scan-cleanup-advanced,
@@ -943,6 +938,7 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
 
 .scan-cleanup-advanced-content {
     gap: var(--app-space-3xl);
+    padding-top: var(--app-space-3xl);
 }
 
 .scan-cleanup-advanced-toggle {
@@ -971,61 +967,25 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
     color: var(--ui-text-dimmed);
 }
 
-.scan-cleanup-advanced-content {
-    padding-top: var(--app-space-sm);
-}
-
-.scan-cleanup-apply-page-area {
-    display: grid;
-    gap: var(--app-space-sm);
-}
-
-.scan-cleanup-apply-page {
-    width: 100%;
-    justify-content: center;
-}
-
-.scan-cleanup-blank-detected-hint {
+.scan-cleanup-footnote {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
-    line-height: var(--app-line-height-body);
 }
 
-.scan-cleanup-control-label,
-.scan-cleanup-control-affordances {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: var(--app-space-sm);
+.scan-cleanup-details-trigger:focus-visible {
+    outline: var(--app-hairline-height) solid var(--ui-primary);
+    outline-offset: var(--app-space-xs);
 }
 
-.scan-cleanup-control-label {
-    flex-wrap: wrap;
-}
-
-.scan-cleanup-control-affordances {
-    flex: none;
-}
-
-.scan-cleanup-override-marker {
-    display: inline-flex;
-    box-sizing: border-box;
-    height: var(--app-scan-settings-affordance-height);
-    align-items: center;
-    gap: var(--app-space-sm);
-    border-radius: var(--app-radius-full);
-    background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg));
-    padding-inline: var(--app-space-xl);
-    color: var(--ui-primary);
-    font-size: var(--app-text-size-kicker);
-    font-weight: var(--app-font-weight-bold);
-}
-
-.scan-cleanup-override-marker > span {
-    width: var(--app-space-3xl);
-    height: var(--app-space-3xl);
-    flex: none;
-    border-radius: var(--app-radius-full);
-    background: var(--ui-primary);
+.scan-cleanup-details-popover {
+    display: grid;
+    max-width: var(--app-scan-details-width);
+    gap: var(--app-space-9xl);
+    padding: var(--app-space-12xl);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-body-sm);
 }
 </style>

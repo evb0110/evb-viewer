@@ -76,6 +76,7 @@ export async function runScanCleanupWorkerTask(
     runtimePolicy: IScanCleanupRuntimePolicy,
     signal: AbortSignal,
     onProgress: (progress: TScanCleanupProgress) => void,
+    jobId: string,
 ) {
     const task = startStreamingWorkerTask<TScanCleanupSummary>({
         workerPath: resolveUnpackedWorkerPath(currentDir, workerFileName),
@@ -83,6 +84,7 @@ export async function runScanCleanupWorkerTask(
             request,
             paths,
             runtimePolicy,
+            jobId,
         },
         invalidPayloadMessage: 'Scan cleanup worker returned an invalid payload',
         invalidResultMessage: 'Scan cleanup worker returned an invalid summary',
@@ -118,19 +120,23 @@ export async function runScanCleanupWorkerTask(
     } catch (error) {
         const detail = error instanceof Error ? (error.stack ?? getErrorMessage(error)) : String(error);
         if (signal.aborted || isAbortError(error)) {
-            logger.info('Scan cleanup worker task canceled');
+            logger.info('Scan cleanup worker task canceled', {jobId});
         } else if (getWorkerTaskFailureReceipt(error) !== undefined) {
             // The generic worker-task layer already reported this exact
-            // rejection at error level. Repeating it at error level would make
-            // the renderer count one fault twice, so keep the scan-cleanup
-            // context below the reporting threshold.
-            logger.warn(`Scan cleanup worker task rejected (already reported): ${detail}`);
+            // rejection, so this line only ties it to the job.
+            logger.debug('Scan cleanup worker task rejected (already reported)', {
+                jobId,
+                detail,
+            });
         } else {
             rememberWorkerTaskFailureReceipt(
                 error,
-                logger.error(`Scan cleanup worker task rejected: ${detail}`, {
+                logger.error('Scan cleanup worker task rejected', {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
                     cause: error,
+                }, {
+                    jobId,
+                    detail,
                 }),
             );
         }

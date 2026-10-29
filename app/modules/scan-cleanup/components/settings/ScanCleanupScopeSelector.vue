@@ -4,52 +4,30 @@
         role="radiogroup"
         :aria-label="t('scanCleanup.settings.scope.label')"
     >
-        <div
+        <button
             v-for="item in scopeItems"
             :key="item.value"
-            class="scan-cleanup-scope-option"
+            type="button"
+            class="scan-cleanup-scope-row"
+            :class="{
+                'scan-cleanup-scope-row--active': modelValue === item.value,
+                'scan-cleanup-scope-row--highlighted': highlightedScope === item.value,
+            }"
+            :data-settings-scope="item.value"
+            :aria-checked="modelValue === item.value"
+            :aria-label="item.label"
+            role="radio"
+            @click="$emit('update:model-value', item.value)"
         >
-            <button
-                type="button"
-                class="scan-cleanup-scope-row"
-                :class="{
-                    'scan-cleanup-scope-row--active': modelValue === item.value,
-                    'scan-cleanup-scope-row--all-active': modelValue === 'all' && item.value === 'all',
-                    'scan-cleanup-scope-row--highlighted': highlightedScope === item.value,
-                }"
-                :data-settings-scope="item.value"
-                :aria-checked="modelValue === item.value"
-                :aria-label="item.label"
-                role="radio"
-                @click="$emit('update:model-value', item.value)"
-            >
-                <span class="scan-cleanup-scope-radio" aria-hidden="true">
-                    <span v-if="modelValue === item.value" />
-                </span>
-                <span class="scan-cleanup-scope-label">{{ item.label }}</span>
-                <span
-                    v-if="item.value !== 'page'"
-                    class="scan-cleanup-scope-customized"
-                    :class="{'is-placeholder': customizedCounts[item.value] <= 0}"
-                    :data-customized-scope="customizedCounts[item.value] > 0 ? item.value : undefined"
-                    :aria-hidden="customizedCounts[item.value] <= 0"
-                >
-                    {{ t('scanCleanup.settings.scope.customized', {
-                        count: Math.max(1, customizedCounts[item.value]),
-                    }) }}
-                </span>
-                <span
-                    v-else
-                    class="scan-cleanup-scope-page-customized"
-                    :class="{'is-placeholder': customizedCounts[item.value] <= 0}"
-                    :data-customized-scope="customizedCounts[item.value] > 0 ? 'page' : undefined"
-                    :aria-hidden="customizedCounts[item.value] <= 0"
-                >
-                    <span aria-hidden="true" />
-                    <span class="sr-only">{{ t('scanCleanup.settings.scope.pageCustomized') }}</span>
-                </span>
-            </button>
-        </div>
+            <span class="scan-cleanup-scope-label">{{ item.label }}</span>
+            <span
+                v-if="item.value === 'page' && customizedCounts.page > 0"
+                class="scan-cleanup-scope-page-customized"
+                data-customized-scope="page"
+                role="img"
+                :aria-label="t('scanCleanup.settings.scope.pageCustomized')"
+            />
+        </button>
     </div>
 </template>
 
@@ -62,7 +40,6 @@ const props = defineProps<{
     modelValue: TScanCleanupSettingsScope;
     pageNumber: number;
     selectedCount: number;
-    totalPages: number;
 }>();
 defineEmits<{'update:model-value': [value: TScanCleanupSettingsScope]}>();
 const {t} = useTypedI18n();
@@ -70,7 +47,7 @@ const {t} = useTypedI18n();
 const scopeItems = computed(() => [
     {
         value: 'all' as const,
-        label: t('scanCleanup.settings.scope.all', {count: props.totalPages}),
+        label: t('scanCleanup.settings.scope.all'),
     },
     {
         value: 'page' as const,
@@ -86,105 +63,70 @@ const scopeItems = computed(() => [
 <style scoped>
 .scan-cleanup-scope-selector {
     display: grid;
-    gap: var(--app-space-sm);
-}
-
-.scan-cleanup-scope-option {
-    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    overflow: hidden;
+    border: var(--app-hairline-height) solid var(--ui-border);
+    border-radius: var(--app-radius-md);
+    background: var(--ui-bg-muted);
+    padding: var(--app-space-xs);
 }
 
 .scan-cleanup-scope-row {
-    display: grid;
-    width: 100%;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    display: inline-flex;
+    min-width: 0;
     align-items: center;
-    gap: var(--app-space-3xl);
-    border: var(--app-hairline-height) solid var(--ui-border);
-    border-radius: var(--app-radius-md);
-    background: var(--ui-bg);
-    padding: var(--app-space-3xl);
-    color: var(--ui-text);
-    text-align: start;
+    justify-content: center;
+    gap: var(--app-space-sm);
+    border: 0;
+    border-radius: var(--app-radius-sm);
+    background: transparent;
+    padding: var(--app-space-sm) var(--app-space-3xl);
+    color: var(--ui-text-muted);
+    cursor: pointer;
+    font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-semibold);
     transition:
-        background-color var(--app-transition-standard),
-        border-color var(--app-transition-standard),
-        box-shadow var(--app-transition-standard);
+        background-color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast),
+        color var(--app-transition-fast);
 }
 
 .scan-cleanup-scope-row:hover {
-    background: var(--ui-bg-elevated);
+    background: var(--app-toolbar-control-hover-bg);
+    color: var(--ui-text);
 }
 
 .scan-cleanup-scope-row:focus-visible {
     outline: var(--app-hairline-height) solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
+    outline-offset: calc(-1 * var(--app-hairline-height));
 }
 
-.scan-cleanup-scope-row--active {
-    border-color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg));
+.scan-cleanup-scope-row--active,
+.scan-cleanup-scope-row--active:hover {
+    background: var(--app-control-active-bg);
+    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-border);
+    color: var(--ui-text);
 }
 
-.scan-cleanup-scope-row--all-active {
-    background: color-mix(in srgb, var(--ui-primary) 14%, var(--ui-bg));
-    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--ui-primary);
-    font-weight: var(--app-font-weight-bold);
-}
-
+/* An edit made in the preview flashes the scope it landed in. */
 .scan-cleanup-scope-row--highlighted {
     background: color-mix(in srgb, var(--ui-primary) 22%, var(--ui-bg));
     box-shadow: 0 0 0 var(--app-space-xs) color-mix(in srgb, var(--ui-primary) 24%, transparent);
 }
 
-.scan-cleanup-scope-radio {
-    display: grid;
-    width: var(--app-space-5xl);
-    height: var(--app-space-5xl);
-    place-items: center;
-    border: var(--app-hairline-height) solid var(--ui-border);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-bg);
-}
-
-.scan-cleanup-scope-radio > span {
-    width: var(--app-space-xl);
-    height: var(--app-space-xl);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-primary);
-}
-
 .scan-cleanup-scope-label {
     min-width: 0;
-    font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-scope-customized {
-    border-radius: var(--app-radius-full);
-    background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg));
-    padding: var(--app-space-xs) var(--app-space-xl);
-    color: var(--ui-primary);
-    font-size: var(--app-text-size-kicker);
-    font-weight: var(--app-font-weight-bold);
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.scan-cleanup-scope-customized.is-placeholder,
-.scan-cleanup-scope-page-customized.is-placeholder {
-    visibility: hidden;
-}
-
 .scan-cleanup-scope-page-customized {
-    display: grid;
-    width: var(--app-icon-size-xs);
-    height: var(--app-icon-size-xs);
-    place-items: center;
-}
-
-.scan-cleanup-scope-page-customized > span:first-child {
     width: var(--app-space-3xl);
     height: var(--app-space-3xl);
+    flex: none;
     border-radius: var(--app-radius-full);
     background: var(--ui-primary);
 }
-
 </style>

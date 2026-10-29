@@ -456,6 +456,8 @@ export default defineNuxtConfig({
         'ph:text-italic',
         'ph:lightbulb',
         'ph:lightning',
+        'ph:link-simple',
+        'ph:link-simple-break',
         'ph:list',
         'ph:circle-notch',
         'ph:rows',

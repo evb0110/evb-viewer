@@ -196,9 +196,15 @@ describe('scan cleanup required page ops', () => {
             }}));
             await openCleanup(session);
             await waitForSettledDetection(session);
-            const quality = await session.page.$('[role="checkbox"][aria-label="Preserve original quality (no rasterization)"]');
-            if (await quality?.evaluate(node => node.getAttribute('aria-checked') === 'true')) {
-                await clickAsUser(session.page, quality!);
+            const quality = await session.page.evaluate(() => {
+                const label = [...document.querySelectorAll('label')].find(node => node.textContent?.trim() === 'Keep original images');
+                const checkbox = document.getElementById(label?.htmlFor ?? '');
+                if (!checkbox) throw new Error('Keep original images checkbox is missing');
+                return checkbox.getAttribute('aria-checked') === 'true';
+            });
+            if (quality) {
+                await clickFoundAsUser(session.page, () => [...document.querySelectorAll('label')]
+                    .find(node => node.textContent?.trim() === 'Keep original images'), undefined, {description: 'Keep original images'});
                 await waitForSettledDetection(session);
             }
             // Page plans must not depend on the output mode. The first document
@@ -208,7 +214,7 @@ describe('scan cleanup required page ops', () => {
             await clickAsUser(session.page, '[role="radio"][aria-label="Grayscale"]');
             if (path === plainPath) {
                 await waitForSettledDetection(session);
-                await clickAsUser(session.page, '.scan-cleanup-toolbar-redetect');
+                await clickAsUser(session.page, '.scan-thumbnail-redetect');
                 await waitForSettledDetection(session);
             }
             await clickAsUser(session.page, '.scan-cleanup-toolbar-primary-action');
@@ -372,17 +378,18 @@ describe('scan cleanup required page ops', () => {
         ), {timeout: 5_000}, mode);
 
         for (const label of [
-            'Preserve original quality (no rasterization)',
+            'Keep original images',
             'Match page size with other pages',
         ]) {
-            const checkboxes = await session.page.$$(`[role="checkbox"][aria-label="${label}"]`);
-            const checkbox = (await Promise.all(checkboxes.map(async element => ({
-                element,
-                visible: await element.isVisible(),
-            })))).find(candidate => candidate.visible)?.element;
-            expect(checkbox, `visible ${label} checkbox`).toBeTruthy();
-            if (await checkbox!.evaluate(element => element.getAttribute('aria-checked') === 'true')) {
-                await clickAsUser(session.page, checkbox!);
+            const checked = await session.page.evaluate((text: string) => {
+                const fieldLabel = [...document.querySelectorAll('label')].find(node => node.textContent?.trim() === text);
+                const checkbox = document.getElementById(fieldLabel?.htmlFor ?? '');
+                if (!checkbox) throw new Error(`${text} checkbox is missing`);
+                return checkbox.getAttribute('aria-checked') === 'true';
+            }, label);
+            if (checked) {
+                await clickFoundAsUser(session.page, (text: string) => [...document.querySelectorAll('label')]
+                    .find(node => node.textContent?.trim() === text), label, {description: label});
             }
         }
 

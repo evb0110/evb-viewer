@@ -90,17 +90,12 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         surfaceMode.value = 'scan-cleanup';
     }
 
+    // Leaving the panel is not closing the source document: Done resets only
+    // the view (scope, selection), and the page edits and completed detection
+    // stay for the next visit until the document itself closes.
     function closeScanCleanup() {
         surfaceMode.value = 'reader';
         discardScanCleanupSessionState();
-        // Leaving the panel is not closing the source document. Reset the
-        // ephemeral view/preferences while retaining completed authoritative
-        // detection for a same-identity reopen.
-        void discardScanCleanupDocumentState(
-            options.readDocumentKey(),
-            options.readSourceSha256?.() ?? null,
-            {discardDetection: false},
-        ).catch(() => undefined);
     }
 
     return {

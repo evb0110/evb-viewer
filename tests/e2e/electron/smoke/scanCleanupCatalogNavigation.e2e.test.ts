@@ -49,7 +49,7 @@ describe('compact cleanup catalog navigation', () => {
         expect(single).toBeTruthy();
         await clickAsUser(page, single!);
         for (const labelText of [
-            'Preserve original quality (no rasterization)',
+            'Keep original images',
             'Crop each output page to its content',
             'Skip blank pages',
             'Match page size with other pages',

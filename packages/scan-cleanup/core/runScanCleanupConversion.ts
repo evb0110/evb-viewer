@@ -1912,7 +1912,13 @@ export async function runScanCleanupConversion(
             });
         }
         await rm(publishTempPath, {force: true}).catch(() => undefined);
-        await preserveScanCleanupJsonEvidence(scratch, log, dependencies.evidenceDirectory).catch(error => {
+        await preserveScanCleanupJsonEvidence(
+            scratch,
+            log,
+            dependencies.evidenceDirectory,
+            undefined,
+            dependencies.evidenceFileFilter,
+        ).catch(error => {
             log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);
         });
         if (preserveScratchForDiagnostics) {

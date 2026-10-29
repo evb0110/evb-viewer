@@ -25,18 +25,28 @@ const data = workerData as {
     request: TScanCleanupWorkerRequest;
     paths: IScanCleanupWorkerPaths;
     runtimePolicy?: unknown;
+    /** The main job this run belongs to, so its lines join the job's. */
+    jobId: string;
 };
+const {jobId} = data;
 const logger = createLogger('scan-cleanup-worker');
 function logScanCleanupWorkerMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
-        logger.error('Scan cleanup worker reported an error', {code: 'MAIN_SCAN_CLEANUP_FAILED'}, {message});
+        logger.error('Scan cleanup worker reported an error', {code: 'MAIN_SCAN_CLEANUP_FAILED'}, {
+            jobId,
+            message,
+        });
         return;
     }
-    logger[level]('Scan cleanup worker reported a message', {message});
+    logger[level]('Scan cleanup worker reported a message', {
+        jobId,
+        message,
+    });
 }
 const abortController = new AbortController();
 const startedAt = performance.now();
 let lastProgressStage: TScanCleanupProgress['stage'] | null = null;
+let lastProgressStageStartedAt = startedAt;
 port.on('message', message => {
     if ((message as {type?: string}).type === 'cancel') abortController.abort(new DOMException('Scan cleanup canceled', 'AbortError'));
 });
@@ -56,6 +66,7 @@ try {
         ...(detectionResultStore === null ? {} : {detectionResultStore}),
     };
     logger.info('Scan cleanup run started', {
+        jobId,
         source: basename(data.request.sourcePdfPath),
         selectedPages: data.request.sourcePageNumbers?.length ?? 'all',
     });
@@ -65,14 +76,19 @@ try {
         abortController.signal,
         (progress: TScanCleanupProgress) => {
             if (progress.stage !== lastProgressStage) {
-                lastProgressStage = progress.stage;
+                const now = performance.now();
                 logger.info('Scan cleanup phase started', {
+                    jobId,
                     stage: progress.stage,
+                    previousStage: lastProgressStage,
+                    previousStageMs: lastProgressStage === null ? null : Math.round(now - lastProgressStageStartedAt),
                     completedUnits: progress.completedUnits,
                     totalUnits: progress.totalUnits,
                     percent: progress.percent,
                     completedPageNumbers: progress.completedPageNumbers ?? null,
                 });
+                lastProgressStage = progress.stage;
+                lastProgressStageStartedAt = now;
             }
             port.postMessage({
                 type: 'progress',
@@ -88,6 +104,9 @@ try {
         data: result,
     });
     logger.info('Scan cleanup run completed', {
+        jobId,
+        lastStage: lastProgressStage,
+        lastStageMs: Math.round(performance.now() - lastProgressStageStartedAt),
         inputPages: result.inputPages,
         outputPages: result.outputPages,
         durationMs: Math.round(performance.now() - startedAt),
@@ -101,16 +120,23 @@ try {
         // Main quarantines the source working copy on this. It is a contained
         // outcome rather than an application fault, so it stays at warn.
         logger.warn('Scan cleanup run stopped without proving native termination', {
+            jobId,
             elapsedMs: Number(elapsedMs),
             detail: unprovenTermination,
         });
     } else if (abortController.signal.aborted || isAbortError(error)) {
-        logger.info('Scan cleanup run canceled', {elapsedMs: Number(elapsedMs)});
+        logger.info('Scan cleanup run canceled', {
+            jobId,
+            stage: lastProgressStage,
+            elapsedMs: Number(elapsedMs),
+        });
     } else {
         logger.error('Scan cleanup run failed', {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
             cause: error,
         }, {
+            jobId,
+            stage: lastProgressStage,
             elapsedMs: Number(elapsedMs),
             errorMessage: getErrorMessage(error),
         });

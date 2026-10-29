@@ -294,12 +294,12 @@ describe('scan cleanup toolbar contract', () => {
         // detection; Re-detect then starts it again for the queue checks below.
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
         await waitForFunctionInPage(session.page, (cancelDetectionSelector: string) => {
-            const redetect = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-redetect');
+            const redetect = document.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect');
             return document.querySelector(cancelDetectionSelector) === null
                 && document.querySelector('.scan-cleanup-toolbar-error') === null
                 && redetect?.disabled === false;
         }, {timeout: 15_000}, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
-        await clickAsUser(session.page, '.scan-cleanup-toolbar-redetect');
+        await clickAsUser(session.page, '.scan-thumbnail-redetect');
         await session.page.waitForSelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, {timeout: 10_000});
 
         // Queue cleanup while detection is still running: the run meter must

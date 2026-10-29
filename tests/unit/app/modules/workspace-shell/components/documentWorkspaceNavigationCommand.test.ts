@@ -41,6 +41,24 @@ import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { seedOpeningSource } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import DocumentWorkspace from '@app/modules/workspace-shell/components/DocumentWorkspace.vue';
 import DocumentSessionHost from '@app/modules/workspace-shell/components/DocumentSessionHost.vue';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import {scanCleanupRun} from '@app/modules/scan-cleanup/public/runtime';
+import type * as VueI18n from 'vue-i18n';
+
+vi.mock('vue-i18n', async importOriginal => {
+    const module = await importOriginal<typeof VueI18n>();
+    const {default: messages} = await import('@i18n-app/messages/en');
+    const i18n = module.createI18n<[typeof messages], 'en', false>({
+        legacy: false,
+        locale: 'en',
+        messages: {en: messages},
+    });
+    return {
+        ...module,
+        useI18n: () => i18n.global,
+    };
+});
 
 const recentReadingViews = vi.hoisted(() => ({
     readingView: vi.fn(),
@@ -324,6 +342,43 @@ async function mountDocumentWorkspace(options: {
 }
 
 describe('DocumentWorkspace navigation command', () => {
+    it('shows the owning cleanup step and page count in the reader status bar', async () => {
+        const path = requireDocumentRef('/tmp/status-cleanup.pdf');
+        const {documentContext} = await mountDocumentWorkspace({openSurfaceDocument: path});
+        documentContext.file.workingCopyPath.value = path;
+        const jobId = requireJobId('status-cleanup');
+        try {
+            scanCleanupRun.activeJobId = jobId;
+            scanCleanupRun.ownerDocumentRef = path;
+            scanCleanupRun.jobState = {
+                jobId,
+                status: 'running',
+                progress: {
+                    stage: 'rendering',
+                    completedUnits: 2,
+                    totalUnits: 6,
+                    percent: 100 / 3,
+                },
+                updatedAtMs: requireEpochMs(Date.now()),
+            };
+            await nextTick();
+
+            const status = () => document.querySelector('#editor-global-status-host [role="status"]')?.textContent;
+            expect(status()).toContain('Scan cleanup: Cleaning pages — 2 of 6 pages');
+            scanCleanupRun.jobState.progress.completedUnits = 3;
+            await nextTick();
+            expect(status()).toContain('Scan cleanup: Cleaning pages — 3 of 6 pages');
+
+            scanCleanupRun.ownerDocumentRef = '/tmp/another-document.pdf';
+            await nextTick();
+            expect(status() ?? '').not.toContain('Scan cleanup:');
+        } finally {
+            scanCleanupRun.activeJobId = null;
+            scanCleanupRun.jobState = null;
+            scanCleanupRun.ownerDocumentRef = null;
+        }
+    }, 120_000);
+
     it.each([
         false,
         true,

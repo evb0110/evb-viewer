@@ -128,7 +128,7 @@
                 :file-path="statusBar.statusFilePath.value"
                 :file-size-label="statusBar.statusFileSizeLabel.value"
                 :zoom-label="presentation.statusZoomLabel.value"
-                :materialization-label="statusBar.statusMaterializationLabel.value"
+                :materialization-label="statusActivityLabel"
                 :can-show-in-folder="statusBar.statusCanShowInFolder.value"
                 :show-in-folder-tooltip="statusBar.statusShowInFolderTooltip.value"
                 :show-in-folder-aria-label="statusBar.statusShowInFolderAriaLabel.value"
@@ -170,6 +170,11 @@ import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
+import {
+    formatScanCleanupProgress,
+    isScanCleanupRunning,
+    scanCleanupRun,
+} from '@app/modules/scan-cleanup/public/runtime';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
@@ -277,6 +282,23 @@ const {
     splitPayload,
     docxExport,
 } = documentContext;
+// A cleanup started from this document keeps running after Done. While the
+// reader is shown, the status bar names its step and count beside the same
+// spinner a preparing document uses, so the work is never invisible.
+const statusActivityLabel = computed(() => {
+    const workingCopyPath = file.workingCopyPath.value;
+    const job = scanCleanupRun.jobState;
+    if (
+        surfaceMode.value === 'reader'
+        && workingCopyPath
+        && job
+        && isScanCleanupRunning.value
+        && scanCleanupRun.ownerDocumentRef === workingCopyPath
+    ) {
+        return `${t('scanCleanup.button')}: ${formatScanCleanupProgress(job.progress, t).text}`;
+    }
+    return statusBar.statusMaterializationLabel.value;
+});
 const {
     zoomDropdownOpen,
     pageDropdownOpen,

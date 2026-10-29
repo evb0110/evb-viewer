@@ -180,14 +180,15 @@ function elapsedSince(startedAtMs: number | undefined, endedAtMs?: number) {
         ? ''
         : formatScanCleanupDuration((endedAtMs ?? now.value.getTime()) - startedAtMs);
 }
-// The job's own estimate when it has measured enough work; otherwise how long
-// the current step has been running, so a step that reports no counts still
-// visibly moves.
+// How long the current step has been running, so the meter moves every second
+// even between progress reports (I4), followed by the job's own estimate for
+// the rest of the step once it has measured enough work.
 const timeText = computed(() => {
-    if (activity.etaSeconds !== undefined) {
-        return formatScanCleanupEta(activity.etaSeconds, t);
-    }
     const elapsed = elapsedSince(timeline?.steps[activity.step]?.startedAtMs);
+    if (activity.etaSeconds !== undefined) {
+        const eta = formatScanCleanupEta(activity.etaSeconds, t);
+        return elapsed === '' ? eta : `${elapsed} · ${eta}`;
+    }
     return elapsed === '' ? '' : t('scanCleanup.activity.elapsed', {time: elapsed});
 });
 const timeWidestText = computed(() => resolveScanCleanupTimeWidestText(t));

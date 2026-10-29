@@ -111,7 +111,7 @@ describe('public catalog cleanup proof', () => {
                 expect(id, label).toBeTruthy();
                 await toggle(`[id="${id}"]`, wanted);
             }
-            await checkbox('Preserve original quality (no rasterization)', !mode.startsWith('compact'));
+            await checkbox('Keep original images', !mode.startsWith('compact'));
             if (mode.startsWith('compact')) {
                 await toggle('[role=radio][aria-label="Auto — recommended per page"]', true);
             }

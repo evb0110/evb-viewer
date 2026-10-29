@@ -331,25 +331,6 @@ const TooltipStub = defineComponent({
         ]);
     },
 });
-const PopoverStub = defineComponent({
-    props: {open: Boolean},
-    emits: ['update:open'],
-    setup: (props, {
-        emit,
-        slots,
-    }) => () => h('span', {
-        'data-popover-root': '',
-        onClick: () => emit('update:open', true),
-    }, [
-        slots.default?.(),
-        props.open
-            ? h(Teleport, {to: 'body'}, h('div', {
-                'data-popover-content': '',
-                role: 'dialog',
-            }, slots.content?.()))
-            : null,
-    ]),
-});
 const mountedApps = new Set<() => void>();
 
 function createSource(pageCount = 5): IDocumentPageSource {
@@ -379,6 +360,7 @@ function mountRail(options: {
     source?: IDocumentPageSource | null;
     totalPages?: number;
     sourcePending?: boolean;
+    canRedetect?: boolean;
     detectionActive?: boolean;
     settledPages?: ReadonlySet<number>;
     classifications?: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
@@ -402,11 +384,16 @@ function mountRail(options: {
     const anchor = ref(options.leader ?? 1);
     const selected = ref<ReadonlySet<number>>(options.selected ?? new Set([leader.value]));
     const disabled = ref(options.disabled ?? false);
+    const inspectedPages: number[] = [];
+    const redetect = vi.fn();
     const overrideUpdates: Array<[number, IScanCleanupPageOverride]> = [];
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(ScanCleanupThumbnailRail, {
         source,
+        canRedetect: (options.canRedetect ?? true) && !disabled.value,
+        onInspectPage: (page: number) => inspectedPages.push(page),
+        onRedetect: redetect,
         sourcePending: options.sourcePending ?? false,
         detectionActive: options.detectionActive ?? false,
         settledPages: options.settledPages ?? new Set<number>(),
@@ -444,7 +431,6 @@ function mountRail(options: {
     app.component('UBadge', BadgeStub);
     app.component('UButton', ButtonStub);
     app.component('UIcon', IconStub);
-    app.component('UPopover', PopoverStub);
     app.component('USelect', SelectStub);
     app.component('UTooltip', TooltipStub);
     app.mount(host);
@@ -459,6 +445,8 @@ function mountRail(options: {
         disabled,
         leader,
         overrideUpdates,
+        inspectedPages,
+        redetect,
         selected,
     };
 }
@@ -472,11 +460,6 @@ function naturalOrder(host: HTMLElement) {
 // assertions have to start from the row rather than from the overlay.
 function pageRow(host: HTMLElement, page: number) {
     return host.querySelector<HTMLElement>(`.scan-thumbnail-overlay[data-page-number="${String(page)}"]`)!.parentElement!;
-}
-
-function openOptions(host: HTMLElement, page: number) {
-    pageRow(host, page).querySelector<HTMLButtonElement>('.scan-thumbnail-options-toggle')!.click();
-    return nextTick();
 }
 
 afterEach(() => {
@@ -503,8 +486,7 @@ describe('ScanCleanupThumbnailRail', () => {
         ]);
         // The heading counts the rows the rail renders, not the stale total.
         expect(harness!.host.querySelector('[aria-label="3 source pages"]')?.textContent?.trim()).toBe('3');
-        expect(pageRow(harness!.host, 3).querySelector('.scan-thumbnail-options-toggle')?.getAttribute('aria-label'))
-            .toBe('Page 3 settings');
+        expect(pageRow(harness!.host, 3).querySelector('.scan-thumbnail-page-number')?.textContent).toBe('3');
     });
 
     it('keeps a million-page sorted order bounded to the loaded pages', () => {
@@ -551,7 +533,7 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(order.positionOf(4)).toBe(5);
     });
 
-    it('gives every row the same two overlay buttons and the same label band', () => {
+    it('gives every row one include toggle and the same label band', () => {
         const harness = mountRail({
             leader: 2,
             classifications: new Map([[
@@ -575,8 +557,7 @@ describe('ScanCleanupThumbnailRail', () => {
             3,
         ]) {
             const row = pageRow(harness.host, page);
-            expect(row.querySelectorAll('.scan-thumbnail-actions button')).toHaveLength(2);
-            expect(row.querySelector('.scan-thumbnail-options-toggle')).not.toBeNull();
+            expect(row.querySelectorAll('.scan-thumbnail-actions button')).toHaveLength(1);
             expect(row.querySelector('.scan-thumbnail-exclude-toggle')).not.toBeNull();
             expect(row.querySelectorAll('.scan-thumbnail-status')).toHaveLength(1);
         }
@@ -609,7 +590,7 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(unavailable.host.querySelector('.scan-thumbnail-source-state')?.getAttribute('role')).toBe('alert');
     });
 
-    it('keeps the rail header limited to source title, count, and sort', () => {
+    it('offers re-detection beside the source title, count, and sort', () => {
         const overrides: TScanCleanupPageOverrides = {'1': {
             rotationDegrees: 90,
             layoutOverride: 'auto',
@@ -621,7 +602,10 @@ describe('ScanCleanupThumbnailRail', () => {
 
         expect(header?.textContent).toContain('Source pages');
         expect(header?.querySelector('.scan-thumbnail-sort')).not.toBeNull();
-        expect(header?.querySelectorAll('button')).toHaveLength(0);
+        const redetect = header?.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect');
+        expect(redetect?.disabled).toBe(false);
+        redetect?.click();
+        expect(harness.redetect).toHaveBeenCalledOnce();
     });
 
     it('removes thumbnail interaction affordances while cleanup is running', async () => {
@@ -632,8 +616,6 @@ describe('ScanCleanupThumbnailRail', () => {
             outputModeOverride: 'bw',
             rotationDegrees: 0,
         }}});
-        await openOptions(harness.host, 2);
-        expect(document.body.querySelector('[data-popover-content]')).not.toBeNull();
 
         harness.disabled.value = true;
         await nextTick();
@@ -641,12 +623,12 @@ describe('ScanCleanupThumbnailRail', () => {
         const list = harness.host.querySelector<HTMLElement>('[data-thumbnail-list-stub]')!;
         const row = pageRow(harness.host, 2);
 
-        expect(document.body.querySelector('[data-popover-content]')).toBeNull();
         expect(list.getAttribute('aria-disabled')).toBe('true');
         expect(list.getAttribute('tabindex')).toBe('-1');
         expect(row.classList).toContain('is-disabled');
         expect(row.getAttribute('tabindex')).toBe('-1');
-        expect(row.querySelector<HTMLButtonElement>('.scan-thumbnail-options-toggle')?.disabled).toBe(true);
+        expect(row.querySelector<HTMLButtonElement>('.scan-thumbnail-exclude-toggle')?.disabled).toBe(true);
+        expect(harness.host.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect')?.disabled).toBe(true);
 
         const exclude = row.querySelector<HTMLButtonElement>('.scan-thumbnail-exclude-toggle')!;
         exclude.dispatchEvent(new PointerEvent('pointerenter', {bubbles: true}));
@@ -662,35 +644,6 @@ describe('ScanCleanupThumbnailRail', () => {
 
         expect(harness.leader.value).toBe(1);
         expect([...harness.selected.value]).toEqual([1]);
-    });
-
-    it('portals the override menu outside the virtual list and renders complete item labels', async () => {
-        const harness = mountRail();
-        const list = harness.host.querySelector<HTMLElement>('[data-thumbnail-list-stub]')!;
-        await openOptions(harness.host, 1);
-        const trigger = document.body.querySelector<HTMLSelectElement>('.scan-thumbnail-layout-select')!;
-
-        trigger.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-        await nextTick();
-
-        const menu = document.body.querySelector<HTMLElement>('.scan-thumbnail-override-menu')!;
-        const labels = Array.from(menu.querySelectorAll<HTMLElement>('[data-select-item-label-stub]'));
-        expect(menu).not.toBeNull();
-        expect(harness.host.contains(menu)).toBe(false);
-        expect(list.contains(menu)).toBe(false);
-        expect(menu.classList).toContain('w-auto');
-        expect(menu.classList).toContain('min-w-(--reka-select-trigger-width)');
-        expect(labels.map(label => label.textContent)).toEqual([
-            'Auto',
-            'Single page',
-            'Two-page spread',
-            'Keep left half',
-            'Keep right half',
-        ]);
-        expect(labels.every(label => label.classList.contains('whitespace-nowrap'))).toBe(true);
-        expect(labels.every(label => !label.classList.contains('truncate'))).toBe(true);
-
-
     });
 
     it('streams pending detection indicators into the status line page by page', async () => {
@@ -908,85 +861,7 @@ describe('ScanCleanupThumbnailRail', () => {
         ]);
     });
 
-    it('edits layout, rotation, and output mode from one labelled page popover', async () => {
-        const harness = mountRail({
-            leader: 1,
-            classifications: new Map([[
-                2,
-                'two-page-spread',
-            ]]),
-            recommendedOutputModes: new Map([[
-                2,
-                'bw',
-            ]]),
-            recommendedOutputModeConfidences: new Map([[
-                2,
-                0.93,
-            ]]),
-        });
-        const toggle = pageRow(harness.host, 2).querySelector<HTMLButtonElement>('.scan-thumbnail-options-toggle')!;
-        expect(toggle.getAttribute('aria-label')).toBe('Page 2 settings');
-        expect(toggle.querySelector('[data-icon="i-ph-sliders-horizontal"]')).not.toBeNull();
-
-        await openOptions(harness.host, 2);
-        const popover = document.body.querySelector<HTMLElement>('[data-popover-content]')!;
-        expect(popover.textContent).toContain('Page 2');
-        // The three settings the rail can change now carry their own labels
-        // instead of being inferred from a chip's shape or colour.
-        expect(popover.textContent).toContain('Page layout');
-        expect(popover.textContent).toContain('Rotation');
-        expect(popover.textContent).toContain('Output mode');
-        expect(popover.textContent).toContain(
-            'Recommended output mode: Black and white — 93% output-mode confidence.',
-        );
-        expect(harness.leader.value).toBe(1);
-
-        const layout = popover.querySelector<HTMLSelectElement>('[aria-label="Layout override for page 2"]')!;
-        expect(Array.from(layout.options).map(option => option.textContent)).toEqual([
-            'Auto',
-            'Single page',
-            'Two-page spread',
-            'Keep left half',
-            'Keep right half',
-        ]);
-        layout.value = 'single';
-        layout.dispatchEvent(new Event('change', {bubbles: true}));
-        expect(harness.overrideUpdates.at(-1)).toEqual([
-            2,
-            expect.objectContaining({layoutOverride: 'single'}),
-        ]);
-
-        const rotation = popover.querySelector<HTMLSelectElement>('[aria-label="Rotation for page 2"]')!;
-        expect(Array.from(rotation.options).map(option => option.textContent)).toEqual([
-            '0°',
-            '90°',
-            '180°',
-            '270°',
-        ]);
-        rotation.value = '270';
-        rotation.dispatchEvent(new Event('change', {bubbles: true}));
-        expect(harness.overrideUpdates.at(-1)).toEqual([
-            2,
-            expect.objectContaining({rotationDegrees: 270}),
-        ]);
-
-        const mode = popover.querySelector<HTMLSelectElement>('[aria-label="Output mode for page 2"]')!;
-        expect(Array.from(mode.options).map(option => option.textContent)).toEqual([
-            'Follow document setting',
-            'Black and white',
-            'Grayscale',
-            'Color',
-            'Text + pictures',
-        ]);
-        mode.value = 'color';
-        mode.dispatchEvent(new Event('change', {bubbles: true}));
-        expect(harness.overrideUpdates.at(-1)).toEqual([
-            2,
-            expect.objectContaining({outputModeOverride: 'color'}),
-        ]);
-    });
-
-    it('marks customized pages and clears a local output override back to the document setting', async () => {
+    it('marks pages with their own output setting', () => {
         const harness = mountRail({overrides: {'2': {
             rotationDegrees: 0,
             layoutOverride: 'auto',
@@ -995,17 +870,10 @@ describe('ScanCleanupThumbnailRail', () => {
             outputModeOverride: 'color',
         }}});
 
-        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
-            .toContain('is-customized');
-        expect(pageRow(harness.host, 1).querySelector('.scan-thumbnail-options-toggle')?.classList)
-            .not.toContain('is-customized');
+        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-customized')).not.toBeNull();
+        expect(pageRow(harness.host, 1).querySelector('.scan-thumbnail-customized')).toBeNull();
         expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-status')?.textContent).toBe('Color');
 
-        await openOptions(harness.host, 2);
-        const select = document.body.querySelector<HTMLSelectElement>('[aria-label="Output mode for page 2"]')!;
-        select.value = 'auto';
-        select.dispatchEvent(new Event('change', {bubbles: true}));
-        expect(harness.overrideUpdates.at(-1)?.[1]).not.toHaveProperty('outputModeOverride');
     });
 
     it('marks a page by its difference from the all-pages value it inherits', () => {
@@ -1014,16 +882,13 @@ describe('ScanCleanupThumbnailRail', () => {
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({rotationDegrees: 0}));
 
         const differs = mountRail({overrides});
-        expect(pageRow(differs.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
-            .toContain('is-customized');
-        expect(pageRow(differs.host, 1).querySelector('.scan-thumbnail-options-toggle')?.classList)
-            .not.toContain('is-customized');
+        expect(pageRow(differs.host, 2).querySelector('.scan-thumbnail-customized')).not.toBeNull();
+        expect(pageRow(differs.host, 1).querySelector('.scan-thumbnail-customized')).toBeNull();
         differs.host.remove();
 
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({rotationDegrees: 90}));
         const matches = mountRail({overrides});
-        expect(pageRow(matches.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
-            .not.toContain('is-customized');
+        expect(pageRow(matches.host, 2).querySelector('.scan-thumbnail-customized')).toBeNull();
     });
 
     it('clears customization after rotating a page back to its inherited value', () => {
@@ -1036,12 +901,11 @@ describe('ScanCleanupThumbnailRail', () => {
         });
         setScanCleanupPageOverride(overrides, requirePageNumber(2), rotatedBack);
         const harness = mountRail({overrides});
-        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
-            .not.toContain('is-customized');
+        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-customized')).toBeNull();
         expect(overrides).toEqual({});
     });
 
-    it('shows effective fixed and lossless modes in the status line', async () => {
+    it('shows effective fixed and lossless modes in the status line', () => {
         const fixed = mountRail({
             documentOutputMode: 'bw',
             classifications: new Map([[
@@ -1055,23 +919,12 @@ describe('ScanCleanupThumbnailRail', () => {
         });
         expect(pageRow(fixed.host, 2).querySelector('.scan-thumbnail-status')?.textContent)
             .toBe('Single · B&W');
-        await openOptions(fixed.host, 2);
-        expect(document.body.querySelector('[data-popover-content]')?.textContent)
-            .toContain('Effective mode: Black and white — follows the document setting.');
-
         const lossless = mountRail({
             documentOutputMode: 'bw',
             preserveOriginalQuality: true,
         });
         expect(pageRow(lossless.host, 2).querySelector('.scan-thumbnail-status')?.textContent).toBe('Color');
-        await openOptions(lossless.host, 2);
-        const losslessPopover = Array.from(document.body.querySelectorAll<HTMLElement>('[data-popover-content]')).at(-1)!;
-        expect(losslessPopover.textContent).toContain(
-            'Per-page output mode is unavailable because preserving original quality forces color.',
-        );
-        expect(losslessPopover.querySelector<HTMLSelectElement>(
-            '[aria-label="Output mode for page 2"]',
-        )?.hasAttribute('disabled')).toBe(true);
+
     });
 
     it('keeps an explicit override in the status line while fresh recommendations arrive', async () => {
@@ -1098,133 +951,6 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-status')?.textContent).toBe('Color');
     });
 
-    it('groups rich scan-cleanup diagnostics into mode, trim, and geometry rows', async () => {
-        const diagnostics: IScanCleanupPreviewPageMetadata = {
-            canvasScope: 'page',
-            layoutClassification: 'single-uncut-page',
-            layoutConfidence: 0.88,
-            cutterXPx: null,
-            rotationDegrees: 0,
-            excluded: false,
-            blankOutputsSkipped: 0,
-            tier1Verdict: 'single-uncut-page',
-            reconciled: true,
-            clusterAgreement: 0.82,
-            detectedSkewDegrees: -0.73,
-            skewConfidence: 0.91,
-            recommendedOutputMode: 'mixed',
-            recommendedOutputModeConfidence: 0.94,
-            recommendedOutputModeReason: 'text-with-pictures',
-            binarizationMode: 'otsu',
-            binarizationDiagnostics: {
-                route: 'otsu',
-                robustContrast: 52.4,
-                illuminationDeviation: 7.1,
-                edgeDensity: 0.22,
-                estimatedStrokeWidthPx: 2.4,
-                darkBorderCoverage: 0.03,
-                otsuAdaptiveAgreement: 0.89,
-            },
-            despeckleFallback: false,
-            autoDewarpAttempted: true,
-            dewarpApplied: true,
-            dewarpConfidence: 0.86,
-            outputDiagnostics: [{
-                half: 'full',
-                contentDiagnostics: {
-                    sideConfidence: {
-                        left: 0.91,
-                        top: 0.82,
-                        right: 0.74,
-                        bottom: 0.68,
-                    },
-                    textMask: {
-                        analysisWidthPx: 800,
-                        analysisHeightPx: 1100,
-                        inkPixels: 28_000,
-                        lineCount: 31,
-                    },
-                    acceptedTrims: [{
-                        side: 'left',
-                        iteration: 1,
-                        score: 0.83,
-                        threshold: 0.71,
-                        contentDistanceSum: 22,
-                        garbageDistanceSum: 4,
-                        removedBlocks: [{
-                            bounds: {
-                                xPx: 0,
-                                yPx: 0,
-                                widthPx: 48,
-                                heightPx: 1100,
-                            },
-                            pictureMaskOverlapPixels: 240,
-                            headingEvidence: false,
-                            grayscaleEvidence: true,
-                        }],
-                    }],
-                    protectedBlocks: [{
-                        bounds: {
-                            xPx: 64,
-                            yPx: 90,
-                            widthPx: 320,
-                            heightPx: 180,
-                        },
-                        pictureMaskOverlapPixels: 1_300,
-                        headingEvidence: true,
-                        grayscaleEvidence: false,
-                    }],
-                },
-            }],
-        };
-        const diagnosticsByPage = new Map<number, IScanCleanupPreviewPageMetadata>();
-        diagnosticsByPage.set(2, diagnostics);
-        const harness = mountRail({diagnostics: diagnosticsByPage});
-
-        await openOptions(harness.host, 2);
-
-        const popover = document.body.querySelector<HTMLElement>('.scan-thumbnail-technical')!;
-        expect(popover.querySelector('summary')?.textContent).toBe('Technical details');
-        expect(popover.textContent).toContain('Mode decision');
-        expect(popover.textContent).toContain('Text + pictures · 94% output-mode confidence');
-        expect(popover.textContent).toContain('Text with picture regions');
-        expect(popover.textContent).toContain('Contrast / light');
-        expect(popover.textContent).toContain('Content trim');
-        expect(popover.textContent).toContain('Left · 83% ≥ 71%');
-        expect(popover.textContent).toContain('48×1100 px · picture, tonal');
-        expect(popover.textContent).toContain('Geometry');
-        expect(popover.textContent).toContain('-0.73° · 91%');
-        expect(popover.textContent).toContain('Edge confidence');
-    });
-
-    it('omits diagnostic rows the analysis never produced instead of listing them as unavailable', async () => {
-        const harness = mountRail({diagnostics: new Map([[
-            2,
-            {
-                canvasScope: 'page',
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.88,
-                cutterXPx: null,
-                rotationDegrees: 0,
-                excluded: false,
-                blankOutputsSkipped: 0,
-                tier1Verdict: 'single-uncut-page',
-                reconciled: false,
-                clusterAgreement: 0.82,
-                outputDiagnostics: [],
-            } satisfies IScanCleanupPreviewPageMetadata,
-        ]])});
-
-        await openOptions(harness.host, 2);
-        const technical = document.body.querySelector<HTMLElement>('.scan-thumbnail-technical')!;
-
-        expect(technical.textContent).toContain('Geometry');
-        expect(technical.textContent).toContain('Single · 88% layout confidence');
-        expect(technical.textContent).not.toContain('Unavailable');
-        expect(technical.textContent).not.toContain('Not applicable');
-        expect(technical.textContent).not.toContain('Content trim');
-        expect(technical.textContent).not.toContain('Deskew');
-    });
 
     it('flags sideways text and low confidence on one marked button that opens the fix', async () => {
         const harness = mountRail({
@@ -1253,20 +979,16 @@ describe('ScanCleanupThumbnailRail', () => {
                 },
             ]]),
         });
-        const toggle = pageRow(harness.host, 2).querySelector<HTMLButtonElement>('.scan-thumbnail-options-toggle')!;
+        const toggle = pageRow(harness.host, 2).querySelector<HTMLButtonElement>('.scan-thumbnail-attention')!;
         expect(toggle.querySelector('[data-icon="i-ph-warning"]')).not.toBeNull();
-        expect(pageRow(harness.host, 1).querySelector('.scan-thumbnail-options-toggle [data-icon="i-ph-warning"]'))
-            .toBeNull();
-
-        await openOptions(harness.host, 2);
-        const notices = Array.from(document.body.querySelectorAll<HTMLElement>('.scan-thumbnail-options-notice'));
-        expect(notices.map(notice => notice.textContent?.trim())).toEqual([
-            'Detected as "Spread · 40%" with low layout confidence — check this page and set its layout manually if wrong.',
-            'Text appears sideways — set rotation (90° or 270°).',
-        ]);
-        expect(document.body.querySelector<HTMLElement>('.scan-thumbnail-options')?.textContent).toContain(
-            'Recommended output mode: Text + pictures — 83% output-mode confidence.',
+        expect(pageRow(harness.host, 1).querySelector('.scan-thumbnail-attention')).toBeNull();
+        expect(toggle.getAttribute('aria-label')).toBe(
+            'Detected as "Spread · 40%" with low layout confidence — check this page and set its layout manually if wrong. '
+            + 'Text appears sideways — set rotation (90° or 270°).',
         );
+        toggle.click();
+        await nextTick();
+        expect(harness.inspectedPages).toEqual([2]);
         expect(harness.leader.value).toBe(1);
     });
 
@@ -1286,7 +1008,7 @@ describe('ScanCleanupThumbnailRail', () => {
                 manualSplit: null,
             }},
         });
-        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-options-toggle [data-icon="i-ph-warning"]'))
+        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-attention'))
             .toBeNull();
     });
 
@@ -1304,22 +1026,4 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('Include in output');
     });
 
-    it('closes the page popover on Escape without bubbling to workspace handlers', async () => {
-        const harness = mountRail();
-        const escaped = vi.fn();
-        document.addEventListener('keydown', escaped);
-
-        await openOptions(harness.host, 2);
-        const popover = document.body.querySelector<HTMLElement>('.scan-thumbnail-options')!;
-
-        popover.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            cancelable: true,
-            key: 'Escape',
-        }));
-        await nextTick();
-        expect(document.body.querySelector('[data-popover-content]')).toBeNull();
-        expect(escaped).not.toHaveBeenCalled();
-        document.removeEventListener('keydown', escaped);
-    });
 });

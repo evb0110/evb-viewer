@@ -24,6 +24,7 @@ import {
 } from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
     preserveScanCleanupJsonEvidence,
+    isScanCleanupRunReportFile,
     type IScanCleanupEvidenceFileSystem,
 } from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
 import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
@@ -115,6 +116,42 @@ describe('file-backed scan-cleanup result store', () => {
         expect(await readFile(join(evidence, 'pages.json'), 'utf8')).toBe('{}\n');
         expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-representation-report.json'), 'utf8')))
             .toMatchObject({pagesSidecarPath: join(evidence, 'pages.json')});
+    });
+
+    it('keeps only the compact report files when report preservation is requested', async () => {
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-report-scratch-'));
+        const evidence = await mkdtemp(join(tmpdir(), 'scan-cleanup-report-output-'));
+        roots.push(scratch, evidence);
+        const reportFiles = [
+            'scan-cleanup-representation-report.json',
+            'scan-cleanup-output-mappings.jsonl',
+            'scan-cleanup-output-pages.jsonl',
+            'scan-cleanup-batch-summaries.jsonl',
+        ];
+        const excludedFiles = [
+            'page-1-diagnostics.json',
+            'scan-cleanup-native-manifest.json',
+            'page.png',
+        ];
+        for (const file of [
+            ...reportFiles,
+            ...excludedFiles,
+        ]) {
+            await writeFile(join(scratch, file), '{}\n');
+        }
+        await preserveScanCleanupJsonEvidence(scratch, vi.fn(), evidence, undefined, isScanCleanupRunReportFile);
+        expect((await readdir(evidence)).sort()).toEqual([
+            ...reportFiles,
+            'scan-cleanup-evidence-manifest.json',
+        ].sort());
+        for (const file of reportFiles.filter(file => file.endsWith('.jsonl'))) {
+            expect(await readFile(join(evidence, file), 'utf8')).toBe('{}\n');
+        }
+        expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-evidence-manifest.json'), 'utf8')))
+            .toEqual({
+                schemaVersion: 1,
+                files: expect.arrayContaining(reportFiles),
+            });
     });
 
     it('omits analysis-only diagnostics from persisted detection records', async () => {

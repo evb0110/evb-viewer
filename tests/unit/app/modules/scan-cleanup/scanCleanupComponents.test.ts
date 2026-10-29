@@ -19,6 +19,7 @@ import {
     reactive,
     ref,
     shallowRef,
+    unref,
     type Ref,
     type PropType,
 } from 'vue';
@@ -33,6 +34,7 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
+    IScanCleanupPreviewPageMetadata,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
@@ -51,6 +53,8 @@ import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
 import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue';
+import ScanCleanupActivityMeter from '@app/modules/scan-cleanup/components/ScanCleanupActivityMeter.vue';
+import ScanCleanupPageFindings from '@app/modules/scan-cleanup/components/settings/ScanCleanupPageFindings.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
 import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
@@ -162,7 +166,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             updateOverrides: session.updateSelectionOverrides ?? vi.fn(),
         },
         detection: {
-            authoritativeLayoutByPage: session.authoritativeLayoutByPage,
+            authoritativeLayoutByPage: computed(() => unref(session.authoritativeLayoutByPage)),
             blankPageCount: session.blankPageCount ?? computed(() => 0),
             canDetectAll: session.canDetectAll,
             cancel: session.cancelDetection,
@@ -287,9 +291,9 @@ const translations: Record<string, string> = {
     'scanCleanup.description': 'Clean scanned pages.',
     'scanCleanup.done': 'Done',
     'scanCleanup.settings.scope.label': 'Settings scope',
-    'scanCleanup.settings.scope.all': 'All {count} pages',
-    'scanCleanup.settings.scope.page': 'This page (p. {page})',
-    'scanCleanup.settings.scope.selected': 'Selected: {count} pages',
+    'scanCleanup.settings.scope.all': 'All pages',
+    'scanCleanup.settings.scope.page': 'Page {page}',
+    'scanCleanup.settings.scope.selected': '{count} selected',
     'scanCleanup.settings.scope.customized': '{count} customized',
     'scanCleanup.settings.scope.pageCustomized': 'This page has custom settings',
     'scanCleanup.settings.applyThisPageTo': 'Copy this page\'s settings to…',
@@ -311,6 +315,7 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.manualSkewRange': '{min}° to {max}°',
     'scanCleanup.thickness.label': 'Text thickness ({value})',
     'scanCleanup.thickness.control': 'Text thickness',
+    'scanCleanup.advanced.autoDewarpDepth': EN_MESSAGES.scanCleanup.advanced.autoDewarpDepth,
 
     'scanCleanup.settings.manual': 'Manual',
     'scanCleanup.settings.returnToAutomatic': 'Return to automatic',
@@ -376,6 +381,7 @@ const translations: Record<string, string> = {
     'scanCleanup.runCount': '{completed} of {total} pages',
     'scanCleanup.runStatus': '{phase} — {counter}',
     'common.close': 'Close',
+    ...flattenMessages('scanCleanup.pages', EN_MESSAGES.scanCleanup.pages),
     ...flattenMessages('scanCleanup.activity', EN_MESSAGES.scanCleanup.activity),
 };
 
@@ -918,6 +924,8 @@ function settingsPanelProps(
         alignmentItems: [],
         applyScopeItems: [],
         blankPageCount: 0,
+        changedSettings: [],
+        pageFacts: null,
         contentBoxes: single({}),
         customizedCounts: {
             all: 0,
@@ -1358,9 +1366,233 @@ afterEach(() => {
     resetScanCleanupPreferencesStore();
     realWorkspaceSession.create = null;
     realWorkspaceSession.value = null;
+    vi.useRealTimers();
 });
 
 describe('Scan cleanup components', () => {
+    it('advances the step elapsed clock beside its ETA without new progress for six seconds', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-10-29T00:00:00Z'));
+        const activity = runActivity({
+            completedUnits: 20,
+            totalUnits: 158,
+            percent: 36,
+            etaSeconds: 180,
+        });
+        const harness = mount(defineComponent(() => () => h(ScanCleanupActivityMeter, {
+            activity,
+            timeline: {
+                startedAtMs: Date.now() - 20_000,
+                steps: {clean: {startedAtMs: Date.now() - 20_000}},
+            },
+        })));
+        const time = () => harness.host.querySelector('.scan-cleanup-activity-time .scan-cleanup-stable-width-value')?.textContent;
+        expect(time()).toBe('0:20 · about 3 min left');
+        await vi.advanceTimersByTimeAsync(6_000);
+        await nextTick();
+        expect(time()).toBe('0:26 · about 3 min left');
+    });
+
+    it('opens a rail warning in Page scope with its findings and editing controls', async () => {
+        const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+        const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+        try {
+            const selectionLeader = ref(1);
+            const settingsScope = ref<'all' | 'page'>('all');
+            workspaceSession.value = createWorkspaceEntrySession({
+                detectionPending: ref(false),
+                selectionLeader,
+                settingsScope,
+                selectPage: (page: number) => { selectionLeader.value = page; },
+                setSettingsScope: (scope: 'all' | 'page') => { settingsScope.value = scope; },
+                detectedLayoutConfidenceByPage: reactive(new Map([[
+                    2,
+                    0.4,
+                ]])),
+                authoritativeLayoutByPage: reactive(new Map([[
+                    2,
+                    'two-page-spread',
+                ]])),
+                detectedTextAxisByPage: reactive(new Map([[
+                    2,
+                    {
+                        sideways: true,
+                        confidence: 0.98,
+                    },
+                ]])),
+            });
+            const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+                sourcePath: requireDocumentRef('/docs/inspect.pdf'),
+                totalPages: 2,
+                pageSource: {
+                    ...previewPageSource(500, 700),
+                    pageCount: 2,
+                },
+            })));
+            await nextTick();
+            expect(harness.host.querySelector('[data-page-findings]')).toBeNull();
+            await vi.waitFor(() => expect(harness.host.querySelector('.scan-thumbnail-attention')).not.toBeNull());
+            const warning = harness.host.querySelector<HTMLButtonElement>('.scan-thumbnail-attention');
+            expect(warning).not.toBeNull();
+            warning!.click();
+            await nextTick();
+            expect(harness.host.querySelector('[data-settings-scope="page"]')?.getAttribute('aria-checked')).toBe('true');
+            expect(harness.host.querySelector('[data-settings-scope="page"]')?.getAttribute('aria-label')).toBe('Page 2');
+            const findings = harness.host.querySelector('[data-page-findings="2"]');
+            expect(findings?.textContent).toContain('low layout confidence');
+            expect(findings?.textContent).toContain('Text appears sideways');
+            expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
+            harness.unmount();
+        } finally {
+            width.mockRestore();
+            height.mockRestore();
+        }
+    });
+
+    it('omits diagnostic rows the analysis never produced instead of listing them as unavailable', async () => {
+        const diagnostics: IScanCleanupPreviewPageMetadata = {
+            canvasScope: 'page',
+            layoutClassification: 'single-uncut-page',
+            layoutConfidence: 0.88,
+            cutterXPx: null,
+            rotationDegrees: 0,
+            excluded: false,
+            blankOutputsSkipped: 0,
+            tier1Verdict: 'single-uncut-page',
+            reconciled: false,
+            clusterAgreement: 0.82,
+            outputDiagnostics: [],
+        };
+        const harness = mount(defineComponent(() => () => h(ScanCleanupPageFindings, {
+            pageNumber: 2,
+            facts: {
+                classification: diagnostics.layoutClassification,
+                diagnostics,
+                layoutConfidence: diagnostics.layoutConfidence,
+                override: createScanCleanupPageOverride(),
+                recommendedOutputMode: undefined,
+                recommendedOutputModeConfidence: undefined,
+                recommendedOutputModeReason: undefined,
+                textAxis: undefined,
+            },
+        })));
+        const technical = harness.host.querySelector<HTMLElement>('.scan-cleanup-page-findings-technical')!;
+
+        expect(technical.textContent).toContain('Geometry');
+        expect(technical.textContent).toContain('Single · 88% layout confidence');
+        expect(technical.textContent).not.toContain('Unavailable');
+        expect(technical.textContent).not.toContain('Not applicable');
+        expect(technical.textContent).not.toContain('Content trim');
+        expect(technical.textContent).not.toContain('Deskew');
+    });
+
+    it('groups rich scan-cleanup diagnostics into mode, trim, and geometry rows', async () => {
+        const diagnostics: IScanCleanupPreviewPageMetadata = {
+            canvasScope: 'page',
+            layoutClassification: 'single-uncut-page',
+            layoutConfidence: 0.88,
+            cutterXPx: null,
+            rotationDegrees: 0,
+            excluded: false,
+            blankOutputsSkipped: 0,
+            tier1Verdict: 'single-uncut-page',
+            reconciled: true,
+            clusterAgreement: 0.82,
+            detectedSkewDegrees: -0.73,
+            skewConfidence: 0.91,
+            recommendedOutputMode: 'mixed',
+            recommendedOutputModeConfidence: 0.94,
+            recommendedOutputModeReason: 'text-with-pictures',
+            binarizationMode: 'otsu',
+            binarizationDiagnostics: {
+                route: 'otsu',
+                robustContrast: 52.4,
+                illuminationDeviation: 7.1,
+                edgeDensity: 0.22,
+                estimatedStrokeWidthPx: 2.4,
+                darkBorderCoverage: 0.03,
+                otsuAdaptiveAgreement: 0.89,
+            },
+            despeckleFallback: false,
+            autoDewarpAttempted: true,
+            dewarpApplied: true,
+            dewarpConfidence: 0.86,
+            outputDiagnostics: [{
+                half: 'full',
+                contentDiagnostics: {
+                    sideConfidence: {
+                        left: 0.91,
+                        top: 0.82,
+                        right: 0.74,
+                        bottom: 0.68,
+                    },
+                    textMask: {
+                        analysisWidthPx: 800,
+                        analysisHeightPx: 1100,
+                        inkPixels: 28_000,
+                        lineCount: 31,
+                    },
+                    acceptedTrims: [{
+                        side: 'left',
+                        iteration: 1,
+                        score: 0.83,
+                        threshold: 0.71,
+                        contentDistanceSum: 22,
+                        garbageDistanceSum: 4,
+                        removedBlocks: [{
+                            bounds: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx: 48,
+                                heightPx: 1100,
+                            },
+                            pictureMaskOverlapPixels: 240,
+                            headingEvidence: false,
+                            grayscaleEvidence: true,
+                        }],
+                    }],
+                    protectedBlocks: [{
+                        bounds: {
+                            xPx: 64,
+                            yPx: 90,
+                            widthPx: 320,
+                            heightPx: 180,
+                        },
+                        pictureMaskOverlapPixels: 1_300,
+                        headingEvidence: true,
+                        grayscaleEvidence: false,
+                    }],
+                },
+            }],
+        };
+        const harness = mount(defineComponent(() => () => h(ScanCleanupPageFindings, {
+            pageNumber: 2,
+            facts: {
+                classification: diagnostics.layoutClassification,
+                diagnostics,
+                layoutConfidence: diagnostics.layoutConfidence,
+                override: createScanCleanupPageOverride(),
+                recommendedOutputMode: undefined,
+                recommendedOutputModeConfidence: undefined,
+                recommendedOutputModeReason: undefined,
+                textAxis: undefined,
+            },
+        })));
+        const popover = harness.host.querySelector<HTMLElement>('.scan-cleanup-page-findings-technical')!;
+        expect(popover.querySelector('summary')?.textContent).toBe('Technical details');
+        expect(popover.textContent).toContain('Mode decision');
+        expect(popover.textContent).toContain('Text + pictures · 94% output-mode confidence');
+        expect(popover.textContent).toContain('Text with picture regions');
+        expect(popover.textContent).toContain('Contrast / light');
+        expect(popover.textContent).toContain('Content trim');
+        expect(popover.textContent).toContain('Left · 83% ≥ 71%');
+        expect(popover.textContent).toContain('48×1100 px · picture, tonal');
+        expect(popover.textContent).toContain('Geometry');
+        expect(popover.textContent).toContain('Deskew-0.73°Edge confidence');
+        expect(popover.textContent).toContain('Edge confidence');
+    });
+
+
     it('links page margins without changing the document or other pages', async () => {
         const harness = await mountRealWorkspace('page-margin-link');
         const {
@@ -1381,10 +1613,9 @@ describe('Scan cleanup components', () => {
         }});
         selection.setSettingsScope('page');
         await nextTick();
-        const checkbox = harness.host.querySelector<HTMLInputElement>('[data-margins-link]')!;
-        expect(checkbox.checked).toBe(false);
-        checkbox.checked = true;
-        checkbox.dispatchEvent(new Event('change', {bubbles: true}));
+        const link = harness.host.querySelector<HTMLButtonElement>('[data-margins-link]')!;
+        expect(link.getAttribute('aria-checked')).toBe('false');
+        link.click();
         await nextTick();
 
         expect.soft(settings.values.marginsMm).toEqual({
@@ -1813,7 +2044,7 @@ describe('Scan cleanup components', () => {
             totalPages: 3,
         })));
 
-        harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-zone-editor')?.click();
+        harness.host.querySelector<HTMLButtonElement>('.preview-header [aria-label="Edit picture and fill zones"]')?.click();
         await nextTick();
         const useMixed = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
             .find(button => button.textContent?.trim() === 'Use mixed output');
@@ -1892,7 +2123,7 @@ describe('Scan cleanup components', () => {
         })));
         await nextTick();
 
-        const hint = harness.host.querySelector('.scan-cleanup-blank-detected-hint');
+        const hint = harness.host.querySelector('.scan-cleanup-inline-note');
         expect(hint?.textContent).toContain('2 pages look blank');
         expect(harness.host.querySelector('.scan-cleanup-blank-hint')).toBeNull();
         expect(settings.skipBlankPages).toBe(false);
@@ -1900,7 +2131,7 @@ describe('Scan cleanup components', () => {
         settings.skipBlankPages = true;
         await nextTick();
         expect(settings.skipBlankPages).toBe(true);
-        expect(harness.host.querySelector('.scan-cleanup-blank-detected-hint')?.textContent)
+        expect(harness.host.querySelector('.scan-cleanup-inline-note')?.textContent)
             .toContain('2 pages look blank');
     });
 
@@ -2204,8 +2435,7 @@ describe('Scan cleanup components', () => {
             previewViewMode: 'original',
         });
 
-        const detectButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === 'Re-detect');
+        const detectButton = harness.host.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect');
         expect(detectButton?.disabled).toBe(false);
         detectButton?.click();
         expect(detectAllPages).toHaveBeenCalledOnce();
@@ -2365,6 +2595,27 @@ describe('Scan cleanup components', () => {
             .toContain('Cleanup is finishing and can no longer be canceled.');
     });
 
+    it('explains a disabled Clean up action in the toolbar status line', async () => {
+        const reason = 'Include at least one page to clean up.';
+        const canRun = ref(false);
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
+            canRun: canRun.value,
+            runDisabledReason: reason,
+            outputEstimate: '6 source pages → about 6 output pages',
+        }))));
+
+        expect(harness.host.querySelector<HTMLButtonElement>(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR)?.disabled)
+            .toBe(true);
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain(reason);
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
+            .not.toContain('6 source pages');
+
+        canRun.value = true;
+        await nextTick();
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).not.toContain(reason);
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain('6 source pages');
+    });
+
     it('prioritizes and dismisses a persisted cleanup failure while detection restarts', () => {
         const dismiss = vi.fn();
         const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
@@ -2447,9 +2698,13 @@ describe('Scan cleanup components', () => {
                 },
             }), undefined, settings.marginsMm);
         });
+        const documentMarginsLinked = ref(true);
         const settingsScope = ref<'all' | 'page' | 'selected'>('all');
         workspaceSession.value = {
             ownerId: 'component-test-owner',
+            documentMarginsLinked,
+            setSelectionMarginsLinked: (value: boolean) => { documentMarginsLinked.value = value; },
+            setDocumentMarginsLinked: (value: boolean) => { documentMarginsLinked.value = value; },
             alignmentItems: ref([]),
             applyLeaderOverrides,
             cancel: vi.fn(),
@@ -2582,23 +2837,9 @@ describe('Scan cleanup components', () => {
         expect(scopeGroup).not.toBeNull();
         expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
         expect(harness.host.querySelectorAll('[aria-label="Page layout"]')).toHaveLength(1);
-        // The per-page field keeps its place for the all-pages scope but is
-        // hidden from the user and from assistive technology.
-        const pageOnlyField = harness.host.querySelector('[aria-label="Output mode for pages"]')
-            ?.closest('.scan-cleanup-selection-field');
-        expect(pageOnlyField?.getAttribute('aria-hidden')).toBe('true');
-        expect(pageOnlyField?.hasAttribute('inert')).toBe(true);
-        expect(harness.host.querySelector('[data-override-count="layout"]')?.textContent).toBe('1');
-        expect(harness.host.querySelector('[data-override-count="margins"]')?.getAttribute('title'))
-            .toBe('1 pages override this');
-        expect(harness.host.querySelector('[data-customized-scope="all"]')?.textContent?.trim())
-            .toBe('2 customized');
-        const disabledApply = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.includes('Copy this page\'s settings to…'));
-        expect(disabledApply?.disabled).toBe(true);
-        expect(disabledApply?.getAttribute('aria-describedby')).toBe('scan-cleanup-apply-page-hint');
-        expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')?.textContent)
-            .toContain('Choose “This page” above');
+        expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).toBeNull();
+        expect(harness.host.querySelector('[data-override-marker]')).toBeNull();
+        expect(harness.host.querySelector('.scan-cleanup-apply-page')).toBeNull();
 
         const layout = harness.host.querySelector<HTMLSelectElement>('[aria-label="Page layout"]')!;
         layout.value = 'force-two-page';
@@ -2614,8 +2855,6 @@ describe('Scan cleanup components', () => {
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="selected"]')?.click();
         await nextTick();
         expect(settingsScope.value).toBe('selected');
-        expect(harness.host.querySelector('[data-customized-scope="selected"]')?.textContent?.trim())
-            .toBe('2 customized');
         expect(harness.host.textContent).toContain('— Mixed');
         const outputMode = harness.host.querySelector<HTMLSelectElement>(
             '[aria-label="Output mode for pages"]',
@@ -2624,8 +2863,7 @@ describe('Scan cleanup components', () => {
             '[role="radiogroup"][aria-label="Content placement"]',
         )!;
         expect(outputMode).not.toBeNull();
-        expect(placement.compareDocumentPosition(outputMode) & Node.DOCUMENT_POSITION_FOLLOWING)
-            .toBeTruthy();
+        expect(placement).not.toBeNull();
         expect(Array.from(outputMode.options).map(option => option.value)).toEqual([
             'mixed-values',
             'auto',
@@ -2650,15 +2888,14 @@ describe('Scan cleanup components', () => {
             outputMode: settings.outputMode,
             pageAlignment: settings.pageAlignment,
         }).toEqual(documentDefaults);
-        expect(layout.closest('.scan-cleanup-selection-field')?.textContent).not.toContain('— Mixed');
+        expect(harness.host.querySelector('[aria-label="Page layout"]')?.closest('.scan-cleanup-selection-field')?.textContent).not.toContain('— Mixed');
 
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="page"]')?.click();
         await nextTick();
         expect(settingsScope.value).toBe('page');
-        expect(harness.host.querySelector('[data-customized-scope="page"] .sr-only')?.textContent)
+        expect(harness.host.querySelector('[data-customized-scope="page"]')?.getAttribute('aria-label'))
             .toBe('This page has custom settings');
         expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
-        expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')?.textContent?.trim()).toBe('');
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
@@ -2675,6 +2912,8 @@ describe('Scan cleanup components', () => {
         settings.preserveOriginalQuality = false;
         await nextTick();
 
+        harness.host.querySelector<HTMLButtonElement>('[data-margins-link]')!.click();
+        await nextTick();
         expect(harness.host.querySelectorAll('[data-margin-side]')).toHaveLength(4);
         const leftMarginField = harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')!;
         expect(harness.host.querySelector('[data-override-marker="margins"]')).toBeNull();
@@ -6463,7 +6702,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.querySelector('.scan-cleanup-activity-fill.is-indeterminate')).not.toBeNull();
     });
 
-    it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {
+    it('keeps the thickness control mounted when output modes change', async () => {
         const settings = reactive({
             preserveOriginalQuality: false,
             layoutMode: 'auto' as const,
@@ -6489,38 +6728,17 @@ describe('Scan cleanup components', () => {
             settingsPanelProps(settings, scope.value),
         )}));
 
-        const thicknessSlider = () => harness.host.querySelector('[aria-label="Text thickness"]');
-        const placementHint = () => harness.host.querySelector('.scan-cleanup-selection-hint.is-reserved');
-        const applyHint = () => harness.host.querySelector('#scan-cleanup-apply-page-hint');
-
-        expect(thicknessSlider()).not.toBeNull();
-        expect(placementHint()).not.toBeNull();
-        expect(applyHint()).not.toBeNull();
-
-        // B&W -> grayscale used to unmount the thickness field and pull every
-        // control below it upwards; now it only disables.
-        settings.outputMode = 'grayscale';
-        await nextTick();
-        expect(thicknessSlider()).not.toBeNull();
-        expect(harness.host.querySelector('.scan-cleanup-field-disabled')).not.toBeNull();
-
-        settings.outputMode = 'color';
-        await nextTick();
-        expect(thicknessSlider()).not.toBeNull();
-
-        // The placement help text is gated by a checkbox; its line stays.
-        settings.matchPageSize = false;
-        await nextTick();
-        expect(placementHint()?.textContent).toContain('Enable match page size');
-        settings.matchPageSize = true;
-        await nextTick();
-        expect(placementHint()).not.toBeNull();
-        expect(placementHint()?.textContent?.trim()).toBe('');
-
-        scope.value = 'page';
-        await nextTick();
-        expect(applyHint()).not.toBeNull();
-        expect(applyHint()?.textContent?.trim()).toBe('');
+        const slider = harness.host.querySelector('[aria-label="Text thickness"]');
+        expect(slider).not.toBeNull();
+        for (const mode of [
+            'grayscale',
+            'color',
+            'bw',
+        ] as const) {
+            settings.outputMode = mode;
+            await nextTick();
+            expect(harness.host.querySelector('[aria-label="Text thickness"]')).toBe(slider);
+        }
     });
 
     it('commits a manually entered margin through the settings control', async () => {
@@ -6548,11 +6766,14 @@ describe('Scan cleanup components', () => {
         });
         const harness = mount(defineComponent({setup: () => () => h(
             ScanCleanupSettingsPanel,
-            Object.assign(settingsPanelProps(settings, 'all', {margins: {
-                empty: false,
-                mixed: false,
-                value: settings.marginsMm,
-            }}), {'onUpdate-margin': updateMargin}),
+            Object.assign(settingsPanelProps(settings, 'all', {
+                marginsLinked: false,
+                margins: {
+                    empty: false,
+                    mixed: false,
+                    value: settings.marginsMm,
+                },
+            }), {'onUpdate-margin': updateMargin}),
         )}));
 
         const top = harness.host.querySelector<HTMLInputElement>('[data-margin-side="topMm"]');
@@ -6609,7 +6830,7 @@ describe('Scan cleanup components', () => {
         )}));
 
         const depth = harness.host.querySelector<HTMLInputElement>(
-            '[aria-label="scanCleanup.advanced.autoDewarpDepth"]',
+            '[aria-label="Page curvature depth"]',
         );
         expect(depth).not.toBeNull();
         for (const invalidValue of [

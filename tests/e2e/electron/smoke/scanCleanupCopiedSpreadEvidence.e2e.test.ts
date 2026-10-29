@@ -171,7 +171,7 @@ describe('scan cleanup copied spread evidence', () => {
             document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
         ), {timeout: 120_000});
 
-        await clickAsUser(session.page, '[role="radio"][aria-label="This page (p. 1)"]');
+        await clickAsUser(session.page, '[role="radio"][aria-label="Page 1"]');
         await clickAsUser(session.page, '[role="combobox"][aria-label="Page layout"]');
         await clickText(session, '[role="option"]', 'Two-page spread');
         await waitForFunctionInPage(session.page, () => (
@@ -226,7 +226,7 @@ describe('scan cleanup copied spread evidence', () => {
                 && !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText)
         ), {timeout: 120_000});
 
-        await clickAsUser(session.page, '[role="radio"][aria-label="All 2 pages"]');
+        await clickAsUser(session.page, '[role="radio"][aria-label="All pages"]');
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
             if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
