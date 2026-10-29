@@ -62,6 +62,10 @@ import {
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
+import {
+    collectSourceText,
+    type IScanCleanupSourceTextSink,
+} from '@evb/scan-cleanup/core/streamingSidecars';
 import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     createEmptyScanCleanupSummary,
@@ -97,6 +101,12 @@ export interface IScanCleanupLosslessRunContext {
     documentCanvas?: IScanCleanupDocumentCanvasPlan | null;
     skipDocumentCanvasMeasurement?: boolean;
     onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
+    /**
+     * Set when this run is one batch of a larger one. The batch may produce no
+     * pages, and its pages become link targets of the run's final overlay,
+     * which rebuilds navigation once the batches are merged.
+     */
+    streamingChildSourceText?: IScanCleanupSourceTextSink;
 }
 
 async function readLosslessPageSizeBatch(
@@ -470,7 +480,7 @@ export async function runLosslessScanCleanup(
         sourceDpi: page.sourceDpi,
         sourceRasterDetected: page.sourceRasterDetected,
     })));
-    if (allOutputs.length === 0) {
+    if (allOutputs.length === 0 && context.streamingChildSourceText === undefined) {
         throw new Error('evb-scan-cleanup analysis produced no output pages');
     }
     if (documentCanvas === null && request.options.matchPageSize) {
@@ -579,6 +589,13 @@ export async function runLosslessScanCleanup(
         }),
     });
     await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
+    if (allOutputs.length === 0) {
+        await writeFile(join(scratch, 'scan-cleanup-representation-report.json'), JSON.stringify({
+            outputMappings,
+            pages: [],
+        }));
+        return summary;
+    }
     const instructionsPath = join(scratch, 'split-pages.json');
     await writeFile(instructionsPath, (paths.provenanceStampSupport === false
         ? serializeLegacyScanCleanupPageOpsInstructions
@@ -611,6 +628,30 @@ export async function runLosslessScanCleanup(
         ...(context.onRecoveryPending === undefined ? {} : {onTerminationProof: context.onRecoveryPending}),
     });
     summary.accessibilityTagsRemoved = decodeScanCleanupPageOpsResult(pageOps.stdout).accessibilityTagsRemoved;
+    if (context.streamingChildSourceText !== undefined) {
+        // A merge drops this batch's catalog; each page it placed stays a
+        // link target, positioned by its content transform, for the overlay.
+        collectSourceText(context.streamingChildSourceText, {
+            pages: allOutputs.map((output, outputPageIndex) => {
+                const transform = output.placement.contentTransform;
+                return {
+                    sourcePageIndex: output.sourcePageIndex,
+                    outputPageIndex,
+                    matrix: [
+                        transform?.scale ?? 1,
+                        0,
+                        0,
+                        transform?.scale ?? 1,
+                        transform?.translateX ?? 0,
+                        transform?.translateY ?? 0,
+                    ],
+                    linkOnly: true,
+                };
+            }),
+            skippedNonAffine: [],
+            alreadyPreserved: allOutputs.map(output => output.sourcePageIndex + 1),
+        });
+    }
     emitProgress('assembling', allOutputs.length, allOutputs.length);
     const [
         sourceFile,

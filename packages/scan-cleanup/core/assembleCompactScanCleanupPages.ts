@@ -314,6 +314,7 @@ export async function overlayScanCleanupTextLayer(
     log: TScanCleanupLog,
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
+    provenanceStampHex?: string,
 ) {
     // Every output participates in the final catalog map, including non-affine rasters.
     if (pages.length === 0) return null;
@@ -324,7 +325,7 @@ export async function overlayScanCleanupTextLayer(
     const textLayerPdfPath = join(scratch, 'text-layer-cleaned.pdf');
     await writeFile(
         textLayerInstructionsPath,
-        serializeScanCleanupTextLayerInstructions(pages),
+        serializeScanCleanupTextLayerInstructions(pages, paths.provenanceStampSupport === false ? undefined : provenanceStampHex),
     );
     const pageOps = await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'overlay-text',

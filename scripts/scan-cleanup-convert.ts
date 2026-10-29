@@ -1056,10 +1056,27 @@ export async function main() {
         );
         const conversionDurationMs = performance.now() - conversionStartedAt;
         const outputStats = await stat(argumentsValue.outputPdfPath);
-        const report = JSON.parse(await readFile(
+        const reportDescriptor = JSON.parse(await readFile(
             join(nativeEvidenceDirectory, 'scan-cleanup-representation-report.json'),
             'utf8',
         )) as IScanCleanupRepresentationReport;
+        // A multi-batch run streams its mappings and page records to sidecars,
+        // one record a line; the summary reports them like a one-batch run's.
+        const readRecordSidecar = async <T>(inline: T[], sidecarPath: string | undefined) => (
+            inline.length > 0 || sidecarPath === undefined
+                ? inline
+                : (await readFile(sidecarPath, 'utf8')).split('\n')
+                    .filter(line => line.trim() !== '')
+                    .map(line => JSON.parse(line) as T)
+        );
+        const report: IScanCleanupRepresentationReport = {
+            ...reportDescriptor,
+            outputMappings: await readRecordSidecar(
+                reportDescriptor.outputMappings,
+                reportDescriptor.outputMappingsSidecarPath,
+            ),
+            pages: await readRecordSidecar(reportDescriptor.pages, reportDescriptor.pagesSidecarPath),
+        };
         const stamp = JSON.parse(await readFile(
             join(nativeEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'),
             'utf8',
