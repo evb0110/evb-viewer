@@ -588,10 +588,12 @@ fn remap_browser_page_labels(
 }
 
 fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> Result<String> {
+    // The ranges are sorted by start page; a reverse scan per page made a
+    // label on every page quadratic in the document.
     let range = ranges
-        .iter()
-        .rev()
-        .find(|range| range.start_page <= page_number)
+        .partition_point(|range| range.start_page <= page_number)
+        .checked_sub(1)
+        .and_then(|index| ranges.get(index))
         .or_else(|| ranges.first())
         .expect("PDF page labels must contain a range");
     let number = range

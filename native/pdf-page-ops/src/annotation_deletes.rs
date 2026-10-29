@@ -135,37 +135,51 @@ pub(crate) fn annotation_matches_stable_delete_name(
     object_id: ObjectId,
     delete: &AnnotationDelete,
 ) -> Result<bool> {
-    let stable_key = match delete.stable_key.as_deref().map(str::trim) {
-        Some(stable_key) if !stable_key.is_empty() => stable_key,
-        _ => return Ok(false),
-    };
-    let dict = match document.dictionary(object_id) {
-        Ok(dict) => dict,
-        Err(_) => return Ok(false),
-    };
+    Ok(StableDeleteName::new(delete).is_some_and(|requested| {
+        stable_delete_note_name(document, object_id).is_some_and(|name| requested.matches(&name))
+    }))
+}
+
+/// The name a stable-key delete asks for, prepared once for many annotations.
+struct StableDeleteName {
+    requested: String,
+    created_at: Option<u64>,
+}
+
+impl StableDeleteName {
+    fn new(delete: &AnnotationDelete) -> Option<Self> {
+        let stable_key = delete
+            .stable_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())?;
+        Some(Self {
+            requested: replayable_free_text_note_name_from_parts(stable_key, delete.created_at),
+            created_at: delete.created_at,
+        })
+    }
+
+    fn matches(&self, note_name: &str) -> bool {
+        text_note_delete_name_matches(note_name, &self.requested, self.created_at)
+            || annotation_names_match(note_name, &self.requested, &["evb-freetext:"])
+    }
+}
+
+/// The name of the text or FreeText note an annotation is, or whose popup it is.
+fn stable_delete_note_name(document: &impl PdfObjectSource, object_id: ObjectId) -> Option<String> {
+    let dict = document.dictionary(object_id).ok()?;
     let target_dict = if annotation_subtype(dict) == "popup" {
-        match annotation_related_ref(dict, b"Parent") {
-            Some(parent_id) => match document.dictionary(parent_id) {
-                Ok(parent_dict) => parent_dict,
-                Err(_) => return Ok(false),
-            },
-            None => return Ok(false),
-        }
+        document
+            .dictionary(annotation_related_ref(dict, b"Parent")?)
+            .ok()?
     } else {
         dict
     };
     let target_subtype = annotation_subtype(target_dict);
     if target_subtype != "text" && target_subtype != "freetext" {
-        return Ok(false);
+        return None;
     }
-    let Some(note_name) = read_annotation_name(target_dict) else {
-        return Ok(false);
-    };
-    let requested_name = replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
-    Ok(
-        text_note_delete_name_matches(&note_name, &requested_name, delete.created_at)
-            || annotation_names_match(&note_name, &requested_name, &["evb-freetext:"]),
-    )
+    read_annotation_name(target_dict)
 }
 
 fn resolve_annotation_delete_target_refs_from_index(
@@ -341,19 +355,27 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
         }
     }
 
+    // Each survivor's note name is read once and each delete's requested
+    // name prepared once; resolving both for every pair made a 256-delete
+    // batch over 10,000 surviving annotations take 0.7-1.5 s.
+    let stable_names = deletes
+        .iter()
+        .filter_map(StableDeleteName::new)
+        .collect::<Vec<_>>();
     let mut validate_page = |page_id| {
         for object in get_page_annots(document, page_id)? {
             if let Ok(object_id) = object.as_reference() {
                 if refs_to_delete.contains(&object_id) {
                     return Err("Deleted annotation is still referenced from page Annots".into());
                 }
-                for delete in deletes {
-                    if annotation_matches_stable_delete_name(document, object_id, delete)? {
-                        return Err(
-                            "Stable-key deleted annotation is still referenced from page Annots"
-                                .into(),
-                        );
-                    }
+                let matches_stable_delete = !stable_names.is_empty()
+                    && stable_delete_note_name(document, object_id).is_some_and(|name| {
+                        stable_names.iter().any(|delete| delete.matches(&name))
+                    });
+                if matches_stable_delete {
+                    return Err(
+                        "Stable-key deleted annotation is still referenced from page Annots".into(),
+                    );
                 }
             }
         }
