@@ -3,13 +3,15 @@ use super::*;
 
 /// What a page-local edit touches: page indexes it rewrites, the pages whose
 /// annotations it reads, annotations it addresses by object, whose pages are
-/// found through their `/P`, and objects it reads with all they reference.
+/// found through their `/P`, objects it reads with all they reference, and
+/// the bookmark path a later outline chunk extends.
 #[derive(Default)]
 pub(crate) struct PageLocalEdit {
     pub(crate) pages: BTreeSet<u32>,
     pub(crate) annotation_pages: BTreeSet<u32>,
     pub(crate) annotations: BTreeSet<ObjectId>,
     pub(crate) closure: BTreeSet<ObjectId>,
+    pub(crate) outline: Option<Vec<u32>>,
 }
 
 impl PageLocalEdit {
@@ -97,6 +99,10 @@ pub(crate) fn page_local_edit(mutations: &NativeMutationsFile) -> Option<PageLoc
     edit.pages
         .extend(page_rotations.iter().map(|rotation| rotation.page_index));
     edit.pages.extend(bookmark_pages(bookmarks.as_ref())?);
+    edit.outline = continuation
+        .as_ref()
+        .filter(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
+        .map(|value| value.bookmark_path.clone());
     let writes = page_labels.is_some() || bookmarks.is_some() || shapes.is_some();
     (page_local && (writes || !(edit.pages.is_empty() && edit.annotations.is_empty())))
         .then_some(edit)
