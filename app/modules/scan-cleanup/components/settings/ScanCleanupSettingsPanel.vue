@@ -37,7 +37,7 @@
                     @update:model-value="updateDocument('preserveOriginalQuality', $event === true)"
                 />
                 <UFormField
-                    :class="{'scan-cleanup-field-disabled': !thicknessApplies}"
+                    :class="{'scan-cleanup-field-disabled': !bilevelOutput}"
                     :label="t('scanCleanup.thickness.label', {value: thicknessLabel})"
                 >
                     <USlider
@@ -47,7 +47,7 @@
                         :step="1"
                         :model-value="settings.thickness"
                         :aria-label="t('scanCleanup.thickness.control')"
-                        :disabled="!thicknessApplies"
+                        :disabled="!bilevelOutput"
                         @update:model-value="$emit('thickness-input', $event ?? settings.thickness)"
                     />
                     <div class="scan-cleanup-scale" aria-hidden="true">
@@ -396,8 +396,7 @@
                                 :items="despeckleItems"
                                 value-key="value"
                                 class="w-full"
-                                :disabled="lossless
-                                    || (settings.outputMode !== 'bw' && settings.outputMode !== 'mixed')"
+                                :disabled="!bilevelOutput"
                                 @update:model-value="updateDocument('despeckleLevel', $event)"
                             />
                         </UFormField>
@@ -681,10 +680,10 @@ const manualSplitState = computed(() => props.manualSplit.mixed
 const contentBoxesState = computed(() => props.contentBoxes.mixed
     ? 'mixed'
     : hasContentBoxes.value ? 'manual' : 'auto');
-// Text thickness only affects bilevel output, but it keeps its place in the
-// panel and disables instead of unmounting: switching B&W/gray/colour must not
-// move the controls below it.
-const thicknessApplies = computed(() => !lossless.value
+// Text thickness and speckle removal only affect black-and-white output, which
+// Auto produces for text pages. They keep their place and disable instead of
+// unmounting: switching B&W/gray/colour must not move the controls below them.
+const bilevelOutput = computed(() => !lossless.value
     && (props.settings.outputMode === 'auto'
         || props.settings.outputMode === 'bw'
         || props.settings.outputMode === 'mixed'));
@@ -786,9 +785,12 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
     font-size: var(--app-text-size-secondary);
 }
 
+/* One column that never grows past the rail: a long option such as a per-page
+   output mode truncates inside its select instead of widening the panel. */
 .scan-cleanup-settings-scroll {
     display: grid;
     min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
     flex: 1;
     align-content: start;
     gap: var(--app-space-5xl);
@@ -815,6 +817,12 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
     font-weight: var(--app-font-weight-bold);
     letter-spacing: var(--app-letter-spacing-caps);
     text-transform: uppercase;
+}
+
+.scan-cleanup-option-group,
+.scan-cleanup-selection-field {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .scan-cleanup-selection-field {

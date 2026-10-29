@@ -186,11 +186,15 @@ function resolveAnalysis(
         phase: 'analyze',
         step,
         detail,
-        // The sentence's count measures the work it names.
-        count: {
-            completed: detail === 'read' ? read : analyzed,
-            total,
-        },
+        // The sentence's count measures the work it names. Once every page has
+        // a verdict, "158 of 158" would read as finished while the document-wide
+        // re-check still runs, so that step counts only the pages it re-read.
+        count: step === 'compare'
+            ? rechecked > 0 ? {completed: rechecked} : null
+            : {
+                completed: detail === 'read' ? read : analyzed,
+                total,
+            },
         fraction: analyzed === 0 && read === 0 ? null : analyzed / total,
         bufferFraction: read / total,
         ...(progress?.etaSeconds === undefined || verdictsComplete ? {} : {etaSeconds: progress.etaSeconds}),

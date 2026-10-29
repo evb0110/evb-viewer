@@ -247,7 +247,6 @@ export default {
                 'reconciled': 'Ajustado com indícios de todo o documento',
                 'splitAbstained': 'O detetor de divisão não tomou uma decisão',
                 'deskew': 'Correção da inclinação',
-                'deskewValue': '{angle}° · {confidence}',
                 'deskewManualValue': '{angle}° · manual',
                 'binarization': 'Binarização',
                 'contrastIllumination': 'Contraste / luz',

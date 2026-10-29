@@ -54,6 +54,13 @@
                                 {{ detectionError }}
                             </span>
                         </AppTooltip>
+                        <!-- A disabled button shows no tooltip, so the reason it is
+                             disabled is said where the estimate would be. -->
+                        <span
+                            v-else-if="!canRun && runDisabledReason"
+                            class="scan-cleanup-toolbar-estimate"
+                            data-run-disabled-reason
+                        >{{ runDisabledReason }}</span>
                         <span v-else-if="outputEstimate" class="scan-cleanup-toolbar-estimate">
                             {{ outputEstimate }}
                         </span>

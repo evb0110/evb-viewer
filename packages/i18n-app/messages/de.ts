@@ -247,7 +247,6 @@ export default {
                 'reconciled': 'Durch dokumentweite Hinweise abgeglichen',
                 'splitAbstained': 'Die Teilungserkennung hat keine Entscheidung getroffen',
                 'deskew': 'Schräglagenkorrektur',
-                'deskewValue': '{angle}° · {confidence}',
                 'deskewManualValue': '{angle}° · manuell',
                 'binarization': 'Binarisierung',
                 'contrastIllumination': 'Kontrast / Licht',

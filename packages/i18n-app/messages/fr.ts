@@ -247,7 +247,6 @@ export default {
                 'reconciled': 'Ajusté à partir des indices du document entier',
                 'splitAbstained': 'Le détecteur de séparation n’a pas tranché',
                 'deskew': 'Redressement',
-                'deskewValue': '{angle}° · {confidence}',
                 'deskewManualValue': '{angle}° · manuel',
                 'binarization': 'Binarisation',
                 'contrastIllumination': 'Contraste / lumière',

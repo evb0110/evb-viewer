@@ -249,10 +249,9 @@ export function scanCleanupPageDiagnosticGroups(
         ? null
         : diagnostics.manualSkew === true
             ? t('scanCleanup.pages.diagnostics.deskewManualValue', {angle: diagnostics.detectedSkewDegrees.toFixed(2)})
-            : t('scanCleanup.pages.diagnostics.deskewValue', {
-                angle: diagnostics.detectedSkewDegrees.toFixed(2),
-                confidence: formatConfidence(t, diagnostics.skewConfidence),
-            });
+            // The detector's skew score is a peak-to-average ratio, not a
+            // probability, so it is not shown as a percentage.
+            : t('scanCleanup.settings.rotationDegrees', {value: diagnostics.detectedSkewDegrees.toFixed(2)});
     return [
         {
             title: t('scanCleanup.pages.diagnostics.modeDecision'),

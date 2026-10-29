@@ -730,7 +730,6 @@ export default {
                 'reconciled': 'Reconciled by document-level evidence',
                 'splitAbstained': 'The split detector abstained',
                 'deskew': 'Deskew',
-                'deskewValue': '{angle}° · {confidence}',
                 'deskewManualValue': '{angle}° · manual',
                 'binarization': 'Binarization',
                 'contrastIllumination': 'Contrast / light',

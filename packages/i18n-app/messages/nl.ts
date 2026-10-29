@@ -247,7 +247,6 @@ export default {
                 'reconciled': 'Bijgesteld met informatie uit het hele document',
                 'splitAbstained': 'De splitsingsdetector heeft geen beslissing genomen',
                 'deskew': 'Scheefstand corrigeren',
-                'deskewValue': '{angle}° · {confidence}',
                 'deskewManualValue': '{angle}° · handmatig',
                 'binarization': 'Binarisatie',
                 'contrastIllumination': 'Contrast / licht',

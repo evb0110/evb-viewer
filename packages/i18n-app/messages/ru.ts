@@ -738,7 +738,6 @@ export default {
                 'reconciled': 'Уточнено по данным всего документа',
                 'splitAbstained': 'Алгоритм не стал разделять страницу',
                 'deskew': 'Исправление наклона',
-                'deskewValue': '{angle}° · {confidence}',
                 'deskewManualValue': '{angle}° · вручную',
                 'binarization': 'Бинаризация',
                 'contrastIllumination': 'Контраст / освещение',
