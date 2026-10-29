@@ -3522,7 +3522,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.preview-viewport-caption')?.textContent?.trim()).toBe('');
     });
 
-    it('leaves Original mode and cleaned-preview failures untouched while a page loads', async () => {
+    it('announces the displayed original page while its cleaned preview is still loading', async () => {
         const viewMode = ref<'original' | 'cleaned'>('original');
         const error = ref('');
         const result = spreadPreviewResult(1);
