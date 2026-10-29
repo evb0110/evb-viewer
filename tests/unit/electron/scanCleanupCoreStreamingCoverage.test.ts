@@ -500,6 +500,31 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('publishes real per-output mappings and page records in streaming report sidecars', async () => {
+        const fixture = await conversionRegressionFixture(1_025);
+        const summary = await fixture.run({sourcePageNumbers: [1]});
+        expect(summary.outputPages).toBe(1);
+        const report = JSON.parse(await readFile(join(fixture.scratch, 'scan-cleanup-representation-report.json'), 'utf8'));
+        const readRecords = async (path: string) => (await readFile(path, 'utf8'))
+            .trim().split('\n').map(line => JSON.parse(line));
+        const mappings = report.outputMappings.length > 0 ? report.outputMappings
+            : (await readRecords(report.outputMappingsSidecarPath)).flatMap(record => record.outputMappings
+                ?? (record.sourcePage === undefined ? [] : [record]));
+        const pages = report.pages.length > 0 ? report.pages
+            : (await readRecords(report.pagesSidecarPath)).flatMap(record => record.pages
+                ?? (record.outputPageNumber === undefined ? [] : [record]));
+        expect(mappings).toEqual([expect.objectContaining({
+            sourcePage: 1,
+            outputOrdinal: 1,
+            half: 'full',
+        })]);
+        expect(pages).toEqual([expect.objectContaining({
+            sourcePageNumber: 1,
+            outputPageNumber: 1,
+            outputOrdinal: 1,
+        })]);
+    });
+
     it.each([
         'first',
         'last',
