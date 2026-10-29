@@ -185,6 +185,17 @@ pub(crate) fn render_detail_page(
         }
     }
     if let CleanupRaster::Bilevel(binary) = &mut output.image {
+        // A rejected candidate is one preservation could not prove, not one the
+        // base removed: the base page keeps whatever its own threshold kept.
+        // Where the base output is known, a tile removes a candidate only where
+        // the base shows paper, so the tile agrees with the page it zooms.
+        let base_shows_paper = |x: usize, y: usize| {
+            base_cleaned.is_none_or(|(base, _)| {
+                let base_x = ((sampled_region.x + x as f64) / scale).floor() as usize;
+                let base_y = ((sampled_region.y + y as f64) / scale).floor() as usize;
+                base_x >= base.width() || base_y >= base.height() || base.get(base_x, base_y) >= 128
+            })
+        };
         for (encoded, preserve) in base_metadata.faint_stroke_masks.iter().zip([true, false]) {
             let Some(encoded) = encoded else { continue };
             let mask =
@@ -211,6 +222,7 @@ pub(crate) fn render_detail_page(
                         (nx * mask.width().saturating_sub(1) as f64).round() as usize,
                         (ny * mask.height().saturating_sub(1) as f64).round() as usize,
                     ) < 128
+                    && (preserve || base_shows_paper(x, y))
             });
             *binary = if preserve {
                 binary.or(&mapped)

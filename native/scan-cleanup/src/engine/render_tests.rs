@@ -6402,13 +6402,15 @@ mod tests {
             render_region: region.clone(),
             sampled_region: region,
         };
+        // The preview always hands a tile its base page's cleaned raster.
+        let base_cleaned = base.image.to_gray();
         let tile = clean_detail_page_with_color(
             DetailRenderSources {
                 source_crop: &source_crop,
                 color_source_crop: None,
                 base_source: &source,
                 base_color_source: None,
-                base_cleaned: None,
+                base_cleaned: Some((&base_cleaned, None)),
             },
             &CleanupOptions {
                 dpi: 600.0,
