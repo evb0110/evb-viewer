@@ -337,6 +337,7 @@ export async function runNativeCommand(
     let terminationProof: Promise<boolean> | null = null;
     let terminationProofSettled = false;
     let unregistration: Promise<void> | null = null;
+    const settledRegistration = () => registration ?? Promise.resolve(null);
     const unregister = () => {
         if (registration === null) return Promise.resolve();
         unregistration ??= registration.then(child => child?.unregister()).then(() => undefined, (error: unknown) => options.log?.('warn', `Could not remove a managed process record: ${getErrorMessage(error)}`));
@@ -354,7 +355,7 @@ export async function runNativeCommand(
                     options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}"`);
                     return;
                 }
-                void unregister();
+                await unregister();
             } catch (error) {
                 options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}": ${getErrorMessage(error)}`);
             }
@@ -399,11 +400,16 @@ export async function runNativeCommand(
             },
         });
         await cleanupScratchIfProven();
+        // Registering the child reads its identity through a short-lived
+        // probe process. The command settles only after that probe has, or a
+        // worker that ends with this command would orphan it unreaped.
+        await settledRegistration();
         return result;
     } catch (error) {
         if (terminationProofSettled || (terminationProof === null && (processId === null || childClosed))) {
             await cleanupScratchIfProven();
         }
+        await settledRegistration();
         throw error;
     }
 }
