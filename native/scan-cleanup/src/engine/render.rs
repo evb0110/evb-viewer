@@ -3175,71 +3175,6 @@ fn partition_mixed_picture_mask(
     *picture_mask = picture_mask.subtract(&text_owned);
 }
 
-/// Applies one mild descreening pass inside a confirmed photo owner.
-///
-/// The sample outside the owner is replaced with the target center value, so
-/// the filter cannot bleed normalized paper or nearby text into a photo edge.
-/// This is intentionally a render-input filter, not a general page blur.
-fn prefilter_confirmed_photo_regions(image: &mut GrayImage, owner: &BinaryImage) {
-    debug_assert_eq!(
-        (image.width(), image.height()),
-        (owner.width(), owner.height())
-    );
-    if image.width() < 3 || image.height() < 3 || owner.count_black() == 0 {
-        return;
-    }
-    let original = image.clone();
-    let kernel = [1u32, 2, 1];
-    let width = image.width();
-    let height = image.height();
-    let stride = image.stride();
-    image
-        .data_mut()
-        .par_chunks_mut(stride)
-        .enumerate()
-        .for_each(|(y, row)| {
-            if y == 0 || y == height - 1 {
-                return;
-            }
-            for (x, target) in row.iter_mut().enumerate().take(width - 1).skip(1) {
-                if !owner.get(x, y) {
-                    continue;
-                }
-                let center = u32::from(original.get(x, y));
-                let mut weighted_sum = 0u32;
-                let mut weight_sum = 0u32;
-                for (ky, &row_weight) in kernel.iter().enumerate() {
-                    for (kx, &column_weight) in kernel.iter().enumerate() {
-                        let sample_x = x + kx - 1;
-                        let sample_y = y + ky - 1;
-                        let weight = row_weight * column_weight;
-                        let sample = if owner.get(sample_x, sample_y) {
-                            u32::from(original.get(sample_x, sample_y))
-                        } else {
-                            center
-                        };
-                        weighted_sum += sample * weight;
-                        weight_sum += weight;
-                    }
-                }
-                *target = (weighted_sum / weight_sum.max(1)) as u8;
-            }
-        });
-}
-
-fn should_prefilter_confirmed_photo_regions(
-    preserve_confirmed_photo_tones: bool,
-    output_mode: OutputMode,
-    rendered_width: usize,
-    rendered_height: usize,
-    source_width: usize,
-    source_height: usize,
-) -> bool {
-    preserve_confirmed_photo_tones
-        && matches!(output_mode, OutputMode::Grayscale | OutputMode::Mixed)
-        && (rendered_width < source_width || rendered_height < source_height)
-}
-
 /// Joins only a repeated chain of wide, vertically separated row fields.
 ///
 /// The content detector can miss one or two low-contrast lines inside an
@@ -3691,6 +3626,9 @@ fn render_gray_field(
     map: impl Fn(Point) -> Option<Point> + Sync,
 ) -> GrayImage {
     let mut output = GrayImage::new(width, height, 0);
+    if source.width() == 0 || source.height() == 0 {
+        return output;
+    }
     output
         .data_mut()
         .par_chunks_mut(width)
@@ -3707,10 +3645,26 @@ fn render_gray_field(
                 {
                     continue;
                 }
-                *target = sample_bilinear_white(source, mapped.x, mapped.y);
+                *target = sample_bilinear_index(source, mapped.x, mapped.y);
             }
         });
     output
+}
+
+/// Bilinear sample at pixel-index coordinates already inside the field. The
+/// page sampler shifts by half a pixel and treats outside as white paper; an
+/// auxiliary field such as preservation alpha has neither convention.
+fn sample_bilinear_index(source: &GrayImage, x: f64, y: f64) -> u8 {
+    let left = x.floor() as usize;
+    let top = y.floor() as usize;
+    let right = (left + 1).min(source.width() - 1);
+    let bottom = (top + 1).min(source.height() - 1);
+    let fx = x - left as f64;
+    let fy = y - top as f64;
+    let sample = |sx: usize, sy: usize| f64::from(source.get(sx, sy));
+    let upper = sample(left, top) * (1.0 - fx) + sample(right, top) * fx;
+    let lower = sample(left, bottom) * (1.0 - fx) + sample(right, bottom) * fx;
+    (upper * (1.0 - fy) + lower * fy).round().clamp(0.0, 255.0) as u8
 }
 
 fn suppress_scanner_edge_bands(

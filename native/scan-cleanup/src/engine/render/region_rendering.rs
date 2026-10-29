@@ -1881,11 +1881,9 @@ struct RasterPlaneInput<'a> {
     normalized: &'a GrayImage,
     routing_source: &'a GrayImage,
     color_source: Option<&'a RgbImage>,
-    source_picture_mask: Option<&'a BinaryImage>,
     tone_preservation_alpha: Option<&'a GrayImage>,
     text_tone_diagnostics: Option<TextToneDiagnostics>,
     options: &'a CleanupOptions,
-    preserve_confirmed_photo_tones: bool,
     working_width: usize,
     working_height: usize,
     render_region: Option<Rect>,
@@ -1925,11 +1923,9 @@ fn prepare_render_planes(
         normalized,
         routing_source,
         color_source,
-        source_picture_mask,
         tone_preservation_alpha,
         text_tone_diagnostics,
         options,
-        preserve_confirmed_photo_tones,
         working_width,
         working_height,
         render_region,
@@ -1945,31 +1941,7 @@ fn prepare_render_planes(
         timings,
     } = input;
     let rasterization_started = Instant::now();
-    // Halftone plates can alias into horizontal bands when a confirmed photo
-    // is reduced to a smaller tonal layer. Descreen only the owner, and only
-    // when the render is genuinely downscaled; the routing raster and every
-    // unowned paper/text pixel continue to use the original normalized image.
-    let descreened_normalized = if should_prefilter_confirmed_photo_regions(
-        preserve_confirmed_photo_tones,
-        options.output_mode,
-        rendered_width,
-        rendered_height,
-        working_width,
-        working_height,
-    ) {
-        source_picture_mask
-            .filter(|mask| mask.count_black() > 0)
-            .map(|mask| {
-                let normalized_owner =
-                    resample_binary_mask_nearest(mask, normalized.width(), normalized.height());
-                let mut filtered = normalized.clone();
-                prefilter_confirmed_photo_regions(&mut filtered, &normalized_owner);
-                filtered
-            })
-    } else {
-        None
-    };
-    let tonal_render_source = descreened_normalized.as_ref().unwrap_or(normalized);
+    let tonal_render_source = normalized;
     // A colour page publishes its RGB raster; the gray twin is never encoded, so
     // the only question it answered — blankness — moves to the analysis level.
     let skips_gray_twin = options.output_mode == OutputMode::Color
@@ -3549,11 +3521,9 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         normalized,
         routing_source,
         color_source,
-        source_picture_mask,
         tone_preservation_alpha,
         text_tone_diagnostics,
         options,
-        preserve_confirmed_photo_tones,
         working_width,
         working_height,
         render_region,

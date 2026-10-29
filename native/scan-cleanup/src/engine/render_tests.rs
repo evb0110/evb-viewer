@@ -4029,63 +4029,6 @@ mod tests {
     }
 
     #[test]
-    fn photo_descreen_filter_is_scoped_to_the_confirmed_owner() {
-        let mut image = GrayImage::new(9, 9, 242);
-        let mut owner = BinaryImage::new(9, 9);
-        for y in 2..7 {
-            for x in 2..7 {
-                owner.set(x, y, true);
-                image.set(x, y, if (x + y) % 2 == 0 { 48 } else { 208 });
-            }
-        }
-        let outside_before = image.get(1, 4);
-        let center_before = image.get(4, 4);
-        prefilter_confirmed_photo_regions(&mut image, &owner);
-        assert_eq!(image.get(1, 4), outside_before);
-        assert_ne!(image.get(4, 4), center_before);
-        assert!((48..=208).contains(&image.get(4, 4)));
-    }
-
-    #[test]
-    fn photo_descreen_gate_uses_the_region_source_extent() {
-        assert!(
-            !should_prefilter_confirmed_photo_regions(
-                true,
-                OutputMode::Mixed,
-                600,
-                800,
-                600,
-                800,
-            ),
-            "a 1:1 split-page region must not receive an unearned descreen pass"
-        );
-        assert!(should_prefilter_confirmed_photo_regions(
-            true,
-            OutputMode::Grayscale,
-            300,
-            400,
-            600,
-            800,
-        ));
-        assert!(!should_prefilter_confirmed_photo_regions(
-            false,
-            OutputMode::Mixed,
-            300,
-            400,
-            600,
-            800,
-        ));
-        assert!(!should_prefilter_confirmed_photo_regions(
-            true,
-            OutputMode::Bw,
-            300,
-            400,
-            600,
-            800,
-        ));
-    }
-
-    #[test]
     fn mixed_composite_feathers_light_mask_blocks_without_losing_dark_picture_edges() {
         let mut gray = GrayImage::new(120, 80, 255);
         let mut mask = BinaryImage::new(120, 80);
