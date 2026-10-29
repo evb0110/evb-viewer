@@ -5746,3 +5746,88 @@ fn page_plan_content_box_excludes_a_deep_scanner_bed() {
         "the body was cropped: {content}"
     );
 }
+
+fn assert_preview_boundary_crop_is_rejected_or_bounded(crop: NormalizedRect) {
+    let scratch = Scratch::new("preview-boundary-crop");
+    let input = scratch.path("input.png");
+    let mut source = GrayImage::new(100, 80, 240);
+    for y in (15..65).step_by(10) {
+        for x in 12..88 {
+            source.set(x, y, 20);
+            source.set(x, y + 1, 20);
+        }
+    }
+    fs::write(&input, encode_gray(&source).unwrap()).unwrap();
+    let output = scratch.path("preview.png");
+    let manifest = scratch.path("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("page.json"),
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    layout: LayoutMode::Single,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    render_crop: Some(crop),
+                    manual_skew_degrees: Some(0.0),
+                    ..unmatched_options()
+                },
+                "outputs": [{"outputPath": output, "metadataPath": scratch.path("output.json")}],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "preview boundary crop must be rejected or bounded without a native panic: {stderr}"
+    );
+    if result.status.success() {
+        let image = decode_gray(&fs::read(&output).unwrap(), 10_000, 200).unwrap();
+        assert!(image.width() > 0 && image.width() <= 100);
+        assert!(image.height() > 0 && image.height() <= 80);
+    } else {
+        let error: Value = serde_json::from_slice(&result.stderr)
+            .expect("boundary rejection must use a typed error envelope");
+        assert_eq!(
+            error["code"], "invalid-request",
+            "an admitted preview crop must not become an internal render failure: {error}"
+        );
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn preview_right_boundary_crop_is_rejected_or_rendered_without_panicking() {
+    assert_preview_boundary_crop_is_rejected_or_bounded(NormalizedRect {
+        x: 1.0,
+        y: 0.0,
+        width: 1e-10,
+        height: 1.0,
+        rotation: OrthogonalRotation::None,
+    });
+}
+
+#[test]
+fn preview_bottom_boundary_crop_is_rejected_or_rendered_without_panicking() {
+    assert_preview_boundary_crop_is_rejected_or_bounded(NormalizedRect {
+        x: 0.0,
+        y: 1.0,
+        width: 1.0,
+        height: 1e-10,
+        rotation: OrthogonalRotation::None,
+    });
+}

@@ -17,6 +17,49 @@ fn zone_polygon(points: &[(f64, f64)]) -> NormalizedZonePolygon {
     }
 }
 
+fn assert_boundary_render_crop_is_rejected_or_bounded(crop: NormalizedRect) {
+    let options = CleanupOptions {
+        render_crop: Some(crop),
+        match_page_size: false,
+        ..CleanupOptions::default()
+    };
+    if options.validate().is_err() {
+        return;
+    }
+    let result = std::panic::catch_unwind(|| options.resolved_render_crop(1000, 1000));
+    assert!(
+        result.is_ok(),
+        "a validated render crop must not panic at the raster boundary: {crop:?}"
+    );
+    if let Some(rect) = result.unwrap() {
+        assert!(rect.x >= 0.0 && rect.y >= 0.0);
+        assert!(rect.width > 0.0 && rect.height > 0.0);
+        assert!(rect.right() <= 1000.0 && rect.bottom() <= 1000.0);
+    }
+}
+
+#[test]
+fn right_boundary_render_crop_is_rejected_or_resolves_without_panicking() {
+    assert_boundary_render_crop_is_rejected_or_bounded(NormalizedRect {
+        x: 1.0,
+        y: 0.0,
+        width: 1e-10,
+        height: 1.0,
+        rotation: OrthogonalRotation::None,
+    });
+}
+
+#[test]
+fn bottom_boundary_render_crop_is_rejected_or_resolves_without_panicking() {
+    assert_boundary_render_crop_is_rejected_or_bounded(NormalizedRect {
+        x: 0.0,
+        y: 1.0,
+        width: 1.0,
+        height: 1e-10,
+        rotation: OrthogonalRotation::None,
+    });
+}
+
 #[test]
 fn manual_zone_polygons_must_be_simple_and_non_degenerate() {
     for points in [
