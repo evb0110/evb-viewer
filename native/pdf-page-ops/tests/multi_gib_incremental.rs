@@ -1441,6 +1441,65 @@ fn catalog_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_writer() {
 }
 
 #[test]
+fn long_outline_continuations_on_a_pdf_too_large_to_load_whole_read_only_their_path() {
+    let large = temp_path("page-local-long-outline", "pdf");
+    let mutations = temp_path("page-local-long-outline-mutations", "json");
+    let _cleanup = TempFiles(vec![large.clone(), mutations.clone()]);
+    write_page_local_note_pdf(&large, true, true);
+    // Three chunks of 5,000 top-level bookmarks, then later chunks at the top
+    // level and under the last earlier bookmark.
+    let bookmarks = |items: Value, continuation: Value| serde_json::json!({"bookmarks": {"totalPages": 2, "untitledLabel": "Untitled", "items": items}, "continuation": continuation});
+    let mut saves = (0..3)
+        .map(|chunk| {
+            let items = (chunk * 5000..(chunk + 1) * 5000)
+                .map(|index| serde_json::json!({"title": format!("Entry {index}"), "pageIndex": index % 2, "items": []}))
+                .collect();
+            let continuation = (chunk > 0).then(|| serde_json::json!({"family": "bookmarks", "chunkIndex": chunk, "chunkCount": 5}));
+            bookmarks(items, continuation.into())
+        })
+        .collect::<Vec<_>>();
+    saves.push(bookmarks(
+        serde_json::json!([{"title": "Later top", "pageIndex": 1, "items": []}]),
+        serde_json::json!({"family": "bookmarks", "chunkIndex": 3, "chunkCount": 5}),
+    ));
+    saves.push(bookmarks(
+        serde_json::json!([{"title": "Later child", "pageIndex": 0, "items": []}]),
+        serde_json::json!({"family": "bookmarks", "chunkIndex": 4, "chunkCount": 5, "bookmarkPath": [14999]}),
+    ));
+    for (index, save) in saves.iter().enumerate() {
+        let save = save.to_string().replace(r#","continuation":null"#, "");
+        fs::write(&mutations, save).unwrap();
+        let started = std::time::Instant::now();
+        let output = append_mutations_in_place(&large, &mutations);
+        assert!(
+            output.status.success(),
+            "outline save {index} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // A later chunk read every earlier bookmark with all it references,
+        // rescanning them after each read: about 15 s after 15,000 bookmarks.
+        assert!(
+            started.elapsed().as_secs() < 5,
+            "outline save {index} took {:?}",
+            started.elapsed()
+        );
+    }
+    assert_qpdf_check(&large);
+    let output = Command::new(qpdf_path())
+        .args(["--json", "--json-key=outlines", "--"])
+        .arg(&large)
+        .output()
+        .unwrap();
+    let read: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let items = read["outlines"].as_array().unwrap();
+    assert_eq!(items.len(), 15001);
+    assert_eq!(items[14998]["title"], "Entry 14998");
+    assert_eq!(items[15000]["title"], "Later top");
+    assert_eq!(items[14999]["kids"][0]["title"], "Later child");
+    assert_eq!(items[14998]["kids"].as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn scanned_file_sidecars_match_the_eager_reader() {
     const IMAGE_BYTES: u64 = 20 * 1024 * 1024;
     let with_note = temp_path("scanned-sidecars-note", "pdf");

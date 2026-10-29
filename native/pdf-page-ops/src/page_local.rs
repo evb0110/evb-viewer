@@ -48,6 +48,20 @@ pub(crate) fn complete_page_local_objects(
         fetch(document, &missing, &mut retained)?;
         requested.extend(missing);
     }
+    if let Some(path) = &edit.outline {
+        load_outline_path(document, path, |document, id| {
+            if requested.insert(id) {
+                if requested.len() > MAX_QPDF_OBJECT_ELEMENTS {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "Page-local PDF objects exceed their object ceiling",
+                    ));
+                }
+                fetch(document, &BTreeSet::from([id]), &mut retained)?;
+            }
+            Ok(())
+        })?;
+    }
     for page_id in &pages {
         if document.dictionary(*page_id)?.get(b"Type")?.as_name()? != b"Page" {
             return Err("qpdf page-tree walk returned a non-page object".into());
@@ -259,8 +273,7 @@ mod tests {
         let edit = PageLocalEdit {
             pages: BTreeSet::from([0]),
             annotation_pages: BTreeSet::from([0]),
-            annotations: BTreeSet::new(),
-            closure: BTreeSet::new(),
+            ..PageLocalEdit::default()
         };
         complete_page_local_objects(&mut partial, &located, &edit, |document, ids, retained| {
             for id in ids {
@@ -277,6 +290,64 @@ mod tests {
         );
         assert!(!partial.objects.contains_key(&(99, 0)));
         assert!(!partial.objects.contains_key(&(98, 0)));
+    }
+
+    #[test]
+    fn a_later_outline_chunk_reads_its_path_alone_and_rejects_a_cycle() {
+        let mut whole = Document::with_version("1.7");
+        whole.trailer.set("Root", (1, 0));
+        whole.set_object(
+            (1, 0),
+            dictionary! {"Type"=>"Catalog","Pages"=>(2,0),"Outlines"=>(10,0)},
+        );
+        whole.set_object(
+            (2, 0),
+            dictionary! {"Type"=>"Pages","Count"=>1,"Kids"=>vec![Object::Reference((3,0))]},
+        );
+        whole.set_object((3, 0), dictionary! {"Type"=>"Page","Parent"=>(2,0)});
+        whole.set_object(
+            (10, 0),
+            dictionary! {"First"=>(11,0),"Last"=>(13,0),"Count"=>3},
+        );
+        whole.set_object(
+            (11, 0),
+            dictionary! {"Title"=>"One","Next"=>(12,0),"SE"=>(20,0)},
+        );
+        whole.set_object(
+            (12, 0),
+            dictionary! {"Title"=>"Two","Next"=>(13,0),"First"=>(14,0),"Last"=>(15,0)},
+        );
+        whole.set_object((13, 0), dictionary! {"Title"=>"Three"});
+        whole.set_object((14, 0), dictionary! {"Title"=>"Child","Next"=>(15,0)});
+        whole.set_object((15, 0), dictionary! {"Title"=>"Last child"});
+        whole.set_object((20, 0), dictionary! {"Type"=>"StructElem"});
+        let located = LocatedPages {
+            count: 1,
+            ids: BTreeMap::from([(0, (3, 0))]),
+        };
+        let load = |whole: &Document, path: Vec<u32>| {
+            let mut partial = Document::with_version("1.7");
+            partial.trailer = whole.trailer.clone();
+            let edit = PageLocalEdit {
+                outline: Some(path),
+                ..PageLocalEdit::default()
+            };
+            complete_page_local_objects(&mut partial, &located, &edit, |document, ids, _| {
+                for id in ids {
+                    document.set_object(*id, whole.get_object(*id)?.clone());
+                }
+                Ok(())
+            })
+            .map(|()| partial.objects.keys().map(|id| id.0).collect::<Vec<_>>())
+        };
+        assert_eq!(load(&whole, vec![1]).unwrap(), [1, 10, 11, 12, 15]);
+        assert_eq!(load(&whole, vec![]).unwrap(), [1, 10, 13]);
+        whole
+            .get_object_mut((12, 0))
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .set("Next", (11, 0));
+        assert!(load(&whole, vec![u32::MAX]).is_err());
     }
 
     #[test]

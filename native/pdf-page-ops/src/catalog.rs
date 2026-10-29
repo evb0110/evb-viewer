@@ -488,8 +488,9 @@ pub(crate) fn is_catalog_continuation(continuation: &NativeMutationContinuation)
     )
 }
 
-/// The page-local base for `edit`. A catalog continuation also reads the
-/// outline or page-label tree it extends, with everything that tree references.
+/// The page-local base for `edit`. A later page-label chunk also reads the
+/// label tree it extends, with everything that tree references; a later
+/// bookmark chunk reads its outline path through `edit.outline`.
 pub(crate) fn load_page_local_catalog(
     path: &Path,
     qpdf: &Path,
@@ -497,18 +498,20 @@ pub(crate) fn load_page_local_catalog(
     edit: &mut PageLocalEdit,
 ) -> Result<Option<IncrementalDocument>> {
     let base = load_qpdf_page_local_incremental_pdf(path, qpdf, edit)?;
-    // Each family reads only its own tree: an outline can link to a large
-    // structure tree that a page-label chunk has no use for.
-    let key = match mutations.continuation.as_ref().map(|value| value.family) {
-        Some(NativeMutationContinuationFamily::Bookmarks) => b"Outlines".as_slice(),
-        Some(NativeMutationContinuationFamily::PageLabels) => b"PageLabels",
-        _ => return Ok(base),
-    };
+    if mutations.continuation.as_ref().map(|value| value.family)
+        != Some(NativeMutationContinuationFamily::PageLabels)
+    {
+        return Ok(base);
+    }
     let Some(document) = base.as_ref().map(IncrementalDocument::get_prev_documents) else {
         return Ok(base);
     };
     let catalog = document.dictionary(document.root_id()?)?;
-    let mut values = catalog.get(key).ok().into_iter().collect::<Vec<_>>();
+    let mut values = catalog
+        .get(b"PageLabels")
+        .ok()
+        .into_iter()
+        .collect::<Vec<_>>();
     let read = edit.closure.len();
     while let Some(value) = values.pop() {
         match value {
