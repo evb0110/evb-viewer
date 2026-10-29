@@ -218,6 +218,60 @@ export function mapPageNumberThroughPageIdentityDelta(
     return null;
 }
 
+/**
+ * Maps pages through `delta` after resolving it once: an index of its pages,
+ * or its retain and move ranges sorted for binary search. Mapping each of
+ * thousands of bookmarks page by page through a fragmented delta was
+ * quadratic. Overlapping source ranges, which no page operation produces,
+ * keep the first match by scanning as the single-page mapping does.
+ */
+export function createPageIdentityDeltaPageMapper(
+    delta: IPageIdentityDelta,
+): (pageNumber: TPageNumber) => TPageNumber | null {
+    const isPageNumber = (pageNumber: number) => Number.isSafeInteger(pageNumber) && pageNumber >= 1;
+    if (delta.pages !== undefined) {
+        const nextPageNumbers = new Map<number, number>();
+        delta.pages.forEach((page, index) => {
+            if ('fromPageNumber' in page && !nextPageNumbers.has(page.fromPageNumber)) {
+                nextPageNumbers.set(page.fromPageNumber, index + 1);
+            }
+        });
+        return (pageNumber) => {
+            const nextPageNumber = isPageNumber(pageNumber) ? nextPageNumbers.get(pageNumber) : undefined;
+            return nextPageNumber === undefined ? null : requirePageNumber(nextPageNumber);
+        };
+    }
+    const mappings = (delta.ranges ?? [])
+        .filter((range): range is IPageIdentityRangeMapping => range.kind === 'retain' || range.kind === 'move')
+        .sort((left, right) => left.fromPageNumber - right.fromPageNumber);
+    const overlapping = mappings.some((range, index) => {
+        const previous = mappings[index - 1];
+        return previous !== undefined && range.fromPageNumber < previous.fromPageNumber + previous.count;
+    });
+    if (overlapping) {
+        return pageNumber => mapPageNumberThroughPageIdentityDelta(delta, pageNumber);
+    }
+    return (pageNumber) => {
+        if (!isPageNumber(pageNumber)) {
+            return null;
+        }
+        let low = 0;
+        let high = mappings.length;
+        while (low < high) {
+            const middle = (low + high) >>> 1;
+            if ((mappings[middle]?.fromPageNumber ?? Infinity) <= pageNumber) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        const range = mappings[low - 1];
+        return range && pageNumber < range.fromPageNumber + range.count
+            ? requirePageNumber(range.toPageNumber + pageNumber - range.fromPageNumber)
+            : null;
+    };
+}
+
 const PAGE_LABEL_STYLES = [
     'D',
     'R',
