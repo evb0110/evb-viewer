@@ -139,6 +139,7 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 import {
     readPbmDimensions,
+    readPgmDimensions,
     readPngDimensions,
     readPpmDimensions,
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
@@ -2629,7 +2630,7 @@ async function executeScanCleanupBatch({
                         readPpmDimensions(candidateBackgroundPath),
                         foregroundAlphaPath === undefined
                             ? readPbmDimensions(foregroundMaskPath!)
-                            : readPpmDimensions(foregroundAlphaPath),
+                            : readPgmDimensions(foregroundAlphaPath),
                     ]);
                     const renderDpi = metadata.renderDpi
                     ?? pageDpi.get(pageNumber)
