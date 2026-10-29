@@ -498,8 +498,19 @@ function handleKeydown(event: KeyboardEvent) {
     gap: var(--app-space-3xl);
 }
 
+.scan-thumbnail-rail-heading {
+    flex: none;
+}
+
+/* The sort menu gives way first, so the header never spills into the preview. */
+.scan-thumbnail-rail-actions {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+}
+
 .scan-thumbnail-rail-heading strong {
     font-size: var(--app-text-size-secondary);
+    white-space: nowrap;
 }
 
 .scan-thumbnail-rail-heading span {
@@ -653,6 +664,12 @@ function handleKeydown(event: KeyboardEvent) {
 
 .scan-thumbnail-status.is-excluded {
     color: var(--ui-text-dimmed);
+}
+
+@container (width <= 16rem) {
+    .scan-thumbnail-rail-heading strong {
+        display: none;
+    }
 }
 
 @container (width <= 10rem) {

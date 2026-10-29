@@ -17,21 +17,18 @@ import {
 export async function discardScanCleanupDocumentState(
     documentKey: string | null | undefined,
     sourceSha256?: string | null,
-    options: {discardDetection?: boolean} = {},
 ) {
     if (!documentKey && !sourceSha256) {
         return;
     }
     // Invalidate any debounced component-owned patch before resetting the
     // durable entry. Otherwise scope disposal can flush the old overrides
-    // after Done and silently recreate the state that was just discarded.
+    // after the close and silently recreate the state that was just discarded.
     invalidateScanCleanupDocumentPersistence(sourceSha256, documentKey);
-    if (options.discardDetection !== false && (documentKey || sourceSha256)) {
-        discardScanCleanupDetectionStateForAliases([
-            documentKey,
-            sourceSha256,
-        ]);
-    }
+    discardScanCleanupDetectionStateForAliases([
+        documentKey,
+        sourceSha256,
+    ]);
     if (documentKey) {
         resetScanCleanupDocumentOverrides(documentKey);
     }

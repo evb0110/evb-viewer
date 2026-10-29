@@ -765,7 +765,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             options.onCompleted();
         }
     });
-    onBeforeUnmount(() => setScanCleanupWorkspaceOwnerOpen(options.ownerId, false));
+    onBeforeUnmount(() => {
+        // A cleanup still waiting for this workspace's analysis cannot outlive
+        // it: leaving retires the attempt the way Cancel does, instead of
+        // letting it wake to disposed analysis and report a failure.
+        if (transition.value === 'waiting-for-detection') {
+            stopRequested.value = true;
+            interruptPendingTransition?.();
+        }
+        setScanCleanupWorkspaceOwnerOpen(options.ownerId, false);
+    });
 
     return {
         cancel,
