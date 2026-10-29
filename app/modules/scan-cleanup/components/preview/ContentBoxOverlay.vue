@@ -3,6 +3,7 @@
         v-for="output in outputs"
         :key="`content-${output.metadata.half}`"
         class="content-overlay"
+        :class="{'is-pass-through': passThrough}"
         :style="output.style"
         tabindex="0"
         role="group"
@@ -38,6 +39,8 @@ defineProps<{
     groupLabels: Partial<Record<TScanCleanupOutputHalf, string>>;
     handleLabels: Partial<Record<TScanCleanupOutputHalf, Partial<Record<TScanCleanupContentHandle, string>>>>;
     handles: readonly TScanCleanupContentHandle[];
+    /** The interior hands pointer input to the placement drag beneath it. */
+    passThrough: boolean;
     outputs: IScanCleanupContentOverlayOutput[];
 }>();
 defineEmits<{

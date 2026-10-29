@@ -1,4 +1,9 @@
+import {spawnSync} from 'node:child_process';
 import {
+    PDFDocument, rgb,
+} from 'pdf-lib';
+import {
+    readFile, readdir,
     mkdir,
     mkdtemp,
     rm,
@@ -14,6 +19,7 @@ import {
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
+import * as corpusVerifier from '@scripts/diagnostics/scan-cleanup-corpus-verify.mjs';
 import {createScanCleanupDiagnosticsManifestScope} from '@scripts/diagnostics/scan-cleanup-diagnostics-manifest.mjs';
 import {
     afterAll,
@@ -171,4 +177,127 @@ describe('scan cleanup diagnostics manifest scope', () => {
         expect(() => createScanCleanupDiagnosticsManifestScope(scopedRoot, undefined))
             .toThrow(/requires the runnable manifest builder/u);
     });
+});
+
+
+describe('corpus verifier staged native paths', () => {
+    it('uses the builder Windows target tag for every executable', () => {
+        const paths = corpusVerifier.resolveCorpusNativeBinaryPaths('/repo', {
+            platform: 'win32',
+            arch: 'x64',
+        });
+        expect(paths).toEqual({
+            scanCleanup: join('/repo', '.tmp/scan-cleanup/win32-x64/bin/evb-scan-cleanup.exe'),
+            combine: join('/repo', '.tmp/pdf-image-combine/win32-x64/bin/evb-pdf-image-combine.exe'),
+            pageOps: join('/repo', '.tmp/pdf-page-ops/win32-x64/bin/evb-pdf-page-ops.exe'),
+        });
+        expect(Object.values(paths).some(path => path.includes('/win-x64/'))).toBe(false);
+    });
+});
+
+
+const photoPython = process.env.PYTHON ?? 'python3';
+const photoPrerequisites = spawnSync(photoPython, [
+    '-c',
+    'import numpy, PIL; import shutil; assert shutil.which("pdftoppm")',
+], {encoding: 'utf8'});
+const photoSkipReason = photoPrerequisites.status === 0 ? '' : 'requires Python numpy/Pillow and pdftoppm';
+if (process.env.EVB_REQUIRE_SCAN_CLEANUP_NATIVE_TESTS === '1' && photoSkipReason) {
+    throw new Error(`Rendered photo metrics: ${photoSkipReason}: ${photoPrerequisites.stderr}`);
+}
+it.skipIf(Boolean(photoSkipReason))(`retains two photo measurements and distinct crops on one page${photoSkipReason ? ` (skipped: ${photoSkipReason})` : ''}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'rendered-photos-'));
+    try {
+        const pdf = await PDFDocument.create();
+        const page = pdf.addPage([
+            100,
+            100,
+        ]);
+        page.drawRectangle({
+            x: 10,
+            y: 10,
+            width: 30,
+            height: 60,
+            color: rgb(0.2, 0.2, 0.2),
+        });
+        const source = join(root, 'source.pdf');
+        await writeFile(source, await pdf.save());
+        const summary = join(root, 'geometry.json');
+        await writeFile(summary, JSON.stringify({perPageStreamSizes: [{
+            sourcePageNumber: 1,
+            outputPageNumber: 1,
+            renderGeometry: {
+                dewarped: false,
+                forwardTransform: {matrix: [
+                    [
+                        1,
+                        0,
+                        0,
+                    ],
+                    [
+                        0,
+                        1,
+                        0,
+                    ],
+                    [
+                        0,
+                        0,
+                        1,
+                    ],
+                ]},
+                inputWidthPx: 100,
+                inputHeightPx: 100,
+                canvasWidthPx: 100,
+                canvasHeightPx: 100,
+                outputWidthPx: 100,
+                outputHeightPx: 100,
+                placementOffsetXPx: 0,
+                placementOffsetYPx: 0,
+            },
+        }]}));
+        const boxes = join(root, 'boxes.csv');
+        await writeFile(boxes, 'page,bbox\n1,"10,10,40,40"\n1,"50,10,80,40"\n');
+        const csv = join(root, 'metrics.csv');
+        const crops = join(root, 'crops');
+        const result = spawnSync(photoPython, [
+            'scripts/diagnostics/scan-cleanup-rendered-metrics.py',
+            'photos',
+            '--source',
+            source,
+            '--output',
+            source,
+            '--output-summary',
+            summary,
+            '--boxes',
+            boxes,
+            '--csv',
+            csv,
+            '--crops',
+            crops,
+            '--render-dpi',
+            '72',
+            '--box-dpi',
+            '72',
+        ],
+        {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                PYTHONDONTWRITEBYTECODE: '1',
+            },
+        });
+        expect(result.status, result.stderr).toBe(0);
+        const rows = (await readFile(csv, 'utf8')).trim().split('\n');
+        expect(rows).toHaveLength(3);
+        expect(rows[1]).toContain('10,10,40,40');
+        expect(rows[2]).toContain('50,10,80,40');
+        const images = await readdir(crops);
+        expect(images).toHaveLength(2);
+        expect(await readFile(join(crops, images[0]!))).not.toEqual(await readFile(join(crops, images[1]!)));
+    } finally {
+        await rm(root, {
+            force: true,
+            recursive: true,
+        });
+    }
 });

@@ -79,6 +79,7 @@ describe('createScanCleanupRenderers', () => {
             '@evb/scan-cleanup/core/rasterLayerDimensions',
         );
         mocks.writePngFromPpm.mockImplementation(actualRaster.writePngFromPpm);
+        mocks.rm.mockImplementation(actualFs.rm);
         const root = await actualFs.mkdtemp(join(tmpdir(), 'scan-cleanup-renderers-'));
         try {
             const runCommand = vi.fn(async (_binary: string, args: string[]) => {
@@ -155,7 +156,7 @@ describe('createScanCleanupRenderers', () => {
                     250,
                 ],
             });
-            expect(mocks.rm).toHaveBeenCalledWith(join(root, 'page.ppm'), {force: true});
+            await expect(actualFs.stat(join(root, 'page.ppm'))).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             await actualFs.rm(root, {
                 force: true,
@@ -179,10 +180,9 @@ describe('createScanCleanupRenderers', () => {
             '/tmp/page.png',
             300,
         )).rejects.toBe(rendererError);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
     });
 
-    it('removes a partial PNG without masking a command failure', async () => {
+    it('preserves a command failure when partial-output removal also fails', async () => {
         const rendererError = new Error('pdftoppm failed after opening the output');
         const runCommand = vi.fn().mockRejectedValue(rendererError);
         mocks.rm.mockRejectedValue(new Error('cleanup failed'));
@@ -196,82 +196,89 @@ describe('createScanCleanupRenderers', () => {
             '/tmp/page.png',
             300,
         )).rejects.toBe(rendererError);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
     });
 
     // Poppler writes the PPM a PNG is encoded from. A render that fails after
     // writing part of it must not leave that file behind its PNG caller.
-    it('removes the intermediate PPM when the render fails', async () => {
-        const rendererError = new Error('pdftoppm failed after writing part of the page');
-        const runCommand = vi.fn().mockRejectedValue(rendererError);
-        const {renderPage} = createScanCleanupRenderers(runCommand);
-
-        await expect(renderPage(
-            {pdftoppmBinary: '/bin/pdftoppm'},
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page.png',
-            300,
-        )).rejects.toBe(rendererError);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.ppm', {force: true});
+    it('removes both partial raster files after a failed render', async () => {
+        const fs = await vi.importActual<typeof FsPromises>('node:fs/promises');
+        mocks.rm.mockImplementation(fs.rm);
+        const root = await fs.mkdtemp(join(tmpdir(), 'scan-cleanup-partial-'));
+        try {
+            const png = join(root, 'page.png');
+            const ppm = join(root, 'page.ppm');
+            const failure = new Error('render failed after writing pixels');
+            const runCommand = async () => {
+                await fs.writeFile(png, 'partial PNG');
+                await fs.writeFile(ppm, 'partial PPM');
+                throw failure;
+            };
+            const {renderPage} = createScanCleanupRenderers(runCommand);
+            await expect(renderPage({pdftoppmBinary: '/bin/pdftoppm'}, vi.fn(), 1, '/source.pdf', png, 300)).rejects.toBe(failure);
+            expect(await fs.readdir(root)).toEqual([]);
+        } finally {
+            await fs.rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
-    it('keeps the PPM route available for sidecar-only handoffs', async () => {
-        const runCommand = vi.fn().mockResolvedValue(undefined);
-        const {renderPagePpm} = createScanCleanupRenderers(runCommand);
-
-        await renderPagePpm(
-            {pdftoppmBinary: '/bin/pdftoppm'},
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page.ppm',
-            300,
-        );
-
-        expect(runCommand).toHaveBeenCalledWith(
-            '/bin/pdftoppm',
-            [
-                '-cropbox',
-                '-r',
-                '300',
-                '-f',
-                '1',
-                '-l',
-                '1',
-                '-singlefile',
-                '/tmp/source.pdf',
-                '/tmp/page',
-            ],
-            expect.any(Object),
-        );
-        expect(mocks.readPpmDimensions).toHaveBeenCalledWith('/tmp/page.ppm');
+    it.each([
+        false,
+        true,
+    ])('publishes exact PPM bytes or removes an oversized output (oversized=%s)', async oversized => {
+        const fs = await vi.importActual<typeof FsPromises>('node:fs/promises');
+        const raster = await vi.importActual<typeof RasterLayerDimensions>('@evb/scan-cleanup/core/rasterLayerDimensions');
+        mocks.rm.mockImplementation(fs.rm);
+        mocks.stat.mockImplementation(fs.stat);
+        mocks.readPpmDimensions.mockImplementation(raster.readPpmDimensions);
+        const root = await fs.mkdtemp(join(tmpdir(), 'scan-cleanup-ppm-'));
+        try {
+            const output = join(root, 'page.ppm');
+            const bytes = Buffer.concat([
+                Buffer.from('P6\n2 1\n255\n'),
+                Buffer.from([
+                    200,
+                    10,
+                    20,
+                    30,
+                    40,
+                    250,
+                ]),
+            ]);
+            const runCommand = async (_command: string, args: string[]) => {
+                await fs.writeFile(`${args.at(-1)!}.ppm`, bytes);
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            };
+            const {renderPagePpm} = createScanCleanupRenderers(runCommand, {
+                maxDimensionPx: oversized ? 1 : 10,
+                maxPixels: oversized ? 1 : 10,
+            });
+            const result = renderPagePpm({pdftoppmBinary: '/bin/pdftoppm'}, vi.fn(), 1, '/source.pdf', output, 300);
+            if (oversized) {
+                await expect(result).rejects.toThrow('PPM raster 2x1 exceeds limits');
+                await expect(fs.stat(output)).rejects.toMatchObject({code: 'ENOENT'});
+            } else {
+                await result;
+                expect(await fs.readFile(output)).toEqual(bytes);
+                expect(await raster.readPpmDimensions(output)).toMatchObject({
+                    width: 2,
+                    height: 1,
+                });
+            }
+        } finally {
+            await fs.rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
-    it('rejects and removes an oversized PPM render', async () => {
-        const runCommand = vi.fn().mockResolvedValue(undefined);
-        mocks.readPpmDimensions.mockResolvedValue({
-            width: 2,
-            height: 2,
-            isColor: true,
-        });
-        const {renderPagePpm} = createScanCleanupRenderers(runCommand, {
-            maxDimensionPx: 1,
-            maxPixels: 1,
-        });
-
-        await expect(renderPagePpm(
-            {pdftoppmBinary: '/bin/pdftoppm'},
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/oversized.ppm',
-            300,
-        )).rejects.toThrow('PPM raster 2x2 exceeds limits');
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/oversized.ppm', {force: true});
-    });
 });
 
 // Filesystem assertions cover the native adapter boundary, shared by OCR and

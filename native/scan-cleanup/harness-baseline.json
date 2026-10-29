@@ -335,6 +335,501 @@
       "brokenStrokeExplosionIds": [],
       "blankRegionFloodIds": []
     },
+    "composed": [
+      {
+        "id": "real-glyph-arabic-wright-p82-dots",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 5,
+            "retainedPunctuationMarkers": 5,
+            "retainedPunctuationRate": 1.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 198,
+            "outputComponents": 198,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 0,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "real-glyph-bedjan-p2-speckles",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 1158,
+            "outputComponents": 1068,
+            "componentCountDelta": -90,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 0,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "real-glyph-hebrew-bhs-p126-niqqud",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 5,
+            "retainedPunctuationMarkers": 5,
+            "retainedPunctuationRate": 1.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 146,
+            "outputComponents": 146,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 0,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-blank-page",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 0,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 0,
+            "outputComponents": 0,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 612864,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-border-noise-black-edges",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 0,
+            "expectedComponents": 0,
+            "outputComponents": 0,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 83200,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-curled-cylindrical",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 144,
+            "outputComponents": 144,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-faint-pencil",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 3,
+            "retainedPunctuationMarkers": 3,
+            "retainedPunctuationRate": 1.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 113,
+            "outputComponents": 113,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-halftone-photo",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 0,
+            "expectedComponents": 0,
+            "outputComponents": 0,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 99000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-marginalia-edge",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 119,
+            "outputComponents": 119,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 51000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-page-number-only",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 2,
+            "retainedPunctuationMarkers": 2,
+            "retainedPunctuationRate": 1.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 2,
+            "outputComponents": 2,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 498560,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-page-with-offcut",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 149,
+            "outputComponents": 130,
+            "componentCountDelta": -19,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 0,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-skew-minus-2",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 132,
+            "outputComponents": 132,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-skew-minus-7",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 132,
+            "outputComponents": 132,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-skew-plus-2",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 132,
+            "outputComponents": 132,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-skew-plus-7",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 132,
+            "outputComponents": 132,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-stained-aged-gradient",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 132,
+            "outputComponents": 132,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 82000,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      },
+      {
+        "id": "synthetic-two-page-dark-gutter",
+        "metrics": {
+          "despeckle": {
+            "pagesEvaluated": 1,
+            "punctuationMarkers": 0,
+            "retainedPunctuationMarkers": 0,
+            "retainedPunctuationRate": 0.0,
+            "erasedPages": 0,
+            "erasedPageIds": []
+          },
+          "binarization": {
+            "pagesEvaluated": 1,
+            "componentPagesEvaluated": 1,
+            "expectedComponents": 168,
+            "outputComponents": 168,
+            "componentCountDelta": 0,
+            "brokenStrokeDelta": 0,
+            "brokenStrokeExplosions": 0,
+            "blankPixelsEvaluated": 0,
+            "pepperPixels": 0,
+            "pepperDensity": 0.0,
+            "blankRegionFloods": 0,
+            "routeCounts": {},
+            "brokenStrokeExplosionIds": [],
+            "blankRegionFloodIds": []
+          }
+        }
+      }
+    ],
     "dewarp": {
       "curledEvaluated": 1,
       "curledModelsDetected": 1,

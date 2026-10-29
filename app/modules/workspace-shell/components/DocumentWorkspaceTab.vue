@@ -222,8 +222,10 @@ async function revealRecentFile(file: IRecentFile) {
 
 // A crash inside one tab's workspace is isolated to that tab: the tab offers a
 // retry or close in place of the workspace, the toast reports it, and the
-// other tabs keep working.
+// other tabs keep working. Until Retry, one crash is reported once: other
+// descendants can still fail in the render update that replaces the subtree.
 onErrorCaptured((error, instance, info) => {
+    if (crashDescription.value !== null) return false;
     const failure = handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {tabId});
     documentSession.markFailed({
         message: getErrorMessage(error),

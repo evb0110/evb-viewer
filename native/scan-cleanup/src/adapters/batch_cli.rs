@@ -1,4 +1,6 @@
-use crate::adapters::manifest_publication::run_manifest_transaction;
+use crate::adapters::manifest_publication::{
+    run_manifest_transaction, run_publication_transaction,
+};
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::batch_reconciliation::{
     apply_reconciliation_actions, reconcile_classification_batch, reconciliation_candidates,
@@ -18,7 +20,7 @@ use crate::engine::staged_input::{
     acquire_staged_page_input, assert_paths_within_root, finish_staged_rerun, page_from_staged,
     planning_operation, planning_page, preflight_paths, release_staged_page_input,
     run_one_staged_page_job, staged_lease, staged_path_plan, with_announced_staged_page_input,
-    LeaseEvent,
+    LeaseEvent, StagedPathPlan,
 };
 use crate::{
     protocol::{
@@ -228,20 +230,28 @@ fn run_inner(
     };
     let cache = manifest_cache(PlanningOperation::Render, None);
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
-    // Direct mode is an exit-code-only CLI: a successful page has already
-    // published its output and metadata, while only manifest mode emits the
-    // sidecar ResultEnvelope protocol line.
-    run_page(
-        &page,
-        CanvasScope::Page,
-        false,
-        None,
-        Some((&output, &metadata)),
-        None,
-        &page_cache,
-        is_canceled,
-    )
-    .map(|_| ())
+    // The manifest route's admission and publication, for one page: aliases
+    // are refused before anything is written, and a failure restores whatever
+    // the destinations held. Direct mode stays an exit-code-only CLI; only
+    // manifest mode emits the sidecar ResultEnvelope protocol line.
+    let paths = StagedPathPlan {
+        input_paths: vec![page.input_path.clone()],
+        destination_paths: vec![output.clone(), metadata.clone()],
+    };
+    preflight_paths(&paths)?;
+    run_publication_transaction(&output, paths.destination_paths, || {
+        run_page(
+            &page,
+            CanvasScope::Page,
+            false,
+            None,
+            Some((&output, &metadata)),
+            None,
+            &page_cache,
+            is_canceled,
+        )
+        .map(|_| ())
+    })
 }
 
 fn run_manifest(

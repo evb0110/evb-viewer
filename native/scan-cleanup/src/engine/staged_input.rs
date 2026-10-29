@@ -288,12 +288,16 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
 }
 
 fn resolved_manifest_path(path: &Path) -> PathBuf {
+    // Resolve the spelling the IO will use. Cancelling `..` lexically first
+    // would turn `root/link/../x` into `root/x` while the kernel follows
+    // `link` before `..`; only components past the deepest existing ancestor
+    // are normalized, because a missing directory cannot be a symlink.
     let absolute = if path.is_absolute() {
-        normalized_path(path)
+        path.to_path_buf()
     } else {
         std::env::current_dir()
-            .map(|directory| normalized_path(&directory.join(path)))
-            .unwrap_or_else(|_| normalized_path(path))
+            .map(|directory| directory.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
     };
     let mut ancestor = absolute.as_path();
     let mut missing = Vec::<OsString>::new();
@@ -304,13 +308,12 @@ fn resolved_manifest_path(path: &Path) -> PathBuf {
             }
             return normalized_path(&resolved);
         }
-        let Some(file_name) = ancestor.file_name() else {
-            return absolute;
+        let (Some(component), Some(parent)) =
+            (ancestor.components().next_back(), ancestor.parent())
+        else {
+            return normalized_path(&absolute);
         };
-        missing.push(file_name.to_owned());
-        let Some(parent) = ancestor.parent() else {
-            return absolute;
-        };
+        missing.push(component.as_os_str().to_owned());
         ancestor = parent;
     }
 }

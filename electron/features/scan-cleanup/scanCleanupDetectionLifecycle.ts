@@ -33,6 +33,7 @@ import {
     retainScanCleanupDetectionResultStoreOwner,
     claimScanCleanupDetectionResultStore,
     claimCurrentScanCleanupDetectionResultStore,
+    isScanCleanupDetectionResultStoreRegistered,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     createMainJobRegistry,
@@ -54,6 +55,10 @@ import type {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {createLogger} from '@electron/utils/createLogger';
+import {
+    registerMainOperation,
+    type IRegisteredMainOperation,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {
     createScanCleanupDetectionSignature,
@@ -212,6 +217,39 @@ export function scanCleanupDetectionOwner(
         controller: AbortController;
         waiters: number;
     }>();
+    // A completed store is evidence about one open document, so the document's
+    // working-copy close retires it. The close reaches it the way it reaches
+    // every working-copy dependent: as a registered operation it cancels.
+    const workingCopyCloseRetirements = new Map<string, IRegisteredMainOperation>();
+    const retireOnWorkingCopyClose = (ownerKey: string, workingCopyPath: string) => {
+        workingCopyCloseRetirements.get(ownerKey)?.complete();
+        try {
+            workingCopyCloseRetirements.set(ownerKey, registerMainOperation({
+                kind: 'resource-cleanup',
+                workingCopyPath,
+                cancelOnWorkingCopyClose: true,
+                cancel: () => retireOwnerResultStore(ownerKey),
+            }));
+        } catch {
+            // Shutdown refuses new operations and disposes every store anyway.
+            workingCopyCloseRetirements.delete(ownerKey);
+        }
+    };
+    // A calibration belongs to its store: once the store is retired, no run
+    // can claim it, so its build and cached summary go with it.
+    const retireOwnerResultStore = async (ownerKey: string) => {
+        const closeRetirement = workingCopyCloseRetirements.get(ownerKey);
+        workingCopyCloseRetirements.delete(ownerKey);
+        await releaseScanCleanupDetectionResultStoreForOwner(ownerKey).finally(() => closeRetirement?.complete());
+        for (const [
+            storeId,
+            build,
+        ] of placementCalibrationByStore) {
+            if (isScanCleanupDetectionResultStoreRegistered(storeId)) continue;
+            placementCalibrationByStore.delete(storeId);
+            if (build.waiters === 0) build.controller.abort();
+        }
+    };
     const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) => (
         state === null ? null : projectScanCleanupDetectionStateForRenderer(state)
     );
@@ -659,6 +697,7 @@ export function scanCleanupDetectionOwner(
                                 sourcePdfPath: request.sourcePdfPath,
                             });
                             detectionLifecycle.takeResultStore(jobId);
+                            retireOnWorkingCopyClose(ownerId, request.sourcePdfPath);
                             return {
                                 ...detection,
                                 resultStoreId,
@@ -677,7 +716,7 @@ export function scanCleanupDetectionOwner(
                 signature,
             };
             detectionLifecycle.setActiveJob(ownerId, activeEntry);
-            await releaseScanCleanupDetectionResultStoreForOwner(ownerId);
+            await retireOwnerResultStore(ownerId);
             void handle.settled.finally(async () => {
                 // A destroyed sender makes the progress pump drop the
                 // terminal frame before the delivery callback can clear its
@@ -736,6 +775,8 @@ export function scanCleanupDetectionOwner(
     const disposeResultStoreOwnerBindings = async () => {
         await Promise.all([...resultStoreOwnerBindings.values()].map(binding => binding.close()));
         resultStoreOwnerBindings.clear();
+        for (const closeRetirement of workingCopyCloseRetirements.values()) closeRetirement.complete();
+        workingCopyCloseRetirements.clear();
     };
     return {
         ...detectionLifecycle,
@@ -757,11 +798,15 @@ export function scanCleanupDetectionOwner(
             }) : null;
             try {
                 const result = await (store ?? lease?.resultStore)?.getPage(request.pageNumber);
+                // The plan travels with the page view it was measured on.
                 return result?.pagePlanEvidence === undefined
                     ? request
                     : {
                         ...request,
                         pagePlanEvidence: result.pagePlanEvidence,
+                        ...(result.sourcePageMetadata?.renderBox === 'mediabox'
+                            ? {sourcePageMetadata: result.sourcePageMetadata}
+                            : {}),
                     };
             } finally {
                 await lease?.release();

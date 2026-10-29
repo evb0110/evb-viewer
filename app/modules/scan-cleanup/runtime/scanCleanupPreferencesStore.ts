@@ -9,6 +9,7 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     cloneScanCleanupPreferenceValue,
+    mergeScanCleanupDocumentPreferencePatches,
     createDefaultScanCleanupSettingsFile,
     isScanCleanupSourceSha256,
     type IScanCleanupDocumentPreferencePatch,
@@ -82,6 +83,32 @@ interface IPendingDocumentUpdate {
     writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
+// The store is the one owner of a document's settings in this renderer: every
+// mounted view of that document hears when an edit to it has been saved.
+type TDocumentSettingsCommitListener = (document: {
+    sourceSha256: string | null;
+    legacyDocumentKey: string | null
+}) => void;
+const documentSettingsCommitListeners = new Set<TDocumentSettingsCommitListener>();
+function announceDocumentSettingsCommit(sourceSha256: string | null | undefined, legacyDocumentKey: string | null | undefined) {
+    const document = {
+        sourceSha256: sourceSha256?.toLowerCase() ?? null,
+        legacyDocumentKey: legacyDocumentKey ?? null,
+    };
+    // A view's failure to reread is its own; the write queue and the other
+    // views go on.
+    for (const listener of [...documentSettingsCommitListeners]) {
+        try {
+            listener(document);
+        } catch (error) {
+            BrowserLogger.error('scan-cleanup', 'Failed to reread committed document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
+        }
+    }
+}
+export function onScanCleanupDocumentSettingsCommitted(listener: TDocumentSettingsCommitListener) {
+    documentSettingsCommitListeners.add(listener);
+    return () => documentSettingsCommitListeners.delete(listener);
+}
 interface IPendingLegacyDocumentUpdate {
     sourceSha256: string | null | undefined;
     legacyDocumentKey: string | null | undefined;
@@ -422,6 +449,7 @@ function queueRemoteUpdate(
             if (pendingDocumentUpdates.size === 0 && pendingLegacyDocumentUpdates.size === 0) {
                 persistenceRetryAttempt = 0;
             }
+            announceDocumentSettingsCommit(queuedRequest.document?.sourceSha256, queuedRequest.document?.legacyDocumentKey);
         }
     }, () => undefined);
     return observedWrite;
@@ -692,6 +720,7 @@ export function saveScanCleanupDocumentPreferencesInStore(
 ) {
     if (!desktopStore) {
         saveScanCleanupDocumentPreferences(legacyDocumentKey ?? sourceSha256, patch);
+        announceDocumentSettingsCommit(sourceSha256, legacyDocumentKey);
         return;
     }
     if (!isScanCleanupSourceSha256(sourceSha256)) {
@@ -716,10 +745,7 @@ export function saveScanCleanupDocumentPreferencesInStore(
     if (requestDocument === undefined) {
         return Promise.resolve();
     }
-    const mergedPatch = {
-        ...(previousDocument?.patch ?? {}),
-        ...requestDocument.patch,
-    };
+    const mergedPatch = mergeScanCleanupDocumentPreferencePatches(previousDocument?.patch, requestDocument.patch);
     const version = ++nextDocumentUpdateVersion;
     const token = captureScanCleanupDocumentPersistenceToken(sourceSha256, legacyDocumentKey);
     const mergedRequest: IScanCleanupSettingsUpdateRequest = {document: {
@@ -746,10 +772,7 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
         pendingLegacyDocumentUpdates.set(key, {
             sourceSha256,
             legacyDocumentKey,
-            patch: {
-                ...(usablePrevious?.patch ?? {}),
-                ...cloneScanCleanupPreferenceValue(patch),
-            },
+            patch: mergeScanCleanupDocumentPreferencePatches(usablePrevious?.patch, cloneScanCleanupPreferenceValue(patch)),
             token,
         });
         if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
@@ -794,10 +817,10 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
     pendingDocumentUpdates.set(key, {
         request: {document: {
             ...requestDocument,
-            patch: {
-                ...(usablePrevious?.request.document?.patch ?? {}),
-                ...requestDocument.patch,
-            },
+            patch: mergeScanCleanupDocumentPreferencePatches(
+                usablePrevious?.request.document?.patch,
+                requestDocument.patch,
+            ),
         }},
         token,
         version,

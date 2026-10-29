@@ -104,7 +104,9 @@ function canonicalizeThroughExistingAncestor(
         }
         let canonicalAncestor: string;
         try {
-            canonicalAncestor = realpathSync(ancestor);
+            // The native resolver follows each link before `..`, as file IO
+            // does; the JS one cancels `link/..` by spelling first.
+            canonicalAncestor = realpathSync.native(ancestor);
         } catch {
             // The segment exists as a link but does not resolve: a dangling or
             // looping symlink names no directory this root can vouch for.
@@ -128,7 +130,7 @@ export function canonicalizeScanCleanupAllowedRoot(rootPath: string): IScanClean
     let canonicalPath: string;
     let isDirectory: boolean;
     try {
-        canonicalPath = realpathSync(rootPath);
+        canonicalPath = realpathSync.native(rootPath);
         isDirectory = statSync(canonicalPath).isDirectory();
     } catch {
         throw new ScanCleanupContractError(`allowed root does not exist: ${rootPath}`);

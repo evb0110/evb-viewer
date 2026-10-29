@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import {
     mkdtemp,
+    readFile,
     rm,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -40,6 +41,20 @@ import {
     snapshotMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TScanCleanupDetectionJobState} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {
+    createScanCleanupPreviewDependencies,
+    DOCUMENT_PAGE_SIZES,
+    lifecycleSender,
+} from '@tests/unit/electron/scanCleanupPreviewHarness';
+import {writeScanCleanupDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 
 interface IWorkingCopyEntry {
     backingState: 'eager';
@@ -302,6 +317,112 @@ describe('closing a source document during scan cleanup', () => {
             force: true,
             recursive: true,
         });
+    });
+
+    it('starts a replacement run after cancellation is accepted while the old worker is retiring', async () => {
+        const {workingPath} = await createManagedWorkingCopy('restart');
+        const entered = Promise.withResolvers<AbortSignal>();
+        const release = Promise.withResolvers<never>();
+        mocks.runWorker.mockImplementation(async (
+            _request: unknown,
+            _paths: unknown,
+            _policy: unknown,
+            signal: AbortSignal,
+        ) => {
+            entered.resolve(signal);
+            return release.promise;
+        });
+        const service = createScanCleanupService();
+        const webContents = sender();
+        try {
+            const first = await service.start(webContents, startRequest(workingPath));
+            if (!first.started) throw new Error('Expected the original cleanup to start');
+            const signal = await entered.promise;
+            expect(service.cancel(webContents, first.jobId, owner)).toBe(true);
+            expect(signal.aborted).toBe(true);
+            expect(service.getState(webContents, first.jobId, owner)).toMatchObject({status: 'canceling'});
+
+            const replacement = await service.start(webContents, startRequest(workingPath));
+
+            expect(replacement.started).toBe(true);
+            expect(replacement.jobId, 'an accepted restart must not inherit the canceled job').not.toBe(first.jobId);
+            expect(service.getState(webContents, replacement.jobId, owner)?.status).toMatch(/^(?:queued|running)$/u);
+        } finally {
+            release.reject(new DOMException('Test worker retirement', 'AbortError'));
+            await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+        }
+    });
+
+    it('retires completed detection evidence on document close while preserving an active borrower', async () => {
+        const {workingPath} = await createManagedWorkingCopy('completed-detection');
+        const deps = createScanCleanupPreviewDependencies(state.tempRoot);
+        const totalPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
+        deps.getPageCount = vi.fn(async () => totalPages);
+        deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES, totalPages));
+        deps.runSidecar = async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeScanCleanupDetectionMetadata(manifestPath);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            for (const [index] of manifest.pages.entries()) {
+                await onProgress({
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: requirePageNumber(index + 1),
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        };
+        const service = scanCleanupPreviewLifecycle(deps);
+        const webContents = lifecycleSender(OWNER_WEB_CONTENTS_ID);
+        const completed = Promise.withResolvers<TScanCleanupDetectionJobState>();
+        webContents.send.mockImplementation((channel: string, frame: TScanCleanupDetectionJobState) => {
+            if (channel !== SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState) return;
+            if (frame.status === 'completed') completed.resolve(frame);
+            if (frame.status === 'failed') completed.reject(new Error(frame.error));
+            if (frame.status === 'canceled') completed.reject(new Error(frame.status));
+        });
+        const detection = {
+            ...startRequest(workingPath),
+            ownerId: 'completed-document-owner',
+        };
+        let borrower: ReturnType<typeof claimScanCleanupDetectionResultStore> = null;
+        try {
+            const started = await service.detectAll(webContents, detection);
+            const terminal = await completed.promise;
+            const storeId = terminal.detectionResultStoreId;
+            expect(storeId).toBeTypeOf('string');
+            const storeOwner = {
+                detectionSignature: createScanCleanupDetectionSignature(detection.options),
+                documentRevision: detection.documentRevision,
+                ownerId: detection.ownerId,
+                sourcePdfPath: workingPath,
+            };
+            borrower = claimScanCleanupDetectionResultStore(storeId!, storeOwner);
+            expect(borrower).not.toBeNull();
+            const firstPage = await borrower!.resultStore.getPage(1);
+            expect(firstPage?.pageNumber).toBe(1);
+
+            // A repeated cancel is not a document-close signal. The real
+            // working-copy close below must retire the document owner even
+            // after its detection job has handed off the completed store.
+            expect(service.cancelDetection(webContents, started.jobId, detection)).toBe(false);
+            await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+
+            expect(existsSync(workingPath)).toBe(false);
+            const staleClaim = claimScanCleanupDetectionResultStore(storeId!, storeOwner);
+            try {
+                expect.soft(staleClaim, 'a closed document must not admit new detection-store borrowers').toBeNull();
+            } finally {
+                await staleClaim?.release();
+            }
+            await expect(borrower!.resultStore.getPage(1)).resolves.toEqual(firstPage);
+            await borrower!.release();
+            await expect(Promise.resolve().then(() => borrower!.resultStore.readRange(1, 2)), 'the last borrower must release the retired evidence files').rejects.toThrow(/closed/iu);
+        } finally {
+            await borrower?.release();
+            await service.dispose();
+        }
     });
 
     it.each([

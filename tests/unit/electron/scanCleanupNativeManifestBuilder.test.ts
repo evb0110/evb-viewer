@@ -64,9 +64,13 @@ vi.mock('fs', async importOriginal => {
         realpathSyncCalls.push(String(args[0]));
         return actual.realpathSync(...args);
     };
+    const nativeRealpathSync = (...args: Parameters<typeof actual.realpathSync.native>) => {
+        realpathSyncCalls.push(String(args[0]));
+        return actual.realpathSync.native(...args);
+    };
     return {
         ...actual,
-        realpathSync: Object.assign(realpathSync, actual.realpathSync),
+        realpathSync: Object.assign(realpathSync, actual.realpathSync, {native: nativeRealpathSync}),
     };
 });
 

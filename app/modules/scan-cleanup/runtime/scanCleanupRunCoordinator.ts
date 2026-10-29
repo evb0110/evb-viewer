@@ -786,6 +786,20 @@ function acceptScanCleanupJobState(state: TScanCleanupJobState) {
         scanCleanupRun.ownerDocumentRevision = pendingStart.documentRevision;
         persistActiveJob(state.jobId, pendingStart.sourcePdfPath);
     }
+    // Replies, streamed events and reconciliation reach this acceptor in any
+    // order. A snapshot older than the one shown, or a live one after the
+    // terminal state, describes the past, as detection's acceptor rules; a
+    // replayed terminal state still reaches a newly installed coordinator.
+    const current = scanCleanupRun.jobState;
+    if (
+        current?.jobId === state.jobId
+        && (
+            state.updatedAtMs < current.updatedAtMs
+            || (isTerminalScanCleanupJobState(current) && !isTerminalScanCleanupJobState(state))
+        )
+    ) {
+        return;
+    }
     scanCleanupRun.jobState = state;
     if (isLiveScanCleanupJobState(state)) {
         scheduleScanCleanupRunLivenessCheck();

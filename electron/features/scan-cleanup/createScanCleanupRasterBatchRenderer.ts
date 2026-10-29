@@ -4,6 +4,7 @@ import {
 } from 'node:path';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     readPpmDimensions,
     writePngFromPpm,
@@ -106,6 +107,8 @@ export function createScanCleanupRasterBatchRenderer(
         const reportedPages = new Set<number>();
         let polling = true;
         let commandSucceeded = false;
+        let terminationProof: Promise<boolean> | undefined;
+        let failure: unknown;
         let releasePollWait: (() => void) | null = null;
         const reportGeneratedPages = async () => {
             if (input.signal.aborted) return;
@@ -182,6 +185,9 @@ export function createScanCleanupRasterBatchRenderer(
                 timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS,
                 signal: input.signal,
                 log: input.log,
+                onTerminationProof: (proof) => {
+                    terminationProof = proof;
+                },
             });
             commandSucceeded = true;
             stopPolling();
@@ -228,19 +234,27 @@ export function createScanCleanupRasterBatchRenderer(
             return results;
         } catch (error) {
             commandSucceeded = false;
+            failure = error;
             throw error;
         } finally {
             stopPolling();
             await pollingTask;
-            await fileSystem.rm(scratch, {
+            const removeScratch = () => fileSystem.rm(scratch, {
                 force: true,
                 recursive: true,
-            }).catch(error => {
+            }).catch((error: unknown) => {
                 input.log(
                     'warn',
                     `Scan cleanup could not remove raster batch scratch directory: ${getErrorMessage(error)}`,
                 );
             });
+            // The shared single-page renderer's rule: a Poppler that may still
+            // be writing keeps its directory until the runner proves it gone.
+            if (getUnprovenNativeTerminationDetail(failure) === undefined) {
+                await removeScratch();
+            } else {
+                void terminationProof?.then(proven => (proven ? removeScratch() : undefined)).catch(() => undefined);
+            }
         }
     };
 }

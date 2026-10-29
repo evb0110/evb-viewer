@@ -18,15 +18,14 @@
  * overlay excludes more than 1% of ink (with no robust ink edge overrun above
  * 3%), or preview/final materialized placement differs. --preview-render-dpi
  * is a diagnostic-only override for isolating
- * resolution-sensitive native stages; omit it for the app-exact preview path.
+ * resolution-sensitive native stages. This command is a native replay diagnostic,
+ * not the desktop preview composition. See README.md, "Preview oracle scope".
  */
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     mkdir,
-    mkdtemp,
     readFile,
-    rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
@@ -46,7 +45,6 @@ import {createScanCleanupDiagnosticsManifestScope} from './scan-cleanup-diagnost
 import {loadGrayscaleImage} from './load-grayscale-image.mjs';
 import {
     composePreviewTransition,
-    createForcedPostSettleMovementProbeLeaves,
     measurePreviewPresentationStability,
 } from './scan-cleanup-preview-presentation.mjs';
 
@@ -78,6 +76,8 @@ const [
     {
         createScanCleanupDetectionCacheKey,
         resolveScanCleanupDetectionCacheEntryPath,
+        openScanCleanupDetectionCacheStore,
+        readScanCleanupDetectionCache,
     },
     {DEFAULT_SCAN_CLEANUP_PREFERENCES},
     {
@@ -87,10 +87,6 @@ const [
     {
         measurePreviewContentBoxContainment,
         transformPreviewContentBox,
-    },
-    {
-        commitScanCleanupPreviewPresentationSettle,
-        resolveScanCleanupPreviewPresentationCommit,
     },
     {
         buildScanCleanupPlacementAnchorSummary,
@@ -114,7 +110,6 @@ const [
     importTs('../../packages/contracts/scan-cleanup/scanCleanupSettings.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
-    importTs('../../app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts'),
     importTs('../../packages/scan-cleanup/core/placementAnchors.ts'),
     importTs('../../packages/contracts/scan-cleanup/createScanCleanupDetectionSignature.ts'),
     importTs('../../packages/scan-cleanup/core/fileBackedResultStore.ts'),
@@ -137,6 +132,9 @@ const INDEPENDENT_WRONG_CALIBRATION_OFFSET_MIN_PX = 40;
 function printUsage() {
     process.stderr.write([
         'Usage: node scripts/diagnostics/scan-cleanup-preview-harness.mjs --source <pdf> --pages <list> --out <dir> [flags]',
+        '',
+        'Native replay diagnostic: does not certify desktop preview parity or temporal stability.',
+        'See scripts/diagnostics/README.md, Preview oracle scope.',
         '',
         'Flags:',
         '  --check                       Enforce the 15% weight-agreement / 3% ink-margin guard',
@@ -343,9 +341,7 @@ function normalizedMargins(bitmap) {
     };
 }
 
-async function measureMargins(path) {
-    return normalizedMargins(await readGray(path));
-}
+
 
 function lineBands(bitmap, bounds) {
     const minimumRowInk = Math.max(3, Math.round((bounds.right - bounds.left) * 0.0015));
@@ -487,7 +483,10 @@ function relativeDifference(left, right) {
     return Math.abs(left - right) / Math.max(Math.abs(right), 1e-6);
 }
 
-export function compareMetrics(preview, final) {
+// `finalToPreviewScale` maps final raster pixels onto the preview grid; the
+// two leaves are rendered at their own resolutions, so absolute run widths are
+// compared on one grid.
+export function compareMetrics(preview, final, finalToPreviewScale = 1) {
     if (!preview || !final) {
         return {
             measurable: false,
@@ -502,25 +501,34 @@ export function compareMetrics(preview, final) {
     const previewWordVariancePx = Number.isFinite(preview.wordVariancePx)
         ? preview.wordVariancePx
         : preview.wordVarianceProxy * preview.wordRunMedianPx;
-    const finalWordVariancePx = Number.isFinite(final.wordVariancePx)
+    const finalWordRunMedianPx = final.wordRunMedianPx * finalToPreviewScale;
+    const finalWordVariancePx = (Number.isFinite(final.wordVariancePx)
         ? final.wordVariancePx
-        : final.wordVarianceProxy * final.wordRunMedianPx;
+        : final.wordVarianceProxy * final.wordRunMedianPx) * finalToPreviewScale;
     const wordVarianceResidualPx = Math.abs(previewWordVariancePx - finalWordVariancePx);
     const representativeWordRunPx = Math.max(
         preview.wordRunMedianPx,
-        final.wordRunMedianPx,
+        finalWordRunMedianPx,
         1,
     );
     const lineRatioDeviation = relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio);
     const wordVarianceDeviation = wordVarianceResidualPx / representativeWordRunPx;
+    // On the preview grid, allow one pixel for the two thresholded edges'
+    // quantization (the measured camera residual is 0.609 px), then gate the
+    // absolute weight as well as its uniformity.
+    const wordWeightResidualPx = Math.abs(preview.wordRunMedianPx - finalWordRunMedianPx);
+    const wordWeightDeviation = Math.max(0, wordWeightResidualPx - 1) / representativeWordRunPx;
     return {
         measurable: true,
         lineRatioDeviation: round(lineRatioDeviation),
         wordVarianceResidualPx: round(wordVarianceResidualPx),
         wordVarianceDeviation: round(wordVarianceDeviation),
+        wordWeightResidualPx: round(wordWeightResidualPx),
+        wordWeightDeviation: round(wordWeightDeviation),
         weightDeviation: round(Math.max(
             lineRatioDeviation,
             wordVarianceDeviation,
+            wordWeightDeviation,
         )),
     };
 }
@@ -987,7 +995,7 @@ async function runFinalConversion(args) {
     }});
 }
 
-async function loadDetection(args, tools) {
+export async function loadDetection(args, tools) {
     const cacheKey = await createScanCleanupDetectionCacheKey(
         args.source,
         defaultOptions,
@@ -997,14 +1005,27 @@ async function loadDetection(args, tools) {
         },
     );
     const path = resolveScanCleanupDetectionCacheEntryPath(args.detectionCache, cacheKey);
-    const cache = JSON.parse(await readFile(path, 'utf8'));
-    if (!Array.isArray(cache.results) || cache.results.length === 0) {
-        throw new Error(`Detection cache has no results: ${path}`);
+    let resultStore = await openScanCleanupDetectionCacheStore(args.detectionCache, cacheKey);
+    if (resultStore === null) {
+        const results = await readScanCleanupDetectionCache(args.detectionCache, cacheKey);
+        if (results === null || results.length === 0) {
+            throw new Error(`Detection cache has no valid results: ${path}`);
+        }
+        resultStore = await createFileBackedScanCleanupDetectionResultStore({
+            rootDir: dirname(path),
+            pageCount: results.length,
+        });
+        try {
+            for (const result of results) await resultStore.append(result);
+        } catch (error) {
+            await resultStore.close();
+            throw error;
+        }
     }
     return {
         cacheKey: cacheKey.key,
         path,
-        results: cache.results,
+        resultStore,
     };
 }
 
@@ -1016,31 +1037,16 @@ async function buildPlacementAnchorSummary(args, detection) {
     // Same document revision as the CLI's anchor identity (scan-cleanup-convert.ts).
     const sourceStats = await stat(args.source);
     const documentRevision = `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`;
-    await mkdir(args.out, {recursive: true});
-    const rootDir = await mkdtemp(join(args.out, 'placement-anchor-store-'));
-    const store = await createFileBackedScanCleanupDetectionResultStore({
-        rootDir,
-        pageCount: detection.results.length,
+    return buildScanCleanupPlacementAnchorSummary({
+        options: defaultOptions,
+        resultStore: detection.resultStore,
+        signal: new AbortController().signal,
+        identity: {
+            documentRevision,
+            detectionSignature: createScanCleanupDetectionSignature(defaultOptions),
+            calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(defaultOptions),
+        },
     });
-    try {
-        for (const result of detection.results) await store.append(result);
-        return await buildScanCleanupPlacementAnchorSummary({
-            options: defaultOptions,
-            resultStore: store,
-            signal: new AbortController().signal,
-            identity: {
-                documentRevision,
-                detectionSignature: createScanCleanupDetectionSignature(defaultOptions),
-                calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(defaultOptions),
-            },
-        });
-    } finally {
-        await store.close();
-        await rm(rootDir, {
-            recursive: true,
-            force: true,
-        });
-    }
 }
 
 async function main() {
@@ -1058,494 +1064,495 @@ async function main() {
     const suppliedFinal = process.argv.includes('--final-pdf');
     if (!suppliedFinal) await runFinalConversion(args);
     const detection = await loadDetection(args, tools);
+    try {
     // Anchors exist only where the CLI applies ink alignment; elsewhere it passes none.
-    const placementAnchorSummary = usesScanCleanupInkAlignment(defaultOptions)
-        ? await buildPlacementAnchorSummary(args, detection)
-        : undefined;
-    const pageSizes = detection.results.map(result => result.sourcePageMetadata).filter(Boolean);
-    if (pageSizes.length !== detection.results.length) {
-        throw new Error('Detection cache does not carry source geometry for every page');
-    }
-    const layoutByPage = Object.fromEntries(detection.results.map(result => [
-        String(result.pageNumber),
-        result.classification,
-    ]));
-    const previewRasterPlan = resolvePreviewRasterPlan(pageSizes);
-    const matchedPreviewDpis = [...previewRasterPlan.renderDpiByPageNumber.values()];
-    const matchedPreviewDpi = matchedPreviewDpis.length === 0
-        ? previewRasterPlan.dpi
-        : Math.min(...matchedPreviewDpis);
-    const documentCanvas = resolveScanCleanupProvisionalDocumentCanvas(
-        pageSizes,
-        matchedPreviewDpi,
-        defaultOptions,
-        layoutByPage,
-        true,
-    );
-    const basePreviewDpi = documentCanvas === null
-        ? previewRasterPlan.dpi
-        : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas)));
-    const runCommand = (command, commandArgs, options) => runCliNativeToolCommand(
-        command,
-        commandArgs,
-        options,
-    );
-    const renderers = createScanCleanupRenderers(runCommand);
-    const sourceRasterDetails = await detectSourceDpiDetails(
-        args.source,
-        tools.pdfimages,
-        () => undefined,
-        undefined,
-        undefined,
-        args.pages,
-        undefined,
-        runCommand,
-    );
-    const finalSummary = JSON.parse(await readFile(`${args.finalPdf}.summary.json`, 'utf8'));
-    const finalMappings = new Map(finalSummary.sourcePageToOutputPages.map(mapping => [
-        mapping.sourcePage,
-        mapping.outputPages,
-    ]));
-    const finalSummaryPages = new Map(finalSummary.perPageStreamSizes.map(page => [
-        page.outputPageNumber,
-        page,
-    ]));
-    const report = {
-        schemaVersion: 1,
-        source: args.source,
-        pages: args.pages,
-        previewDpi: basePreviewDpi,
-        previewRenderDpi: args.previewRenderDpi ?? 'dpi-aware',
-        renderMode: 'preview',
-        canvasScope: 'page',
-        finalReference: args.finalPdf,
-        detectionCache: detection.path,
-        detectionCacheKey: detection.cacheKey,
-        limits: {
-            inkMargin: INK_MARGIN_LIMIT,
-            overlayEdge: args.overlayEdgeTolerance,
-            overlayInkOutside: args.overlayInkTolerance,
-            weightDeviation: WEIGHT_DEVIATION_LIMIT,
-        },
-        results: [],
-    };
-    for (const pageNumber of args.pages) {
-        const pageDirectory = join(args.out, `page-${String(pageNumber)}`);
-        const manifestScope = createScanCleanupDiagnosticsManifestScope(
-            pageDirectory,
-            buildRunnableNativeScanCleanupManifest,
-        );
-        await mkdir(pageDirectory, {recursive: true});
-        const detectionResult = detection.results[pageNumber - 1];
-        if (!detectionResult || detectionResult.pageNumber !== pageNumber) {
-            throw new Error(`Detection cache has no page ${String(pageNumber)}`);
-        }
-        const sourceRaster = await sourceRasterDetails.getPageRaster(pageNumber);
-        const sourceDpi = sourceRaster?.dpi
-            ?? detectionResult.sourcePageMetadata?.sourceDpi
-            ?? previewRasterPlan.pageDpiByNumber.get(pageNumber)
-            ?? previewRasterPlan.dpi;
-        const requestedPreviewRenderDpi = resolvePreviewProcessingDpi({
-            displayDpi: basePreviewDpi,
-            outputMode: detectionResult.recommendedOutputMode,
-            sourceDpi,
-        });
-        const processingDocumentCanvas = documentCanvas === null
-            || requestedPreviewRenderDpi <= basePreviewDpi
-            ? null
-            : resolveScanCleanupProvisionalDocumentCanvas(
-                pageSizes,
-                requestedPreviewRenderDpi,
-                defaultOptions,
-                layoutByPage,
-                true,
-            );
-        const previewRenderDpi = args.previewRenderDpi
-            ?? (processingDocumentCanvas === null
-                ? requestedPreviewRenderDpi
-                : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingDocumentCanvas))));
-        const rawPath = join(pageDirectory, `source-${String(previewRenderDpi)}dpi.png`);
-        await renderers.renderPage(
-            {pdftoppmBinary: tools.pdftoppm},
-            () => undefined,
-            pageNumber,
-            args.source,
-            rawPath,
-            previewRenderDpi,
-        );
-        const nativeOutputs = [
-            0,
-            1,
-        ].map(index => ({
-            outputPath: join(pageDirectory, `preview-output-${String(index)}.png`),
-            metadataPath: join(pageDirectory, `preview-output-${String(index)}.json`),
-        }));
-        const manifestPath = join(pageDirectory, 'preview-manifest.json');
-        const pageMetadataPath = join(pageDirectory, 'preview-page.json');
-        const reusablePagePlan = resolveReusablePagePlan(
-            defaultOptions,
-            layoutByPage,
-            detectionResult.pagePlanEvidence === undefined
-                ? undefined
-                : {[String(pageNumber)]: detectionResult.pagePlanEvidence},
-            pageNumber,
-        );
-        const manifest = manifestScope.buildManifest({
-            operation: 'render',
-            renderMode: 'preview',
-            canvasScope: 'page',
-            qualityPath: 'raster',
-            options: defaultOptions,
-            experimental: {autoDewarp: false},
-            ...(documentCanvas === null ? {} : {documentCanvas}),
-            pages: [{
-                inputPath: rawPath,
-                pageNumber,
-                dpi: previewRenderDpi,
-                sourceDpi,
-                sourceHasBilevelLayer: sourceRaster?.hasBilevelLayer ?? false,
-                ...(sourceRaster?.backgroundDpi === undefined
-                    ? {}
-                    : {sourceBackgroundDpi: sourceRaster.backgroundDpi}),
-                requestedRenderDpi: previewRenderDpi,
-                ...(detectionResult.recommendedOutputMode === undefined
-                    ? {}
-                    : {resolvedOutputMode: detectionResult.recommendedOutputMode}),
-                ...(detectionResult.softAlphaForegroundRecommendation === undefined
-                    ? {}
-                    : {preferSoftAlphaForeground: detectionResult.softAlphaForegroundRecommendation}),
-                observedLayout: detectionResult.classification,
-                ...reusablePagePlan,
-                ...(placementAnchorSummary === undefined ? {} : {placementAnchors: resolveScanCleanupPlacementAnchorsFromResult(
-                    placementAnchorSummary,
-                    defaultOptions,
-                    detectionResult,
-                )}),
-                pageMetadataPath,
-                outputs: nativeOutputs,
-                ...(detectionResult.documentPrior === null
-                    ? {}
-                    : {documentPrior: detectionResult.documentPrior}),
-            }],
-        });
-        await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-        await runCommand(
-            tools.scanCleanup,
-            manifestScope.sidecarArgv(manifestPath),
-            {commandLabel: `preview-harness(page=${String(pageNumber)})`},
-        );
-        const outputMetadata = [];
-        for (const output of nativeOutputs) {
-            try {
-                outputMetadata.push({
-                    ...output,
-                    metadata: JSON.parse(await readFile(output.metadataPath, 'utf8')),
-                });
-            } catch (error) {
-                if (error?.code !== 'ENOENT') throw error;
+        const placementAnchorSummary = usesScanCleanupInkAlignment(defaultOptions)
+            ? await buildPlacementAnchorSummary(args, detection)
+            : undefined;
+        // Retain compact geometry/classification facts, never all detection records.
+        const pageSizes = [];
+        const layoutByPage = {};
+        await detection.resultStore.forEachChunk(results => {
+            for (const result of results) {
+                if (!result.sourcePageMetadata) throw new Error('Detection cache does not carry source geometry for every page');
+                pageSizes.push(result.sourcePageMetadata);
+                layoutByPage[String(result.pageNumber)] = result.classification;
             }
-        }
-        const previewLeaves = [];
-        for (const output of outputMetadata) {
-            const half = output.metadata.half;
-            const path = join(pageDirectory, `preview-${half}.png`);
-            previewLeaves.push({
-                half,
-                ...await composeLeaf(output.outputPath, output.metadata, path, {
-                    edgeTolerance: args.overlayEdgeTolerance,
-                    inkTolerance: args.overlayInkTolerance,
-                }),
-            });
-        }
-        // Replay only this page's verdict to expose provisional-canvas jumps without Electron.
-        const provisionalDocumentCanvas = resolveScanCleanupProvisionalDocumentCanvas(
+        });
+        const previewRasterPlan = resolvePreviewRasterPlan(pageSizes);
+        const matchedPreviewDpis = [...previewRasterPlan.renderDpiByPageNumber.values()];
+        const matchedPreviewDpi = matchedPreviewDpis.length === 0
+            ? previewRasterPlan.dpi
+            : Math.min(...matchedPreviewDpis);
+        const documentCanvas = resolveScanCleanupProvisionalDocumentCanvas(
             pageSizes,
             matchedPreviewDpi,
             defaultOptions,
-            {[String(pageNumber)]: detectionResult.classification},
-            false,
+            layoutByPage,
+            true,
         );
-        const provisionalOutputs = nativeOutputs.map((_, index) => ({
-            outputPath: join(pageDirectory, `provisional-output-${String(index)}.png`),
-            metadataPath: join(pageDirectory, `provisional-output-${String(index)}.json`),
-        }));
-        const provisionalManifestPath = join(pageDirectory, 'provisional-preview-manifest.json');
-        const provisionalPageMetadataPath = join(pageDirectory, 'provisional-preview-page.json');
-        const provisionalManifest = structuredClone(manifest);
-        if (provisionalDocumentCanvas === null) delete provisionalManifest.documentCanvas;
-        else provisionalManifest.documentCanvas = provisionalDocumentCanvas;
-        provisionalManifest.pages[0].outputs = provisionalOutputs;
-        provisionalManifest.pages[0].pageMetadataPath = provisionalPageMetadataPath;
-        // Progressive detection has observed layout but no pagePlanEvidence yet; do not hide
-        // provisional-only crop failures by replaying the settled split/content/skew plan.
-        for (const key of Object.keys(reusablePagePlan)) {
-            delete provisionalManifest.pages[0].options[key];
-        }
-        await writeFile(provisionalManifestPath, JSON.stringify(provisionalManifest, null, 2) + '\n');
-        await runCommand(
-            tools.scanCleanup,
-            manifestScope.sidecarArgv(provisionalManifestPath),
-            {commandLabel: `preview-harness-provisional(page=${String(pageNumber)})`},
+        const basePreviewDpi = documentCanvas === null
+            ? previewRasterPlan.dpi
+            : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas)));
+        const runCommand = (command, commandArgs, options) => runCliNativeToolCommand(
+            command,
+            commandArgs,
+            options,
         );
-        const provisionalLeaves = [];
-        for (const output of provisionalOutputs) {
-            try {
-                const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
-                const half = metadata.half;
-                const path = join(pageDirectory, `provisional-${half}.png`);
-                provisionalLeaves.push({
+        const renderers = createScanCleanupRenderers(runCommand);
+        const sourceRasterDetails = await detectSourceDpiDetails(
+            args.source,
+            tools.pdfimages,
+            () => undefined,
+            undefined,
+            undefined,
+            args.pages,
+            undefined,
+            runCommand,
+        );
+        const finalSummary = JSON.parse(await readFile(`${args.finalPdf}.summary.json`, 'utf8'));
+        const finalMappings = new Map(finalSummary.sourcePageToOutputPages.map(mapping => [
+            mapping.sourcePage,
+            mapping.outputPages,
+        ]));
+        const finalSummaryPages = new Map(finalSummary.perPageStreamSizes.map(page => [
+            page.outputPageNumber,
+            page,
+        ]));
+        const report = {
+            schemaVersion: 1,
+            desktopPreviewParity: {
+                status: 'skipped',
+                reason: 'Native stage replay uses a document-minimum canvas DPI and a single working raster, without the desktop canonical analysis input or retained preview lifecycle. See scripts/diagnostics/README.md, Preview oracle scope.',
+            },
+            source: args.source,
+            pages: args.pages,
+            previewDpi: basePreviewDpi,
+            previewRenderDpi: args.previewRenderDpi ?? 'dpi-aware',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            finalReference: args.finalPdf,
+            detectionCache: detection.path,
+            detectionCacheKey: detection.cacheKey,
+            limits: {
+                inkMargin: INK_MARGIN_LIMIT,
+                overlayEdge: args.overlayEdgeTolerance,
+                overlayInkOutside: args.overlayInkTolerance,
+                weightDeviation: WEIGHT_DEVIATION_LIMIT,
+            },
+            results: [],
+        };
+        for (const pageNumber of args.pages) {
+            const pageDirectory = join(args.out, `page-${String(pageNumber)}`);
+            const manifestScope = createScanCleanupDiagnosticsManifestScope(
+                pageDirectory,
+                buildRunnableNativeScanCleanupManifest,
+            );
+            await mkdir(pageDirectory, {recursive: true});
+            const detectionResult = await detection.resultStore.getPage(pageNumber);
+            if (!detectionResult || detectionResult.pageNumber !== pageNumber) {
+                throw new Error(`Detection cache has no page ${String(pageNumber)}`);
+            }
+            const sourceRaster = await sourceRasterDetails.getPageRaster(pageNumber);
+            const sourceDpi = sourceRaster?.dpi
+            ?? detectionResult.sourcePageMetadata?.sourceDpi
+            ?? previewRasterPlan.pageDpiByNumber.get(pageNumber)
+            ?? previewRasterPlan.dpi;
+            const requestedPreviewRenderDpi = resolvePreviewProcessingDpi({
+                displayDpi: basePreviewDpi,
+                outputMode: detectionResult.recommendedOutputMode,
+                sourceDpi,
+            });
+            const processingDocumentCanvas = documentCanvas === null
+            || requestedPreviewRenderDpi <= basePreviewDpi
+                ? null
+                : resolveScanCleanupProvisionalDocumentCanvas(
+                    pageSizes,
+                    requestedPreviewRenderDpi,
+                    defaultOptions,
+                    layoutByPage,
+                    true,
+                );
+            const previewRenderDpi = args.previewRenderDpi
+            ?? (processingDocumentCanvas === null
+                ? requestedPreviewRenderDpi
+                : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingDocumentCanvas))));
+            const rawPath = join(pageDirectory, `source-${String(previewRenderDpi)}dpi.png`);
+            await renderers.renderPage(
+                {pdftoppmBinary: tools.pdftoppm},
+                () => undefined,
+                pageNumber,
+                args.source,
+                rawPath,
+                previewRenderDpi,
+            );
+            const nativeOutputs = [
+                0,
+                1,
+            ].map(index => ({
+                outputPath: join(pageDirectory, `preview-output-${String(index)}.png`),
+                metadataPath: join(pageDirectory, `preview-output-${String(index)}.json`),
+            }));
+            const manifestPath = join(pageDirectory, 'preview-manifest.json');
+            const pageMetadataPath = join(pageDirectory, 'preview-page.json');
+            const reusablePagePlan = resolveReusablePagePlan(
+                defaultOptions,
+                layoutByPage,
+                detectionResult.pagePlanEvidence === undefined
+                    ? undefined
+                    : {[String(pageNumber)]: detectionResult.pagePlanEvidence},
+                pageNumber,
+            );
+            const manifest = manifestScope.buildManifest({
+                operation: 'render',
+                renderMode: 'preview',
+                canvasScope: 'page',
+                qualityPath: 'raster',
+                options: defaultOptions,
+                experimental: {autoDewarp: false},
+                ...(documentCanvas === null ? {} : {documentCanvas}),
+                pages: [{
+                    inputPath: rawPath,
+                    pageNumber,
+                    dpi: previewRenderDpi,
+                    sourceDpi,
+                    sourceHasBilevelLayer: sourceRaster?.hasBilevelLayer ?? false,
+                    ...(sourceRaster?.backgroundDpi === undefined
+                        ? {}
+                        : {sourceBackgroundDpi: sourceRaster.backgroundDpi}),
+                    requestedRenderDpi: previewRenderDpi,
+                    ...(detectionResult.recommendedOutputMode === undefined
+                        ? {}
+                        : {resolvedOutputMode: detectionResult.recommendedOutputMode}),
+                    ...(detectionResult.softAlphaForegroundRecommendation === undefined
+                        ? {}
+                        : {preferSoftAlphaForeground: detectionResult.softAlphaForegroundRecommendation}),
+                    observedLayout: detectionResult.classification,
+                    ...reusablePagePlan,
+                    ...(placementAnchorSummary === undefined ? {} : {placementAnchors: resolveScanCleanupPlacementAnchorsFromResult(
+                        placementAnchorSummary,
+                        defaultOptions,
+                        detectionResult,
+                    )}),
+                    pageMetadataPath,
+                    outputs: nativeOutputs,
+                    ...(detectionResult.documentPrior === null
+                        ? {}
+                        : {documentPrior: detectionResult.documentPrior}),
+                }],
+            });
+            await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+            await runCommand(
+                tools.scanCleanup,
+                manifestScope.sidecarArgv(manifestPath),
+                {commandLabel: `preview-harness(page=${String(pageNumber)})`},
+            );
+            const outputMetadata = [];
+            for (const output of nativeOutputs) {
+                try {
+                    outputMetadata.push({
+                        ...output,
+                        metadata: JSON.parse(await readFile(output.metadataPath, 'utf8')),
+                    });
+                } catch (error) {
+                    if (error?.code !== 'ENOENT') throw error;
+                }
+            }
+            const previewLeaves = [];
+            for (const output of outputMetadata) {
+                const half = output.metadata.half;
+                const path = join(pageDirectory, `preview-${half}.png`);
+                previewLeaves.push({
                     half,
-                    ...await composeLeaf(output.outputPath, metadata, path, {
+                    ...await composeLeaf(output.outputPath, output.metadata, path, {
                         edgeTolerance: args.overlayEdgeTolerance,
                         inkTolerance: args.overlayInkTolerance,
                     }),
                 });
-            } catch (error) {
-                if (error?.code !== 'ENOENT') throw error;
             }
-        }
-        const provisionalComposite = join(pageDirectory, 'provisional-preview-composite.png');
-        await composeSpread(provisionalLeaves, provisionalComposite);
-        const contextLeafComparisons = [];
-        for (const settledLeaf of previewLeaves) {
-            const provisionalLeaf = provisionalLeaves.find(leaf => leaf.half === settledLeaf.half);
-            if (!provisionalLeaf) continue;
-            const settledBytes = await readFile(settledLeaf.metricsPath);
-            const provisionalBytes = await readFile(provisionalLeaf.metricsPath);
-            contextLeafComparisons.push({
-                half: settledLeaf.half,
-                rasterIdentical: sha256(settledBytes) === sha256(provisionalBytes),
-                inkMarginShift: compareMargins(
-                    normalizedMargins(await readGray(settledLeaf.metricsPath)),
-                    normalizedMargins(await readGray(provisionalLeaf.metricsPath)),
-                ),
-                overlayContainment: provisionalLeaf.overlayContainment,
-                sourceContentContainment: provisionalLeaf.sourceContentContainment,
-                violations: [
-                    ...(provisionalLeaf.overlayContainment.pass ? [] : ['overlay-containment']),
-                    ...(provisionalLeaf.sourceContentContainment?.contained === false
-                        ? ['source-content-containment']
-                        : []),
-                ],
-            });
-        }
-        const finalOutputPages = finalMappings.get(pageNumber) ?? [];
-        if (finalOutputPages.length !== previewLeaves.length) {
-            throw new Error(
-                `Page ${String(pageNumber)} preview/final leaf mismatch: `
-                + `${String(previewLeaves.length)} vs ${String(finalOutputPages.length)}`,
+            // Replay only this page's verdict to expose provisional-canvas jumps without Electron.
+            const provisionalDocumentCanvas = resolveScanCleanupProvisionalDocumentCanvas(
+                pageSizes,
+                matchedPreviewDpi,
+                defaultOptions,
+                {[String(pageNumber)]: detectionResult.classification},
+                false,
             );
-        }
-        const finalLeaves = [];
-        for (let index = 0; index < finalOutputPages.length; index += 1) {
-            const half = previewLeaves[index].half;
-            const outputPageNumber = finalOutputPages[index];
-            const finalSummaryPage = finalSummaryPages.get(outputPageNumber);
-            if (!finalSummaryPage || finalSummaryPage.half !== half) {
+            const provisionalOutputs = nativeOutputs.map((_, index) => ({
+                outputPath: join(pageDirectory, `provisional-output-${String(index)}.png`),
+                metadataPath: join(pageDirectory, `provisional-output-${String(index)}.json`),
+            }));
+            const provisionalManifestPath = join(pageDirectory, 'provisional-preview-manifest.json');
+            const provisionalPageMetadataPath = join(pageDirectory, 'provisional-preview-page.json');
+            const provisionalManifest = structuredClone(manifest);
+            if (provisionalDocumentCanvas === null) delete provisionalManifest.documentCanvas;
+            else provisionalManifest.documentCanvas = provisionalDocumentCanvas;
+            provisionalManifest.pages[0].outputs = provisionalOutputs;
+            provisionalManifest.pages[0].pageMetadataPath = provisionalPageMetadataPath;
+            // Progressive detection has observed layout but no pagePlanEvidence yet; do not hide
+            // provisional-only crop failures by replaying the settled split/content/skew plan.
+            for (const key of Object.keys(reusablePagePlan)) {
+                delete provisionalManifest.pages[0].options[key];
+            }
+            await writeFile(provisionalManifestPath, JSON.stringify(provisionalManifest, null, 2) + '\n');
+            await runCommand(
+                tools.scanCleanup,
+                manifestScope.sidecarArgv(provisionalManifestPath),
+                {commandLabel: `preview-harness-provisional(page=${String(pageNumber)})`},
+            );
+            const provisionalLeaves = [];
+            for (const output of provisionalOutputs) {
+                try {
+                    const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
+                    const half = metadata.half;
+                    const path = join(pageDirectory, `provisional-${half}.png`);
+                    provisionalLeaves.push({
+                        half,
+                        ...await composeLeaf(output.outputPath, metadata, path, {
+                            edgeTolerance: args.overlayEdgeTolerance,
+                            inkTolerance: args.overlayInkTolerance,
+                        }),
+                    });
+                } catch (error) {
+                    if (error?.code !== 'ENOENT') throw error;
+                }
+            }
+            const provisionalComposite = join(pageDirectory, 'provisional-preview-composite.png');
+            await composeSpread(provisionalLeaves, provisionalComposite);
+            const contextLeafComparisons = [];
+            for (const settledLeaf of previewLeaves) {
+                const provisionalLeaf = provisionalLeaves.find(leaf => leaf.half === settledLeaf.half);
+                if (!provisionalLeaf) continue;
+                const settledBytes = await readFile(settledLeaf.metricsPath);
+                const provisionalBytes = await readFile(provisionalLeaf.metricsPath);
+                contextLeafComparisons.push({
+                    half: settledLeaf.half,
+                    rasterIdentical: sha256(settledBytes) === sha256(provisionalBytes),
+                    inkMarginShift: compareMargins(
+                        normalizedMargins(await readGray(settledLeaf.metricsPath)),
+                        normalizedMargins(await readGray(provisionalLeaf.metricsPath)),
+                    ),
+                    overlayContainment: provisionalLeaf.overlayContainment,
+                    sourceContentContainment: provisionalLeaf.sourceContentContainment,
+                    violations: [
+                        ...(provisionalLeaf.overlayContainment.pass ? [] : ['overlay-containment']),
+                        ...(provisionalLeaf.sourceContentContainment?.contained === false
+                            ? ['source-content-containment']
+                            : []),
+                    ],
+                });
+            }
+            const finalOutputPages = finalMappings.get(pageNumber) ?? [];
+            if (finalOutputPages.length !== previewLeaves.length) {
                 throw new Error(
-                    `Page ${String(pageNumber)} ${half} has no matching final materialization summary`,
+                    `Page ${String(pageNumber)} preview/final leaf mismatch: `
+                + `${String(previewLeaves.length)} vs ${String(finalOutputPages.length)}`,
                 );
             }
-            const path = join(pageDirectory, `final-${half}.png`);
-            await renderers.renderPage(
-                {pdftoppmBinary: tools.pdftoppm},
-                () => undefined,
-                outputPageNumber,
-                args.finalPdf,
-                path,
-                PREVIEW_DPI,
-            );
-            const image = await loadImage(path);
-            finalLeaves.push({
-                half,
-                height: image.height,
-                path,
-                renderGeometry: finalSummaryPage.renderGeometry,
-                width: image.width,
-            });
-        }
-        const previewComposite = join(pageDirectory, 'preview-composite.png');
-        const finalComposite = join(pageDirectory, 'final-composite.png');
-        await composeSpread(previewLeaves, previewComposite);
-        await composeSpread(finalLeaves, finalComposite);
-        const eyeballComposite = join(pageDirectory, 'provisional-vs-settled-composite.png');
-        await composePreviewTransition(provisionalComposite, previewComposite, eyeballComposite);
-        const forcedProbeDirectory = join(pageDirectory, 'forced-post-settle-movement-probe');
-        const forcedProbeLeaves = await createForcedPostSettleMovementProbeLeaves(previewLeaves, forcedProbeDirectory);
-        const presentationStability = await measurePreviewPresentationStability({
-            commitSettle: commitScanCleanupPreviewPresentationSettle,
-            compareMargins,
-            forcedProbeLeaves,
-            measureMargins,
-            previewLeaves,
-            provisionalLeaves,
-            resolveCommit: resolveScanCleanupPreviewPresentationCommit,
-            transitionKey: `preview-session:page-${String(pageNumber)}:user-0`,
-        });
-        const placementSignatures = previewLeaves.map((leaf, index) => {
-            const finalLeaf = finalLeaves[index];
-            const forcedOffsetXPx = args.forcePlacementOffsetDivergence
+            const finalLeaves = [];
+            for (let index = 0; index < finalOutputPages.length; index += 1) {
+                const half = previewLeaves[index].half;
+                const outputPageNumber = finalOutputPages[index];
+                const finalSummaryPage = finalSummaryPages.get(outputPageNumber);
+                if (!finalSummaryPage || finalSummaryPage.half !== half) {
+                    throw new Error(
+                        `Page ${String(pageNumber)} ${half} has no matching final materialization summary`,
+                    );
+                }
+                const path = join(pageDirectory, `final-${half}.png`);
+                await renderers.renderPage(
+                    {pdftoppmBinary: tools.pdftoppm},
+                    () => undefined,
+                    outputPageNumber,
+                    args.finalPdf,
+                    path,
+                    PREVIEW_DPI,
+                );
+                const image = await loadImage(path);
+                finalLeaves.push({
+                    half,
+                    height: image.height,
+                    path,
+                    renderGeometry: finalSummaryPage.renderGeometry,
+                    width: image.width,
+                });
+            }
+            const previewComposite = join(pageDirectory, 'preview-composite.png');
+            const finalComposite = join(pageDirectory, 'final-composite.png');
+            await composeSpread(previewLeaves, previewComposite);
+            await composeSpread(finalLeaves, finalComposite);
+            const eyeballComposite = join(pageDirectory, 'provisional-vs-settled-composite.png');
+            await composePreviewTransition(provisionalComposite, previewComposite, eyeballComposite);
+            // This offline oracle does not sample the renderer presentation boundary.
+            // Explicitly report the unobserved temporal check instead of self-pairs.
+            const presentationStability = await measurePreviewPresentationStability({});
+            const placementSignatures = previewLeaves.map((leaf, index) => {
+                const finalLeaf = finalLeaves[index];
+                const forcedOffsetXPx = args.forcePlacementOffsetDivergence
                 && pageNumber === args.pages[0]
                 && index === 0
-                ? FORCED_PLACEMENT_DIVERGENCE_PX
-                : 0;
-            const final = finalPlacementSignature(
-                finalLeaf.renderGeometry,
-                finalLeaf.width,
-                finalLeaf.height,
-                forcedOffsetXPx,
-            );
-            return {
-                half: leaf.half,
-                preview: leaf.placementSignature,
-                final,
-                ...comparePlacementSignatures(leaf.placementSignature, final),
-            };
-        });
-        const independentReaderInk = args.check ? [] : null;
-        for (let index = 0; args.check && index < previewLeaves.length; index += 1) {
-            const previewLeaf = previewLeaves[index];
-            const finalLeaf = finalLeaves[index];
-            const nativeOutput = outputMetadata.find(output => output.metadata.half === previewLeaf.half);
-            if (!nativeOutput) throw new Error(`Missing native output for ${previewLeaf.half}`);
-            independentReaderInk.push({
-                half: previewLeaf.half,
-                ...await compareIndependentReaderInk(
-                    nativeOutput.outputPath,
-                    finalLeaf.path,
-                    previewLeaf.metadata,
+                    ? FORCED_PLACEMENT_DIVERGENCE_PX
+                    : 0;
+                const final = finalPlacementSignature(
                     finalLeaf.renderGeometry,
-                ),
+                    finalLeaf.width,
+                    finalLeaf.height,
+                    forcedOffsetXPx,
+                );
+                return {
+                    half: leaf.half,
+                    preview: leaf.placementSignature,
+                    final,
+                    ...comparePlacementSignatures(leaf.placementSignature, final),
+                };
+            });
+            const independentReaderInk = args.check ? [] : null;
+            for (let index = 0; args.check && index < previewLeaves.length; index += 1) {
+                const previewLeaf = previewLeaves[index];
+                const finalLeaf = finalLeaves[index];
+                const nativeOutput = outputMetadata.find(output => output.metadata.half === previewLeaf.half);
+                if (!nativeOutput) throw new Error(`Missing native output for ${previewLeaf.half}`);
+                independentReaderInk.push({
+                    half: previewLeaf.half,
+                    ...await compareIndependentReaderInk(
+                        nativeOutput.outputPath,
+                        finalLeaf.path,
+                        previewLeaf.metadata,
+                        finalLeaf.renderGeometry,
+                    ),
+                });
+            }
+            const leafResults = [];
+            for (let index = 0; index < previewLeaves.length; index += 1) {
+                const previewBitmap = await readGray(previewLeaves[index].metricsPath);
+                const finalBitmap = await readGray(finalLeaves[index].path);
+                const previewWeight = weightUniformity(previewBitmap);
+                const finalWeight = weightUniformity(finalBitmap);
+                const previewMargins = normalizedMargins(previewBitmap);
+                const finalMargins = normalizedMargins(finalBitmap);
+                const weightComparison = compareMetrics(previewWeight, finalWeight, previewBitmap.width / finalBitmap.width);
+                const marginComparison = compareMargins(previewMargins, finalMargins);
+                const violations = weightAgreementViolations(weightComparison);
+                if (marginComparison === null) violations.push('ink-margin-unmeasurable');
+                else if (marginComparison.maximum > INK_MARGIN_LIMIT) violations.push('ink-margin');
+                if (!previewLeaves[index].overlayContainment.pass) {
+                    violations.push('overlay-containment');
+                }
+                if (previewLeaves[index].sourceContentContainment?.contained === false) {
+                    violations.push('source-content-containment');
+                }
+                leafResults.push({
+                    half: previewLeaves[index].half,
+                    previewRaster: previewLeaves[index].path,
+                    finalRaster: finalLeaves[index].path,
+                    previewWeight,
+                    finalWeight,
+                    weightComparison,
+                    previewMargins,
+                    finalMargins,
+                    marginComparison,
+                    overlayContainment: previewLeaves[index].overlayContainment,
+                    sourceContentContainment: previewLeaves[index].sourceContentContainment,
+                    violations,
+                });
+            }
+            report.results.push({
+                pageNumber,
+                classification: detectionResult.classification,
+                outputMode: detectionResult.recommendedOutputMode ?? null,
+                previewRenderDpi,
+                previewComposite,
+                finalComposite,
+                contextStability: {
+                    provisionalComposite,
+                    provisionalManifest: provisionalManifestPath,
+                    settledManifest: manifestPath,
+                    leaves: contextLeafComparisons,
+                    maximumInkMarginShift: Math.max(
+                        0,
+                        ...contextLeafComparisons.map(comparison => comparison.inkMarginShift?.maximum ?? 1),
+                    ),
+                },
+                presentationStability,
+                eyeballComposite,
+                manifest: manifestPath,
+                previewPageMetadata: pageMetadataPath,
+                placementSignatures,
+                independentReaderInk,
+                leaves: leafResults,
             });
         }
-        const leafResults = [];
-        for (let index = 0; index < previewLeaves.length; index += 1) {
-            const previewBitmap = await readGray(previewLeaves[index].metricsPath);
-            const finalBitmap = await readGray(finalLeaves[index].path);
-            const previewWeight = weightUniformity(previewBitmap);
-            const finalWeight = weightUniformity(finalBitmap);
-            const previewMargins = normalizedMargins(previewBitmap);
-            const finalMargins = normalizedMargins(finalBitmap);
-            const weightComparison = compareMetrics(previewWeight, finalWeight);
-            const marginComparison = compareMargins(previewMargins, finalMargins);
-            const violations = weightAgreementViolations(weightComparison);
-            if (marginComparison === null) violations.push('ink-margin-unmeasurable');
-            else if (marginComparison.maximum > INK_MARGIN_LIMIT) violations.push('ink-margin');
-            if (!previewLeaves[index].overlayContainment.pass) {
-                violations.push('overlay-containment');
-            }
-            if (previewLeaves[index].sourceContentContainment?.contained === false) {
-                violations.push('source-content-containment');
-            }
-            leafResults.push({
-                half: previewLeaves[index].half,
-                previewRaster: previewLeaves[index].path,
-                finalRaster: finalLeaves[index].path,
-                previewWeight,
-                finalWeight,
-                weightComparison,
-                previewMargins,
-                finalMargins,
-                marginComparison,
-                overlayContainment: previewLeaves[index].overlayContainment,
-                sourceContentContainment: previewLeaves[index].sourceContentContainment,
-                violations,
-            });
-        }
-        report.results.push({
-            pageNumber,
-            classification: detectionResult.classification,
-            outputMode: detectionResult.recommendedOutputMode ?? null,
-            previewRenderDpi,
-            previewComposite,
-            finalComposite,
-            contextStability: {
-                provisionalComposite,
-                provisionalManifest: provisionalManifestPath,
-                settledManifest: manifestPath,
-                leaves: contextLeafComparisons,
-                maximumInkMarginShift: Math.max(
-                    0,
-                    ...contextLeafComparisons.map(comparison => comparison.inkMarginShift?.maximum ?? 1),
-                ),
-            },
-            presentationStability,
-            eyeballComposite,
-            manifest: manifestPath,
-            previewPageMetadata: pageMetadataPath,
-            placementSignatures,
-            independentReaderInk,
-            leaves: leafResults,
-        });
-    }
-    const violations = report.results.flatMap(page => [
-        ...page.leaves.flatMap(leaf => leaf.violations.map(code => ({
-            code,
-            half: leaf.half,
-            mode: 'settled',
-            pageNumber: page.pageNumber,
-        }))),
-        ...page.contextStability.leaves.flatMap(leaf => leaf.violations.map(code => ({
-            code,
-            half: leaf.half,
-            mode: 'provisional',
-            pageNumber: page.pageNumber,
-        }))),
-        ...page.presentationStability.violations.map(code => ({
-            code,
-            mode: 'presentation-stability',
-            pageNumber: page.pageNumber,
-        })),
-        ...page.placementSignatures.filter(signature => !signature.identical).map(signature => ({
-            code: 'placement-identity',
-            half: signature.half,
-            mode: 'settled',
-            pageNumber: page.pageNumber,
-        })),
-        ...(page.independentReaderInk ?? []).flatMap(ink => [
-            ...(ink.matchRatio < 0.9 ? [{
-                code: 'independent-reader-ink-mismatch',
-                half: ink.half,
-                mode: 'settled',
-                pageNumber: page.pageNumber,
-            }] : []),
-            ...(ink.wrongCalibrationMatchRatio >= 0.5 ? [{
-                code: 'independent-reader-negative-control',
-                half: ink.half,
-                mode: 'settled',
-                pageNumber: page.pageNumber,
-            }] : []),
-        ]),
-    ]);
-    report.violations = violations;
-    report.status = violations.length === 0 ? 'pass' : 'fail';
-    const reportPath = join(args.out, 'report.json');
-    await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
-    process.stdout.write(JSON.stringify({
-        status: report.status,
-        report: reportPath,
-        results: report.results.map(page => ({
-            pageNumber: page.pageNumber,
-            previewComposite: page.previewComposite,
-            finalComposite: page.finalComposite,
-            placementIdentity: page.placementSignatures.map(signature => ({
-                half: signature.half,
-                identical: signature.identical,
-                deltas: signature.deltas,
-                tolerances: signature.tolerances,
-            })),
-            independentReaderInk: page.independentReaderInk,
-            leaves: page.leaves.map(leaf => ({
+        const violations = report.results.flatMap(page => [
+            ...page.leaves.flatMap(leaf => leaf.violations.map(code => ({
+                code,
                 half: leaf.half,
-                preview: leaf.previewWeight,
-                final: leaf.finalWeight,
-                comparison: leaf.weightComparison,
-                marginMaximum: leaf.marginComparison?.maximum ?? null,
-                violations: leaf.violations,
+                mode: 'settled',
+                pageNumber: page.pageNumber,
+            }))),
+            ...page.contextStability.leaves.flatMap(leaf => leaf.violations.map(code => ({
+                code,
+                half: leaf.half,
+                mode: 'provisional',
+                pageNumber: page.pageNumber,
+            }))),
+            ...page.presentationStability.violations.map(code => ({
+                code,
+                mode: 'presentation-stability',
+                pageNumber: page.pageNumber,
             })),
-        })),
-    }, null, 2) + '\n');
-    if (args.check && violations.length > 0) process.exitCode = 1;
+            ...page.placementSignatures.filter(signature => !signature.identical).map(signature => ({
+                code: 'placement-identity',
+                half: signature.half,
+                mode: 'settled',
+                pageNumber: page.pageNumber,
+            })),
+            ...(page.independentReaderInk ?? []).flatMap(ink => [
+                ...(ink.matchRatio < 0.9 ? [{
+                    code: 'independent-reader-ink-mismatch',
+                    half: ink.half,
+                    mode: 'settled',
+                    pageNumber: page.pageNumber,
+                }] : []),
+                ...(ink.wrongCalibrationMatchRatio >= 0.5 ? [{
+                    code: 'independent-reader-negative-control',
+                    half: ink.half,
+                    mode: 'settled',
+                    pageNumber: page.pageNumber,
+                }] : []),
+            ]),
+        ]);
+        report.violations = violations;
+        report.status = violations.length === 0 ? 'pass' : 'fail';
+        const reportPath = join(args.out, 'report.json');
+        await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
+        process.stdout.write(JSON.stringify({
+            status: report.status,
+            report: reportPath,
+            results: report.results.map(page => ({
+                pageNumber: page.pageNumber,
+                previewComposite: page.previewComposite,
+                finalComposite: page.finalComposite,
+                placementIdentity: page.placementSignatures.map(signature => ({
+                    half: signature.half,
+                    identical: signature.identical,
+                    deltas: signature.deltas,
+                    tolerances: signature.tolerances,
+                })),
+                independentReaderInk: page.independentReaderInk,
+                leaves: page.leaves.map(leaf => ({
+                    half: leaf.half,
+                    preview: leaf.previewWeight,
+                    final: leaf.finalWeight,
+                    comparison: leaf.weightComparison,
+                    marginMaximum: leaf.marginComparison?.maximum ?? null,
+                    violations: leaf.violations,
+                })),
+            })),
+        }, null, 2) + '\n');
+        if (args.check && violations.length > 0) process.exitCode = 1;
+    } finally {
+        await detection.resultStore.close();
+    }
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -121,6 +121,7 @@ fn markdown_report(report: &HarnessReport) -> String {
          - Content IoU compares axis-aligned detected and generated truth boxes. A crop catastrophe means more than `max(4 pixels, 1% of truth ink)` lies outside the detected box.\n\
          - Despeckle runs directly on the annotated binary mask. Marker retention means ink remains within the annotation radius; an erased page has input ink and zero output ink.\n\
          - Binarization runs normalization + selected threshold + smoothing with despeckle disabled. Broken-stroke delta is `max(output components − truth components, 0)`. Pepper density is black output pixels divided by pixels in generated known-blank regions.\n\
+         - Composed metrics independently sample the actual pipeline output pixels back onto the annotated source grid through each leaf forward transform. Erasure, punctuation loss and component explosions have a zero catastrophe budget; standalone stage metrics above retain their historical definitions. Non-affine geometry fails closed.\n\
          - Dewarp residual is mean absolute distance from each annotated baseline to its fitted straight line, measured in output-height pixels before and after the detected cylindrical mapping. Flat, photo, and sparse guards count any emitted automatic model as catastrophic; Jacobian failures use the same 17×17 grid as C2 validation.\n",
     );
 

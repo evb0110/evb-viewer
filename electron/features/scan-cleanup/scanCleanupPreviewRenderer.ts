@@ -46,10 +46,15 @@ import {
     resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import { shouldExtractTrustedMrcForeground } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
+import {
+    resolveSourceMrcLayerRejection,
+    resolveSourceMrcReuseRejection,
+    shouldExtractTrustedMrcForeground,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 
 
 import { getErrorMessage } from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {createLogger} from '@electron/utils/createLogger';
 import type { TScanCleanupWarningEvent } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {
@@ -123,7 +128,11 @@ export async function scanCleanupPreviewRenderer(
             throw error;
         });
     let detailAnalysisKey: string | null = null;
+    let unprovenTermination = false;
     const claimedRasterPages = new Map<string, [number, number]>();
+    // Every raster this preview renders shares its page view, so the view is
+    // kept once beside the claims it qualifies.
+    let claimedRasterView: 'mediabox' | undefined;
     const rememberRasterClaim = (pageNumber: number, dpi: number) => {
         if (claimId !== undefined) {
             claimedRasterPages.set(`${String(pageNumber)}\u0000${String(dpi)}`, [
@@ -148,7 +157,21 @@ export async function scanCleanupPreviewRenderer(
                 request,
                 signal,
             );
-            pageSize = boundedGeometry.pageSize;
+            // A page whose plan detection measured on its wider MediaBox view is
+            // previewed through that view, as cleanup renders it; replaying the
+            // normalized plan onto the narrower CropBox raster would cut the
+            // wrong content.
+            pageSize = request.sourcePageMetadata?.renderBox === 'mediabox' && boundedGeometry.pageSize !== undefined
+                ? {
+                    ...boundedGeometry.pageSize,
+                    xPoints: request.sourcePageMetadata.xPoints,
+                    yPoints: request.sourcePageMetadata.yPoints,
+                    widthPoints: request.sourcePageMetadata.widthPoints,
+                    heightPoints: request.sourcePageMetadata.heightPoints,
+                    renderBox: 'mediabox',
+                }
+                : boundedGeometry.pageSize;
+            claimedRasterView = pageSize?.renderBox === 'mediabox' ? 'mediabox' : undefined;
             const pageDpiByNumber = new Map<number, number>();
             if (boundedGeometry.pageSourceDpi !== undefined) {
                 pageDpiByNumber.set(request.pageNumber, boundedGeometry.pageSourceDpi);
@@ -495,10 +518,15 @@ export async function scanCleanupPreviewRenderer(
             && (pageOverride.manualZones?.fill.length ?? 0) === 0
             && sourceHasBilevelLayer
             && dependencies.extractMrcLayers !== undefined
+            // The page's own layers stand in for its pixels only under the
+            // geometry proof conversion requires, so preview shows the
+            // representation the output will have.
+            && pageSize !== undefined
+            && resolveSourceMrcReuseRejection(pageSize, boundedRasterPage) === undefined
         ) {
             const extractionStartedAt = performance.now();
             try {
-                trustedMrcLayers = await dependencies.extractMrcLayers(
+                const extracted = await dependencies.extractMrcLayers(
                     document.sourcePdfPath,
                     request.pageNumber,
                     join(scratch, 'source-mrc-selection.png'),
@@ -506,6 +534,9 @@ export async function scanCleanupPreviewRenderer(
                     signal,
                     logScanCleanupMessage,
                 );
+                trustedMrcLayers = extracted !== null && resolveSourceMrcLayerRejection(pageSize, extracted) === undefined
+                    ? extracted
+                    : null;
                 logger.debug(
                     `Scan cleanup preview source-layer extraction page ${String(request.pageNumber)} `
                     + `reused=${String(trustedMrcLayers !== null)} `
@@ -813,6 +844,9 @@ export async function scanCleanupPreviewRenderer(
             );
         }
         return result;
+    } catch (error) {
+        unprovenTermination = getUnprovenNativeTerminationDetail(error) !== undefined;
+        throw error;
     } finally {
         if (detailAnalysisKey !== null) {
             if (releaseBaseAnalysisPin) releaseBaseAnalysisPin(detailAnalysisKey);
@@ -822,21 +856,27 @@ export async function scanCleanupPreviewRenderer(
                 else baseAnalysisPins.set(detailAnalysisKey, pins - 1);
             }
         }
-        await Promise.all([...claimedRasterPages.values()].map(([
-            pageNumber,
-            dpi,
-        ]) => retention.releaseRaster(
-            document,
-            pageNumber,
-            dpi,
-            claimId,
-        )));
-        await retention.release(document, claimId);
-        if (managedScratchPath === undefined) {
-            await fileSystem.rm(scratch, {
-                recursive: true,
-                force: true,
-            });
+        // A native reader whose stop is unproven may still hold these inputs.
+        if (unprovenTermination) {
+            logger.warn(`Retaining scan-cleanup preview inputs until the native sidecar is reaped: ${request.sourcePdfPath}`);
+        } else {
+            await Promise.all([...claimedRasterPages.values()].map(([
+                pageNumber,
+                dpi,
+            ]) => retention.releaseRaster(
+                document,
+                pageNumber,
+                dpi,
+                claimId,
+                claimedRasterView,
+            )));
+            await retention.release(document, claimId);
+            if (managedScratchPath === undefined) {
+                await fileSystem.rm(scratch, {
+                    recursive: true,
+                    force: true,
+                });
+            }
         }
     }
 }

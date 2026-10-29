@@ -10,7 +10,7 @@ use crate::{
     BinarizationMode,
 };
 use scan_primitives::{
-    distance::{find_peaks, squared_euclidean_distance, InfluenceMap},
+    distance::{find_peaks, squared_euclidean_distance},
     morphology::{dilate, open},
     threshold::{threshold_local, LocalThreshold},
     BinaryImage, Component, ComponentMap, GrayImage, Rect,
@@ -2103,7 +2103,7 @@ fn build_trim_proposal(
     component_blocks: &[usize],
     active: &[bool],
     text_mask: &BinaryImage,
-    garbage_influence: &InfluenceMap,
+    garbage_influence: &[u32],
     calibration: PageCalibration,
 ) -> Option<TrimProposal> {
     let geometry = build_trim_geometry(side, current, blocks, active, calibration)?;
@@ -2135,7 +2135,7 @@ fn build_trim_proposal(
     let mut garbage_distance_sum = 0.0;
     for (x, y) in removed_pixels {
         content_distance_sum += f64::from(content_influence[y * content.width() + x]).sqrt();
-        garbage_distance_sum += f64::from(garbage_influence.squared_distance_at(x, y)).sqrt();
+        garbage_distance_sum += f64::from(garbage_influence[y * content.width() + x]).sqrt();
     }
     let score = content_distance_sum / (content_distance_sum + garbage_distance_sum).max(1.0);
     let threshold = trimming_bias(side, text_area, calibration.content_text_bias_area_cap());
@@ -2220,11 +2220,13 @@ fn build_trim_geometry(
     })
 }
 
-fn garbage_influence(width: usize, height: usize, labels: &[u32]) -> Option<InfluenceMap> {
-    labels
-        .iter()
-        .any(|&label| label != 0)
-        .then(|| InfluenceMap::from_seed_labels(width, height, labels))
+/// Exact squared distance from every pixel to the nearest garbage seed.
+fn garbage_influence(width: usize, height: usize, labels: &[u32]) -> Option<Vec<u32>> {
+    labels.iter().any(|&label| label != 0).then(|| {
+        squared_euclidean_distance(&BinaryImage::from_fn_parallel(width, height, |x, y| {
+            labels[y * width + x] != 0
+        }))
+    })
 }
 
 fn trimming_bias(side: TrimSide, text_area: usize, text_area_cap: usize) -> f64 {
@@ -2535,6 +2537,61 @@ mod tests {
     };
 
     const CENSUS_NEIGHBORHOOD: (usize, usize) = (40, 24);
+
+    #[test]
+    fn garbage_distance_uses_the_nearest_seed_after_voronoi_competition() {
+        let mut labels = vec![0; 20 * 29];
+        for (x, y, label) in [(14, 0, 2), (4, 4, 3), (0, 7, 1)] {
+            labels[y * 20 + x] = label;
+        }
+        let mut content = BinaryImage::new(20, 29);
+        for y in 10..=26 {
+            for x in 1..=16 {
+                content.set(x, y, true);
+            }
+        }
+        content.set(19, 28, true);
+        let map = ComponentMap::from_binary(&content);
+        let mut blocks = vec![BlockStats::default(); map.components().len() + 1];
+        let mut component_blocks = vec![0; blocks.len()];
+        for component in map.components() {
+            let label = component.label as usize;
+            component_blocks[label] = label;
+            blocks[label] = BlockStats {
+                component_count: 1,
+                ink_area: component.area,
+                left: component.left,
+                top: component.top,
+                right: component.right,
+                bottom: component.bottom,
+                initialized: true,
+                grayscale_supported: component.area > 1,
+                labels: vec![component.label],
+                ..BlockStats::default()
+            };
+        }
+        let calibration =
+            PageCalibration::estimate_from_binary(&content, 150.0, CalibrationConfig::default());
+        let (bounds, confidence, accepted) = trim_content_bounds(
+            &content,
+            &map,
+            &blocks,
+            &component_blocks,
+            &BinaryImage::new(20, 29),
+            &BinaryImage::new(20, 29),
+            labels,
+            calibration,
+        );
+        assert_eq!(bounds.unwrap().right, 19);
+        assert!(accepted.is_empty());
+        let content_distance = 13.0_f64.sqrt();
+        let garbage_distance = 801.0_f64.sqrt();
+        assert_eq!(
+            confidence[TrimSide::Right.index()],
+            content_distance / (content_distance + garbage_distance),
+            "content trim confidence must use squared garbage distance 801 to (4,4), not 802 to (0,7)"
+        );
+    }
 
     #[test]
     fn physical_margins_expand_outward_to_an_integer_raster_crop() {

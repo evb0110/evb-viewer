@@ -43,6 +43,10 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
+    ScanCleanupPdfValidationError,
+    ScanCleanupStreamingEvidenceError,
+} from '@evb/scan-cleanup/core/errors';
+import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
@@ -762,6 +766,7 @@ export async function main() {
         : IMAGE_COMBINE_FALLBACK;
     const img2pdfBinary = process.env.EVB_SCAN_CLEANUP_IMG2PDF_PATH ?? 'img2pdf';
     const magickBinary = process.env.EVB_SCAN_CLEANUP_MAGICK_PATH ?? 'magick';
+    let retainTemporaryRoot = false;
     const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-'));
     const detectionEvidenceDirectory = join(temporaryRoot, 'detection-evidence');
     const conversionEvidenceDirectory = join(temporaryRoot, 'conversion-evidence');
@@ -1051,10 +1056,27 @@ export async function main() {
         );
         const conversionDurationMs = performance.now() - conversionStartedAt;
         const outputStats = await stat(argumentsValue.outputPdfPath);
-        const report = JSON.parse(await readFile(
+        const reportDescriptor = JSON.parse(await readFile(
             join(nativeEvidenceDirectory, 'scan-cleanup-representation-report.json'),
             'utf8',
         )) as IScanCleanupRepresentationReport;
+        // A multi-batch run streams its mappings and page records to sidecars,
+        // one record a line; the summary reports them like a one-batch run's.
+        const readRecordSidecar = async <T>(inline: T[], sidecarPath: string | undefined) => (
+            inline.length > 0 || sidecarPath === undefined
+                ? inline
+                : (await readFile(sidecarPath, 'utf8')).split('\n')
+                    .filter(line => line.trim() !== '')
+                    .map(line => JSON.parse(line) as T)
+        );
+        const report: IScanCleanupRepresentationReport = {
+            ...reportDescriptor,
+            outputMappings: await readRecordSidecar(
+                reportDescriptor.outputMappings,
+                reportDescriptor.outputMappingsSidecarPath,
+            ),
+            pages: await readRecordSidecar(reportDescriptor.pages, reportDescriptor.pagesSidecarPath),
+        };
         const stamp = JSON.parse(await readFile(
             join(nativeEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'),
             'utf8',
@@ -1107,14 +1129,24 @@ export async function main() {
             );
         }
         process.stderr.write(`[scan-cleanup] wrote ${summaryPath}\n`);
+    } catch (error) {
+        // This CLI owns the scratch the run wrote; an invalid output it names
+        // is the diagnostic, so it stays where the error says it is.
+        retainTemporaryRoot = error instanceof ScanCleanupPdfValidationError
+            || error instanceof ScanCleanupStreamingEvidenceError;
+        throw error;
     } finally {
         try {
             await detectionResultStore?.close();
         } finally {
-            await rm(temporaryRoot, {
-                force: true,
-                recursive: true,
-            });
+            if (retainTemporaryRoot) {
+                process.stderr.write(`[scan-cleanup] kept diagnostics in ${temporaryRoot}\n`);
+            } else {
+                await rm(temporaryRoot, {
+                    force: true,
+                    recursive: true,
+                });
+            }
         }
     }
 }

@@ -5,10 +5,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
+import {createCanvas} from '@napi-rs/canvas';
 import {
     describe,
     expect,
@@ -21,10 +18,6 @@ import {
     createPreviewPresentationStabilityReport,
     measurePreviewPresentationStability,
 } from '@scripts/diagnostics/scan-cleanup-preview-presentation.mjs';
-import {
-    commitScanCleanupPreviewPresentationSettle,
-    resolveScanCleanupPreviewPresentationCommit,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 
 const stableComparison = {
     half: 'left',
@@ -84,100 +77,70 @@ describe('scan cleanup preview presentation evidence', () => {
         expect(report([marginOnly]).violations).toContain('presentation-post-settle-movement');
     });
 
-    it('drives the harness probe mutation red for movement and fails a green probe', async () => {
+    it('reports temporal stability skipped without independently observed frames', async () => {
+        const result = await measurePreviewPresentationStability({
+            observations: undefined,
+            compareMargins: () => ({maximum: 0}),
+            measureMargins: () => ({}),
+        });
+        expect(result).toMatchObject({
+            status: 'skipped',
+            reason: expect.stringContaining('independently observed'),
+        });
+        expect(result).not.toHaveProperty('provisionalCandidates');
+    });
+
+    it('rejects changed independently sampled pixels and accepts separate identical captures', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'scan-cleanup-presentation-probe-'));
         try {
-            const metricsPath = join(directory, 'settled-left.png');
             const canvas = createCanvas(24, 16);
             const context = canvas.getContext('2d');
-            context.fillStyle = '#ffffff';
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            context.fillStyle = '#000000';
+            context.fillStyle = '#fff';
+            context.fillRect(0, 0, 24, 16);
+            context.fillStyle = '#000';
             context.fillRect(3, 2, 9, 8);
-            await writeFile(metricsPath, canvas.toBuffer('image/png'));
-            const leaves = [{
-                half: 'left',
-                metricsPath,
-            }];
-            const measureMargins = async (path: string) => {
-                const image = await loadImage(path);
-                const measured = createCanvas(image.width, image.height);
-                const measuredContext = measured.getContext('2d');
-                measuredContext.drawImage(image, 0, 0);
-                const pixels = measuredContext.getImageData(0, 0, image.width, image.height).data;
-                let left = image.width;
-                let top = image.height;
-                let right = -1;
-                let bottom = -1;
-                for (let y = 0; y < image.height; y += 1) {
-                    for (let x = 0; x < image.width; x += 1) {
-                        if ((pixels[(y * image.width + x) * 4] ?? 255) > 220) continue;
-                        left = Math.min(left, x);
-                        top = Math.min(top, y);
-                        right = Math.max(right, x);
-                        bottom = Math.max(bottom, y);
-                    }
-                }
+            const captures = await Promise.all([
+                0,
+                1,
+                2,
+                3,
+            ].map(async index => {
+                const metricsPath = join(directory, `capture-${index}.png`);
+                await writeFile(metricsPath, canvas.toBuffer('image/png'));
                 return {
-                    left: left / image.width,
-                    top: top / image.height,
-                    right: (image.width - 1 - right) / image.width,
-                    bottom: (image.height - 1 - bottom) / image.height,
+                    atMs: index,
+                    phase: index < 2 ? 'provisional' : 'settled',
+                    leaves: [{
+                        half: 'left',
+                        metricsPath,
+                    }],
                 };
-            };
-            const compareMargins = (before: Awaited<ReturnType<typeof measureMargins>>, after: Awaited<ReturnType<typeof measureMargins>>) => {
-                const shifts = {
-                    left: Math.abs(before.left - after.left),
-                    top: Math.abs(before.top - after.top),
-                    right: Math.abs(before.right - after.right),
-                    bottom: Math.abs(before.bottom - after.bottom),
-                };
-                return {
-                    ...shifts,
-                    maximum: Math.max(...Object.values(shifts)),
-                };
-            };
-            const forcedProbeLeaves = await createForcedPostSettleMovementProbeLeaves(
-                leaves,
-                join(directory, 'forced-probe'),
-            );
-            const red = await measurePreviewPresentationStability({
-                commitSettle: commitScanCleanupPreviewPresentationSettle,
-                compareMargins,
-                forcedProbeLeaves,
-                measureMargins,
-                previewLeaves: leaves,
-                provisionalLeaves: leaves,
-                resolveCommit: resolveScanCleanupPreviewPresentationCommit,
-                transitionKey: 'session:page-1:user-0',
-            });
-            expect(red.violations).toEqual([]);
-            expect(red.forcedPostSettleMovementProbe).toMatchObject({
-                status: 'red',
-                violations: ['presentation-post-settle-movement'],
-                leaves: [expect.objectContaining({
-                    half: 'left',
-                    rasterIdentical: false,
-                    inkMarginShift: expect.objectContaining({maximum: expect.any(Number)}),
-                })],
-            });
-            expect(red.forcedPostSettleMovementProbe.leaves[0].inkMarginShift.maximum).toBeGreaterThan(0);
-
+            }));
+            const changed = await createForcedPostSettleMovementProbeLeaves(captures[3]!.leaves, join(directory, 'changed'));
+            const compareMargins = () => ({maximum: 1});
+            const measureMargins = () => ({});
             const green = await measurePreviewPresentationStability({
-                commitSettle: commitScanCleanupPreviewPresentationSettle,
+                observations: captures,
                 compareMargins,
-                forcedProbeLeaves: leaves,
                 measureMargins,
-                previewLeaves: leaves,
-                provisionalLeaves: leaves,
-                resolveCommit: resolveScanCleanupPreviewPresentationCommit,
-                transitionKey: 'session:page-1:user-0',
             });
-            expect(green.violations).toContain('presentation-forced-probe-not-red');
-            expect(green.forcedPostSettleMovementProbe).toMatchObject({
-                status: 'green',
-                violations: ['presentation-forced-probe-not-red'],
+            expect(green).toMatchObject({
+                status: 'pass',
+                violations: [],
             });
+            const red = await measurePreviewPresentationStability({
+                observations: [
+                    ...captures.slice(0, 3),
+                    {
+                        ...captures[3],
+                        leaves: changed,
+                    },
+                ],
+                compareMargins,
+                measureMargins,
+            });
+            expect(red.status).toBe('fail');
+            expect(red.violations).toContain('presentation-post-settle-movement');
         } finally {
             await rm(directory, {
                 force: true,

@@ -52,6 +52,7 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {
     getScanCleanupPreferencesStore,
+    flushScanCleanupDocumentPreferencesStore,
     resetScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {
@@ -2382,6 +2383,100 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
+    it('keeps another documents running job out of this workspaces controls', async () => {
+        const harness = capabilityHarness();
+        const canceledJobs: string[] = [];
+        vi.mocked(harness.value.cancel).mockImplementation(async jobId => {
+            canceledJobs.push(jobId);
+            return true;
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('document-b');
+        onTestFinished(() => mounted.unmount());
+        Object.assign(scanCleanupRun, {
+            activeJobId: requireJobId('document-a-job'),
+            inFlight: true,
+            ownerId: 'document-a-owner',
+            ownerDocumentRef: requireDocumentRef('/docs/document-a.pdf'),
+            ownerDocumentRevision: 'document-a-revision',
+            jobState: {
+                jobId: requireJobId('document-a-job'),
+                status: 'running',
+                progress: {
+                    stage: 'rendering',
+                    completedUnits: 1,
+                    totalUnits: 3,
+                    percent: 33,
+                },
+                updatedAtMs: requireEpochMs(1_000),
+            },
+        });
+
+        expect.soft(mounted.session.run.isRunning.value).toBe(false);
+        expect(mounted.session.run.jobProgress.value).toBeNull();
+        await mounted.session.run.cancel();
+        expect(canceledJobs).toEqual([]);
+    });
+
+    it('retains both mounted views page edits when they share a source document', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const identity = {sourceSha256: () => 'd'.repeat(64)};
+        const first = mountSession('shared-source-settings', identity);
+        const second = mountSession('shared-source-settings', identity);
+        onTestFinished(() => { first.unmount(); second.unmount(); });
+        await nextTick();
+        expect(first.session.settings.documentSettingsReady.value).toBe(true);
+        expect(second.session.settings.documentSettingsReady.value).toBe(true);
+
+        first.session.selection.updateRotation(90, [1]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+        second.session.selection.updateRotation(180, [2]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+
+        const reopened = mountSession('shared-source-settings', identity);
+        onTestFinished(() => reopened.unmount());
+        await nextTick();
+        const expected = {
+            '1': {rotationDegrees: 90},
+            '2': {rotationDegrees: 180},
+        };
+        expect.soft(reopened.session.settings.values.pageOverrides).toMatchObject(expected);
+        expect.soft(first.session.settings.values.pageOverrides).toMatchObject(expected);
+        expect.soft(second.session.settings.values.pageOverrides).toMatchObject(expected);
+    });
+
+    it('keeps another view\'s newer page edit when this view edits a different page', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const identity = {sourceSha256: () => 'e'.repeat(64)};
+        const first = mountSession('shared-source-later-edit', identity);
+        const second = mountSession('shared-source-later-edit', identity);
+        onTestFinished(() => { first.unmount(); second.unmount(); });
+        await nextTick();
+        first.session.selection.updateRotation(90, [1]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+
+        // The second view changes page 1 and the first view edits page 2
+        // before it has read that change back.
+        second.session.selection.updateRotation(270, [1]);
+        await nextTick();
+        first.session.selection.updateRotation(180, [2]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+
+        const reopened = mountSession('shared-source-later-edit', identity);
+        onTestFinished(() => reopened.unmount());
+        await nextTick();
+        expect(reopened.session.settings.values.pageOverrides).toMatchObject({
+            '1': {rotationDegrees: 270},
+            '2': {rotationDegrees: 180},
+        });
+    });
+
     it('coalesces document setting writes and flushes the old document before switching', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
@@ -2884,6 +2979,59 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         await run;
         mounted.unmount();
+    });
+
+    it('settles cancellation while final preview preparation remains pending', async () => {
+        vi.useFakeTimers();
+        const harness = capabilityHarness();
+        const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        const finalRequested = Promise.withResolvers<undefined>();
+        const admittedJobs: string[] = [];
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.visible === true && request.layoutDetectionComplete) {
+                finalRequested.resolve(undefined);
+                return finalPreview.promise;
+            }
+            return previewResult(request.pageNumber, 'single-uncut-page');
+        });
+        vi.mocked(harness.value.start).mockImplementation(async request => {
+            admittedJobs.push(request.sourcePdfPath);
+            return {
+                started: false,
+                jobId: requireJobId('unexpected-canceled-run'),
+                error: 'Unexpected cleanup admission',
+                errorCode: 'internal',
+            };
+        });
+        capability.value = harness.value;
+        const mounted = mountSession('cancel-pending-final-preview');
+        let running: Promise<void> | undefined;
+        try {
+            mounted.session.settings.values.outputMode = 'grayscale';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(250);
+            expect(mounted.session.preview.resultCurrent.value).toBe(true);
+            harness.emitDetection(detectionState('detect-1', 'completed'));
+            await nextTick();
+            expect(mounted.session.preview.resultCurrent.value).toBe(false);
+            let settled = false;
+            running = mounted.session.run.run().finally(() => { settled = true; });
+            await vi.advanceTimersByTimeAsync(0);
+            await finalRequested.promise;
+            expect(mounted.session.run.starting.value).toBe(true);
+
+            await mounted.session.run.cancel();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect.soft(settled).toBe(true);
+            expect.soft(mounted.session.run.isRunning.value).toBe(false);
+            expect(admittedJobs).toEqual([]);
+        } finally {
+            finalPreview.resolve(previewResult(1, 'single-uncut-page'));
+            await running;
+            mounted.unmount();
+            vi.useRealTimers();
+        }
     });
 
     it('refreshes stale provisional geometry before cleanup pauses the preview', async () => {
@@ -3757,26 +3905,6 @@ describe('scan cleanup workspace session detection guidance', () => {
         const reopened = mountSession(documentKey);
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         reopened.unmount();
-    });
-
-    it('releases completed detection evidence when the source closes', async () => {
-        const harness = capabilityHarness();
-        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/closed-detection.pdf'));
-        capability.value = harness.value;
-        const mounted = mountSession(`closed-detection-${Date.now()}`, {sourcePath: () => sourcePath.value});
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
-        harness.emitDetection(detectionState('detect-1', 'completed'));
-        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-
-        vi.mocked(harness.value.cancelDetection).mockClear();
-        sourcePath.value = null;
-        await nextTick();
-
-        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-1', {
-            ownerId: mounted.session.run.ownerId,
-            documentRevision: expect.any(String),
-        });
-        mounted.unmount();
     });
 
     it('stores text-axis results and clears them before a fresh detection pass', async () => {

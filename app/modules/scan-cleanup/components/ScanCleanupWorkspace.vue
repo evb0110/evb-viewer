@@ -328,6 +328,7 @@ const {
     updatePlacement: updateSelectionPlacement,
     updateLayoutOverride: updateSelectionLayoutOverride,
     updateMargins: updateSelectionMargins,
+    setMarginsLinked: setSelectionMarginsLinked,
     updateOutputModeOverride: updateSelectionOutputModeOverride,
     updateOverrides: updateSelectionOverrides,
     updateCurrentPlacement,
@@ -900,13 +901,22 @@ function updateScopeMargin(target: Parameters<typeof updateDocumentMargin>[0], v
 }
 
 function setScopeMarginsLinked(linked: boolean) {
-    if (settingsScope.value === 'all') {
-        const {
-            marginsMm: _marginsMm,
-            ...withoutMargins
-        } = allScopeDefaultOverride.value;
-        setAllScopeDefault(createScanCleanupPageOverride(withoutMargins));
+    if (settingsScope.value !== 'all') {
+        // Page and Selected scopes equalize their own pages' margins, like
+        // every other margin edit there; the document's stay as they are.
+        const margins = scopeMargins.value;
+        setSelectionMarginsLinked(
+            linked,
+            scopePageNumbers.value,
+            margins.mixed ? undefined : margins.value,
+        );
+        return;
     }
+    const {
+        marginsMm: _marginsMm,
+        ...withoutMargins
+    } = allScopeDefaultOverride.value;
+    setAllScopeDefault(createScanCleanupPageOverride(withoutMargins));
     setDocumentMarginsLinked(linked);
 }
 

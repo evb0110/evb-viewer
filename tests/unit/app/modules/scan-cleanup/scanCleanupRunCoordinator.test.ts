@@ -151,6 +151,61 @@ describe('scan cleanup run coordinator', () => {
         diagnosticMocks.error.mockReturnValue(diagnosticMocks.failure);
     });
 
+    it('keeps newer streamed progress when an older subscription snapshot arrives later', async () => {
+        const replay = Promise.withResolvers<TScanCleanupJobState | null>();
+        const subscribed = Promise.withResolvers<undefined>();
+        let emit: (state: TScanCleanupJobState) => void = () => undefined;
+        const bridge = stubCapability(listener => { emit = listener; }, () => 'reordered-run');
+        vi.mocked(bridge.subscribeJob).mockImplementation(() => {
+            subscribed.resolve(undefined);
+            return replay.promise;
+        });
+        capability.value = bridge;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const dispose = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: async () => true,
+            createCompletedOutputSaveAs: () => async () => undefined,
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            const run = coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/reordered.pdf',
+                options: createScanCleanupOptions(),
+            });
+            await subscribed.promise;
+            const newer: TScanCleanupJobState = {
+                ...runningJobState(requireJobId('reordered-run')),
+                progress: progress(3, 4),
+                updatedAtMs: requireEpochMs(2_000),
+            };
+            emit(newer);
+            expect(coordinator.scanCleanupRun.jobState?.progress.percent).toBe(75);
+
+            replay.resolve({
+                ...newer,
+                progress: progress(0, 4),
+                updatedAtMs: requireEpochMs(1_000),
+            });
+            await run;
+
+            expect(coordinator.scanCleanupRun.jobState).toMatchObject({
+                progress: {
+                    percent: 75,
+                    completedPageNumbers: [
+                        1,
+                        2,
+                        3,
+                    ],
+                },
+                updatedAtMs: 2_000,
+            });
+        } finally {
+            dispose();
+        }
+    });
+
     it('keeps a pending start single-flight across rapid callers', async () => {
         const pendingStart = Promise.withResolvers<{
             started: true;

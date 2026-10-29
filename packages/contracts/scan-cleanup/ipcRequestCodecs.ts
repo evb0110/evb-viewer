@@ -326,34 +326,54 @@ v.check(evidence => Object.values(evidence.outputs).every(output => output === u
 export const SCAN_CLEANUP_PAGE_PLAN_EVIDENCE_SCHEMA = pagePlanEvidenceSchema;
 export type IScanCleanupPagePlanEvidence = v.InferOutput<typeof pagePlanEvidenceSchema>;
 
+// The same geometry domain pdf-page-ops publishes and core decodes: signed
+// finite origins, positive dimensions, and each optional box whole or absent.
+const positiveSafeFinite = v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER));
+const allOrNone = (values: readonly unknown[]) => values.every(value => value === undefined)
+    || values.every(value => value !== undefined);
 const sourcePageMetadataSchema = v.message(v.pipe(
     v.object({
         pageNumber: pageNumberSchema,
         xPoints: safeFinite,
         yPoints: safeFinite,
-        widthPoints: v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER)),
-        heightPoints: v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER)),
+        widthPoints: positiveSafeFinite,
+        heightPoints: positiveSafeFinite,
         rotation: v.pipe(v.number(), v.check(rotation => SCAN_CLEANUP_PAGE_ROTATIONS.some(item => item === rotation))),
-        sourceDpi: v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER)),
+        sourceDpi: positiveSafeFinite,
+        userUnit: v.exactOptional(positiveSafeFinite),
+        mediaXPoints: v.exactOptional(safeFinite),
+        mediaYPoints: v.exactOptional(safeFinite),
+        mediaWidthPoints: v.exactOptional(positiveSafeFinite),
+        mediaHeightPoints: v.exactOptional(positiveSafeFinite),
+        cropXPoints: v.exactOptional(safeFinite),
+        cropYPoints: v.exactOptional(safeFinite),
+        cropWidthPoints: v.exactOptional(positiveSafeFinite),
+        cropHeightPoints: v.exactOptional(positiveSafeFinite),
         renderBox: v.exactOptional(v.picklist([
             'cropbox',
             'mediabox',
         ])),
-        dominantImageWidthPx: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
-        dominantImageHeightPx: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
-        dominantImageWidthPoints: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
-        dominantImageHeightPoints: v.exactOptional(v.pipe(finite, v.minValue(Number.MIN_VALUE), v.maxValue(Number.MAX_SAFE_INTEGER))),
+        dominantImageWidthPx: v.exactOptional(positiveSafeFinite),
+        dominantImageHeightPx: v.exactOptional(positiveSafeFinite),
+        dominantImageWidthPoints: v.exactOptional(positiveSafeFinite),
+        dominantImageHeightPoints: v.exactOptional(positiveSafeFinite),
     }),
-    v.check(metadata => {
-        const dimensions = [
-            metadata.dominantImageWidthPx,
-            metadata.dominantImageHeightPx,
-            metadata.dominantImageWidthPoints,
-            metadata.dominantImageHeightPoints,
-        ];
-        return metadata.xPoints >= 0 && metadata.yPoints >= 0
-            && (dimensions.every(value => value === undefined) || dimensions.every(value => value !== undefined));
-    }),
+    v.check(metadata => allOrNone([
+        metadata.dominantImageWidthPx,
+        metadata.dominantImageHeightPx,
+        metadata.dominantImageWidthPoints,
+        metadata.dominantImageHeightPoints,
+    ]) && allOrNone([
+        metadata.mediaXPoints,
+        metadata.mediaYPoints,
+        metadata.mediaWidthPoints,
+        metadata.mediaHeightPoints,
+    ]) && allOrNone([
+        metadata.cropXPoints,
+        metadata.cropYPoints,
+        metadata.cropWidthPoints,
+        metadata.cropHeightPoints,
+    ])),
 ), 'invalid scan-cleanup source page metadata');
 export const SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA = sourcePageMetadataSchema;
 export type IScanCleanupSourcePageMetadata = v.InferOutput<typeof sourcePageMetadataSchema>;
@@ -464,6 +484,8 @@ const previewRequestSchema = v.pipe(v.object({
     layoutByPage: v.exactOptional(layoutByPageSchema),
     layoutDetectionComplete: v.exactOptional(v.message(v.boolean(), 'invalid scan-cleanup preview request')),
     pagePlanEvidence: v.exactOptional(pagePlanEvidenceSchema),
+    /** The page view detection accepted with that plan, when it was not the CropBox. */
+    sourcePageMetadata: v.exactOptional(sourcePageMetadataSchema),
     placementAnchors: v.exactOptional(placementAnchorsSchema),
     detail: v.exactOptional(v.pipe(v.object({
         viewports: v.strictObject({
@@ -475,8 +497,9 @@ const previewRequestSchema = v.pipe(v.object({
     }), v.check(detail => Object.values(detail.viewports).some(viewport => viewport !== undefined),
         'invalid scan-cleanup detail preview request'))),
     visible: v.exactOptional(v.message(v.boolean(), 'invalid scan-cleanup preview request')),
-}), v.check(request => request.pagePlanEvidence === undefined
-    || request.pagePlanEvidence.pageNumber === request.pageNumber,
+}), v.check(request => (request.pagePlanEvidence === undefined
+    || request.pagePlanEvidence.pageNumber === request.pageNumber)
+    && (request.sourcePageMetadata === undefined || request.sourcePageMetadata.pageNumber === request.pageNumber),
 'invalid scan-cleanup page-plan evidence'));
 export const SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA = previewRequestSchema;
 const detectionRequestSchema = v.object({
@@ -547,6 +570,28 @@ export function decodeScanCleanupPageOverrides(value: unknown, budget = createSc
         consumeScanCleanupVertices(budget, vertices, 'manual-zone vertices');
     }
     return parsed;
+}
+
+/**
+ * Page-level override edits: a page's whole override, or null where the page
+ * returned to its inherited settings. The store merges them into its map, so
+ * two views of one document only ever write the pages they edited.
+ */
+export function decodeScanCleanupPageOverrideEdits(value: unknown, budget = createScanCleanupInputBudget()) {
+    const parsed = v.parse(v.pipe(
+        v.unknown(),
+        pageOverrideInputCaps,
+        v.record(pageKey, v.nullable(v.unknown())),
+        v.maxEntries(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES),
+    ), value, {abortEarly: true});
+    const overrides = decodeScanCleanupPageOverrides(Object.fromEntries(
+        Object.entries(parsed).filter(([
+            , override,
+        ]) => override !== null),
+    ), budget);
+    const edits: Record<string, (typeof overrides)[string] | null> = {};
+    for (const page of Object.keys(parsed)) edits[page] = overrides[page] ?? null;
+    return edits;
 }
 
 export type TScanCleanupOwnerContext = v.InferOutput<typeof ownerContextSchema>;

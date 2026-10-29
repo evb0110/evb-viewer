@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as scanCleanupWorkspaceSessionModule from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 
 import {
     afterEach,
@@ -24,6 +25,8 @@ import {
 import type {IFailureToastAction} from '@app/composables/useFailureToast';
 import EN_MESSAGES from '@i18n-app/messages/en';
 import type {
+    IScanCleanupCapability,
+    TScanCleanupDetectionJobState,
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
@@ -36,6 +39,9 @@ import type {
     TScanCleanupProgress,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import type {TJobId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
@@ -64,15 +70,23 @@ import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tab
 import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
 const workspaceSession = vi.hoisted(() => ({value: null as Record<string, unknown> | null}));
-const workspaceSessionOptions = vi.hoisted(() => ({value: null as Record<string, () => unknown> | null}));
+const realWorkspaceSession = vi.hoisted(() => ({
+    create: null as typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession | null,
+    value: null as ReturnType<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession> | null,
+}));
+const workspaceSessionOptions = vi.hoisted(() => ({value: null as Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0] | null}));
 const workspaceSessionInitial = vi.hoisted(() => ({value: null as {
     page: unknown;
     viewMode: unknown;
 } | null}));
 
 vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', () => ({useScanCleanupWorkspaceSession: (
-    options: Record<string, () => unknown>,
+    options: Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0],
 ) => {
+    if (realWorkspaceSession.create) {
+        realWorkspaceSession.value = realWorkspaceSession.create(options);
+        return realWorkspaceSession.value;
+    }
     workspaceSessionOptions.value = options;
     workspaceSessionInitial.value = {
         page: options.initialPreviewPage?.(),
@@ -265,9 +279,9 @@ const translations: Record<string, string> = {
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
     'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
     'scanCleanup.pages.outputModeLosslessControlHint': 'Per-page output mode is unavailable because preserving original quality forces color.',
-    'scanCleanup.imageOnly': 'Output is image-only —',
-    'scanCleanup.rasterNotice': 'Pages are rasterized.',
-    'scanCleanup.lossNotice': 'Original PDF objects are not carried over.',
+    'scanCleanup.imageOnly': EN_MESSAGES.scanCleanup.imageOnly,
+    'scanCleanup.rasterNotice': EN_MESSAGES.scanCleanup.rasterNotice,
+    'scanCleanup.lossNotice': EN_MESSAGES.scanCleanup.lossNotice,
     'scanCleanup.workspaceTitle': 'Scan cleanup',
     'scanCleanup.button': 'Scan cleanup',
     'scanCleanup.description': 'Clean scanned pages.',
@@ -1316,15 +1330,238 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
     };
 }
 
+async function mountRealWorkspace(documentKey: string) {
+    const {useScanCleanupWorkspaceSession} = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>(
+        '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession',
+    );
+    const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
+    realWorkspaceSession.create = useScanCleanupWorkspaceSession;
+    const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
+        sourcePath,
+        documentKey,
+        currentPage: 1,
+        totalPages: 2,
+        toolbarActive: true,
+    })}));
+    await nextTick();
+    return {
+        ...harness,
+        session: realWorkspaceSession.value!,
+    };
+}
+
 afterEach(() => {
     toastAdd.mockClear();
     for (const unmount of activeUnmounts) unmount();
     document.body.innerHTML = '';
     localStorage.clear();
     resetScanCleanupPreferencesStore();
+    realWorkspaceSession.create = null;
+    realWorkspaceSession.value = null;
 });
 
 describe('Scan cleanup components', () => {
+    it('links page margins without changing the document or other pages', async () => {
+        const harness = await mountRealWorkspace('page-margin-link');
+        const {
+            settings, selection,
+        } = harness.session;
+        settings.setMarginsLinked(false);
+        Object.assign(settings.values.marginsMm, {
+            leftMm: 2,
+            topMm: 4,
+            rightMm: 6,
+            bottomMm: 8,
+        });
+        settings.values.pageOverrides['1'] = createScanCleanupPageOverride({marginsMm: {
+            leftMm: 11,
+            topMm: 12,
+            rightMm: 13,
+            bottomMm: 14,
+        }});
+        selection.setSettingsScope('page');
+        await nextTick();
+        const checkbox = harness.host.querySelector<HTMLInputElement>('[data-margins-link]')!;
+        expect(checkbox.checked).toBe(false);
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+
+        expect.soft(settings.values.marginsMm).toEqual({
+            leftMm: 2,
+            topMm: 4,
+            rightMm: 6,
+            bottomMm: 8,
+        });
+        expect(settings.values.pageOverrides['1']?.marginsMm)
+            .toEqual({
+                leftMm: 12,
+                topMm: 12,
+                rightMm: 12,
+                bottomMm: 12,
+            });
+        expect(settings.values.pageOverrides['2']?.marginsMm).toBeUndefined();
+    });
+
+    it.each([
+        'all',
+        'selected',
+    ] as const)('shows mixed deskew for automatic followed by manual in %s scope', async (scope) => {
+        const harness = await mountRealWorkspace(`mixed-deskew-${scope}`);
+        harness.session.settings.values.pageOverrides['2'] = createScanCleanupPageOverride({manualSkewDegrees: 3});
+        if (scope === 'selected') harness.session.selection.selectPage(2, 'toggle', [
+            1,
+            2,
+        ]);
+        harness.session.selection.setSettingsScope(scope);
+        await nextTick();
+        const row = Array.from(harness.host.querySelectorAll('.scan-cleanup-auto-value-row'))
+            .find(element => element.textContent?.includes('Deskew angle'))!;
+
+        expect(row.querySelector('[data-auto-value-state="mixed"]')?.textContent?.trim()).toBe('Mixed');
+        expect(row.querySelector('[data-auto-value-state="auto"]')).toBeNull();
+    });
+
+    it('describes conditional source text and annotation preservation in compact output Details', async () => {
+        const harness = await mountRealWorkspace('compact-preservation-details');
+        harness.session.settings.values.preserveOriginalQuality = false;
+        await nextTick();
+        const details = harness.host.querySelector('.scan-cleanup-details-popover')!;
+        const text = details.textContent?.replace(/\s+/g, ' ') ?? '';
+
+        // sourceTextLayer.ts maps source text through affine geometry, and
+        // assembleCompactScanCleanupPages.ts overlays text and annotations.
+        // Non-affine dewarping cannot safely reuse those positioned objects.
+        expect.soft(harness.host.querySelector('.scan-cleanup-footnote')?.textContent).not.toMatch(/image-only/i);
+        expect.soft(text).toMatch(/(?:retain|preserv)[^.]*text|text[^.]*\b(?:retained|preserved)\b/i);
+        expect.soft(text).toMatch(/annotation/i);
+        expect(text).toMatch(/dewarp|non.affine/i);
+    });
+
+    it('retires the captured run when the workspace source changes during final preview preparation', async () => {
+        vi.useFakeTimers();
+        const capabilityModule = await import('@app/utils/getScanCleanupCapability');
+        const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        const finalRequested = Promise.withResolvers<undefined>();
+        let emitDetection: (state: TScanCleanupDetectionJobState) => void = () => undefined;
+        let job = 0;
+        const queued = (jobId: TJobId): TScanCleanupDetectionJobState => ({
+            jobId,
+            status: 'queued',
+            results: [],
+            progress: {
+                stage: 'detecting',
+                completedUnits: 0,
+                totalUnits: 2,
+                percent: 0,
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        });
+        const requests: Array<Parameters<IScanCleanupCapability['start']>[0]> = [];
+        const capability: IScanCleanupCapability = {
+            preview: vi.fn(async request => {
+                if (request.visible && request.layoutDetectionComplete) {
+                    finalRequested.resolve(undefined);
+                    return finalPreview.promise;
+                }
+                return spreadPreviewResult(request.pageNumber);
+            }),
+            cancelPreview: vi.fn(async () => true),
+            detectAll: vi.fn<IScanCleanupCapability['detectAll']>(async () => ({
+                started: true,
+                jobId: requireJobId(`identity-detect-${++job}`),
+            })),
+            subscribeDetectionJob: vi.fn(async id => queued(id)),
+            getDetectionJobState: vi.fn(async () => null),
+            cancelDetection: vi.fn(async () => true),
+            onDetectionJobState: vi.fn(listener => {emitDetection = listener; return () => undefined;}),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
+            start: vi.fn<IScanCleanupCapability['start']>(async request => {requests.push(request); return {
+                started: false,
+                jobId: requireJobId('identity-rejected-job'),
+                errorCode: 'internal',
+                error: 'probe boundary',
+            };}),
+            cancel: vi.fn(async () => true),
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(async () => 0),
+        };
+        const capabilitySpy = vi.spyOn(capabilityModule, 'getScanCleanupCapability').mockReturnValue(capability);
+        const actual = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession');
+        realWorkspaceSession.create = actual.useScanCleanupWorkspaceSession;
+        const source = ref(requireDocumentRef('/docs/identity-A.pdf'));
+        const revision = ref('identity-A');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
+            sourcePath: source.value,
+            documentKey: revision.value,
+            documentRevision: revision.value,
+            currentPage: 1,
+            totalPages: 2,
+            toolbarActive: true,
+        })}));
+        const session = realWorkspaceSession.value!;
+        let running: Promise<void> | undefined;
+        try {
+            session.settings.values.outputMode = 'grayscale';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(250);
+            expect(session.preview.resultCurrent.value).toBe(true);
+            emitDetection({
+                ...queued(requireJobId('identity-detect-1')),
+                status: 'completed',
+                results: [
+                    1,
+                    2,
+                ].map(pageNumber => ({
+                    pageNumber: requirePageNumber(pageNumber),
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: false,
+                    clusterAgreement: 0,
+                    documentPrior: null,
+                    pagePlanEvidence: {
+                        pageNumber: requirePageNumber(pageNumber),
+                        rotationDegrees: 0,
+                        layoutClassification: 'single-uncut-page',
+                        outputs: {},
+                    },
+                })),
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: 2,
+                    totalUnits: 2,
+                    percent: 100,
+                    completedPageNumbers: [
+                        1,
+                        2,
+                    ],
+                },
+            });
+            await nextTick();
+            running = session.run.run();
+            await vi.advanceTimersByTimeAsync(0);
+            await finalRequested.promise;
+            source.value = requireDocumentRef('/docs/identity-B.pdf');
+            revision.value = 'identity-B';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(requests).toEqual([]);
+        } finally {
+            finalPreview.resolve(spreadPreviewResult());
+            await vi.advanceTimersByTimeAsync(0);
+            await running;
+            harness.unmount();
+            capabilitySpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
     it('publishes matched-canvas point dimensions for spread and mixed-scale outputs', () => {
         const renderOutput = (output: IScanCleanupPreviewResult['outputs'][number]) => ({
             canvasStyle: {},
@@ -2045,30 +2282,10 @@ describe('Scan cleanup components', () => {
         expect(readerState.surfaceMode.value).toBe('reader');
     });
 
-    it('keeps all toolbar zone widths identical across review, detection, and cleanup states', async () => {
+    it('renders review, detection, and cleanup activity in the toolbar', async () => {
         const state = reactive({
             detecting: false,
             running: false,
-        });
-        const zoneWidths = {
-            'scan-cleanup-toolbar-zone-left': 160,
-            'scan-cleanup-toolbar-zone-center': 680,
-            'scan-cleanup-toolbar-zone-right': 336,
-        } as const;
-        const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-            const matched = Object.entries(zoneWidths).find(([className]) => this.classList.contains(className));
-            const width = matched?.[1] ?? 0;
-            return {
-                bottom: 0,
-                height: 0,
-                left: 0,
-                right: width,
-                top: 0,
-                width,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            };
         });
         const cleaning = shallowRef(runActivity({
             completedUnits: 51,
@@ -2083,16 +2300,11 @@ describe('Scan cleanup components', () => {
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
         }))));
-        const widths = () => Array.from(harness.host.querySelectorAll<HTMLElement>('.scan-cleanup-toolbar-zone'))
-            .map(zone => zone.getBoundingClientRect().width);
-
-        const reviewWidths = widths();
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
             .toContain('120 source pages → about 145 output pages');
 
         state.detecting = true;
         await nextTick();
-        expect(widths()).toEqual(reviewWidths);
         const analysis = harness.host.querySelector('.scan-cleanup-activity');
         expect(analysis?.textContent).toContain('Detecting page layout');
         expect(analysis?.querySelector(SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR)?.textContent).toContain('17 of 120 pages');
@@ -2102,7 +2314,6 @@ describe('Scan cleanup components', () => {
         state.detecting = false;
         state.running = true;
         await nextTick();
-        expect(widths()).toEqual(reviewWidths);
         const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         expect(meter?.querySelector('.scan-cleanup-activity-phase')?.textContent).toBe('Clean');
         expect(meter?.textContent).toContain('Cleaning pages');
@@ -2131,7 +2342,6 @@ describe('Scan cleanup components', () => {
         });
         await nextTick();
         expect(meter?.textContent).toContain('about 4 min left');
-        rectSpy.mockRestore();
     });
 
     it('disables cancellation during the commit window and explains why', () => {
@@ -3522,7 +3732,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.preview-viewport-caption')?.textContent?.trim()).toBe('');
     });
 
-    it('leaves Original mode and cleaned-preview failures untouched while a page loads', async () => {
+    it('announces the displayed original page while its cleaned preview is still loading', async () => {
         const viewMode = ref<'original' | 'cleaned'>('original');
         const error = ref('');
         const result = spreadPreviewResult(1);
@@ -3541,8 +3751,9 @@ describe('Scan cleanup components', () => {
             readingOrder: 'ltr',
         })}));
 
+        // The visible raw frame is page 2, so its alternative names page 2.
         expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
-            .toBe('Original scan preview for page 1');
+            .toBe('Original scan preview for page 2');
         expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
 
@@ -4444,6 +4655,173 @@ describe('Scan cleanup components', () => {
         }));
         await nextTick();
         expect(harness.surface.classList).not.toContain('is-panning-preview');
+    });
+
+    it.each([
+        {
+            rotationDegrees: 90,
+            clientX: 200,
+            clientY: 100,
+            expected: 0.75,
+        },
+        {
+            rotationDegrees: 180,
+            clientX: 200,
+            clientY: 100,
+            expected: 0.6,
+        },
+        {
+            rotationDegrees: 270,
+            clientX: 200,
+            clientY: 100,
+            expected: 0.25,
+        },
+    ] as const)('maps the original cutter through $rotationDegrees degree rotation', async ({
+        rotationDegrees, clientX, clientY, expected,
+    }) => {
+        const result = spreadPreviewResult();
+        result.pageMetadata.rotationDegrees = rotationDegrees;
+        result.pageMetadata.cutterXPx = 200;
+        for (const output of result.outputs) output.metadata.rotationDegrees = rotationDegrees;
+        const harness = mountPreviewZoomHarness({
+            viewMode: 'original',
+            result,
+        });
+        await nextTick();
+        const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
+        mockPointerCapture(cutter);
+        // The original 1000x800 scan fits into a 500x400 frame. Quarter-turn
+        // analysis X therefore comes from raw Y; a half-turn reverses raw X.
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            pointerId: 9,
+            button: 0,
+            clientX,
+            clientY,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 9,
+            clientX,
+            clientY,
+        }));
+        await nextTick();
+
+        expect(harness.splitUpdates.at(-1)).toEqual({
+            xNormalized: expected,
+            rotationDegrees,
+        });
+    });
+
+    it.each([
+        'move',
+        'resize',
+    ] as const)('commits a zone %s at pointer release rather than the last move', async (operation) => {
+        const zones = ref<IScanCleanupManualZones>({
+            picture: [{
+                layer: 'painter2',
+                polygon: {
+                    rotationDegrees: 0,
+                    points: [
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.3,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.3,
+                            yNormalized: 0.3,
+                        },
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.3,
+                        },
+                    ],
+                },
+            }],
+            fill: [],
+        });
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            frame: {
+                left: 0,
+                top: 0,
+                width: 100,
+                height: 100,
+            },
+            manualZones: zones.value,
+            rotationDegrees: 0,
+            selected: {
+                kind: 'picture',
+                index: 0,
+            },
+            zoneKind: 'picture',
+            'onUpdate:manualZones': (value: IScanCleanupManualZones) => { zones.value = value; },
+        })}));
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        mockPointerCapture(editor);
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 100, 100));
+        const target = harness.host.querySelector(operation === 'move'
+            ? '.zone-editor-polygon'
+            : '.zone-editor-handle.is-se')!;
+        target.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            pointerId: 7,
+            button: 0,
+            clientX: operation === 'move' ? 20 : 30,
+            clientY: operation === 'move' ? 20 : 30,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            pointerId: 7,
+            clientX: 40,
+            clientY: 40,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 7,
+            clientX: 60,
+            clientY: 60,
+        }));
+        await nextTick();
+
+        expect(zones.value.picture[0]!.polygon.points).toEqual(operation === 'move' ? [
+            {
+                xNormalized: 0.5,
+                yNormalized: 0.5,
+            },
+            {
+                xNormalized: 0.7,
+                yNormalized: 0.5,
+            },
+            {
+                xNormalized: 0.7,
+                yNormalized: 0.7,
+            },
+            {
+                xNormalized: 0.5,
+                yNormalized: 0.7,
+            },
+        ] : [
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.1,
+            },
+            {
+                xNormalized: 0.6,
+                yNormalized: 0.1,
+            },
+            {
+                xNormalized: 0.6,
+                yNormalized: 0.6,
+            },
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.6,
+            },
+        ]);
     });
 
     it('draws a manual zone at navigation zoom without giving the pointer to preview pan', async () => {

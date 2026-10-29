@@ -1,3 +1,16 @@
+import {spawnSync} from 'node:child_process';
+import {
+    mkdtemp, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {omit} from 'es-toolkit';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {
+    createScanCleanupDetectionCacheKey, writeScanCleanupDetectionCacheStore,
+} from '@scripts/scanCleanupDetectionCache';
 import {
     describe,
     expect,
@@ -5,6 +18,7 @@ import {
 } from 'vitest';
 import {
     compareMetrics,
+    loadDetection,
     independentReaderScale,
     independentReaderWrongCalibrationOffset,
     measureOverlayContainment,
@@ -50,6 +64,15 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
 }
 
 describe('scan cleanup preview weight agreement', () => {
+    it('states the native replay scope in the diagnostic CLI', () => {
+        const result = spawnSync(process.execPath, [
+            'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
+            '--help',
+        ], {encoding: 'utf8'});
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('does not certify desktop preview parity');
+    });
+
     it('counts an ink pixel whose cell intersects a subpixel overlay edge', () => {
         const bitmap = {
             data: (() => {
@@ -122,6 +145,46 @@ describe('scan cleanup preview weight agreement', () => {
         expect(comparison.weightDeviation).toBeLessThanOrEqual(0.15);
     });
 
+    it('rejects uniform threefold thickening on the same raster grid', () => {
+        const original = weightUniformity(textBitmap([
+            4,
+            4,
+            4,
+            4,
+        ]));
+        const thickened = weightUniformity(textBitmap([
+            12,
+            12,
+            12,
+            12,
+        ]));
+        expect(weightAgreementViolations(compareMetrics(original, original))).toEqual([]);
+        expect(weightAgreementViolations(compareMetrics(original, thickened)))
+            .toEqual(['preview-final-weight-agreement']);
+    });
+
+    it('compares a final raster rendered at twice the preview resolution on the preview grid', () => {
+        const preview = weightUniformity(textBitmap([
+            4,
+            4,
+            4,
+            4,
+        ]));
+        const finerFinal = weightUniformity(textBitmap([
+            8,
+            8,
+            8,
+            8,
+        ]));
+        expect(weightAgreementViolations(compareMetrics(preview, finerFinal, 0.5))).toEqual([]);
+        expect(weightAgreementViolations(compareMetrics(preview, weightUniformity(textBitmap([
+            12,
+            12,
+            12,
+            12,
+        ])), 0.5))).toEqual(['preview-final-weight-agreement']);
+    });
+
     it('rejects a real two-word weight divergence', () => {
         const preview = weightUniformity(textBitmap([
             4,
@@ -147,5 +210,67 @@ describe('scan cleanup preview weight agreement', () => {
         });
         expect(comparison.weightDeviation).toBeGreaterThan(0.15);
         expect(weightAgreementViolations(comparison)).toEqual(['preview-final-weight-agreement']);
+    });
+});
+
+
+describe('preview oracle detection cache', () => {
+    it('reads selected pages from a valid 1025-page descriptor and rejects a missing cache', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'preview-cache-'));
+        const source = join(root, 'source.pdf');
+        const options = {
+            ...omit(DEFAULT_SCAN_CLEANUP_PREFERENCES, ['firstRunGuidanceDismissed']),
+            outputMode: 'auto' as const,
+            pageOverrides: {},
+        };
+        const tools = {
+            pdftoppm: process.execPath,
+            scanCleanup: process.execPath,
+        };
+        await writeFile(source, 'source identity');
+        const key = await createScanCleanupDetectionCacheKey(source, options, {
+            pdftoppmBinaryPath: tools.pdftoppm,
+            scanCleanupBinaryPath: tools.scanCleanup,
+        });
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            rootDir: root,
+            pageCount: 1025,
+        });
+        try {
+            for (let page = 1; page <= 1025; page++) {
+                await store.append({
+                    pageNumber: requirePageNumber(page),
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    documentPrior: null,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: true,
+                    clusterAgreement: 1,
+                });
+            }
+            await writeScanCleanupDetectionCacheStore(join(root, 'cache'), key, store);
+            const detection = await loadDetection({
+                source,
+                detectionCache: join(root, 'cache'),
+            }, tools);
+            try {
+                expect(detection.resultStore.pageCount).toBe(1025);
+                expect((await detection.resultStore.getPage(1025))?.pageNumber).toBe(1025);
+                expect(detection).not.toHaveProperty('results');
+            } finally {
+                await detection.resultStore.close();
+            }
+            await expect(loadDetection({
+                source,
+                detectionCache: join(root, 'missing'),
+            }, tools)).rejects.toThrow();
+        } finally {
+            await store.close();
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });

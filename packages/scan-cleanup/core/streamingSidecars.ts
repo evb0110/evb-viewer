@@ -198,6 +198,8 @@ export interface IScanCleanupSourceTextSink {
     outputPageOffset: number;
     pages: IScanCleanupTextLayerInstruction[];
     skippedNonAffine: number[];
+    /** Set by a multi-batch run, whose merged batches carry no stamp of their own. */
+    provenanceStampHex?: string;
 }
 
 export function collectSourceText(sink: IScanCleanupSourceTextSink, plan: IScanCleanupTextLayerPlan) {

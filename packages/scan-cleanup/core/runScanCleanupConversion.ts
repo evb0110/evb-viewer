@@ -5,6 +5,7 @@ import {
     access,
     copyFile,
     link,
+    mkdtemp,
     open,
     readFile,
     rename,
@@ -102,6 +103,8 @@ import {
     encodeScanCleanupProvenanceStampHex,
     materializeScanCleanupStampOptions,
     sha256ScanCleanupFile,
+    type IBuildScanCleanupProvenanceStampInput,
+    type TScanCleanupProvenanceStamp,
 } from '@evb/scan-cleanup/core/provenanceStamp';
 import {
     PDF_PAGE_SIZE_STORE_MAX_READ_PAGES,
@@ -135,10 +138,13 @@ import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResol
 import {
     assertScanCleanupCompactSourceBudget,
     resolveScanCleanupCompactSourceBudget,
+    resolveSourceMrcLayerRejection,
+    resolveSourceMrcReuseRejection,
     shouldExtractTrustedMrcForeground,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 import {
     readPbmDimensions,
+    readPgmDimensions,
     readPngDimensions,
     readPpmDimensions,
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
@@ -648,90 +654,6 @@ function validatePdfImagePlacement(
     return values;
 }
 
-const SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS = 0.001;
-
-function resolveSourceMrcReuseRejection(
-    page: IPdfPageSize,
-    detectedRaster: IDetectedPageRaster | undefined,
-): string | undefined {
-    const samePoints = (left: number | undefined, right: number | undefined) =>
-        left !== undefined
-        && right !== undefined
-        && Number.isFinite(left)
-        && Number.isFinite(right)
-        && Math.abs(left - right) <= SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS;
-    const hasMediaGeometry = page.mediaXPoints !== undefined
-        && page.mediaYPoints !== undefined
-        && page.mediaWidthPoints !== undefined
-        && page.mediaHeightPoints !== undefined;
-    const hasCropGeometry = page.cropXPoints !== undefined
-        && page.cropYPoints !== undefined
-        && page.cropWidthPoints !== undefined
-        && page.cropHeightPoints !== undefined;
-    if (page.rotation % 360 !== 0) {
-        return 'source page rotation is not zero';
-    }
-    if (page.xPoints !== 0 || page.yPoints !== 0) {
-        return 'source page origin is not zero';
-    }
-    if (!hasMediaGeometry || !samePoints(page.mediaXPoints, 0) || !samePoints(page.mediaYPoints, 0)) {
-        return 'source MediaBox geometry is unavailable or offset';
-    }
-    if (
-        !samePoints(page.mediaWidthPoints, page.widthPoints)
-        || !samePoints(page.mediaHeightPoints, page.heightPoints)
-    ) {
-        return 'source MediaBox does not match the displayed page';
-    }
-    if (hasCropGeometry && (
-        !samePoints(page.cropXPoints, page.xPoints)
-        || !samePoints(page.cropYPoints, page.yPoints)
-        || !samePoints(page.cropWidthPoints, page.widthPoints)
-        || !samePoints(page.cropHeightPoints, page.heightPoints)
-    )) {
-        return 'source CropBox does not match the displayed page';
-    }
-    if (
-        detectedRaster?.width === undefined
-        || detectedRaster.height === undefined
-        || detectedRaster.width <= 0
-        || detectedRaster.height <= 0
-        || detectedRaster.dpi <= 0
-        || !samePoints(detectedRaster.width / detectedRaster.dpi * 72, page.widthPoints)
-        || !samePoints(detectedRaster.height / detectedRaster.dpi * 72, page.heightPoints)
-    ) {
-        return 'dominant source image placement is not proven';
-    }
-    if (
-        !samePoints(page.dominantImageWidthPoints, page.widthPoints)
-        || !samePoints(page.dominantImageHeightPoints, page.heightPoints)
-        || page.dominantImageWidthPx === undefined
-        || page.dominantImageHeightPx === undefined
-        || page.dominantImageWidthPx <= 0
-        || page.dominantImageHeightPx <= 0
-    ) {
-        return 'dominant source image placement is not proven';
-    }
-    return undefined;
-}
-
-function resolveSourceMrcLayerRejection(
-    page: IPdfPageSize,
-    layers: IPdfMrcLayers,
-): string | undefined {
-    const widthPoints = layers.foregroundWidth / layers.foregroundDpi * 72;
-    const heightPoints = layers.foregroundHeight / layers.foregroundDpi * 72;
-    if (
-        !Number.isFinite(widthPoints)
-        || !Number.isFinite(heightPoints)
-        || Math.abs(widthPoints - page.widthPoints) > SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS
-        || Math.abs(heightPoints - page.heightPoints) > SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS
-    ) {
-        return 'extracted foreground dimensions do not match the displayed page';
-    }
-    return undefined;
-}
-
 type TResolvedPagePlan = ReturnType<ReturnType<typeof createPagePlanResolver>['resolve']>;
 
 function buildConversionPageMetadata({
@@ -856,14 +778,18 @@ export async function validateScanCleanupStreamingReport(
         const report: unknown = JSON.parse(await readFile(reportPath, 'utf8'));
         if (
             !isRecord(report)
-            || report.outputMappingsSidecarPath !== sidecarPath
-            || report.pagesSidecarPath !== sidecarPath
+            || typeof report.outputMappingsSidecarPath !== 'string'
+            || typeof report.pagesSidecarPath !== 'string'
         ) {
-            throw new Error('representation report does not point to its batch-summary sidecar');
+            throw new Error('representation report does not name its record sidecars');
         }
-        const sidecar = await stat(sidecarPath);
-        if (sidecar.size <= 0) {
-            throw new Error('representation report sidecar is empty');
+        for (const recordSidecarPath of [
+            report.outputMappingsSidecarPath,
+            report.pagesSidecarPath,
+        ]) {
+            if ((await stat(recordSidecarPath)).size <= 0) {
+                throw new Error('representation report sidecar is empty');
+            }
         }
         // Read the sidecar again at the publication boundary. The first
         // validation protects assembly, while this second read detects a
@@ -1013,6 +939,40 @@ function buildBoundedDetectionRequestFields(
     };
 }
 
+/** A child's evidence file, or null when the child wrote none (an empty child may not). */
+async function readChildJson<T>(path: string): Promise<T | null> {
+    try {
+        return JSON.parse(await readFile(path, 'utf8')) as T;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return null;
+        throw error;
+    }
+}
+
+function offsetOutputOrdinal(mapping: IScanCleanupOutputMapping, offset: number): IScanCleanupOutputMapping {
+    return mapping.outputOrdinal === null
+        ? mapping
+        : {
+            ...mapping,
+            outputOrdinal: mapping.outputOrdinal + offset,
+        };
+}
+
+/** A request that carries one batch's decisions in place of the store they came from. */
+function withBoundedDetectionFields(
+    request: IRunScanCleanupPipelineRequest,
+    fields: TScanCleanupBoundedDetectionRequestFields,
+): IRunScanCleanupPipelineRequest {
+    const {
+        detectionResultStore: _detectionResultStore,
+        ...requestWithoutStore
+    } = request;
+    return {
+        ...requestWithoutStore,
+        ...fields,
+    };
+}
+
 /**
  * Run the final renderer one native window at a time. Each child conversion
  * retains the existing page-plan and assembly behavior, but its explicit page
@@ -1144,10 +1104,23 @@ async function runStreamingScanCleanupConversion({
     }
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
+    const outputMappingsPath = join(scratch, 'scan-cleanup-output-mappings.jsonl');
+    const outputPagesPath = join(scratch, 'scan-cleanup-output-pages.jsonl');
     const outputHandle = await open(batchOutputsPath, 'w');
     const summaryHandle = await open(batchSummariesPath, 'w');
+    const mappingHandle = await open(outputMappingsPath, 'w');
+    const pageHandle = await open(outputPagesPath, 'w');
     const completedPageNumbers = new Set<number>();
+    // The run's own provenance, gathered from each child's stamp with its
+    // output ordinals moved past the children before it.
+    const runStamp = {
+        effectiveOptions: [] as IBuildScanCleanupProvenanceStampInput['effectiveOptions'][number][],
+        outputMappings: [] as IScanCleanupOutputMapping[],
+        pagePlanDigests: [] as IBuildScanCleanupProvenanceStampInput['pagePlanDigests'][number][],
+        backends: null as null | Pick<TScanCleanupProvenanceStamp['buildIds'], 'assemblerBackend' | 'transportMode'>,
+    };
     let batchCount = 0;
+    let outputBatchCount = 0;
     try {
         for (const batch of iterateScanCleanupPageBatches(
             pageCount,
@@ -1165,26 +1138,25 @@ async function runStreamingScanCleanupConversion({
                 );
             const batchOutputPath = join(scratch, `scan-cleanup-batch-${String(batch.batchIndex)}.pdf`);
             const {
-                detectionResultStore: _detectionResultStore,
-                documentPriorByPage: _documentPriorByPage,
-                layoutByPage: _layoutByPage,
-                outputModeRecommendations: _outputModeRecommendations,
-                pagePlanEvidenceByPage: _pagePlanEvidenceByPage,
-                placementAnchorsByPage: _placementAnchorsByPage,
                 sourcePageRange: _sourcePageRange,
-                softAlphaForegroundRecommendations: _softAlphaForegroundRecommendations,
-                sourcePageMetadataByPage: _sourcePageMetadataByPage,
                 ...requestWithoutPageRange
-            } = request;
+            } = withBoundedDetectionFields(
+                request,
+                buildBoundedDetectionRequestFields(request, batchDetectionResults, batchPageNumbers),
+            );
             const childRequest: IRunScanCleanupPipelineRequest = {
                 ...requestWithoutPageRange,
                 outputPdfPath: batchOutputPath,
                 sourcePageNumbers: batchPageNumbers,
                 options,
                 provenance,
-                ...buildBoundedDetectionRequestFields(request, batchDetectionResults, batchPageNumbers),
             };
             sourceText.outputPageOffset = summary.outputPages;
+            // Each child owns a scratch directory of its own, so its source
+            // and cleaned rasters go once its PDF and evidence are taken,
+            // instead of every child's staying until the whole run ends.
+            const childScratch = await mkdtemp(join(scratch, `batch-${String(batch.batchIndex)}-`));
+            let childRecoveryPending = false;
             const childSummary = await executeScanCleanupBatch({
                 request: childRequest,
                 paths,
@@ -1196,14 +1168,18 @@ async function runStreamingScanCleanupConversion({
                 documentPageCount,
                 preparedPdfPath,
                 stagedPdfPath: batchOutputPath,
-                scratch,
+                scratch: childScratch,
+                streamingChild: true,
                 summary: createEmptyScanCleanupSummary(batchPageNumbers.length, []),
                 pageSizeStore,
                 dpiDetails: dpiDetails,
                 documentCanvas,
                 options,
                 sourceText,
-                onRecoveryPending,
+                onRecoveryPending: recovery => {
+                    childRecoveryPending = true;
+                    return onRecoveryPending(recovery);
+                },
                 emitProgress: (_stage, _completedUnits, _totalUnits, completedPages) => {
                     if (completedPages !== undefined) {
                         for (const pageNumber of completedPages) completedPageNumbers.add(pageNumber);
@@ -1218,10 +1194,54 @@ async function runStreamingScanCleanupConversion({
             });
             for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
             emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers);
-            await appendJsonLine(outputHandle, {
-                path: batchOutputPath,
-                pageCount: childSummary.outputPages,
-            });
+            // An empty child, every page excluded or blank, accounts for its
+            // pages and contributes no PDF to the merge.
+            if (childSummary.outputPages > 0) {
+                await appendJsonLine(outputHandle, {
+                    path: batchOutputPath,
+                    pageCount: childSummary.outputPages,
+                });
+                outputBatchCount += 1;
+            }
+            const ordinalOffset = summary.outputPages;
+            const childReport = await readChildJson<IScanCleanupRepresentationReport>(
+                join(childScratch, 'scan-cleanup-representation-report.json'),
+            );
+            const childStamp = await readChildJson<TScanCleanupProvenanceStamp>(
+                join(childScratch, 'scan-cleanup-provenance-stamp.json'),
+            );
+            // Only an empty child may leave either out: pages without their
+            // mappings or provenance would publish unaccounted output.
+            if (childSummary.outputPages > 0 && (childReport === null || childStamp === null)) {
+                throw new ScanCleanupContractError(
+                    `Scan cleanup batch ${String(batch.batchIndex)} produced pages without its representation report or provenance stamp`,
+                );
+            }
+            for (const mapping of childReport?.outputMappings ?? []) {
+                await appendJsonLine(mappingHandle, offsetOutputOrdinal(mapping, ordinalOffset));
+            }
+            for (const page of childReport?.pages ?? []) {
+                await appendJsonLine(pageHandle, {
+                    ...page,
+                    outputPageNumber: page.outputPageNumber + ordinalOffset,
+                    outputOrdinal: page.outputOrdinal + ordinalOffset,
+                });
+            }
+            if (childStamp !== null) {
+                runStamp.effectiveOptions.push(...childStamp.effectiveOptions.perSourcePage);
+                runStamp.pagePlanDigests.push(...childStamp.pagePlanDigests);
+                runStamp.outputMappings.push(...childStamp.outputMappings.map(mapping => offsetOutputOrdinal(mapping, ordinalOffset)));
+                runStamp.backends ??= {
+                    assemblerBackend: childStamp.buildIds.assemblerBackend,
+                    transportMode: childStamp.buildIds.transportMode,
+                };
+            }
+            if (!childRecoveryPending) {
+                await rm(childScratch, {
+                    recursive: true,
+                    force: true,
+                });
+            }
             await appendJsonLine(summaryHandle, {
                 batchIndex: batch.batchIndex,
                 firstPageNumber: batchPageNumbers[0],
@@ -1238,18 +1258,42 @@ async function runStreamingScanCleanupConversion({
             summary.excludedPages += childSummary.excludedPages;
             summary.blankPagesSkipped += childSummary.blankPagesSkipped;
             summary.accessibilityTagsRemoved ||= childSummary.accessibilityTagsRemoved;
-            // Page-level warning lists are intentionally owned by each child
-            // evidence file. Keep the coordinator summary bounded and retain
-            // only the initial run warnings here.
+            // The caller reads one summary whatever the document size, so a
+            // child's conditions reach it as a one-batch run's do.
+            summary.warnings.push(...childSummary.warnings);
+            summary.warningEvents?.push(...(childSummary.warningEvents ?? []));
             log(
                 'debug',
                 `Scan cleanup completed bounded output batch ${String(batch.batchIndex)} `
                 + `(${String(childSummary.outputPages)} output page(s))`,
             );
         }
+        await Promise.all([
+            mappingHandle.close(),
+            pageHandle.close(),
+        ]);
         if (batchCount === 0 || summary.outputPages === 0) {
             throw new ScanCleanupContractError('evb-scan-cleanup produced no output pages');
         }
+        // One stamp for the whole document, which the final overlay records
+        // after the merge: a merged batch PDF keeps neither batch's own.
+        const stamp = buildScanCleanupProvenanceStamp({
+            sourceSha256: provenance.sourceSha256,
+            effectiveOptions: runStamp.effectiveOptions,
+            outputMappings: runStamp.outputMappings,
+            pagePlanDigests: runStamp.pagePlanDigests,
+            buildIds: await buildScanCleanupStampBuildIds({
+                paths,
+                assemblerBackend: runStamp.backends?.assemblerBackend ?? 'native-pdf-image-combine',
+                transportMode: runStamp.backends?.transportMode ?? 'file-ppm',
+                ...(dependencies.hashNativeBinary === undefined
+                    ? {}
+                    : {hashNativeBinary: dependencies.hashNativeBinary}),
+                reusableNativeBinarySha256s: provenance.nativeBinarySha256s,
+            }),
+        });
+        await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
+        sourceText.provenanceStampHex = encodeScanCleanupProvenanceStampHex(stamp);
         await validateScanCleanupBatchSummarySidecar(
             batchSummariesPath,
             batchCount,
@@ -1259,7 +1303,7 @@ async function runStreamingScanCleanupConversion({
         emitProgress('assembling', 0, summary.outputPages, []);
         await mergeScanCleanupPdfPathSidecar({
             inputPath: batchOutputsPath,
-            inputCount: batchCount,
+            inputCount: outputBatchCount,
             scratch,
             stagedPdfPath,
             qpdfBinary: paths.qpdfBinary,
@@ -1301,9 +1345,9 @@ async function runStreamingScanCleanupConversion({
                 ? {}
                 : {compactLayeredPageCount: dpiDetails.compactLayeredPageCount}),
         });
-        // The detailed per-page report lives in the bounded batch summaries.
-        // The top-level report remains a small descriptor, so diagnostics can
-        // choose to consume the sidecar without forcing a whole-document parse.
+        // Mappings and page records stream to their own sidecars, one record a
+        // line. The top-level report remains a small descriptor, so diagnostics
+        // can read them without a whole-document parse.
         const representationReport: IScanCleanupRepresentationReport = {
             schemaVersion: 1,
             sourceBytes: sourceFile.size,
@@ -1312,8 +1356,8 @@ async function runStreamingScanCleanupConversion({
             compactSourceBudget,
             outputMappings: [],
             pages: [],
-            outputMappingsSidecarPath: batchSummariesPath,
-            pagesSidecarPath: batchSummariesPath,
+            outputMappingsSidecarPath: outputMappingsPath,
+            pagesSidecarPath: outputPagesPath,
         };
         const representationReportPath = join(scratch, 'scan-cleanup-representation-report.json');
         await writeFile(
@@ -1340,6 +1384,8 @@ async function runStreamingScanCleanupConversion({
         await Promise.all([
             outputHandle.close(),
             summaryHandle.close(),
+            mappingHandle.close().catch(() => undefined),
+            pageHandle.close().catch(() => undefined),
             pageSizeStore.close(),
         ]);
     }
@@ -1443,9 +1489,19 @@ export async function runScanCleanupConversion(
         // carries none is still worth cleaning: the run drops matching, names
         // why in the summary, and cleans every page at its own size, which is
         // what it already answers when geometry yields no canvas.
+        // A detection store is the decision owner at every document size. A
+        // document small enough for one batch materializes its bounded maps
+        // from it once, exactly as each streaming child does for its batch.
+        const smallStoreFields = !largeStreamingRun && request.detectionResultStore !== undefined
+            ? await (async (store, documentPages) => buildBoundedDetectionRequestFields(
+                request,
+                await readDetectionResultsForPageNumbers(store, documentPages, signal),
+                documentPages,
+            ))(request.detectionResultStore, Array.from({length: documentPageCount}, (_, index) => index + 1))
+            : null;
         const suppliedMetadata = request.detectionResultStore === undefined
             ? request.sourcePageMetadataByPage
-            : undefined;
+            : smallStoreFields?.sourcePageMetadataByPage;
         let suppliedMetadataComplete = suppliedMetadata !== undefined;
         if (suppliedMetadataComplete) {
             for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
@@ -1690,7 +1746,6 @@ export async function runScanCleanupConversion(
             )
             : null;
         const resampledPages = request.options.preserveOriginalQuality === true
-            && !largeStreamingRun
             ? await resolveMatchedCanvasResamplePagesFromStore({
                 pageSizeStore,
                 documentPageCount,
@@ -1707,12 +1762,6 @@ export async function runScanCleanupConversion(
                 code: 'matched-canvas-pages-resampled',
                 pages: resampledPages.map(pageNumber => requirePageNumber(pageNumber)),
             });
-        }
-        if (largeStreamingRun) {
-            // The parent run is a coordinator only. Each bounded child keeps
-            // the requested quality path, while the parent itself must not
-            // enter the legacy document-sized lossless planner.
-            losslessRun = false;
         }
         // The rectangle the preview presented, on the finest resolution the
         // *document* is rendered at, so it has one output DPI and no page is
@@ -1748,7 +1797,10 @@ export async function runScanCleanupConversion(
         }
         const options = {
             ...request.options,
-            preserveOriginalQuality: largeStreamingRun ? request.options.preserveOriginalQuality : losslessRun,
+            // One quality decision at every document size: the streaming parent
+            // is a coordinator that never enters a planner itself, and each
+            // bounded child runs the path this run decided.
+            preserveOriginalQuality: losslessRun,
             matchPageSize: documentCanvas !== null && request.options.matchPageSize,
         };
         if (request.options.matchPageSize && !options.matchPageSize) {
@@ -1801,7 +1853,7 @@ export async function runScanCleanupConversion(
             });
         } else {
             await executeScanCleanupBatch({
-                request,
+                request: smallStoreFields === null ? request : withBoundedDetectionFields(request, smallStoreFields),
                 paths,
                 signal,
                 policy,
@@ -1825,7 +1877,7 @@ export async function runScanCleanupConversion(
         // One overlay over the merged output: a link may name another batch's page.
         const overlaid = await overlayScanCleanupTextLayerAndMeasure(
             sourceText.pages, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
-            retainScratchUntilRecovery,
+            retainScratchUntilRecovery, sourceText.provenanceStampHex,
         );
         summary.sourceTextOmission = await inspectSkippedScanCleanupSourceText({
             skippedNonAffine: sourceText.skippedNonAffine,
@@ -1894,6 +1946,11 @@ interface IScanCleanupBatchExecution {
     options: IRunScanCleanupPipelineRequest['options'];
     onRecoveryPending: (recovery: Promise<boolean>) => Promise<void>;
     sourceText: IScanCleanupSourceTextSink;
+    /**
+     * One batch of a multi-batch run: it may produce no pages, as long as the
+     * run produces some, and its navigation is rebuilt by the run's overlay.
+     */
+    streamingChild?: boolean;
 }
 
 // Executes an admitted page batch in the job's scratch. The caller owns geometry,
@@ -1902,6 +1959,7 @@ async function executeScanCleanupBatch({
     request, paths, signal, policy, log, dependencies, emitProgress, pageNumbers,
     documentPageCount, preparedPdfPath, stagedPdfPath, scratch, summary,
     pageSizeStore, dpiDetails, documentCanvas, options, onRecoveryPending, sourceText,
+    streamingChild = false,
 }: IScanCleanupBatchExecution): Promise<TScanCleanupSummary> {
     const pageCount = pageNumbers.length;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
@@ -1919,8 +1977,10 @@ async function executeScanCleanupBatch({
             dependencies, {
                 documentCanvas,
                 onRecoveryPending,
+                ...(streamingChild ? {streamingChildSourceText: sourceText} : {}),
             }, summary,
         );
+        if (streamingChild && summary.outputPages === 0) return summary;
         if ((await stat(stagedPdfPath)).size <= 0) {
             throw new ScanCleanupContractError('Lossless PDF assembler produced an empty file');
         }
@@ -2629,7 +2689,7 @@ async function executeScanCleanupBatch({
                         readPpmDimensions(candidateBackgroundPath),
                         foregroundAlphaPath === undefined
                             ? readPbmDimensions(foregroundMaskPath!)
-                            : readPpmDimensions(foregroundAlphaPath),
+                            : readPgmDimensions(foregroundAlphaPath),
                     ]);
                     const renderDpi = metadata.renderDpi
                     ?? pageDpi.get(pageNumber)
@@ -2826,7 +2886,7 @@ async function executeScanCleanupBatch({
         }}, report);
     }
     summary.outputPages = outputPages.length;
-    if (outputPages.length === 0) {
+    if (outputPages.length === 0 && !streamingChild) {
         throw new ScanCleanupContractError('evb-scan-cleanup produced no output pages');
     }
     const combineManifestPages = outputPages.map(output => {
@@ -2997,6 +3057,15 @@ async function executeScanCleanupBatch({
     });
     const provenanceStampHex = encodeScanCleanupProvenanceStampHex(stamp);
     await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
+    if (outputPages.length === 0) {
+        // An empty batch of a multi-batch run still accounts for its pages in
+        // the run's stamp and mappings; it has no PDF to assemble.
+        await writeFile(join(scratch, 'scan-cleanup-representation-report.json'), JSON.stringify({
+            outputMappings,
+            pages: [],
+        }));
+        return summary;
+    }
     const combineManifest = buildScanCleanupCompactManifest(
         combineManifestPages,
         provenanceStampHex,

@@ -58,7 +58,11 @@ import {
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {ScanCleanupNativeToolUnavailableError} from '@evb/scan-cleanup/core/errors';
+import {
+    SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE,
+    SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE,
+    ScanCleanupNativeToolUnavailableError,
+} from '@evb/scan-cleanup/core/errors';
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {
     classifyScanCleanupPreviewError as classifyPreviewError,
@@ -609,7 +613,10 @@ export function createScanCleanupService(
                         previous.jobId,
                         ownerActor(sender, previous.request),
                     ));
+                    // A job whose cancel was accepted is retiring: it stays
+                    // owned until it settles, but a new start never joins it.
                     if (previousState && ![
+                        'canceling',
                         'completed',
                         'failed',
                         'canceled',
@@ -911,6 +918,17 @@ export function createScanCleanupService(
                                 retainRunArtifacts = true;
                                 quarantineWorkingCopy(request.sourcePdfPath, unprovenTermination);
                             }
+                            // Core keeps an invalid staged PDF in the scratch it
+                            // was given and names it in the error; this service
+                            // owns that scratch, so it keeps it too.
+                            const errorCode = (error as {code?: unknown} | null)?.code;
+                            if (
+                                errorCode === SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE
+                                || errorCode === SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE
+                            ) {
+                                retainRunArtifacts = true;
+                                scanCleanupJobLogger.warn(`Retaining invalid scan-cleanup output for diagnostics: ${scratchPath}`);
+                            }
                             if (!retainRunArtifacts) {
                                 await rm(dirname(outputPdfPath), {
                                     recursive: true,
@@ -918,7 +936,7 @@ export function createScanCleanupService(
                                 }).catch(() => undefined);
                             } else {
                                 scanCleanupJobLogger.warn(
-                                    `Retaining scan-cleanup output artifacts until the native sidecar is reaped: ${dirname(outputPdfPath)}`,
+                                    `Retaining scan-cleanup output artifacts: ${dirname(outputPdfPath)}`,
                                 );
                             }
                             throw error;

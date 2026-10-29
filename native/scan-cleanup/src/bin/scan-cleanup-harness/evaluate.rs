@@ -72,6 +72,8 @@ pub struct MetricReport {
     pub despeckle: DespeckleMetrics,
     pub binarization: BinarizationMetrics,
     #[serde(default)]
+    pub composed: Vec<ComposedPageMetrics>,
+    #[serde(default)]
     pub dewarp: DewarpMetrics,
 }
 
@@ -303,6 +305,7 @@ pub fn evaluate_corpus(
     let mut despeckle = DespeckleAccumulator::default();
     let mut binarization = BinarizationAccumulator::default();
     let mut timings = Vec::with_capacity(entries.len());
+    let mut composed = Vec::new();
 
     for (index, entry) in entries.iter().enumerate() {
         let start = Instant::now();
@@ -314,6 +317,13 @@ pub fn evaluate_corpus(
             wall_time_ms: start.elapsed().as_secs_f64() * 1_000.0,
         });
 
+        if entry.truth.content_mask.is_some() {
+            let pixels = composed_source_pixels(entry, &rendered)?;
+            composed.push(ComposedPageMetrics {
+                id: entry.id.clone(),
+                metrics: evaluate_composed_pixels(entry, &pixels),
+            });
+        }
         evaluate_split(entry, &rendered, &mut split);
         if let Some(output) = rendered.outputs.first() {
             evaluate_deskew(entry, output, &mut deskew);
@@ -331,13 +341,43 @@ pub fn evaluate_corpus(
     let despeckle_metrics = finish_despeckle(despeckle);
     let binarization_metrics = finish_binarization(binarization);
     let (dewarp_metrics, auto_dewarp_timing) = evaluate_dewarp(entries);
-    let catastrophes = catastrophe_map(
+    let mut catastrophes = catastrophe_map(
         &split_metrics,
         &deskew_metrics,
         &content_metrics,
         &despeckle_metrics,
         &binarization_metrics,
         &dewarp_metrics,
+    );
+    catastrophes.insert(
+        "composed".into(),
+        BTreeMap::from([
+            (
+                "erasedPages".into(),
+                composed
+                    .iter()
+                    .map(|page| page.metrics.despeckle.erased_pages as u64)
+                    .sum(),
+            ),
+            (
+                "lostPunctuationMarkers".into(),
+                composed
+                    .iter()
+                    .map(|page| {
+                        (page.metrics.despeckle.punctuation_markers
+                            - page.metrics.despeckle.retained_punctuation_markers)
+                            as u64
+                    })
+                    .sum(),
+            ),
+            (
+                "brokenStrokeExplosions".into(),
+                composed
+                    .iter()
+                    .map(|page| page.metrics.binarization.broken_stroke_explosions as u64)
+                    .sum(),
+            ),
+        ]),
     );
     let total_wall_time_ms = timings
         .iter()
@@ -377,6 +417,7 @@ pub fn evaluate_corpus(
                 content: content_metrics,
                 despeckle: despeckle_metrics,
                 binarization: binarization_metrics,
+                composed,
                 dewarp: dewarp_metrics,
             },
             stub_hooks: StubHooks {
@@ -507,6 +548,12 @@ fn compare_load_bearing_metrics(current: &MetricReport, baseline: &MetricReport)
         "metrics.binarization.componentPagesEvaluated",
         current.binarization.component_pages_evaluated,
         baseline.binarization.component_pages_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.composed.pages",
+        current.composed.len(),
+        baseline.composed.len(),
     );
     compare_metric_count(
         &mut regressions,
@@ -756,6 +803,71 @@ fn evaluate_content(
     });
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposedPageMetrics {
+    pub id: String,
+    pub metrics: ComposedMetrics,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposedMetrics {
+    pub despeckle: DespeckleMetrics,
+    pub binarization: BinarizationMetrics,
+}
+
+// The fixture annotations live on the source grid. Read the actual rendered
+// payload through its published affine geometry, joining split leaves there.
+// Non-affine output needs a different oracle and must never look passed here.
+fn composed_source_pixels(
+    entry: &CorpusEntry,
+    rendered: &evb_scan_cleanup::engine::render::PageCleanupResult,
+) -> Result<BinaryImage, String> {
+    for output in &rendered.outputs {
+        if output.metadata.dewarp_model.is_some() || output.metadata.forward_transform.is_none() {
+            return Err(format!(
+                "{} composed pixel check unavailable: non-affine render geometry",
+                entry.id
+            ));
+        }
+    }
+    Ok(BinaryImage::from_fn_parallel(
+        entry.image.width(),
+        entry.image.height(),
+        |x, y| {
+            rendered.outputs.iter().any(|output| {
+                let point = Point::new(x as f64 + 0.5, y as f64 + 0.5);
+                if !output.metadata.source_region.contains(point) {
+                    return false;
+                }
+                let mapped = output.metadata.forward_transform.unwrap().apply(point);
+                mapped.x >= 0.0
+                    && mapped.y >= 0.0
+                    && mapped.x < output.image.width() as f64
+                    && mapped.y < output.image.height() as f64
+                    && output
+                        .image
+                        .get(mapped.x.floor() as usize, mapped.y.floor() as usize)
+                        < 128
+            })
+        },
+    ))
+}
+
+fn evaluate_composed_pixels(entry: &CorpusEntry, pixels: &BinaryImage) -> ComposedMetrics {
+    let mut despeckle = DespeckleAccumulator::default();
+    let mut binarization = BinarizationAccumulator::default();
+    if let Some(source) = &entry.truth.content_mask {
+        evaluate_retained_ink(entry, source, pixels, &mut despeckle);
+    }
+    evaluate_binary_pixels(entry, pixels, &mut binarization);
+    ComposedMetrics {
+        despeckle: finish_despeckle(despeckle),
+        binarization: finish_binarization(binarization),
+    }
+}
+
 fn evaluate_despeckle(
     entry: &CorpusEntry,
     calibration: CalibrationConfig,
@@ -764,18 +876,27 @@ fn evaluate_despeckle(
     let Some(source) = &entry.truth.content_mask else {
         return;
     };
+    let cleaned = despeckle_connected_with_calibration_config(source, entry.dpi, calibration);
+    evaluate_retained_ink(entry, source, &cleaned, accumulator);
+}
+
+fn evaluate_retained_ink(
+    entry: &CorpusEntry,
+    source: &BinaryImage,
+    cleaned: &BinaryImage,
+    accumulator: &mut DespeckleAccumulator,
+) {
     if source.count_black() == 0 {
         return;
     }
     accumulator.pages_evaluated += 1;
-    let cleaned = despeckle_connected_with_calibration_config(source, entry.dpi, calibration);
     if cleaned.count_black() == 0 {
         accumulator.erased_page_ids.push(entry.id.clone());
     }
     for marker in &entry.truth.punctuation {
         if has_ink_near(source, marker.x, marker.y, marker.radius) {
             accumulator.punctuation_markers += 1;
-            if has_ink_near(&cleaned, marker.x, marker.y, marker.radius) {
+            if has_ink_near(cleaned, marker.x, marker.y, marker.radius) {
                 accumulator.retained_punctuation_markers += 1;
             }
         }
@@ -790,15 +911,23 @@ fn evaluate_binarization(
     let mut options = entry.options.clone();
     options.despeckle = false;
     let result = clean_black_and_white_with_calibration_config(&entry.image, &options, calibration);
-    accumulator.pages_evaluated += 1;
     *accumulator
         .route_counts
         .entry(binarization_name(result.mode).into())
         .or_default() += 1;
 
+    evaluate_binary_pixels(entry, &result.binary, accumulator);
+}
+
+fn evaluate_binary_pixels(
+    entry: &CorpusEntry,
+    binary: &BinaryImage,
+    accumulator: &mut BinarizationAccumulator,
+) {
+    accumulator.pages_evaluated += 1;
     if let Some(expected_components) = entry.truth.expected_components {
         accumulator.component_pages_evaluated += 1;
-        let output_components = ComponentMap::from_binary(&result.binary).components().len();
+        let output_components = ComponentMap::from_binary(binary).components().len();
         let delta = output_components as i64 - expected_components as i64;
         let broken_delta = output_components.saturating_sub(expected_components);
         accumulator.expected_components += expected_components as u64;
@@ -814,8 +943,7 @@ fn evaluate_binarization(
     }
 
     if !entry.truth.blank_regions.is_empty() {
-        let (blank_pixels, pepper_pixels) =
-            pepper_counts(&result.binary, &entry.truth.blank_regions);
+        let (blank_pixels, pepper_pixels) = pepper_counts(binary, &entry.truth.blank_regions);
         accumulator.blank_pixels_evaluated += blank_pixels;
         accumulator.pepper_pixels += pepper_pixels;
         if blank_pixels > 0 && pepper_pixels as f64 / blank_pixels as f64 > BLANK_FLOOD_DENSITY {
@@ -1255,6 +1383,48 @@ fn round3(value: f64) -> f64 {
 mod tests {
     use super::*;
     use evb_scan_cleanup::{engine::render::clean_page, OutputMode};
+
+    #[test]
+    fn composed_metrics_reject_erasure_and_fragmentation_of_rendered_pixels() {
+        let corpus = crate::corpus::build_corpus().unwrap();
+        let entry = corpus
+            .iter()
+            .find(|entry| !entry.truth.punctuation.is_empty() && entry.truth.content_mask.is_some())
+            .unwrap();
+        let truth = entry.truth.content_mask.as_ref().unwrap();
+        let correct = evaluate_composed_pixels(entry, truth);
+        assert_eq!(correct.despeckle.erased_pages, 0);
+        let mut rendered = clean_page(&entry.image, &entry.options, 0).unwrap();
+        let observed = composed_source_pixels(entry, &rendered).unwrap();
+        assert!(observed.count_black() > 0);
+        for output in &mut rendered.outputs {
+            output.image = evb_scan_cleanup::engine::render::CleanupRaster::Bilevel(
+                BinaryImage::new(output.image.width(), output.image.height()),
+            );
+        }
+        let wiped = composed_source_pixels(entry, &rendered).unwrap();
+        assert_eq!(
+            evaluate_composed_pixels(entry, &wiped)
+                .despeckle
+                .erased_pages,
+            1
+        );
+        let white = BinaryImage::new(truth.width(), truth.height());
+        let erased = evaluate_composed_pixels(entry, &white);
+        assert_eq!(
+            erased.despeckle.erased_pages, 1,
+            "white composed output must be an erased page"
+        );
+        assert_eq!(erased.despeckle.retained_punctuation_markers, 0);
+        let fragments = BinaryImage::from_fn_parallel(truth.width(), truth.height(), |x, y| {
+            x % 4 == 0 && y % 4 == 0
+        });
+        let broken = evaluate_composed_pixels(entry, &fragments);
+        assert!(
+            broken.binarization.broken_stroke_explosions > 0,
+            "fragmented composed output must be rejected"
+        );
+    }
 
     #[test]
     fn catastrophe_budget_rejects_regressions_and_corpus_drift() {

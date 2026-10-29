@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {validateWordLossReport} from '@scripts/scan-cleanup-regress.mjs';
 import {runDiagnosticCommand} from '@scripts/diagnostics/scan-cleanup-command.mjs';
 
 describe('scan-cleanup diagnostic command runner', () => {
@@ -89,5 +90,75 @@ describe('scan-cleanup diagnostic command runner', () => {
         if (cleanupError !== undefined) {
             throw cleanupError;
         }
+    });
+});
+
+
+describe('scan cleanup invented-ink baseline coverage', () => {
+    const row = (page: number) => ({
+        page,
+        status: 'analyzed',
+        flagged: false,
+        lossFlagged: false,
+        inventedFlagged: false,
+        silhouetteFlagged: false,
+        inventedCount: 0,
+        inventedInkFraction: 0,
+    });
+    const baseline = {2: {
+        maxComponents: 1,
+        maxFraction: 0.017,
+        reason: 'Fixture restoration',
+    }};
+    const report = () => ({
+        stampVerification: {status: 'valid'},
+        pages: [
+            row(1),
+            row(2),
+        ],
+        summary: {
+            auditCoverageComplete: true,
+            analyzedOutputPages: 2,
+            expectedOutputPages: 2,
+            flaggedPages: [],
+            inventedPages: [],
+            silhouettePages: [],
+            errorPages: [],
+            flaggedCount: 0,
+            suppressedPages: [],
+            suppressedCount: 0,
+        },
+    });
+    it('accepts complete, unsuppressed coverage', () => {
+        expect(() => validateWordLossReport(report(), 'fixture', [
+            1,
+            2,
+        ], baseline)).not.toThrow();
+    });
+    it.each([
+        'skipped',
+        'suppressed',
+        'missing',
+        'output-missing',
+    ])('rejects %s coverage outside the baselined page', defect => {
+        const broken = report();
+        if (defect === 'skipped') {
+            broken.pages[0]!.status = 'skipped';
+            broken.summary.auditCoverageComplete = false;
+        } else if (defect === 'suppressed') {
+            Object.assign(broken.pages[0]!, {comparisonSuppressed: 'unreliable-alignment'});
+            Object.assign(broken.summary, {
+                suppressedCount: 1,
+                suppressedPages: [1],
+            });
+        } else if (defect === 'missing') {
+            broken.pages.shift();
+        } else {
+            broken.summary.expectedOutputPages = 3;
+        }
+        expect(() => validateWordLossReport(broken, 'fixture', [
+            1,
+            2,
+        ], baseline)).toThrow(/coverage|suppressed|analyzed|missing/);
     });
 });

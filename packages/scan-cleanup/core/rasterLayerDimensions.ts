@@ -35,6 +35,13 @@ const PNG_SIGNATURE = Buffer.from([
 /** Rows and compressed output move through the PNG encoder in blocks this size. */
 const PNG_ENCODE_BLOCK_BYTES = 1024 * 1024;
 
+type TNetpbmMagic = 'P4' | 'P5' | 'P6';
+const NETPBM_FORMATS = {
+    P4: 'PBM',
+    P5: 'PGM',
+    P6: 'PPM',
+} as const satisfies Record<TNetpbmMagic, string>;
+
 interface INetpbmInspection {
     width: number;
     height: number;
@@ -155,10 +162,10 @@ export async function readPngDimensions(
 async function inspectNetpbm(
     handle: IScanCleanupOpenFileHandle,
     path: string,
-    magic: 'P4' | 'P6',
+    magic: TNetpbmMagic,
     signal?: AbortSignal,
 ): Promise<INetpbmInspection> {
-    const format = magic === 'P4' ? 'PBM' : 'PPM';
+    const format = NETPBM_FORMATS[magic];
     signal?.throwIfAborted();
     const fileStats = await handle.stat();
     const header = Buffer.alloc(Math.min(fileStats.size, NETPBM_HEADER_MAX_BYTES));
@@ -200,7 +207,7 @@ async function inspectNetpbm(
     }
     const width = readNumber('width');
     const height = readNumber('height');
-    const maxValue = magic === 'P6' ? readNumber('max value') : 1;
+    const maxValue = magic === 'P4' ? 1 : readNumber('max value');
     if (maxValue > 65_535) {
         throw new Error(`Invalid ${format} max value for ${path}`);
     }
@@ -209,7 +216,9 @@ async function inspectNetpbm(
         throw new Error(`Invalid ${format} header terminator for ${path}`);
     }
     state.offset += terminator === 0x0d && data[state.offset + 1] === 0x0a ? 2 : 1;
-    const rowBytes = magic === 'P4' ? Math.ceil(width / 8) : width * 3 * (maxValue > 255 ? 2 : 1);
+    const rowBytes = magic === 'P4'
+        ? Math.ceil(width / 8)
+        : width * (magic === 'P5' ? 1 : 3) * (maxValue > 255 ? 2 : 1);
     const payloadByteLength = rowBytes * height;
     const expectedBytes = state.offset + payloadByteLength;
     if (!Number.isSafeInteger(payloadByteLength) || !Number.isSafeInteger(expectedBytes)) {
@@ -232,7 +241,7 @@ async function inspectNetpbm(
     };
 }
 
-async function readNetpbmDimensions(path: string, magic: 'P4' | 'P6', openFile: TScanCleanupOpenFile) {
+async function readNetpbmDimensions(path: string, magic: TNetpbmMagic, openFile: TScanCleanupOpenFile) {
     const handle = await openFile(path, 'r');
     try {
         const inspected = await inspectNetpbm(handle, path, magic);
@@ -247,6 +256,11 @@ async function readNetpbmDimensions(path: string, magic: 'P4' | 'P6', openFile: 
 
 export function readPbmDimensions(path: string, openFile: TScanCleanupOpenFile = defaultOpenFile) {
     return readNetpbmDimensions(path, 'P4', openFile);
+}
+
+/** Native writes one-channel layers, such as a soft-alpha foreground, as P5. */
+export function readPgmDimensions(path: string, openFile: TScanCleanupOpenFile = defaultOpenFile) {
+    return readNetpbmDimensions(path, 'P5', openFile);
 }
 
 export function readPpmDimensions(path: string, openFile: TScanCleanupOpenFile = defaultOpenFile) {

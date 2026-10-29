@@ -43,6 +43,8 @@ import {
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {decodeScanCleanupProvenanceStampHex} from '@evb/scan-cleanup/core/provenanceStamp';
+import {mergeScanCleanupPdfPathSidecar} from '@evb/scan-cleanup/core/streamingSidecars';
 import {overlayScanCleanupTextLayerAndMeasure} from '@evb/scan-cleanup/core/overlayScanCleanupTextLayerAndMeasure';
 import {
     readDetectionResultsForPageNumbers,
@@ -52,7 +54,6 @@ import {
     type IRunScanCleanupPipelineDependencies,
     type IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/runScanCleanupConversion';
-import {mergeScanCleanupPdfPathSidecar} from '@evb/scan-cleanup/core/streamingSidecars';
 import type {ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
 import type {
     IScanCleanupDetectionResultStore,
@@ -202,11 +203,15 @@ function paths(tempDir: string): IScanCleanupWorkerPaths {
     };
 }
 
+// A run's scratch holds each batch's own directory, so a file is looked for
+// at any depth below the root.
 function findScratchFile(root: string, fileName: string) {
-    return readdirSync(root, {withFileTypes: true})
-        .filter(entry => entry.isDirectory())
-        .map(entry => join(root, entry.name, fileName))
-        .filter(candidate => existsSync(candidate))
+    return readdirSync(root, {
+        recursive: true,
+        withFileTypes: true,
+    })
+        .filter(entry => entry.isFile() && entry.name === fileName && entry.parentPath !== root)
+        .map(entry => join(entry.parentPath, entry.name))
         .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0] ?? null;
 }
 
@@ -318,6 +323,32 @@ function compactOutputMetadata() {
     };
 }
 
+function losslessOutput() {
+    const region = {
+        xPx: 0,
+        yPx: 0,
+        widthPx: 300,
+        heightPx: 300,
+    };
+    return {
+        half: 'full',
+        sourceRegion: region,
+        cropRect: region,
+        contentBox: region,
+        inputWidthPx: 300,
+        inputHeightPx: 300,
+        pdfPlacement: {
+            cropRect: {
+                x: 0,
+                y: 0,
+                width: 612,
+                height: 792,
+            },
+            contentScaled: false,
+        },
+    };
+}
+
 function pageMetadata() {
     return {
         layoutClassification: 'single-uncut-page',
@@ -327,6 +358,127 @@ function pageMetadata() {
         excluded: false,
         blankOutputsSkipped: 0,
         outputCount: 1,
+    };
+}
+
+// Exercise the real coordinator with file-backed native inputs/outputs. The
+// adapters stand in for binaries; assertions below inspect public summaries,
+// native wire manifests, published evidence and the live scratch filesystem.
+async function conversionRegressionFixture(
+    documentPageCount: number,
+    log: TScanCleanupLog = () => undefined,
+    convert = runScanCleanupConversion,
+    pathOverrides: Partial<IScanCleanupWorkerPaths> = {},
+) {
+    const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-core-regression-'));
+    roots.push(root);
+    const scratch = join(root, 'scratch');
+    await mkdir(scratch);
+    const sourcePdfPath = join(root, 'source.pdf');
+    const outputPdfPath = join(root, 'output.pdf');
+    await writeFile(sourcePdfPath, '%PDF-source');
+    const pageSizes = Array.from({length: documentPageCount}, (_, index) => pageGeometry(index + 1));
+    const render: IRunScanCleanupPipelineDependencies['renderPage'] = async (
+        _paths, _log, _page, _source, outputPath,
+    ) => {
+        await writeFile(outputPath, outputPath.endsWith('.ppm') ? PPM : PNG);
+    };
+    const dependencies: IRunScanCleanupPipelineDependencies = {
+        getPageCount: async () => documentPageCount,
+        getPageSizeStore: async () => createArrayBackedPdfPageSizeStore(pageSizes),
+        detectSourceDpi: async () => ({
+            detected: true,
+            documentDpi: 300,
+            compactLayeredPageCount: 0,
+            compactLayeredPageCountComplete: true,
+            getPageRaster: () => ({
+                dpi: 300,
+                width: 300,
+                height: 300,
+            }),
+        }),
+        getAvailableScratchBytes: async () => null,
+        hashNativeBinary: async () => 'a'.repeat(64),
+        renderPage: render,
+        renderPagePpm: render,
+        runSidecar: async (_binary, manifestPath, _signal, _log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                sourcePageIndex: number;
+                pageMetadataPath: string;
+                options: {excluded: boolean};
+                outputs: Array<{
+                    outputPath: string;
+                    metadataPath: string
+                }>;
+            }>;};
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                const excluded = page.options.excluded;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    ...pageMetadata(),
+                    sourcePageIndex: page.sourcePageIndex,
+                    excluded,
+                    outputCount: excluded ? 0 : 1,
+                    // A lossless run places the source page from this record.
+                    outputs: excluded ? [] : [losslessOutput()],
+                }));
+                if (!excluded && page.outputs[0]) {
+                    await writeFile(page.outputs[0].outputPath, PNG);
+                    await writeFile(page.outputs[0].metadataPath, JSON.stringify(textOutputMetadata()));
+                }
+                onProgress({
+                    stage: 'page-complete',
+                    pageNumber: requirePageNumber(index + 1),
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                });
+            }
+        },
+        runCommand: async (_binary, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
+            if (args[0] !== '--check') {
+                const outputIndex = args.indexOf('--output');
+                const output = outputIndex >= 0 ? args[outputIndex + 1]! : args.at(-1)!;
+                await writeFile(output, '%PDF-adapter-output');
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        },
+    };
+    const workerPaths = {
+        ...paths(root),
+        scratchDir: scratch,
+        pdfimagesBinary: '/pdfimages',
+        ...pathOverrides,
+    };
+    const run = (request: Partial<Parameters<typeof runScanCleanupConversion>[0]> = {}) => convert(
+        {
+            sourcePdfPath,
+            outputPdfPath,
+            options,
+            ...request,
+        },
+        workerPaths,
+        new AbortController().signal,
+        () => undefined,
+        policy,
+        log,
+        dependencies,
+    );
+    return {
+        root,
+        scratch,
+        sourcePdfPath,
+        outputPdfPath,
+        pageSizes,
+        dependencies,
+        run,
     };
 }
 
@@ -383,6 +535,297 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('gives the final overlay the run provenance and every merged page as a link target', async () => {
+        // A qpdf merge keeps neither batch's Info stamp nor its catalog. The run
+        // records one stamp for the whole document and rebuilds navigation in
+        // its final overlay, which native writes into the merged output.
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await conversionRegressionFixture(1_025, undefined, pipeline.runScanCleanupConversion, {provenanceStampSupport: true});
+        const baseRunCommand = fixture.dependencies.runCommand;
+        let overlay: {
+            pages: Array<{
+                sourcePageIndex: number;
+                outputPageIndex: number
+            }>;
+            provenanceStampHex?: string;
+        } | null = null;
+        fixture.dependencies.runCommand = async (binary, args, commandOptions) => {
+            if (args[0] === 'overlay-text') {
+                overlay = JSON.parse(await readFile(args[args.indexOf('--instructions-file') + 1]!, 'utf8'));
+            }
+            return baseRunCommand(binary, args, commandOptions);
+        };
+        const summary = await fixture.run({sourcePageNumbers: [
+            1,
+            2,
+            1_025,
+        ]});
+        expect(summary.outputPages).toBe(3);
+        expect(overlay).not.toBeNull();
+        const {
+            pages, provenanceStampHex,
+        } = overlay!;
+        expect(pages.map(page => [
+            page.sourcePageIndex + 1,
+            page.outputPageIndex + 1,
+        ]).sort(([left], [right]) => left! - right!)).toEqual([
+            [
+                1,
+                1,
+            ],
+            [
+                2,
+                2,
+            ],
+            [
+                1_025,
+                3,
+            ],
+        ]);
+        expect(provenanceStampHex).toBeDefined();
+        const stamp = decodeScanCleanupProvenanceStampHex(provenanceStampHex!);
+        expect(stamp.outputMappings
+            .filter(mapping => mapping.outputOrdinal !== null)
+            .map(mapping => [
+                mapping.sourcePage,
+                mapping.outputOrdinal,
+            ])).toEqual([
+            [
+                1,
+                1,
+            ],
+            [
+                2,
+                2,
+            ],
+            [
+                1_025,
+                3,
+            ],
+        ]);
+        expect(stamp.effectiveOptions.perSourcePage.map(record => record.sourcePage)).toEqual([
+            1,
+            2,
+            1_025,
+        ]);
+    });
+
+    it('keeps the run provenance out of the overlay for an assembler without stamp support', async () => {
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await conversionRegressionFixture(1_025, undefined, pipeline.runScanCleanupConversion);
+        const baseRunCommand = fixture.dependencies.runCommand;
+        const overlays: Array<Record<string, unknown>> = [];
+        fixture.dependencies.runCommand = async (binary, args, commandOptions) => {
+            if (args[0] === 'overlay-text') {
+                overlays.push(JSON.parse(await readFile(args[args.indexOf('--instructions-file') + 1]!, 'utf8')));
+            }
+            return baseRunCommand(binary, args, commandOptions);
+        };
+        const summary = await fixture.run({sourcePageNumbers: [
+            1,
+            1_025,
+        ]});
+        expect(summary.outputPages).toBe(2);
+        expect(overlays).toHaveLength(1);
+        expect(overlays[0]).not.toHaveProperty('provenanceStampHex');
+    });
+
+    it.each([
+        false,
+        true,
+    ])('publishes real per-output mappings and page records in streaming report sidecars (lossless: %s)', async preserveOriginalQuality => {
+        const fixture = await conversionRegressionFixture(1_025);
+        const summary = await fixture.run({
+            sourcePageNumbers: [1],
+            options: {
+                ...options,
+                preserveOriginalQuality,
+            },
+        });
+        expect(summary.outputPages).toBe(1);
+        const report = JSON.parse(await readFile(join(fixture.scratch, 'scan-cleanup-representation-report.json'), 'utf8'));
+        const readRecords = async (path: string) => (await readFile(path, 'utf8'))
+            .trim().split('\n').map(line => JSON.parse(line));
+        const mappings = report.outputMappings.length > 0 ? report.outputMappings
+            : (await readRecords(report.outputMappingsSidecarPath)).flatMap(record => record.outputMappings
+                ?? (record.sourcePage === undefined ? [] : [record]));
+        const pages = report.pages.length > 0 ? report.pages
+            : (await readRecords(report.pagesSidecarPath)).flatMap(record => record.pages
+                ?? (record.outputPageNumber === undefined ? [] : [record]));
+        expect(mappings).toEqual([expect.objectContaining({
+            sourcePage: 1,
+            outputOrdinal: 1,
+            half: 'full',
+        })]);
+        expect(pages).toEqual([expect.objectContaining({
+            sourcePageNumber: 1,
+            outputPageNumber: 1,
+            outputOrdinal: 1,
+        })]);
+    });
+
+    it.each([
+        'first',
+        'last',
+    ] as const)('publishes a globally nonempty run when the %s child has no output', async emptyChild => {
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await conversionRegressionFixture(1_025, undefined, pipeline.runScanCleanupConversion);
+        const excludedPages = emptyChild === 'first' ? [
+            1,
+            2,
+        ] : [1_025];
+        const summary = await fixture.run({
+            sourcePageNumbers: [
+                1,
+                2,
+                1_025,
+            ],
+            options: {
+                ...options,
+                pageOverrides: Object.fromEntries(excludedPages.map(page => [
+                    String(page),
+                    {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: true,
+                        manualSplit: null,
+                    },
+                ])),
+            },
+        });
+        expect(summary).toMatchObject({
+            inputPages: 3,
+            outputPages: 3 - excludedPages.length,
+            excludedPages: excludedPages.length,
+        });
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+    });
+
+    it('releases source and cleaned raster files after each completed streaming batch', async () => {
+        const filesAfterBatch: string[][] = [];
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await conversionRegressionFixture(1_025, undefined, pipeline.runScanCleanupConversion);
+        const finishedPages = new Set<number>();
+        // Each batch stages its rasters in its own directory under scratch.
+        const retainedRasters = async (root: string) => (await readdir(root, {recursive: true})).filter(path => {
+            const sourcePage = /(?:^|[\\/])(?:source|clean)-(\d+)[^\\/]*\.(?:png|ppm|pgm|pbm)$/u.exec(path);
+            return sourcePage !== null && finishedPages.has(Number(sourcePage[1]));
+        });
+        const native = fixture.dependencies.runSidecar;
+        fixture.dependencies.runSidecar = async (...args) => {
+            // At the next native invocation, earlier child PDFs have been
+            // assembled. Ignore this invocation's active raster inputs.
+            filesAfterBatch.push(await retainedRasters(fixture.scratch));
+            const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            await native(...args);
+            for (const page of manifest.pages) finishedPages.add(page.sourcePageIndex + 1);
+        };
+        const summary = await fixture.run({sourcePageNumbers: [
+            1,
+            2,
+            1_025,
+        ]});
+        expect(summary.outputPages).toBe(3);
+        // Caller-owned scratch keeps the last child's physical occupancy
+        // observable after the coordinator settles.
+        filesAfterBatch.push(await retainedRasters(fixture.scratch));
+        expect(filesAfterBatch.flat()).toEqual([]);
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+    });
+
+    it('returns native page warnings on both sides of the 1,024-page threshold', async () => {
+        for (const documentPageCount of [
+            1_024,
+            1_025,
+        ]) {
+            const fixture = await conversionRegressionFixture(documentPageCount);
+            const native = fixture.dependencies.runSidecar;
+            fixture.dependencies.runSidecar = async (...args) => {
+                await native(...args);
+                const manifest = JSON.parse(await readFile(args[1], 'utf8'));
+                const output = manifest.pages[0].outputs[0];
+                await writeFile(output.metadataPath, JSON.stringify({
+                    ...textOutputMetadata(),
+                    warnings: ['source warning retained for the caller'],
+                }));
+            };
+            const summary = await fixture.run({sourcePageNumbers: [1]});
+            expect(summary.outputPages).toBe(1);
+            expect(summary.warnings).toContain('Page 1: source warning retained for the caller');
+        }
+    });
+
+    it('assembles a native mixed page with a valid one-channel P5 soft-alpha layer', async () => {
+        const fixture = await conversionRegressionFixture(1);
+        const native = fixture.dependencies.runSidecar;
+        fixture.dependencies.runSidecar = async (...args) => {
+            await native(...args);
+            const manifest = JSON.parse(await readFile(args[1], 'utf8'));
+            const output = manifest.pages[0].outputs[0];
+            await writeFile(output.backgroundOutputPath, PPM);
+            await writeFile(output.foregroundAlphaOutputPath, Buffer.from('P5\n1 1\n255\n\x80', 'binary'));
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...textOutputMetadata(),
+                outputMode: 'mixed',
+                layeredWritten: true,
+                layeredForegroundKind: 'soft-alpha',
+                layeredBackgroundDpi: 300,
+                layeredForegroundDpi: 300,
+            }));
+        };
+        const summary = await fixture.run({options: {
+            ...options,
+            outputMode: 'mixed',
+        }});
+        expect(summary.outputPages).toBe(1);
+        const report = JSON.parse(await readFile(join(fixture.scratch, 'scan-cleanup-representation-report.json'), 'utf8'));
+        expect(report.pages[0].representation).toBe('mixed');
+        expect(await readFile(join(fixture.scratch, 'combine-manifest.tsv'), 'utf8')).toContain('soft-layered-jpeg\t');
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+    });
+
+    it.each([
+        1,
+        SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+    ])(
+        'hydrates locked Auto decisions from a supplied detection store for %i source pages', async documentPageCount => {
+            const fixture = await conversionRegressionFixture(documentPageCount);
+            const summary = await fixture.run({
+                sourcePageNumbers: [1],
+                detectionResultStore: createBoundedDetectionResultStore(documentPageCount),
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+            });
+            expect(summary).toMatchObject({
+                inputPages: 1,
+                outputPages: 1,
+            });
+            expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+        },
+    );
+
+    it('hydrates accepted MediaBox geometry from a supplied small detection store', async () => {
+        const fixture = await conversionRegressionFixture(1);
+        const store = createBoundedDetectionResultStore(1);
+        const result = detectionResultForPage(1);
+        result.sourcePageMetadata = {
+            ...result.sourcePageMetadata!,
+            widthPoints: 144,
+            heightPoints: 72,
+            renderBox: 'mediabox',
+        };
+        store.getPage = async () => result;
+        store.readRange = async () => [result];
+        await fixture.run({detectionResultStore: store});
+        const manifest = JSON.parse(await readFile(join(fixture.scratch, 'cleanup-manifest-0.json'), 'utf8'));
+        expect(manifest.pages[0].pdfPage).toMatchObject({
+            widthPoints: 144,
+            heightPoints: 72,
+        });
+    });
+
     it('validates the fallback used when source DPI metadata is absent', () => {
         expect(resolveSourceDpi(undefined, 72.4)).toBe(72);
         expect(resolveSourceDpi(null, Number.NaN)).toBe(300);
@@ -1330,11 +1773,12 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(report.compactSourceBudget).toMatchObject({compactLayeredPages: documentPageCount});
         expect(report.compactSourceBudget?.maxOutputBytes).toBeGreaterThan(0);
         expect(report.pages).toEqual([]);
-        expect(report.pagesSidecarPath).toBe(join(evidenceDir, 'scan-cleanup-batch-summaries.jsonl'));
+        // One page record a line, for every output page of every batch.
+        expect(report.pagesSidecarPath).toBe(join(evidenceDir, 'scan-cleanup-output-pages.jsonl'));
         const sidecarLines = (await readFile(report.pagesSidecarPath!, 'utf8'))
             .trim()
             .split('\n');
-        expect(sidecarLines).toHaveLength(2);
+        expect(sidecarLines).toHaveLength(documentPageCount);
         expect(sourceRasterCalls).toHaveBeenCalledTimes(documentPageCount);
     });
 

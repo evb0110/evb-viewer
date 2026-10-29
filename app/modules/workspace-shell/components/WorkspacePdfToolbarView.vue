@@ -104,20 +104,20 @@
                 <span class="scan-cleanup-trigger-wrap">
                     <UButton
                         class="scan-cleanup-trigger"
-                        :class="{'is-active': isScanCleanupRunning}"
+                        :class="{'is-active': scanCleanupRunningHere}"
                         color="neutral"
                         variant="ghost"
                         size="md"
                         square
                         type="button"
                         :aria-label="scanCleanupTriggerTooltip"
-                        :aria-pressed="isScanCleanupRunning"
+                        :aria-pressed="scanCleanupRunningHere"
                         :disabled="scanCleanupActionDisabled"
                         @click="handleOpenScanCleanup"
                     >
                         <ScanCleanupScissorsIcon class="size-5" />
                     </UButton>
-                    <span v-if="isScanCleanupRunning" class="scan-cleanup-running-dot" aria-hidden="true" />
+                    <span v-if="scanCleanupRunningHere" class="scan-cleanup-running-dot" aria-hidden="true" />
                 </span>
             </AppTooltip>
         </template>
@@ -167,7 +167,7 @@
                 :can-toggle-sidebar="toolbarCanToggleSidebar"
                 :has-pdf="toolbarHasPdf"
                 :scan-cleanup-disabled="scanCleanupActionDisabled"
-                :scan-cleanup-running="isScanCleanupRunning"
+                :scan-cleanup-running="scanCleanupRunningHere"
                 :scan-cleanup-label="scanCleanupTriggerTooltip"
                 :ocr-disabled="ocrTriggerDisabled"
                 :can-export-docx="snapshot.canExportDocx"
@@ -433,6 +433,11 @@ const pageNavigationDisabled = computed(() => (
 ));
 const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
 const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
+// The window holds one run. This toolbar shows it only for its own document;
+// another document's run is not this document's activity.
+const scanCleanupRunningHere = computed(() => Boolean(ocrWorkingCopyPath)
+    && isScanCleanupRunning.value
+    && scanCleanupRun.ownerDocumentRef === ocrWorkingCopyPath);
 const scanCleanupJobProgress = computed(() => scanCleanupRun.jobState?.progress ?? {
     stage: 'queued' as const,
     completedUnits: 0,
@@ -442,7 +447,7 @@ const scanCleanupTriggerTooltip = computed(() => {
     if (!ocrWorkingCopyPath) {
         return t('scanCleanup.noDocument');
     }
-    if (!isScanCleanupRunning.value) {
+    if (!scanCleanupRunningHere.value) {
         return t('scanCleanup.button');
     }
     return formatScanCleanupProgress(scanCleanupJobProgress.value, t).text;

@@ -127,12 +127,20 @@ export interface IScanCleanupTextLayerInstruction {
     unmappedGeometry?: boolean;
 }
 
-export interface IScanCleanupTextLayerInstructionEnvelope {pages: IScanCleanupTextLayerInstruction[];}
+export interface IScanCleanupTextLayerInstructionEnvelope {
+    pages: IScanCleanupTextLayerInstruction[];
+    /** The run's stamp, recorded by the final pass over a multi-batch document. */
+    provenanceStampHex?: string;
+}
 
 export function serializeScanCleanupTextLayerInstructions(
     pages: readonly IScanCleanupTextLayerInstruction[],
+    provenanceStampHex?: string,
 ) {
-    return JSON.stringify({pages});
+    return JSON.stringify({
+        pages,
+        ...(provenanceStampHex === undefined ? {} : {provenanceStampHex}),
+    });
 }
 
 export function isScanCleanupCliFallbackSentinel(value: string | undefined) {

@@ -49,14 +49,16 @@ export function resolveScanCleanupMixedValue<T>(
     values: readonly T[],
     equals: (left: T, right: T) => boolean = areScanCleanupSelectionValuesEqual,
 ): IScanCleanupMixedValue<T> {
-    const first = values[0];
-    if (first === undefined) {
+    // Undefined is a real member, the automatic or inherited value, so only
+    // an empty collection is empty.
+    if (values.length === 0) {
         return {
             empty: true,
             mixed: false,
             value: undefined,
         };
     }
+    const first = values[0] as T;
     return {
         empty: false,
         mixed: values.slice(1).some(value => !equals(first, value)),

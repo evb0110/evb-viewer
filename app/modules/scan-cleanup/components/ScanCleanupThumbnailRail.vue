@@ -3,7 +3,7 @@
         <header class="scan-thumbnail-rail-header">
             <div class="scan-thumbnail-rail-heading">
                 <strong>{{ t('scanCleanup.pages.title') }}</strong>
-                <span :aria-label="t('scanCleanup.pages.count', {count: totalPages})">{{ totalPages }}</span>
+                <span :aria-label="t('scanCleanup.pages.count', {count: railPageCount})">{{ railPageCount }}</span>
             </div>
             <div class="scan-thumbnail-rail-actions">
                 <USelect
@@ -399,8 +399,12 @@ const classificationRank: Record<IScanCleanupPreviewMetadata['layoutClassificati
     'page-with-offcut': 1,
     'two-page-spread': 2,
 };
+// The rendered rows come from the source document, so its page count is the
+// one every row, its order and its override lookup are validated against;
+// while a restored tab reloads, `totalPages` can still describe another state.
+const railPageCount = computed(() => props.source?.pageCount ?? props.totalPages);
 const orderedPages = computed<IScanCleanupPageOrder>(() => {
-    const pageCount = props.source?.pageCount ?? props.totalPages;
+    const pageCount = railPageCount.value;
     if (sortMode.value === 'classification') {
         return createScanCleanupSparsePageOrder(
             pageCount,
@@ -478,7 +482,7 @@ function naturalPage(position: number) {
 function pageOverride(page: number) {
     return getScanCleanupPageOverride(
         props.overrides,
-        requirePageNumber(page, Math.max(1, props.totalPages)),
+        requirePageNumber(page, Math.max(1, railPageCount.value)),
     );
 }
 

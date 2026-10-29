@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {getRequestedNativeRustTarget} from '../native-rust-targets.mjs';
 import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {createHash} from 'node:crypto';
 import {
@@ -208,29 +209,27 @@ function corpusPagePlan(analysis, previewOutputs, analysisDimensions) {
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const defaultConfigPath = join(projectRoot, '.devkit/scan-cleanup-corpus.json');
 const defaultExpectedPath = join(projectRoot, 'scripts/diagnostics/scan-cleanup-corpus-expected-results.json');
-const platformArch = `${process.platform === 'win32' ? 'win' : process.platform}-${process.arch}`;
-const binaryExtension = process.platform === 'win32' ? '.exe' : '';
-const defaultScanCleanupBinary = join(
-    projectRoot,
-    '.tmp/scan-cleanup',
-    platformArch,
-    'bin',
-    `evb-scan-cleanup${binaryExtension}`,
-);
-const defaultCombineBinary = join(
-    projectRoot,
-    '.tmp/pdf-image-combine',
-    platformArch,
-    'bin',
-    `evb-pdf-image-combine${binaryExtension}`,
-);
-const defaultPageOpsBinary = join(
-    projectRoot,
-    '.tmp/pdf-page-ops',
-    platformArch,
-    'bin',
-    `evb-pdf-page-ops${binaryExtension}`,
-);
+export function resolveCorpusNativeBinaryPaths(root, {
+    platform = process.platform, arch = process.arch,
+} = {}) {
+    const {
+        platformArch, binaryExtension: extension,
+    } = getRequestedNativeRustTarget({}, {
+        platform,
+        arch,
+    });
+    const binary = (crate, name) => join(root, '.tmp', crate, platformArch, 'bin', `${name}${extension}`);
+    return {
+        scanCleanup: binary('scan-cleanup', 'evb-scan-cleanup'),
+        combine: binary('pdf-image-combine', 'evb-pdf-image-combine'),
+        pageOps: binary('pdf-page-ops', 'evb-pdf-page-ops'),
+    };
+}
+const {
+    scanCleanup: defaultScanCleanupBinary,
+    combine: defaultCombineBinary,
+    pageOps: defaultPageOpsBinary,
+} = resolveCorpusNativeBinaryPaths(projectRoot);
 const nativeTools = [
     {
         binaryPath: defaultScanCleanupBinary,

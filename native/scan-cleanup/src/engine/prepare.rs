@@ -39,6 +39,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn exact_300_and_600_dpi_replications_have_identical_analysis_pixels() {
+        let mut source_300 = GrayImage::new(5, 5, 255);
+        let mut source_600 = GrayImage::new(10, 10, 255);
+        for y in 0..5 {
+            source_300.set(0, y, 0);
+        }
+        for y in 0..10 {
+            source_600.set(0, y, 0);
+            source_600.set(1, y, 0);
+        }
+        let level_300 = build_analysis_level(&source_300, 300.0, 150.0);
+        let level_600 = build_analysis_level(&source_600, 600.0, 150.0);
+        assert_eq!((level_300.image.width(), level_300.image.height()), (3, 3));
+        assert_eq!((level_600.image.width(), level_600.image.height()), (3, 3));
+        assert_eq!(
+            level_300.image.data(),
+            level_600.image.data(),
+            "the same physical pixel cells at 300 and 600 DPI must yield identical analysis"
+        );
+        assert_eq!(
+            level_300.image.data(),
+            &[102, 255, 255, 102, 255, 255, 102, 255, 255]
+        );
+    }
+
+    #[test]
     fn caps_malformed_dpi_large_pages_by_pixels_and_edge() {
         let source = GrayImage::new(6_000, 4_200, 255);
         let level = build_analysis_level(&source, 150.0, 150.0);

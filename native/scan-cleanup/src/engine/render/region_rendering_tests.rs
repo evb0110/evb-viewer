@@ -1,6 +1,67 @@
 use super::*;
 
 #[test]
+fn cropping_confirmed_photo_at_unit_scale_preserves_full_render_pixels() {
+    let mut source = GrayImage::new(20, 20, 0);
+    for y in 0..20 {
+        for x in 0..20 {
+            source.set(x, y, if (x + y) % 2 == 0 { 48 } else { 208 });
+        }
+    }
+    let options = CleanupOptions {
+        output_mode: OutputMode::Grayscale,
+        ..CleanupOptions::default()
+    };
+    let region = Rect::new(0.0, 0.0, 20.0, 20.0);
+    let render = |crop: Rect| {
+        let plan = ComposedRenderPlan::new(
+            region,
+            Affine::scaling(1.0, 1.0),
+            Affine::scaling(1.0, 1.0),
+            None,
+            20,
+            20,
+            crop,
+        );
+        prepare_render_planes(RasterPlaneInput {
+            normalized: &source,
+            routing_source: &source,
+            color_source: None,
+            tone_preservation_alpha: None,
+            text_tone_diagnostics: None,
+            options: &options,
+            working_width: 20,
+            working_height: 20,
+            render_region: Some(crop),
+            sampled_region: Some(crop),
+            output_rect: region,
+            render_plan: &plan,
+            rendered_width: crop.width as usize,
+            rendered_height: crop.height as usize,
+            region,
+            local_deskew_forward: Affine::scaling(1.0, 1.0),
+            local_deskew_inverse: Affine::scaling(1.0, 1.0),
+            dewarp_model: None,
+            timings: &mut PageStageTimings::default(),
+        })
+        .unwrap()
+        .rendered_gray
+    };
+    let full = render(region);
+    assert_eq!(full.data(), source.data());
+    let cropped = render(Rect::new(5.0, 5.0, 10.0, 10.0));
+    for y in 0..10 {
+        for x in 0..10 {
+            assert_eq!(
+                cropped.get(x, y),
+                full.get(x + 5, y + 5),
+                "a unit-scale photo crop must preserve the full render at ({x}, {y})"
+            );
+        }
+    }
+}
+
+#[test]
 fn blank_single_region_has_pinned_raster_and_blankness() {
     let source = GrayImage::new(12, 10, 255);
     let options = CleanupOptions {
@@ -363,14 +424,12 @@ fn raster_stage_preserves_grayscale_source_pixels_on_identity_plan() {
             normalized: &source,
             routing_source: &source,
             color_source: None,
-            source_picture_mask: None,
             tone_preservation_alpha: None,
             text_tone_diagnostics: None,
             options: &CleanupOptions {
                 output_mode,
                 ..CleanupOptions::default()
             },
-            preserve_confirmed_photo_tones: false,
             working_width: 4,
             working_height: 3,
             render_region: None,
@@ -432,11 +491,9 @@ fn raster_stage_keeps_optional_color_and_alpha_planes_aligned() {
         normalized: &source,
         routing_source: &source,
         color_source: Some(&color),
-        source_picture_mask: None,
         tone_preservation_alpha: Some(&alpha),
         text_tone_diagnostics: None,
         options: &options,
-        preserve_confirmed_photo_tones: false,
         working_width: 3,
         working_height: 2,
         render_region: None,
@@ -459,6 +516,11 @@ fn raster_stage_keeps_optional_color_and_alpha_planes_aligned() {
     );
     let rendered_alpha = output.rendered_tone_alpha.expect("alpha plane is present");
     assert_eq!((rendered_alpha.width(), rendered_alpha.height()), (3, 2));
+    assert_eq!(
+        rendered_alpha.data(),
+        alpha.data(),
+        "an identity render must preserve tone-protection alpha bytes"
+    );
     assert_eq!(output.rendered_gray, GrayImage::new(3, 2, 255));
 }
 

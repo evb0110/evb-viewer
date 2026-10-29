@@ -114,33 +114,19 @@ impl GrayImage {
         if self.width == out_width && self.height == out_height {
             return self.clone();
         }
-        let sample_bounds = |index: usize, source_len: usize, output_len: usize| {
-            let start = index * source_len / output_len;
-            let end = ((index + 1) * source_len / output_len)
-                .max(start + 1)
-                .min(source_len);
-            (start, end)
-        };
-        let x_bounds = (0..out_width)
-            .map(|x| sample_bounds(x, self.width, out_width))
-            .collect::<Vec<_>>();
+        let x_taps = area_taps(self.width, out_width);
+        let y_taps = area_taps(self.height, out_height);
+        let area = self.width as u64 * self.height as u64;
         let mut output = Self::new(out_width, out_height, 255);
         output
             .data_mut()
             .par_chunks_mut(out_width)
             .enumerate()
             .for_each(|(oy, output_row)| {
-                let (y0, y1) = sample_bounds(oy, self.height, out_height);
-                for (target, &(x0, x1)) in output_row.iter_mut().zip(&x_bounds) {
-                    let mut sum = 0u64;
-                    for y in y0..y1 {
-                        sum += self.row(y)[x0..x1]
-                            .iter()
-                            .map(|&value| u64::from(value))
-                            .sum::<u64>();
-                    }
-                    let count = (x1 - x0) as u64 * (y1 - y0) as u64;
-                    *target = (sum / count) as u8;
+                let mut columns = vec![0u64; self.width];
+                accumulate_rows(&mut columns, &y_taps[oy], |y| self.row(y));
+                for (target, taps) in output_row.iter_mut().zip(&x_taps) {
+                    *target = (weighted_sum(&columns, taps, 1, 0) / area) as u8;
                 }
             });
         output
@@ -194,6 +180,53 @@ impl GrayImage {
 }
 
 /// Bilinear source neighbours and weight for every output index of one axis.
+/// Exact area-coverage weights for reducing `source_len` samples to
+/// `out_len`: the first source index each output covers and the overlap of
+/// every covered source sample, in units of 1/`out_len`. Each output's
+/// weights sum to `source_len`, so a fractional edge pixel counts only for
+/// the share it covers and the same physical cells give the same average at
+/// any whole-number resolution multiple.
+pub(crate) fn area_taps(source_len: usize, out_len: usize) -> Vec<(usize, Vec<u64>)> {
+    let (source, out) = (source_len as u64, out_len as u64);
+    (0..out)
+        .map(|index| {
+            let (low, high) = (index * source, (index + 1) * source);
+            let (first, last) = (low / out, (high - 1) / out);
+            let weights = (first..=last)
+                .map(|cell| ((cell + 1) * out).min(high) - (cell * out).max(low))
+                .collect();
+            (first as usize, weights)
+        })
+        .collect()
+}
+
+/// Adds each covered row, scaled by its vertical weight, into `columns`.
+pub(crate) fn accumulate_rows<'a>(
+    columns: &mut [u64],
+    (first, weights): &(usize, Vec<u64>),
+    row: impl Fn(usize) -> &'a [u8],
+) {
+    for (offset, &weight) in weights.iter().enumerate() {
+        for (sum, &value) in columns.iter_mut().zip(row(first + offset)) {
+            *sum += weight * u64::from(value);
+        }
+    }
+}
+
+/// Weighted horizontal sum of one channel of interleaved column sums.
+pub(crate) fn weighted_sum(
+    columns: &[u64],
+    (first, weights): &(usize, Vec<u64>),
+    channels: usize,
+    channel: usize,
+) -> u64 {
+    weights
+        .iter()
+        .enumerate()
+        .map(|(offset, &weight)| weight * columns[(first + offset) * channels + channel])
+        .sum()
+}
+
 pub(crate) fn axis_samples(source_len: usize, out_len: usize) -> Vec<(usize, usize, f64)> {
     (0..out_len)
         .map(|index| {
@@ -240,26 +273,27 @@ mod tests {
             .max(image.height as f64 / max_height.max(1) as f64);
         let out_width = ((image.width as f64 / scale).round() as usize).max(1);
         let out_height = ((image.height as f64 / scale).round() as usize).max(1);
+        // Brute-force exact coverage: integrate every source pixel's overlap
+        // with each output cell on a grid scaled by both lengths.
+        let overlap = |cell: usize, source: usize, source_len: usize, out_len: usize| {
+            let (low, high) = (cell * source_len, (cell + 1) * source_len);
+            ((source + 1) * out_len)
+                .min(high)
+                .saturating_sub((source * out_len).max(low)) as u64
+        };
         let mut output = GrayImage::new(out_width, out_height, 255);
         for oy in 0..out_height {
-            let y0 = oy * image.height / out_height;
-            let y1 = ((oy + 1) * image.height / out_height)
-                .max(y0 + 1)
-                .min(image.height);
             for ox in 0..out_width {
-                let x0 = ox * image.width / out_width;
-                let x1 = ((ox + 1) * image.width / out_width)
-                    .max(x0 + 1)
-                    .min(image.width);
                 let mut sum = 0u64;
-                let mut count = 0u64;
-                for y in y0..y1 {
-                    for x in x0..x1 {
-                        sum += u64::from(image.get(x, y));
-                        count += 1;
+                for y in 0..image.height {
+                    let weight_y = overlap(oy, y, image.height, out_height);
+                    for x in 0..image.width {
+                        sum += weight_y
+                            * overlap(ox, x, image.width, out_width)
+                            * u64::from(image.get(x, y));
                     }
                 }
-                output.set(ox, oy, (sum / count) as u8);
+                output.set(ox, oy, (sum / (image.width * image.height) as u64) as u8);
             }
         }
         output
@@ -270,6 +304,26 @@ mod tests {
         let image = GrayImage::from_vec(2, 2, 3, vec![0, 10, 99, 20, 30, 99]).unwrap();
         assert_eq!(image.view().row(1), &[20, 30]);
         assert_eq!(image.downscale_to_fit(1, 1).get(0, 0), 15);
+    }
+
+    #[test]
+    fn fractional_horizontal_reduction_integrates_partial_pixel_coverage() {
+        let source = GrayImage::from_vec(3, 1, 3, vec![0, 255, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(2, 1).data(),
+            &[85, 255],
+            "the first output cell covers one black pixel and half a white pixel"
+        );
+    }
+
+    #[test]
+    fn fractional_vertical_reduction_preserves_symmetric_tones() {
+        let source = GrayImage::from_vec(1, 3, 1, vec![255, 0, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(1, 2).data(),
+            &[170, 170],
+            "equal fractional coverage must preserve the symmetry of a white-black-white column"
+        );
     }
 
     #[test]

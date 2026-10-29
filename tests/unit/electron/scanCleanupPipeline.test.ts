@@ -6,10 +6,7 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import {
-    createHash,
-    randomBytes,
-} from 'node:crypto';
+import {createHash} from 'node:crypto';
 import { tmpdir } from 'os';
 import {
     join,
@@ -5206,6 +5203,44 @@ describe('scan cleanup pipeline', () => {
         };
     }
 
+    it('uses the matched raster grid on both sides of the 1,024-page threshold', async () => {
+        for (const pageCount of [
+            1_024,
+            1_025,
+        ]) {
+            const fixture = await setup();
+            const harness = losslessMatchedHarness(Array.from({length: pageCount}, (_, index) => ({
+                widthPoints: index === 1 ? 200 : 400,
+                heightPoints: index === 1 ? 100 : 200,
+            })));
+            harness.pipelineDependencies.getPageCount = async () => pageCount;
+            await runScanCleanupPipeline({
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                sourcePageNumbers: [1],
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                    crop: false,
+                    matchPageSize: true,
+                },
+            }, {
+                ...pipelinePaths(fixture.dir, true),
+                pdfimagesBinary: '/pdfimages',
+            }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+            // Matching a half-size page changes the document's quality route,
+            // including when the selected page itself already fits the canvas.
+            expect(harness.readRenderedManifest()).toMatchObject({documentCanvas: {
+                widthPoints: 400,
+                heightPoints: 200,
+                widthPx: Math.ceil(400 / 72 * 300),
+                heightPx: Math.ceil(200 / 72 * 300),
+            }});
+            expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+        }
+    });
+
     it('renders a matched run instead of claiming lossless when a page has to change resolution', async () => {
         const fixture = await setup();
         const harness = losslessMatchedHarness([
@@ -5945,7 +5980,10 @@ const combineBinary = resolveCliNativeToolPath(
     process.env.EVB_PDF_IMAGE_COMBINE_PATH,
 );
 
-describe.skipIf(combineBinary === null)('scan cleanup combine output limit', () => {
+if (process.env.EVB_REQUIRE_SCAN_CLEANUP_NATIVE_TESTS === '1' && combineBinary === null) {
+    throw new Error('Required native combine integration prerequisite missing: evb-pdf-image-combine');
+}
+describe.skipIf(combineBinary === null)(`scan cleanup combine output limit${combineBinary === null ? ' (skipped: missing evb-pdf-image-combine)' : ''}`, () => {
     it('assembles cleaned output larger than the byte-returning cap', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'evb-scan-combine-limit-'));
         onTestFinished(() => rm(dir, {
@@ -5956,9 +5994,17 @@ describe.skipIf(combineBinary === null)('scan cleanup combine output limit', () 
         // book-length color scan does.
         const inputs = await Promise.all(Array.from({length: COMBINE_LIMIT_PAGE_COUNT}, async (_, index) => {
             const path = join(dir, `page-${index + 1}.ppm`);
+            const pixels = Buffer.alloc(COMBINE_LIMIT_PAGE_SIDE_PX * COMBINE_LIMIT_PAGE_SIDE_PX * 3);
+            let noise = 0x9e3779b9 ^ index;
+            for (let offset = 0; offset < pixels.length; offset++) {
+                noise ^= noise << 13;
+                noise ^= noise >>> 17;
+                noise ^= noise << 5;
+                pixels[offset] = noise & 255;
+            }
             await writeFile(path, Buffer.concat([
                 Buffer.from(`P6\n${COMBINE_LIMIT_PAGE_SIDE_PX} ${COMBINE_LIMIT_PAGE_SIDE_PX}\n255\n`),
-                randomBytes(COMBINE_LIMIT_PAGE_SIDE_PX * COMBINE_LIMIT_PAGE_SIDE_PX * 3),
+                pixels,
             ]));
             return path;
         }));

@@ -56,6 +56,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         : `${sourceSha256.value ?? legacyDocumentKey.value}\u0000${documentRevision.value}`);
 
     const settings = useScanCleanupDocumentSettings({
+        active: options.active,
         documentRevision,
         documentLifecycleKey: lifecycleDocumentKey,
         sourceSha256,
@@ -187,7 +188,13 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: async (stopWait) => {
-            await previewResult.pauseForRun();
+            // The run's cancellation covers its whole start, including the
+            // final preview it waits for before the frame reveal.
+            const stopped = stopWait.then(() => 'stopped' as const);
+            if (await Promise.race([
+                previewResult.pauseForRun().then(() => 'paused' as const),
+                stopped,
+            ]) === 'stopped') return;
             const revealController = new AbortController();
             let deadline: ReturnType<typeof setTimeout> | undefined;
             const reveal = Promise.resolve(options.beforeRun?.(revealController.signal))
@@ -195,7 +202,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             const deadlineReached = new Promise<'timed-out'>(resolve => {
                 deadline = setTimeout(() => resolve('timed-out'), SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS);
             });
-            const stopped = stopWait.then(() => 'stopped' as const);
             try {
                 const outcome = await Promise.race([
                     reveal,

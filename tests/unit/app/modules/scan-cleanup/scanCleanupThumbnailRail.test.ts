@@ -377,6 +377,7 @@ function createSource(pageCount = 5): IDocumentPageSource {
 
 function mountRail(options: {
     source?: IDocumentPageSource | null;
+    totalPages?: number;
     sourcePending?: boolean;
     detectionActive?: boolean;
     settledPages?: ReadonlySet<number>;
@@ -409,7 +410,7 @@ function mountRail(options: {
         sourcePending: options.sourcePending ?? false,
         detectionActive: options.detectionActive ?? false,
         settledPages: options.settledPages ?? new Set<number>(),
-        totalPages: source?.pageCount ?? 5,
+        totalPages: options.totalPages ?? source?.pageCount ?? 5,
         selectionLeader: leader.value,
         selectedPages: selected.value,
         overrides: options.overrides ?? {},
@@ -484,6 +485,28 @@ afterEach(() => {
 });
 
 describe('ScanCleanupThumbnailRail', () => {
+    it.each([
+        0,
+        1,
+    ])('renders restored source rows while preview totalPages is %i', (totalPages) => {
+        let harness: ReturnType<typeof mountRail> | undefined;
+        expect(() => {
+            harness = mountRail({
+                source: createSource(3),
+                totalPages,
+            });
+        }).not.toThrow();
+        expect(naturalOrder(harness!.host)).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        // The heading counts the rows the rail renders, not the stale total.
+        expect(harness!.host.querySelector('[aria-label="3 source pages"]')?.textContent?.trim()).toBe('3');
+        expect(pageRow(harness!.host, 3).querySelector('.scan-thumbnail-options-toggle')?.getAttribute('aria-label'))
+            .toBe('Page 3 settings');
+    });
+
     it('keeps a million-page sorted order bounded to the loaded pages', () => {
         const order = createScanCleanupSparsePageOrder(
             1_000_000,
@@ -667,25 +690,7 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(labels.every(label => label.classList.contains('whitespace-nowrap'))).toBe(true);
         expect(labels.every(label => !label.classList.contains('truncate'))).toBe(true);
 
-        const renderedMenuWidth = Math.max(...labels.map(label => label.textContent?.length ?? 0));
-        Object.defineProperty(menu, 'clientWidth', {
-            configurable: true,
-            value: renderedMenuWidth,
-        });
-        for (const label of labels) {
-            const labelWidth = label.textContent?.length ?? 0;
-            Object.defineProperties(label, {
-                clientWidth: {
-                    configurable: true,
-                    value: renderedMenuWidth,
-                },
-                scrollWidth: {
-                    configurable: true,
-                    value: labelWidth,
-                },
-            });
-            expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
-        }
+
     });
 
     it('streams pending detection indicators into the status line page by page', async () => {

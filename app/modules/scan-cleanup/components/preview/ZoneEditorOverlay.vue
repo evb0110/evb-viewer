@@ -385,10 +385,15 @@ function finishDrag(event: PointerEvent) {
             emit('update:manualZones', next);
             emit('update:selected', selection);
         }
-    } else if (!samePolygon(current.original, current.polygon)) {
-        const next = cloneZones();
-        replaceZone(next, current.selection, current.polygon);
-        emit('update:manualZones', next);
+    } else {
+        // The release position is the gesture's end, as for drawing and the
+        // shared drag transaction, not whichever move event arrived last.
+        updateDrag(event);
+        if (!samePolygon(current.original, current.polygon)) {
+            const next = cloneZones();
+            replaceZone(next, current.selection, current.polygon);
+            emit('update:manualZones', next);
+        }
     }
     releasePointer(current.pointerId);
     draft.value = null;

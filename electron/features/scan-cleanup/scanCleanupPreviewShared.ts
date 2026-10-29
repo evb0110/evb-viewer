@@ -127,6 +127,7 @@ export function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'de
         outputModeRecommendation: request.outputModeRecommendation ?? null,
         softAlphaForegroundRecommendation: request.softAlphaForegroundRecommendation ?? null,
         pagePlanEvidence: request.pagePlanEvidence ?? null,
+        sourcePageMetadata: request.sourcePageMetadata ?? null,
         placementAnchors: request.placementAnchors ?? null,
         layoutDetectionComplete: request.options.matchPageSize
             ? request.layoutDetectionComplete === true
@@ -185,6 +186,8 @@ export interface IRetainedDocument {
     pinned: number;
     claims: Map<string, number>;
     removeWhenIdle: boolean;
+    /** Its views have closed while a claim still held it: removed once the last claim goes. */
+    retireWhenIdle?: boolean;
     sourcePdfPath: string;
 }
 
@@ -196,6 +199,8 @@ export interface IRetainedRawRaster {
     path: string;
     sizeBytes: number;
     width: number;
+    /** Set when the page was rendered through its MediaBox instead of its CropBox. */
+    view?: 'mediabox';
 }
 
 export interface IScanCleanupRasterRetention {
@@ -214,6 +219,7 @@ export interface IScanCleanupRasterRetention {
         pageNumber: number,
         dpi: number,
         claimId?: string,
+        view?: 'mediabox',
     ): Promise<void>;
     evictRaster(
         document: IRetainedDocument,
@@ -221,7 +227,7 @@ export interface IScanCleanupRasterRetention {
         dpi: number,
         claimId?: string,
     ): Promise<void>;
-    claimRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId: string): boolean;
+    claimRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId: string, view?: 'mediabox'): boolean;
     retainedPaths(
         document: IRetainedDocument,
         pageNumbers: readonly number[],
@@ -231,11 +237,12 @@ export interface IScanCleanupRasterRetention {
         document: IRetainedDocument,
         pageNumber: number,
         dpi: number,
+        view?: 'mediabox',
     ): Promise<{
         bytes: Uint8Array;
         raster: IRetainedRawRaster
     } | null>;
-    readPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<IRetainedRawRaster | null>;
+    readPath(document: IRetainedDocument, pageNumber: number, dpi: number, view?: 'mediabox'): Promise<IRetainedRawRaster | null>;
     materializeRawRaster(
         document: IRetainedDocument,
         pageNumber: number,

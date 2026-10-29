@@ -124,19 +124,22 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         held.set(victim, 'evicting');
         try {
             await dependencies.unstage(victim);
-            admitted.delete(victim);
         } catch (error) {
-            // A refused unlink is housekeeping: keep the raster admitted so
-            // disposal can drop it again, and let the waiting lease proceed.
-            log(
-                'warn',
-                `Scan cleanup could not drop staged detection raster for page ${victim}: ${getErrorMessage(error)}`,
-            );
-        } finally {
-            held.delete(victim);
-            released.delete(victim);
+            // A raster that could not be dropped still occupies its slot's
+            // bytes. The window was admitted for those bytes, so staging
+            // another page over it would exceed the disk bound: fail with the
+            // filesystem cause and leave the page admitted for disposal.
+            held.set(victim, 'ready');
             notifySlotWaiters();
+            throw new Error(
+                `Scan cleanup could not drop staged detection raster for page ${victim}: ${getErrorMessage(error)}`,
+                {cause: error},
+            );
         }
+        admitted.delete(victim);
+        held.delete(victim);
+        released.delete(victim);
+        notifySlotWaiters();
         return true;
     };
 
@@ -245,7 +248,13 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                         // Forward prefetch only reclaims a page native explicitly
                         // released. Unleased pages in the reading horizon may
                         // already be open by the sidecar.
-                        if (!await evictOneUnleasedPage(next, true)) break;
+                        // Read-ahead is optional: a raster it cannot drop stops
+                        // it here, and a lease that needs that slot reports why.
+                        const evicted = await evictOneUnleasedPage(next, true).catch((error: unknown) => {
+                            log('warn', getErrorMessage(error));
+                            return false;
+                        });
+                        if (!evicted) break;
                         continue;
                     }
                     void stageSinglePage(next).catch((error: unknown) => {

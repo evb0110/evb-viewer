@@ -70,7 +70,15 @@ const scanCleanupBinary = resolveCliNativeToolPath(
     return existsSync(debugBuild) ? debugBuild : null;
 })();
 const pdftoppmBinary = resolveCliNativeToolPath('pdftoppm', 'poppler', process.cwd());
-const pdfPageOpsBinary = resolveCliNativeToolPath('evb-pdf-page-ops', 'pdf-page-ops', process.cwd());
+const pdfPageOpsBinary = resolveCliNativeToolPath('evb-pdf-page-ops', 'pdf-page-ops', process.cwd(), process.env.EVB_PDF_PAGE_OPS_PATH);
+const missingNativeTools = [
+    scanCleanupBinary === null ? 'evb-scan-cleanup' : '',
+    pdftoppmBinary === null ? 'pdftoppm' : '',
+    pdfPageOpsBinary === null ? 'evb-pdf-page-ops' : '',
+].filter(Boolean);
+if (process.env.EVB_REQUIRE_SCAN_CLEANUP_NATIVE_TESTS === '1' && missingNativeTools.length > 0) {
+    throw new Error(`Required native detection integration prerequisites missing: ${missingNativeTools.join(', ')}`);
+}
 
 const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
@@ -113,7 +121,7 @@ async function writeVariableGeometryPdf(path: string) {
 
 describe.skipIf(
     scanCleanupBinary === null || pdftoppmBinary === null || pdfPageOpsBinary === null,
-)('scan cleanup detection against the real sidecar under a bounded window', () => {
+)(`scan cleanup detection against the real sidecar under a bounded window${missingNativeTools.length ? ` (skipped: missing ${missingNativeTools.join(', ')})` : ''}`, () => {
     it('analyzes every page of a document that does not fit the scratch budget whole', async () => {
         const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-e2e-'));
         dirs.push(temporaryRoot);

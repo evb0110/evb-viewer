@@ -34,6 +34,7 @@ import {
 } from '@contracts/scan-cleanup/inputLimits';
 import {
     decodeScanCleanupPageOverride,
+    decodeScanCleanupPageOverrideEdits,
     decodeScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {stringifyJson} from '@contracts/stringifyJson';
@@ -149,7 +150,10 @@ export interface IScanCleanupSettingsReadRequest {
 }
 
 export interface IScanCleanupDocumentPreferencePatch {
+    /** Replaces the whole map; only a reset sends it. */
     overrides?: TScanCleanupPageOverrides;
+    /** Edited pages, merged into the stored map; null removes a page's override. */
+    overrideEdits?: Record<string, IScanCleanupPageOverride | null>;
     pageOverrideDefaults?: IScanCleanupPageOverride;
     marginsMm?: IScanCleanupMarginsMm;
     outputMode?: TScanCleanupOutputModeSetting;
@@ -251,16 +255,102 @@ function decodeDocumentPatch(value: unknown): IScanCleanupDocumentPreferencePatc
     const overrides = stored.overrides === undefined
         ? undefined
         : decodeScanCleanupPageOverrides(stored.overrides);
+    const overrideEdits = stored.overrideEdits === undefined
+        ? undefined
+        : decodeScanCleanupPageOverrideEdits(stored.overrideEdits);
     const pageOverrideDefaults = stored.pageOverrideDefaults === undefined
         ? undefined
         : decodeScanCleanupPageOverride(stored.pageOverrideDefaults);
     return {
         ...(overrides === undefined ? {} : {overrides}),
+        ...(overrideEdits === undefined ? {} : {overrideEdits}),
         ...(pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(outputMode === undefined ? {} : {outputMode}),
         ...(stored.resetOverrides === undefined ? {} : {resetOverrides: stored.resetOverrides}),
     };
+}
+
+/**
+ * Coalesces two queued patches for one document. Later fields win, except
+ * page edits, which accumulate by page unless the later patch resets.
+ */
+export function mergeScanCleanupDocumentPreferencePatches(
+    previous: IScanCleanupDocumentPreferencePatch | undefined,
+    next: IScanCleanupDocumentPreferencePatch,
+): IScanCleanupDocumentPreferencePatch {
+    if (next.resetOverrides === true) {
+        // A reset discards every earlier page-level field, not only the ones
+        // the reset patch happens to restate.
+        const {
+            overrides: _overrides,
+            overrideEdits: _overrideEdits,
+            pageOverrideDefaults: _pageOverrideDefaults,
+            ...documentFields
+        } = previous ?? {};
+        return {
+            ...documentFields,
+            ...next,
+        };
+    }
+    const overrideEdits = previous?.overrideEdits === undefined && next.overrideEdits === undefined
+        ? undefined
+        : {
+            ...previous?.overrideEdits,
+            ...next.overrideEdits,
+        };
+    return {
+        ...previous,
+        ...next,
+        ...(overrideEdits === undefined ? {} : {overrideEdits}),
+    };
+}
+
+/**
+ * The one merge of a document patch into a stored entry, for every store that
+ * keeps document settings. A reset clears the overrides first; page edits
+ * then land on the map as it is stored, not on the map one view last loaded.
+ * Returns whether the patch wrote a value.
+ */
+export function applyScanCleanupDocumentPreferencePatch(
+    entry: Partial<Omit<IScanCleanupDocumentOverrideEntry, 'lastUsedAtMs'>>,
+    patch: IScanCleanupDocumentPreferencePatch,
+) {
+    const resetToEmpty = patch.resetOverrides === true
+        && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
+    let wrote = false;
+    if (resetToEmpty) {
+        Reflect.deleteProperty(entry, 'overrides');
+        Reflect.deleteProperty(entry, 'pageOverrideDefaults');
+    } else if (patch.overrides !== undefined) {
+        entry.overrides = cloneScanCleanupPreferenceValue(patch.overrides);
+        wrote = true;
+    }
+    if (patch.overrideEdits !== undefined) {
+        const overrides = {...entry.overrides};
+        for (const [
+            page,
+            override,
+        ] of Object.entries(patch.overrideEdits)) {
+            if (override === null) Reflect.deleteProperty(overrides, page);
+            else overrides[page] = cloneScanCleanupPreferenceValue(override);
+        }
+        entry.overrides = overrides;
+        wrote = true;
+    }
+    if (patch.pageOverrideDefaults !== undefined && !resetToEmpty) {
+        entry.pageOverrideDefaults = cloneScanCleanupPreferenceValue(patch.pageOverrideDefaults);
+        wrote = true;
+    }
+    if (patch.marginsMm !== undefined) {
+        entry.marginsMm = cloneScanCleanupPreferenceValue(patch.marginsMm);
+        wrote = true;
+    }
+    if (patch.outputMode !== undefined) {
+        entry.outputMode = patch.outputMode;
+        wrote = true;
+    }
+    return wrote;
 }
 
 export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCleanupSettingsUpdateRequest {

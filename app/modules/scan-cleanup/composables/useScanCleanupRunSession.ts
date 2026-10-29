@@ -148,7 +148,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     // A run is under way from the click, not from the job id: everything the
     // click set in motion — waiting for detection and the start request itself
     // — is work the user must be able to stop.
-    const isRunning = computed(() => isScanCleanupRunning.value || transition.value !== 'idle');
+    // This workspace's run, not the window's: another document's job is
+    // admission's business, and its Cancel belongs to that document.
+    const isRunning = computed(() => (isScanCleanupRunning.value && scanCleanupRun.ownerId === options.ownerId)
+        || transition.value !== 'idle');
+    const otherDocumentRunning = computed(() => isScanCleanupRunning.value
+        && scanCleanupRun.ownerId !== options.ownerId);
     let interruptPendingTransition: (() => void) | null = null;
     const cancelRefusal = ref('');
     const finishing = computed(() => scanCleanupRun.ownerId === options.ownerId
@@ -306,6 +311,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const canRun = computed(() => Boolean(options.sourcePath.value)
         && options.documentSettingsReady.value
         && !isRunning.value
+        && !otherDocumentRunning.value
         && hasIncludedPage.value
         && marginsAreValid.value
         && !placementAnchorCalibrationPending.value
@@ -343,6 +349,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         if (getScanCleanupCapability() === null) {
             return t('scanCleanup.runDisabled.unavailable');
+        }
+        if (otherDocumentRunning.value) {
+            return t('scanCleanup.runDisabled.otherDocumentRunning');
         }
         return '';
     });
@@ -495,6 +504,28 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         const stopWait = new Promise<void>(resolve => {
             interruptPendingTransition = resolve;
         });
+        // The attempt belongs to the document the click captured. Every wait
+        // before admission can outlive that document, so each one ends by
+        // asking again; a replaced document retires the attempt.
+        let attemptRetired = false;
+        const retireIfDocumentChanged = () => {
+            if (attemptRetired) return true;
+            if (
+                requestSourcePdfPath === options.sourcePath.value
+                && requestDocumentRevision === options.documentRevision.value
+            ) {
+                return false;
+            }
+            attemptRetired = true;
+            reportScanCleanupRunError(
+                options.ownerId,
+                t('scanCleanup.documentChangedBeforeRun'),
+                requestSourcePdfPath,
+                'internal',
+                requestDocumentRevision,
+            );
+            return true;
+        };
         let detectionRecoveryAttempted = false;
         const refreshDetectionOnce = async () => {
             if (detectionRecoveryAttempted) {
@@ -511,6 +542,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 !result.started
                 && result.errorCode === 'detection-results-unavailable'
                 && await refreshDetectionOnce()
+                && !retireIfDocumentChanged()
             ) {
                 result = await startScanCleanup(buildRequest());
             }
@@ -534,17 +566,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 return;
             }
-            if (
-                requestSourcePdfPath !== options.sourcePath.value
-                || requestDocumentRevision !== options.documentRevision.value
-            ) {
-                reportScanCleanupRunError(
-                    options.ownerId,
-                    t('scanCleanup.documentChangedBeforeRun'),
-                    requestSourcePdfPath,
-                    'internal',
-                    requestDocumentRevision,
-                );
+            if (retireIfDocumentChanged()) {
                 return;
             }
             const detectionStatus = options.detectionStatus.value;
@@ -660,7 +682,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             await nextTick();
             await options.beforeRun(stopWait);
             setScanCleanupRunError(options.ownerId, '');
-            if (isStopRequested()) {
+            if (isStopRequested() || retireIfDocumentChanged()) {
                 return;
             }
             const result = await startCleanupWithDetectionRecovery();
@@ -670,6 +692,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 if (result.started) await requestActiveJobCancellation(result.jobId);
                 return;
             }
+            if (attemptRetired) return;
             if (!result.started) {
                 reportScanCleanupRunError(
                     options.ownerId,

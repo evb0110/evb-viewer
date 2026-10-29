@@ -1012,19 +1012,17 @@ impl CleanupOptions {
         if width == 0 || height == 0 {
             return None;
         }
-        let left = (crop.x * width as f64).floor() as usize;
-        let top = (crop.y * height as f64).floor() as usize;
+        // Clamp each origin into the raster before deriving its extent, so a
+        // crop the validator's tolerance admits at the far edge keeps one pixel.
+        let left = ((crop.x * width as f64).floor() as usize).min(width - 1);
+        let top = ((crop.y * height as f64).floor() as usize).min(height - 1);
         let right = ((crop.x + crop.width) * width as f64).ceil() as usize;
         let bottom = ((crop.y + crop.height) * height as f64).ceil() as usize;
         Some(Rect::new(
-            left.min(width.saturating_sub(1)) as f64,
-            top.min(height.saturating_sub(1)) as f64,
-            right
-                .clamp(left.saturating_add(1), width)
-                .saturating_sub(left) as f64,
-            bottom
-                .clamp(top.saturating_add(1), height)
-                .saturating_sub(top) as f64,
+            left as f64,
+            top as f64,
+            (right.clamp(left + 1, width) - left) as f64,
+            (bottom.clamp(top + 1, height) - top) as f64,
         ))
     }
 

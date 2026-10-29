@@ -506,11 +506,11 @@ def photo_metrics(args: argparse.Namespace) -> None:
         with args.csv.open("w", newline="", encoding="utf-8") as output_handle:
             writer = csv.DictWriter(output_handle, fieldnames=PHOTO_FIELDS)
             writer.writeheader()
-            for row in boxes:
+            for row_index, row in enumerate(boxes, start=1):
                 page = int(row["page"])
                 raw_box, box_at_box_dpi = parse_box(row)
                 source_box = scaled_box(box_at_box_dpi, scale)
-                page_dir = scratch / f"page-{page}"
+                page_dir = scratch / f"page-{page}-box-{row_index}"
                 page_dir.mkdir()
                 source = render_page(args.source, page, args.render_dpi, page_dir / "source")
                 if (
@@ -657,7 +657,7 @@ def photo_metrics(args: argparse.Namespace) -> None:
                     labels.append("output")
                     write_comparison_crop(
                         args.crops
-                        / f"photo-{page:03d}-{'-'.join(labels)}.png",
+                        / f"photo-{page:03d}-box-{row_index:03d}-{'-'.join(labels)}.png",
                         panes,
                     )
 

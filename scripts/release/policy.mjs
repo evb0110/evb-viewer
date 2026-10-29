@@ -128,6 +128,17 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             output: 'scan_cleanup_export',
             owner: 'scan_cleanup_oracles',
             paths: [
+                // The oracles also run these native-backed checks and build
+                // pdf-page-ops, so their inputs select the job too.
+                'tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts',
+                'tests/unit/electron/scanCleanupPipeline.test.ts',
+                'tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts',
+                'native/pdf-page-ops/**',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
+                'scripts/lib/**',
+                'scripts/createCliRetention.ts',
+                'scripts/diagnostics/generate-scan-cleanup-**',
+                'tests/fixtures/release/scan-cleanup-**',
                 '.github/actions/setup-ci-env/**',
                 '.github/workflows/**',
                 'app/modules/scan-cleanup/**',

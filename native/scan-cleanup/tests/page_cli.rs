@@ -57,6 +57,78 @@ fn unmatched_options() -> CleanupOptions {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn allowed_path_root_rejects_symlink_followed_by_parent_before_publication() {
+    use std::os::unix::fs::symlink;
+
+    let scratch = Scratch::new("allowed-root-symlink-parent");
+    let root = scratch.path("allowed");
+    let outside = scratch.path("outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(outside.join("inner")).unwrap();
+    symlink(outside.join("inner"), root.join("link")).unwrap();
+    let input = root.join("input.png");
+    fs::write(&input, encode_gray(&GrayImage::new(80, 60, 120)).unwrap()).unwrap();
+    let victim = outside.join("output.png");
+    let decoy = root.join("output.png");
+    let sentinel = b"outside bytes must survive admission\0";
+    fs::write(&victim, sentinel).unwrap();
+    fs::write(&decoy, b"inside decoy").unwrap();
+    let escaped = root.join("link/../output.png");
+    assert_eq!(
+        fs::canonicalize(&escaped).unwrap(),
+        fs::canonicalize(&victim).unwrap()
+    );
+    let metadata = root.join("output.json");
+    let page_metadata = root.join("page.json");
+    let manifest = root.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    layout: LayoutMode::Single,
+                    ..unmatched_options()
+                },
+                "outputs": [{"outputPath": escaped, "metadataPath": metadata}],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .args(["--allowed-path-root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        fs::read(&victim).ok().as_deref(),
+        Some(sentinel.as_slice()),
+        "symlink/.. traversal must not publish outside the allowed root; status={}, stderr={}",
+        result.status,
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        !result.status.success(),
+        "an escaped destination must fail admission"
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+    assert_eq!(fs::read(&decoy).unwrap(), b"inside decoy");
+    assert!(!metadata.exists() && !page_metadata.exists());
+}
+
 fn assert_native_canvas_owns_image(metadata: &Value) {
     assert!(
         metadata["pdfImagePlacement"].is_null(),
@@ -2956,6 +3028,95 @@ fn per_page_ocr_mode_writes_atomic_png_and_metadata() {
     assert!(metadata_json["forwardTransform"]["matrix"].is_array());
 }
 
+fn direct_ocr_fixture(input: &std::path::Path) {
+    let mut image = GrayImage::new(100, 80, 240);
+    for y in (15..65).step_by(10) {
+        for x in 12..88 {
+            image.set(x, y, 20);
+            image.set(x, y + 1, 20);
+        }
+    }
+    fs::write(input, encode_gray(&image).unwrap()).unwrap();
+}
+
+fn run_direct_ocr(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    metadata: &std::path::Path,
+) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args([
+            "--input", input.to_str().unwrap(),
+            "--output", output.to_str().unwrap(),
+            "--metadata", metadata.to_str().unwrap(),
+            "--ocr-mode", "--options",
+            r#"{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center","normalizeIllumination":false}"#,
+        ])
+        .output().unwrap()
+}
+
+#[test]
+fn direct_ocr_metadata_failure_preserves_the_previous_output_bytes() {
+    let scratch = Scratch::new("ocr-rollback");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let output = scratch.path("output.png");
+    let sentinel = b"valuable previous output\0";
+    fs::write(&output, sentinel).unwrap();
+    let metadata = scratch.path("metadata-is-a-directory");
+    fs::create_dir(&metadata).unwrap();
+    let result = run_direct_ocr(&input, &output, &metadata);
+    assert!(
+        !result.status.success(),
+        "publishing metadata over a directory must fail"
+    );
+    assert_eq!(
+        fs::read(&output).ok().as_deref(),
+        Some(sentinel.as_slice()),
+        "direct OCR failure must restore the prior output, stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn direct_ocr_rejects_input_output_alias_without_losing_the_source() {
+    let scratch = Scratch::new("ocr-input-alias");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let original = fs::read(&input).unwrap();
+    let metadata = scratch.path("metadata-is-a-directory");
+    fs::create_dir(&metadata).unwrap();
+    let result = run_direct_ocr(&input, &input, &metadata);
+    assert_eq!(
+        fs::read(&input).ok().as_deref(),
+        Some(original.as_slice()),
+        "an OCR input/output alias must leave source bytes intact, stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!result.status.success());
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+}
+
+#[test]
+fn direct_ocr_rejects_output_metadata_alias_before_publishing_any_bytes() {
+    let scratch = Scratch::new("ocr-output-metadata-alias");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let output = scratch.path("output.png");
+    let result = run_direct_ocr(&input, &output, &output);
+    assert!(
+        !result.status.success(),
+        "direct OCR must reject output/metadata aliases rather than publish JSON as a PNG"
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+    assert!(
+        !output.exists(),
+        "alias admission must precede any output publication"
+    );
+}
+
 #[test]
 fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
     let scratch = Scratch::new("spread");
@@ -5584,4 +5745,89 @@ fn page_plan_content_box_excludes_a_deep_scanner_bed() {
         x <= 62.0 && y <= 200.0 && right >= 476.0 && bottom >= 652.0,
         "the body was cropped: {content}"
     );
+}
+
+fn assert_preview_boundary_crop_is_rejected_or_bounded(crop: NormalizedRect) {
+    let scratch = Scratch::new("preview-boundary-crop");
+    let input = scratch.path("input.png");
+    let mut source = GrayImage::new(100, 80, 240);
+    for y in (15..65).step_by(10) {
+        for x in 12..88 {
+            source.set(x, y, 20);
+            source.set(x, y + 1, 20);
+        }
+    }
+    fs::write(&input, encode_gray(&source).unwrap()).unwrap();
+    let output = scratch.path("preview.png");
+    let manifest = scratch.path("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("page.json"),
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    layout: LayoutMode::Single,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    render_crop: Some(crop),
+                    manual_skew_degrees: Some(0.0),
+                    ..unmatched_options()
+                },
+                "outputs": [{"outputPath": output, "metadataPath": scratch.path("output.json")}],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "preview boundary crop must be rejected or bounded without a native panic: {stderr}"
+    );
+    if result.status.success() {
+        let image = decode_gray(&fs::read(&output).unwrap(), 10_000, 200).unwrap();
+        assert!(image.width() > 0 && image.width() <= 100);
+        assert!(image.height() > 0 && image.height() <= 80);
+    } else {
+        let error: Value = serde_json::from_slice(&result.stderr)
+            .expect("boundary rejection must use a typed error envelope");
+        assert_eq!(
+            error["code"], "invalid-request",
+            "an admitted preview crop must not become an internal render failure: {error}"
+        );
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn preview_right_boundary_crop_is_rejected_or_rendered_without_panicking() {
+    assert_preview_boundary_crop_is_rejected_or_bounded(NormalizedRect {
+        x: 1.0,
+        y: 0.0,
+        width: 1e-10,
+        height: 1.0,
+        rotation: OrthogonalRotation::None,
+    });
+}
+
+#[test]
+fn preview_bottom_boundary_crop_is_rejected_or_rendered_without_panicking() {
+    assert_preview_boundary_crop_is_rejected_or_bounded(NormalizedRect {
+        x: 0.0,
+        y: 1.0,
+        width: 1.0,
+        height: 1e-10,
+        rotation: OrthogonalRotation::None,
+    });
 }

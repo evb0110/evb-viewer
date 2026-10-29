@@ -1671,12 +1671,14 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 page.pageNumber,
                 await getPageRaster(resolvedSourceRasterStructure, page.pageNumber),
             ] as const)));
-            const retryManifestPages = renderedRetryPages.map((page, index) => {
+            // The manifest names each source page, whose authored overrides it
+            // resolves; native progress counts manifest ordinals separately.
+            const retryManifestPages = renderedRetryPages.map((page) => {
                 const sourceRaster = retryRasterByNumber.get(page.pageNumber);
                 const sourceBackgroundDpi = sourceRaster?.backgroundDpi;
                 return {
                     inputPath: page.path,
-                    pageNumber: index + 1,
+                    pageNumber: page.pageNumber,
                     dpi: page.dpi,
                     sourceDpi: resolvePageGeometrySourceDpi(
                         page.sourcePage,

@@ -5,6 +5,7 @@ import {
     defaultDependencies, scanCleanupPreviewLifecycle, type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     readdir, readFile, rm, stat, truncate, writeFile,
 } from 'fs/promises';
@@ -475,6 +476,55 @@ export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): P
     await expect(Promise.resolve(rasterSource.getPageRaster(1)))
         .resolves.toMatchObject({dpi: 300});
     expect(deps.detectRasterPages).toHaveBeenCalledTimes(2);
+    await retention.dispose();
+
+}
+
+export async function scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails(): Promise<void> {
+
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
+    // 2,550 px across 612 pt is a measured 300 dpi page image.
+    const page = {
+        ...DOCUMENT_PAGE_SIZES[0]!,
+        pageNumber: 1,
+        widthPoints: 612,
+        heightPoints: 792,
+        dominantImageWidthPx: 2_550,
+        dominantImageHeightPx: 3_300,
+        dominantImageWidthPoints: 612,
+        dominantImageHeightPoints: 792,
+    };
+    const store: IPdfPageSizeStore = {
+        pageCount: 1,
+        getPage: vi.fn(async () => page),
+        readRange: vi.fn(async () => [page]),
+        forEachChunk: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+        fork: vi.fn(() => store),
+    };
+    deps.getPageCount = vi.fn(async () => 1);
+    deps.getPageSizeStore = vi.fn(() => store);
+    deps.isRasterDetectionAvailable = () => true;
+    deps.detectRasterPages = vi.fn(async () => {
+        throw new Error('pdfimages failed');
+    });
+    const retention = scanCleanupRasterRetention(deps);
+    const document = await retention.openDocument({
+        sourcePdfPath: join(dir, 'source.pdf'),
+        documentRevision: 'revision-1',
+    });
+    const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+
+    const raster = await Promise.resolve(rasterSource.getPageRaster(1));
+    expect(raster).toMatchObject({
+        dpi: 300,
+        width: 2_550,
+        height: 3_300,
+    });
+    expect(raster?.hasBilevelLayer).not.toBe(true);
     await retention.dispose();
 
 }
@@ -1531,6 +1581,39 @@ export async function scenarioReleasesClaimAfterExceptionalRetainedMetadataRead(
     await scenarioReleasesClaimAfterExceptionalRetainedRead('metadata');
 }
 describe('scanCleanupRasterRetentionTest', () => {
+    it('settles every pending raster read when an evicted page is requested again before the batch flush', async () => {
+        const {
+            dir, deps,
+        } = await previewDependencies();
+        const pages = Array.from({length: 96}, (_, index) => ({
+            ...DOCUMENT_PAGE_SIZES[0]!,
+            pageNumber: index + 1,
+        }));
+        deps.getPageSizeStore = async () => createArrayBackedPdfPageSizeStore(pages);
+        const retention = scanCleanupRasterRetention(deps);
+        try {
+            const document = await retention.openDocument({
+                sourcePdfPath: join(dir, 'source.pdf'),
+                documentRevision: 'pending-reads',
+            });
+            const source = await retention.rasterPageSource(document, new AbortController().signal);
+            const settledPages: number[] = [];
+            // Both consumers enter in one turn, before the scheduled batch
+            // flush. Page 1 is already outside the completed-fact cache size.
+            const reads = pages.map(page => Promise.resolve(source.getPageRaster(page.pageNumber)).then(raster => {
+                settledPages.push(page.pageNumber);
+                return raster;
+            }));
+            const replacement = await source.getPageRaster(1);
+            await Promise.all(reads.slice(1));
+
+            expect(settledPages, 'every original caller must receive its raster, including page 1').toContain(1);
+            await expect(reads[0]).resolves.toEqual(replacement);
+        } finally {
+            await retention.dispose();
+        }
+    });
+
     it('exposes its retention boundary as the live raw-raster owner', async () => {
         const owner = scanCleanupRasterRetention(defaultDependencies);
         expect(owner).toHaveProperty('retain');
@@ -1560,6 +1643,10 @@ describe('scanCleanupRasterRetentionTest', () => {
         [
             'reject raster fact reads when the native probe fails',
             scenarioRejectsRasterFactReadsWhenTheNativeProbeFails,
+        ],
+        [
+            'keep measured raster facts when the structure probe fails',
+            scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails,
         ],
         [
             'serve forked page-size reads',

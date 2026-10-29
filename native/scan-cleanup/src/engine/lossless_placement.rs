@@ -393,13 +393,12 @@ pub(crate) fn plan_lossless_page(
             .max(0.0)
     });
     let margins_requested = requested.iter().any(|margin| *margin > 0.0);
-    let margins_available = options.crop_content;
-    let fitted = {
-        let [left, top, right, bottom] = if margins_available {
-            requested
-        } else {
-            [0.0; 4]
-        };
+    // The raster route's rule: margins frame detected content, so an output
+    // whose detection abstained keeps its whole page without them.
+    let margins_available =
+        |output: &AnalysisOutputMetadata| options.crop_content && output.content_box.is_some();
+    let fit_margins = |available: bool| {
+        let [left, top, right, bottom] = if available { requested } else { [0.0; 4] };
         let (left_px, right_px) = fit_margin_axis(left, right, grid_width);
         let (top_px, bottom_px) = fit_margin_axis(top, bottom, grid_height);
         let visual = Insets {
@@ -418,6 +417,9 @@ pub(crate) fn plan_lossless_page(
             reduced: left_px != left || top_px != top || right_px != right || bottom_px != bottom,
         }
     };
+    let frames = [fit_margins(false), fit_margins(true)];
+    let frame_for =
+        |output: &AnalysisOutputMetadata| &frames[usize::from(margins_available(output))];
     // Split halves share one frame: the oriented sheet divided by output count.
     let paper = |half: PageHalf| {
         let divisor = if half == PageHalf::Full { 1.0 } else { 2.0 };
@@ -431,6 +433,7 @@ pub(crate) fn plan_lossless_page(
         .iter()
         .zip(&crops)
         .map(|(output, crop)| {
+            let fitted = frame_for(output);
             let (paper_width, paper_height) = paper(output.half);
             let paper_scale = fit_scale(box_width, box_height, paper_width, paper_height);
             let leaf_fit = fit_scale(
@@ -454,9 +457,10 @@ pub(crate) fn plan_lossless_page(
     });
     let preview_grid = preview.then(|| canvas.at_dpi(canvas.dpi().floor().max(1.0)));
     for ((output, crop), (paper_scale, leaf_fit)) in outputs.iter_mut().zip(crops).zip(scales) {
+        let fitted = frame_for(output);
         let (paper_width, paper_height) = paper(output.half);
         let mut warning_events = Vec::new();
-        if margins_requested && !margins_available {
+        if margins_requested && !margins_available(output) {
             warning_events.push(CleanupWarningEvent::MatchedCanvasMarginsUnavailable);
         }
         if fitted.reduced {
@@ -739,6 +743,71 @@ mod tests {
             width_px: 2550,
             height_px: 3300,
         }
+    }
+
+    #[test]
+    fn abstained_content_detection_keeps_full_page_unscaled_without_matched_margins() {
+        let mut outputs = [output(
+            PageHalf::Full,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            (100, 100),
+        )];
+        outputs[0].content_box = None;
+        let options = CleanupOptions {
+            dpi: 100.0,
+            crop_content: true,
+            match_page_size: true,
+            ..options([5.08; 4], PageAlignment::TopCenter)
+        };
+        let canvas = DocumentCanvas {
+            width_points: 72.0,
+            height_points: 72.0,
+            width_px: 100,
+            height_px: 100,
+        };
+        let raster = crate::engine::output_geometry::plan_canvas_placement_for(
+            100,
+            100,
+            100.0,
+            100.0,
+            false,
+            &options,
+            PageHalf::Full,
+            &canvas,
+        );
+        assert!(raster.margins_unavailable);
+        assert_eq!(raster.requested_margins, [0; 4]);
+        plan_lossless_page(
+            &mut outputs,
+            &PdfPageGeometry {
+                source_dpi: 100.0,
+                ..page(72.0, 72.0, 0)
+            },
+            OrthogonalRotation::None,
+            &options,
+            Some(canvas),
+            true,
+        );
+        let placement = outputs[0].pdf_placement.as_ref().unwrap();
+        let preview = placement.preview.unwrap();
+        assert_eq!(
+            preview.margins,
+            AppliedMargins::from([0.0; 4]),
+            "lossless placement must omit unavailable margins just as raster placement does"
+        );
+        assert!(
+            !placement.content_scaled,
+            "abstaining must retain the full page at its original scale"
+        );
+        assert!(placement.content_transform.is_none());
+        assert_eq!(
+            (preview.content_width_px, preview.content_height_px),
+            (100, 100)
+        );
+        assert_eq!((preview.offset_x_px, preview.offset_y_px), (0, 0));
+        assert!(placement
+            .warning_events
+            .contains(&CleanupWarningEvent::MatchedCanvasMarginsUnavailable));
     }
 
     #[test]

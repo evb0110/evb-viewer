@@ -137,11 +137,15 @@ fn supported_line_count_one_way(profile: &[f64], estimated_period: usize) -> usi
         .map(|(value, local)| (value - local).max(0.0))
         .collect();
     let mean = residual.iter().sum::<f64>() / residual.len() as f64;
-    let deviation = residual
+    // The standard deviation: sum of squares over n, then the root. Dividing
+    // the sum by sqrt(n) gave variance times sqrt(n), so a long or high-ink
+    // profile raised the peak floor above every line it had.
+    let deviation = (residual
         .iter()
         .map(|value| (value - mean).powi(2))
         .sum::<f64>()
-        / (residual.len().max(1) as f64).sqrt();
+        / residual.len().max(1) as f64)
+        .sqrt();
     let peak_floor = mean + deviation * 0.35;
     let half_window = (estimated_period * 2 / 5).clamp(3, 24);
     let min_separation = (estimated_period * 3 / 5).clamp(4, 36);
@@ -228,6 +232,37 @@ mod tests {
 
     fn fixture(bytes: &[u8]) -> GrayImage {
         decode_gray(bytes, DEFAULT_MAX_PIXELS, DEFAULT_MAX_DIMENSION).unwrap()
+    }
+
+    fn dense_periodic_page() -> GrayImage {
+        let mut image = GrayImage::new(400, 1000, 255);
+        for y in 40..960 {
+            if y % 16 < 5 {
+                for x in 16..384 {
+                    image.set(x, y, 0);
+                }
+            }
+        }
+        image
+    }
+
+    #[test]
+    fn dense_periodic_upright_page_retains_its_text_axis_hint() {
+        let hint = detect_text_axis(&dense_periodic_page(), 128);
+        assert!(
+            hint.is_some_and(|axis| !axis.sideways && axis.confidence >= MIN_AXIS_CONFIDENCE),
+            "57 dense horizontal lines must support an upright text-axis hint, got {hint:?}"
+        );
+    }
+
+    #[test]
+    fn dense_periodic_sideways_page_retains_its_attention_hint() {
+        let sideways = rotate_clockwise(&dense_periodic_page());
+        let hint = detect_text_axis(&sideways, 128);
+        assert!(
+            hint.is_some_and(|axis| axis.sideways && axis.confidence >= MIN_AXIS_CONFIDENCE),
+            "57 dense vertical lines must support the sideways-page attention hint, got {hint:?}"
+        );
     }
 
     #[test]

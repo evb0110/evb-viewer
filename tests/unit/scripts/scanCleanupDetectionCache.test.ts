@@ -6,7 +6,9 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname, join,
+} from 'node:path';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
@@ -21,6 +23,7 @@ import {
 import * as cliAdapters from '@scripts/scanCleanupCliAdapters';
 import * as detectionCache from '@scripts/scanCleanupDetectionCache';
 import * as conversion from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {ScanCleanupPdfValidationError} from '@evb/scan-cleanup/core/errors';
 import {assembleWithCompactSourcePages} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     main, buildScanCleanupCliDetectionRequestFields,
@@ -85,6 +88,43 @@ const result: IScanCleanupDetectionResult = {
     clusterAgreement: 1,
 };
 
+async function runCliRegression(converter: typeof conversion.runScanCleanupConversion) {
+    const directory = await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-report-regression-'));
+    temporaryDirectories.push(directory);
+    const source = join(directory, 'source.pdf');
+    const output = join(directory, 'output.pdf');
+    await writeFile(source, '%PDF-source');
+    const argv = process.argv;
+    try {
+        process.argv = [
+            'node',
+            'scan-cleanup-convert.ts',
+            '--source',
+            source,
+            '--out',
+            output,
+            '--no-crop-content',
+            '--no-match-page-size',
+        ];
+        vi.spyOn(cliAdapters, 'resolveCliNativeToolPath').mockImplementation(binary => `/native/${binary}`);
+        vi.spyOn(cliAdapters, 'runCliNativeToolCommand').mockResolvedValue({
+            exitCode: 0,
+            stdout: '1',
+            stderr: '',
+        });
+        vi.spyOn(detectionCache, 'runScanCleanupDetectionWithCache').mockResolvedValue({results: [result]});
+        vi.spyOn(conversion, 'runScanCleanupConversion').mockImplementation(converter);
+        await main();
+        return {
+            directory,
+            output,
+        };
+    } finally {
+        process.argv = argv;
+        vi.restoreAllMocks();
+    }
+}
+
 afterEach(async () => {
     await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
         force: true,
@@ -93,6 +133,88 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup detection cache', () => {
+    it('keeps the invalid staged PDF named by a core validation failure after CLI settlement', async () => {
+        let failure: ScanCleanupPdfValidationError | undefined;
+        try {
+            await expect(runCliRegression(async (_request, paths) => {
+                const scratch = await mkdtemp(join(paths.tempDir, 'evb-scan-cleanup-'));
+                const stagedPdfPath = join(scratch, 'cleaned.pdf');
+                await writeFile(stagedPdfPath, '%PDF-invalid-xref-diagnostic');
+                failure = new ScanCleanupPdfValidationError(stagedPdfPath, 'malformed xref');
+                throw failure;
+            })).rejects.toMatchObject({code: 'SCAN_CLEANUP_PDF_VALIDATION_FAILED'});
+
+            expect(failure).toBeDefined();
+            // The core error's path is the diagnostic contract supplied to the
+            // outer owner. It must still be readable once that owner settles.
+            await expect(readFile(failure!.stagedPdfPath, 'utf8')).resolves.toBe('%PDF-invalid-xref-diagnostic');
+        } finally {
+            if (failure !== undefined) await rm(dirname(dirname(failure.stagedPdfPath)), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('includes streaming sidecar mappings and page records in the CLI machine summary', async () => {
+        const mapping = {
+            sourcePage: 1,
+            outputOrdinal: 1,
+            half: 'full',
+            rotationDegrees: 0,
+            excluded: false,
+            blank: false,
+        };
+        const page = {
+            sourcePageNumber: 1,
+            outputPageNumber: 1,
+            outputOrdinal: 1,
+            representation: 'color',
+        };
+        const fixture = await runCliRegression(async (request, _paths, _signal, _progress, _policy, _log, dependencies) => {
+            await writeFile(request.outputPdfPath, '%PDF-output');
+            const evidence = dependencies.evidenceDirectory!;
+            const outputMappingsSidecarPath = join(evidence, 'output-mappings.jsonl');
+            const pagesSidecarPath = join(evidence, 'pages.jsonl');
+            await writeFile(outputMappingsSidecarPath, `${JSON.stringify(mapping)}\n`);
+            await writeFile(pagesSidecarPath, `${JSON.stringify(page)}\n`);
+            await writeFile(join(evidence, 'scan-cleanup-representation-report.json'), JSON.stringify({
+                schemaVersion: 1,
+                outputBytes: 11,
+                outputToSourceByteRatio: 1,
+                pages: [],
+                outputMappings: [],
+                outputMappingsSidecarPath,
+                pagesSidecarPath,
+            }));
+            await writeFile(join(evidence, 'scan-cleanup-provenance-stamp.json'), JSON.stringify({
+                buildIds: {
+                    assemblerBackend: 'native',
+                    transportMode: 'path',
+                },
+                resolvedPlanSha256: 'a'.repeat(64),
+            }));
+            return {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                warnings: [],
+            };
+        });
+        const summary = JSON.parse(await readFile(`${fixture.output}.summary.json`, 'utf8'));
+        expect(summary.sourcePageToOutputPages).toEqual([{
+            sourcePage: 1,
+            outputPages: [1],
+        }]);
+        expect(summary.perPageStreamSizes).toEqual([page]);
+        expect(summary.representation.outputMappings).toEqual([mapping]);
+    });
+
     it.each([
         false,
         true,

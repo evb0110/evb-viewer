@@ -49,7 +49,9 @@ import {
     documentPrior,
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {mainJobBroker} from '@electron/resources/jobBroker';
+import {
+    createStableJobBrokerOwnerId, mainJobBroker,
+} from '@electron/resources/jobBroker';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
@@ -1742,6 +1744,78 @@ export async function scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeate
 
 }
 describe('scanCleanupDetectionLifecycleTest', () => {
+    it('carries the accepted MediaBox view together with its preview page plan', async () => {
+        const {deps} = await previewDependencies();
+        const service = createDetectionScenarioOwner(deps);
+        const subscriber = sender();
+        const pageNumber = requirePageNumber(1);
+        const sourcePageMetadata = {
+            pageNumber,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 841.89,
+            heightPoints: 633.89,
+            rotation: 0 as const,
+            sourceDpi: 150,
+            renderBox: 'mediabox' as const,
+        };
+        const pagePlanEvidence = {
+            pageNumber,
+            rotationDegrees: 0 as const,
+            layoutClassification: 'two-page-spread' as const,
+            automaticSplit: {
+                xNormalized: 0.5,
+                rotationDegrees: 0 as const,
+            },
+            outputs: {},
+        };
+        const record: IScanCleanupDetectionResult = {
+            pageNumber,
+            classification: 'two-page-spread',
+            confidence: 1,
+            cutterXPx: 877,
+            tier1Verdict: 'two-page-spread',
+            reconciled: false,
+            clusterAgreement: 1,
+            documentPrior: null,
+            pagePlanEvidence,
+            sourcePageMetadata,
+        };
+        registerScanCleanupDetectionResultStore({
+            detectionSignature: createScanCleanupDetectionSignature(request.options),
+            documentRevision: request.documentRevision,
+            ownerId: request.ownerId,
+            ownerKey: createStableJobBrokerOwnerId('scan-cleanup', subscriber.id, request.ownerId),
+            sourcePdfPath: request.sourcePdfPath,
+            resultStore: {
+                pageCount: 1,
+                resultCount: 1,
+                append: async () => undefined,
+                replace: async () => undefined,
+                close: async () => undefined,
+                getPage: async () => record,
+                readRange: async () => [record],
+                forEachChunk: async onChunk => { await onChunk([record], 1); },
+            },
+        });
+        try {
+            const resolved = await service.resolvePreviewPagePlan(subscriber, {
+                ...request,
+                pageNumber,
+            });
+            // A normalized split measured on a wider source view must never be
+            // replayed against the original portrait CropBox raster.
+            expect(resolved.pagePlanEvidence).toEqual(pagePlanEvidence);
+            const decoded = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[
+                SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels.preview
+            ].decodeArgs([resolved])[0];
+            expect(decoded).toMatchObject({sourcePageMetadata});
+        } finally {
+            await releaseScanCleanupDetectionResultStoreOwner(request.ownerId);
+            await service.dispose();
+        }
+    });
+
     it('coalesces store calibration and rebuilds it for current placement options', async () => {
         const options: IScanCleanupOptions = {
             preserveOriginalQuality: false,

@@ -6,6 +6,7 @@ import {
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
+import {existsSync} from 'node:fs';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
     defaultDependencies, scanCleanupPreviewLifecycle,
@@ -37,6 +38,12 @@ import {
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    clearWorkingCopyQuarantinesForTests,
+    isWorkingCopyQuarantined,
+} from '@electron/file-access/workingCopyQuarantine';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const HOST_RAM_BYTES = 16 * 1024 * 1024 * 1024;
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
@@ -97,14 +104,127 @@ async function previewDependencies() {
 }
 
 afterEach(async () => {
+    clearWorkingCopyQuarantinesForTests();
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         recursive: true,
         force: true,
     })));
 });
 
+it('preserves preview inputs and quarantines the source when close cannot prove native termination', async () => {
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const entered = Promise.withResolvers<string>();
+    deps.runSidecar = async (_binary, manifestPath, signal) => {
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
+        entered.resolve(manifest.pages[0]!.inputPath);
+        await new Promise<never>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(markUnprovenNativeTermination(
+                new DOMException('Preview reader may still be alive', 'AbortError'),
+                'Preview native tree was not proven stopped',
+            )), {once: true});
+        });
+    };
+    const service = scanCleanupPreviewLifecycle(deps);
+    const owner = lifecycleSender(731);
+    const previewRequest = {
+        ...request,
+        sourcePdfPath: join(dir, 'source.pdf'),
+        options: {
+            ...request.options,
+            matchPageSize: false,
+        },
+    };
+    const pending = service.preview(owner, previewRequest).catch((error: unknown) => error);
+    try {
+        const inputPath = await entered.promise;
+        const inputBytes = await readFile(inputPath);
+        const operations = cancelMainOperationsForClosingWorkingCopy(
+            previewRequest.sourcePdfPath,
+            'Document closed during preview',
+            {isRegistrationCurrent: () => true},
+        );
+        expect(operations).toHaveLength(1);
+        await Promise.all(operations!.map(operation => operation.settled));
+        await pending;
+
+        expect.soft(isWorkingCopyQuarantined(previewRequest.sourcePdfPath), 'close must preserve a source with an unproven native reader').toBe(true);
+        expect.soft(existsSync(inputPath), 'the unproven reader must retain its raster input').toBe(true);
+        if (existsSync(inputPath)) await expect(readFile(inputPath)).resolves.toEqual(inputBytes);
+    } finally {
+        await service.dispose();
+        await pending;
+    }
+});
+
+it('retires document geometry after close requested while detection still holds the document', async () => {
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const geometry = createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
+    deps.getPageSizeStore = async () => geometry;
+    const entered = Promise.withResolvers<undefined>();
+    deps.runSidecar = async (_binary, _manifestPath, signal) => {
+        entered.resolve(undefined);
+        await new Promise<never>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+        });
+    };
+    const service = scanCleanupPreviewLifecycle(deps);
+    const owner = lifecycleSender(732);
+    const detection = {
+        ...detectionRequest,
+        sourcePdfPath: join(dir, 'source.pdf'),
+    };
+    try {
+        const started = await service.detectAll(owner, detection);
+        await entered.promise;
+        await expect(geometry.getPage(1)).resolves.toMatchObject({pageNumber: 1});
+
+        // Document close reaches preview cancellation before the registered
+        // detection operation unwinds. Its live geometry claim must defer
+        // retirement, rather than discard the close intent.
+        service.cancel(owner, detection);
+        await expect(geometry.getPage(1)).resolves.toMatchObject({pageNumber: 1});
+        const operations = cancelMainOperationsForClosingWorkingCopy(
+            detection.sourcePdfPath,
+            'Document closed during detection',
+            {isRegistrationCurrent: () => true},
+        );
+        expect(operations).toHaveLength(1);
+        await Promise.all(operations!.map(operation => operation.settled));
+
+        expect(service.getDetectionJobState(owner, started.jobId, detection)?.status).toBe('canceled');
+        await expect.soft(Promise.resolve().then(() => geometry.getPage(1)), 'closed documents must release their geometry reader').rejects.toThrow(/closed/iu);
+        const rasterRoots = (await readdir(dir)).filter(name => name.startsWith('scan-cleanup-rasters-'));
+        const retainedDocuments = (await Promise.all(rasterRoots.map(root => readdir(join(dir, root))))).flat();
+        expect(retainedDocuments, 'document close must retire the document directory once detection releases it').toEqual([]);
+    } finally {
+        await service.dispose();
+    }
+});
+
 async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecommendation: 'mixed' | undefined): Promise<void> {
     const {deps} = await previewDependencies();
+    // Reuse is proven as conversion requires: page 1's 1000x1400 px, 150 DPI
+    // image fills its zero-origin page, and the extracted 300 DPI foreground
+    // covers the same 480x672 pt.
+    const provenPages = DOCUMENT_PAGE_SIZES.map(page => page.pageNumber !== 1 ? page : {
+        ...page,
+        widthPoints: 480,
+        heightPoints: 672,
+        mediaXPoints: 0,
+        mediaYPoints: 0,
+        mediaWidthPoints: 480,
+        mediaHeightPoints: 672,
+        dominantImageWidthPx: 1_000,
+        dominantImageHeightPx: 1_400,
+        dominantImageWidthPoints: 480,
+        dominantImageHeightPoints: 672,
+    });
+    deps.getPageSizes = vi.fn(async () => provenPages);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(provenPages));
     deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
         pages: [1],
         bilevelLayerPages: [1],
@@ -128,7 +248,7 @@ async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecomme
         return {
             backgroundDpi: 100,
             backgroundPath: backgroundOutputPath,
-            foregroundDpi: 600,
+            foregroundDpi: 300,
             foregroundHeight: 2_800,
             foregroundPath,
             foregroundWidth: 2_000,

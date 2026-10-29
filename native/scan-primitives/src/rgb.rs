@@ -108,33 +108,22 @@ impl RgbImage {
     }
 
     fn area_average_to_dimensions(&self, out_width: usize, out_height: usize) -> Self {
+        let x_taps = crate::gray::area_taps(self.width, out_width);
+        let y_taps = crate::gray::area_taps(self.height, out_height);
+        let area = self.width as u64 * self.height as u64;
         let mut output = Self::new(out_width, out_height, [255; 3]);
         output
             .data_mut()
             .par_chunks_mut(out_width * 3)
             .enumerate()
             .for_each(|(output_y, row)| {
-                let y0 = output_y * self.height / out_height;
-                let y1 = ((output_y + 1) * self.height / out_height)
-                    .max(y0 + 1)
-                    .min(self.height);
-                for (output_x, target) in row.chunks_exact_mut(3).enumerate() {
-                    let x0 = output_x * self.width / out_width;
-                    let x1 = ((output_x + 1) * self.width / out_width)
-                        .max(x0 + 1)
-                        .min(self.width);
-                    let mut sums = [0u64; 3];
-                    let mut count = 0u64;
-                    for y in y0..y1 {
-                        for x in x0..x1 {
-                            let pixel = self.get(x, y);
-                            for (channel, sum) in sums.iter_mut().enumerate() {
-                                *sum += u64::from(pixel[channel]);
-                            }
-                            count += 1;
-                        }
+                let mut columns = vec![0u64; self.width * 3];
+                crate::gray::accumulate_rows(&mut columns, &y_taps[output_y], |y| self.row(y));
+                for (target, taps) in row.chunks_exact_mut(3).zip(&x_taps) {
+                    for (channel, value) in target.iter_mut().enumerate() {
+                        *value =
+                            (crate::gray::weighted_sum(&columns, taps, 3, channel) / area) as u8;
                     }
-                    target.copy_from_slice(&sums.map(|sum| (sum / count.max(1)) as u8));
                 }
             });
         output
@@ -144,6 +133,26 @@ impl RgbImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fractional_horizontal_reduction_integrates_partial_pixel_coverage() {
+        let source = RgbImage::from_vec(3, 1, vec![0, 0, 0, 255, 255, 255, 255, 255, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(2, 1).data(),
+            &[85, 85, 85, 255, 255, 255],
+            "RGB reduction must integrate the half-covered white pixel"
+        );
+    }
+
+    #[test]
+    fn fractional_vertical_reduction_preserves_symmetric_tones() {
+        let source = RgbImage::from_vec(1, 3, vec![255, 255, 255, 0, 0, 0, 255, 255, 255]).unwrap();
+        assert_eq!(
+            source.resample_to_dimensions(1, 2).data(),
+            &[170; 6],
+            "RGB reduction must preserve the symmetry of a white-black-white column"
+        );
+    }
 
     #[test]
     fn construction_rows_and_mutation_match_the_scan_cleanup_type() {

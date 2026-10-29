@@ -2,6 +2,7 @@ import type { IScanCleanupCapability } from '@contracts/scan-cleanup/electronApi
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { createJobId } from '@contracts/shared';
 import {
+    applyScanCleanupDocumentPreferencePatch,
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
     type IScanCleanupDocumentOverrideEntry,
@@ -16,29 +17,13 @@ function applyBrowserDocumentSettings(
     document: NonNullable<IScanCleanupSettingsUpdateRequest['document']>,
 ) {
     const sourceSha256 = document.sourceSha256.toLowerCase();
-    const patch = cloneScanCleanupPreferenceValue(document.patch);
+    const patch = document.patch;
     const previous = browserSettingsFile.documentOverrides[sourceSha256];
     const nextEntry: IScanCleanupDocumentOverrideEntry = {
         ...(previous ?? {}),
         lastUsedAtMs: Date.now(),
     };
-    const resetToEmptyOverrides = patch.resetOverrides === true
-        && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
-    if (resetToEmptyOverrides) {
-        Reflect.deleteProperty(nextEntry, 'overrides');
-        Reflect.deleteProperty(nextEntry, 'pageOverrideDefaults');
-    } else if (patch.overrides !== undefined) {
-        nextEntry.overrides = cloneScanCleanupPreferenceValue(patch.overrides);
-    }
-    if (patch.pageOverrideDefaults !== undefined && !resetToEmptyOverrides) {
-        nextEntry.pageOverrideDefaults = cloneScanCleanupPreferenceValue(patch.pageOverrideDefaults);
-    }
-    if (patch.marginsMm !== undefined) {
-        nextEntry.marginsMm = cloneScanCleanupPreferenceValue(patch.marginsMm);
-    }
-    if (patch.outputMode !== undefined) {
-        nextEntry.outputMode = patch.outputMode;
-    }
+    applyScanCleanupDocumentPreferencePatch(nextEntry, patch);
     const hasDocumentValues = nextEntry.overrides !== undefined
         || nextEntry.pageOverrideDefaults !== undefined
         || nextEntry.marginsMm !== undefined
