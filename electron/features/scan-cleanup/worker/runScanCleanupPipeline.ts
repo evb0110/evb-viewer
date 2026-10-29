@@ -1,3 +1,7 @@
+import {
+    dirname,
+    join,
+} from 'node:path';
 import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
@@ -23,12 +27,15 @@ import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHan
 import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {isScanCleanupRunReportFile} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/runScanCleanupConversion';
+
+const SCAN_CLEANUP_RUN_REPORT_DIRECTORY = 'report';
 
 const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
@@ -59,6 +66,9 @@ export async function runScanCleanupPipeline(
         request.options.pageOverrideDefaults,
         request.options.marginsMm,
     );
+    // Without the developer evidence directory, the run's compact report stays
+    // beside its generated PDF and shares that output's lifetime, so a support
+    // question about a finished run can still be answered from disk.
     return runScanCleanupConversion(
         request,
         paths,
@@ -66,7 +76,13 @@ export async function runScanCleanupPipeline(
         onProgress,
         policy,
         log,
-        dependencies,
+        dependencies.evidenceDirectory === undefined
+            ? {
+                ...dependencies,
+                evidenceDirectory: join(dirname(request.outputPdfPath), SCAN_CLEANUP_RUN_REPORT_DIRECTORY),
+                evidenceFileFilter: isScanCleanupRunReportFile,
+            }
+            : dependencies,
     );
 }
 

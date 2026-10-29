@@ -515,6 +515,8 @@ export interface IRunScanCleanupPipelineRequest {
 
 export interface IRunScanCleanupPipelineDependencies {
     evidenceDirectory?: string | undefined;
+    /** Which top-level scratch JSON files the evidence directory keeps; all when omitted. */
+    evidenceFileFilter?: ((fileName: string) => boolean) | undefined;
     getPageCount: TScanCleanupGetPageCount;
     getPageSizeStore: TScanCleanupGetPageSizeStore;
     detectSourceDpi: TScanCleanupDetectSourceDpi;

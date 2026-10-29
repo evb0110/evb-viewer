@@ -23,11 +23,27 @@ export interface IScanCleanupEvidenceFileSystem {
     writeFile: (path: string, data: string) => Promise<void>;
 }
 
+const SCAN_CLEANUP_RUN_REPORT_FILES = new Set([
+    'scan-cleanup-representation-report.json',
+    'scan-cleanup-output-mappings.jsonl',
+    'scan-cleanup-output-pages.jsonl',
+    'scan-cleanup-batch-summaries.jsonl',
+]);
+
+/**
+ * The compact account of a run: what each output page became and why, without
+ * the per-page native diagnostics, which can carry pixel masks of the page.
+ */
+export function isScanCleanupRunReportFile(fileName: string) {
+    return SCAN_CLEANUP_RUN_REPORT_FILES.has(fileName);
+}
+
 export async function preserveScanCleanupJsonEvidence(
     scratch: string,
     log: TScanCleanupLog,
     evidenceDir: string | undefined,
     injectedFileSystem?: IScanCleanupEvidenceFileSystem,
+    keepFile: (fileName: string) => boolean = () => true,
 ) {
     if (!evidenceDir) {
         return;
@@ -47,7 +63,9 @@ export async function preserveScanCleanupJsonEvidence(
 
     const entries = await fileSystem.readdir(scratch, {withFileTypes: true});
     const jsonFiles = entries
-        .filter(entry => entry.isFile() && (entry.name.endsWith('.json') || entry.name.endsWith('.jsonl')))
+        .filter(entry => entry.isFile()
+            && (entry.name.endsWith('.json') || entry.name.endsWith('.jsonl'))
+            && keepFile(entry.name))
         .map(entry => entry.name);
     await fileSystem.mkdir(evidenceDir, {recursive: true});
     await Promise.all(jsonFiles.map(fileName => fileSystem.copyFile(

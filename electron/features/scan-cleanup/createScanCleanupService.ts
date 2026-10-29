@@ -886,6 +886,7 @@ export function createScanCleanupService(
                                         updatedAtMs: createEpochMs(),
                                     });
                                 },
+                                jobId,
                             );
                             // Resolve the cancel-vs-publish race in the same main
                             // process that owns the job state. If cancel won while

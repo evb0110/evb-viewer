@@ -685,12 +685,37 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 await getScanCleanupCapability()?.acknowledgeCompletedOutputs?.([completedOutputPath]).catch(() => undefined);
             }
             const t = terminalDependencies.t;
-            const notices = [t('scanCleanup.summary', {
-                input: state.summary.inputPages,
-                output: state.summary.outputPages,
-                spreads: state.summary.spreadsSplit,
-                offcuts: state.summary.offcutsDiscarded,
-            })];
+            const {summary} = state;
+            const notices = [
+                t('scanCleanup.summary', {
+                    input: summary.inputPages,
+                    output: summary.outputPages,
+                }),
+                ...([
+                    [
+                        'spreads',
+                        summary.spreadsSplit,
+                    ],
+                    [
+                        'offcuts',
+                        summary.offcutsDiscarded,
+                    ],
+                    [
+                        'blank',
+                        summary.blankPagesSkipped,
+                    ],
+                    [
+                        'excluded',
+                        summary.excludedPages,
+                    ],
+                ] as const).filter(([
+                    , count,
+                ]) => count > 0)
+                    .map(([
+                        fact,
+                        count,
+                    ]) => t(`scanCleanup.summaryDetails.${fact}`, {count})),
+            ];
             const omission = state.summary.sourceTextOmission;
             if (omission && omission.count > 0) notices.push(t('scanCleanup.sourceTextOmitted', {
                 count: omission.count,
