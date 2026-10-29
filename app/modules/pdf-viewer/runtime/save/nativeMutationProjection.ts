@@ -299,15 +299,15 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         textBoxes: input.nativeTextBoxes ?? [],
         ...(placedImageGeometryUpdates === undefined ? {} : {placedImageGeometryUpdates}),
     });
+    const commentsByStableKey = Map.groupBy<string, IAnnotationCommentSummary>(input.comments, comment => comment.stableKey);
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
-        const matchingComments = input.comments.filter(candidate => candidate.stableKey === stableKey);
         const [
-            matchingComment,
-            ...otherMatchingComments
-        ] = matchingComments;
-        if (matchingComment && otherMatchingComments.length === 0) {
-            addCommentIdentityAliases(ids, matchingComment);
+            comment,
+            duplicate,
+        ] = commentsByStableKey.get(stableKey) ?? [];
+        if (comment && !duplicate) {
+            addCommentIdentityAliases(ids, comment);
         }
     });
     input.pendingDeletes.forEach((comment) => {
