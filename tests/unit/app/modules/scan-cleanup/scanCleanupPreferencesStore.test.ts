@@ -1624,6 +1624,50 @@ describe('scan cleanup renderer preference store', () => {
             patch: {resetOverrides: true},
         }}]);
     });
+
+    it('does not resurrect a page edit when the overrides are reset before it is saved', async () => {
+        const sourceSha256 = 'd'.repeat(64);
+        const documentKey = '/documents/reset-after-edit.pdf';
+        let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
+                legacyDocumentKey: computed(() => documentKey),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            return () => h('div');
+        }}));
+        app.mount(host);
+        await whenScanCleanupPreferencesReady();
+        await nextTick();
+        await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
+        vi.clearAllMocks();
+        capability.value.updateSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
+
+        settings!.values.pageOverrides = {'1': {
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: false,
+            manualSplit: null,
+        }};
+        await nextTick();
+        settings!.resetPageOverrides();
+        app.unmount();
+        host.remove();
+
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalled());
+        const documentPatches = capability.value.updateSettings.mock.calls
+            .map(([request]) => request)
+            .flatMap(request => ('document' in request && request.document ? [request.document.patch] : []));
+        expect(documentPatches).toHaveLength(1);
+        expect(documentPatches[0]).toMatchObject({
+            overrides: {},
+            resetOverrides: true,
+        });
+        expect(documentPatches[0]).not.toHaveProperty('overrideEdits');
+    });
 });
 
 

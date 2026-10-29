@@ -2448,6 +2448,35 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect.soft(second.session.settings.values.pageOverrides).toMatchObject(expected);
     });
 
+    it('keeps another view\'s newer page edit when this view edits a different page', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const identity = {sourceSha256: () => 'e'.repeat(64)};
+        const first = mountSession('shared-source-later-edit', identity);
+        const second = mountSession('shared-source-later-edit', identity);
+        onTestFinished(() => { first.unmount(); second.unmount(); });
+        await nextTick();
+        first.session.selection.updateRotation(90, [1]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+
+        // The second view changes page 1 and the first view edits page 2
+        // before it has read that change back.
+        second.session.selection.updateRotation(270, [1]);
+        await nextTick();
+        first.session.selection.updateRotation(180, [2]);
+        await nextTick();
+        await flushScanCleanupDocumentPreferencesStore();
+
+        const reopened = mountSession('shared-source-later-edit', identity);
+        onTestFinished(() => reopened.unmount());
+        await nextTick();
+        expect(reopened.session.settings.values.pageOverrides).toMatchObject({
+            '1': {rotationDegrees: 270},
+            '2': {rotationDegrees: 180},
+        });
+    });
+
     it('coalesces document setting writes and flushes the old document before switching', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

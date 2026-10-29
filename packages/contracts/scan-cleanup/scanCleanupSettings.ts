@@ -272,6 +272,41 @@ function decodeDocumentPatch(value: unknown): IScanCleanupDocumentPreferencePatc
 }
 
 /**
+ * Coalesces two queued patches for one document. Later fields win, except
+ * page edits, which accumulate by page unless the later patch resets.
+ */
+export function mergeScanCleanupDocumentPreferencePatches(
+    previous: IScanCleanupDocumentPreferencePatch | undefined,
+    next: IScanCleanupDocumentPreferencePatch,
+): IScanCleanupDocumentPreferencePatch {
+    if (next.resetOverrides === true) {
+        // A reset discards every earlier page-level field, not only the ones
+        // the reset patch happens to restate.
+        const {
+            overrides: _overrides,
+            overrideEdits: _overrideEdits,
+            pageOverrideDefaults: _pageOverrideDefaults,
+            ...documentFields
+        } = previous ?? {};
+        return {
+            ...documentFields,
+            ...next,
+        };
+    }
+    const overrideEdits = previous?.overrideEdits === undefined && next.overrideEdits === undefined
+        ? undefined
+        : {
+            ...previous?.overrideEdits,
+            ...next.overrideEdits,
+        };
+    return {
+        ...previous,
+        ...next,
+        ...(overrideEdits === undefined ? {} : {overrideEdits}),
+    };
+}
+
+/**
  * The one merge of a document patch into a stored entry, for every store that
  * keeps document settings. A reset clears the overrides first; page edits
  * then land on the map as it is stored, not on the map one view last loaded.
