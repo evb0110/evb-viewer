@@ -112,7 +112,9 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     }
     onScopeDispose(cancelWriterParse, true);
     watch(options.documentRevisionToken, cancelWriterParse, {flush: 'sync'});
-    function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>) {
+    // A save before the store read the whole document leaves it partial;
+    // `afterSave` reads the revision it wrote, which the PDF.js document predates.
+    function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>, afterSave = false) {
         const selectedParsePath = () => {
             const source = options.source.value;
             return parseDocumentRef(options.workingCopyPath.value)
@@ -123,8 +125,9 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         const document = documentSession.pdfDocument.value;
         const fence = documentSession.captureFence();
         const revision = options.documentRevisionToken.value;
+        const savedRevision = afterSave && !application.value.store.readWholeDocument;
         if (!parsePath || !document
-            || (revision !== null && fence.documentRevision !== revision
+            || (revision !== null && fence.documentRevision !== revision && !savedRevision
                 && !fence.documentRevision?.startsWith('load:'))) {
             return Promise.resolve(false);
         }
@@ -149,23 +152,14 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     .catch(() => null);
             const isProvisionalRevisionFence = fence.documentRevision?.startsWith('load:') ?? false;
             if (!expectedRevisionToken || !isCurrent()
-                || (fence.documentRevision !== expectedRevisionToken && !isProvisionalRevisionFence)) {
+                || (fence.documentRevision !== expectedRevisionToken && !isProvisionalRevisionFence && !savedRevision)) {
                 return false;
             }
-            const targetStoreMutationEpoch = targetStore.mutationEpoch;
-            const unsubscribe = targetStore.subscribe(() => {
-                if (targetStore.mutationEpoch > targetStoreMutationEpoch) abortController.abort();
-            });
             try {
-                let result: IPdfAnnotationParseResult;
-                try {
-                    result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(parsePath, {
-                        expectedDocumentRevisionToken: expectedRevisionToken,
-                        signal: abortController.signal,
-                    });
-                } finally {
-                    unsubscribe();
-                }
+                const result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(parsePath, {
+                    expectedDocumentRevisionToken: expectedRevisionToken,
+                    signal: abortController.signal,
+                });
                 if (isCurrent()) await recordPdfDocumentOriginalAnnotations(document, result, async () => {
                     const snapshot = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(parsePath);
                     try {
@@ -187,7 +181,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     isTransitionCurrent: isCurrent,
                     targetStore,
                     currentStore: application.value.store,
-                    targetStoreMutationEpoch,
                     expectedRevisionToken,
                     currentRevisionToken: options.documentRevisionToken.value ?? expectedRevisionToken,
                 });

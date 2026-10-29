@@ -52,8 +52,8 @@ export interface IAnnotationSaveSession {
     readonly frontier: IAnnotationSaveFrontier;
     readonly plan: ReturnType<typeof buildSerializationPlan>;
     /**
-     * Frontier pages, none for a clean fully read store; existing targets
-     * need native ownership proof. Null: all pages.
+     * Frontier pages, none for a clean store; existing targets need native
+     * ownership proof. Null: all pages.
      */
     readonly affectedPageIndices: readonly number[] | null;
 }
@@ -316,7 +316,7 @@ export class AnnotationApplication {
         const frontier = this.store.beginSave(documentRevisionToken);
         const dirty = this.store.dirtyEntities();
         // Only an objectless note restores its recovery graph.
-        const pageLocal = (dirty.length > 0 || this.store.readWholeDocument) && dirty.every(entity => entity.deleted || Boolean(entity.identity.pdfRef) || (
+        const pageLocal = dirty.every(entity => entity.deleted || Boolean(entity.identity.pdfRef) || (
             entity.kind === 'note' ? !entity.recoveryData : entity.kind !== 'placed-image' || 'kind' in entity.image
         ));
         return {

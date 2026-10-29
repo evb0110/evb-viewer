@@ -339,6 +339,16 @@ describe('AnnotationStore save identity rebase', () => {
             identity: {pdfRef: '32R'},
             persistedRevision: 0,
         });
+        // A read of the saved document that lands after the undo keeps it deleted.
+        expect(store.replaceFromDocument([{
+            ...markup,
+            identity: {
+                ...markup.identity,
+                pdfRef: '32R',
+            },
+            persistedRevision: 0,
+        }], [])).toBe(true);
+        expect(store.get(markup.identity.id)).toMatchObject({deleted: true});
 
         const frontier = store.beginSave();
         const plan = buildSerializationPlan(

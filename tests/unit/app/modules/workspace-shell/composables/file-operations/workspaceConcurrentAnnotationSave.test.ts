@@ -484,7 +484,8 @@ describe('bookmark-only save readback', () => {
     it.each([
         false,
         true,
-    ])('reads every page back only before the store holds the whole document (read whole: %s)', async (readWhole) => {
+    ])('reads no annotations back, whether or not the store holds the whole document (read whole: %s)', async (readWhole) => {
+        // The viewer reads the saved revision of a partial store once the save lets go.
         const application = new AnnotationApplication('bookmark-save');
         if (readWhole) application.store.replaceFromDocument([savedNote()], []);
         const revision = ref(requireDocumentRevisionToken('rev-1'));
@@ -534,10 +535,8 @@ describe('bookmark-only save readback', () => {
             foreign: [],
         }));
         await expect(useWorkspaceSaveServiceForTest(deps).handleSave()).resolves.toBe(true);
-        expect(parse.mock.calls.map(([
-            , options,
-        ]) => options.pageIndices)).toEqual(readWhole ? [] : [undefined]);
-        expect(application.listCommentSummaries().map(summary => summary.text)).toEqual(['saved text']);
+        expect(parse).not.toHaveBeenCalled();
+        expect(application.listCommentSummaries().map(summary => summary.text)).toEqual(readWhole ? ['saved text'] : []);
     });
 });
 

@@ -55,4 +55,23 @@ describe('AnnotationStore saved baseline', () => {
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(store.dirtyEntities()).toHaveLength(1);
     });
+
+    it('keeps the baseline of a document parse that landed during the save', () => {
+        const store = new AnnotationStore();
+        store.createNote(note());
+        const frontier = store.beginSave();
+        store.replaceFromDocument([{
+            ...note(),
+            identity: {
+                id: asAnnotationId('late-note'),
+                pdfRef: '34 0 R',
+            },
+            persistedRevision: 0,
+            contents: 'read from the document',
+        }], []);
+
+        store.markPersisted(frontier);
+        expect(store.list()).toHaveLength(2);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
 });

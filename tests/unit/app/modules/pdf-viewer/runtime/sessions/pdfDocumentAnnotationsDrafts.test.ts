@@ -462,10 +462,30 @@ describe('writer annotations shared by linked views', () => {
         expect(signal.aborted).toBe(false);
         const id = annotations.application.value.store.list()[0]!.identity.id;
         annotations.application.value.store.updateTextBox(id, {text: 'Accepted local edit'});
-        expect(signal.aborted).toBe(true);
+        expect(signal.aborted).toBe(false);
         pending.resolve(parsed('Late saved baseline'));
-        await loading;
+        expect(await loading).toBe(true);
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Accepted local edit']);
+    });
+    it('reads the saved revision a partial store needs after a save the loaded document predates', async () => {
+        const {
+            annotations, revision, resource,
+        } = setup();
+        const loadedBeforeSave = cast<TPdfDocumentView>({
+            ...resource,
+            captureFence: () => ({
+                ...resource.captureFence(),
+                documentRevision: initialRevision,
+            }),
+        });
+        revision.value = nextRevision;
+        parsePdfAnnotations.mockResolvedValue(parsed('Saved revision', nextRevision));
+        expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null))).toBe(false);
+        expect(parsePdfAnnotations).not.toHaveBeenCalled();
+        expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null), true)).toBe(true);
+        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Saved revision']);
+        expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null), true)).toBe(false);
+        expect(parsePdfAnnotations).toHaveBeenCalledTimes(1);
     });
     it('allows a later caller to import after a rejected producer without automatically retrying', async () => {
         const {

@@ -1015,6 +1015,32 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         flush: 'post',
         immediate: true,
     });
+    // A save can leave the store partial. Reading the saved revision does not
+    // hold the projection: PDF.js keeps painting what the store lacks.
+    watch(options.isAnySaving, (saving) => {
+        if (!saving && documentSession.pdfDocument.value && !documentSession.pendingPageMutationRevisionSwap) {
+            void documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath, true);
+        }
+    });
+    // Pending (null) until the store has read the whole document.
+    watchEffect((onCleanup) => {
+        const store = annotationApplication.value.store;
+        let complete: boolean | undefined;
+        const report = () => {
+            if (complete === store.readWholeDocument) return;
+            complete = store.readWholeDocument;
+            const pages = documentSession.pdfDocument.value?.numPages ?? 0;
+            options.emitAnnotationInventory(complete ? {
+                complete,
+                omissions: [],
+                scannedPageCount: pages,
+                totalPageCount: pages,
+                failedPageCount: 0,
+            } : null);
+        };
+        report();
+        onCleanup(store.subscribe(report));
+    });
     documentSession.registerDisposable(() => textSelectionCache.clearSelectionCache());
     documentSession.registerDisposable(detachProjection);
     documentSession.registerDisposable(unsubscribeDocumentTransitions);

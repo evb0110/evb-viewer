@@ -676,17 +676,27 @@ describe('AnnotationStore.replaceFromDocument of some pages', () => {
         expect(store.get(asAnnotationId('first'))).toEqual(before.find(entity => entity.identity.id === 'first'));
     });
 
-    it('changes nothing before a parse of the whole document fed the store', () => {
+    it('reads some pages before a parse of the whole document without claiming the rest', () => {
         // A save can land before the document's opening parse finishes; the
-        // store then holds none of the pages a parse of some pages leaves out.
+        // parse of the whole document that follows supplies the other pages.
         const store = new AnnotationStore();
 
-        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [], [0])).toBe(false);
-        expect(store.list({includeDeleted: true})).toEqual([]);
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [], [0])).toBe(true);
+        expect(store.get(asAnnotationId('first'))).toMatchObject({contents: 'document contents'});
+        expect(store.readWholeDocument).toBe(false);
 
-        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [])).toBe(true);
-        expect(store.replaceFromDocument([parsedNote('first', '1 0 R', {contents: 'saved'})], [], [0])).toBe(true);
+        expect(store.replaceFromDocument([
+            parsedNote('first', '1 0 R', {contents: 'saved'}),
+            parsedNote('second', '2 0 R', {pageIndex: requirePageIndex(1)}),
+        ], [])).toBe(true);
+        expect(store.readWholeDocument).toBe(true);
+        expect(store.list().map(entity => entity.identity.id)).toEqual([
+            'first',
+            'second',
+        ]);
         expect(store.get(asAnnotationId('first'))).toMatchObject({contents: 'saved'});
+        expect(store.replaceFromDocument([parsedNote('first', '1 0 R')], [], [0])).toBe(true);
+        expect(store.readWholeDocument).toBe(true);
     });
 });
 
