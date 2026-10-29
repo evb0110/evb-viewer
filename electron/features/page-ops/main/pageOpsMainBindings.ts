@@ -134,8 +134,9 @@ interface IPageOpsOperationContext {
     userCancel?: IPageOpUserCancelHandle;
 }
 
-const QPDF_PAGE_BATCH_SIZE = 10_000;
-const CROP_PAGE_BATCH_SIZE = 1_024;
+// Pages per native rotation or crop pass; each pass reopens the document,
+// which costs a 21,601-page PDF more than cropping all of its pages.
+const PAGE_MUTATION_BATCH_SIZE = 10_000;
 
 function isCompactPageSelection(
     selection: TPageOpsPageSelection,
@@ -838,7 +839,7 @@ async function handlePageOpsRotate(
             skipPageMetadataRemap: true,
             nativeAppendStructureVerified: true,
             mutate: async () => {
-                for (const batch of iteratePageRangeBatches(ranges, QPDF_PAGE_BATCH_SIZE)) {
+                for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                     await rotatePages(
                         queuedWorkingCopyPath,
                         batch,
@@ -942,7 +943,7 @@ async function handlePageOpsCrop(
             operation,
             options,
             mutate: async () => {
-                for (const batch of iteratePageRangeBatches(ranges, CROP_PAGE_BATCH_SIZE)) {
+                for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                     await cropPages(queuedWorkingCopyPath, batch, normalizedMargins, context.senderId, operation.signal);
                 }
                 return {
@@ -987,7 +988,7 @@ async function handlePageOpsRemoveCrop(
             operation,
             options,
             mutate: async () => {
-                for (const batch of iteratePageRangeBatches(ranges, CROP_PAGE_BATCH_SIZE)) {
+                for (const batch of iteratePageRangeBatches(ranges, PAGE_MUTATION_BATCH_SIZE)) {
                     await removeCropFromPages(queuedWorkingCopyPath, batch, context.senderId, operation.signal);
                 }
                 return {
