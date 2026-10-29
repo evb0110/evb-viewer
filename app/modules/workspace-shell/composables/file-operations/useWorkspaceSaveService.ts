@@ -351,7 +351,7 @@ async function executeNativeMutationSave(
     const expectedWorkingPath = persisted.didSaveAs ? deps.document.workingCopyPath.value : plan.target.expectedWorkingPath;
     // Bind read-back to the published revision.
     const committedRevisionToken = deps.document.revisionToken.value;
-    if ((annotationEditsWritten || !saveTransaction.affectedPageIndices) && saveTransaction.replaceFromDocument
+    if (annotationEditsWritten && saveTransaction.replaceFromDocument
         && expectedWorkingPath && committedRevisionToken) {
         const parse = (pageIndices?: number[]) => timedSavePhase(
             'parse-committed-pdf-annotations',

@@ -15,11 +15,10 @@ export function admitsAnnotationReadback(
     entities: readonly AnnotationEntity[],
     foreign: ReadonlyArray<{pageIndex: number}>,
     scope: ReadonlySet<number> | null,
-    readWholeDocument: boolean,
     expectedUpserts: ReadonlyArray<Pick<AnnotationEntity, 'identity' | 'kind'>>,
 ) {
     const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
-    if (!entities.every(inScope) || !foreign.every(inScope) || (scope && !readWholeDocument)) return false;
+    if (!entities.every(inScope) || !foreign.every(inScope)) return false;
     if (!scope) return true;
     const recognized = new Map(entities.map(entity => [
         normalizePdfJsAnnotationId(entity.identity.pdfRef),

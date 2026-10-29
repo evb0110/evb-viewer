@@ -204,6 +204,14 @@ export async function waitForRestoredDocument(page: Page, expectedPath: string) 
 
 
 
+/** Waits until the annotations panel lists the whole document, not only the pages a save read back. */
+export async function waitForWholeAnnotationInventory(page: Page) {
+    await expect.poll(async () => (await readWorkspaceStateValues<{annotationInventory?: {complete: boolean} | null}>(
+        page,
+        ['annotationInventory'],
+    )).annotationInventory?.complete ?? false, {timeout: LARGE_PDF_TIMEOUT_MS}).toBe(true);
+}
+
 export async function expectCleanAnnotationHydration(page: Page) {
     await expect.poll(async () => {
         const state = await readWorkspaceStateValues<{dirtyState?: {

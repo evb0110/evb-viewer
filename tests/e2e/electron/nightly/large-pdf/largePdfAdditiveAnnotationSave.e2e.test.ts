@@ -26,6 +26,7 @@ import {
     expectCleanAnnotationHydration,
     waitForCrashCheckpointPath,
     waitForRestoredDocument,
+    waitForWholeAnnotationInventory,
 } from './largePdfAnnotationSaveShared';
 import {
     PLACED_IMAGE_JPEG, finalizeImagePlacement, installManagedJpegClipboard, pasteImageFromVisibleMenu,
@@ -282,11 +283,6 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         }, PAGE_NUMBER);
         const textBoxSaveMs = await saveWithinBudget(page, 'Text box save');
 
-        // A save that lands before the open-time read of the whole document
-        // finishes must still leave every annotation of the document listed.
-        const savedCount = await readPanelAnnotationCount(page);
-        expect(savedCount, 'The annotations panel shows a count after the saves').not.toBeNull();
-
         const timings = {
             highlightSaveMs,
             rectangleSaveMs,
@@ -294,12 +290,16 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         };
         console.info(`[large-pdf additive saves] ${JSON.stringify(timings)}`);
         // The first save lands while the document's opening read is still
-        // running. The edit stops that read, so this save reads the whole
-        // document back once without waiting on it; later saves read back
-        // only their own pages.
-        expect(highlightSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
-        expect(rectangleSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
-        expect(textBoxSaveMs, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        // running. It reads back only its own page, as later saves do; the
+        // whole document is read once the save lets go.
+        expect(highlightSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
+        expect(rectangleSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
+        expect(textBoxSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
+        // A save that lands before the open-time read of the whole document
+        // finishes must still leave every annotation of the document listed.
+        await waitForWholeAnnotationInventory(page);
+        const savedCount = await readPanelAnnotationCount(page);
+        expect(savedCount, 'The annotations panel shows a count after the saves').not.toBeNull();
 
         await waitForCrashCheckpointPath(session.name, realpathSync(documentPath));
         const restarted = await sessionFixture.restart({
@@ -360,6 +360,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
             placedAt,
             movedTo,
         })).toBe(false);
+        await waitForWholeAnnotationInventory(page);
         const savedCount = await readPanelAnnotationCount(page);
         expect(savedCount, 'The annotations panel shows a count after the saves').not.toBeNull();
 
@@ -505,6 +506,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         };
         console.info(`[large-pdf existing edits] ${JSON.stringify(timings)}`);
         for (const duration of Object.values(timings)) expect(duration, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        await waitForWholeAnnotationInventory(page);
         const savedCount = await readPanelAnnotationCount(page);
         expect(savedCount).not.toBeNull();
         await waitForCrashCheckpointPath(session!.name, realpathSync(documentPath));
@@ -602,7 +604,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
             x: 0.6,
             y: 0.3,
         }, PAGE_NUMBER);
-        await saveWithinBudget(page, 'Note save');
+        const noteSaveMs = await saveWithinBudget(page, 'Note save');
         const textarea = await page.waitForSelector('textarea.note-window__textarea', {
             visible: true,
             timeout: 10_000,
@@ -624,10 +626,12 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
         await waitForBookmarkRow(page, bookmarkTitle);
         const bookmarkSaveMs = await saveWithinBudget(page, 'Bookmark save');
         const timings = {
+            noteSaveMs,
             noteEditSaveMs,
             bookmarkSaveMs,
         };
         console.info(`[large-pdf note edit and bookmark saves] ${JSON.stringify(timings)}`);
+        expect(noteSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
         expect(noteEditSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
         expect(bookmarkSaveMs, JSON.stringify(timings)).toBeLessThan(PAGE_LOCAL_READBACK_SAVE_MS);
 

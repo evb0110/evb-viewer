@@ -14,7 +14,6 @@ export interface ICommitPdfAnnotationParseToStoreOptions {
     isTransitionCurrent: () => boolean;
     targetStore: AnnotationStore;
     currentStore: AnnotationStore;
-    targetStoreMutationEpoch: number;
     expectedRevisionToken: TDocumentRevisionToken;
     currentRevisionToken: TDocumentRevisionToken | null;
     selectedTextByPdfRef?: ReadonlyMap<string, string | null>;
@@ -38,8 +37,9 @@ export function applyParsedHighlightTextToStore(options: {
 
 /**
  * Commit one writer parse only while every document and store fence still
- * points at the request that started it. The parse result is a saved baseline,
- * while foreign records remain inert store metadata.
+ * points at the request that started it. The parse result is a saved baseline
+ * that keeps edits made since, while foreign records remain inert store
+ * metadata.
  */
 export function commitPdfAnnotationParseToStore(
     options: ICommitPdfAnnotationParseToStoreOptions,
@@ -47,7 +47,6 @@ export function commitPdfAnnotationParseToStore(
     if (
         !options.isTransitionCurrent()
         || options.targetStore !== options.currentStore
-        || options.targetStore.mutationEpoch !== options.targetStoreMutationEpoch
         || options.currentRevisionToken !== options.expectedRevisionToken
         || options.result.documentRevisionToken !== options.expectedRevisionToken
     ) {

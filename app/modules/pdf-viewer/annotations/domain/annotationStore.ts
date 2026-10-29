@@ -603,7 +603,7 @@ export class AnnotationStore {
      * and returns false when those pages alone cannot stand for the whole
      * document: a parsed annotation that matches an entity on another page, or
      * a parsed thread without a reply this store holds, which may sit on a page
-     * the parse did not read; or before `readWholeDocument`.
+     * the parse did not read.
      */
     replaceFromDocument(
         entities: readonly AnnotationEntity[],
@@ -614,7 +614,7 @@ export class AnnotationStore {
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
-        if (!admitsAnnotationReadback(entities, foreign, scope, this.#readWholeDocument, expectedUpserts)) return false;
+        if (!admitsAnnotationReadback(entities, foreign, scope, expectedUpserts)) return false;
         const confirmedDeletedReplies = new Set(deletedReplyRefs);
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();
@@ -815,7 +815,7 @@ export class AnnotationStore {
             ...this.#foreign.filter(record => !inScope(record)),
             ...foreign.map(record => structuredClone(record)),
         ].sort((left, right) => left.pageIndex - right.pageIndex);
-        this.#readWholeDocument = true;
+        this.#readWholeDocument ||= !scope;
         this.#mutationEpoch += 1;
         this.#emit();
         return true;
@@ -1012,7 +1012,7 @@ export class AnnotationStore {
             });
         });
         this.#replaceEntities(updates);
-        this.#savedSemanticSnapshot = new Map(saved);
+        saved.forEach((entry, id) => this.#savedSemanticSnapshot.set(id, entry));
         frontier.revisions.forEach((_revision, id) => this.#persistenceIdentities.forget(id));
         this.#saveFrontiers.delete(frontier);
         this.#pruneUnretainedSavedDeletions();
@@ -1096,7 +1096,7 @@ export class AnnotationStore {
     redo() { return this.#history.redo(); }
     get canUndo() { return this.#history.canUndo; }
     get canRedo() { return this.#history.canRedo; }
-    /** A parse of the whole document has fed this store; only then can a parse of some pages extend it. */
+    /** A parse of the whole document has fed this store, not only of some pages. */
     get readWholeDocument() { return this.#readWholeDocument; }
 
     #assertNewEntity(entity: AnnotationEntity) {

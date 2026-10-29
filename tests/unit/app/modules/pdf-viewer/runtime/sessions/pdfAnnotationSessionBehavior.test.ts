@@ -65,7 +65,6 @@ function commitOptions(
         isTransitionCurrent: () => true,
         targetStore: store,
         currentStore: store,
-        targetStoreMutationEpoch: store.mutationEpoch,
         expectedRevisionToken: revisionToken,
         currentRevisionToken: revisionToken,
         ...overrides,
@@ -262,7 +261,7 @@ describe('PDF annotation session behavior', () => {
         ]);
     });
 
-    it('commits current writer results and ignores stale store mutations', () => {
+    it('commits current writer results and keeps edits made during the parse', () => {
         const store = new AnnotationStore();
         const replaceFromDocument = vi.spyOn(store, 'replaceFromDocument');
 
@@ -300,14 +299,14 @@ describe('PDF annotation session behavior', () => {
             fontSize: 12,
             color: '#336699',
         });
-        const parseStartEpoch = staleStore.mutationEpoch;
         staleStore.updateTextBox(local.identity.id, {text: 'local edit'});
-        const staleReplaceFromDocument = vi.spyOn(staleStore, 'replaceFromDocument');
-        const staleOptions = commitOptions(staleStore, {targetStoreMutationEpoch: parseStartEpoch});
 
-        expect(commitPdfAnnotationParseToStore(staleOptions)).toBe(false);
-        expect(staleReplaceFromDocument).not.toHaveBeenCalled();
+        expect(commitPdfAnnotationParseToStore(commitOptions(staleStore))).toBe(true);
         expect(staleStore.get(local.identity.id)).toMatchObject({text: 'local edit'});
+        expect(staleStore.list().map(entity => entity.kind === 'text-box' && entity.text)).toEqual([
+            'local edit',
+            'writer text',
+        ]);
     });
 
 });
