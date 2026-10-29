@@ -1920,7 +1920,10 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(retention.release).toHaveBeenCalledOnce();
     });
 
-    it('retries suspicious single pages with MediaBox', async () => {
+    it.each([
+        false,
+        true,
+    ])('retries suspicious single pages with MediaBox (source overrides: %s)', async withOverrides => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-mediabox-retry-test-'));
         dirs.push(tempDir);
         const renderBoxes: unknown[] = [];
@@ -1960,6 +1963,16 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             mediaWidthPoints: 841.89,
             mediaHeightPoints: 633.89,
         }));
+        if (withOverrides) {
+            // Only source page 2 retries. Its local retry ordinal is 1, whose
+            // authored rotation belongs to a different source page.
+            pageSizes[0]!.mediaWidthPoints = pageSizes[0]!.widthPoints;
+            pageSizes[0]!.mediaHeightPoints = pageSizes[0]!.heightPoints;
+        }
+        const retryPages: Array<{
+            sourcePageIndex: number;
+            options: {rotationDegrees: number}
+        }> = [];
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => pageSizes.length),
@@ -1998,7 +2011,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         ) => {
             sidecarCalls += 1;
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as IRetryManifest;
-            await Promise.all(manifest.pages.map(async page => {
+            if (sidecarCalls === 2) retryPages.push(...manifest.pages);
+            await Promise.all(manifest.pages.map(async (page, index) => {
                 const retry = sidecarCalls === 2;
                 const pageNumber = page.sourcePageIndex + 1;
                 const diagnostics = splitDiagnostics();
@@ -2018,9 +2032,9 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 }));
                 await onProgress({
                     stage: 'page-complete',
-                    completedPages: pageNumber,
+                    completedPages: index + 1,
                     totalPages: manifest.pages.length,
-                    pageNumber: requirePageNumber(pageNumber),
+                    pageNumber: requirePageNumber(index + 1),
                     classification: retry
                         ? 'two-page-spread'
                         : 'single-uncut-page',
@@ -2034,8 +2048,25 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             }));
         });
 
+        const request = createRequest();
+        if (withOverrides) {
+            request.options.pageOverrides = {
+                '1': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                },
+                '2': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                },
+            };
+        }
         const detection = await runScanCleanupDetection(
-            createRequest(),
+            request,
             new AbortController().signal,
             retention,
             {
@@ -2053,6 +2084,14 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         );
 
         resultStores.push(detection.resultStore);
+        if (withOverrides) {
+            expect(retryPages).toMatchObject([{
+                sourcePageIndex: 1,
+                options: {rotationDegrees: 0},
+            }]);
+            expect(detection.results[1]?.sourcePageMetadata?.renderBox).toBe('mediabox');
+            return;
+        }
         expect(sidecarCalls).toBe(2);
         expect(renderBoxes).toEqual([
             'cropbox',
