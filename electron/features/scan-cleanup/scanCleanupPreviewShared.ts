@@ -185,6 +185,8 @@ export interface IRetainedDocument {
     pinned: number;
     claims: Map<string, number>;
     removeWhenIdle: boolean;
+    /** Its views have closed while a claim still held it: removed once the last claim goes. */
+    retireWhenIdle?: boolean;
     sourcePdfPath: string;
 }
 

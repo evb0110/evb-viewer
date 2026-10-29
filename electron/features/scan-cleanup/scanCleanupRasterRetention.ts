@@ -43,6 +43,8 @@ import {
     createScanCleanupRasterMeasurements,
 } from '@electron/features/scan-cleanup/scanCleanupRasterMeasurement';
 const logger = createLogger('scan-cleanup-raster-retention');
+// Enough for switching between a few open documents without reopening them.
+const SCAN_CLEANUP_IDLE_DOCUMENT_LIMIT = 4;
 
 export function scanCleanupRasterRetention(
     dependencies: IScanCleanupRasterDependencies,
@@ -245,6 +247,13 @@ export function scanCleanupRasterRetention(
             removeRaster(raster);
         }
     };
+    // Raster bytes have a budget; the documents holding them need one too, or
+    // each closed document keeps its geometry store and directory until the
+    // service ends. Only the most recently used idle documents stay reusable.
+    const pruneIdleDocuments = () => {
+        const idle = [...documents.values()].filter(document => document.pinned === 0 && document.claims.size === 0);
+        idle.slice(0, Math.max(0, idle.length - SCAN_CLEANUP_IDLE_DOCUMENT_LIMIT)).forEach(removeDocumentWhenIdle);
+    };
     const resolveDocument = async (
         request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>,
         claimId?: string,
@@ -285,6 +294,9 @@ export function scanCleanupRasterRetention(
             && !current.removeWhenIdle
         ) {
             retireSupersededDocuments();
+            documents.delete(key);
+            documents.set(key, current);
+            current.retireWhenIdle = false;
             current.pinned += 1;
             if (claimId !== undefined) {
                 current.claims.set(claimId, (current.claims.get(claimId) ?? 0) + 1);
@@ -932,11 +944,12 @@ export function scanCleanupRasterRetention(
             if (document.pinned > 0) {
                 return;
             }
-            if (document.removeWhenIdle) {
+            if (document.removeWhenIdle || document.retireWhenIdle) {
                 removeDocumentWhenIdle(document);
                 return;
             }
             await prune();
+            pruneIdleDocuments();
         },
         invalidate(sourcePdfPath: string, documentRevision: string, claimId?: string) {
             const matchingDocuments = documentsFor(sourcePdfPath, documentRevision);
@@ -955,7 +968,12 @@ export function scanCleanupRasterRetention(
                 }
             } else {
                 for (const document of matchingDocuments) {
-                    if (document.claims.size > 0) continue;
+                    // Another owner's claim keeps the document readable; the
+                    // close is recorded so its last release removes it.
+                    if (document.claims.size > 0) {
+                        document.retireWhenIdle = true;
+                        continue;
+                    }
                     document.removeWhenIdle = true;
                     documentGenerations.set(document, (documentGenerations.get(document) ?? 0) + 1);
                     if (document.pinned === 0) documentsToDiscard.push(document);
