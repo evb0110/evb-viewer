@@ -304,6 +304,40 @@ describe('closing a source document during scan cleanup', () => {
         });
     });
 
+    it('starts a replacement run after cancellation is accepted while the old worker is retiring', async () => {
+        const {workingPath} = await createManagedWorkingCopy('restart');
+        const entered = Promise.withResolvers<AbortSignal>();
+        const release = Promise.withResolvers<never>();
+        mocks.runWorker.mockImplementation(async (
+            _request: unknown,
+            _paths: unknown,
+            _policy: unknown,
+            signal: AbortSignal,
+        ) => {
+            entered.resolve(signal);
+            return release.promise;
+        });
+        const service = createScanCleanupService();
+        const webContents = sender();
+        try {
+            const first = await service.start(webContents, startRequest(workingPath));
+            if (!first.started) throw new Error('Expected the original cleanup to start');
+            const signal = await entered.promise;
+            expect(service.cancel(webContents, first.jobId, owner)).toBe(true);
+            expect(signal.aborted).toBe(true);
+            expect(service.getState(webContents, first.jobId, owner)).toMatchObject({status: 'canceling'});
+
+            const replacement = await service.start(webContents, startRequest(workingPath));
+
+            expect(replacement.started).toBe(true);
+            expect(replacement.jobId, 'an accepted restart must not inherit the canceled job').not.toBe(first.jobId);
+            expect(service.getState(webContents, replacement.jobId, owner)?.status).toMatch(/^(?:queued|running)$/u);
+        } finally {
+            release.reject(new DOMException('Test worker retirement', 'AbortError'));
+            await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+        }
+    });
+
     it.each([
         'queued',
         'materializing',
