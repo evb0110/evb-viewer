@@ -5,7 +5,19 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import {getNativeExternalBuildInputs} from '../native-build-id.mjs';
 import { getCiChangedAreaPolicy } from '../release/policy.mjs';
+
+// Inputs consumed by scan-cleanup-oracles.sh in addition to the release policy.
+// Keep CI selection here while diagnostics-only changes are independently owned.
+const scanCleanupExportInputs = [
+    'native/pdf-page-ops/**',
+    ...getNativeExternalBuildInputs('pdf-page-ops'),
+    'scripts/lib/**',
+    'scripts/createCliRetention.ts',
+    'scripts/diagnostics/generate-scan-cleanup-**',
+    'tests/fixtures/release/scan-cleanup-**',
+];
 
 const diffNameOnlyArguments = [
     '--no-renames',
@@ -54,7 +66,10 @@ export function classifyChangedFiles(files, policy = getCiChangedAreaPolicy()) {
         {
             area,
             matched: normalizedFiles === null
-                || normalizedFiles.some(file => definition.paths.some(pattern => (
+                || normalizedFiles.some(file => [
+                    ...definition.paths,
+                    ...(area === 'scanCleanupExport' ? scanCleanupExportInputs : []),
+                ].some(pattern => (
                     matchesChangedAreaPattern(file, pattern)
                 ))),
             owner: definition.owner,
