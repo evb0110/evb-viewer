@@ -6,7 +6,9 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname, join,
+} from 'node:path';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
@@ -21,6 +23,7 @@ import {
 import * as cliAdapters from '@scripts/scanCleanupCliAdapters';
 import * as detectionCache from '@scripts/scanCleanupDetectionCache';
 import * as conversion from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {ScanCleanupPdfValidationError} from '@evb/scan-cleanup/core/errors';
 import {assembleWithCompactSourcePages} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     main, buildScanCleanupCliDetectionRequestFields,
@@ -130,6 +133,29 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup detection cache', () => {
+    it('keeps the invalid staged PDF named by a core validation failure after CLI settlement', async () => {
+        let failure: ScanCleanupPdfValidationError | undefined;
+        try {
+            await expect(runCliRegression(async (_request, paths) => {
+                const scratch = await mkdtemp(join(paths.tempDir, 'evb-scan-cleanup-'));
+                const stagedPdfPath = join(scratch, 'cleaned.pdf');
+                await writeFile(stagedPdfPath, '%PDF-invalid-xref-diagnostic');
+                failure = new ScanCleanupPdfValidationError(stagedPdfPath, 'malformed xref');
+                throw failure;
+            })).rejects.toMatchObject({code: 'SCAN_CLEANUP_PDF_VALIDATION_FAILED'});
+
+            expect(failure).toBeDefined();
+            // The core error's path is the diagnostic contract supplied to the
+            // outer owner. It must still be readable once that owner settles.
+            await expect(readFile(failure!.stagedPdfPath, 'utf8')).resolves.toBe('%PDF-invalid-xref-diagnostic');
+        } finally {
+            if (failure !== undefined) await rm(dirname(dirname(failure.stagedPdfPath)), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('includes streaming sidecar mappings and page records in the CLI machine summary', async () => {
         const mapping = {
             sourcePage: 1,
