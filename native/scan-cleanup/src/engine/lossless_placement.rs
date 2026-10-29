@@ -393,13 +393,12 @@ pub(crate) fn plan_lossless_page(
             .max(0.0)
     });
     let margins_requested = requested.iter().any(|margin| *margin > 0.0);
-    let margins_available = options.crop_content;
-    let fitted = {
-        let [left, top, right, bottom] = if margins_available {
-            requested
-        } else {
-            [0.0; 4]
-        };
+    // The raster route's rule: margins frame detected content, so an output
+    // whose detection abstained keeps its whole page without them.
+    let margins_available =
+        |output: &AnalysisOutputMetadata| options.crop_content && output.content_box.is_some();
+    let fit_margins = |available: bool| {
+        let [left, top, right, bottom] = if available { requested } else { [0.0; 4] };
         let (left_px, right_px) = fit_margin_axis(left, right, grid_width);
         let (top_px, bottom_px) = fit_margin_axis(top, bottom, grid_height);
         let visual = Insets {
@@ -418,6 +417,9 @@ pub(crate) fn plan_lossless_page(
             reduced: left_px != left || top_px != top || right_px != right || bottom_px != bottom,
         }
     };
+    let frames = [fit_margins(false), fit_margins(true)];
+    let frame_for =
+        |output: &AnalysisOutputMetadata| &frames[usize::from(margins_available(output))];
     // Split halves share one frame: the oriented sheet divided by output count.
     let paper = |half: PageHalf| {
         let divisor = if half == PageHalf::Full { 1.0 } else { 2.0 };
@@ -431,6 +433,7 @@ pub(crate) fn plan_lossless_page(
         .iter()
         .zip(&crops)
         .map(|(output, crop)| {
+            let fitted = frame_for(output);
             let (paper_width, paper_height) = paper(output.half);
             let paper_scale = fit_scale(box_width, box_height, paper_width, paper_height);
             let leaf_fit = fit_scale(
@@ -454,9 +457,10 @@ pub(crate) fn plan_lossless_page(
     });
     let preview_grid = preview.then(|| canvas.at_dpi(canvas.dpi().floor().max(1.0)));
     for ((output, crop), (paper_scale, leaf_fit)) in outputs.iter_mut().zip(crops).zip(scales) {
+        let fitted = frame_for(output);
         let (paper_width, paper_height) = paper(output.half);
         let mut warning_events = Vec::new();
-        if margins_requested && !margins_available {
+        if margins_requested && !margins_available(output) {
             warning_events.push(CleanupWarningEvent::MatchedCanvasMarginsUnavailable);
         }
         if fitted.reduced {
