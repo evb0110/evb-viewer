@@ -720,6 +720,42 @@ pub(crate) fn outline_level_item_at(
     Ok(current)
 }
 
+/// Reads, through `load`, the outline items a later chunk at `path` rewrites:
+/// the outline root, each level's items up to the one the path names, and the
+/// extended level's last item. Nothing they reference is read.
+pub(crate) fn load_outline_path(
+    document: &mut Document,
+    path: &[u32],
+    mut load: impl FnMut(&mut Document, ObjectId) -> Result<()>,
+) -> Result<()> {
+    let catalog = document.dictionary(document.root_id()?)?;
+    let Ok(mut parent) = catalog.get(b"Outlines").and_then(Object::as_reference) else {
+        return Ok(());
+    };
+    let mut seen = BTreeSet::new();
+    let mut read = |document: &mut Document, id: ObjectId| -> Result<()> {
+        if !seen.insert(id) {
+            return Err("Bookmark outline repeats an item".into());
+        }
+        load(document, id)
+    };
+    read(document, parent)?;
+    for index in path {
+        let mut item = document.dictionary(parent)?.get(b"First")?.as_reference()?;
+        read(document, item)?;
+        for _ in 0..*index {
+            item = document.dictionary(item)?.get(b"Next")?.as_reference()?;
+            read(document, item)?;
+        }
+        parent = item;
+    }
+    let last = document.dictionary(parent)?.get(b"Last");
+    match last.and_then(Object::as_reference) {
+        Ok(last) => read(document, last),
+        Err(_) => Ok(()),
+    }
+}
+
 fn append_bookmarks_incremental(
     incremental: &mut IncrementalDocument,
     page_resolver: &PageLookup<'_>,
