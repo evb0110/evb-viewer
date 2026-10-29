@@ -333,7 +333,11 @@ function pageMetadata() {
 // Exercise the real coordinator with file-backed native inputs/outputs. The
 // adapters stand in for binaries; assertions below inspect public summaries,
 // native wire manifests, published evidence and the live scratch filesystem.
-async function conversionRegressionFixture(documentPageCount: number) {
+async function conversionRegressionFixture(
+    documentPageCount: number,
+    log: TScanCleanupLog = () => undefined,
+    convert = runScanCleanupConversion,
+) {
     const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-core-regression-'));
     roots.push(root);
     const scratch = join(root, 'scratch');
@@ -418,7 +422,7 @@ async function conversionRegressionFixture(documentPageCount: number) {
         scratchDir: scratch,
         pdfimagesBinary: '/pdfimages',
     };
-    const run = (request: Partial<Parameters<typeof runScanCleanupConversion>[0]> = {}) => runScanCleanupConversion(
+    const run = (request: Partial<Parameters<typeof runScanCleanupConversion>[0]> = {}) => convert(
         {
             sourcePdfPath,
             outputPdfPath,
@@ -429,7 +433,7 @@ async function conversionRegressionFixture(documentPageCount: number) {
         new AbortController().signal,
         () => undefined,
         policy,
-        () => undefined,
+        log,
         dependencies,
     );
     return {
@@ -496,6 +500,37 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('releases source and cleaned raster files after each completed streaming batch', async () => {
+        const filesAfterBatch: string[][] = [];
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await conversionRegressionFixture(1_025, undefined, pipeline.runScanCleanupConversion);
+        const finishedPages = new Set<number>();
+        const retainedRasters = (names: string[]) => names.filter(name => {
+            const sourcePage = /^(?:source|clean)-(\d+).*\.(?:png|ppm|pgm|pbm)$/u.exec(name);
+            return sourcePage !== null && finishedPages.has(Number(sourcePage[1]));
+        });
+        const native = fixture.dependencies.runSidecar;
+        fixture.dependencies.runSidecar = async (...args) => {
+            // At the next native invocation, earlier child PDFs have been
+            // assembled. Ignore this invocation's active raster inputs.
+            filesAfterBatch.push(retainedRasters(await readdir(fixture.scratch)));
+            const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            await native(...args);
+            for (const page of manifest.pages) finishedPages.add(page.sourcePageIndex + 1);
+        };
+        const summary = await fixture.run({sourcePageNumbers: [
+            1,
+            2,
+            1_025,
+        ]});
+        expect(summary.outputPages).toBe(3);
+        // Caller-owned scratch keeps the last child's physical occupancy
+        // observable after the coordinator settles.
+        filesAfterBatch.push(retainedRasters(await readdir(fixture.scratch)));
+        expect(filesAfterBatch.flat()).toEqual([]);
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF');
+    });
+
     it('returns native page warnings on both sides of the 1,024-page threshold', async () => {
         for (const documentPageCount of [
             1_024,
