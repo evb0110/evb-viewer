@@ -6356,6 +6356,140 @@ mod tests {
         assert_eq!(detail.metadata.text_tone_diagnostics, Some(diagnostics));
     }
 
+    fn assert_auto_detail_keeps_straight_faint_marks(horizontal: bool) {
+        let mut source = GrayImage::new(800, 1000, 240);
+        for top in (80..640).step_by(20) {
+            for left in (80..720).step_by(20) {
+                for y in top..top + 12 {
+                    for x in left..left + 10 {
+                        if x < left + 3 || y < top + 3 || y >= top + 9 {
+                            source.set(x, y, 30);
+                        }
+                    }
+                }
+            }
+        }
+        let mut marks = Vec::new();
+        for (index, value) in [140, 160, 175, 200].into_iter().enumerate() {
+            let length = if value == 175 { 120 } else { 80 };
+            for (x, y, width, height) in [
+                (100, 720 + index * 50, length, 6),
+                (440 + index * 60, 720, 6, length),
+            ] {
+                for row in y..y + height {
+                    for column in x..x + width {
+                        source.set(column, row, value);
+                    }
+                }
+                marks.push((x, y, width, height, value));
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Auto,
+            layout: crate::LayoutMode::Single,
+            crop_content: false,
+            match_page_size: false,
+            despeckle: false,
+            normalize_illumination: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            manual_skew_degrees: Some(0.0),
+            ..CleanupOptions::default()
+        };
+        let base = clean_page(&source, &options, 0).unwrap().outputs.remove(0);
+        assert_eq!(base.metadata.output_mode, OutputMode::Bw);
+        let region = crate::protocol::manifest_v3::DetailPixelRect {
+            x_px: 160.0,
+            y_px: 1360.0,
+            width_px: 1280.0,
+            height_px: 600.0,
+        };
+        let mut source_crop = GrayImage::new(1280, 600, 240);
+        for y in 0..600 {
+            for x in 0..1280 {
+                source_crop.set(x, y, source.get(80 + x / 2, 680 + y / 2));
+            }
+        }
+        let plan = DetailRenderPlan {
+            base_metadata_path: "unused-in-engine-test.json".into(),
+            base_raster_path: "unused-in-engine-test.png".into(),
+            base_cleaned_raster_path: None,
+            source_crop: region.clone(),
+            full_source_width_px: 1600,
+            full_source_height_px: 2000,
+            scale: 2.0,
+            render_region: region.clone(),
+            sampled_region: region,
+        };
+        let tile = clean_detail_page_with_color(
+            DetailRenderSources {
+                source_crop: &source_crop,
+                color_source_crop: None,
+                base_source: &source,
+                base_color_source: None,
+                base_cleaned: None,
+            },
+            &CleanupOptions {
+                dpi: 600.0,
+                output_mode: OutputMode::Bw,
+                ..options
+            },
+            0,
+            &plan,
+            &base.metadata,
+            &mut PageStageTimings::default(),
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let rejected = base.metadata.faint_stroke_masks[1].as_ref().map(|bytes| {
+            crate::io::png::decode_gray(bytes, options.max_pixels, options.max_dimension).unwrap()
+        });
+        let mut erased = Vec::new();
+        for (x, y, width, height, value) in marks {
+            if (width > height) != horizontal {
+                continue;
+            }
+            let base_ink = (y..y + height)
+                .flat_map(|row| (x..x + width).map(move |column| (column, row)))
+                .filter(|&(column, row)| base.image.get(column, row) < 128)
+                .count();
+            let tile_ink = (2 * (y - 680)..2 * (y + height - 680))
+                .flat_map(|row| {
+                    (2 * (x - 80)..2 * (x + width - 80)).map(move |column| (column, row))
+                })
+                .filter(|&(column, row)| tile.image.get(column, row) < 128)
+                .count();
+            let expected_base_ink = if value == 200 { 0 } else { width * height };
+            assert_eq!(
+                base_ink, expected_base_ink,
+                "base mark at ({x},{y}), tone {value}"
+            );
+            if tile_ink != 4 * base_ink {
+                let in_rejected_mask = rejected.as_ref().is_some_and(|mask| {
+                    mask.get(
+                        (x + width / 2) * mask.width() / source.width(),
+                        (y + height / 2) * mask.height() / source.height(),
+                    ) < 128
+                });
+                erased.push((value, width, height, base_ink, tile_ink, in_rejected_mask));
+            }
+        }
+        assert!(erased.is_empty(),
+            "detail replay must preserve source-supported straight marks retained by the base; (tone,width,height,base ink,tile ink,rejected): {erased:?}");
+    }
+
+    #[test]
+    fn auto_detail_tiles_keep_source_supported_horizontal_faint_marks() {
+        assert_auto_detail_keeps_straight_faint_marks(true);
+    }
+
+    #[test]
+    fn auto_detail_tiles_keep_source_supported_vertical_faint_marks() {
+        assert_auto_detail_keeps_straight_faint_marks(false);
+    }
+
     #[test]
     fn detail_tiles_replay_full_page_pencil_and_show_through_decisions() {
         // #1338's 300-DPI title page and shallow verso glyphs.
