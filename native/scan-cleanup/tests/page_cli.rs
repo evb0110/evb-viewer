@@ -3028,6 +3028,95 @@ fn per_page_ocr_mode_writes_atomic_png_and_metadata() {
     assert!(metadata_json["forwardTransform"]["matrix"].is_array());
 }
 
+fn direct_ocr_fixture(input: &std::path::Path) {
+    let mut image = GrayImage::new(100, 80, 240);
+    for y in (15..65).step_by(10) {
+        for x in 12..88 {
+            image.set(x, y, 20);
+            image.set(x, y + 1, 20);
+        }
+    }
+    fs::write(input, encode_gray(&image).unwrap()).unwrap();
+}
+
+fn run_direct_ocr(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    metadata: &std::path::Path,
+) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args([
+            "--input", input.to_str().unwrap(),
+            "--output", output.to_str().unwrap(),
+            "--metadata", metadata.to_str().unwrap(),
+            "--ocr-mode", "--options",
+            r#"{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center","normalizeIllumination":false}"#,
+        ])
+        .output().unwrap()
+}
+
+#[test]
+fn direct_ocr_metadata_failure_preserves_the_previous_output_bytes() {
+    let scratch = Scratch::new("ocr-rollback");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let output = scratch.path("output.png");
+    let sentinel = b"valuable previous output\0";
+    fs::write(&output, sentinel).unwrap();
+    let metadata = scratch.path("metadata-is-a-directory");
+    fs::create_dir(&metadata).unwrap();
+    let result = run_direct_ocr(&input, &output, &metadata);
+    assert!(
+        !result.status.success(),
+        "publishing metadata over a directory must fail"
+    );
+    assert_eq!(
+        fs::read(&output).ok().as_deref(),
+        Some(sentinel.as_slice()),
+        "direct OCR failure must restore the prior output, stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn direct_ocr_rejects_input_output_alias_without_losing_the_source() {
+    let scratch = Scratch::new("ocr-input-alias");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let original = fs::read(&input).unwrap();
+    let metadata = scratch.path("metadata-is-a-directory");
+    fs::create_dir(&metadata).unwrap();
+    let result = run_direct_ocr(&input, &input, &metadata);
+    assert_eq!(
+        fs::read(&input).ok().as_deref(),
+        Some(original.as_slice()),
+        "an OCR input/output alias must leave source bytes intact, stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!result.status.success());
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+}
+
+#[test]
+fn direct_ocr_rejects_output_metadata_alias_before_publishing_any_bytes() {
+    let scratch = Scratch::new("ocr-output-metadata-alias");
+    let input = scratch.path("input.png");
+    direct_ocr_fixture(&input);
+    let output = scratch.path("output.png");
+    let result = run_direct_ocr(&input, &output, &output);
+    assert!(
+        !result.status.success(),
+        "direct OCR must reject output/metadata aliases rather than publish JSON as a PNG"
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
+    assert!(
+        !output.exists(),
+        "alias admission must precede any output publication"
+    );
+}
+
 #[test]
 fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
     let scratch = Scratch::new("spread");
