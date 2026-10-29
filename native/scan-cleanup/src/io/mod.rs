@@ -73,17 +73,17 @@ pub(crate) fn open_randomized_temporary(
     ))
 }
 
-pub(crate) struct StagedFileBackup {
+/// A synced copy of a destination taken while the original is still in place,
+/// so a caller can record every copy durably before it removes any original.
+/// Dropping it deletes the copy; `stage` removes the original instead.
+pub(crate) struct FileSnapshot {
     original: PathBuf,
     backup: Option<PathBuf>,
     permissions: fs::Permissions,
 }
 
-impl StagedFileBackup {
-    pub(crate) fn stage_with_hook(
-        original: &Path,
-        before_remove: impl FnOnce(&Path, &Path) -> Result<(), String>,
-    ) -> Result<Self, String> {
+impl FileSnapshot {
+    pub(crate) fn take(original: &Path) -> Result<Self, String> {
         let mut source = File::open(original).map_err(|error| error.to_string())?;
         let metadata = source.metadata().map_err(|error| error.to_string())?;
         if !metadata.is_file() {
@@ -107,14 +107,6 @@ impl StagedFileBackup {
             let _ = fs::remove_file(&backup);
             return Err(error.to_string());
         }
-        if let Err(error) = before_remove(original, &backup) {
-            let _ = fs::remove_file(&backup);
-            return Err(error);
-        }
-        if let Err(error) = fs::remove_file(original) {
-            let _ = fs::remove_file(&backup);
-            return Err(error.to_string());
-        }
         Ok(Self {
             original: original.to_path_buf(),
             backup: Some(backup),
@@ -122,6 +114,35 @@ impl StagedFileBackup {
         })
     }
 
+    pub(crate) fn backup(&self) -> Option<&Path> {
+        self.backup.as_deref()
+    }
+
+    pub(crate) fn stage(mut self) -> Result<StagedFileBackup, String> {
+        fs::remove_file(&self.original).map_err(|error| error.to_string())?;
+        Ok(StagedFileBackup {
+            original: self.original.clone(),
+            backup: self.backup.take(),
+            permissions: self.permissions.clone(),
+        })
+    }
+}
+
+impl Drop for FileSnapshot {
+    fn drop(&mut self) {
+        if let Some(backup) = self.backup.take() {
+            let _ = fs::remove_file(backup);
+        }
+    }
+}
+
+pub(crate) struct StagedFileBackup {
+    original: PathBuf,
+    backup: Option<PathBuf>,
+    permissions: fs::Permissions,
+}
+
+impl StagedFileBackup {
     pub(crate) fn original(&self) -> &Path {
         &self.original
     }
@@ -224,8 +245,7 @@ mod tests {
         fs::write(&original, b"previous destination").unwrap();
 
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _backup =
-                StagedFileBackup::stage_with_hook(&original, |_original, _backup| Ok(())).unwrap();
+            let _backup = FileSnapshot::take(&original).unwrap().stage().unwrap();
             assert!(!original.exists());
             panic!("operation failed after staging");
         }));
@@ -241,8 +261,7 @@ mod tests {
         let original = directory.join("destination.png");
         fs::write(&original, b"previous destination").unwrap();
 
-        let backup =
-            StagedFileBackup::stage_with_hook(&original, |_original, _backup| Ok(())).unwrap();
+        let backup = FileSnapshot::take(&original).unwrap().stage().unwrap();
         let backup_path = backup.backup.as_ref().unwrap().clone();
         fs::remove_file(&backup_path).unwrap();
         fs::create_dir(&backup_path).unwrap();

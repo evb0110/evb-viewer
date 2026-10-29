@@ -211,17 +211,7 @@ impl LineStrokeBudget {
         }
         let map = ComponentMap::from_binary(source);
         let eligibility = stroke_budget_eligibility(dpi);
-        let mut sums_x = vec![0u64; map.components().len() + 1];
-        let mut sums_y = vec![0u64; map.components().len() + 1];
-        for y in 0..source.height() {
-            for x in 0..source.width() {
-                let label = map.label_at(x, y) as usize;
-                if label != 0 {
-                    sums_x[label] += x as u64;
-                    sums_y[label] += y as u64;
-                }
-            }
-        }
+        let (sums_x, sums_y) = map.coordinate_sums_by_component();
         let mut measured = Vec::new();
         for component in map.components() {
             let width = component.right - component.left + 1;

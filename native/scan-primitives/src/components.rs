@@ -149,6 +149,22 @@ impl ComponentMap {
         maxima
     }
 
+    /// Sums of the x and of the y coordinates of each foreground component's
+    /// pixels. A run of n pixels on row y adds n * y and the arithmetic
+    /// series of its columns, so no pixel is visited one at a time.
+    pub fn coordinate_sums_by_component(&self) -> (Vec<u64>, Vec<u64>) {
+        let mut sums_x = vec![0u64; self.components.len() + 1];
+        let mut sums_y = vec![0u64; self.components.len() + 1];
+        for y in 0..self.height {
+            for run in &self.runs[self.row_offsets[y]..self.row_offsets[y + 1]] {
+                let (start, end) = (u64::from(run.start), u64::from(run.end));
+                sums_x[run.label as usize] += (start + end - 1) * (end - start) / 2;
+                sums_y[run.label as usize] += y as u64 * (end - start);
+            }
+        }
+        (sums_x, sums_y)
+    }
+
     /// Luminance sum and sample count under each foreground component.
     pub fn gray_sums_by_component(&self, image: &GrayImage) -> (Vec<u64>, Vec<usize>) {
         assert_eq!((image.width(), image.height()), (self.width, self.height));
@@ -390,12 +406,16 @@ mod tests {
 
         let mut actual_to_expected = vec![0u32; actual.components().len() + 1];
         let mut expected_to_actual = vec![0u32; expected.components.len() + 1];
+        // Per-pixel coordinate sums, as callers summed them before runs did.
+        let mut pixel_sums = vec![(0u64, 0u64); actual.components().len() + 1];
         for y in 0..image.height() {
             for x in 0..image.width() {
                 let actual_label = actual.label_at(x, y);
                 let expected_label = expected.label_at(x, y);
                 assert_eq!(actual_label == 0, expected_label == 0);
                 if actual_label != 0 {
+                    pixel_sums[actual_label as usize].0 += x as u64;
+                    pixel_sums[actual_label as usize].1 += y as u64;
                     let mapped = &mut actual_to_expected[actual_label as usize];
                     if *mapped == 0 {
                         *mapped = expected_label;
@@ -409,6 +429,12 @@ mod tests {
                 }
             }
         }
+
+        let (sums_x, sums_y) = actual.coordinate_sums_by_component();
+        assert_eq!(
+            sums_x.into_iter().zip(sums_y).collect::<Vec<_>>(),
+            pixel_sums
+        );
 
         let mut actual_stats = actual
             .components()
