@@ -1788,6 +1788,8 @@ export default {
             'storageFull': 'Lo spazio di archiviazione del browser è esaurito. Libera spazio per questo sito e riprova.',
             'notEnoughMemory': 'Il browser ha esaurito la memoria. Chiudi altre schede e riprova oppure usa l’app desktop.',
             'documentToolsUnavailable': 'Impossibile avviare lo strumento per i documenti. Ricarica la pagina e riprova.',
+            'validationLimitedTitle': 'Verifica PDF limitata',
+            'validationLimited': 'Questo PDF supera il limite di verifica di {limitMiB} MiB del browser. È stato verificato solo il caricamento nel browser e l’ottimizzazione con Salva con nome non è disponibile. Usa l’app desktop per una verifica completa.',
             'annotationsUnavailable': 'La modifica delle annotazioni esistenti non è disponibile',
             'annotationsTooLarge': 'Il documento è aperto in lettura. L’importazione delle annotazioni esistenti supera il limite di memoria dello strumento del browser. Usa l’app desktop per modificarle.',
             'filePickerSetupDenied': 'L’accesso del browser ai file è stato negato. Scegli di nuovo Apri per usare il selettore compatibile.',

@@ -1788,6 +1788,8 @@ export default {
             'storageFull': 'De browseropslag is vol. Maak ruimte vrij voor deze site en probeer het opnieuw.',
             'notEnoughMemory': 'De browser heeft onvoldoende geheugen. Sluit andere tabbladen en probeer het opnieuw of gebruik de desktopapp.',
             'documentToolsUnavailable': 'Het documentgereedschap kon niet starten. Laad de pagina opnieuw en probeer het opnieuw.',
+            'validationLimitedTitle': 'Beperkte PDF-validatie',
+            'validationLimited': 'Deze PDF overschrijdt de browserlimiet voor validatie van {limitMiB} MiB. Alleen het laden in de browser is gecontroleerd. Optimalisatie bij Opslaan als is niet beschikbaar. Gebruik de desktopapp voor volledige validatie.',
             'annotationsUnavailable': 'Bestaande annotaties kunnen niet worden bewerkt',
             'annotationsTooLarge': 'Het document is geopend om te lezen. Het importeren van bestaande annotaties overschrijdt de geheugenlimiet van het browsergereedschap. Gebruik de desktopapp om ze te bewerken.',
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',

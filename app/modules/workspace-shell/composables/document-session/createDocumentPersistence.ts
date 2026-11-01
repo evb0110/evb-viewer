@@ -316,7 +316,10 @@ export function createDocumentPersistence(
                 'persist',
                 'write',
                 'write-failed',
-                {message: getErrorMessage(e)},
+                {
+                    message: getErrorMessage(e),
+                    cause: e,
+                },
             ));
         }
     }

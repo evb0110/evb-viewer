@@ -1788,6 +1788,8 @@ export default {
             'storageFull': 'Browser storage is full. Free space for this site and try again.',
             'notEnoughMemory': 'The browser ran out of memory. Close other tabs and try again, or use the desktop app.',
             'documentToolsUnavailable': 'The browser document tool could not start. Reload the page and try again.',
+            'validationLimitedTitle': 'Limited PDF validation',
+            'validationLimited': 'This PDF exceeds the {limitMiB} MiB browser validation limit. Only browser loadability was checked, and Save As optimization is unavailable. Use the desktop app for full validation.',
             'annotationsUnavailable': 'Existing annotation editing is unavailable',
             'annotationsTooLarge': 'The document is open for reading. Importing existing annotations exceeds the browser tool’s memory limit. Use the desktop app to edit them.',
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',

@@ -10,7 +10,12 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
-import { classifyDocumentOpenError } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import {
+    classifyDocumentOpenError,
+    describeBrowserEngineLimit,
+} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
+import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import {
     isFailurePresentation,
     copyTextToClipboard,
@@ -83,6 +88,10 @@ export const useWorkspaceFailureSurface = () => {
     }
 
     function describeSaveFailure(reason: TWorkspaceSaveFailureReason, persistence?: IPdfPersistFailure) {
+        const engineLimit = persistence?.cause === undefined ? null : describeBrowserEngineLimit(persistence.cause, t);
+        if (engineLimit) {
+            return engineLimit;
+        }
         // The file was, or may have been, written; only the open copy fell behind.
         if (persistence?.reason === 'working-copy-sync-required') {
             return t(persistence.externalWriteCommitted === true
@@ -135,7 +144,9 @@ export const useWorkspaceFailureSurface = () => {
         }
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
         const syncRequired = diagnostics?.reason === 'working-copy-sync-required';
-        const description = reason === 'recovery-settlement-failed' || syncRequired
+        // These say what happened better than any raw detail.
+        const toldByReason = syncRequired || (diagnostics?.cause !== undefined && describeBrowserEngineLimit(diagnostics.cause, t) !== null);
+        const description = reason === 'recovery-settlement-failed' || toldByReason
             ? describeSaveFailure(reason, diagnostics)
             : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
         const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
@@ -256,12 +267,28 @@ export const useWorkspaceFailureSurface = () => {
         };
     }
 
+    /**
+     * A save the browser could check only for loadability goes ahead; a
+     * warning says so, without marking the save failed.
+     */
+    function reportSaveValidationLimitation(validation: IPdfValidationResult) {
+        if (!validation.isValid || validation.tool !== 'browser' || validation.warnings.length === 0) {
+            return;
+        }
+        toast.add({
+            color: 'warning',
+            title: t('errors.browser.validationLimitedTitle'),
+            description: t('errors.browser.validationLimited', {limitMiB: Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))}),
+        });
+    }
+
     return {
         hasSaveFailure: computed(() => saveFailurePresentation.value !== null),
         saveFailurePresentation,
         getLastFailurePresentation: () => saveFailurePresentation.value,
         clearSaveFailure,
         reportSaveFailure,
+        reportSaveValidationLimitation,
         reportFailure: presentFailureToast,
         reportAnnotationFailure,
         reportNoteFailure,

@@ -1788,6 +1788,8 @@ export default {
             'storageFull': 'Der Browserspeicher ist voll. Geben Sie Speicher für diese Website frei und versuchen Sie es erneut.',
             'notEnoughMemory': 'Der Browser hat nicht genügend Arbeitsspeicher. Schließen Sie andere Tabs und versuchen Sie es erneut oder verwenden Sie die Desktop-App.',
             'documentToolsUnavailable': 'Das Dokumentwerkzeug konnte nicht gestartet werden. Laden Sie die Seite neu und versuchen Sie es erneut.',
+            'validationLimitedTitle': 'Eingeschränkte PDF-Prüfung',
+            'validationLimited': 'Diese PDF überschreitet die Prüfgrenze von {limitMiB} MiB im Browser. Nur das Laden im Browser wurde geprüft. Die Optimierung beim Speichern unter ist nicht verfügbar. Verwenden Sie für eine vollständige Prüfung die Desktop-App.',
             'annotationsUnavailable': 'Vorhandene Anmerkungen können nicht bearbeitet werden',
             'annotationsTooLarge': 'Das Dokument ist zum Lesen geöffnet. Der Import vorhandener Anmerkungen überschreitet das Speicherlimit des Browserwerkzeugs. Bearbeiten Sie sie in der Desktop-App.',
             'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',

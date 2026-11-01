@@ -1799,6 +1799,8 @@ export default {
             'storageFull': 'O armazenamento do navegador está cheio. Libere espaço para este site e tente novamente.',
             'notEnoughMemory': 'O navegador ficou sem memória. Feche outras abas e tente novamente ou use o aplicativo para desktop.',
             'documentToolsUnavailable': 'Não foi possível iniciar a ferramenta de documentos. Recarregue a página e tente novamente.',
+            'validationLimitedTitle': 'Validação limitada do PDF',
+            'validationLimited': 'Este PDF excede o limite de validação de {limitMiB} MiB do navegador. Apenas o carregamento no navegador foi verificado e a otimização ao salvar como está indisponível. Use o aplicativo para computador para uma validação completa.',
             'annotationsUnavailable': 'A edição de anotações existentes está indisponível',
             'annotationsTooLarge': 'O documento está aberto para leitura. A importação das anotações existentes excede o limite de memória da ferramenta do navegador. Use o aplicativo para desktop para editá-las.',
             'filePickerSetupDenied': 'O acesso do navegador aos arquivos foi negado. Escolha Abrir novamente para usar o seletor compatível.',

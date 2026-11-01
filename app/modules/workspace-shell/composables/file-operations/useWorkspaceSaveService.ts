@@ -127,7 +127,11 @@ async function validateWorkingCopy(
         });
         return 'validation-rejected';
     }
-    return isTargetCurrent(plan, deps) ? null : 'document-changed';
+    if (!isTargetCurrent(plan, deps)) {
+        return 'document-changed';
+    }
+    deps.failureSurface?.reportSaveValidationLimitation(validation);
+    return null;
 }
 
 async function executeWorkingCopySave(
@@ -719,7 +723,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             lastPlan,
                             acknowledgedUnencryptedSaveSessions,
                         );
-                        result = unencryptedSaveAbort ?? await executeSavePlan(lastPlan, deps);
+                        result = unencryptedSaveAbort ?? await executeSavePlan(lastPlan, {
+                            ...deps,
+                            failureSurface,
+                        });
                         if (result.status !== 'saved') {
                             result.reloadWaiter?.cancel();
                             if (result.status === 'failed') throw result.error;
@@ -751,6 +758,15 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         reportSaveFailureIfCurrent('unexpected-error', {
                             detail,
                             failure,
+                            // Its cause lets an engine limit be told as one.
+                            diagnostics: {
+                                channel: 'save',
+                                operation: 'persist',
+                                phase: 'preflight',
+                                reason: 'unknown',
+                                message: detail,
+                                cause: error,
+                            },
                         });
                         return false;
                     }

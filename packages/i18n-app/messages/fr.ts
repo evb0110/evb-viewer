@@ -1799,6 +1799,8 @@ export default {
             'storageFull': 'Le stockage du navigateur est plein. Libérez de l’espace pour ce site et réessayez.',
             'notEnoughMemory': 'Le navigateur manque de mémoire. Fermez d’autres onglets et réessayez, ou utilisez l’application de bureau.',
             'documentToolsUnavailable': 'L’outil de traitement des documents n’a pas pu démarrer. Rechargez la page et réessayez.',
+            'validationLimitedTitle': 'Vérification PDF limitée',
+            'validationLimited': 'Ce PDF dépasse la limite de vérification de {limitMiB} Mio du navigateur. Seul le chargement dans le navigateur a été vérifié, et l’optimisation lors de l’enregistrement sous est indisponible. Utilisez l’application de bureau pour une vérification complète.',
             'annotationsUnavailable': 'La modification des annotations existantes est indisponible',
             'annotationsTooLarge': 'Le document est ouvert en lecture. L’importation des annotations existantes dépasse la limite mémoire de l’outil du navigateur. Utilisez l’application de bureau pour les modifier.',
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',
