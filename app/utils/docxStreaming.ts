@@ -42,6 +42,8 @@ export function resolveDocxParagraphDirection(text: string, fallbackRtl = false)
 }
 
 const ZIP32_MAX_VALUE = 0xFFFFFFFF;
+// A count or offset at or past these is written as ZIP64, which desktop's
+// folder export never needs and ordinary archives never reach.
 const ZIP_MAX_ENTRY_COUNT = 0xFFFF;
 const ZIP_MAX_FILE_NAME_BYTES = 0xFFFF;
 
@@ -156,12 +158,14 @@ export function makeCentralHeader(
     assertZip32Value(crc, 'CRC');
     assertZip32Value(compressedSize, 'entry size');
     assertZip32Value(size, 'entry size');
-    assertZip32Value(offset, 'entry offset');
-    const header = new Uint8Array(46 + fileName.byteLength);
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new RangeError('DOCX ZIP entry offset is invalid');
+    const zip64 = offset >= ZIP32_MAX_VALUE;
+    const extraLength = zip64 ? 12 : 0;
+    const header = new Uint8Array(46 + fileName.byteLength + extraLength);
     const view = new DataView(header.buffer);
     view.setUint32(0, 0x02014B50, true);
-    view.setUint16(4, 20, true);
-    view.setUint16(6, 20, true);
+    view.setUint16(4, zip64 ? 45 : 20, true);
+    view.setUint16(6, zip64 ? 45 : 20, true);
     view.setUint16(8, layout.usesDataDescriptor ? ZIP_DATA_DESCRIPTOR_FLAG : 0, true);
     view.setUint16(10, layout.method ?? ZIP_METHOD_STORED, true);
     view.setUint16(12, 0, true);
@@ -170,32 +174,55 @@ export function makeCentralHeader(
     view.setUint32(20, compressedSize, true);
     view.setUint32(24, size, true);
     view.setUint16(28, fileName.byteLength, true);
-    view.setUint16(30, 0, true);
+    view.setUint16(30, extraLength, true);
     view.setUint16(32, 0, true);
     view.setUint16(34, 0, true);
     view.setUint16(36, 0, true);
     view.setUint32(38, 0, true);
-    view.setUint32(42, offset, true);
+    view.setUint32(42, Math.min(offset, ZIP32_MAX_VALUE), true);
     header.set(fileName, 46);
+    if (zip64) {
+        // The ZIP64 extended information field carries the offset.
+        const extra = 46 + fileName.byteLength;
+        view.setUint16(extra, 0x0001, true);
+        view.setUint16(extra + 2, 8, true);
+        view.setBigUint64(extra + 4, BigInt(offset), true);
+    }
     return header;
 }
 
 export function makeEndOfCentralDirectory(entryCount: number, centralSize: number, centralOffset: number) {
-    if (!Number.isSafeInteger(entryCount) || entryCount < 0 || entryCount > ZIP_MAX_ENTRY_COUNT) {
-        throw new RangeError('DOCX ZIP entry count exceeds the ZIP safety limit');
+    if (![
+        entryCount,
+        centralSize,
+        centralOffset,
+    ].every(value => Number.isSafeInteger(value) && value >= 0)) {
+        throw new RangeError('DOCX ZIP central directory is invalid');
     }
-    assertZip32Value(centralSize, 'central directory size');
-    assertZip32Value(centralOffset, 'central directory offset');
-    const footer = new Uint8Array(22);
+    const zip64 = entryCount >= ZIP_MAX_ENTRY_COUNT || centralSize >= ZIP32_MAX_VALUE || centralOffset >= ZIP32_MAX_VALUE;
+    const footer = new Uint8Array(zip64 ? 98 : 22);
     const view = new DataView(footer.buffer);
-    view.setUint32(0, 0x06054B50, true);
-    view.setUint16(4, 0, true);
-    view.setUint16(6, 0, true);
-    view.setUint16(8, entryCount, true);
-    view.setUint16(10, entryCount, true);
-    view.setUint32(12, centralSize, true);
-    view.setUint32(16, centralOffset, true);
-    view.setUint16(20, 0, true);
+    let end = 0;
+    if (zip64) {
+        // The ZIP64 end of central directory record, then its locator.
+        view.setUint32(0, 0x06064B50, true);
+        view.setBigUint64(4, 44n, true);
+        view.setUint16(12, 45, true);
+        view.setUint16(14, 45, true);
+        view.setBigUint64(24, BigInt(entryCount), true);
+        view.setBigUint64(32, BigInt(entryCount), true);
+        view.setBigUint64(40, BigInt(centralSize), true);
+        view.setBigUint64(48, BigInt(centralOffset), true);
+        view.setUint32(56, 0x07064B50, true);
+        view.setBigUint64(64, BigInt(centralOffset + centralSize), true);
+        view.setUint32(72, 1, true);
+        end = 76;
+    }
+    view.setUint32(end, 0x06054B50, true);
+    view.setUint16(end + 8, Math.min(entryCount, ZIP_MAX_ENTRY_COUNT), true);
+    view.setUint16(end + 10, Math.min(entryCount, ZIP_MAX_ENTRY_COUNT), true);
+    view.setUint32(end + 12, Math.min(centralSize, ZIP32_MAX_VALUE), true);
+    view.setUint32(end + 16, Math.min(centralOffset, ZIP32_MAX_VALUE), true);
     return footer;
 }
 
