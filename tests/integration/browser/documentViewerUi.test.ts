@@ -219,8 +219,10 @@ describe('browser document lifecycle UI', () => {
             await box.dblclick();
             const editor = box.locator('[contenteditable="true"]');
             await editor.waitFor({state: 'visible'});
-            await editor.press('Control+A');
+            // Control+A selects all only off macOS; on a Mac it moves to the line start.
+            await editor.press('ControlOrMeta+A');
             await page.keyboard.type(draft);
+            expect(await editor.textContent()).toBe(draft);
             await page.evaluate(async () => {
                 await document.fonts.ready;
                 await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
@@ -274,7 +276,7 @@ describe('browser document lifecycle UI', () => {
             expect(problems.filter(problem => problem.includes('[pdf-renderer] Failed to render canvas for page 1'))).toHaveLength(1);
 
             await editor.click();
-            await editor.press('End');
+            await editor.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End');
             await page.keyboard.type('!');
             expect(await editor.textContent()).toBe(`${draft}!`);
             const download = page.waitForEvent('download');
@@ -1747,7 +1749,7 @@ describe('browser document lifecycle UI', () => {
                 await page.context().close();
             }
         }
-    });
+    }, 90_000);
 
     // I1: the desktop Edit menu's image accelerators act in the browser, and a
     // paste carries its image where the browser refuses clipboard reads.

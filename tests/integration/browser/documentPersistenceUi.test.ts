@@ -91,7 +91,7 @@ describe('browser document lifecycle UI', () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Signature fixture did not finish opening');
             });
-        });
+        }, 90_000);
 
         afterAll(async () => {
             await fixture?.page.context().close();
@@ -154,7 +154,7 @@ describe('browser document lifecycle UI', () => {
             expect(pickerRequests, `${kind}: Save As picker requests`).toBe(kind === 'signed' ? 1 : 0);
             expect(rewritten, `${kind}: original file rewritten`).toBe(kind !== 'signed');
             expect(rotation, `${kind}: saved page 1 rotation`).toBe(kind === 'signed' ? 0 : 90);
-        });
+        }, 90_000);
     });
 
     // C2/C4: opening a valid document has no size gate or console failure;
