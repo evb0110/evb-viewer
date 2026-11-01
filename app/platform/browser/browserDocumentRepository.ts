@@ -847,15 +847,31 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         throw new Error(`Browser physical source changed since this working copy opened: ${sourceRef}`);
     }
 
+    // A committed save makes the written bytes this source version. Its
+    // opening witness and file metadata advance with the working copy's base,
+    // so neither the next Save nor a Recent reopen takes our own write for an
+    // external edit. Without a file the identity is the stored bytes'.
     private async acknowledgePhysicalSourceCommitUnlocked(workingRef: string, sourceRef: string) {
         const workingEntry = await this.requireEntry(workingRef);
         const sourceEntry = await this.requireEntry(sourceRef);
-        if (!sourceEntry.saveHandle) {
-            return;
+        let witness: string | undefined;
+        if (sourceEntry.saveHandle) {
+            const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
+            witness = await createBrowserFileContentWitness(metadata.file);
+            if (sourceEntry.storageMode === 'handle') sourceEntry.fileSize = metadata.size;
+            sourceEntry.fileLastModified = metadata.lastModified;
+            sourceEntry.fileSnapshot = metadata.file;
+        } else if (sourceEntry.fileSize <= BROWSER_MAX_FULL_READ_BYTES) {
+            witness = createBrowserStoredBytesWitness(await this.readEntryBytes(sourceEntry));
         }
-        const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
-        workingEntry.sourceBaseWitness = await createBrowserFileContentWitness(metadata.file);
-        await this.persistEntry(workingEntry);
+        for (const entry of [
+            sourceEntry,
+            workingEntry,
+        ]) {
+            if (witness) entry.sourceBaseWitness = witness;
+            else delete entry.sourceBaseWitness;
+            await this.persistEntry(entry);
+        }
     }
 
     private async writeFromDocumentUnlocked(ref: string, sourceRef: string) {

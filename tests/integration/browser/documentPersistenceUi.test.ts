@@ -1375,8 +1375,8 @@ describe('browser document lifecycle UI', () => {
     }, 120_000);
 
     // R4: with "Reopen documents where I left off" on, a Recent PDF reopens at
-    // the page, zoom and view rotation it was closed at; a file of the same
-    // name and page count with other bytes opens at its start.
+    // the page, zoom and view rotation it was closed at, also after a Save; a
+    // file of the same name and page count with other bytes opens at its start.
     it('reopens a Recent PDF where the reader left it, and other bytes of that name at their start', async () => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1_280,
@@ -1391,6 +1391,8 @@ describe('browser document lifecycle UI', () => {
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                // Save downloads, as where the browser has no file access.
+                Reflect.set(window, 'showSaveFilePicker', undefined);
             });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
@@ -1419,6 +1421,35 @@ describe('browser document lifecycle UI', () => {
                 name: 'Rotate View Clockwise',
                 exact: true,
             }).click();
+            // An ordinary Save of a note writes the reader's own bytes; the view stays theirs.
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container[data-page="4"]').first().click({position: {
+                x: 80,
+                y: 80,
+            }});
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).fill('Saved where I left off');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            // The button's name is its tooltip, which changes once nothing is left to save.
+            const save = page.locator('.save-split-primary').first();
+            const download = page.waitForEvent('download');
+            await save.click();
+            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(new Set(['Saved where I left off']));
+            await expect.poll(async () => [
+                await save.getAttribute('aria-busy'),
+                await save.isDisabled(),
+            ], {timeout: 15_000}).toEqual([
+                'false',
+                true,
+            ]);
             await expect.poll(readView, {timeout: 15_000}).toMatchObject({
                 indicator: '4',
                 visibleText: 'Reading page 4',
@@ -1427,15 +1458,21 @@ describe('browser document lifecycle UI', () => {
             const left = await readView();
             await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-left.png')});
             // A reload leaves nothing of the closed view but what Recent stored.
+            // Close remembers the view before its tab goes, so the reload waits for that.
             const closeAndReload = async () => {
                 await page.getByRole('button', {name: 'Close Tab'}).click();
+                await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').filter({hasText: '.pdf'}).count(), {timeout: 15_000}).toBe(0);
                 await page.reload({waitUntil: 'domcontentloaded'});
                 await waitForOpenFileReady(page);
             };
+            const reopenFromRecent = async (name: string) => {
+                await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: name}).click();
+                await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered').first().waitFor({timeout: 30_000});
+                await settle();
+            };
             await closeAndReload();
 
-            await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: 'reading-view.pdf'}).click();
-            await settle();
+            await reopenFromRecent('reading-view.pdf');
             await expect.poll(readView, {timeout: 15_000}).toEqual(left);
             await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-restored.png')});
             await closeAndReload();

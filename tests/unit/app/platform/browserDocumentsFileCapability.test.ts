@@ -1413,6 +1413,76 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(capability.recentFiles.readingView(await reopen())).resolves.toBeNull();
     });
 
+    // An ordinary Save writes the reader's own bytes to the file it opened, or
+    // downloads them where the browser has no file access; the view left on
+    // them must survive the next Recent reopen.
+    it.each([
+        'file handle',
+        'download',
+    ] as const)('keeps the Recent reading view across an ordinary Save to a %s', async (target) => {
+        const view = {
+            currentPage: 1,
+            pageCount: 1,
+            zoom: 2,
+            zoomMode: 'custom',
+            viewMode: 'single',
+            continuousScroll: true,
+            viewRotation: 180,
+        } as const;
+        let physical = new File([await createPdfBytes()], 'saved.pdf', {
+            type: 'application/pdf',
+            lastModified: 1_000,
+        });
+        const handle = createFileSystemFileHandle({
+            name: 'saved.pdf',
+            getFile: async () => physical,
+            createWritable: async () => {
+                const chunks: Uint8Array[] = [];
+                return createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));
+                    },
+                    close: async () => {
+                        physical = new File(chunks, 'saved.pdf', {
+                            type: 'application/pdf',
+                            lastModified: physical.lastModified + 1_000,
+                        });
+                    },
+                });
+            },
+        });
+        if (target === 'download') {
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {value: () => 'blob:saved-download'},
+                revokeObjectURL: {value: () => {}},
+            });
+            vi.stubGlobal('URL', DownloadURL);
+        }
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability(target === 'download'
+            ? {inputFiles: [physical]}
+            : {windowOverrides: {showOpenFilePicker: async () => [handle]}});
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        await browserSettingsCapability.save({rememberDocumentView: true});
+        const opened = await capability.openDocumentDialog();
+        if (opened?.kind !== 'pdf') throw new Error('Expected the picked PDF to open');
+        const workingCopy = requireDocumentRef(opened.workingPath);
+        await browserDocumentStore.write(workingCopy, await createPdfBytes([
+            300,
+            400,
+        ]), await getRevisionOptions(browserDocumentStore, workingCopy));
+        await expect(capability.saveFileStructured(workingCopy, await getRevisionOptions(browserDocumentStore, workingCopy)))
+            .resolves.toMatchObject({ok: true});
+        await capability.recentFiles.rememberReadingView(workingCopy, view);
+
+        const reopened = await capability.openDocumentDirect(requireDocumentRef(opened.originalPath));
+        if (reopened?.kind !== 'pdf') throw new Error('Expected the Recent PDF to reopen');
+        expect(reopened.originalPath).toBe(opened.originalPath);
+        await expect(capability.recentFiles.readingView(requireDocumentRef(reopened.workingPath))).resolves.toEqual(view);
+    });
+
     it('opens oversized sources with range-backed working copies', async () => {
         const {
             BROWSER_MAX_FULL_READ_BYTES,
