@@ -12,10 +12,11 @@ use lopdf::content::Content;
 /// lopdf nests arrays and dictionaries 100 deep; reading deeper only reads
 /// candidates lopdf would reject.
 const MAX_NESTING: usize = 128;
-/// Inline-image dictionaries hold a few entries. Reading every candidate may
-/// cost this many steps per stream byte, plus a floor, before the stream is
-/// refused instead.
-const STEPS_PER_BYTE: usize = 4;
+/// The token walk is linear: each step advances, and a number's reference
+/// lookahead (`obj gen R`) reads at most two more tokens, so a byte is charged
+/// a few times. This bound covers that with margin and still stops a stream
+/// that would cost more.
+const STEPS_PER_BYTE: usize = 16;
 const STEP_FLOOR: usize = 1 << 16;
 
 /// Parses a content stream. The outer error refuses an inline image whose
@@ -433,6 +434,9 @@ mod tests {
         // Nested image-like text inside one string stays within the scan budget.
         let nested = format!("BT ({}{}) Tj ET", " BI /X (".repeat(80), ")".repeat(80));
         assert!(!refused(&nested));
+        // Ordinary drawing with many numeric operands stays within it too.
+        let path = format!("0 0 m\n{}S\n", "0 0 0 0 0 0 c\n".repeat(10_000));
+        assert!(matches!(parse_content(path.as_bytes()), Ok(Ok(_))));
     }
 
     #[test]
