@@ -28,7 +28,6 @@ import {
 import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
 import {
     detectPageRasterFromPageSize,
-    detectSourceDpiFromPageSizes,
     isScanCleanupCompactLayeredRaster,
     type IDetectedPageRaster,
     type IPdfPageSize,
@@ -45,12 +44,7 @@ import {
     resolveStagedRasterWindow,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createStagedRasterWindow} from '@evb/scan-cleanup/core/createStagedRasterWindow';
-import {
-    renderScanCleanupRasterToDisk as renderRasterToDisk,
-    resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
-    SCAN_CLEANUP_RASTER_MAX_PIXELS,
-} from '@evb/scan-cleanup/core/rasterValidation';
-import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {renderScanCleanupRasterToDisk as renderRasterToDisk} from '@evb/scan-cleanup/core/rasterValidation';
 import {
     addScanCleanupDocumentCanvasObservedPage,
     addScanCleanupDocumentCanvasPage,
@@ -60,11 +54,20 @@ import {
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {createScanCleanupProgressEtaEstimator} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
+    DETECTION_DPI,
     isCropBoxOrientationMismatch,
     isMateriallySmallerCropBox,
+    PREVIEW_DPI,
+    resolvePagePreviewDpi,
+    resolvePreviewProcessingDpi,
+    resolvePreviewRasterPlan,
+    resolveScanCleanupAnalysisDpi,
+    resolveScanCleanupPagePreviewDpi,
+    resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
+    SCAN_CLEANUP_RASTER_MAX_PIXELS,
     toCropBoxPageSize,
     toMediaBoxPageSize,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {
     collectScanCleanupPageScopeBatch,
     iterateScanCleanupPageBatches,
@@ -84,42 +87,15 @@ import {
     createScanCleanupPlacementAnchorCalibrationSignature,
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 
-export const DETECTION_DPI = 150;
-export const PREVIEW_DPI = DETECTION_DPI;
-
-/**
- * The DPI of one page's canonical analysis plane. Detection classifies a page
- * on it, and preview and final cleanup route the same page on it, so it is a
- * function of the page's geometry record alone, which every stage reads from
- * the same page-size reader: 150 DPI, never finer than the page's full-page
- * scan (rendering a 72-ppi scan at 150 only interpolates pixels), and coarse
- * enough for the raster to fit the cap every producer and reader applies. A
- * page without a full-page image keeps 150: a smaller image on it says nothing
- * about the resolution the rest of the page needs.
- */
-export function resolveScanCleanupAnalysisDpi(pageSize: IPdfPageSize | undefined) {
-    const sourceDpi = pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize)?.dpi;
-    let dpi = sourceDpi !== undefined && Number.isFinite(sourceDpi) && sourceDpi >= 1
-        ? Math.min(DETECTION_DPI, Math.floor(sourceDpi))
-        : DETECTION_DPI;
-    const pageArea = (pageSize?.widthPoints ?? 0) * (pageSize?.heightPoints ?? 0);
-    if (pageSize === undefined || !Number.isFinite(pageArea) || pageArea <= 0) {
-        return dpi;
-    }
-    dpi = Math.max(1, Math.min(
-        dpi,
-        Math.floor(72 * Math.sqrt(SCAN_CLEANUP_RASTER_MAX_PIXELS / pageArea)),
-        Math.floor(72 * SCAN_CLEANUP_MAX_DIMENSION_PX / Math.max(pageSize.widthPoints, pageSize.heightPoints)),
-    ));
-    // Rendered dimensions round up, so the closed form can overshoot by a row.
-    for (;;) {
-        const limits = resolveRasterRenderLimits(pageSize, dpi);
-        if (dpi === 1 || limits.expectedWidthPx * limits.expectedHeightPx <= SCAN_CLEANUP_RASTER_MAX_PIXELS) {
-            return dpi;
-        }
-        dpi -= 1;
-    }
-}
+export {
+    DETECTION_DPI,
+    PREVIEW_DPI,
+    resolvePagePreviewDpi,
+    resolvePreviewProcessingDpi,
+    resolvePreviewRasterPlan,
+    resolveScanCleanupAnalysisDpi,
+    resolveScanCleanupPagePreviewDpi,
+};
 /** Completed pages a large document keeps in each progress event. */
 const RECENT_PROGRESS_PAGES = 256;
 /**
@@ -152,100 +128,8 @@ export function completedPageProgress(
             completedPageNumbersTruncated: true,
         };
 }
-// Native mode selection, preview, and final rendering share this canonical
-// analysis grid. The separate working raster remains free to follow source DPI.
-const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const MAX_MEDIA_BOX_RETRY_PAGES = 16;
 const MEDIA_BOX_RETRY_MIN_CONFIDENCE = 0.75;
-
-/**
- * Binary cleanup needs the source's stroke samples even though the UI presents
- * the result on the smaller preview canvas. Thresholding the already reduced
- * 150-DPI raster loses subpixel stroke evidence and makes neighboring words
- * alternate between heavy and light. Native therefore cleans binary-capable
- * previews at up to 2x the display DPI; the renderer's ordinary placement
- * downsample is the same final step used when a 300-DPI conversion is viewed.
- * Tonal previews keep the inexpensive display grid because they do not
- * threshold those samples.
- */
-export function resolvePreviewProcessingDpi({
-    displayDpi,
-    outputMode,
-    sourceDpi,
-}: {
-    displayDpi: number;
-    outputMode: 'bw' | 'color' | 'grayscale' | 'mixed' | undefined;
-    sourceDpi: number;
-}) {
-    const binaryCapable = outputMode === undefined || outputMode === 'bw' || outputMode === 'mixed';
-    if (!binaryCapable) {
-        return displayDpi;
-    }
-    return Math.max(displayDpi, Math.floor(Math.min(sourceDpi, displayDpi * 2)));
-}
-
-export function resolvePagePreviewDpi(
-    pageSize: IPdfPageSize,
-    requestedDpi: number,
-) {
-    const pageAreaPoints = pageSize.widthPoints * pageSize.heightPoints;
-    if (!Number.isFinite(pageAreaPoints) || pageAreaPoints <= 0) {
-        return requestedDpi;
-    }
-    const pixelBoundDpi = 72 * Math.sqrt(BASE_PREVIEW_MAX_PIXELS / pageAreaPoints);
-    return Math.max(1, Math.floor(Math.min(requestedDpi, pixelBoundDpi)));
-}
-
-/** Resolve one page's bounded preview raster DPI without a page-sized plan. */
-export function resolveScanCleanupPagePreviewDpi(
-    pageSize: IPdfPageSize,
-    sourceDpi: number | null | undefined,
-) {
-    const normalizedSourceDpi = Number.isFinite(sourceDpi) && (sourceDpi ?? 0) > 0
-        ? sourceDpi!
-        : PREVIEW_DPI;
-    return resolvePagePreviewDpi(
-        pageSize,
-        Math.min(PREVIEW_DPI, normalizedSourceDpi),
-    );
-}
-
-export function resolvePreviewRasterPlan(
-    pageSizes: readonly IPdfPageSize[] | null,
-    sourceDpiByPage: ReadonlyMap<number, number> = new Map(),
-) {
-    const detected = pageSizes === null ? null : detectSourceDpiFromPageSizes(pageSizes);
-    const pageDpiByNumber = new Map<number, number>();
-    for (const pageSize of pageSizes ?? []) {
-        const sourceRaster = detected?.getPageRaster(pageSize.pageNumber);
-        if (!(sourceRaster instanceof Promise) && sourceRaster !== undefined) {
-            pageDpiByNumber.set(pageSize.pageNumber, sourceRaster.dpi);
-        }
-    }
-    let documentDpi = detected?.documentDpi ?? 0;
-    for (const [
-        pageNumber,
-        sourceDpi,
-    ] of sourceDpiByPage) {
-        if (!Number.isFinite(sourceDpi) || sourceDpi <= 0) continue;
-        pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, sourceDpi));
-        documentDpi = Math.max(documentDpi, sourceDpi);
-    }
-    documentDpi = documentDpi > 0 ? documentDpi : PREVIEW_DPI;
-    const dpi = Math.min(PREVIEW_DPI, documentDpi);
-    const renderDpiByPageNumber = new Map<number, number>();
-    for (const pageSize of pageSizes ?? []) {
-        const sourceDpi = pageDpiByNumber.get(pageSize.pageNumber);
-        const requestedDpi = Math.min(PREVIEW_DPI, sourceDpi ?? dpi);
-        const renderDpi = resolvePagePreviewDpi(pageSize, requestedDpi);
-        renderDpiByPageNumber.set(pageSize.pageNumber, renderDpi);
-    }
-    return {
-        dpi,
-        pageDpiByNumber,
-        renderDpiByPageNumber,
-    };
-}
 
 function getPageRaster(
     source: IScanCleanupPageRasterSource,

@@ -39,6 +39,7 @@ import {
     createScanCleanupPathResolutionCache,
 } from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 import {resolveEffectiveScanCleanupOptions} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {resolveScanCleanupManifestPageOptions} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     afterAll,
@@ -196,6 +197,18 @@ describe('native scan-cleanup manifest builder', () => {
         expect(preview.pages[0]?.options.manualContentBoxes).toEqual(manualContentBoxes);
         expect(preview.pages[0]?.options.excluded).toBe(true);
         expect(preview.pages[0]?.options.outputMode).toBe('grayscale');
+        // The browser engine resolves the same options without a manifest.
+        expect(resolveScanCleanupManifestPageOptions({
+            options: optionsWithManualCrop,
+            analysisPurpose: 'page-plan',
+            qualityPath: 'raster',
+            page,
+        })).toEqual(pagePlan.pages[0]?.options);
+        expect(resolveScanCleanupManifestPageOptions({
+            options: optionsWithManualCrop,
+            qualityPath: 'raster',
+            page,
+        })).toEqual(preview.pages[0]?.options);
     });
 
     it('carries the admitted raster cap into automatic native page budgets', () => {

@@ -80,8 +80,6 @@ import type { ensureWorkingCopyMaterialized } from '@electron/file-access/workin
 
 
 export const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
-export const DETAIL_TILE_MAX_PIXELS = 4_000_000;
-export const DEFAULT_SOURCE_DPI = 300;
 export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
 // Canonical cleaned previews are retained only so detail tiles can replay the

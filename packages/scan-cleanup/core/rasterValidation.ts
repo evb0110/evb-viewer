@@ -1,5 +1,4 @@
 import type {
-    IPdfPageSize,
     IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
     TScanCleanupRenderPage,
@@ -8,9 +7,13 @@ import {
     readPpmDimensions,
     type TScanCleanupOpenFile,
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
-import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
-export const SCAN_CLEANUP_RASTER_MAX_PIXELS = 45_000_000;
+export {
+    resolveScanCleanupRasterRenderLimits,
+    SCAN_CLEANUP_RASTER_MAX_PIXELS,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
+
 
 interface IScanCleanupRasterRenderDependencies {
     fileSystem: {open: TScanCleanupOpenFile};
@@ -19,37 +22,6 @@ interface IScanCleanupRasterRenderDependencies {
     renderPagePpm: TScanCleanupRenderPage;
 }
 
-export function resolveScanCleanupRasterRenderLimits(
-    pageSize: IPdfPageSize | undefined,
-    dpi: number,
-    maxPixels = SCAN_CLEANUP_RASTER_MAX_PIXELS,
-    crop?: {
-        width: number;
-        height: number;
-    },
-): IScanCleanupRasterRenderLimits {
-    if (pageSize === undefined) {
-        const scaleToFitPx = Math.max(1, Math.floor(Math.sqrt(maxPixels)));
-        return {
-            expectedWidthPx: scaleToFitPx,
-            expectedHeightPx: scaleToFitPx,
-            maxPixels,
-            maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-            scaleToFitPx,
-        };
-    }
-    const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
-    return {
-        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi / 72,
-        )),
-        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi / 72,
-        )),
-        maxPixels,
-        maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-    };
-}
 
 export function readScanCleanupPngDimensions(
     bytes: Uint8Array,
