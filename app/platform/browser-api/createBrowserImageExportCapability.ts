@@ -603,9 +603,11 @@ async function hasDirectoryEntry(directory: FileSystemDirectoryHandle, name: str
         await directory.getFileHandle(name);
         return true;
     } catch (error) {
-        if (error instanceof DOMException && error.name === 'NotFoundError') return false;
-        // A folder of that name, or an unreadable entry, still occupies the name.
-        return true;
+        if (!(error instanceof DOMException)) throw error;
+        if (error.name === 'NotFoundError') return false;
+        // A folder of that name occupies the name; lost access ends the export.
+        if (error.name === 'TypeMismatchError') return true;
+        throw error;
     }
 }
 
