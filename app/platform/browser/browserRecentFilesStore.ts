@@ -1,5 +1,12 @@
+import * as v from 'valibot';
 import { getErrorMessage } from '@app/utils/error';
 import {parseDocumentRef} from '@contracts/documentRef';
+import {
+    RECENT_READING_VIEW_SCHEMA,
+    type IRecentReadingView,
+} from '@contracts/recentReadingView';
+import {isRecord} from '@contracts/runtimeGuards';
+import {safeJsonParse} from '@contracts/safeJsonParse';
 import type { IRecentFile } from '@contracts/shared';
 import { createEpochMs } from '@contracts/timestamps';
 import {
@@ -32,9 +39,42 @@ export class BrowserRecentFilesStorageUnavailableError extends Error {
 
 export const BROWSER_RECENT_FILES_STORAGE_LOCK_KEY = '__evb_recent_files_storage_lock__';
 
+// Where a reader left a Recent document, with the content witness of the
+// source bytes it was left on. As on desktop it rides on its Recent entry, so
+// it goes when the entry goes; the list's parser drops it, so only this store
+// reads it.
+const STORED_READING_VIEW_SCHEMA = v.object({
+    view: RECENT_READING_VIEW_SCHEMA,
+    sourceWitness: v.pipe(v.string(), v.minLength(1)),
+});
+type TStoredReadingViews = Map<string, v.InferOutput<typeof STORED_READING_VIEW_SCHEMA>>;
+
+function readStoredReadingViews(): TStoredReadingViews {
+    const views: TStoredReadingViews = new Map();
+    const result = readLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
+    let parsed: unknown = null;
+    try {
+        parsed = result.status === 'present' ? safeJsonParse(result.value) : null;
+    } catch {
+        return views;
+    }
+    const files: unknown[] = Array.isArray(parsed) ? parsed : (isRecord(parsed) && Array.isArray(parsed.files) ? parsed.files : []);
+    for (const file of files) {
+        if (!isRecord(file) || typeof file.originalPath !== 'string') {
+            continue;
+        }
+        const stored = v.safeParse(STORED_READING_VIEW_SCHEMA, file.readingView);
+        if (stored.success) {
+            views.set(file.originalPath, stored.output);
+        }
+    }
+    return views;
+}
+
 interface IRecentFilesStorageMutation<T> {
     files: IRecentFile[];
     value: T;
+    readingViews?: TStoredReadingViews;
 }
 
 function commitRecentFilesStorageMutation<T>(
@@ -42,7 +82,7 @@ function commitRecentFilesStorageMutation<T>(
 ) {
     const currentFiles = readRecentFilesFromStorage();
     const next = mutation(currentFiles);
-    if (!writeRecentFilesToStorage(next.files)) {
+    if (!writeRecentFilesToStorage(next.files, next.readingViews)) {
         throw new BrowserRecentFilesStorageUnavailableError();
     }
     return next.value;
@@ -122,8 +162,15 @@ export function tryHasRecentFilesStorageSnapshot() {
     }
 }
 
-export function writeRecentFilesToStorage(recentFiles: IRecentFile[]) {
-    const payload = serializeRecentFilesPayload(recentFiles);
+/** Writes the list; an entry that stays keeps its reading view. */
+export function writeRecentFilesToStorage(recentFiles: IRecentFile[], readingViews = readStoredReadingViews()) {
+    const payload = serializeRecentFilesPayload(recentFiles.map((file) => {
+        const readingView = readingViews.get(file.originalPath);
+        return readingView ? {
+            ...file,
+            readingView,
+        } : file;
+    }));
     const committed = safeSetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY, payload);
     if (!committed) {
         return false;
@@ -275,6 +322,30 @@ export class BrowserRecentFilesStore {
             await this.repository.cleanupEvictedRecentRefs([ref]);
         }
         return removed;
+    }
+
+    /** Remembers where a reader left a document that is already in Recent; never adds an entry. */
+    public async rememberReadingView(ref: string, sourceWitness: string, view: IRecentReadingView) {
+        await runSerializedRecentFilesStorageMutation((currentFiles) => {
+            const readingViews = readStoredReadingViews();
+            if (currentFiles.some(file => file.originalPath === ref)) {
+                readingViews.set(ref, {
+                    view,
+                    sourceWitness,
+                });
+            }
+            return {
+                files: currentFiles,
+                value: undefined,
+                readingViews,
+            };
+        });
+    }
+
+    /** The view a reader left `ref` at, if its source is still the bytes `sourceWitness` names. */
+    public readReadingView(ref: string, sourceWitness: string) {
+        const stored = readStoredReadingViews().get(ref);
+        return stored?.sourceWitness === sourceWitness ? stored.view : null;
     }
 
     public async clearRecentFiles() {

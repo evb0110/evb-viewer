@@ -64,6 +64,7 @@ import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
+import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
 import {
     createBrowserStoreStagedArtifact,
     sha256Hex,
@@ -722,10 +723,15 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.clearRecentFiles();
                 await clearSearchCaches();
             },
-            // A browser document's stored bytes are refreshed from its file
-            // handle without an admission identity, so no view is kept for it.
-            readingView: () => Promise.resolve(null),
-            rememberReadingView: () => Promise.resolve(undefined),
+            async readingView(workingCopy) {
+                return (await browserSettingsCapability.get()).rememberDocumentView
+                    ? browserDocumentStore.readRecentReadingView(workingCopy)
+                    : null;
+            },
+            async rememberReadingView(workingCopy, view) {
+                await browserDocumentStore.rememberRecentReadingView(workingCopy, view);
+                return undefined;
+            },
         },
         getPathForFile(file) {
             return browserDocumentStore.getRefForFile(file);

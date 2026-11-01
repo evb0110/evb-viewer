@@ -1254,6 +1254,121 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    // R4: with "Reopen documents where I left off" on, a Recent PDF reopens at
+    // the page, zoom and view rotation it was closed at; a file of the same
+    // name and page count with other bytes opens at its start.
+    it('reopens a Recent PDF where the reader left it, and other bytes of that name at their start', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const createBook = async (label: string) => {
+            const pdf = await PDFDocument.create();
+            for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
+                pdf.addPage([
+                    400,
+                    600,
+                ]).drawText(`${label} page ${String(pageNumber)}`, {
+                    x: 40,
+                    y: 500,
+                    size: 24,
+                });
+            }
+            return {
+                name: 'reading-view.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            };
+        };
+        const readView = () => page.evaluate(() => {
+            const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
+            const viewport = host?.getBoundingClientRect();
+            const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
+                const rect = container.getBoundingClientRect();
+                return viewport && rect.bottom > viewport.top + viewport.height / 4 && rect.top < viewport.bottom - viewport.height / 4;
+            });
+            const rect = visible?.getBoundingClientRect();
+            return {
+                indicator: document.querySelector('.page-controls-current-primary')?.textContent?.trim(),
+                zoom: document.querySelector('.zoom-controls-display-value')?.textContent?.trim(),
+                visibleText: visible?.querySelector('.textLayer')?.textContent?.trim(),
+                landscape: rect ? rect.width > rect.height : null,
+            };
+        });
+        const settle = () => page.evaluate(async () => {
+            const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+            if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
+        });
+        const openFile = async (label: string) => {
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(await createBook(label));
+            await expect.poll(async () => (await readView()).visibleText, {timeout: 30_000}).toBe(`${label} page 1`);
+            await settle();
+        };
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            await page.locator('.rail-item', {hasText: 'Settings'}).click();
+            await page.getByRole('switch', {name: 'Reopen documents where I left off'}).click();
+            await expect.poll(() => page.getByRole('switch', {name: 'Reopen documents where I left off'}).getAttribute('aria-checked')).toBe('true');
+            await page.locator('.rail-item', {hasText: 'Recent Files'}).click();
+            await openFile('Reading');
+            const opened = await readView();
+
+            await page.locator('.page-controls-display').click();
+            await page.locator('.page-controls-inline-input').fill('4');
+            await page.keyboard.press('Enter');
+            await page.locator('#editor-global-toolbar-host button[aria-label^="Zoom In"]:not([disabled])').first().click();
+            await expect.poll(async () => (await readView()).zoom, {timeout: 15_000}).not.toBe(opened.zoom);
+            // The browser shows no view-rotation control yet (desktop has it in its View menu).
+            await page.evaluate(() => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!testApi?.callActiveWorkspaceSyncCommand?.('handleViewRotationCw').called) throw new Error('View rotation is unavailable');
+            });
+            await expect.poll(readView, {timeout: 15_000}).toMatchObject({
+                indicator: '4',
+                visibleText: 'Reading page 4',
+                landscape: true,
+            });
+            const left = await readView();
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-left.png')});
+            // A reload leaves nothing of the closed view but what Recent stored.
+            const closeAndReload = async () => {
+                await page.getByRole('button', {name: 'Close Tab'}).click();
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+            };
+            await closeAndReload();
+
+            await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: 'reading-view.pdf'}).click();
+            await settle();
+            await expect.poll(readView, {timeout: 15_000}).toEqual(left);
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-restored.png')});
+            await closeAndReload();
+
+            await openFile('Changed');
+            await expect.poll(readView, {timeout: 15_000}).toEqual({
+                ...opened,
+                visibleText: 'Changed page 1',
+            });
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-changed-bytes.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
+
     it('renders an externally replaced PDF and reopens that persisted Recent file', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {

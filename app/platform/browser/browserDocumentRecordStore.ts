@@ -49,6 +49,7 @@ import {
     createStaleRevisionError,
 } from '@contracts/documentMutationErrors';
 import { parseDocumentRef } from '@contracts/documentRef';
+import type {IRecentReadingView} from '@contracts/recentReadingView';
 
 async function assertFileHandleReadPermission(handle: FileSystemFileHandle) {
     interface IFileSystemHandlePermissionDescriptor {mode: 'read';}
@@ -472,6 +473,32 @@ export class BrowserDocumentRecordStore {
 
     public async clearRecentFiles() {
         await this.recentFilesStore.clearRecentFiles();
+    }
+
+    // A working copy records the witness of the source bytes it was cloned
+    // from, or last saved to: the identity a reading view belongs to.
+    private async readAdmittedSource(workingCopy: string) {
+        const entry = await this.ensureEntry(workingCopy);
+        return entry?.kind === 'working' && entry.sourceRef && entry.sourceBaseWitness
+            ? {
+                sourceRef: entry.sourceRef,
+                sourceWitness: entry.sourceBaseWitness,
+            }
+            : null;
+    }
+
+    /** Remembers the view with the Recent entry of the source `workingCopy` was admitted from. */
+    public async rememberRecentReadingView(workingCopy: string, view: IRecentReadingView) {
+        const source = await this.readAdmittedSource(workingCopy);
+        if (source) {
+            await this.recentFilesStore.rememberReadingView(source.sourceRef, source.sourceWitness, view);
+        }
+    }
+
+    /** The view a reader left the source of `workingCopy` at, if that source is the bytes it was left on. */
+    public async readRecentReadingView(workingCopy: string) {
+        const source = await this.readAdmittedSource(workingCopy);
+        return source ? this.recentFilesStore.readReadingView(source.sourceRef, source.sourceWitness) : null;
     }
 
     private async collectUnretainedDocuments() {

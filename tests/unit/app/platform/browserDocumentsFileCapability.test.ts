@@ -1276,6 +1276,56 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         })]);
     });
 
+    it('reopens a Recent PDF where the reader left it, only on the bytes it was left on', async () => {
+        const view = {
+            currentPage: 1,
+            pageCount: 1,
+            zoom: 1.5,
+            zoomMode: 'custom',
+            viewMode: 'single',
+            continuousScroll: true,
+            viewRotation: 90,
+        } as const;
+        let physical = new File([await createPdfBytes()], 'book.pdf', {
+            type: 'application/pdf',
+            lastModified: 1_000,
+        });
+        const handle = createFileSystemFileHandle({
+            name: 'book.pdf',
+            getFile: async () => physical,
+        });
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showOpenFilePicker: async () => [handle]}});
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        const opened = await capability.openDocumentDialog();
+        if (opened?.kind !== 'pdf') throw new Error('Expected the picked PDF to open');
+        const workingCopy = requireDocumentRef(opened.workingPath);
+        await capability.recentFiles.rememberReadingView(workingCopy, view);
+        // Another document's open rewrites the list; the entry keeps its view.
+        await browserDocumentStore.touchRecentFile(await browserDocumentStore.createStoredDocument('other.pdf', await createPdfBytes(), PDF_SOURCE_OPTIONS));
+        const reopen = async () => {
+            const reopened = await capability.openDocumentDirect(requireDocumentRef(opened.originalPath));
+            if (reopened?.kind !== 'pdf') throw new Error('Expected the Recent PDF to reopen');
+            return requireDocumentRef(reopened.workingPath);
+        };
+
+        await expect(capability.recentFiles.readingView(await reopen())).resolves.toBeNull();
+        await browserSettingsCapability.save({rememberDocumentView: true});
+        await expect(capability.recentFiles.readingView(await reopen())).resolves.toEqual(view);
+        expect((await capability.recentFiles.get()).find(file => file.originalPath === opened.originalPath))
+            .not.toHaveProperty('readingView');
+
+        physical = new File([await createPdfBytes([
+            300,
+            400,
+        ])], 'book.pdf', {
+            type: 'application/pdf',
+            lastModified: 2_000,
+        });
+        await expect(capability.recentFiles.readingView(await reopen())).resolves.toBeNull();
+    });
+
     it('opens oversized sources with range-backed working copies', async () => {
         const {
             BROWSER_MAX_FULL_READ_BYTES,
