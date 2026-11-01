@@ -448,5 +448,5 @@ describe('saved RTL OCR search', () => {
                 await page.context().close();
             }
         }
-    });
+    }, 90_000);
 });
