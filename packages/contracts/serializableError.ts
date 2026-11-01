@@ -72,6 +72,12 @@ export function findSerializableErrorEnvelope<TEnvelope extends ISerializableErr
     const seen = new Set<object>();
     let candidate: unknown = value;
     while (candidate !== null && candidate !== undefined) {
+        // An error's own envelope carries every field, such as a byte limit's
+        // maxBytes; its direct code and message are only a summary of it.
+        const ownEnvelope = isRecord(candidate) ? decodeSerializableErrorEnvelope(candidate.errorEnvelope, schema) : null;
+        if (ownEnvelope) {
+            return ownEnvelope;
+        }
         const decoded = decodeSerializableErrorEnvelope(candidate, schema);
         if (decoded) {
             return decoded;
@@ -80,10 +86,6 @@ export function findSerializableErrorEnvelope<TEnvelope extends ISerializableErr
             return null;
         }
         seen.add(candidate);
-        const ownEnvelope = decodeSerializableErrorEnvelope(candidate.errorEnvelope, schema);
-        if (ownEnvelope) {
-            return ownEnvelope;
-        }
         const messageEnvelope = decodeSerializableErrorEnvelope(candidate.message, schema);
         if (messageEnvelope) {
             return messageEnvelope;
