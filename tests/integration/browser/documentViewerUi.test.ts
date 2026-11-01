@@ -1997,7 +1997,11 @@ describe('browser document lifecycle UI', () => {
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
                 // The print dialog's sheets, as the browser would print them.
                 window.print = () => {
-                    const sheets = Array.from(document.querySelectorAll<HTMLCanvasElement>('.browser-print-page canvas')).map((canvas) => {
+                    const sheets = Array.from(document.querySelectorAll<HTMLImageElement>('.browser-print-page img')).map((image) => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.naturalWidth;
+                        canvas.height = image.naturalHeight;
+                        canvas.getContext('2d')!.drawImage(image, 0, 0);
                         const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
                         let ink = 0;
                         for (let index = 0; index < pixels.length; index += 4) {
