@@ -7,18 +7,16 @@ interface IRedaction {
 }
 
 // A quoted path (JSON log data, quoted messages) runs to its closing quote,
-// spaces and JSON-escaped backslashes included. An unquoted one runs to a
-// document extension on its line, or else to the next whitespace.
+// spaces and JSON-escaped backslashes included; an unquoted one runs to the
+// next whitespace. A path already redacted is left alone, so redacting again
+// changes nothing.
 const QUOTED_PATH_START = String.raw`(?<=(["']))`;
 const QUOTED_PATH_TAIL = String.raw`(?:\\.|(?!\1)[^\\\n])*`;
-const DOCUMENT_PATH_TAIL = String.raw`[^\n"']*?\.(?:pdf|djvu?|png|jpe?g|tiff?|docx)\b`;
 
 function pathRedactions(prefix: string, plainTail: string, replacement: IRedaction['replacement']): IRedaction[] {
-    // An already redacted path stays as it is, so redacting again changes nothing.
     const start = `${prefix}(?!\\[redacted\\])`;
     return [
         `${QUOTED_PATH_START}${start}${QUOTED_PATH_TAIL}`,
-        `${start}${DOCUMENT_PATH_TAIL}`,
         `${start}${plainTail}`,
     ].map(source => ({
         pattern: new RegExp(source, 'giu'),
@@ -43,9 +41,9 @@ const NON_URL_REDACTION_PATTERNS: readonly IRedaction[] = [
     ...pathRedactions(String.raw`file:\/\/`, String.raw`[^\s"',)]+`, () => 'file://[redacted]'),
     // Browser workspace documents: keep the opaque id, hide the file name.
     ...pathRedactions(
-        String.raw`browser:\/\/documents\/`,
-        String.raw`[^/\s"',)]+\/[^\s"',)]+`,
-        match => match.replace(/^(browser:\/\/documents\/[^/]+)\/.*$/su, '$1/[redacted]'),
+        String.raw`browser:\/\/documents\/[^/\s"',)]+\/`,
+        String.raw`[^\s"',)]+`,
+        match => `${match.slice(0, match.indexOf('/', 'browser://documents/'.length) + 1)}[redacted]`,
     ),
 ];
 

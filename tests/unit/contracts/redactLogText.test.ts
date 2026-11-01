@@ -14,11 +14,15 @@ describe('redactLogText', () => {
         );
     });
 
-    it('hides whole paths with spaces, in quotes, JSON data and messages', () => {
+    it('hides whole quoted paths, spaces and JSON-escaped separators included', () => {
         const cases: Array<[string, string]> = [
             [
-                'Failed to open /Users/evb/My Documents/scan 1677.pdf: boom',
-                'Failed to open /Users/[redacted]: boom',
+                '/Users/alice/report.pdf.backups/medical-record.pdf',
+                '/Users/[redacted]',
+            ],
+            [
+                'browser://documents/abc/input.pdf, fallback=ocr.pdf',
+                'browser://documents/abc/[redacted], fallback=ocr.pdf',
             ],
             [
                 JSON.stringify({path: '/Users/evb/My Documents/scan 1677.pdf'}),
