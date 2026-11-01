@@ -193,6 +193,24 @@ describe('createDocumentHistory', () => {
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/failed-history.pdf');
     });
 
+    it('keeps every undo step of a browser document whose snapshots exceed the in-memory budget', async () => {
+        const {history} = createHistoryHarness(false);
+        const snapshot = (fill: number) => new Uint8Array(10 * 1024 * 1024).fill(fill);
+        await expect(history.resetHistory(snapshot(0), {reuseSnapshot: true})).resolves.toBe(true);
+        for (let step = 1; step <= 3; step += 1) {
+            await expect(history.pushHistorySnapshot(snapshot(step), {reuseSnapshot: true})).resolves.toBe(true);
+        }
+        expect(history.getHistoryDebugState()).toMatchObject({
+            historyLength: 4,
+            historyIndex: 3,
+        });
+        for (let step = 0; step < 3; step += 1) {
+            await expect(history.undo()).resolves.toBe(true);
+        }
+        expect(history.canUndo.value).toBe(false);
+        expect(history.canRedo.value).toBe(true);
+    });
+
     it('keeps document open viable when an oversized baseline cannot be staged', async () => {
         const {
             documentWorkingCopy,

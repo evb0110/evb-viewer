@@ -16,10 +16,7 @@ import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers
 import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
 import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getDocumentRefBaseName,
-    isNativeDocumentRef,
-} from '@app/utils/documentRef';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
@@ -240,7 +237,9 @@ export function createDocumentHistory(
         };
     }
 
-    function getNativePathHistorySource(path: TDocumentRef) {
+    // Desktop and the browser both keep a path source's managed working copy;
+    // the browser's lives in its document store.
+    function getPathHistorySource(path: TDocumentRef) {
         const sources = [
             state.pdfReloadSrc.value,
             state.pdfSrc.value,
@@ -248,8 +247,6 @@ export function createDocumentHistory(
         return sources.find(source => (
             isPathPdfSource(source)
             && source.path === path
-            && state.isElectron.value
-            && isNativeDocumentRef(path)
         )) ?? null;
     }
 
@@ -278,10 +275,9 @@ export function createDocumentHistory(
         return null;
     }
 
-    function shouldStoreHistorySnapshotOnDisk(snapshot: Uint8Array) {
+    function shouldStoreHistorySnapshotAsWorkingCopy(snapshot: Uint8Array) {
         return (
-            state.isElectron.value
-            && snapshot.byteLength > MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES
+            snapshot.byteLength > MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES
             && typeof deps.documentWorkingCopy().createWorkingCopyFromData === 'function'
         );
     }
@@ -320,40 +316,40 @@ export function createDocumentHistory(
     ): Promise<TPdfHistoryEntry | null> {
         const expectedWorkingPath = state.workingCopyPath.value;
 
-        // A native path source already has an authoritative, managed working
-        // copy. Do not turn a save/recovery byte hint into another whole-PDF
+        // A path source already has an authoritative, managed working copy.
+        // Do not turn a save/recovery byte hint into another whole-PDF
         // renderer allocation. The hint only tells this method that a new
         // history state exists; the path clone is the snapshot.
-        const nativePathSource = expectedWorkingPath
-            ? getNativePathHistorySource(expectedWorkingPath)
+        const pathSource = expectedWorkingPath
+            ? getPathHistorySource(expectedWorkingPath)
             : null;
-        if (nativePathSource) {
+        if (pathSource) {
             try {
                 if (!expectedWorkingPath) {
                     return null;
                 }
                 return await createCurrentPathHistoryEntry(
                     expectedWorkingPath,
-                    nativePathSource.size,
+                    pathSource.size,
                 );
             } catch (snapshotError) {
                 BrowserLogger.warn('pdf-file', 'Failed to create path-backed history snapshot', {
                     path: expectedWorkingPath,
-                    bytes: nativePathSource.size,
+                    bytes: pathSource.size,
                     error: snapshotError,
                 });
                 return null;
             }
         }
 
-        if (expectedWorkingPath && shouldStoreHistorySnapshotOnDisk(snapshot)) {
+        if (expectedWorkingPath && shouldStoreHistorySnapshotAsWorkingCopy(snapshot)) {
             try {
                 const entry = await createPathHistoryEntryFromSnapshot(snapshot, expectedWorkingPath);
                 if (entry) {
                     return entry;
                 }
             } catch (snapshotError) {
-                BrowserLogger.warn('pdf-file', 'Failed to create disk-backed history snapshot', {
+                BrowserLogger.warn('pdf-file', 'Failed to create a working-copy history snapshot', {
                     path: expectedWorkingPath,
                     bytes: snapshot.byteLength,
                     error: snapshotError,
