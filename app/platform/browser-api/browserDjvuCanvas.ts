@@ -147,8 +147,7 @@ export function drawDjvuImageDataScaled(
         return;
     }
 
-    const tileEdge = DJVU_TILE_EDGE + (2 * DJVU_TILE_OVERLAP);
-    const tile = createDjvuCanvas(tileEdge, tileEdge);
+    const tile = createDjvuCanvas(1, 1);
     try {
         const tileContext = getDjvuCanvas2dContext(tile);
         if (!tileContext) {
@@ -160,19 +159,26 @@ export function drawDjvuImageDataScaled(
                 const sourceY = Math.max(0, y - DJVU_TILE_OVERLAP);
                 const sourceWidth = Math.min(imageData.width, x + DJVU_TILE_EDGE + DJVU_TILE_OVERLAP) - sourceX;
                 const sourceHeight = Math.min(imageData.height, y + DJVU_TILE_EDGE + DJVU_TILE_OVERLAP) - sourceY;
-                tileContext.clearRect(0, 0, tileEdge, tileEdge);
+                // The tile holds exactly its source pixels, overlap included, so
+                // resampling reads real pixels or the page edge, never an empty
+                // margin. Each tile paints only its interior, on whole target
+                // pixels, so neighbouring tiles neither leave a seam nor stack.
+                tile.width = sourceWidth;
+                tile.height = sourceHeight;
                 tileContext.putImageData(imageData, -sourceX, -sourceY, sourceX, sourceY, sourceWidth, sourceHeight);
-                context.drawImage(
-                    tile,
-                    0,
-                    0,
-                    sourceWidth,
-                    sourceHeight,
-                    sourceX * scaleX,
-                    sourceY * scaleY,
-                    sourceWidth * scaleX,
-                    sourceHeight * scaleY,
+                const left = Math.round(x * scaleX);
+                const top = Math.round(y * scaleY);
+                context.save();
+                context.beginPath();
+                context.rect(
+                    left,
+                    top,
+                    Math.round(Math.min(imageData.width, x + DJVU_TILE_EDGE) * scaleX) - left,
+                    Math.round(Math.min(imageData.height, y + DJVU_TILE_EDGE) * scaleY) - top,
                 );
+                context.clip();
+                context.drawImage(tile, sourceX * scaleX, sourceY * scaleY, sourceWidth * scaleX, sourceHeight * scaleY);
+                context.restore();
             }
         }
     } finally {
