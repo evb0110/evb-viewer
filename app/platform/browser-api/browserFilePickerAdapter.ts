@@ -513,7 +513,12 @@ function downloadBlob(blob: Blob, fileName: string) {
  * Blob, which the browser may keep on disk, so no single buffer bounds the
  * size of the download.
  */
-export async function downloadBrowserDocument(ref: TDocumentRef, fileName: string, mimeType: string) {
+export async function downloadBrowserDocument(
+    ref: TDocumentRef,
+    fileName: string,
+    mimeType: string,
+    signal?: AbortSignal,
+) {
     const { size } = await browserDocumentStore.stat(ref);
     const parts: Blob[] = [];
     for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
@@ -527,6 +532,8 @@ export async function downloadBrowserDocument(ref: TDocumentRef, fileName: strin
             await yieldToBrowser();
         }
     }
+    // The download publishes the file; a cancel before it still wins.
+    throwIfAborted(signal);
     downloadBlob(new Blob(parts, { type: mimeType }), fileName);
 }
 
@@ -580,7 +587,8 @@ export async function openBrowserOutputSink(
         }),
         async abort() {
             controller.abort();
-            if (closing) return closing.then(() => false, () => true);
+            // A close whose outcome is unknown may still publish, so it is not a discard.
+            if (closing) return closing.then(() => false, error => !(error instanceof BrowserFileWriteOutcomeError));
             await output.abort();
             return true;
         },
@@ -659,8 +667,7 @@ async function openBrowserOutput(
                 chunkCount,
                 chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
             });
-            throwIfAborted(signal);
-            await downloadBrowserDocument(stagingRef, target.fileName, mimeType);
+            await downloadBrowserDocument(stagingRef, target.fileName, mimeType, signal);
         },
         abort: () => browserDocumentStore.clearChunkedDocument(stagingRef),
     };
