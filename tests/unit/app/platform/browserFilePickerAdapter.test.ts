@@ -78,7 +78,7 @@ describe('browser file picker adapter', () => {
         click.mockRestore();
     });
 
-    it('aborts a writer when close times out before reporting the save as failed', async () => {
+    it('waits for a slow close instead of failing the save at a deadline', async () => {
         vi.useFakeTimers();
         let aborted = false;
         let committed = false;
@@ -114,23 +114,18 @@ describe('browser file picker adapter', () => {
         const {writeBytesToHandle} = await import('@app/platform/browser-api/browserFilePickerAdapter');
 
         const save = writeBytesToHandle(handle, Uint8Array.of(37, 80, 68, 70));
-        const saveError = save.catch(error => error);
         await vi.advanceTimersByTimeAsync(0);
         for (let index = 0; index < 12; index += 1) {
             await Promise.resolve();
         }
         expect(close).toHaveBeenCalledOnce();
 
-        // The close deadline is three minutes plus a second per started 8 MiB.
-        await vi.advanceTimersByTimeAsync(181_000);
-        const error = await saveError;
-        expect(error).toBeInstanceOf(Error);
-        expect(error.message).toContain('Browser file save did not finish while waiting for closing file writer');
-        expect(abort).toHaveBeenCalledOnce();
-
+        // As on desktop, a save has no deadline: ten minutes later it still waits.
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(abort).not.toHaveBeenCalled();
         releaseClose();
-        await Promise.resolve();
-        expect(committed).toBe(false);
+        await save;
+        expect(committed).toBe(true);
     });
 
     it('saves a large file whose disk writes progress slowly, however long the whole write takes', async () => {
@@ -308,44 +303,33 @@ describe('CAP-EXPORT sink outcome probes', () => {
         expect(published).toBe(true);
     });
 
-    it('does not confirm cancellation when a timed-out close may still publish', async () => {
-        vi.useFakeTimers();
+    it('does not confirm cancellation when a failed close may still have published', async () => {
         const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
         const entered = Promise.withResolvers<undefined>();
         const release = Promise.withResolvers<undefined>();
-        let published = false;
         const sink = await openBrowserOutputSink({
             fileName: 'late.docx',
             handle: createSinkProbeHandle('late.docx', {
                 write: async () => {},
-                close: async () => {entered.resolve(undefined); await release.promise; published = true;},
-                abort: async () => {throw new DOMException('still closing', 'InvalidStateError');},
+                close: async () => {
+                    entered.resolve(undefined);
+                    await release.promise;
+                    throw new DOMException('close failed', 'InvalidStateError');
+                },
+                abort: async () => {
+                    throw new DOMException('still closing', 'InvalidStateError');
+                },
             }),
         }, {mimeType: 'application/octet-stream'});
         await sink.write(Uint8Array.of(1));
         const closeResult = sink.close().catch((error: unknown) => error);
         await entered.promise;
         const canceled = sink.abort().catch((error: unknown) => error);
-        await vi.advanceTimersByTimeAsync(181_000);
-        const outcome = await closeResult;
-        if (!(outcome instanceof Error) || !('externalWriteCommitted' in outcome)) {
-            throw new Error('Expected an unknown browser file write outcome');
-        }
-        const canceledResult = await canceled;
         release.resolve(undefined);
-        await Promise.resolve(undefined);
-        await Promise.resolve(undefined);
-        console.log('late-close evidence', JSON.stringify({
-            error: outcome.name,
-            externalWriteCommitted: outcome.externalWriteCommitted,
-            canceled: canceledResult,
-            published,
-        }));
-        expect(outcome).toMatchObject({
+        expect(await closeResult).toMatchObject({
             name: 'BrowserFileWriteOutcomeError',
             externalWriteCommitted: null,
         });
-        expect(published).toBe(true);
-        expect(canceledResult).not.toBe(true);
+        expect(await canceled).not.toBe(true);
     });
 });
