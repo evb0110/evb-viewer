@@ -67,6 +67,12 @@ const detectionEvent = v.pipe(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
     v.check(state => state !== null, 'invalid scan-cleanup detection job state'),
     v.transform(state => state!));
 const method = defineForwardedPlatformMethod;
+const supportResult = v.strictObject({
+    preview: v.boolean(),
+    detection: v.boolean(),
+    calibration: v.boolean(),
+    conversion: v.boolean(),
+});
 
 export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
     path: ['scanCleanup'],
@@ -75,6 +81,14 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
         electron: true,
     },
     methods: {
+        // Which operations the platform runs, answered without a round trip.
+        getSupport: {
+            kind: 'sync',
+            args: v.strictTuple([]),
+            result: supportResult,
+            browser: {method: 'getSupport'},
+            lazy: 'direct',
+        },
         preview: method({
             name: 'preview',
             channel: 'scan-cleanup:preview',
@@ -254,5 +268,31 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
 });
 
 export type IScanCleanupCapability = TFeatureCapability<typeof SCAN_CLEANUP_PLATFORM_FEATURE>;
+
+/**
+ * Which Scan Cleanup operations a platform can run. Controls for an
+ * unsupported operation, and the automatic callers behind them, stay off
+ * rather than failing.
+ */
+export type IScanCleanupSupport = v.InferOutput<typeof supportResult>;
+
+/** Desktop runs every operation. */
+export const FULL_SCAN_CLEANUP_SUPPORT: IScanCleanupSupport = Object.freeze({
+    preview: true,
+    detection: true,
+    calibration: true,
+    conversion: true,
+});
+const NO_SCAN_CLEANUP_SUPPORT: IScanCleanupSupport = Object.freeze({
+    preview: false,
+    detection: false,
+    calibration: false,
+    conversion: false,
+});
+
+/** What a capability can run; nothing without one. */
+export function resolveScanCleanupSupport(capability: IScanCleanupCapability | null): IScanCleanupSupport {
+    return capability?.getSupport() ?? NO_SCAN_CLEANUP_SUPPORT;
+}
 export type IScanCleanupInvokeMap = TFeatureInvokeMap<typeof SCAN_CLEANUP_PLATFORM_FEATURE>;
 export type IScanCleanupEventMap = TFeatureEventMap<typeof SCAN_CLEANUP_PLATFORM_FEATURE>;

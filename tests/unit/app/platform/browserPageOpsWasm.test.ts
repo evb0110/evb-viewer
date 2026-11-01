@@ -35,6 +35,7 @@ import {
 } from '@contracts/pdfAnnotationParseTypes';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
 const NativeWebAssembly = WebAssembly;
 
@@ -571,6 +572,50 @@ describe('browser page-ops WASM fast path', () => {
             new Uint8Array(memory.buffer, pointer >>> 0, length).fill(0xa5);
             free(pointer, length);
         }
+    });
+
+    it('inspects every page, or the requested ones, as desktop scan cleanup reads its page geometry', async () => {
+        const wasm = await loadWasmRunner();
+        const data = await createPdf({
+            pageWidths: [
+                200,
+                300,
+            ],
+            cropSecondPage: true,
+            rotateSecondPage: true,
+        });
+
+        const inspected = await wasm.run('inspectScanCleanupPdf', {
+            data,
+            pages: [],
+        });
+        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
+        expect(inspected.pageCount).toBe(2);
+        const pages = inspected.pages.map(page => decodePdfPageSizeRecord(page, inspected.pageCount, 'page'));
+        expect(pages[0]).toMatchObject({
+            pageNumber: 1,
+            widthPoints: 200,
+            heightPoints: 100,
+            rotation: 0,
+        });
+        // The second page's view is its CropBox inside the MediaBox it keeps.
+        expect(pages[1]).toMatchObject({
+            pageNumber: 2,
+            xPoints: 10,
+            yPoints: 12,
+            widthPoints: 270,
+            heightPoints: 80,
+            rotation: 90,
+            mediaWidthPoints: 300,
+            mediaHeightPoints: 120,
+        });
+
+        const selected = await wasm.run('inspectScanCleanupPdf', {
+            data,
+            pages: [2],
+        });
+        if (selected === null || 'status' in selected) throw new Error('inspection failed');
+        expect(selected.pages.map(page => decodePdfPageSizeRecord(page, selected.pageCount, 'page'))).toEqual([pages[1]]);
     });
 
     it('decrypts an encrypted PDF through WASM operation 9 with the correct password', async () => {

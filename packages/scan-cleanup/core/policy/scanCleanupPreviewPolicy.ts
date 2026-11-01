@@ -16,7 +16,17 @@ import type {
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {resolveScanCleanupMarginsMm} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    resolveScanCleanupMarginsMm,
+    resolveScanCleanupPageLayout,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {
+    CANVAS_CONTENT_SCALE_EPSILON,
+    resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupOutputPageRect,
+} from '@evb/scan-cleanup/core/policy/documentCanvas';
+import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 import {
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupRequestedRenderDpi,
@@ -651,4 +661,55 @@ export function projectScanCleanupLosslessPreview(input: {
             };
         }),
     };
+}
+
+function resolvePreviewPageShares(
+    options: IScanCleanupPreviewRequest['options'],
+    pageNumber: number,
+    layoutByPage: IScanCleanupPreviewRequest['layoutByPage'],
+) {
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
+    );
+    const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
+    if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
+        return 2;
+    }
+    if (layout === 'force-single') {
+        return 1;
+    }
+    if (pageOverride.manualSplit !== null) {
+        return 2;
+    }
+    return layoutByPage?.[String(pageNumber)] === 'two-page-spread' ? 2 : 1;
+}
+
+/**
+ * Whether matching this page to the document canvas resamples it, which turns
+ * a preserve-quality preview into a raster one: an included page that carries
+ * a raster and whose paper the canvas does not fit at scale one.
+ */
+export function scanCleanupPageNeedsMatchedResample(input: {
+    page: IPdfPageSize;
+    carriesRaster: boolean;
+    canvas: IScanCleanupDocumentCanvasPlan;
+    options: IScanCleanupPreviewRequest['options'];
+    layoutByPage: IScanCleanupPreviewRequest['layoutByPage'];
+}) {
+    if (!input.carriesRaster || getScanCleanupPageOverride(
+        input.options.pageOverrides,
+        requirePageNumber(input.page.pageNumber),
+        input.options.pageOverrideDefaults,
+        input.options.marginsMm,
+    ).excluded) {
+        return false;
+    }
+    const paper = resolveScanCleanupOutputPageRect(
+        input.page,
+        resolvePreviewPageShares(input.options, input.page.pageNumber, input.layoutByPage),
+    );
+    return Math.abs(resolveScanCleanupCanvasFitScale(input.canvas, paper) - 1) > CANVAS_CONTENT_SCALE_EPSILON;
 }

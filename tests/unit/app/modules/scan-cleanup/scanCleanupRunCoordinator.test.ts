@@ -1,3 +1,4 @@
+import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     beforeEach,
     describe,
@@ -120,6 +121,7 @@ function stubCapability(
     nextJobId: () => string,
 ): IScanCleanupCapability {
     return {
+        getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
         preview: vi.fn(),
         cancelPreview: vi.fn(),
         detectAll: vi.fn(),
@@ -216,6 +218,7 @@ describe('scan cleanup run coordinator', () => {
             outputPdfPath: string;
         }>();
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(() => pendingStart.promise),
             cancel: vi.fn(),
@@ -313,6 +316,7 @@ describe('scan cleanup run coordinator', () => {
         });
         const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(next => { listener = next; }, () => 'job-terminal'),
             getPendingCompletedOutputs: vi.fn(() => pendingOutputs.promise),
             acknowledgeCompletedOutputs,
@@ -373,6 +377,7 @@ describe('scan cleanup run coordinator', () => {
         });
         const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'scan-cleanup-replacement'),
             getJobState: vi.fn(async () => null),
             reconnectJob: vi.fn(async () => null),
@@ -443,6 +448,7 @@ describe('scan cleanup run coordinator', () => {
             updatedAtMs: requireEpochMs(Date.now()),
         };
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('reconciled-job', '/managed/reconciled.pdf')),
             cancel: vi.fn(),
@@ -559,6 +565,7 @@ describe('scan cleanup run coordinator', () => {
     it('resets the run guard and cancels when a subscription cannot be reconciled', async () => {
         const cancel = vi.fn(async () => true);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('unobserved-job', '/managed/unobserved.pdf')),
             cancel,
@@ -601,6 +608,7 @@ describe('scan cleanup run coordinator', () => {
             return true;
         });
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('terminal-during-abandon', '/managed/terminal-during-abandon.pdf')),
             cancel,
@@ -641,6 +649,7 @@ describe('scan cleanup run coordinator', () => {
         const onJobState = vi.fn(() => () => undefined);
         const toastAdd = vi.fn();
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => {
                 throw new Error('scan cleanup bridge failed');
@@ -733,6 +742,7 @@ describe('scan cleanup run coordinator', () => {
     it('falls back to a coordinator toast when a thrown start error has no open owning surface', async () => {
         const toastAdd = vi.fn();
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
@@ -772,6 +782,7 @@ describe('scan cleanup run coordinator', () => {
     it('uses a non-navigating toast when the owning cleanup workspace is open', async () => {
         const toastAdd = vi.fn();
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
@@ -933,6 +944,7 @@ describe('scan cleanup run coordinator', () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         let nextJob = 0;
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult(`job-${++nextJob}`, '/managed/book — cleaned.pdf')),
             cancel: vi.fn(async () => true),
@@ -1416,6 +1428,7 @@ describe('scan cleanup run coordinator', () => {
     it('makes partial-scope completion explicit in the result toast', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('job-partial', '/managed/job-partial.pdf')),
             cancel: vi.fn(async () => true),
@@ -1543,6 +1556,7 @@ describe('scan cleanup run coordinator', () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         const openGate = Promise.withResolvers<boolean>();
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('job-open-gate', '/managed/job-open-gate.pdf')),
             cancel: vi.fn(async () => true),
@@ -1615,6 +1629,7 @@ describe('scan cleanup run coordinator', () => {
     it('contains generated-document open failures and reports them', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('job-open-failure', '/managed/job-open-failure.pdf')),
             cancel: vi.fn(async () => true),
@@ -1696,6 +1711,7 @@ describe('scan cleanup run coordinator', () => {
         };
         const subscribeJob = vi.fn(async () => completed);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => {
                 listener(completed);
@@ -1743,6 +1759,7 @@ describe('scan cleanup run coordinator', () => {
         let nextJobId = 'job-0';
         const openGeneratedPdf = vi.fn(async () => true);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult(nextJobId)),
             cancel: vi.fn(async () => true),
@@ -1827,6 +1844,7 @@ describe('scan cleanup run coordinator', () => {
         let secondCleanup: (() => void) | null = null;
         const onJobState = vi.fn(() => () => undefined);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
@@ -1850,6 +1868,7 @@ describe('scan cleanup run coordinator', () => {
         const unsubscribe = vi.fn();
         const pruneGeneratedOutputs = vi.fn(async () => 3);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),

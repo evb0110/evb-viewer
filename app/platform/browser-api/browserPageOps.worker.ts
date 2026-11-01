@@ -164,6 +164,7 @@ async function handleRequest(
         case 'printLayout':
         case 'ocrTextLayer':
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
         case 'splitPages':
         case 'overlayText':
         case 'recompressImages':
@@ -212,14 +213,13 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
 
     try {
         const data = await handleRequest(request);
-        if (request.type === 'ocrTextVisibility') {
-            const response = {
+        if (request.type === 'ocrTextVisibility' || request.type === 'inspectScanCleanupPdf') {
+            self.postMessage({
                 id: request.id,
                 type: request.type,
                 ok: true,
-                data: data as IBrowserPageOpsWorkerResultMap['ocrTextVisibility'],
-            } satisfies TBrowserPageOpsWorkerResponse;
-            self.postMessage(response);
+                data,
+            });
             return;
         }
         if (isWasmWriterRequest(request)) {

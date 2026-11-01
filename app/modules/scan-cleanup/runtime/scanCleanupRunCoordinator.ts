@@ -26,7 +26,7 @@ import {
 import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {dismissScanCleanupFirstRunGuidanceInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 
 const ACTIVE_JOB_KEY = 'evb.scanCleanup.activeJobId';

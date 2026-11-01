@@ -59,7 +59,10 @@ import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadStreams} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {
+    FULL_SCAN_CLEANUP_SUPPORT,
+    SCAN_CLEANUP_PLATFORM_FEATURE,
+} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     createPlatformFeaturePreloadClient,
     createTypedIpcEventSubscriber,
@@ -516,7 +519,7 @@ export function createElectronApi(
         imageExport,
 
         ocr,
-        scanCleanup: createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE),
+        scanCleanup: createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE, {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT}),
 
         search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE),
 

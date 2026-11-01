@@ -5,7 +5,6 @@ import {
     BROWSER_OCR_ENGINE_REVISION,
     BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS,
     BROWSER_OCR_ENGINE_TESSDATA_PATH,
-    BROWSER_OCR_RENDER_TILE_PX,
     parseBrowserOcrEngineRequest,
     type IBrowserOcrEnginePass,
     type IBrowserOcrEngineResult,
@@ -14,9 +13,7 @@ import {
     type TBrowserOcrPreprocessRequest,
     type TBrowserOcrRecognizeRequest,
 } from '@contracts/browserOcrEngine';
-import {
-    createPpmRaster, writePpmTile,
-} from '@ocr-core/ppmRaster';
+import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBrowserPdfRasterPpm';
 import {readCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
 import {preprocessBrowserOcrPage} from '@app/platform/browser-api/browserScanCleanupWasm';
 import type {IScanCleanupWasmPlane} from '@contracts/scan-cleanup/browserScanCleanupWasm';
@@ -161,25 +158,7 @@ async function runPass(
 }
 
 function readRaster(image: TBrowserOcrEngineRequest['payload']['image']) {
-    if (image instanceof Uint8Array) return image;
-    const ppm = createPpmRaster(image.width, image.height);
-    const canvas = new OffscreenCanvas(1, 1);
-    const columns = Math.ceil(image.width / BROWSER_OCR_RENDER_TILE_PX);
-    try {
-        image.tiles.forEach((tile, index) => {
-            canvas.width = tile.width;
-            canvas.height = tile.height;
-            const context = canvas.getContext('2d', {willReadFrequently: true});
-            if (!context) throw new Error('OCR canvas context is unavailable');
-            context.drawImage(tile, 0, 0);
-            writePpmTile(ppm, image.width, context.getImageData(0, 0, tile.width, tile.height).data,
-                index % columns * BROWSER_OCR_RENDER_TILE_PX, Math.floor(index / columns) * BROWSER_OCR_RENDER_TILE_PX, tile.width, tile.height);
-            tile.close();
-        });
-        return ppm.image;
-    } finally {
-        canvas.width = canvas.height = 0;
-    }
+    return image instanceof Uint8Array ? image : assembleBrowserPdfRasterPpm(image);
 }
 
 /** The size `createPpmRaster` wrote into a page assembled on the UI thread. */

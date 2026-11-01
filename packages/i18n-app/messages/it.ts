@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'I margini devono essere compresi tra 0 e 25 mm.',
             'unavailable': 'La pulizia delle scansioni non è disponibile su questo sistema.',
             'otherDocumentRunning': 'È in corso la pulizia di un altro documento. Avvia questo al termine.',
+            'browserPreviewOnly': 'Nel browser, la pulizia delle scansioni mostra l’anteprima delle pagine ma non può ancora pulire il documento. Usa l’app desktop per pulirlo.',
         },
         'completedTitle': 'Pulizia delle scansioni completata',
         'completedPartialTitle': 'Pagine selezionate pulite',

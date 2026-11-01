@@ -13,11 +13,12 @@ import {
     scanCleanupDetectionSessionCache,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {
+    adoptScanCleanupDocumentKey,
     loadScanCleanupDocumentMargins,
     loadScanCleanupDocumentOverrides,
     saveScanCleanupDocumentMargins,
     saveScanCleanupDocumentOverrides,
-} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+} from '@app/utils/browserScanCleanupPreferences';
 
 const DOCUMENT_KEY = '/docs/discard-me.pdf';
 const SOURCE_SHA256 = 'd'.repeat(64);
@@ -75,8 +76,12 @@ describe('discardScanCleanupDocumentState', () => {
 
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
-        expect(loadScanCleanupDocumentOverrides(DOCUMENT_KEY)).toEqual({});
-        expect(loadScanCleanupDocumentMargins(DOCUMENT_KEY)).toEqual({
+        // The document's hash is known, so its preferences now live under it.
+        const documentKey = adoptScanCleanupDocumentKey(SOURCE_SHA256, DOCUMENT_KEY);
+        expect(documentKey).toBe(SOURCE_SHA256);
+        expect(loadScanCleanupDocumentMargins(DOCUMENT_KEY)).toBeNull();
+        expect(loadScanCleanupDocumentOverrides(documentKey)).toEqual({});
+        expect(loadScanCleanupDocumentMargins(documentKey)).toEqual({
             leftMm: 19,
             topMm: 6,
             rightMm: 18,

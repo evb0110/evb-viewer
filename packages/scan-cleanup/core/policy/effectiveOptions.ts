@@ -18,6 +18,11 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
+import {
+    SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
+    SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
+    SCAN_CLEANUP_MAX_DIMENSION_PX,
+} from '@contracts/scan-cleanup/inputLimits';
 
 export function resolveReusablePagePlan(
     options: IScanCleanupOptions,
@@ -154,9 +159,11 @@ export interface IEffectiveNativeScanCleanupOptionsV3 extends INativeScanCleanup
     manualZones: IScanCleanupManualZones;
 }
 
-export const SCAN_CLEANUP_MAX_BILEVEL_PIXELS = 160_000_000;
-export const SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
-export const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
+export {
+    SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
+    SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
+    SCAN_CLEANUP_MAX_DIMENSION_PX,
+};
 
 /**
  * One canvas is shared by every output of the document, so it has to fit the

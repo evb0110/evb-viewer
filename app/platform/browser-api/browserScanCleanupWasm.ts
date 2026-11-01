@@ -4,6 +4,7 @@ import {
     type TNativeWasmCallResult,
 } from '@app/platform/browser-api/nativeWasmTool';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
+import type {TScanCleanupWasmOutcome} from '@contracts/scan-cleanup/browserScanCleanupWorker';
 import {
     BROWSER_SCAN_CLEANUP_WASM_PATH,
     decodeScanCleanupWasmAnalyzeResult,
@@ -65,15 +66,7 @@ const engine = createNativeWasmToolLoader({
     imports: () => ({env: {evb_now_ms: () => performance.now()}}),
 });
 
-export type TBrowserScanCleanupOutcome<TResult> =
-    | {
-        status: 'succeeded';
-        result: TResult;
-    }
-    | {
-        status: 'failed';
-        error: INativeErrorEnvelope;
-    };
+export type TBrowserScanCleanupOutcome<TResult> = TScanCleanupWasmOutcome<TResult>;
 
 function failed(code: INativeErrorEnvelope['code'], message: string) {
     return {

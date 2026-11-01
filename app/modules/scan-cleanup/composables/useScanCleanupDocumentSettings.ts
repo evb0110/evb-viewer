@@ -15,7 +15,7 @@ import {
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/utils/browserScanCleanupPreferences';
 import {
     cloneScanCleanupPreferenceValue,
     isScanCleanupSourceSha256,

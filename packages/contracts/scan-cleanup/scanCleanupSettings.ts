@@ -38,6 +38,7 @@ import {
     decodeScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {stringifyJson} from '@contracts/stringifyJson';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 export const SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION = 2 as const;
 // Schema 1 predates the `ink` alignment: a stored `top-center` was the
@@ -431,6 +432,17 @@ export function cloneScanCleanupPreferenceValue<T>(value: T): T {
         throw new TypeError('Failed to clone scan-cleanup preference value');
     }
     return cloned;
+}
+
+/** Options as plain data, with each page override's inherited defaults attached. */
+export function toPlainScanCleanupOptions(value: IScanCleanupOptions): IScanCleanupOptions {
+    const plain = cloneScanCleanupPreferenceValue(value);
+    attachScanCleanupPageOverrideDefaults(
+        plain.pageOverrides,
+        plain.pageOverrideDefaults,
+        plain.marginsMm,
+    );
+    return plain;
 }
 
 function clampScanCleanupMargin(value: unknown, fallback: number) {

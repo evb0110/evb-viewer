@@ -97,6 +97,13 @@ type TPlatformApiFixtureEventFunction = (
 ) => () => void;
 
 const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
+    // An inert fixture runs every Scan Cleanup operation, as desktop does.
+    'scanCleanup.getSupport': {
+        preview: true,
+        detection: true,
+        calibration: true,
+        conversion: true,
+    },
     'agent.getMcpIntegrationStatus': createBrowserAgentMcpStatus(),
     'agent.setMcpIntegrationEnabled': {
         ok: true,

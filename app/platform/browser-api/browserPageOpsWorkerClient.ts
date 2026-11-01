@@ -370,7 +370,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
     return type === 'textBoxAppearance' || type === 'saveMutations' || type === 'decrypt' || type === 'printLayout'
-        || type === 'ocrTextLayer' || type === 'ocrTextVisibility' || type === 'splitPages'
+        || type === 'ocrTextLayer' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages'
         || type === 'overlayText' || type === 'recompressImages' || type === 'replacePageImages';
 }
 

@@ -3,6 +3,7 @@ import {
     type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 import type {TOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
+import {createBrowserPdfRasterTilesSchema} from '@contracts/browserPdfRaster';
 import * as v from 'valibot';
 
 /** Where a pass reads its page and models inside the engine's file system. */
@@ -17,7 +18,6 @@ export const BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS = 262_144;
 export const BROWSER_OCR_MAX_RASTER_PIXELS = 45_000_000;
 export const BROWSER_OCR_MAX_RASTER_DIMENSION_PX = 40_000;
 export const BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES = BROWSER_OCR_MAX_RASTER_PIXELS * 3 + 64;
-export const BROWSER_OCR_RENDER_TILE_PX = 4096;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const bytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
@@ -25,19 +25,7 @@ const modelCodeSchema = v.custom<TOcrModelCode>(
     value => typeof value === 'string' && Object.hasOwn(OCR_LANGUAGE_MODEL_SHA256, value),
 );
 const enginePathSchema = v.pipe(v.string(), v.startsWith('/work/'), v.maxLength(256));
-const rasterSchema = v.pipe(v.object({
-    width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(BROWSER_OCR_MAX_RASTER_DIMENSION_PX)),
-    height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(BROWSER_OCR_MAX_RASTER_DIMENSION_PX)),
-    tiles: v.pipe(v.array(v.custom<ImageBitmap>(value => typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap)), v.maxLength(100)),
-}), v.check(({
-    width, height, tiles,
-}) => {
-    const columns = Math.ceil(width / BROWSER_OCR_RENDER_TILE_PX);
-    return width * height <= BROWSER_OCR_MAX_RASTER_PIXELS
-        && tiles.length === columns * Math.ceil(height / BROWSER_OCR_RENDER_TILE_PX)
-        && tiles.every((tile, index) => tile.width === Math.min(BROWSER_OCR_RENDER_TILE_PX, width - index % columns * BROWSER_OCR_RENDER_TILE_PX)
-            && tile.height === Math.min(BROWSER_OCR_RENDER_TILE_PX, height - Math.floor(index / columns) * BROWSER_OCR_RENDER_TILE_PX));
-}));
+const rasterSchema = createBrowserPdfRasterTilesSchema(BROWSER_OCR_MAX_RASTER_PIXELS, BROWSER_OCR_MAX_RASTER_DIMENSION_PX);
 
 const passSchema = v.object({
     args: v.pipe(v.array(v.pipe(v.string(), v.maxLength(4096))), v.minLength(2), v.maxLength(256)),

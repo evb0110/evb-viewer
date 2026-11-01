@@ -46,6 +46,7 @@ export const OPERATION_CODES = {
     overlayText: 20,
     recompressImages: 21,
     replacePageImages: 22,
+    inspectScanCleanupPdf: 23,
 } as const;
 
 export const REQUEST_HEADER = {

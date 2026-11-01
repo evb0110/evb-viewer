@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'Die Ränder müssen zwischen 0 und 25 mm liegen.',
             'unavailable': 'Die Scanbereinigung ist auf diesem System nicht verfügbar.',
             'otherDocumentRunning': 'Ein anderes Dokument wird gerade bereinigt. Starten Sie dieses, wenn es fertig ist.',
+            'browserPreviewOnly': 'Im Browser zeigt die Scanbereinigung eine Vorschau der Seiten, kann das Dokument aber noch nicht bereinigen. Verwenden Sie dafür die Desktop-App.',
         },
         'completedTitle': 'Scanbereinigung abgeschlossen',
         'completedPartialTitle': 'Ausgewählte Seiten bereinigt',

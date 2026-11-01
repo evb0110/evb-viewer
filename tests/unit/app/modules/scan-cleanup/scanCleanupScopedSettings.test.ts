@@ -24,7 +24,7 @@ import {
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {resolveScanCleanupMarginPatch} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 describe('scan cleanup apply scopes', () => {
     it('keeps a million-page all scope as a scalar range token', () => {

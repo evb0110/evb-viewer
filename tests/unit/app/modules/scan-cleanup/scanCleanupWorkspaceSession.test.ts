@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {
@@ -286,6 +287,7 @@ function capabilityHarness() {
     let detectionListener: (state: TScanCleanupDetectionJobState) => void = () => undefined;
     let runListener: (state: TScanCleanupJobState) => void = () => undefined;
     const value: IScanCleanupCapability = {
+        getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
         preview: vi.fn(async () => {
             throw new DOMException('Superseded', 'AbortError');
         }),

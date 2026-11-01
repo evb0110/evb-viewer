@@ -165,6 +165,11 @@ const workerRequestPayloadSchemas = {
         pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
         withEvbOcrText: v.boolean(),
     }),
+    /** No pages lists every page. */
+    inspectScanCleanupPdf: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+    }),
     ocrTextLayer: v.object({
         data: pdfBytesSchema,
         instructions: OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA,
@@ -276,6 +281,11 @@ const workerRequestSchema = v.union([
         id: workerRequestIdSchema,
         type: v.literal('ocrTextVisibility'),
         payload: workerRequestPayloadSchemas.ocrTextVisibility,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('inspectScanCleanupPdf'),
+        payload: workerRequestPayloadSchemas.inspectScanCleanupPdf,
     }),
     v.object({
         id: workerRequestIdSchema,
@@ -394,6 +404,14 @@ const workerResultSchemas = {
     mergePages: pageMutationResultSchema,
     ocrTextVisibility: v.union([
         PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    // Each record is the desktop page-size sidecar's; its reader decodes it.
+    inspectScanCleanupPdf: v.union([
+        v.object({
+            pageCount: nonNegativeIntegerSchema,
+            pages: v.array(v.custom<Record<string, unknown>>(isRecord)),
+        }),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
     // `data` is the revision the writer appends to the request's document.
@@ -521,6 +539,12 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('ocrTextVisibility'),
         ok: v.literal(true),
         data: workerResultSchemas.ocrTextVisibility,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('inspectScanCleanupPdf'),
+        ok: v.literal(true),
+        data: workerResultSchemas.inspectScanCleanupPdf,
     }),
     v.object({
         id: workerRequestIdSchema,

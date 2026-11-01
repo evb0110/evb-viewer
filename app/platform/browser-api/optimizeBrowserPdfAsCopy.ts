@@ -47,7 +47,8 @@ import {
     savePdfAsFromWorkingCopy,
     type IBrowserFinalizedPublication,
 } from '@app/platform/browser-api/browserSaveTargets';
-import {renderBrowserOcrRaster} from '@app/platform/browser-api/browserOcrRaster';
+import {BrowserOcrRasterTooLargeError} from '@app/platform/browser-api/browserOcrRaster';
+import {renderBrowserPdfRaster} from '@app/platform/browser-api/browserPdfRaster';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import {
     recompressPdfImages,
@@ -139,9 +140,9 @@ async function encodePage(
     try {
         // As desktop's pdftoppm -cropbox -hide-annotations: the page view on
         // white, annotations left live on the page.
-        ({image} = await renderBrowserOcrRaster(
+        const raster = await renderBrowserPdfRaster(
             page,
-            preset.dpi,
+            page.getViewport({scale: preset.dpi / 72}),
             AbortSignal.any([
                 run.signal,
                 AbortSignal.timeout(PDF_OPTIMIZE_RENDER_TIMEOUT_MS),
@@ -149,9 +150,14 @@ async function encodePage(
             {
                 netpbm: grayscale ? 'gray' : 'rgb',
                 annotationMode: AnnotationMode.DISABLE,
+                // Tiles bound every canvas, so only desktop's per-image pixel limit bounds the page.
                 maxPixels: BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS,
+                maxDimensionPx: Number.POSITIVE_INFINITY,
+                tooLarge: (width, height) => new BrowserOcrRasterTooLargeError(width, height, BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS),
             },
-        ));
+        );
+        if (!(raster.image instanceof Uint8Array)) throw new Error('Optimize expected an assembled page raster');
+        image = raster.image;
     } finally {
         page.cleanup();
     }

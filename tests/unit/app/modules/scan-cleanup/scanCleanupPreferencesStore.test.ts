@@ -33,7 +33,7 @@ import {
     scanCleanupSourceIdentityKey,
     type TScanCleanupSourceIdentityState,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
-import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/utils/browserScanCleanupPreferences';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
     flushScanCleanupDocumentPreferencesStore,

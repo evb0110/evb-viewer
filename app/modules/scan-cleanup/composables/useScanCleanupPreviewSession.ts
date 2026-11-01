@@ -46,7 +46,7 @@ import {
     createScanCleanupPreviewCache,
     SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
 } from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';

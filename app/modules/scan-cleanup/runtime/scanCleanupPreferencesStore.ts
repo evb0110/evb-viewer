@@ -22,6 +22,7 @@ import {
 import type {EffectScope} from 'vue';
 import {isEqual} from 'es-toolkit/predicate';
 import {
+    adoptScanCleanupDocumentKey,
     clearScanCleanupLegacyStorage,
     exportScanCleanupLegacyStorage,
     hasScanCleanupLegacyDocumentEntry,
@@ -33,7 +34,7 @@ import {
     saveScanCleanupDocumentPreferences,
     saveScanCleanupPreferencesPatch,
     SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
-} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+} from '@app/utils/browserScanCleanupPreferences';
 import {isDesktopPlatformActive} from '@app/utils/platform';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
@@ -661,7 +662,7 @@ export function loadScanCleanupDocumentSettings(
     legacyDocumentKey: string | null | undefined,
 ): IScanCleanupDocumentSettingsSnapshot | Promise<IScanCleanupDocumentSettingsSnapshot> {
     if (!desktopStore) {
-        const browserDocumentKey = legacyDocumentKey ?? sourceSha256;
+        const browserDocumentKey = adoptScanCleanupDocumentKey(sourceSha256, legacyDocumentKey);
         return {
             overrides: loadScanCleanupDocumentOverrides(browserDocumentKey),
             pageOverrideDefaults: loadScanCleanupDocumentPageOverrideDefaults(browserDocumentKey),
@@ -719,9 +720,14 @@ export function saveScanCleanupDocumentPreferencesInStore(
     patch: IScanCleanupDocumentPreferencePatch,
 ) {
     if (!desktopStore) {
-        saveScanCleanupDocumentPreferences(legacyDocumentKey ?? sourceSha256, patch);
+        try {
+            saveScanCleanupDocumentPreferences(adoptScanCleanupDocumentKey(sourceSha256, legacyDocumentKey), patch);
+        } catch (error) {
+            BrowserLogger.error('scan-cleanup', 'Failed to persist browser document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
+            return Promise.reject(error);
+        }
         announceDocumentSettingsCommit(sourceSha256, legacyDocumentKey);
-        return;
+        return Promise.resolve();
     }
     if (!isScanCleanupSourceSha256(sourceSha256)) {
         warnMissingDocumentSourceHash('persist', legacyDocumentKey);

@@ -1,5 +1,5 @@
 import {discardScanCleanupDetectionStateForAliases} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
-import {resetScanCleanupDocumentOverrides} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {resetScanCleanupDocumentOverrides} from '@app/utils/browserScanCleanupPreferences';
 import {
     invalidateScanCleanupDocumentPersistence,
     saveScanCleanupDocumentPreferencesInStore,

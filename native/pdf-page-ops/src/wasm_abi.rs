@@ -119,6 +119,9 @@ abi! {
         OP_RECOMPRESS_IMAGES = 21 => "recompressImages";
         // Attaches the replacement PDFs. Answers RESPONSE_REPORTED_INCREMENT.
         OP_REPLACE_PAGE_IMAGES = 22 => "replacePageImages";
+        // REQUEST_HEADER framing; the page list selects pages, none for every
+        // page. Answers RESPONSE_JSON with each page's page-size record.
+        OP_INSPECT_SCAN_CLEANUP_PDF = 23 => "inspectScanCleanupPdf";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {

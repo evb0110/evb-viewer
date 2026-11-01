@@ -240,6 +240,10 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 ocr_text_visibility_bytes(parsed.data, &parsed.pages, with_evb_ocr_text)?,
             )
         }
+        OP_INSPECT_SCAN_CLEANUP_PDF => encode_bytes(
+            RESPONSE_JSON,
+            crate::inspect_scan_cleanup_pdf_bytes(parsed.data, &parsed.pages)?,
+        ),
         OP_SAVE_MUTATIONS => {
             let (mut mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
             if !parsed.original_appearance_source.is_empty() {

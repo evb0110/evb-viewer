@@ -20,6 +20,7 @@ import {
     requireRequestId,
 } from '@contracts/shared';
 import {
+    FULL_SCAN_CLEANUP_SUPPORT,
     SCAN_CLEANUP_PLATFORM_FEATURE,
     type IScanCleanupInvokeMap,
 } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
@@ -248,6 +249,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         const client = createPlatformFeaturePreloadClient(
             ipcRenderer,
             SCAN_CLEANUP_PLATFORM_FEATURE,
+            {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT},
         );
 
         const forwardedResponses = await Promise.all([

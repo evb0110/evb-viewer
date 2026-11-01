@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {writeFileSync} from 'node:fs';
@@ -287,6 +288,7 @@ function previewBackend() {
     };
     const previewCalls = vi.fn(preview);
     const value: IScanCleanupCapability = {
+        getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
         preview: previewCalls,
         cancelPreview: vi.fn(async (request: IScanCleanupPreviewCancelRequest) => {
             const retained = new Set(request.retainPages ?? []);
@@ -682,6 +684,7 @@ describe('scan cleanup preview navigation', () => {
         const preview = vi.fn((_request: IScanCleanupPreviewRequest) => retiredPreview.promise);
         const cancelPreview = vi.fn(async () => true);
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...backend.capability,
             preview,
             cancelPreview,
@@ -1078,6 +1081,7 @@ describe('scan cleanup preview navigation', () => {
         const backend = previewBackend();
         let rawListener: ((raw: IScanCleanupRawPreviewEvent) => void) | null = null;
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...backend.capability,
             onPreviewRaw: (listener) => {
                 rawListener = listener;

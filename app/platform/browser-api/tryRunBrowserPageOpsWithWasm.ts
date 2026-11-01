@@ -235,6 +235,7 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'printLayout':
             return request.payload.pageNumbers;
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
             return request.payload.pages;
         case 'ocrTextLayer':
         case 'splitPages':
@@ -272,6 +273,7 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'saveMutations':
         case 'printLayout':
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
         case 'ocrTextLayer':
         case 'splitPages':
         case 'overlayText':
@@ -367,6 +369,7 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'printLayout':
         case 'textBoxAppearance':
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
         case 'ocrTextLayer':
         case 'splitPages':
         case 'overlayText':
@@ -427,6 +430,7 @@ function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedW
         case 'printLayout':
         case 'mergePages':
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
             return null;
     }
 }
@@ -788,9 +792,9 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    if (type === 'ocrTextVisibility') {
+    if (type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
         const parsed = kind === RESPONSE_JSON
-            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.ocrTextVisibility, readJsonResult(output), {abortEarly: true})
+            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], readJsonResult(output), {abortEarly: true})
             : null;
         return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }

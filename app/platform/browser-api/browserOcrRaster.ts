@@ -3,12 +3,8 @@ import type {
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsRuntime, {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
-import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {renderBrowserPdfRaster} from '@app/platform/browser-api/browserPdfRaster';
 import {
-    createPpmRaster, writePpmTile,
-} from '@ocr-core/ppmRaster';
-import {
-    BROWSER_OCR_RENDER_TILE_PX as RENDER_TILE_PX,
     BROWSER_OCR_MAX_RASTER_PIXELS,
     BROWSER_OCR_MAX_RASTER_DIMENSION_PX,
     type TBrowserOcrEngineRequest,
@@ -28,17 +24,6 @@ interface IPageImage {
 
 /** Transfer painted tiles; workers perform readback and RGB packing. */
 export interface IBrowserOcrRaster {image: TBrowserOcrEngineRequest['payload']['image']}
-
-/**
- * A page raster another operation materializes on this thread, with its own
- * admission: Optimize hands it to desktop's image combiner, whose limit is
- * per image pixels, and paints no annotations into it.
- */
-export interface IBrowserNetpbmRasterOptions {
-    netpbm: 'rgb' | 'gray';
-    annotationMode: number;
-    maxPixels: number;
-}
 
 export class BrowserOcrRasterTooLargeError extends Error {
     public constructor(width: number, height: number, maxPixels = BROWSER_OCR_MAX_RASTER_PIXELS) {
@@ -166,95 +151,11 @@ export function readPageSourceDpi(operatorList: IPdfOperatorList) {
  * Large pages render in tiles and are assembled into one raster, since
  * recognizing tiles separately would change Tesseract's layout analysis.
  */
-export async function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal: AbortSignal): Promise<IBrowserOcrRaster>;
-export async function renderBrowserOcrRaster(
-    page: IPdfPage,
-    dpi: number,
-    signal: AbortSignal,
-    options: IBrowserNetpbmRasterOptions,
-): Promise<{image: Uint8Array}>;
-export async function renderBrowserOcrRaster(
-    page: IPdfPage,
-    dpi: number,
-    signal: AbortSignal,
-    options?: IBrowserNetpbmRasterOptions,
-): Promise<IBrowserOcrRaster> {
-    const viewport = page.getViewport({scale: dpi / 72});
-    const width = Math.max(1, Math.ceil(viewport.width));
-    const height = Math.max(1, Math.ceil(viewport.height));
-    const channels = options?.netpbm === 'gray' ? 1 : 3;
-    if (options) {
-        // Tiles bound every canvas, so only the pixel budget and the
-        // allocation arithmetic bound the page.
-        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width * height > options.maxPixels
-            || !Number.isSafeInteger(width * height * channels + 64)) {
-            throw new BrowserOcrRasterTooLargeError(width, height, options.maxPixels);
-        }
-    } else if (width > BROWSER_OCR_MAX_RASTER_DIMENSION_PX || height > BROWSER_OCR_MAX_RASTER_DIMENSION_PX
-        || width * height > BROWSER_OCR_MAX_RASTER_PIXELS) {
-        throw new BrowserOcrRasterTooLargeError(width, height);
-    }
-    const transfer = !options && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function';
-    const ppm = transfer ? null : createPpmRaster(width, height, channels);
-    const tiles: ImageBitmap[] = [];
-    const canvas = document.createElement('canvas');
-    try {
-        for (let top = 0; top < height; top += RENDER_TILE_PX) {
-            for (let left = 0; left < width; left += RENDER_TILE_PX) {
-                signal.throwIfAborted();
-                const tileWidth = Math.min(RENDER_TILE_PX, width - left);
-                const tileHeight = Math.min(RENDER_TILE_PX, height - top);
-                canvas.width = tileWidth;
-                canvas.height = tileHeight;
-                const context = canvas.getContext('2d', {willReadFrequently: !transfer});
-                if (!context) throw new Error('Canvas 2D context is unavailable');
-                const task = page.render({
-                    canvas,
-                    canvasContext: context,
-                    // OCR does not paint the screen. Hidden tabs receive no
-                    // animation frames; retain display content and annotations.
-                    useRequestAnimationFrame: false,
-                    viewport,
-                    transform: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        -left,
-                        -top,
-                    ],
-                    background: 'rgb(255,255,255)',
-                    annotationMode: options?.annotationMode ?? BROWSER_OCR_ANNOTATION_MODE,
-                });
-                task.onContinue = (continueRender: () => void) => {
-                    void yieldToBrowser().then(continueRender);
-                };
-                const cancel = () => task.cancel();
-                signal.addEventListener('abort', cancel, {once: true});
-                try {
-                    await task.promise;
-                } finally {
-                    signal.removeEventListener('abort', cancel);
-                }
-                signal.throwIfAborted();
-                if (ppm) {
-                    writePpmTile(ppm, width, context.getImageData(0, 0, tileWidth, tileHeight).data, left, top, tileWidth, tileHeight);
-                } else {
-                    tiles.push(await createImageBitmap(canvas));
-                }
-            }
-        }
-        signal.throwIfAborted();
-    } catch (error) {
-        tiles.forEach(tile => tile.close());
-        throw error;
-    } finally {
-        canvas.width = 0;
-        canvas.height = 0;
-    }
-    return {image: ppm?.image ?? {
-        width,
-        height,
-        tiles,
-    }};
+export function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal: AbortSignal): Promise<IBrowserOcrRaster> {
+    return renderBrowserPdfRaster(page, page.getViewport({scale: dpi / 72}), signal, {
+        annotationMode: BROWSER_OCR_ANNOTATION_MODE,
+        maxPixels: BROWSER_OCR_MAX_RASTER_PIXELS,
+        maxDimensionPx: BROWSER_OCR_MAX_RASTER_DIMENSION_PX,
+        tooLarge: (width, height) => new BrowserOcrRasterTooLargeError(width, height),
+    });
 }

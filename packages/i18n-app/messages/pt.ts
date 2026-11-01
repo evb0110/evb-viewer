@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'As margens devem estar entre 0 e 25 mm.',
             'unavailable': 'A limpeza de digitalizações não está disponível neste sistema.',
             'otherDocumentRunning': 'Outro documento está a ser limpo. Inicie este quando terminar.',
+            'browserPreviewOnly': 'No navegador, a limpeza de digitalizações mostra a pré-visualização das páginas, mas ainda não consegue limpar o documento. Utilize a aplicação de computador para o limpar.',
         },
         'completedTitle': 'Limpeza de digitalizações concluída',
         'completedPartialTitle': 'Páginas selecionadas limpas',
