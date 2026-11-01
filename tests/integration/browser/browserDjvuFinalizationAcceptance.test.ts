@@ -607,6 +607,10 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         const releaseWasm = Promise.withResolvers<undefined>();
         try {
             const page = await browser.newPage();
+            // Both held requests must be admitted by the two-slot worker pool.
+            await page.addInitScript(() => {
+                Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
+            });
             await page.goto(origin);
             await page.addScriptTag({
                 path: bundlePath,

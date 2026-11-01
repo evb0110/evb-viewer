@@ -98,6 +98,8 @@ describe('browser document lifecycle UI', () => {
         try {
             const page = await lifecycle.browser.newPage();
             await page.addInitScript(() => {
+                // Both held requests must be admitted by the two-slot worker pool.
+                Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
