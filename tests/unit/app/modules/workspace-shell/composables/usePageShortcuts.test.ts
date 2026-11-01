@@ -14,6 +14,7 @@ import {
     createPageShortcutDeps as createDeps,
     getCapturedKeyDown,
     getCapturedOnEventFired,
+    getCapturedPaste,
     getCapturedPointerDown,
     getPageShortcutsMocks,
     resetPageShortcutsTest,
@@ -736,6 +737,37 @@ describe('usePageShortcuts', () => {
         }));
 
         expect(deps.handlePasteImageFromClipboard).not.toHaveBeenCalled();
+    });
+
+    it('places the image a paste event carries, except into an editable field', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+        const image = new File([Uint8Array.of(1)], 'image.png', {type: 'image/png'});
+        const paste = (target: unknown, files: File[]) => {
+            const event = new Event('paste', {cancelable: true});
+            Object.defineProperties(event, {
+                target: {value: target},
+                clipboardData: {value: {files}},
+            });
+            getCapturedPaste()?.(event as ClipboardEvent);
+            return event.defaultPrevented;
+        };
+
+        expect(paste(null, [new File(['text'], 'note.txt', {type: 'text/plain'})])).toBe(false);
+        expect(deps.handlePasteImageFile).not.toHaveBeenCalled();
+        const fakeEditor = {
+            isContentEditable: true,
+            closest: () => fakeEditor,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeEditor, HTMLElement.prototype);
+        expect(paste(fakeEditor, [image])).toBe(false);
+        expect(deps.handlePasteImageFile).not.toHaveBeenCalled();
+
+        expect(paste(null, [image])).toBe(true);
+        expect(deps.handlePasteImageFile).toHaveBeenCalledWith(image);
     });
 
     it('closes visible shortcut menus on outside pointerdown', async () => {

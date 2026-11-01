@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
+import {
+    readPageAnnotationImageFileFromClipboard,
+    readPageAnnotationImageFileFromPasteData,
+} from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 
 describe('readPageAnnotationImageFileFromClipboard', () => {
     afterEach(() => {
@@ -30,5 +33,17 @@ describe('readPageAnnotationImageFileFromClipboard', () => {
             type: 'image/jpeg',
             nativeSourceHandle,
         });
+    });
+
+    it('takes a placeable image from paste data and ignores other files', () => {
+        const svg = new File(['<svg/>'], 'drawing.svg', {type: 'image/svg+xml'});
+        const png = new File([Uint8Array.of(1)], 'image.png', {type: 'image/png'});
+
+        expect(readPageAnnotationImageFileFromPasteData({files: [
+            svg,
+            png,
+        ]})).toBe(png);
+        expect(readPageAnnotationImageFileFromPasteData({files: [svg]})).toBeNull();
+        expect(readPageAnnotationImageFileFromPasteData(null)).toBeNull();
     });
 });

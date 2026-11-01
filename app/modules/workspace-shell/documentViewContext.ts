@@ -32,6 +32,7 @@ import type {
 import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runDetached } from '@app/utils/asyncGuard';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     createDocumentPageSourceSearchBackend,
@@ -343,6 +344,11 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         },
         handleInsertImageFromFile: () => void runDetached(djvuProjection.handleInsertImageFromFile, imageCommandGuard),
         handlePasteImageFromClipboard: () => void runDetached(djvuProjection.handlePasteImageFromClipboard, imageCommandGuard),
+        handlePasteImageFile: file => void runDetached(() => djvuProjection.runEdit(() => pdfViewerRef.value?.startImagePlacement(file, {
+            pageNumber: requirePageNumber(currentPage.value),
+            pageX: 0.5,
+            pageY: 0.5,
+        })), imageCommandGuard),
     });
     const crop = useWorkspaceCrop({
         pdfViewerRef,

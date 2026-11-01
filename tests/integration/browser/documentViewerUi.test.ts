@@ -7,7 +7,7 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString, StandardFonts,
+    PDFDocument, PDFArray, PDFDict, PDFName, PDFStream, PDFString, PDFHexString, StandardFonts,
 } from 'pdf-lib';
 import {
     describe, expect, it,
@@ -1613,4 +1613,111 @@ describe('browser document lifecycle UI', () => {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 240_000);
+
+    // I1: the desktop Edit menu's image accelerators act in the browser, and a
+    // paste carries its image where the browser refuses clipboard reads.
+    it('inserts images by the Edit menu shortcuts and by a paste with clipboard reading denied', async () => {
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+            permissions: ['clipboard-write'],
+        });
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const pngOf = (width: number, height: number, color: string) => {
+            const canvas = createCanvas(width, height);
+            const context2d = canvas.getContext('2d');
+            context2d.fillStyle = color;
+            context2d.fillRect(0, 0, width, height);
+            return canvas.toBuffer('image/png');
+        };
+        try {
+            const fixture = await PDFDocument.create();
+            fixture.addPage([
+                612,
+                792,
+            ]).drawText('Images arrive on this page', {
+                x: 40,
+                y: 740,
+            });
+            await openPdfFromChooser(page, {
+                name: 'image-shortcuts.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
+            const pdfPage = page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered').first();
+            await pdfPage.locator('canvas').first().waitFor({timeout: 30_000});
+            const placement = page.locator('.workspace-host[data-workspace-active="true"] .pdf-image-placement');
+            const placeImage = async () => {
+                await placement.waitFor({
+                    state: 'visible',
+                    timeout: 10_000,
+                });
+                await placement.locator('.pdf-image-placement__action--primary').click();
+                await placement.waitFor({
+                    state: 'hidden',
+                    timeout: 30_000,
+                });
+            };
+
+            const chooser = page.waitForEvent('filechooser', {timeout: 5_000});
+            await page.keyboard.press('ControlOrMeta+Shift+I');
+            await (await chooser).setFiles({
+                name: 'inserted.png',
+                mimeType: 'image/png',
+                buffer: pngOf(40, 24, '#1f6feb'),
+            });
+            await placeImage();
+
+            // Setup: the page writes a PNG to the clipboard in the next click's
+            // activation. Reading the clipboard stays denied.
+            const pngBase64 = pngOf(48, 32, '#d22f48').toString('base64');
+            await page.evaluate((base64) => {
+                Reflect.set(window, '__clipboardWritten', new Promise((resolveWrite) => {
+                    document.addEventListener('click', () => {
+                        const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+                        void navigator.clipboard.write([new ClipboardItem({'image/png': new Blob([bytes], {type: 'image/png'})})])
+                            .then(() => resolveWrite('written'), (error: unknown) => resolveWrite(String(error)));
+                    }, {
+                        capture: true,
+                        once: true,
+                    });
+                }));
+            }, pngBase64);
+            const box = await pdfPage.boundingBox();
+            expect(box).not.toBeNull();
+            await page.mouse.click(box!.x + box!.width / 2, box!.y + 60);
+            expect(await page.evaluate(() => Reflect.get(window, '__clipboardWritten'))).toBe('written');
+            expect(await page.evaluate(async () => (
+                await navigator.permissions.query({name: 'clipboard-read' as PermissionName})
+            ).state)).toBe('denied');
+            await page.keyboard.press('ControlOrMeta+V');
+            await placeImage();
+
+            const download = page.waitForEvent('download', {timeout: 30_000});
+            await page.keyboard.press('ControlOrMeta+Shift+S');
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+            const imageSizes = Array.from({length: annots?.size() ?? 0}, (_, index) => annots!.lookup(index, PDFDict))
+                .flatMap((annot) => {
+                    const xObjects = annot.lookupMaybe(PDFName.of('AP'), PDFDict)
+                        ?.lookupMaybe(PDFName.of('N'), PDFStream)
+                        ?.dict.lookupMaybe(PDFName.of('Resources'), PDFDict)
+                        ?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+                    return (xObjects?.keys() ?? []).map((key) => {
+                        const image = xObjects!.lookup(key, PDFStream).dict;
+                        return `${String(image.get(PDFName.of('Width')))}x${String(image.get(PDFName.of('Height')))}`;
+                    });
+                });
+            expect(imageSizes.toSorted()).toEqual([
+                '40x24',
+                '48x32',
+            ]);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
 });

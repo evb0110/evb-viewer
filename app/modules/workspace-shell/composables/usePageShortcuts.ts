@@ -14,6 +14,7 @@ import {
     stepBySpread,
 } from '@app/utils/pdfViewMode';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
+import { readPageAnnotationImageFileFromPasteData } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 
 interface IPdfViewerForShortcuts {
     deleteSelectedShape: () => void;
@@ -58,6 +59,8 @@ interface IPageShortcutsDeps {
     handleToggleSidebar: () => void;
     handleInsertImageFromFile: () => void;
     handlePasteImageFromClipboard: () => void;
+    /** Places the image a user's paste event carried, which needs no clipboard permission. */
+    handlePasteImageFile: (file: File) => void;
 }
 
 function isEditingText(target: EventTarget | null) {
@@ -400,6 +403,18 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         handleZoomShortcut(event, shouldHandleRendererAccelerators);
     }
 
+    function handleImagePaste(event: ClipboardEvent) {
+        if (!isActive.value || !interactiveDocument.value || event.defaultPrevented || isEditingText(event.target)) {
+            return;
+        }
+        const file = readPageAnnotationImageFileFromPasteData(event.clipboardData);
+        if (!file) {
+            return;
+        }
+        event.preventDefault();
+        deps.handlePasteImageFile(file);
+    }
+
     // Tracks whether the most recent keydown targeted an editable element,
     // so the reactive `whenever` watchers can skip those events.
     const editableBlocked = ref(false);
@@ -444,4 +459,5 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         : null;
     useEventListener(windowTarget, 'pointerdown', handleGlobalPointerDown);
     useEventListener(windowTarget, 'keydown', handleCapturedWebMenuAccelerator, { capture: true });
+    useEventListener(windowTarget, 'paste', handleImagePaste);
 };
