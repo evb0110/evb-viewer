@@ -34,6 +34,20 @@ export const REQUIRED_WEB_WASM_ASSETS = [
             'evb_pdf_page_ops_error_len',
         ],
     },
+    {
+        relativePath: 'wasm/evb-scan-cleanup.wasm',
+        requiredExports: [
+            'memory',
+            'evb_wasm_request_allocation_abi_version',
+            'evb_scan_cleanup_alloc',
+            'evb_scan_cleanup_free',
+            'evb_scan_cleanup_run',
+            'evb_scan_cleanup_output_ptr',
+            'evb_scan_cleanup_output_len',
+            'evb_scan_cleanup_error_ptr',
+            'evb_scan_cleanup_error_len',
+        ],
+    },
     // Emscripten minifies the engine's export names; its pinned digest is the identity.
     {
         relativePath: 'wasm/evb-tesseract.wasm',
@@ -79,6 +93,15 @@ export const WASM_ARTIFACTS = [
             '--cfg',
             'getrandom_backend="custom"',
         ],
+    },
+    {
+        builtFileName: 'evb_scan_cleanup.wasm',
+        crateName: 'scan-cleanup',
+        label: 'Scan cleanup WASM',
+        manifestPath: 'native/scan-cleanup/Cargo.toml',
+        publicRelativePath: 'public/wasm/evb-scan-cleanup.wasm',
+        requiredExports: getRequiredExports('wasm/evb-scan-cleanup.wasm'),
+        rustflags: [],
     },
 ];
 

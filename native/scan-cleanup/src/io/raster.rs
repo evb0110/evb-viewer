@@ -127,6 +127,41 @@ pub fn read_image(
     .map_err(map_decoder_error)
 }
 
+/// Decodes a raster the caller already holds, sniffing PNG or PPM P6 by
+/// signature exactly as [`read_image`] does for a file.
+pub fn decode_image_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<DecodedRaster, RasterReadError> {
+    let limits = decode_limits(max_pixels, max_dimension);
+    if is_ppm_signature(bytes) {
+        decode_ppm(Cursor::new(bytes), limits)
+    } else {
+        decode_png(Cursor::new(bytes), limits)
+    }
+    .map_err(map_decoder_error)
+}
+
+/// The gray plane of [`decode_image_bytes`], decoded as [`read_gray`] does.
+pub fn decode_gray_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, RasterReadError> {
+    let limits = decode_limits(max_pixels, max_dimension);
+    if is_ppm_signature(bytes) {
+        decode_ppm_gray(Cursor::new(bytes), limits)
+    } else {
+        decode_png_gray(Cursor::new(bytes), limits)
+    }
+    .map_err(map_decoder_error)
+}
+
+fn is_ppm_signature(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"P6")
+}
+
 pub fn read_dimensions(
     path: &Path,
     max_pixels: u64,
@@ -206,7 +241,7 @@ fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
             Err(error) => return Err(error.into()),
         }
     }
-    let is_ppm = &magic[..filled] == b"P6";
+    let is_ppm = is_ppm_signature(&magic[..filled]);
     Ok((Cursor::new(magic).take(filled as u64).chain(file), is_ppm))
 }
 
@@ -252,6 +287,15 @@ mod tests {
         let decoded = read_image(&ppm_path, 16, 16).unwrap();
         assert_eq!(decoded.rgb.get(0, 0), [0, 0, 0]);
         assert_eq!(decoded.rgb.get(1, 0), [255, 255, 255]);
+
+        assert_eq!(
+            decode_image_bytes(&fs::read(&ppm_path).unwrap(), 16, 16).unwrap(),
+            decoded
+        );
+        assert_eq!(
+            decode_gray_bytes(&fs::read(&png_path).unwrap(), 16, 16).unwrap(),
+            read_gray(&png_path, 16, 16).unwrap()
+        );
 
         fs::remove_file(&png_path).unwrap();
         fs::remove_file(&ppm_path).unwrap();

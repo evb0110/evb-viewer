@@ -74,6 +74,9 @@ fn generated() -> String {
     };
     declarations.preserve_optional_null = true;
     declarations.visit::<super::manifest_v3::ManifestV3>();
+    // The browser engine's requests reuse the manifest's page shapes.
+    declarations.visit::<crate::wasm::WasmRenderPreviewRequestV1>();
+    declarations.visit::<crate::wasm::WasmAnalyzePageRequestV1>();
     declarations.preserve_optional_null = false;
     declarations.visit::<crate::engine::page_workflow::PageResultMetadata>();
     declarations.visit::<crate::engine::render::CleanupMetadata>();

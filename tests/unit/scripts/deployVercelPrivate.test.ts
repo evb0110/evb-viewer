@@ -20,6 +20,7 @@ import {
     computeNativeBuildId,
     getNativeExternalBuildInputs,
 } from '../../../scripts/native-build-id.mjs';
+import {WASM_ARTIFACTS} from '../../../scripts/wasm-artifacts.mjs';
 import {
     execFileSync,
     spawn,
@@ -321,6 +322,7 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, 'public', 'wasm'), {recursive: true});
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-image-combine.wasm'), 'wasm\n');
     writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm'), 'wasm\n');
+    writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-scan-cleanup.wasm'), 'wasm\n');
     // The OCR engine is checked by its pinned digest, so the fixture carries the
     // fetched files (`pnpm test:unit` runs ensure-wasm-artifacts first).
     for (const fileName of [
@@ -401,13 +403,11 @@ function createProjectFixture() {
 // local `ensure-wasm-artifacts.mjs` run would record for them.
 function writeNativeWasmFixture(projectRoot: string) {
     const nativeRoot = path.join(projectRoot, 'native');
-    writeFileSync(path.join(nativeRoot, 'Cargo.toml'), '[workspace]\nmembers = ["pdf-image-combine", "pdf-page-ops"]\n');
+    const crateNames = WASM_ARTIFACTS.map(artifact => artifact.crateName);
+    writeFileSync(path.join(nativeRoot, 'Cargo.toml'), `[workspace]\nmembers = ${JSON.stringify(crateNames)}\n`);
     writeFileSync(path.join(nativeRoot, 'Cargo.lock'), 'version = 4\n');
     writeFileSync(path.join(nativeRoot, 'rust-toolchain.toml'), '[toolchain]\nchannel = "stable"\n');
-    for (const crateName of [
-        'pdf-image-combine',
-        'pdf-page-ops',
-    ]) {
+    for (const crateName of crateNames) {
         mkdirSync(path.join(nativeRoot, crateName, 'src'), {recursive: true});
         writeFileSync(path.join(nativeRoot, crateName, 'Cargo.toml'), `[package]\nname = "${crateName}"\n`);
         writeFileSync(path.join(nativeRoot, crateName, 'src', 'lib.rs'), 'pub fn version() -> u32 { 1 }\n');
@@ -417,10 +417,12 @@ function writeNativeWasmFixture(projectRoot: string) {
         writeFileSync(path.join(projectRoot, input), 'font\n');
     }
     mkdirSync(path.join(projectRoot, '.tmp'), {recursive: true});
-    writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify({
-        'pdf-image-combine': computeNativeBuildId(projectRoot, 'pdf-image-combine'),
-        'pdf-page-ops': computeNativeBuildId(projectRoot, 'pdf-page-ops'),
-    }, null, 2)}\n`);
+    writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify(Object.fromEntries(
+        crateNames.map(crateName => [
+            crateName,
+            computeNativeBuildId(projectRoot, crateName),
+        ]),
+    ), null, 2)}\n`);
 }
 
 function commitFixtureChanges(projectRoot: string) {

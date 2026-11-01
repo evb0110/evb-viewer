@@ -8,6 +8,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+# rlib for the CLI and the other native crates; cdylib for the browser engine.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 crc32fast = "1.5.2"
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }

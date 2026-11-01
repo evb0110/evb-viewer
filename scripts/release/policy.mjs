@@ -92,6 +92,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'native/jbig2-codec/**',
                 'native/pdf-image-combine/**',
                 'native/pdf-page-ops/**',
+                'native/scan-cleanup/**',
                 'native/scan-primitives/**',
                 'scripts/build-wasm-tool.mjs',
                 'scripts/lib/build-environment.mjs',

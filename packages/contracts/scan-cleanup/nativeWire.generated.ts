@@ -429,3 +429,20 @@ export type TextToneRule = "applied" | "picture-evidence" | "insufficient-text" 
  */
 
 export type WarningExtentUnit = "px" | "pt";
+
+/**
+ * The JSON half of an analyze request, version 1.
+ */
+
+export type WasmAnalyzePageRequestV1 = { options: CleanupOptions, sourcePageIndex: number, canvasScope: CanvasScope, analysisPurpose?: AnalysisPurpose, documentPrior?: DocumentPrior | null, };
+
+/**
+ * The JSON half of a render-preview request, version 1.
+ */
+
+export type WasmRenderPreviewRequestV1 = { options: CleanupOptions, sourcePageIndex: number, canvasScope: CanvasScope, 
+/**
+ * The resolution of the fixed analysis plane: the separate analysis
+ * raster, or the input itself when `analysisIsInput` is set.
+ */
+analysisDpi?: number | null, analysisIsInput?: boolean, documentPrior?: DocumentPrior | null, };

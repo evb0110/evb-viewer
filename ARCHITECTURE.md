@@ -56,7 +56,7 @@ without a desktop install.
 
 | Crate | Owns | Scale |
 | --- | --- | --- |
-| `scan-cleanup` | The cleanup engine and its CLI: analysis, routing, binarization, dewarp, mixed raster content, manifest protocol | ~78k lines |
+| `scan-cleanup` | The cleanup engine, its CLI and its browser WASM build: analysis, routing, binarization, dewarp, mixed raster content, manifest protocol | ~78k lines |
 | `pdf-page-ops` | Incremental edits, catalogs, and print layout; annotation read and write, decryption, geometry, text shaping | ~49k lines |
 | `pdf-image-combine` | Image pages to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths | ~10k lines |
 | `jbig2-codec` | Lossless JBIG2 generic-region encode and decode, in the layout PDF readers expect | ~4.6k lines |
@@ -91,6 +91,15 @@ Poppler renders every page raster as PPM. Its PNG writer is fixed at maximum
 compression, which costs a smooth scanned page tens of seconds, so a caller
 that needs PNG gets the same pixels encoded by the app at the fastest level. What the engine is built for, and what it refuses, is written
 down in [what scans work](docs/user/what-scans-work.md).
+
+The browser runs the same engine. `native/scan-cleanup/src/wasm.rs` builds it
+as `public/wasm/evb-scan-cleanup.wasm`, which analyzes or renders one page per
+request from raster bytes. Both it and the CLI call the in-memory page core in
+`engine/page_workflow.rs` (`render_page`, `classify_page`); only the CLI then
+publishes to manifest files, so a page with the same raster and options comes
+out byte-identical on either platform. `app/platform/browser-api/browserScanCleanupWasm.ts`
+loads it inside a worker; manifests, staging, matched canvases and file
+publication stay native.
 
 ## OCR
 
