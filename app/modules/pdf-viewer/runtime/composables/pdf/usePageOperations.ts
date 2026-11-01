@@ -134,6 +134,7 @@ export const usePageOperations = (deps: {
     pageLabels?: Ref<string[] | null>;
     pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
     pageLabelsResolved?: Ref<boolean>;
+    whenPageLabelsSettled?: () => Promise<void>;
     bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
@@ -161,6 +162,7 @@ export const usePageOperations = (deps: {
         pageLabels,
         pageLabelRanges,
         pageLabelsResolved,
+        whenPageLabelsSettled,
         bookmarkItems,
         bookmarksResolved,
         ensureHistoryBaselineForMutation,
@@ -249,7 +251,8 @@ export const usePageOperations = (deps: {
         };
     }
 
-    function ensurePageLabelsResolvedForMutation() {
+    async function ensurePageLabelsResolvedForMutation() {
+        await whenPageLabelsSettled?.();
         if (pageLabelsResolved?.value === false) {
             throw new Error(t('errors.pageOps.prepare', undefined));
         }
@@ -257,7 +260,7 @@ export const usePageOperations = (deps: {
     }
 
     async function ensurePageLabelsAndWorkingCopyFresh() {
-        return ensurePageLabelsResolvedForMutation()
+        return await ensurePageLabelsResolvedForMutation()
             && (await ensureWorkingCopyFreshForRead?.() ?? true);
     }
 

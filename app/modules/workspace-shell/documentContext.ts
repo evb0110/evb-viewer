@@ -390,6 +390,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pageLabels: metadata.pageLabelState.pageLabels,
         pageLabelRanges: metadata.pageLabelState.pageLabelRanges,
         pageLabelsResolved: metadata.pageLabelState.pageLabelsResolved,
+        whenPageLabelsSettled: metadata.pageLabelState.whenPageLabelsSettled,
         bookmarkItems: metadata.bookmarkState.bookmarkItems,
         bookmarksResolved: metadata.bookmarkState.bookmarksResolved,
         views,

@@ -276,8 +276,22 @@ export const usePageLabelState = (deps: {
         );
     }
 
+    // The latest read a document change started; a page mutation waits for it
+    // rather than refusing while the labels it must preserve are being read.
+    let scheduledSync: Promise<void> = Promise.resolve();
+
+    async function whenPageLabelsSettled() {
+        let sync: Promise<void>;
+        do {
+            sync = scheduledSync;
+            await sync;
+        } while (sync !== scheduledSync);
+    }
+
     function scheduleSyncPageLabelsFromDocument(doc: IPdfDocument | null) {
-        runGuardedTask(() => syncPageLabelsFromDocument(doc), {
+        const sync = syncPageLabelsFromDocument(doc);
+        scheduledSync = sync.catch(() => undefined);
+        runGuardedTask(() => sync, {
             category: 'background-diagnostic',
             scope: 'page-labels',
             message: 'Failed to synchronize page labels from PDF document',
@@ -349,6 +363,7 @@ export const usePageLabelState = (deps: {
         pageLabelSegments: computed(() => pageLabelModel.value.segments),
         pageLabelsDirty,
         pageLabelsResolved,
+        whenPageLabelsSettled,
         labelAt,
         readPageLabelWindow,
         getPageLabelWindow: getPageLabelWindowForState,
