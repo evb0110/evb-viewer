@@ -1688,9 +1688,72 @@ describe('browser document lifecycle UI', () => {
         }
     }, 240_000);
 
+    // New Pane keeps the existing document and adds an independent tab area
+    // on the requested side (T4 distinguishes it from a split document view).
+    it('opens an independent pane to the right with the New Pane Right shortcut', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-pane-shortcut-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const problems = collectConsoleProblems(page);
+        const readLayout = () => page.locator('.editor-pane:visible').evaluateAll(panes => panes.map(pane => ({
+            pane: pane.getBoundingClientRect().toJSON(),
+            tabAreas: [...pane.querySelectorAll('[data-tab-list]')].map(tabs => tabs.getBoundingClientRect().toJSON()),
+            selectedTabs: [...pane.querySelectorAll('[data-tab-list] [role="tab"][aria-selected="true"]')].map(tab => tab.textContent?.trim()),
+        })));
+        try {
+            await openPdfFromChooser(page, resolve(process.cwd(), 'tests/fixtures/electron/semtext/unfilled-black-c.pdf'));
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            expect(await page.locator('.editor-pane:visible').count()).toBe(1);
+            await page.keyboard.press('ControlOrMeta+Backslash');
+            await expect.poll(() => page.locator('.editor-pane:visible').count()).toBe(2);
+            await page.locator('.editor-pane:visible').nth(1).getByRole('tab', {
+                name: 'New Tab',
+                exact: true,
+            }).waitFor();
+            const [
+                left,
+                right,
+            ] = await readLayout();
+            expect(left!.selectedTabs).toEqual(['unfilled-black-c.pdf']);
+            expect(right!.selectedTabs).toEqual(['New Tab']);
+            expect(right!.pane.x).toBeGreaterThanOrEqual(left!.pane.x + left!.pane.width);
+            expect(right!.pane.y).toBe(left!.pane.y);
+            expect(right!.pane.height).toBe(left!.pane.height);
+            for (const view of [
+                left!,
+                right!,
+            ]) {
+                expect(view.pane.width).toBeGreaterThan(0);
+                expect(view.pane.height).toBeGreaterThan(0);
+                expect(view.tabAreas).toHaveLength(1);
+                const tabs = view.tabAreas[0]!;
+                expect(tabs.width).toBeGreaterThan(0);
+                expect(tabs.height).toBeGreaterThan(0);
+                expect(tabs.x).toBeGreaterThanOrEqual(view.pane.x);
+                expect(tabs.x + tabs.width).toBeLessThanOrEqual(view.pane.x + view.pane.width);
+                expect(tabs.y).toBeGreaterThanOrEqual(view.pane.y);
+                expect(tabs.y + tabs.height).toBeLessThanOrEqual(view.pane.y + view.pane.height);
+            }
+            expect(problems).toEqual([]);
+        } finally {
+            try {
+                writeFileSync(resolve(evidenceDir, 'layout.json'), JSON.stringify(await readLayout(), null, 2));
+                writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+                await page.screenshot({path: resolve(evidenceDir, 'pane-shortcut.png')});
+            } finally {
+                await page.context().close();
+            }
+        }
+    });
+
     // I1: the desktop Edit menu's image accelerators act in the browser, and a
     // paste carries its image where the browser refuses clipboard reads.
     it('inserts images by the Edit menu shortcuts and by a paste with clipboard reading denied', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-image-paste-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
         const context = await lifecycle.browser.newContext({
             viewport: {
                 width: 1_280,
@@ -1764,9 +1827,19 @@ describe('browser document lifecycle UI', () => {
             expect(box).not.toBeNull();
             await page.mouse.click(box!.x + box!.width / 2, box!.y + 60);
             expect(await page.evaluate(() => Reflect.get(window, '__clipboardWritten'))).toBe('written');
-            expect(await page.evaluate(async () => (
+            const clipboardReadPermission = await page.evaluate(async () => (
                 await navigator.permissions.query({name: 'clipboard-read' as PermissionName})
-            ).state)).toBe('denied');
+            ).state);
+            expect(clipboardReadPermission).toBe('denied');
+            // C4: a denied Paste Image command explains the usable alternative.
+            await page.keyboard.press('ControlOrMeta+Shift+V');
+            const blockedRead = page.getByRole('region').getByText('The browser blocked reading the clipboard. Press Ctrl+V (⌘V on a Mac) to paste the image.', {exact: true});
+            await expect.poll(() => blockedRead.isVisible()).toBe(true);
+            writeFileSync(resolve(evidenceDir, 'blocked-read.json'), JSON.stringify({
+                permission: clipboardReadPermission,
+                text: await blockedRead.innerText(),
+            }, null, 2));
+            await page.screenshot({path: resolve(evidenceDir, 'clipboard-warning.png')});
             await page.keyboard.press('ControlOrMeta+V');
             await placeImage();
 
@@ -1789,9 +1862,15 @@ describe('browser document lifecycle UI', () => {
                 '40x24',
                 '48x32',
             ]);
+            writeFileSync(resolve(evidenceDir, 'saved-image-sizes.json'), JSON.stringify(imageSizes.toSorted()));
             expect(problems).toEqual([]);
         } finally {
-            await context.close();
+            try {
+                writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+                await page.screenshot({path: resolve(evidenceDir, 'image-paste.png')});
+            } finally {
+                await context.close();
+            }
         }
-    }, 120_000);
+    });
 });
