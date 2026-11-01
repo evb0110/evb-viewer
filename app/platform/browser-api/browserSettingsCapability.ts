@@ -1,6 +1,8 @@
 import type {
     IDebugLogEntry,
     IRendererLogEntry,
+    TDebugLogLevel,
+    TRendererLogLevel,
 } from '@contracts/electronApiCommon';
 import type {
     ISettingsCapability,
@@ -13,7 +15,14 @@ import {
     normalizeLocale,
     normalizeTheme,
     sanitizeSettings,
+    type ISettingsRecoveryNotice,
+    type TSettingsRecoveryReason,
 } from '@contracts/settings';
+import {
+    formatLogData,
+    toLogData,
+} from '@contracts/logRecord';
+import { redactLogText } from '@contracts/redactLogText';
 import {
     parseClientDiagnosticsPreference,
     type TClientDiagnosticsPreference,
@@ -36,20 +45,42 @@ import {
 } from '@app/utils/browserSettingsPersistence';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
-import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { DOCUMENTS_STORE } from '@app/platform/browser/browserDocumentConstants';
 import { runObjectStoreTransaction } from '@app/platform/browser/browserDocumentIdb';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
+import {
+    BrowserLogger,
+    setBrowserLogSink,
+} from '@app/utils/browserLogger';
 
 let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
 let diagnosticsPreferenceOverride: TClientDiagnosticsPreference | null = null;
 let diagnosticsPreferenceRevision = 0;
 const settingsListeners = new Set<(settings: ISettingsData) => void>();
+let settingsRecoveryNotice: ISettingsRecoveryNotice | null = null;
+
+// The same bound and entry shape as desktop's preload buffer (electron/preload/debugLogBuffer.ts).
+const MAX_DEBUG_LOG_ENTRIES = 2000;
+const MAX_DEBUG_LOG_DATA_CHARS = 2_000;
+const DEBUG_LOG_LEVELS = {
+    debug: 'DEBUG',
+    info: 'INFO',
+    warn: 'WARN',
+    error: 'ERROR',
+} as const satisfies Record<TRendererLogLevel, TDebugLogLevel>;
+const debugLogEntries: IDebugLogEntry[] = [];
+const debugLogListeners = new Set<(entry: IDebugLogEntry) => void>();
 
 interface IBrowserSettingsReadResult {
     settings: ISettingsData;
     persisted: boolean;
+}
+
+interface IBrowserSettingsReadOptions {
+    allowUnavailable?: boolean;
+    /** Record a reset for the startup notice, as desktop does when it loads settings. */
+    recordRecovery?: boolean;
 }
 
 const BROWSER_SETTINGS_STORAGE_LOCK_KEY = '__evb_browser_settings_storage_lock__';
@@ -91,10 +122,19 @@ function readBrowserSettingsCookies() {
     };
 }
 
-function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } = {}) {
+function recordSettingsRecovery(reason: TSettingsRecoveryReason) {
+    BrowserLogger.warn('settings', 'Stored settings could not be used; defaults were restored', {reason});
+    settingsRecoveryNotice ??= {reason};
+}
+
+function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {}) {
     const result = readLocalStorageItem(SETTINGS_STORAGE_KEY);
     if (result.status === 'unavailable') {
         if (options.allowUnavailable) {
+            if (options.recordRecovery) {
+                // Storage may come back on the next load, so nothing is overwritten.
+                recordSettingsRecovery('unreadable');
+            }
             return null;
         }
         throw result.error;
@@ -105,7 +145,14 @@ function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } 
 
     const rawSettings = result.value;
     assertSupportedBrowserSettingsPayload(rawSettings);
-    return parseBrowserSettingsStoragePayload(rawSettings);
+    const settings = parseBrowserSettingsStoragePayload(rawSettings);
+    if (settings === null && options.recordRecovery) {
+        // Replace the unusable value so the reset is reported once, as desktop
+        // replaces a corrupt settings file with defaults.
+        safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
+        recordSettingsRecovery('corrupt');
+    }
+    return settings;
 }
 
 function readLatestBrowserSettingsForSave() {
@@ -201,7 +248,7 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
     browserSettingsLoaded = true;
 }
 
-function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } = {}): IBrowserSettingsReadResult | null {
+function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}): IBrowserSettingsReadResult | null {
     const persistedSettings = readBrowserSettingsFromStorage(options);
     const cookieSnapshot = readBrowserSettingsCookies();
     if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
@@ -317,6 +364,39 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     });
 }
 
+// The browser has no main process, so its renderer records are the log. They get
+// desktop's broadcast text and redaction; they stay in this page until the user copies them.
+function toDebugLogEntry(entry: IRendererLogEntry): IDebugLogEntry {
+    const level = DEBUG_LOG_LEVELS[entry.level];
+    const dataText = formatLogData(toLogData(entry.data), MAX_DEBUG_LOG_DATA_CHARS);
+    const base = {
+        source: entry.section,
+        message: redactLogText(`[${level}] ${entry.message}${dataText ? ` ${dataText}` : ''}`),
+        timestamp: entry.timestamp,
+    };
+    if (level !== 'ERROR') {
+        return {
+            ...base,
+            level,
+        };
+    }
+    // BrowserLogger.error always carries a receipt; an error without one cannot be an ERROR entry.
+    return entry.failureRef
+        ? {
+            ...base,
+            level,
+            failureRef: {
+                eventId: entry.failureRef.eventId,
+                code: entry.failureRef.code,
+                severity: entry.failureRef.severity,
+            },
+        }
+        : {
+            ...base,
+            level: 'WARN',
+        };
+}
+
 export const browserSettingsCapability: ISettingsCapability = {
     onChanged(callback) {
         settingsListeners.add(callback);
@@ -325,7 +405,10 @@ export const browserSettingsCapability: ISettingsCapability = {
     get() {
         return Promise.resolve().then(() => {
             if (!browserSettingsLoaded) {
-                const migration = readAndMigrateBrowserSettings({allowUnavailable: true});
+                const migration = readAndMigrateBrowserSettings({
+                    allowUnavailable: true,
+                    recordRecovery: true,
+                });
                 settingsState = migration?.settings ?? { ...DEFAULT_SETTINGS };
                 settingsState = applyDiagnosticsPreferenceOverride(settingsState);
                 writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
@@ -335,7 +418,9 @@ export const browserSettingsCapability: ISettingsCapability = {
         });
     },
     getRecoveryNotice() {
-        return Promise.resolve(null);
+        const notice = settingsRecoveryNotice;
+        settingsRecoveryNotice = null;
+        return Promise.resolve(notice);
     },
     save(settings) {
         const hasDiagnosticsPreference = Object.hasOwn(settings, 'clientDiagnosticsPreference');
@@ -387,10 +472,23 @@ export const browserSettingsCapability: ISettingsCapability = {
         });
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {
-        return Promise.resolve([]);
+        return Promise.resolve([...debugLogEntries]);
     },
-    onDebugLog: noopUnsubscribe,
-    rendererLog(_entry: IRendererLogEntry) {},
+    onDebugLog(callback) {
+        debugLogListeners.add(callback);
+        return () => debugLogListeners.delete(callback);
+    },
+    rendererLog(entry: IRendererLogEntry) {
+        const debugLogEntry = toDebugLogEntry(entry);
+        if (debugLogEntries.push(debugLogEntry) > MAX_DEBUG_LOG_ENTRIES) {
+            debugLogEntries.shift();
+        }
+        for (const listener of debugLogListeners) {
+            listener(debugLogEntry);
+        }
+    },
 };
 
 browserSettingsCapability satisfies TFeatureBrowserBindings<typeof SETTINGS_PLATFORM_FEATURE>;
+
+setBrowserLogSink(entry => browserSettingsCapability.rendererLog(entry));

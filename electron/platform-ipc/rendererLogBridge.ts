@@ -21,7 +21,7 @@ import {
     type ILogDataLimits,
     type TLogData,
 } from '@contracts/logRecord';
-import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
+import { redactLogText } from '@contracts/redactLogText';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 interface IRendererLogRateState {
@@ -48,7 +48,7 @@ function clampString(value: unknown, maxChars: number, fallback = '') {
         return fallback;
     }
 
-    const trimmed = redactElectronLogText(value).trim();
+    const trimmed = redactLogText(value).trim();
     if (trimmed.length <= maxChars) {
         return trimmed;
     }

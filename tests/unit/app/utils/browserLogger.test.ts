@@ -352,4 +352,28 @@ describe('BrowserLogger', () => {
         expect(capturedSink).toHaveBeenCalledOnce();
         expect(observer).not.toHaveBeenCalled();
     });
+
+    it('keeps browser workspace records for copied debug logs', async () => {
+        vi.stubGlobal('window', {localStorage: {getItem: () => null}});
+        spyOnConsole();
+        const logger = await importBrowserLogger();
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        logger.warn('ocr', 'OCR run was not started', {error: 'No language selected'});
+        logger.error('ocr', 'OCR run failed', {error: 'Worker crashed'}, EXISTING_RECEIPT);
+
+        expect(await browserSettingsCapability.getDebugLogs()).toEqual([
+            expect.objectContaining({
+                source: 'ocr',
+                level: 'WARN',
+                message: '[WARN] OCR run was not started error="No language selected"',
+            }),
+            expect.objectContaining({
+                source: 'ocr',
+                level: 'ERROR',
+                message: '[ERROR] OCR run failed error="Worker crashed"',
+                failureRef: expect.objectContaining({eventId: EXISTING_RECEIPT.eventId}) as unknown,
+            }),
+        ]);
+    });
 });

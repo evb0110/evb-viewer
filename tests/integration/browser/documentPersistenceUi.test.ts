@@ -413,6 +413,33 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120000);
 
+    it('reports a reset of unusable stored settings once and nothing on a clean profile', async () => {
+        const context = await lifecycle.browser.newContext();
+        try {
+            const page = await context.newPage();
+            const notice = page.getByText('Saved settings could not be used, so defaults were restored.', {exact: false});
+            const loadApp = async (load: () => Promise<unknown>) => {
+                await load();
+                // Bootstrap adds the notice before it reports the app ready.
+                await page.waitForFunction(() => Reflect.get(window, '__appReady') === true, undefined, {timeout: 60_000});
+            };
+            await loadApp(() => page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'}));
+            await expect(notice.count()).resolves.toBe(0);
+
+            // Setup: storage corrupted outside the app, as by a crash mid-write or an extension.
+            await page.evaluate(() => window.localStorage.setItem('evb-viewer:browser:settings', '{"version": 2, "authorName": '));
+            await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
+            await notice.first().waitFor({timeout: 10_000});
+            const stored = await page.evaluate(() => window.localStorage.getItem('evb-viewer:browser:settings'));
+            expect(JSON.parse(stored ?? 'null')).toMatchObject({version: 2});
+
+            await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
+            await expect(notice.count()).resolves.toBe(0);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
+
     it('withdraws hosted diagnostics in another open window and allows an explicit regrant', async () => {
         try {
             const context = await lifecycle.browser.newContext();

@@ -134,6 +134,13 @@ function serializeForRendererLog(value: unknown) {
     }
 }
 
+let browserLogSink: ((entry: IRendererLogEntry) => void) | null = null;
+
+/** The browser workspace has no main process; its settings capability keeps the log. */
+export function setBrowserLogSink(sink: (entry: IRendererLogEntry) => void) {
+    browserLogSink = sink;
+}
+
 function forwardToMain(entry: IRendererLogEntry) {
     if (typeof window === 'undefined') {
         return;
@@ -147,7 +154,9 @@ function forwardToMain(entry: IRendererLogEntry) {
         const rendererLog = getOptionalFunction<[IRendererLogEntry]>(settings, 'rendererLog');
         if (rendererLog) {
             rendererLog.call(settings, entry);
+            return;
         }
+        browserLogSink?.(entry);
     } catch {
         // Ignore IPC bridge failures in browser logger
     }

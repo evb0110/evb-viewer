@@ -27,6 +27,11 @@ const NON_URL_REDACTION_PATTERNS: ReadonlyArray<{
         pattern: /file:\/\/[^\s"',)]+/giu,
         replacement: 'file://[redacted]',
     },
+    {
+        // Browser workspace documents: keep the opaque id, hide the file name.
+        pattern: /(browser:\/\/documents\/[^/\s"',)]+)\/[^\s"',)]+/giu,
+        replacement: '$1/[redacted]',
+    },
 ];
 
 function findQuotedValueEnd(value: string, start: number) {
@@ -266,7 +271,7 @@ function redactHttpUrl(value: string) {
  * HTTP URL spans are handled separately so the generic token redaction does
  * not erase query keys. Reapplying the function produces the same text.
  */
-export function redactElectronLogText(value: string) {
+export function redactLogText(value: string) {
     let result = '';
     let cursor = 0;
 

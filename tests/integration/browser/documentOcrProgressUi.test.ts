@@ -282,4 +282,51 @@ describe('browser OCR progress', () => {
             await page.context().close();
         }
     }, 180_000);
+
+    it('copies the failure records of a failed run through Copy logs', async () => {
+        const context = await lifecycle.browser.newContext({
+            permissions: [
+                'clipboard-read',
+                'clipboard-write',
+            ],
+            viewport: {
+                width: 1440,
+                height: 900,
+            },
+        });
+        try {
+            const page = await context.newPage();
+            // The model host is down, so the run fails the way a user offline sees it.
+            await page.route('**/eng.traineddata', route => route.fulfill({
+                status: 503,
+                body: 'unavailable',
+            }));
+            await openPdfFromChooser(page, {
+                name: 'ocr-copy-logs.pdf',
+                mimeType: 'application/pdf',
+                buffer: await readFile(join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf')),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.getByRole('button', {
+                name: 'OCR',
+                exact: true,
+            }).click();
+            const dialog = page.getByRole('dialog');
+            await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            await dialog.getByRole('alert').waitFor({timeout: 60_000});
+            await dialog.getByRole('button', {
+                name: 'Copy logs',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), {timeout: 10_000})
+                .toContain('--- debug:log stream ---');
+            const copied = await page.evaluate(() => navigator.clipboard.readText());
+            const stream = copied.slice(copied.indexOf('--- debug:log stream ---'));
+            expect(stream).not.toContain('(no buffered logs available)');
+            expect(stream).not.toContain('ocr-copy-logs.pdf');
+            expect(stream).toMatch(/\] \[ocr\] \[(WARN|ERROR)\] OCR backend reported /u);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
 });

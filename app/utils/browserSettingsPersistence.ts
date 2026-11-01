@@ -272,10 +272,11 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
         if (!isFutureBrowserSettingsPayload(legacyCookie)) {
             expireLegacyBrowserSettingsCookie();
         }
-    } else if (cookieSnapshot) {
+    } else if (cookieSnapshot && (storageSnapshot === null || existingStorageSettings)) {
         // Locale and theme cookies are only a partial migration. Start with
         // the committed settings snapshot so an early performance-mode read
-        // cannot erase settings saved by the main settings capability.
+        // cannot erase settings saved by the main settings capability. Unusable
+        // stored settings are left to that capability, which reports their reset.
         const migratedSettings = migrateSettings({
             ...existingStorageSettings,
             ...cookieSnapshot.fallbackSettings,

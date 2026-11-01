@@ -23,7 +23,7 @@ import {
 } from '@contracts/diagnostics/failureReceipt';
 import {captureMainFailure} from '@electron/utils/captureMainFailure';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
-import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
+import { redactLogText } from '@contracts/redactLogText';
 import {
     APP_LOG_FILE_NAME,
     formatLogData,
@@ -434,7 +434,7 @@ export async function flushPendingLogWrites() {
     await flushState(fileLogState).catch(() => undefined);
 }
 
-/** Redacts data with the one Electron redaction policy, keeping its structure. */
+/** Redacts data with the one log redaction policy, keeping its structure. */
 export function redactLogData(data: TLogData | undefined): TLogData | undefined {
     if (!data) {
         return undefined;
@@ -445,7 +445,7 @@ export function redactLogData(data: TLogData | undefined): TLogData | undefined 
     } catch {
         return {value: '[Unserializable]'};
     }
-    const redacted = redactElectronLogText(serialized);
+    const redacted = redactLogText(serialized);
     if (redacted === serialized) {
         return data;
     }
@@ -475,7 +475,7 @@ function selectLogSinks(level: TLogLevel, options: IWriteLogRecordOptions) {
  * Writes one record to the app log and, when enabled, the stdout mirror. Level
  * filtering for each sink happens here. `msg` and `data` are written as given:
  * the caller has already bounded data with `toLogData` and redacted both with
- * `redactElectronLogText` and `redactLogData`. Loggers do that in `log`; the
+ * `redactLogText` and `redactLogData`. Loggers do that in `log`; the
  * renderer bridge does it once at its IPC boundary.
  */
 export function writeLogRecord(
@@ -644,7 +644,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
                 level,
                 proc: processKind(),
                 scope: source,
-                msg: redactElectronLogText(msg),
+                msg: redactLogText(msg),
                 data: redactLogData(toLogData(data)),
                 ...(isMainThread ? {} : {thread: threadId}),
                 ...(failureRef ? {
@@ -661,7 +661,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
             const dataText = formatLogData(record ? record.data : redactLogData(toLogData(data)), 2_000);
             void broadcastToRenderers({
                 source,
-                message: `[${level.toUpperCase()}] ${record?.msg ?? redactElectronLogText(msg)}${dataText ? ` ${dataText}` : ''}`,
+                message: `[${level.toUpperCase()}] ${record?.msg ?? redactLogText(msg)}${dataText ? ` ${dataText}` : ''}`,
                 timestamp: record?.ts ?? new Date().toISOString(),
                 level: toDebugLogLevel(level),
                 ...(level === 'error' && isMainThread && failureRef ? {failureRef} : {}),

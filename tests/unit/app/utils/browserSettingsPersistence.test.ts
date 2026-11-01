@@ -204,6 +204,17 @@ describe('browserSettingsPersistence performanceMode', () => {
         expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
     });
 
+    it('leaves malformed stored settings for the settings capability to reset and report', () => {
+        const browser = stubBrowserPersistence({
+            storageValue: '{"version": 2, "authorName": ',
+            localeValue: 'ru',
+            themeValue: 'dark',
+        });
+
+        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe('{"version": 2, "authorName": ');
+    });
+
     it('adds Secure to legacy cookie expiry only over HTTPS', () => {
         const browser = stubBrowserPersistence({
             cookieValue: serializeBrowserSettingsPayload(DEFAULT_SETTINGS),
