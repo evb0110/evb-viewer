@@ -214,7 +214,7 @@ check_macos_file_minimum_os() {
   fi
 
   local versions
-  versions="$(xcrun vtool -arch "$expected_arch" -show-build "$file_path" 2>/dev/null | awk '$1 == "minos" {print $2}')"
+  versions="$(xcrun vtool -arch "$expected_arch" -show-build "$file_path" 2>/dev/null | awk '$1 == "minos" {print $2} $1 == "cmd" {legacy = ($2 == "LC_VERSION_MIN_MACOSX")} legacy && $1 == "version" {print $2; legacy = 0}')"
   if [ -z "$versions" ]; then
     echo "Error: Unable to determine Mach-O minimum OS for $file_path"
     return 1
