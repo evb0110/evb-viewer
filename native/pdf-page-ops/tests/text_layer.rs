@@ -1118,7 +1118,7 @@ fn overlay_text_keeps_text_state_selected_outside_text_objects() {
     let instructions = path("outside-state-instructions", "json");
     save_single_page(
         &source,
-        b"3 Tr /F1 6 Tf q 1 0 0 1 5 0 cm BT 1 0 0 1 15 60 Tm (LEFT_ONLY) Tj ET /F1 6 Tf BT 1 0 0 1 115 60 Tm (RIGHT_ONLY) Tj ET Q"
+        b"3 Tr /F1 6 Tf q 1 0 0 1 5 0 cm BT 1 0 0 1 15 60 Tm (LEFT_ONLY) Tj ET /F1 6 Tf BT 1 0 0 1 115 60 Tm (RIGHT_ONLY) Tj ET BT 1 0 0 1 90 30 Tm (AB) Tj ET Q"
             .to_vec(),
         dictionary! {"Font" => dictionary! {"F1" => dictionary! {
             "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Courier",
@@ -1162,6 +1162,8 @@ fn overlay_text_keeps_text_state_selected_outside_text_objects() {
             assert!(texts[0].contains("LEFT_ONLY") && texts[0].contains("RIGHT_ONLY"));
         } else {
             assert!(texts[0].contains("LEFT_ONLY") && !texts[0].contains("RIGHT_ONLY"));
+            // B starts 3.6 pt after A at x=95 only with Courier's 600-unit advance.
+            assert!(texts[0].contains("AB"), "left page text: {}", texts[0]);
             assert!(texts[1].contains("RIGHT_ONLY") && !texts[1].contains("LEFT_ONLY"));
         }
     }

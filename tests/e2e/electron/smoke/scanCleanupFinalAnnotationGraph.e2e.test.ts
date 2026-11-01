@@ -58,7 +58,7 @@ describe('public catalog cleanup proof', () => {
         }
         await clickVisibleToolbarButton(page, 'Scan cleanup');
         await page.waitForFunction(count => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === count
-            && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed', {timeout: 90000}, sourceText.length);
+            && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed', {timeout: 60000}, sourceText.length);
         if (await page.$('.scan-cleanup-first-run-guidance')) {
             await clickAsUser(page, '.scan-cleanup-first-run-guidance button');
             await page.waitForSelector('.scan-cleanup-first-run-guidance', {hidden: true});
@@ -82,12 +82,12 @@ describe('public catalog cleanup proof', () => {
         await page.waitForFunction(selector => {
             const button = document.querySelector<HTMLButtonElement>(selector);
             return button && !button.disabled && button.textContent?.includes('Clean');
-        }, {timeout: 90000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        }, {timeout: 30000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await page.waitForFunction(source => {
             const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues?.(['originalPath']);
             return typeof state?.originalPath === 'string' && state.originalPath !== source && state.originalPath.endsWith('— cleaned.pdf');
-        }, {timeout: 180000}, source);
+        }, {timeout: 120000}, source);
         const state = await readWorkspaceStateValues(page, ['originalPath']);
         const saved = resolve(directory, 'output.pdf');
         copyFileSync(state.originalPath as string, saved);
@@ -103,7 +103,7 @@ describe('public catalog cleanup proof', () => {
             const text = results?.textContent ?? '';
             return !results?.querySelector('.document-search-results-spinner')
                 && (text.includes('Tagereise') || text.includes('No results'));
-        }, {timeout: 90000});
+        }, {timeout: 60000});
         const searchText = await page.$eval('.workspace-host[data-workspace-active="true"] .document-search-results', el => el.textContent?.replace(/\s+/gu, ' ').trim());
         const matches = await page.$$('.workspace-host[data-workspace-active="true"] .document-search-result-snippet');
         await page.screenshot({path: resolve(directory, 'search.png')});
@@ -115,9 +115,8 @@ describe('public catalog cleanup proof', () => {
             searchResultCount: matches.length,
         }, null, 2));
         // Saved bytes and rendered search results must both retain the source OCR.
-        expect.soft(outputText).toHaveLength(sourceText.length);
-        expect.soft(outputText.join(' ')).toContain('Einleitung.');
-        expect.soft(outputText.join(' ')).toContain('Tagereise');
+        const normalize = (pages: string[]) => pages.map(text => text.replace(/\s+/gu, ' ').trim());
+        expect.soft(normalize(outputText)).toEqual(normalize(sourceText));
         expect.soft(matches.length, searchText).toBeGreaterThan(0);
     }, 300000);
     for (const mode of [

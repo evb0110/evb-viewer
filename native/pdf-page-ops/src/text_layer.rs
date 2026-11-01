@@ -782,11 +782,20 @@ fn repaired_show_operations(
     Ok(Some(operations))
 }
 
+/// Strings past this length are not OCR words; copy them without measuring.
+const MAX_REPAIRED_SHOW_BYTES: usize = 64 * 1024;
+
+/// Rewrites a right-to-left show into logical order. Returns `None` to copy the
+/// operation unchanged; an unmeasured show leaves the text position unknown.
 fn repair_show_string(
     bytes: &[u8],
     format: lopdf::StringFormat,
     text: &mut TextFilterState,
 ) -> Result<Option<Vec<ContentOperation>>> {
+    if bytes.len() > MAX_REPAIRED_SHOW_BYTES {
+        text.text_matrix = None;
+        return Ok(None);
+    }
     let original = text.clone();
     let result = match text.font.as_ref().cloned() {
         Some(font) => {
@@ -794,6 +803,7 @@ fn repair_show_string(
                 Ok(glyphs) => glyphs,
                 Err(_) => {
                     *text = original;
+                    text.text_matrix = None;
                     return Ok(None);
                 }
             };
@@ -807,8 +817,10 @@ fn repair_show_string(
                 .iter()
                 .filter_map(|glyph| glyph.character)
                 .collect::<String>();
-            let has_rtl = contains_rtl(&source);
-            let ordered = if has_rtl && line_matrix.a >= 0.0 {
+            if !contains_rtl(&source) {
+                return Ok(None);
+            }
+            let ordered = if line_matrix.a >= 0.0 {
                 let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
                     return Ok(None);
                 };
@@ -822,11 +834,14 @@ fn repair_show_string(
                 line_matrix,
                 final_matrix,
                 format,
-                has_rtl && line_matrix.a < 0.0,
+                line_matrix.a < 0.0,
                 |_| Ok(true),
             )?
         }
-        None => None,
+        None => {
+            text.text_matrix = None;
+            None
+        }
     };
     Ok(result)
 }
@@ -1357,6 +1372,8 @@ pub(crate) fn text_operations(
                 }
                 if let Some((name, size)) = parsed {
                     text.font_name = Some(name.to_vec());
+                    // An unresolvable font must not inherit the previous one's metrics.
+                    text.font = None;
                     fonts.insert(name.to_vec());
                     if strict {
                         let source_fonts = source_fonts
@@ -1530,6 +1547,14 @@ pub(crate) fn text_operations(
                     } else {
                         None
                     };
+                    let measured_tj = operation.operands.len() == 1
+                        && operation.operands[0]
+                            .as_array()
+                            .is_ok_and(|values| values.len() == 1);
+                    if operation.operator == "TJ" && !measured_tj {
+                        // An unmeasured TJ array leaves the text position unknown.
+                        text.text_matrix = None;
+                    }
                     if let Some(repaired) = repaired {
                         operations.extend(repaired);
                     } else {
@@ -1561,6 +1586,7 @@ pub(crate) fn text_operations(
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
                 } else {
+                    text.text_matrix = None;
                     operations.push(operation);
                 }
             }
@@ -1600,6 +1626,7 @@ pub(crate) fn text_operations(
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
                 } else {
+                    text.text_matrix = None;
                     operations.push(operation);
                 }
             }
