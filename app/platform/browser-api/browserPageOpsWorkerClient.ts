@@ -204,7 +204,7 @@ function createBrowserPageOpsWorkerClient() {
 }
 
 const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
-// Two reusable workers admit isolated and CPU-bound operations; eight more may wait.
+// Two reusable workers admit isolated and CPU-bound operations; the rest wait their turn.
 const pageOpsWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPageOpsWorkerClient, 2);
 
 async function runAdmittedPageOperation<TResult>(
@@ -213,9 +213,6 @@ async function runAdmittedPageOperation<TResult>(
 ) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
-    }
-    if (pageOpsWorkerOwner.waitingCount >= 8) {
-        throw new BrowserPageOpsWorkerUnavailableError('Browser annotation parse worker queue is full');
     }
     const requestId = pageOpsWorkerOwner.createRequestId();
     const abort = () => pageOpsWorkerOwner.cancel(requestId, abortErrorFromSignal(signal!));

@@ -262,10 +262,6 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         this.clients = Array.from({length: slots}, () => createClient());
     }
 
-    public get waitingCount() {
-        return [...this.requests.values()].filter(request => !request.client).length;
-    }
-
     public createRequestId() {
         return this.clients[0]!.createRequestId();
     }
