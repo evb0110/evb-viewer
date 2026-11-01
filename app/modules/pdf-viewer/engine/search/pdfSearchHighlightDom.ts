@@ -6,6 +6,7 @@ import {
     findPdfSearchMatches,
     mapAssembledSearchablePageTextRange,
 } from '@pdf-core';
+import { restorePdfjsRtlItemTexts } from '@pdf-core/pdfjsTextItems';
 import type {
     IAssembledSearchablePageText,
     IPdfSearchUtf16Range,
@@ -57,13 +58,91 @@ export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTe
         : null;
 }
 
+/**
+ * The layer's runs as search text in logical order, with a separator between
+ * runs. PDF.js reverses the glyphs of a right-to-left run drawn in logical
+ * order (EVB OCR text), so such runs are read back through the rules desktop's
+ * search text uses. A run whose text changed maps as a whole to its span.
+ */
+function assembleLogicalTextLayerText(index: ITextLayerIndexCacheEntry): IAssembledSearchablePageText {
+    const texts = restorePdfjsRtlItemTexts(index.runs.map(run => run.kind === 'br'
+        ? {
+            text: '\n',
+            dir: 'ltr',
+        }
+        : {
+            text: run.text,
+            dir: run.span.dir,
+            mirrored: Number.parseFloat(run.span.style.getPropertyValue('--scale-x')) < 0,
+        }));
+    const layerRanges: IPdfSearchUtf16Range[] = [];
+    const items = index.runs.flatMap((run, runIndex) => {
+        const text = texts[runIndex]!;
+        const original = run.kind === 'br' ? '\n' : run.text;
+        for (let offset = 0; offset < text.length; offset += 1) {
+            layerRanges.push(text === original
+                ? {
+                    startOffset: run.startOffset + offset,
+                    endOffset: run.startOffset + offset + 1,
+                }
+                : {
+                    startOffset: run.startOffset,
+                    endOffset: run.endOffset,
+                });
+        }
+        return text ? [{text}] : [];
+    });
+    const assembled = assembleSearchablePageText(items);
+    return {
+        ...assembled,
+        sourceOffsets: assembled.sourceOffsets.map(({
+            startOffset, endOffset,
+        }) => {
+            const layerOffset = layerRanges[startOffset]?.startOffset ?? index.text.length;
+            return endOffset > startOffset
+                ? layerRanges[startOffset]!
+                : {
+                    startOffset: layerOffset,
+                    endOffset: layerOffset,
+                };
+        }),
+    };
+}
+
+/**
+ * The same text without the separators assembly put between runs, for a word
+ * PDF.js split into positioned glyph spans.
+ */
+export function withoutGeneratedSeparators(assembled: IAssembledSearchablePageText): IAssembledSearchablePageText {
+    const keptBefore = new Int32Array(assembled.text.length + 1);
+    const parts: string[] = [];
+    const sourceOffsets: IPdfSearchUtf16Range[] = [];
+    assembled.sourceOffsets.forEach((range, offset) => {
+        const kept = range.endOffset > range.startOffset;
+        keptBefore[offset + 1] = keptBefore[offset]! + (kept ? 1 : 0);
+        if (kept) {
+            parts.push(assembled.text[offset]!);
+            sourceOffsets.push(range);
+        }
+    });
+    return {
+        text: parts.join(''),
+        itemOffsets: assembled.itemOffsets.map(item => ({
+            ...item,
+            startOffset: keptBefore[item.startOffset] ?? 0,
+            endOffset: keptBefore[item.endOffset] ?? 0,
+        })),
+        sourceOffsets,
+    };
+}
+
 export function assembleTextLayerSearchText(
     index: ITextLayerIndexCacheEntry,
     query?: string,
     options?: ISearchMatchOptions,
     expectedPageMatchCount?: number,
 ): IAssembledSearchablePageText {
-    const separated = assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
+    const separated = assembleLogicalTextLayerText(index);
     if (query && !options?.useRegex) {
         try {
             const separatedMatchCount = findPdfSearchMatches(separated.text, query, options).length;
@@ -73,7 +152,7 @@ export function assembleTextLayerSearchText(
             }
             // PDF.js may split a word into positioned glyph spans. Preserve
             // their adjacency when inferred separators lose indexed occurrences.
-            const contiguous = assembleSearchablePageText([{text: index.text}]);
+            const contiguous = withoutGeneratedSeparators(separated);
             if (separatedMatchCount === 0) {
                 return contiguous;
             }

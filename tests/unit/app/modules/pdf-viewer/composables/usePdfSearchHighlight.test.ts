@@ -1335,6 +1335,72 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         })?.toString()).toBe('foo');
     });
 
+    it('highlights right-to-left OCR words whose glyphs PDF.js reverses and splits', async () => {
+        // PDF.js items of tests/fixtures/browser/rtl-ocr/saved-rtl-ocr.pdf: EVB
+        // OCR draws logical-order glyphs mirrored, one per item.
+        const renderLayer = (items: readonly string[], scaleX: string) => {
+            const textLayer = document.createElement('div');
+            const spans = items.map((text) => {
+                const span = document.createElement('span');
+                span.textContent = text;
+                span.dir = text === ' ' ? 'ltr' : 'rtl';
+                span.style.setProperty('--scale-x', text === ' ' ? '-1' : scaleX);
+                textLayer.append(span);
+                return span;
+            });
+            registerTextLayerTextMapping(textLayer, {
+                textDivs: spans,
+                textContentItemsStr: [...items],
+            });
+            return textLayer;
+        };
+        const paintedText = async (textLayer: HTMLElement, searchQuery: string, expected: string) => {
+            usePdfSearchHighlight().highlightPage(textLayer, {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery,
+                matches: [{
+                    matchIndex: 0,
+                    start: 13,
+                    end: 18,
+                }],
+            }, null);
+            await expect.poll(() => [...textLayer.querySelectorAll('.pdf-search-highlight')]
+                .map(element => element.textContent).join('')).toBe(expected);
+            expect(createTextLayerRangeForSearchOccurrence(textLayer, {
+                text: searchQuery,
+                pageMatchIndex: 0,
+            })?.toString()).toBe(expected);
+        };
+        const arabic = [
+            ...'السلام',
+            ' ',
+            ...'عليكم',
+            'ا ',
+            ...'للغة',
+        ];
+        const hebrew = [
+            '\u05B7\u05D4',
+            ' ',
+            '\u05B0\u05E7',
+            ' ',
+            '\u05B0\u05D3',
+            ' ',
+            '\u05B8\u05E9',
+            ' ',
+            '\u05D4',
+        ];
+
+        await paintedText(renderLayer(arabic, '-0.38'), 'اللغة', 'ا للغة');
+        await paintedText(renderLayer(hebrew, '-0.4'), 'הַקְדְשָה', hebrew.join(''));
+        // A visual-order writer draws unmirrored glyphs, and PDF.js's reversal
+        // is right for them: their text is read as PDF.js gives it.
+        expect(createTextLayerRangeForSearchOccurrence(renderLayer(arabic, '0.38'), {
+            text: 'اللغة',
+            pageMatchIndex: 0,
+        })).toBeNull();
+    });
+
     it('marks multi-div highlights with pdf.js begin and end segment classes', () => {
         const first = document.createElement('span');
         const second = document.createElement('span');
