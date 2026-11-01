@@ -53,6 +53,10 @@ export const REQUIRED_WEB_WASM_ASSETS = [
         relativePath: 'wasm/evb-tesseract.wasm',
         requiredExports: [],
     },
+    {
+        relativePath: 'wasm/evb-qpdf.wasm',
+        requiredExports: [],
+    },
 ];
 
 const requiredExportsByRelativePath = new Map(
@@ -127,6 +131,21 @@ export const PREBUILT_WASM_FILES = [
         publicRelativePath: 'public/wasm/evb-tesseract.mjs',
         sha256: 'f82b9c7173d9ccc34db0d45ebf49db690dcb905b6be5caee295ff8e24b84a848',
         url: `${PREBUILT_WASM_BASE_URL}/evb-tesseract-5.5.3-r1.mjs`,
+    },
+    // scripts/build-qpdf-wasm.sh, the desktop's qpdf for browser repair and rewrites.
+    {
+        bytes: 2587783,
+        label: 'qpdf engine WASM',
+        publicRelativePath: 'public/wasm/evb-qpdf.wasm',
+        sha256: 'dded30522af651ab3c7cf62be7b49e242a5576c3d38f08bbe89b00eb45204286',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-qpdf-12.3.2-r1.wasm`,
+    },
+    {
+        bytes: 82818,
+        label: 'qpdf engine module',
+        publicRelativePath: 'public/wasm/evb-qpdf.mjs',
+        sha256: '588c8d50aba83da884a48dbcfb15cd74589403f2086f94ea3d8da5f1d2eb530d',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-qpdf-12.3.2-r1.mjs`,
     },
 ];
 

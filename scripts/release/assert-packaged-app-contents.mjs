@@ -44,6 +44,8 @@ export const FORBIDDEN_EXACT_ENTRIES = [
     '/nuxt-output/public/sitemap.xml',
     '/nuxt-output/public/wasm/evb-tesseract.mjs',
     '/nuxt-output/public/wasm/evb-tesseract.wasm',
+    '/nuxt-output/public/wasm/evb-qpdf.mjs',
+    '/nuxt-output/public/wasm/evb-qpdf.wasm',
 ];
 
 export const FORBIDDEN_PREFIXES = [
