@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TPaneDirection } from '@contracts/editorPanes';
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
@@ -74,6 +75,8 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
     documentSessions: TWorkspaceDocumentSessions;
     transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
+    /** Whether the active pane can split in this direction now, as desktop's menu item is enabled. */
+    canOpenNewPane: (direction: TPaneDirection) => boolean;
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -294,11 +297,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     function resolveRendererMenuShortcutAction(event: KeyboardEvent) {
-        const mod = event.metaKey || event.ctrlKey;
-        const key = event.key.toLowerCase();
-        return mod && !event.shiftKey
-            ? RENDERER_MENU_SHORTCUT_ACTIONS[key] ?? null
+        // Alt-modified keys type characters (AltGr is Ctrl+Alt on Windows), as
+        // desktop's accelerators do not match them either.
+        const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
+        const action = mod && !event.shiftKey
+            ? RENDERER_MENU_SHORTCUT_ACTIONS[event.key.toLowerCase()] ?? null
             : null;
+        // Like desktop's disabled New Pane Right, nothing happens when the pane cannot split.
+        return action === 'new-pane-right' && !options.canOpenNewPane('right') ? null : action;
     }
 
     function isEditableShortcutTarget(target: EventTarget | null) {

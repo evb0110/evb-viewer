@@ -892,6 +892,8 @@ useTabsShellBindings({
     isStartupOpenClaimPending,
     checkForUpdates,
     openNewPane: splitEditorEmpty,
+    canOpenNewPane: direction => activePaneId.value !== null
+        && tabContextAvailabilityByPane.value[activePaneId.value]?.splitEmpty[direction] === true,
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });
