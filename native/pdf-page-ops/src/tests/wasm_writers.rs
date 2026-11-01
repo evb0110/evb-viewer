@@ -586,3 +586,39 @@ fn instructed_writers_validate_instructions_as_the_desktop_commands_do() {
         assert!(error.contains(expected), "{operation}: {error}");
     }
 }
+
+const OCR_PAGE_ONE: &str = r#"{"pages":[{"pageNumber":1,"source":0}]}"#;
+
+fn first_page_content(bytes: &[u8]) -> Vec<u8> {
+    let document = Document::load_mem(bytes).unwrap();
+    document.get_page_content(*document.get_pages().get(&1).unwrap())
+}
+
+#[test]
+fn ocr_text_layer_without_recognized_text_leaves_the_page_painting_as_it_did() {
+    let blank = image_pdf(&[(1, 1, 50, "")]);
+    let mut bare = Document::load_mem(&blank).unwrap();
+    let page = *bare.get_pages().get(&1).unwrap();
+    bare.get_dictionary_mut(page).unwrap().remove(b"Contents");
+    let mut layered = Document::load_mem(&blank).unwrap();
+    let streams = ["0 0 10 10 re f\n", "1 0 0 rg 5 5 10 10 re f\n"].map(|content| {
+        Object::Reference(layered.add_object(Stream::new(dictionary! {}, content.into())))
+    });
+    let page = *layered.get_pages().get(&1).unwrap();
+    layered
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", streams.to_vec());
+    // A page without contents, and one whose two streams paint in order.
+    for target in [save(&mut bare), save(&mut layered)] {
+        let output = run_request(&instructed_request(
+            OP_OCR_TEXT_LAYER,
+            &target,
+            OCR_PAGE_ONE,
+            &[&blank],
+        ))
+        .unwrap();
+        let saved = [target.as_slice(), &output[MUTATION_HEADER.bytes..]].concat();
+        assert_eq!(first_page_content(&saved), first_page_content(&target));
+    }
+}
