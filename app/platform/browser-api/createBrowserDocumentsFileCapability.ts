@@ -33,6 +33,7 @@ import {
 import {
     ensureDocxExtension,
     ensurePdfExtension,
+    getExtension,
 } from '@app/platform/browser-api/browserFileName';
 import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
@@ -41,7 +42,9 @@ import {
     validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
+    type IPickedBrowserFile,
     pickFiles,
+    pickFolderFiles,
     pickSaveTarget,
     pickSingleFile,
     saveBytesToPickerOrDownload,
@@ -79,6 +82,11 @@ import {
 import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
+import {
+    compareFolderEntryNames,
+    isSupportedOpenExtension,
+    MAX_OPEN_INPUT_PATHS,
+} from '@pdf-core/documentOpenFileTypes';
 
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
@@ -100,6 +108,7 @@ interface ICreateBrowserDocumentsFileCapabilityOptions {
     errorMessageProvider?: {
         largeSaveHandleHint: () => string;
         useNativeApp?: () => string;
+        folderEmpty?: () => string;
     };
 }
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
@@ -119,6 +128,8 @@ export function createBrowserDocumentsFileCapability(
     const browserNativeMutationLeases = new Map<string, IBrowserNativeMutationLease>();
     const browserUseNativeAppMessageProvider = options.errorMessageProvider?.useNativeApp
         ?? (() => 'Use the native app for files this large.');
+    const folderEmptyMessageProvider = options.errorMessageProvider?.folderEmpty
+        ?? (() => 'No supported documents were found in the selected folder');
 
     async function cleanupTransientOpenRefs(paths: string[]) {
         await Promise.all(paths.map(async (path) => {
@@ -155,6 +166,45 @@ export function createBrowserDocumentsFileCapability(
         }
     }
 
+    // One picked file opens as itself, saved back to its handle and kept in Recent.
+    async function openPickedDocument(picked: IPickedBrowserFile) {
+        const registered = await browserDocumentStore.registerFileWithOwnership(picked.file, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: picked.handle ?? null,
+        });
+
+        try {
+            return await openDocumentPaths([registered.ref]);
+        } catch (error) {
+            if (registered.created) {
+                await cleanupTransientOpenRefs([registered.ref]);
+            }
+            throw error;
+        }
+    }
+
+    // Several picked files open as one generated PDF, in the order given.
+    async function openPickedBatch(pickedFiles: IPickedBrowserFile[]) {
+        const refs: string[] = [];
+        for (const picked of pickedFiles) {
+            const ref = await browserDocumentStore.registerFile(picked.file, {
+                kind: 'source',
+                retention: 'transient',
+                saveKind: 'generic',
+                saveHandle: null,
+            });
+            refs.push(ref);
+        }
+
+        try {
+            return await openDocumentPaths(refs);
+        } catch (error) {
+            await cleanupTransientOpenRefs(refs);
+            throw error;
+        }
+    }
+
     const capability: TCanonicalDocumentsFileCapability = {
         async openDocumentDialog() {
             const pickedFiles = await pickFiles({
@@ -163,27 +213,26 @@ export function createBrowserDocumentsFileCapability(
                 pickerTypes: buildOpenPdfPickerTypes(),
             });
             const picked = pickedFiles[0];
-            if (!picked) {
+            return picked ? openPickedDocument(picked) : null;
+        },
+        // As on desktop: the folder's own supported files, in natural name
+        // order, open as the Open dialog would open them.
+        async openFolderDialog() {
+            const pickedFiles = await pickFolderFiles();
+            if (!pickedFiles) {
                 return null;
             }
-
-            const registered = await browserDocumentStore.registerFileWithOwnership(picked.file, {
-                kind: 'source',
-                saveKind: 'pdf',
-                saveHandle: picked.handle ?? null,
-            });
-
-            try {
-                return await openDocumentPaths([registered.ref]);
-            } catch (error) {
-                if (registered.created) {
-                    await cleanupTransientOpenRefs([registered.ref]);
-                }
-                throw error;
+            const supported = pickedFiles
+                .filter(({file}) => isSupportedOpenExtension(getExtension(file.name)))
+                .sort((left, right) => compareFolderEntryNames(left.file.name, right.file.name));
+            const [first] = supported;
+            if (!first) {
+                throw new Error(folderEmptyMessageProvider());
             }
-        },
-        openFolderDialog() {
-            return Promise.resolve(null);
+            if (supported.length > MAX_OPEN_INPUT_PATHS) {
+                throw new Error(`Open batch exceeds maximum size (${MAX_OPEN_INPUT_PATHS})`);
+            }
+            return supported.length === 1 ? openPickedDocument(first) : openPickedBatch(supported);
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
@@ -191,27 +240,7 @@ export function createBrowserDocumentsFileCapability(
                 multiple: true,
                 pickerTypes: buildOpenPdfPickerTypes(),
             });
-            if (pickedFiles.length === 0) {
-                return null;
-            }
-
-            const refs: string[] = [];
-            for (const picked of pickedFiles) {
-                const ref = await browserDocumentStore.registerFile(picked.file, {
-                    kind: 'source',
-                    retention: 'transient',
-                    saveKind: 'generic',
-                    saveHandle: null,
-                });
-                refs.push(ref);
-            }
-
-            try {
-                return await openDocumentPaths(refs);
-            } catch (error) {
-                await cleanupTransientOpenRefs(refs);
-                throw error;
-            }
+            return pickedFiles.length > 0 ? openPickedBatch(pickedFiles) : null;
         },
         async openImageDialog() {
             const picked = await pickSingleFile({

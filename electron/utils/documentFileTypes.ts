@@ -1,16 +1,10 @@
 import {extname} from 'path';
+import {
+    isSupportedOpenExtension,
+    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
+} from '@pdf-core/documentOpenFileTypes';
 
-export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-] as const;
+export {PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS};
 
 const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
@@ -38,5 +32,5 @@ export function isPdfOrImagePath(filePath: string) {
 }
 
 export function isSupportedOpenPath(filePath: string) {
-    return isPdfOrImagePath(filePath) || isDjvuPath(filePath);
+    return isSupportedOpenExtension(getInputFileExtension(filePath));
 }

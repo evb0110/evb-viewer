@@ -429,8 +429,102 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     it('returns typed unsupported results for desktop-only folder actions', async () => {
         const { capability } = await loadBrowserDocumentsFileCapability();
 
-        await expect(capability.openFolderDialog()).resolves.toBeNull();
         await expect(capability.showItemInFolder(requireDocumentRef('browser://documents/source.pdf'))).resolves.toBe(false);
+    });
+
+    it('opens a chosen folder\'s own supported files in natural name order, as desktop does', async () => {
+        const folder = (entries: Array<{
+            name: string;
+            kind: 'file' | 'directory'
+        }>) => ({
+            kind: 'directory',
+            name: 'scans',
+            async* values() {
+                for (const entry of entries) {
+                    yield entry.kind === 'file'
+                        ? createFileSystemFileHandle({
+                            name: entry.name,
+                            getFile: async () => new File([Uint8Array.of(entry.name.length)], entry.name),
+                        })
+                        : {
+                            kind: 'directory',
+                            name: entry.name,
+                        };
+                }
+            },
+        });
+        let chosen: ReturnType<typeof folder> | null = folder([
+            {
+                name: 'page-10.pdf',
+                kind: 'file',
+            },
+            {
+                name: 'notes.txt',
+                kind: 'file',
+            },
+            {
+                name: 'page-2.PNG',
+                kind: 'file',
+            },
+            {
+                name: 'nested.pdf',
+                kind: 'directory',
+            },
+            {
+                name: 'page-1.pdf',
+                kind: 'file',
+            },
+        ]);
+        const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showDirectoryPicker: async () => {
+            if (!chosen) throw new DOMException('Canceled', 'AbortError');
+            return chosen;
+        }}});
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: await createPdfBytes()});
+
+        await expect(capability.openFolderDialog()).resolves.toMatchObject({
+            kind: 'pdf',
+            isGenerated: true,
+        });
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [
+            'page-1.pdf',
+            'page-2.PNG',
+            'page-10.pdf',
+        ].map(fileName => ({
+            fileName,
+            data: Uint8Array.of(fileName.length),
+        }))});
+
+        chosen = folder([{
+            name: 'notes.txt',
+            kind: 'file',
+        }]);
+        await expect(capability.openFolderDialog()).rejects.toThrow('No supported documents were found in the selected folder');
+        chosen = null;
+        await expect(capability.openFolderDialog()).resolves.toBeNull();
+    });
+
+    it('opens a lone supported file of a folder chosen through a directory input as itself', async () => {
+        const pdfBytes = await createPdfBytes();
+        const inFolder = (relativePath: string, data: Uint8Array<ArrayBuffer>) => {
+            const file = new File([data], relativePath.split('/').at(-1)!, {type: 'application/pdf'});
+            Object.defineProperty(file, 'webkitRelativePath', {value: relativePath});
+            return file;
+        };
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({inputFiles: [
+            inFolder('scans/sub/deeper.pdf', Uint8Array.of(1)),
+            inFolder('scans/readme.txt', Uint8Array.of(2)),
+            inFolder('scans/only.pdf', pdfBytes),
+        ]});
+
+        const opened = await capability.openFolderDialog();
+
+        if (opened?.kind !== 'pdf') throw new Error('Expected the folder\'s PDF to open');
+        expect(opened).not.toHaveProperty('isGenerated');
+        await expect(browserDocumentStore.read(opened.workingPath)).resolves.toEqual(pdfBytes);
+        expect((await capability.recentFiles.get()).map(file => file.fileName)).toEqual(['only.pdf']);
     });
 
     it('parses a working copy through WASM after checking the browser full-read budget', async () => {
