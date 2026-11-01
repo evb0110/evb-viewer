@@ -921,9 +921,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             let matchedCount = 0;
             const resultOffset = options.resultOffset ?? 0;
             const requestGeneration = startSearchRequest(requestId);
-            // Only time spent matching spends the budget: reading page text
-            // and starting the worker do not.
-            const regexBudget = {remainingMs: SEARCH_REGEX_MAX_EXECUTION_MS};
             try {
                 const { size } = await browserDocumentStore.stat(pdfPath);
                 const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
@@ -944,7 +941,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             requestId,
                             requestGeneration ?? 0,
                             resultOffset === 'last' ? SEARCH_RESULT_LIMIT : (SEARCH_RESULT_LIMIT - results.length) + 1,
-                            regexBudget,
+                            // Each page has its own regex budget, as in the shared search
+                            // core, DjVu search and highlighting; only matching time spends it.
+                            {remainingMs: SEARCH_REGEX_MAX_EXECUTION_MS},
                             resultOffset === 'last' ? resultOffset : Math.max(0, resultOffset - matchedCount),
                         );
                         // Cached text proves whether geometry is needed. Read only hit

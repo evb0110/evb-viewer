@@ -337,7 +337,7 @@ describe('createBrowserSearchCapability', () => {
         );
     });
 
-    it('spends the regex budget on the matching time the worker reports', async () => {
+    it('gives every page its own regex budget, as the shared search core does', async () => {
         const getPage = vi.fn(async () => ({
             getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
             cleanup: vi.fn(async () => {}),
@@ -354,9 +354,11 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        // Each page spends most of a page budget; together they exceed it.
         const reportedMatchingMs = [
             200,
-            60,
+            200,
+            200,
         ];
         browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => ({
             requestId: 41,
@@ -375,15 +377,13 @@ describe('createBrowserSearchCapability', () => {
             matchCase: true,
             useRegex: true,
             requestId: requireRequestId('regex-budget'),
-        })).rejects.toMatchObject({
-            name: 'SearchRegexLimitError',
-            code: 'SEARCH_REGEX_LIMIT',
-        });
+        })).resolves.toMatchObject({results: []});
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mock.calls.map(
             call => (call[1] as {budgetMs: number}).budgetMs,
         )).toEqual([
             250,
-            50,
+            250,
+            250,
         ]);
     });
 
