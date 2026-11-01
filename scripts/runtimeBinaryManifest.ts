@@ -10,8 +10,8 @@ const RUNTIME_ASSET_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/d
 const RUNTIME_ARCHIVES = {
     'djvulibre-darwin-arm64': {
         releaseName: 'runtime-binaries-v3',
-        archiveBytes: 1182818,
-        archiveSha256: '2c06bf4c829108c92e735149dcf70990da096f9c13a9aa5f074e82f0b7e524d5',
+        archiveBytes: 1174084,
+        archiveSha256: '036e07b7ce8e3da8c69aba2d559bc2daa57059e2287078465dc91a2bac54f8a7',
     },
     'djvulibre-linux-x64': {
         archiveBytes: 1982130,
@@ -37,8 +37,8 @@ const RUNTIME_ARCHIVES = {
     },
     'poppler-darwin-arm64': {
         releaseName: 'runtime-binaries-v3',
-        archiveBytes: 7295641,
-        archiveSha256: '8af87a405cd3bb79ee207637ae619763b37f5f54a1d76d8497d99945e3a95485',
+        archiveBytes: 7274975,
+        archiveSha256: 'eea821ec7dabec07f06b45d6836bc5bf6a91cdb58ebc5f170c901e21cf190888',
     },
     'poppler-linux-arm64': {
         releaseName: 'runtime-binaries-v2',
@@ -66,8 +66,8 @@ const RUNTIME_ARCHIVES = {
     },
     'qpdf-darwin-arm64': {
         releaseName: 'runtime-binaries-v3',
-        archiveBytes: 1304376,
-        archiveSha256: '9a8f098d098fdf5f543a6389e9338c9b40e35232e125b229a7704979beed0bf3',
+        archiveBytes: 1269205,
+        archiveSha256: '5c4ea8be8fbb91b182d2315078cca249b34dcbd0cd3313efcc240d44e447a40b',
     },
     'qpdf-linux-x64': {
         releaseName: 'runtime-binaries-v2',
@@ -171,5 +171,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '1947494cc0e3862838cfa253428a10114f81c86657531a0837f8fec5748a8c4b',
+    manifestSha256: 'b93da3cd47d6c6634715e48cc80fb983f36857aa378fc459a5d0d46b65db7194',
 };
