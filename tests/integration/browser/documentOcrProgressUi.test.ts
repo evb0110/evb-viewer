@@ -36,30 +36,13 @@ describe('browser OCR progress', () => {
             // is cheap to download in CI when the development archive is absent.
             const model = join(process.cwd(), 'resources/tesseract/tessdata/heb.traineddata');
             if (existsSync(model)) await page.route('**/heb.traineddata', route => route.fulfill({path: model}));
-            await page.route('**/hebrew-source.pdf', route => route.fulfill({path: join(
-                process.cwd(), 'tests/fixtures/electron/semtext/short-hebrew.pdf',
-            )}));
-            await openOcrEngineFixture(page);
-            // Flatten the embedded-font fixture to pixels. Neither OCR nor the
-            // search assertion can reuse the source PDF's existing text.
-            const image = await page.evaluate<string>(`(async () => {
-                const {getPdfjsLib} = await import('/_nuxt/platform/browser-api/browserPdfjsDocumentInit.ts');
-                const lib = await getPdfjsLib();
-                const task = lib.getDocument({data: new Uint8Array(await (await fetch('/hebrew-source.pdf')).arrayBuffer())});
-                try {
-                    const source = await (await task.promise).getPage(1);
-                    const viewport = source.getViewport({scale: 3});
-                    const canvas = document.createElement('canvas');
-                    canvas.width = Math.ceil(viewport.width);
-                    canvas.height = Math.ceil(viewport.height);
-                    await source.render({canvas, viewport}).promise;
-                    return canvas.toDataURL('image/png').split(',')[1];
-                } finally { await task.destroy(); }
-            })()`);
+            // Fixed pixels keep niqqud recognition independent of host font rasterization.
             await openPdfFromChooser(page, {
                 name: 'hebrew-scan.png',
                 mimeType: 'image/png',
-                buffer: Buffer.from(image, 'base64'),
+                buffer: await readFile(join(
+                    process.cwd(), 'tests/fixtures/browser/rtl-ocr/pointed-hebrew-scan.png',
+                )),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
             await page.getByRole('button', {
