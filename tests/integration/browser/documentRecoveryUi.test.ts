@@ -530,7 +530,7 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('button', {name: /^Zoom In/u}).first().click();
             await expect.poll(() => container.getAttribute('data-required-hydration-fault')).toBe('held');
             await page.getByRole('button', {name: 'Close tab'}).last().click();
-            await waitForOpenFileReady(page);
+            await container.waitFor({state: 'detached'});
             expect(await retiredContainer.evaluate(element => element.getAttribute('data-required-hydration-fault'))).toBe('settled');
             expect(await page.locator('body').getAttribute('data-required-hydration-deadline-fired')).toBeNull();
         } finally {

@@ -2083,10 +2083,7 @@ describe('Electron E2E - Recent Files', () => {
             },
             {
                 name: 'turned-270',
-                commands: [
-                    'handleViewRotationCcw',
-                    'handleViewRotationCcw',
-                ],
+                commands: ['handleViewRotationCcw'],
                 page: 2,
                 expectedRotation: 270,
             },
