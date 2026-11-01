@@ -64,9 +64,10 @@ permits.
 
 **R4. The reader chooses whether closed documents remember their place.**
 “Reopen documents where I left off” is off by default. Opening a document that
-is no longer open starts at page 1 with the configured default zoom and view
-mode, through every opening entry point. When the reader enables the setting,
-an unchanged document reopens at its remembered page, zoom mode and view mode.
+is no longer open starts at page 1, unrotated, with the configured default zoom
+and view mode, through every opening entry point. When the reader enables the
+setting, an unchanged document reopens at its remembered page, view rotation,
+zoom mode and view mode.
 Reading state is recorded on close in either setting, so enabling it also works
 for documents closed earlier. Restoring an open workspace after a relaunch or
 crash, moving a tab between windows, and reopening the same tab's document after
