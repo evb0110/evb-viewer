@@ -6,13 +6,9 @@ import type {
     IPdfSaveAsOptions,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
-import {
-    BROWSER_MAX_FULL_READ_BYTES,
-    browserDocumentStore,
-} from '@app/platform/browserDocumentStore';
+import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
-import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserFileWriteOutcomeError,
     downloadBrowserBytes,
@@ -48,18 +44,6 @@ export class BrowserExternalSaveSyncRequiredError extends Error {
         super(`Saved the browser document externally, but failed to refresh local save bookkeeping: ${getErrorMessage(cause)}`);
         this.name = 'BrowserExternalSaveSyncRequiredError';
         this.externalWriteCommitted = externalWriteCommitted;
-    }
-}
-
-export async function assertBrowserPathWithinFullReadBudget(
-    path: string,
-    label: string,
-    hint?: string,
-    maxBytes = BROWSER_MAX_FULL_READ_BYTES,
-) {
-    const { size } = await browserDocumentStore.stat(path);
-    if (size > maxBytes) {
-        throw buildBrowserByteLimitError(label, maxBytes, 'inputs', hint);
     }
 }
 
