@@ -309,6 +309,10 @@ function createAsyncDefault(path: string) {
     if (path.includes('getPathsForFiles')) {
         return vi.fn(() => []);
     }
+    // Like desktop, which picks inside optimizePdfAsCopy, prepare no Optimize target.
+    if (path.endsWith('.prepareOptimizePdfAsCopy')) {
+        return vi.fn(() => undefined);
+    }
     return vi.fn(async () => {
         throw new Error(`Unsupported platform API fixture call: ${path}`);
     });

@@ -22,6 +22,7 @@ import type {
     IPdfOptimizeResult,
     IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
+    TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
@@ -307,7 +308,8 @@ export function createDocumentPersistence(
         try {
             return await operation(workingPath);
         } catch (e) {
-            if (isStaleRevisionError(e)) {
+            // A canceled operation reaches the save flow's cancellation, not its failure toast.
+            if (isStaleRevisionError(e) || (e instanceof DOMException && e.name === 'AbortError')) {
                 throw e;
             }
             return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure(
@@ -648,24 +650,27 @@ export function createDocumentPersistence(
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             expectedWorkingPath?: TDocumentRef | null;
             onResult?: (result: IPdfOptimizeResult) => void;
+            preparedOptimize?: TPreparedPdfOptimizeCopy;
+            signal?: AbortSignal;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
             const previousWorkingPath = workingPath;
             const optimizePdfAsCopy = getDocumentFilesCapability().optimizePdfAsCopy;
-            if (!optimizePdfAsCopy) {
+            const revisionOptions = createDocumentMutationRevisionOptions(
+                opts?.expectedDocumentRevisionToken ?? state.documentRevisionToken.value,
+            );
+            // A target picked during the user's click comes with its own Optimize;
+            // desktop picks inside its four-argument call.
+            let optimizeResult: IPdfOptimizeResult;
+            if (opts?.preparedOptimize) {
+                optimizeResult = await opts.preparedOptimize(workingPath, options, requestId, revisionOptions, opts.signal);
+            } else if (optimizePdfAsCopy) {
+                optimizeResult = await optimizePdfAsCopy(workingPath, options, requestId, revisionOptions);
+            } else {
                 return createFailedPersistResult(requestedSaveMode, true);
             }
-
-            const optimizeResult = await optimizePdfAsCopy(
-                workingPath,
-                options,
-                requestId,
-                createDocumentMutationRevisionOptions(
-                    opts?.expectedDocumentRevisionToken ?? state.documentRevisionToken.value,
-                ),
-            );
             if (optimizeResult.validation && !optimizeResult.validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, true, refusedPersistFailure(
                     'file:optimizePdfAsCopy',

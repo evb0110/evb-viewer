@@ -20,6 +20,7 @@ import type {
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
+    TPreparedPdfOptimizeCopy,
     IPdfSerializedCommitCallbacks,
 } from '@contracts/electronApiDocuments';
 import type {TPdfDateString} from '@contracts/pdfDateString';
@@ -64,7 +65,11 @@ export type TWorkspaceSaveRequest =
         options: IPdfOptimizeOptions;
         requestId?: TRequestId;
         /** Receives what the optimizer did, including a copy it declined to write. */
-        onResult?: (result: IPdfOptimizeResult) => void
+        onResult?: (result: IPdfOptimizeResult) => void;
+        /** The platform's Optimize, bound to the target picked during the user's click. */
+        preparedOptimize?: TPreparedPdfOptimizeCopy;
+        /** Ends the optimization when its document goes away. */
+        signal?: AbortSignal;
     };
 
 export interface IWorkspaceSaveTarget {
@@ -322,6 +327,8 @@ export interface IWorkspaceSaveDependencies {
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
                 onResult?: (result: IPdfOptimizeResult) => void;
+                preparedOptimize?: TPreparedPdfOptimizeCopy;
+                signal?: AbortSignal;
             },
         ) => Promise<IPdfPersistResult>;
         trySavePdfNativeMutations?: (
