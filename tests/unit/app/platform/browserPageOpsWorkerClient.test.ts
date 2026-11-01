@@ -412,6 +412,41 @@ describe('browserPageOpsWorkerClient', () => {
         await expect(result).rejects.toThrow('Text appearance generation requires a worker');
     });
 
+    it('ends an uncancellable request only after a deadline that grows with its input, and never a cancellable one', async () => {
+        FakeWorker.autoRespond = false;
+        const settle = (request: Promise<unknown>) => {
+            const state = {outcome: 'pending'};
+            void request.then(() => {
+                state.outcome = 'resolved';
+            }, (error: unknown) => {
+                state.outcome = error instanceof Error ? error.message : String(error);
+            });
+            return state;
+        };
+        // Desktop's two minutes plus a second per MiB: 130 s for 10 MiB.
+        const uncancellable = settle(runBrowserPageOpsWorkerRequest('rotate', {
+            data: new Uint8Array(10 * 1024 * 1024),
+            pages: [1],
+            angle: 90,
+        }));
+        await vi.advanceTimersByTimeAsync(129_000);
+        expect(uncancellable.outcome).toBe('pending');
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(uncancellable.outcome).toContain('timed out after 130000ms');
+
+        const controller = new AbortController();
+        const cancellable = settle(runBrowserPageOpsWorkerRequest('rotate', {
+            data: new Uint8Array([1]),
+            pages: [1],
+            angle: 90,
+        }, {signal: controller.signal}));
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+        expect(cancellable.outcome).toBe('pending');
+        controller.abort(new Error('canceled by the user'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(cancellable.outcome).toBe('canceled by the user');
+    });
+
     it('does not report an idle worker termination', async () => {
         const result = runBrowserPageOpsWorkerRequest('rotate', {
             data: new Uint8Array([1]),

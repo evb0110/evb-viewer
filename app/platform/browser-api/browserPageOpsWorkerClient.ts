@@ -24,7 +24,12 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
-const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
+// Desktop gives its native page tools two minutes (qpdf, native crop and
+// mutation saves). The browser engine is that tool built for one wasm32
+// thread and cannot report progress, and its parse time grows with its input,
+// so a request nobody can cancel waits that long plus a second per MiB.
+const DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS = 2 * 60 * 1000;
+const ENGINE_DEADLINE_MS_PER_MIB = 1000;
 const WORKER_INPUT_COPY_CHUNK_BYTES = 512 * 1024;
 
 export {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
@@ -157,6 +162,21 @@ async function buildWorkerRequestWithTransfers(
 }
 
 
+/**
+ * A request whose caller holds an abort signal has no deadline: its owner
+ * stops it, and stopping it ends the worker. Others get the size-scaled one.
+ */
+function getEngineDeadlineMs(payload: object, signal: AbortSignal | undefined) {
+    if (signal) return undefined;
+    let inputBytes = 0;
+    for (const value of Object.values(payload)) {
+        for (const item of Array.isArray(value) ? value : [value]) {
+            if (item instanceof Uint8Array) inputBytes += item.byteLength;
+        }
+    }
+    return DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
+}
+
 export function canUseBrowserPageOpsWorker() {
     return canUseBrowserWorker();
 }
@@ -164,7 +184,6 @@ export function canUseBrowserPageOpsWorker() {
 function createBrowserPageOpsWorkerClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
-        requestTimeoutMs: BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS,
         createWorker: () => {
             try {
                 return new Worker(
@@ -249,6 +268,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     }
     const worker = client.getWorker();
 
+    const deadlineMs = getEngineDeadlineMs(payload, options.signal);
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
         let removeAbortListener: () => void = () => undefined;
         let settled = false;
@@ -282,8 +302,8 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             },
             reject: error => rejectRequest(reportWorkerFailure(error)),
         }, () => reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
-            `Browser page operation worker request timed out after ${BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS}ms`,
-        )));
+            `Browser page operation worker request timed out after ${String(deadlineMs)}ms`,
+        )), deadlineMs);
 
         if (options.signal) {
             const handleAbort = () => client.cancelPendingRequest(
