@@ -1734,7 +1734,7 @@ export default {
             'unsupportedEncryption': 'Questo PDF usa una crittografia che EVB Viewer non può aprire.',
             'encryptedTooLarge': 'Questo PDF crittografato supera il limite di 512 MiB e non può essere aperto.',
             'djvuRasterLimit': 'Questa pagina DjVu è troppo grande per essere visualizzata a piena risoluzione.',
-            'djvuComponentsRequired': 'Questo indice DjVu richiede file di componenti separati. Apri un file DjVu riunito oppure usa l’app desktop.',
+            'djvuComponentsRequired': 'Questo indice DjVu conserva le pagine in file separati. Aprilo di nuovo e seleziona l\'indice insieme ai file che si trovano accanto.',
             'changedWhileOpening': 'Il file è cambiato durante l’apertura. Aprilo di nuovo.',
             'invalid': 'Il file è danneggiato o non è un documento supportato.',
             'emptyPdf': 'Il file PDF è vuoto (0 byte)',

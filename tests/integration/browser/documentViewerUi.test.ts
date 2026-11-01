@@ -1662,7 +1662,7 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
-    it('explains the missing components when an indirect DjVu index is picked alone', async () => {
+    it('explains the missing components of an indirect DjVu index, then opens it with them', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-index-only-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         const context = await lifecycle.browser.newContext({viewport: {
@@ -1681,14 +1681,16 @@ describe('browser document lifecycle UI', () => {
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
+            const indirectDir = resolve(process.cwd(), 'tests/fixtures/djvu/sources/indirect');
+            const indexFile = {
+                name: 'café-index.djvu',
+                mimeType: 'image/vnd.djvu',
+                buffer: readFileSync(resolve(indirectDir, 'index.djvu')),
+            };
 
             const chooserPromise = page.waitForEvent('filechooser');
             await page.locator('.start-open-panel .open-panel-cta').click();
-            await (await chooserPromise).setFiles({
-                name: 'café-index.djvu',
-                mimeType: 'image/vnd.djvu',
-                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/djvu/sources/indirect/index.djvu')),
-            });
+            await (await chooserPromise).setFiles(indexFile);
             const toast = page.locator('.app-toast-failure');
             await toast.waitFor({
                 state: 'visible',
@@ -1701,10 +1703,35 @@ describe('browser document lifecycle UI', () => {
             }, null, 2));
             await page.screenshot({path: resolve(evidenceDir, 'toast.png')});
 
-            // C4: the failure itself explains why and gives the usable alternatives.
-            expect(text).toContain('This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.');
+            // C4: the failure itself explains why and how to open the document.
+            expect(text).toContain('This DjVu index keeps its pages in separate files. Open it again and select the index together with the files next to it.');
             expect(text).not.toContain('The file could not be opened.');
             expect(await toast.count()).toBe(1);
+
+            // Selecting the index with the files beside it opens its pages from them.
+            const componentChooser = page.waitForEvent('filechooser');
+            await page.locator('.start-open-panel .open-panel-cta').click();
+            await (await componentChooser).setFiles([
+                indexFile,
+                ...[
+                    'low-dpi.djvu',
+                    'high-dpi.djvu',
+                ].map(name => ({
+                    name,
+                    mimeType: 'image/vnd.djvu',
+                    buffer: readFileSync(resolve(indirectDir, name)),
+                })),
+            ]);
+            const sourceImage = page.locator('[data-testid="document-page-source-image"]').first();
+            await sourceImage.waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await expect.poll(() => sourceImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+            await expect.poll(() => page.locator('.page-controls').first().innerText()).toMatch(/\b2\b/u);
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+                .toContain('café-index.djvu');
+            await page.screenshot({path: resolve(evidenceDir, 'opened-with-components.png')});
             expect(pageErrors).toEqual([]);
         } finally {
             await context.close();

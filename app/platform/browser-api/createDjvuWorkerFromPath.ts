@@ -26,6 +26,7 @@ import {
     type IBrowserDjvuSourceLayout,
     type TDjvuRangeReader,
 } from '@app/platform/browser-api/browserDjvuSource';
+import { getBrowserDjvuComponentFiles } from '@app/platform/browser-api/browserDjvuComponents';
 import type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/public';
 import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {
@@ -527,6 +528,7 @@ export async function createDjvuWorkerFromPath(
         const layout = await readBrowserDjvuSourceLayout({
             fileSize: source.fileSize,
             readRange: source.readRange,
+            componentFiles: isBrowserRef ? getBrowserDjvuComponentFiles(djvuPath) : null,
             signal: options.signal,
         });
         throwIfCanceled(options.signal);

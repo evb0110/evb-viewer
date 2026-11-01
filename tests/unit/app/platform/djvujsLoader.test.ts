@@ -12,6 +12,10 @@ import {
 } from '@app/platform/browser-api/browserDjvuSource';
 import { DJVU_COMPONENT_BASE_URL } from '@app/platform/browser-api/djvujsLoader';
 import {
+    findIndirectDjvuSelection,
+    setBrowserDjvuComponentFiles,
+} from '@app/platform/browser-api/browserDjvuComponents';
+import {
     afterEach,
     beforeEach,
     describe,
@@ -330,6 +334,34 @@ describe('DjVu document components', () => {
         stubBrowserSource(index);
         await expect(createDjvuWorkerFromPath(requireDocumentRef('browser://documents/index.djvu')))
             .rejects.toMatchObject({errorEnvelope: {code: 'djvu-components-required'}});
+    });
+
+    it('opens a browser index with the sibling files selected beside it', async () => {
+        const {
+            created,
+            djvuGlobal,
+        } = installWorker();
+        vi.stubGlobal('window', {DjVu: djvuGlobal});
+        stubBrowserSource(index);
+        const indexRef = requireDocumentRef('browser://documents/index-with-components.djvu');
+        const siblings = [
+            'low-dpi.djvu',
+            'high-dpi.djvu',
+        ].map(name => new File([readFileSync(`tests/fixtures/djvu/sources/indirect/${name}`)], name));
+        setBrowserDjvuComponentFiles(indexRef, siblings);
+        const worker = await createDjvuWorkerFromPath(indexRef);
+        try {
+            await expect(getDjvuWorkerPageSizes(worker)).resolves.toEqual(sizes);
+            expect(created[0]!.documentBytes).toEqual(index);
+            expect(created[0]!.options).toEqual({baseUrl: DJVU_COMPONENT_BASE_URL});
+        } finally {
+            worker.terminate();
+        }
+        await expect(findIndirectDjvuSelection([
+            {file: new File([index], 'index.djvu')},
+            ...siblings.map(file => ({file})),
+        ])).resolves.toMatchObject({components: siblings});
+        await expect(findIndirectDjvuSelection(siblings.map(file => ({file})))).resolves.toBeNull();
     });
 
     it('opens a bundled browser DjVu as an index whose pages load by component', async () => {

@@ -68,6 +68,10 @@ import {
     saveWorkingBytesToSourceStructured,
 } from '@app/platform/browser-api/browserSaveTargets';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    findIndirectDjvuSelection,
+    setBrowserDjvuComponentFiles,
+} from '@app/platform/browser-api/browserDjvuComponents';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
@@ -179,12 +183,16 @@ export function createBrowserDocumentsFileCapability(
     }
 
     // One picked file opens as itself, saved back to its handle and kept in Recent.
-    async function openPickedDocument(picked: IPickedBrowserFile) {
+    // An indirect DjVu index reads its pages from the component files picked with it.
+    async function openPickedDocument(picked: IPickedBrowserFile, djvuComponents?: readonly File[]) {
         const registered = await browserDocumentStore.registerFileWithOwnership(picked.file, {
             kind: 'source',
             saveKind: 'pdf',
             saveHandle: picked.handle ?? null,
         });
+        if (djvuComponents) {
+            setBrowserDjvuComponentFiles(registered.ref, djvuComponents);
+        }
 
         try {
             return await openDocumentPaths([registered.ref]);
@@ -219,13 +227,20 @@ export function createBrowserDocumentsFileCapability(
 
     const capability: TCanonicalDocumentsFileCapability = {
         async openDocumentDialog() {
+            // Several files open as one combined document, as on desktop. An
+            // indirect DjVu index picked with the files beside it opens as
+            // that DjVu, reading its pages from those files.
             const pickedFiles = await pickFiles({
                 accept: OPEN_INPUT_ACCEPT,
-                multiple: false,
+                multiple: true,
                 pickerTypes: buildOpenPdfPickerTypes(),
             });
-            const picked = pickedFiles[0];
-            return picked ? openPickedDocument(picked) : null;
+            const indirectDjvu = await findIndirectDjvuSelection(pickedFiles);
+            if (pickedFiles.length > 1 && !indirectDjvu) {
+                return openPickedBatch(pickedFiles);
+            }
+            const picked = indirectDjvu?.index ?? pickedFiles[0];
+            return picked ? openPickedDocument(picked, indirectDjvu?.components) : null;
         },
         // As on desktop: the folder's own supported files, in natural name
         // order, open as the Open dialog would open them.

@@ -42,7 +42,9 @@
 - DjVu viewing and explicit PDF conversion are available in browser runtime
   through the vendored DjVu.js worker path. The worker reads a document one
   component at a time (`app/platform/browser-api/browserDjvuSource.ts`), so no
-  step holds the whole source; only memory bounds a page's decode.
+  step holds the whole source; only memory bounds a page's decode. An
+  indirect DjVu opens when its index is selected in Open together with the
+  files beside it; each component name resolves to the selected file.
 - Desktop app updates unavailable in browser runtime
 
 ## Architecture and checks

@@ -235,7 +235,7 @@ export async function readBrowserDjvuSourceLayout(options: {
         if (!componentFiles) {
             throw new SerializableError({
                 code: 'djvu-components-required',
-                message: 'This DjVu index keeps its pages in separate files. Choose the folder that contains them.',
+                message: 'This DjVu index keeps its pages in separate files; open it together with them.',
             });
         }
         return {
