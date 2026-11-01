@@ -15,3 +15,17 @@ export function keepMovedFocus(event: Event) {
         event.preventDefault();
     }
 }
+
+/**
+ * An open menu whose focused entry becomes disabled, as when another document
+ * becomes active, loses focus to the page. Focus then moves to the menu panel,
+ * so arrow keys and typeahead keep working.
+ */
+export function keepMenuFocusWhenItemsChange(isOpen: () => boolean, items: () => unknown, panelSelector: string) {
+    watch(items, async () => {
+        await nextTick();
+        if (isOpen() && document.activeElement === document.body) {
+            document.querySelector<HTMLElement>(panelSelector)?.focus();
+        }
+    }, {flush: 'post'});
+}

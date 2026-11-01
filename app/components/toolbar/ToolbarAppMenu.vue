@@ -50,7 +50,10 @@ import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
-import { keepMovedFocus } from '@app/utils/menuFocus';
+import {
+    keepMenuFocusWhenItemsChange,
+    keepMovedFocus,
+} from '@app/utils/menuFocus';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     dispatchBrowserMenuEvent,
@@ -213,6 +216,7 @@ const appMenuItems = computed((): TToolbarAppMenuItem[][] => [
         },
     }])],
 ]);
+keepMenuFocusWhenItemsChange(() => menuOpen.value, () => appMenuItems.value, '.app-menu.toolbar-menu-panel');
 
 function buildFileItems(): TToolbarAppMenuItem[] {
     const items: TToolbarAppMenuItem[] = [

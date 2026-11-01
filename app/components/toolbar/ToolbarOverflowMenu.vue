@@ -72,7 +72,10 @@ import {
 } from '@app/utils/readerCommandSurface';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { keepMovedFocus } from '@app/utils/menuFocus';
+import {
+    keepMenuFocusWhenItemsChange,
+    keepMovedFocus,
+} from '@app/utils/menuFocus';
 
 const { t } = useTypedI18n();
 
@@ -362,6 +365,7 @@ const overflowMenuItems = computed(() => [
     createMenuSection(t('menu.view'), buildViewItems()),
     createMenuSection(t('toolbar.moreTools'), buildShellItems()),
 ]);
+keepMenuFocusWhenItemsChange(() => isOpen.value, () => overflowMenuItems.value, '.overflow-menu.toolbar-menu-panel');
 const hasOverflowMenuCommands = computed(() => overflowMenuItems.value.some(section => section.length > 0));
 
 watch(hasOverflowMenuCommands, (hasCommands) => {
