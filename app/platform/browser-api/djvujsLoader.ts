@@ -371,7 +371,10 @@ function evbDjvuWorkerBootstrap(lib: IBootstrapLibrary, baseUrl: string) {
             // DjVu.js and DjVuLibre both paint shapes black when the palette
             // does not give a color for every shape.
             const palette = page.fgbz && page.fgbz.getDataSize() === sjbz.blitList.length ? page.fgbz : null;
-            for (let blitIndex = 0; blitIndex < sjbz.blitList.length; blitIndex += 1) {
+            // Where shapes overlap the last one painted shows, so blits are read
+            // from the top and each pixel counts once, in its visible color.
+            const counted = new Uint8Array(Math.ceil(sjbz.width * sjbz.height / 8));
+            for (let blitIndex = sjbz.blitList.length - 1; blitIndex >= 0; blitIndex -= 1) {
                 const blit = sjbz.blitList[blitIndex]!;
                 const paletteColor = palette ? palette.getPixelByBlitIndex(blitIndex) : null;
                 for (let k = 0; k < blit.bitmap.height; k += 1) {
@@ -380,6 +383,9 @@ function evbDjvuWorkerBootstrap(lib: IBootstrapLibrary, baseUrl: string) {
                     for (let t = 0; t < blit.bitmap.width; t += 1) {
                         const x = blit.x + t;
                         if (x < 0 || x >= sjbz.width || !blit.bitmap.get(k, t)) continue;
+                        const pixel = top * sjbz.width + x;
+                        if (counted[pixel >> 3]! & (1 << (pixel & 7))) continue;
+                        counted[pixel >> 3]! |= 1 << (pixel & 7);
                         let red = 0;
                         let green = 0;
                         let blue = 0;
