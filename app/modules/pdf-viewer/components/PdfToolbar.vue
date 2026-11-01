@@ -448,7 +448,10 @@ function handleToolbarCommand(command: TToolbarCommand) {
 .toolbar {
     display: flex;
     align-items: center;
-    padding: var(--app-space-3xl) var(--app-space-7xl);
+    padding-block: var(--app-space-3xl);
+
+    /* The window's row drops the padding of an edge that meets its Menu or More tools cell. */
+    padding-inline: var(--toolbar-padding-inline-start, var(--app-space-7xl)) var(--toolbar-padding-inline-end, var(--app-space-7xl));
     border-bottom: 1px solid var(--app-toolbar-border);
     border-top: 1px solid var(--app-toolbar-border);
     background: var(--app-toolbar-bg);
@@ -475,6 +478,9 @@ function handleToolbarCommand(command: TToolbarCommand) {
 
 .toolbar-left {
     min-width: max-content;
+
+    /* The gap the Menu had before this section's controls inside the toolbar. */
+    padding-inline-start: var(--toolbar-menu-gap-start, 0);
 }
 
 .toolbar-center {
@@ -486,6 +492,9 @@ function handleToolbarCommand(command: TToolbarCommand) {
 
 .toolbar-right {
     min-width: max-content;
+
+    /* The gap More tools had after this section's controls inside the toolbar. */
+    padding-inline-end: var(--toolbar-menu-gap-end, 0);
 }
 
 .toolbar-action {
@@ -568,12 +577,13 @@ function handleToolbarCommand(command: TToolbarCommand) {
 
 /* Widest content of the tier below each threshold, plus headroom for longer
    locale labels, measured at UI scale 1 with a four-digit page count:
-   browser 1281/1190/1070/859/577 px with the Menu (85 px) and More tools
-   (36 px) triggers, which now sit beside the toolbar in the window's row;
-   desktop has scan cleanup at tier 0 (+38 px); the assistant toggle adds
-   38 px to tiers 0-4. */
+   browser 1281/1190/1070/859/577 px when the toolbar held the Menu (85 px)
+   and More tools (36 px), which now sit beside it in the window's row, so
+   those widths are subtracted; desktop held only More tools. The sections'
+   gaps beside them stay in the toolbar. Scan cleanup at tier 0 measures
+   1212 px in the browser. The assistant toggle adds 38 px to tiers 0-4. */
 $toolbar-collapse-thresholds: (
-    'browser': (74rem, 68rem, 60.5rem, 47rem, 30rem),
+    'browser': (77.125rem, 67.9375rem, 60.4375rem, 46.9375rem, 29.9375rem),
     'desktop': (76.25rem, 68.25rem, 60.75rem, 47.25rem, 29.75rem),
     'desktop-assistant': (78.25rem, 70.75rem, 62.75rem, 49.75rem, 32.25rem),
 );
@@ -596,6 +606,12 @@ $toolbar-collapse-thresholds: (
             }
 
             @if $tier == 5 {
+                /* Menu and More tools stand alone beside the centre here. */
+                .toolbar[data-toolbar-layout='#{$layout}'] .toolbar-left,
+                .toolbar[data-toolbar-layout='#{$layout}'] .toolbar-right {
+                    padding-inline: 0;
+                }
+
                 .toolbar[data-toolbar-layout='#{$layout}'] .toolbar-center {
                     flex: 1 1 auto;
                     flex-wrap: wrap;
