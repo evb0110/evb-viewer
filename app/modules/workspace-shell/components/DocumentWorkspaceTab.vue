@@ -49,7 +49,6 @@
                 :open-combine-result="result => withWorkspace(workspace => workspace.handleOpenFileWithResult(result))"
                 @update:start-section="emit('update:start-section', $event)"
                 @open-file="openPicked(() => platformDocuments.getDocumentPickerCapability().openDocumentDialog())"
-                @open-folder="openPicked(() => platformDocuments.getDocumentPickerCapability().openFolderDialog())"
                 @press-recent="pressRecentFile"
                 @open-recent="openRecentFile"
                 @remove-recent="removeRecentFile"
