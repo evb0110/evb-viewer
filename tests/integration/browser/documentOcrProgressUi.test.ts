@@ -1,6 +1,7 @@
 import {
     readFile, mkdir, writeFile,
 } from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {
     PDFDocument, rgb,
@@ -24,6 +25,105 @@ async function openOcrEngineFixture(page: Page) {
 }
 
 describe('browser OCR progress', () => {
+    it('finds Hebrew OCR words through UI search after language selection and save', async () => {
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1440,
+            height: 900,
+        }});
+        let reopened: Page | undefined;
+        try {
+            // Hebrew is newly available in the browser. Its pinned 3.7 MB model
+            // is cheap to download in CI when the development archive is absent.
+            const model = join(process.cwd(), 'resources/tesseract/tessdata/heb.traineddata');
+            if (existsSync(model)) await page.route('**/heb.traineddata', route => route.fulfill({path: model}));
+            await page.route('**/hebrew-source.pdf', route => route.fulfill({path: join(
+                process.cwd(), 'tests/fixtures/electron/semtext/short-hebrew.pdf',
+            )}));
+            await openOcrEngineFixture(page);
+            // Flatten the embedded-font fixture to pixels. Neither OCR nor the
+            // search assertion can reuse the source PDF's existing text.
+            const image = await page.evaluate<string>(`(async () => {
+                const {getPdfjsLib} = await import('/_nuxt/platform/browser-api/browserPdfjsDocumentInit.ts');
+                const lib = await getPdfjsLib();
+                const task = lib.getDocument({data: new Uint8Array(await (await fetch('/hebrew-source.pdf')).arrayBuffer())});
+                try {
+                    const source = await (await task.promise).getPage(1);
+                    const viewport = source.getViewport({scale: 3});
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.ceil(viewport.width);
+                    canvas.height = Math.ceil(viewport.height);
+                    await source.render({canvas, viewport}).promise;
+                    return canvas.toDataURL('image/png').split(',')[1];
+                } finally { await task.destroy(); }
+            })()`);
+            await openPdfFromChooser(page, {
+                name: 'hebrew-scan.png',
+                mimeType: 'image/png',
+                buffer: Buffer.from(image, 'base64'),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.getByRole('button', {
+                name: 'OCR',
+                exact: true,
+            }).click();
+            const dialog = page.getByRole('dialog');
+            await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
+            await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
+            await dialog.getByRole('button', {
+                name: 'Close',
+                exact: true,
+            }).last().click();
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const path = await (await download).path();
+            if (!path) throw new Error('Save did not provide downloaded PDF bytes');
+            const saved = await readFile(path);
+            const evidence = process.env.EVB_HEBREW_OCR_EVIDENCE_DIR;
+            if (evidence) {
+                await mkdir(evidence, {recursive: true});
+                await writeFile(join(evidence, 'hebrew-saved.pdf'), saved);
+            }
+            // A fresh page proves search reads the downloaded PDF's OCR layer.
+            reopened = await lifecycle.browser.newPage({viewport: {
+                width: 1440,
+                height: 900,
+            }});
+            const searchPage = reopened;
+            await openPdfFromChooser(searchPage, {
+                name: 'hebrew-saved.pdf',
+                mimeType: 'application/pdf',
+                buffer: saved,
+            });
+            await searchPage.locator('.page_container--rendered canvas').first().waitFor();
+            const searchTab = searchPage.getByRole('tab', {
+                name: 'Search',
+                exact: true,
+            });
+            if (!await searchTab.isVisible()) {
+                await searchPage.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+            }
+            await searchTab.click();
+            const input = searchPage.locator('.document-search-bar input:visible').first();
+            await input.pressSequentially('הַקְדְשָה');
+            await input.press('Enter');
+            try {
+                await expect.poll(() => searchPage.locator('.document-search-results').innerText()).toContain('1 result for “הַקְדְשָה”');
+            } finally {
+                if (evidence) await searchPage.screenshot({path: join(evidence, 'saved-hebrew-search.png')});
+            }
+        } finally {
+            await reopened?.context().close();
+            await page.context().close();
+        }
+    });
+
     it('preserves recognized words and boxes across tiled pixels, warm engines and changed recipes', async () => {
         const page = await lifecycle.browser.newPage();
         const fixturePath = join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf');
