@@ -54,7 +54,6 @@ mod placed_image_raster;
 mod placed_images;
 mod postconditions;
 mod print_layout;
-#[cfg(not(target_family = "wasm"))]
 mod recompress_images;
 mod replace_page_images;
 mod shape_index;
@@ -121,7 +120,6 @@ pub(crate) use placed_image_raster::*;
 pub(crate) use placed_images::*;
 pub(crate) use postconditions::*;
 pub(crate) use print_layout::*;
-#[cfg(not(target_family = "wasm"))]
 pub(crate) use recompress_images::*;
 pub(crate) use replace_page_images::*;
 pub(crate) use shape_index::*;

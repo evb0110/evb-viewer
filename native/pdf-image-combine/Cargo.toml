@@ -11,6 +11,13 @@ workspace = true
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+# The browser artifact's own `extern "C"` entry points. A crate that links the
+# codecs into its own WASM module (page ops) turns this off, so the module
+# exports only its own ABI.
+[features]
+default = ["wasm-exports"]
+wasm-exports = []
+
 [dependencies]
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }

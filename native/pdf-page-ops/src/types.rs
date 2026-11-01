@@ -674,7 +674,6 @@ pub(crate) enum Operation {
     ReplacePageImages {
         instructions_file: PathBuf,
     },
-    #[cfg(not(target_family = "wasm"))]
     RecompressImages {
         instructions_file: PathBuf,
     },

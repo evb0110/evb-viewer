@@ -17,7 +17,14 @@ mod netpbm;
 mod pdf;
 mod tiff_io;
 
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(any(
+    test,
+    all(
+        target_family = "wasm",
+        target_os = "unknown",
+        feature = "wasm-exports"
+    )
+))]
 mod wasm;
 
 use jpeg_encoder::{
