@@ -66,8 +66,6 @@ abi! {
         REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE: u32 = 4;
         // INSTRUCTED_REQUEST_HEADER framing.
         REQUEST_VERSION_INSTRUCTED: u32 = 5;
-        // One per recognized page; an OCR job writes at most this many at once.
-        MAX_ATTACHED_PDFS: usize = 100_000;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
         // The largest single wasm32 Rust allocation (isize::MAX there): one
@@ -357,7 +355,8 @@ pub(crate) fn parse_instructed_request(request: &[u8]) -> Result<ParsedInstructe
     let operation = read_u32_at(request, INSTRUCTED_REQUEST_HEADER.operation)?;
     let attachments = match operation {
         OP_OCR_TEXT_LAYER | OP_REPLACE_PAGE_IMAGES => {
-            usize::from(operation == OP_OCR_TEXT_LAYER)..=MAX_ATTACHED_PDFS
+            // One per page; the request's own bytes bound the count below.
+            usize::from(operation == OP_OCR_TEXT_LAYER)..=usize::MAX
         }
         OP_OVERLAY_TEXT => 1..=1,
         OP_SPLIT_PAGES | OP_RECOMPRESS_IMAGES => 0..=0,

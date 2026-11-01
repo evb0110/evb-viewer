@@ -7,7 +7,6 @@ export const REQUEST_VERSION = 2;
 export const REQUEST_VERSION_DOCUMENT_LIST = 3;
 export const REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE = 4;
 export const REQUEST_VERSION_INSTRUCTED = 5;
-export const MAX_ATTACHED_PDFS = 100000;
 export const U32_BYTES = 4;
 export const F64_BYTES = 8;
 export const MAX_BUFFER_BYTES = 2147483647;
