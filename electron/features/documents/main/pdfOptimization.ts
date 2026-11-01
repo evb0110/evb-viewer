@@ -469,8 +469,8 @@ async function optimizeRasterCopy(
  * one, so Optimize refuses it before any work, as Save As skips it. A failed
  * analysis proves nothing and refuses too.
  */
-async function assertPdfOptimizationEligible(inputPath: string) {
-    const skipReason = getPdfLosslessOptimizationSkipReason(await analyzePdfConformanceFile(inputPath));
+async function assertPdfOptimizationEligible(inputPath: string, signal: AbortSignal | undefined) {
+    const skipReason = getPdfLosslessOptimizationSkipReason(await analyzePdfConformanceFile(inputPath, signal ? {signal} : {}));
     if (skipReason) {
         throw new Error(`Optimize PDF does not rewrite a ${skipReason}: it would no longer be one.`);
     }
@@ -496,7 +496,7 @@ export async function optimizePdfToFile(
         ...(optimizeOptions.onProgress ? {emit: optimizeOptions.onProgress} : {}),
     };
     const originalBytes = (await stat(inputPath)).size;
-    await assertPdfOptimizationEligible(inputPath);
+    await assertPdfOptimizationEligible(inputPath, optimizeOptions.signal);
     const pageCount = normalizedOptions.preset === 'lossless'
         ? null
         : await getPdfPageCount(inputPath, signalOptions(context));
