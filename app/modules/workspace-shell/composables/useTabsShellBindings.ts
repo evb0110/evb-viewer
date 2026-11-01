@@ -49,12 +49,14 @@ import {
 import { isAutomationSession } from '@app/utils/isAutomationSession';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
-type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
+type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab' | 'new-pane-right';
 type TRendererDocumentShortcutAction = 'open-file' | 'save-as' | 'export-docx' | 'undo' | 'redo';
 type TRendererDocumentCommandShortcutAction = Exclude<TRendererDocumentShortcutAction, 'open-file'>;
 const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcutAction>> = {
-    t: 'new-tab',
-    w: 'close-tab',
+    't': 'new-tab',
+    'w': 'close-tab',
+    // Desktop's Window menu binds CmdOrCtrl+\ to a new pane on the right.
+    '\\': 'new-pane-right',
 };
 const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortcutAction, keyof IWorkspaceExpose> = {
     'save-as': 'handleSaveAs',
@@ -380,6 +382,12 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             if (activeTabId.value) {
                 void handleCloseTab(activeTabId.value);
             }
+        } else if (action === 'new-pane-right') {
+            guardAsync(Promise.resolve(openNewPane('right')), {
+                category: 'user-visible-operation',
+                scope: 'tabs-shell',
+                message: 'Renderer pane shortcut failed: new-pane-right',
+            });
         } else {
             cycleTab(action === 'next-tab' ? 1 : -1);
         }
