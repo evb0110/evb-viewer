@@ -15,13 +15,17 @@ const MINIMUM_RAW_EDGE_DEPTH: u8 = 12;
 // document target while retaining the exact final measurement in metadata.
 const PROJECTED_SURVIVAL_SAFETY_MARGIN: f64 = 0.018;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StrokeMassMetrics {
     pub ink_fraction: f64,
     pub erosion_survival: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentInkPrior {
     pub sample_count: usize,
     pub survival_p10: f64,
@@ -31,7 +35,9 @@ pub struct DocumentInkPrior {
     pub reference_height: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentInkSample {
     pub metrics: StrokeMassMetrics,
     pub width: usize,
@@ -42,7 +48,9 @@ pub struct DocumentInkSample {
 /// producer-authored mask. The source sample keeps dense-text eligibility in
 /// the uncropped mask coordinate system; crop geometry must not change whether
 /// a page belongs to the document's body-text population.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PageInkConsistencyContext {
     pub prior: DocumentInkPrior,
     pub source_sample: DocumentInkSample,
@@ -58,6 +66,35 @@ pub struct InkConsistencyDiagnostics {
     pub survival_after: f64,
     pub added_ink_pixels: usize,
     pub applied: bool,
+}
+
+impl PageInkConsistencyContext {
+    /// The admission a context passes when it comes back across a trust
+    /// boundary: the in-range evidence a document prior and a page sample are
+    /// made of.
+    pub fn validate(&self) -> Result<(), String> {
+        let unit = |value: f64| value.is_finite() && (0.0..=1.0).contains(&value);
+        let prior = self.prior;
+        let sample = self.source_sample;
+        if prior.sample_count < MINIMUM_PRIOR_PAGES
+            || ![
+                prior.survival_p10,
+                prior.survival_median,
+                prior.survival_p90,
+            ]
+            .into_iter()
+            .all(unit)
+            || prior.reference_width == 0
+            || prior.reference_height == 0
+            || !unit(sample.metrics.ink_fraction)
+            || !unit(sample.metrics.erosion_survival)
+            || sample.width == 0
+            || sample.height == 0
+        {
+            return Err("Page ink consistency evidence is out of range".to_string());
+        }
+        Ok(())
+    }
 }
 
 pub fn stroke_mass_metrics(binary: &BinaryImage) -> Option<StrokeMassMetrics> {

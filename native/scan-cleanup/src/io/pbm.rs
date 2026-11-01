@@ -9,8 +9,12 @@ pub fn write_p4_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
 }
 
 pub fn write_p4_bilevel_atomic(path: &Path, image: &BinaryImage) -> Result<(), String> {
-    let bytes = evb_raster_io::encode_p4_bilevel(image).map_err(|error| error.to_string())?;
-    write_atomic(path, &bytes)
+    write_atomic(path, &encode_p4_bilevel(image)?)
+}
+
+/// The bytes [`write_p4_bilevel_atomic`] writes.
+pub fn encode_p4_bilevel(image: &BinaryImage) -> Result<Vec<u8>, String> {
+    evb_raster_io::encode_p4_bilevel(image).map_err(|error| error.to_string())
 }
 
 pub fn read_p4(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {

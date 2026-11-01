@@ -333,7 +333,14 @@ export type PageHalf = "full" | "left" | "right";
 
 export type PageOutput = { outputPath: string, metadataPath: string, bilevelOutputPath?: string | null, backgroundOutputPath?: string | null, foregroundMaskOutputPath?: string | null, foregroundAlphaOutputPath?: string | null, pictureMaskOutputPath?: string | null, tonePreservationAlphaOutputPath?: string | null, };
 
-export type PageResultMetadata = { version: number, sourcePageIndex: number, layoutClassification: LayoutClassification, layoutConfidence: number, cutterXPx: number | null, splitSeam: SplitSeamPolyline | null, rotationDegrees: OrthogonalRotation, canvasScope: CanvasScope, excluded: boolean, blankOutputsSkipped: number, outputCount: number, outputs: Array<AnalysisOutputMetadata>, tier1Verdict: LayoutClassification, reconciled: boolean, clusterAgreement: number, splitDiagnostics: SplitDiagnostics, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, };
+/**
+ * One page's result metadata, as a manifest writes it to the page's metadata
+ * file. Reading it back is how the browser engine revises an analysis it
+ * returned earlier, so every field the file carries round-trips exactly; the
+ * skipped fields are reconciliation inputs the file never carries.
+ */
+
+export type PageResultMetadata = { version: number, sourcePageIndex: number, layoutClassification: LayoutClassification, layoutConfidence: number, cutterXPx: number | null, splitSeam: SplitSeamPolyline | null, rotationDegrees: OrthogonalRotation, canvasScope: CanvasScope, excluded: boolean, blankOutputsSkipped: number, outputCount: number, outputs?: Array<AnalysisOutputMetadata>, tier1Verdict: LayoutClassification, reconciled: boolean, clusterAgreement: number, splitDiagnostics: SplitDiagnostics, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, };
 
 export type PageStageTimings = { decodeMs?: number, analysisLevelMs?: number, normalizationMs?: number, illuminationPreparationMs?: number, layoutNormalizationMs?: number, calibrationMs?: number, pictureMaskMs?: number, modeRecommendationMs?: number, qualityNormalizationMs?: number, textAxisMs?: number, splitMs?: number, deskewMs?: number, contentMs?: number, rasterizationMs?: number, maskRasterizationMs?: number, binarizationMs?: number, thresholdPreparationMs?: number, thresholdingMs?: number, binaryPostprocessMs?: number, mixedCompositionMs?: number, outputProcessingMs?: number, renderMs?: number, writeMs?: number, };
 

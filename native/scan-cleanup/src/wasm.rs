@@ -20,9 +20,7 @@ use crate::engine::page_workflow::{
 use crate::engine::render::CleanupMetadata;
 use crate::engine::resource_planning::{manifest_cache, PlanningOperation};
 use crate::io::{png, raster};
-use crate::protocol::manifest_v3::{
-    validate_page_options, AnalysisPurpose, CanvasScope, DetailRenderPlan,
-};
+use crate::protocol::manifest_v3::{validate_page_options, AnalysisPurpose, CanvasScope};
 use crate::split::DocumentPrior;
 use crate::CleanupOptions;
 use evb_native_support::{
@@ -206,7 +204,6 @@ impl PageRasterSource for RequestRasters<'_> {
 
     fn read_detail_sources(
         &self,
-        _plan: &DetailRenderPlan,
         _options: &CleanupOptions,
     ) -> Result<DetailSourceRasters, NativeError> {
         Err(invalid(

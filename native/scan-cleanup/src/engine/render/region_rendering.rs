@@ -8,7 +8,7 @@ pub(crate) struct DetailPageInput<'a> {
     pub sources: super::DetailRenderSources<'a>,
     pub options: &'a CleanupOptions,
     pub source_page_index: usize,
-    pub plan: &'a DetailRenderPlan,
+    pub plan: &'a DetailRenderGeometry,
     pub base_metadata: &'a CleanupMetadata,
     pub cancellation: Option<&'a AtomicBool>,
     pub timings: &'a mut PageStageTimings,

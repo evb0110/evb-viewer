@@ -50,7 +50,7 @@ use crate::{
         resample_binary_mask_nearest, semantic_tone_preservation_alpha, veto_text_like_regions,
     },
     protocol::{
-        manifest_v3::{ContentDiagnostics, DetailRenderPlan},
+        manifest_v3::{ContentDiagnostics, DetailRenderGeometry},
         progress::PageStageTimings,
     },
     split::{
@@ -593,7 +593,7 @@ pub(crate) fn clean_detail_page_with_color(
     sources: DetailRenderSources<'_>,
     options: &CleanupOptions,
     source_page_index: usize,
-    plan: &DetailRenderPlan,
+    plan: &DetailRenderGeometry,
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, AnalysisError> {
@@ -612,7 +612,7 @@ pub(crate) fn clean_detail_page_with_color_cancellable(
     sources: DetailRenderSources<'_>,
     options: &CleanupOptions,
     source_page_index: usize,
-    plan: &DetailRenderPlan,
+    plan: &DetailRenderGeometry,
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
     is_canceled: &AtomicBool,

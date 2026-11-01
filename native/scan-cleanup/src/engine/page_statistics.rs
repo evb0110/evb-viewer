@@ -28,10 +28,11 @@ pub(crate) fn page_needs_ink_sample(page: &PageDescriptor) -> bool {
 pub(crate) fn derive_page_ink_sample(
     page: &PageDescriptor,
 ) -> Result<Option<DocumentInkSample>, NativeError> {
-    if page.options.output_mode != OutputMode::Bw
-        || !page.options.source_has_bilevel_layer
-        || page.options.thickness != 0
-    {
+    if !ink_sample_eligible(
+        page.options.output_mode,
+        page.options.source_has_bilevel_layer,
+        page.options.thickness,
+    ) {
         return Ok(None);
     }
     let Some(selection_path) = page.trusted_foreground_mask_path.as_ref() else {
@@ -52,20 +53,35 @@ pub(crate) fn derive_page_ink_sample(
         page.options.max_dimension,
     )
     .map_err(|error| map_raster_error(error, background_path, page.source_page_index))?;
+    Ok(ink_sample_of(&selection, background_width))
+}
+
+/// Whether a page's producer-authored foreground can join the document's ink
+/// prior: a bilevel source cleaned to black and white at its own weight.
+pub(crate) fn ink_sample_eligible(
+    output_mode: OutputMode,
+    source_has_bilevel_layer: bool,
+    thickness: i8,
+) -> bool {
+    output_mode == OutputMode::Bw && source_has_bilevel_layer && thickness == 0
+}
+
+/// One page's ink sample from its trusted foreground selection, unless the
+/// selection is incomplete or carries no body text.
+pub(crate) fn ink_sample_of(
+    selection: &scan_primitives::GrayImage,
+    background_width: usize,
+) -> Option<DocumentInkSample> {
     if trusted_selection_is_incomplete(selection.width(), background_width) {
-        return Ok(None);
+        return None;
     }
-    let Some(ink) = minority_selection_mask(&selection) else {
-        return Ok(None);
-    };
-    let Some(metrics) = stroke_mass_metrics(&ink) else {
-        return Ok(None);
-    };
-    Ok(Some(DocumentInkSample {
+    let ink = minority_selection_mask(selection)?;
+    let metrics = stroke_mass_metrics(&ink)?;
+    Some(DocumentInkSample {
         metrics,
         width: ink.width(),
         height: ink.height(),
-    }))
+    })
 }
 
 pub(crate) fn derive_page_ink_contexts(
