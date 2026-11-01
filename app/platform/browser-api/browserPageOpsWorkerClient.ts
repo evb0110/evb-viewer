@@ -239,6 +239,9 @@ async function runAdmittedPageOperation<TResult>(
 interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
     dedicated?: boolean;
+    // A dedicated request copies its input so the caller keeps it; a caller
+    // that reads its input again after a failure transfers it instead.
+    transferInput?: boolean;
 }
 
 function abortErrorFromSignal(signal: AbortSignal) {
@@ -356,6 +359,7 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
     signal?: AbortSignal,
+    transferInput = false,
 ) {
     return runAdmittedPageOperation(signal, async (client, requestId, yieldAdmitted) => {
         if (isCpuPageOperation(type)) {
@@ -374,7 +378,7 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
         }
         return runBrowserPageOpsWorkerRequestWithClient(client, requestId, type, payload, {
             ...(signal ? {signal} : {}),
-            preserveInputOwnership: true,
+            preserveInputOwnership: !transferInput,
         });
     });
 }
@@ -393,7 +397,7 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         ));
     }
     if (options.dedicated) {
-        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal, options.transferInput);
     }
 
     return runBrowserPageOpsWorkerRequestWithClient(

@@ -614,26 +614,16 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 options,
             ],
         ),
-        cancelActive: {
-            ...method(
-                'cancelActive',
-                'page-ops:cancel-active',
-                args<TCancelActiveArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
-                cancelActiveResult,
-                (workingCopyPath: string): TCancelActiveArgs => [workingCopyPath],
-            ),
-            // Browser page operations run to completion inside WASM, so
-            // there is nothing for the user to stop there.
-            optionalWhenImplemented: true,
-            required: {
-                browser: false,
-                electron: false,
-            },
-            browser: {
-                unsupported: 'omitted',
-                reason: 'requires-native-backend',
-            },
-        },
+        // Desktop stops the queued or running native tool; the browser ends
+        // the operation's dedicated engine worker. A call whose result is
+        // already being written completes and counts as committing.
+        cancelActive: method(
+            'cancelActive',
+            'page-ops:cancel-active',
+            args<TCancelActiveArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
+            cancelActiveResult,
+            (workingCopyPath: string): TCancelActiveArgs => [workingCopyPath],
+        ),
         getPageGeometry: method(
             'getPageGeometry',
             'page-ops:get-page-geometry',
