@@ -114,23 +114,27 @@ function areAdjacentPdfjsGlyphs(
     return Math.hypot(currentX - expectedX, currentY - expectedY) <= tolerance;
 }
 
-/** A space item PDF.js made from a combining mark's advance, inside a word. */
+/**
+ * A space item PDF.js made from a combining mark's advance, inside a word of
+ * mirrored (logical-order) glyphs. Only an ordinary space qualifies, so a line
+ * break stays; geometry, when present, also bounds the space's width.
+ */
 function isPdfjsMarkAdvanceSpace(
     previous: IPdfjsTextItem | undefined,
     previousText: string | undefined,
     item: IPdfjsTextItem,
     nextText: string | undefined,
 ) {
-    return /^\s+$/u.test(item.text)
+    return /^ +$/u.test(item.text)
         && previous !== undefined
+        && isLogicalOrderRtlGlyph(previous)
         && previousText !== undefined
         && /\p{M}$/u.test(previousText)
         && nextText !== undefined
         && isPdfjsGlyphRun(nextText)
         && !/^\s/u.test(nextText)
-        && (hasGlyphGeometry(item) && hasGlyphGeometry(previous)
-            ? item.width! <= Math.max(0.75, previous.width! * 1.25)
-            : isLogicalOrderRtlGlyph(previous));
+        && (!hasGlyphGeometry(item) || !hasGlyphGeometry(previous)
+            || item.width! <= Math.max(0.75, previous.width! * 1.25));
 }
 
 /**

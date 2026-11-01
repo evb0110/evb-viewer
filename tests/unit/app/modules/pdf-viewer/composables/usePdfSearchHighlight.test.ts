@@ -30,6 +30,7 @@ import {
     assembleSearchablePageText, findPdfSearchMatches,
 } from '@pdf-core';
 import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
+import { restorePdfjsRtlItemTexts } from '@pdf-core/pdfjsTextItems';
 import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
 
 vi.mock('@app/platform/browser-api/public', () => ({matchBrowserSearchPageWindowInWorker: vi.fn(async (...[
@@ -1333,6 +1334,50 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             pageMatchIndex: 1,
             expectedPageMatchCount: 2,
         })?.toString()).toBe('foo');
+    });
+
+    it('keeps real spaces between unmirrored glyphs and line breaks after mirrored ones', () => {
+        // Unmirrored glyphs with geometry: a genuine word space stays, in any script.
+        const upright = (text: string, x: number, dir: string) => ({
+            text,
+            dir,
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                x,
+                0,
+            ],
+            width: 6,
+        });
+        expect(restorePdfjsRtlItemTexts([
+            upright('َل', 0, 'rtl'),
+            upright(' ', 6, 'ltr'),
+            upright('َس', 9, 'rtl'),
+        ]).join('')).toBe('لَ سَ');
+        expect(restorePdfjsRtlItemTexts([
+            upright('á', 0, 'ltr'),
+            upright(' ', 6, 'ltr'),
+            upright('b́', 9, 'ltr'),
+        ]).join('')).toBe('á b́');
+        // A line break after a mirrored pointed glyph is a line break, not a mark's advance.
+        expect(restorePdfjsRtlItemTexts([
+            {
+                text: 'ַה',
+                dir: 'rtl',
+                mirrored: true,
+            },
+            {
+                text: '\n',
+                dir: 'ltr',
+            },
+            {
+                text: 'ק',
+                dir: 'rtl',
+                mirrored: true,
+            },
+        ]).join('')).toBe('הַ\nק');
     });
 
     it('highlights right-to-left OCR words whose glyphs PDF.js reverses and splits', async () => {
