@@ -1144,9 +1144,15 @@ describe('browser document lifecycle UI', () => {
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
                 // Observe the system-print boundary in every frame without
-                // opening a native dialog. The canvas is the printed artifact.
+                // opening a native dialog. The page image is the printed artifact.
                 window.print = () => {
-                    const canvases = [...document.querySelectorAll<HTMLCanvasElement>('.browser-print-page canvas')];
+                    const canvases = [...document.querySelectorAll<HTMLImageElement>('.browser-print-page img')].map((image) => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.naturalWidth;
+                        canvas.height = image.naturalHeight;
+                        canvas.getContext('2d')?.drawImage(image, 0, 0);
+                        return canvas;
+                    });
                     let yellowPixels = 0;
                     for (const canvas of canvases) {
                         const pixels = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;

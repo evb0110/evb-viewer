@@ -37,14 +37,24 @@ export interface IBrowserPrintCanvas {
     ) => CanvasRenderingContext2D | null;
     height: number;
     style: IBrowserPrintElementStyle;
+    toBlob: (callback: (blob: Blob | null) => void, type?: string) => void;
     width: number;
 }
 
+export interface IBrowserPrintImage {
+    onerror: unknown;
+    onload: unknown;
+    src: string;
+    style: IBrowserPrintElementStyle;
+}
+
 export interface IBrowserPrintDocument {
+    defaultView?: {URL: Pick<typeof URL, 'createObjectURL'>} | null;
     querySelector(selector: string): IBrowserPrintRoot | null;
-    createElement(tag: 'section' | 'canvas' | 'style'):
+    createElement(tag: 'section' | 'canvas' | 'img' | 'style'):
         | IBrowserPrintPageContainer
         | IBrowserPrintCanvas
+        | IBrowserPrintImage
         | IBrowserPrintStyleElement;
 }
 
@@ -91,7 +101,7 @@ export function buildBrowserPrintFrameMarkup(title = 'Printable PDF') {
             page-break-before: auto;
         }
 
-        .browser-print-page canvas {
+        .browser-print-page img {
             display: block;
             margin: 0 auto;
             max-width: 100%;

@@ -7,7 +7,7 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFStream, PDFString, PDFHexString, StandardFonts,
+    PDFDocument, PDFArray, PDFDict, PDFName, PDFStream, PDFString, PDFHexString, StandardFonts, rgb,
 } from 'pdf-lib';
 import {
     describe, expect, it,
@@ -1055,8 +1055,12 @@ describe('browser document lifecycle UI', () => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
                 window.print = () => {
-                    const canvas = document.querySelector<HTMLCanvasElement>('.browser-print-page canvas');
-                    if (!canvas) throw new Error('No printed page');
+                    const image = document.querySelector<HTMLImageElement>('.browser-print-page img');
+                    if (!image) throw new Error('No printed page');
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.naturalWidth;
+                    canvas.height = image.naturalHeight;
+                    canvas.getContext('2d')!.drawImage(image, 0, 0);
                     const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
                     const red: number[][] = [];
                     const cyan: number[][] = [];
@@ -1174,6 +1178,138 @@ describe('browser document lifecycle UI', () => {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 90_000);
+
+    // T3: printing hands the system dialog every page. The print document
+    // once refused rasters above 256 MiB across pages and 64 Mi pixels on
+    // one page. Here 41 sheets at 300 DPI need about 1.4 GB of RGBA, and the
+    // 28-inch first page alone printed at its size needs 282 MB.
+    it('prints every page of a document whose page rasters exceed the former print budgets', async () => {
+        const evidence = resolve(process.cwd(), `.devkit/print-every-page/browser-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 800,
+        }});
+        const problems = collectConsoleProblems(page);
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                window.print = () => {
+                    // Each source page carries a black bar whose height on the page encodes its number.
+                    const printed = Array.from(document.querySelectorAll<HTMLElement>('.browser-print-page'), (section) => {
+                        const image = section.querySelector('img');
+                        if (!image?.complete || image.naturalWidth === 0) return null;
+                        const sample = document.createElement('canvas');
+                        sample.width = 50;
+                        sample.height = 400;
+                        const context = sample.getContext('2d')!;
+                        context.drawImage(image, 0, 0, sample.width, sample.height);
+                        const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+                        const darkRows: number[] = [];
+                        for (let row = 0; row < sample.height; row += 1) {
+                            if (pixels[(row * sample.width + 25) * 4]! < 80) darkRows.push(row);
+                        }
+                        return {
+                            width: image.naturalWidth,
+                            height: image.naturalHeight,
+                            barCenter: darkRows.length ? (darkRows[0]! + darkRows.at(-1)!) / 2 / sample.height : null,
+                        };
+                    });
+                    Reflect.set(window.top!, '__printedPages', printed);
+                };
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const pdf = await PDFDocument.create();
+            const pageCount = 41;
+            for (let index = 0; index < pageCount; index += 1) {
+                const pdfPage = pdf.addPage(index === 0 ? [
+                    28 * 72,
+                    28 * 72,
+                ] : [
+                    612,
+                    792,
+                ]);
+                const {
+                    width, height,
+                } = pdfPage.getSize();
+                pdfPage.drawRectangle({
+                    x: 0,
+                    y: height * (1 - (index + 0.5) / pageCount) - height / 400,
+                    width,
+                    height: height / 200,
+                    color: rgb(0, 0, 0),
+                });
+            }
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'print-every-page.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            const readPrinted = async () => {
+                await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__printedPages'))), {timeout: 120_000}).toBe(true);
+                return page.evaluate(() => {
+                    const printed = Reflect.get(window, '__printedPages') as Array<{
+                        width: number;
+                        height: number;
+                        barCenter: number | null;
+                    } | null>;
+                    Reflect.deleteProperty(window, '__printedPages');
+                    return printed;
+                });
+            };
+
+            const sheetsStartedAt = Date.now();
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            const sheets = await readPrinted();
+            const sheetsElapsedMs = Date.now() - sheetsStartedAt;
+            expect(sheets).toHaveLength(pageCount);
+            const sheetBars = sheets.map(sheet => sheet?.barCenter ?? null);
+            expect(sheetBars.every(bar => bar !== null)).toBe(true);
+            // Every source page reached its own sheet, in order.
+            expect(sheetBars.every((bar, index) => index < 2 || bar! > sheetBars[index - 1]!)).toBe(true);
+
+            const currentPageStartedAt = Date.now();
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Print Current Page/u}).click();
+            const currentPage = await readPrinted();
+            const currentPageElapsedMs = Date.now() - currentPageStartedAt;
+            expect(currentPage).toHaveLength(1);
+            expect(currentPage[0]).toMatchObject({
+                width: Math.ceil(28 * 72 * (300 / 72)),
+                height: Math.ceil(28 * 72 * (300 / 72)),
+            });
+            expect(currentPage[0]!.barCenter).toBeCloseTo(0.5 / pageCount, 2);
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify({
+                sheetsElapsedMs,
+                currentPageElapsedMs,
+                sheets,
+                currentPage,
+                problems,
+            }, null, 2));
+            expect(problems).toEqual([]);
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 240_000);
 
     it('opens URI destinations by pointer and Enter with no opener or console failure', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-external-url-${process.pid}`);
