@@ -6,14 +6,15 @@ use crate::engine::page_statistics::trusted_selection_is_incomplete;
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached_cancellable,
     clean_detail_page_with_color_cancellable, clean_page_with_color_and_document_prior_cached,
-    CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources, LayeredForegroundKind,
+    CanonicalAnalysisPlane, CleanupMetadata, CleanupResult, DetailRenderSources,
+    LayeredForegroundKind,
 };
 use crate::engine::render::{quantize_decimal, CleanupWarningEvent};
 use crate::engine::staged_input::{invalid, map_raster_error};
 use crate::ink_consistency::PageInkConsistencyContext;
 use crate::io::{pbm, png, raster};
 use crate::protocol::{
-    manifest_v3::{CanvasScope, DocumentCanvas, Page, PageOutput},
+    manifest_v3::{CanvasScope, DetailRenderPlan, DocumentCanvas, Page, PageOutput},
     progress::PageStageTimings,
 };
 use crate::split::LayoutClassification;
@@ -96,6 +97,205 @@ pub(crate) struct PageRunResult {
 const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
 type DecodedPageInputs = (Option<Arc<raster::DecodedRaster>>, Option<Arc<GrayImage>>);
+
+/// The rasters a page render reads, by the role each plays.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PageRaster {
+    Input,
+    CanonicalAnalysis,
+    TrustedForegroundMask,
+    TrustedMrcBackground,
+}
+
+/// Where one page's rasters come from. The CLI decodes the manifest page's
+/// files; the browser engine decodes the bytes its request carries. Every
+/// decision after decoding is shared, so both routes produce the same output.
+pub(crate) trait PageRasterSource {
+    fn has(&self, raster: PageRaster) -> bool;
+    /// The fixed analysis plane is the page input itself.
+    fn analysis_is_input(&self) -> bool;
+    fn read_image(
+        &self,
+        raster: PageRaster,
+        options: &CleanupOptions,
+    ) -> Result<raster::DecodedRaster, NativeError>;
+    fn read_gray(
+        &self,
+        raster: PageRaster,
+        options: &CleanupOptions,
+    ) -> Result<GrayImage, NativeError>;
+    fn read_foreground_selection(
+        &self,
+        raster: PageRaster,
+        options: &CleanupOptions,
+    ) -> Result<GrayImage, NativeError>;
+    fn read_detail_sources(
+        &self,
+        plan: &DetailRenderPlan,
+        options: &CleanupOptions,
+    ) -> Result<DetailSourceRasters, NativeError>;
+}
+
+/// The already-rendered page a detail render refines.
+pub(crate) struct DetailSourceRasters {
+    pub(crate) base_metadata: CleanupMetadata,
+    pub(crate) base_source: raster::DecodedRaster,
+    pub(crate) base_cleaned: Option<raster::DecodedRaster>,
+}
+
+fn page_raster_path(page: &Page, raster: PageRaster) -> Option<&Path> {
+    match raster {
+        PageRaster::Input => Some(&page.input_path),
+        PageRaster::CanonicalAnalysis => page.analysis_input_path.as_deref(),
+        PageRaster::TrustedForegroundMask => page.trusted_foreground_mask_path.as_deref(),
+        PageRaster::TrustedMrcBackground => page.trusted_mrc_background_path.as_deref(),
+    }
+}
+
+impl Page {
+    fn read_raster<T>(
+        &self,
+        raster: PageRaster,
+        read: impl FnOnce(&Path) -> Result<T, raster::RasterReadError>,
+    ) -> Result<T, NativeError> {
+        let path = page_raster_path(self, raster)
+            .ok_or_else(|| invalid(format!("Page has no {raster:?} raster")))?;
+        read(path).map_err(|error| map_raster_error(error, path, self.source_page_index))
+    }
+}
+
+impl PageRasterSource for Page {
+    fn has(&self, raster: PageRaster) -> bool {
+        page_raster_path(self, raster).is_some()
+    }
+
+    fn analysis_is_input(&self) -> bool {
+        self.analysis_input_path.as_ref() == Some(&self.input_path)
+    }
+
+    fn read_image(
+        &self,
+        raster: PageRaster,
+        options: &CleanupOptions,
+    ) -> Result<raster::DecodedRaster, NativeError> {
+        self.read_raster(raster, |path| {
+            raster::read_image(path, options.max_pixels, options.max_dimension)
+        })
+    }
+
+    fn read_gray(
+        &self,
+        raster: PageRaster,
+        options: &CleanupOptions,
+    ) -> Result<GrayImage, NativeError> {
+        self.read_raster(raster, |path| {
+            raster::read_gray(path, options.max_pixels, options.max_dimension)
+        })
+    }
+
+    fn read_foreground_selection(
+        &self,
+        raster: PageRaster,
+        options: &CleanupOptions,
+    ) -> Result<GrayImage, NativeError> {
+        self.read_raster(raster, |path| {
+            raster::read_foreground_selection(path, options.max_pixels, options.max_dimension)
+        })
+    }
+
+    fn read_detail_sources(
+        &self,
+        detail_plan: &DetailRenderPlan,
+        options: &CleanupOptions,
+    ) -> Result<DetailSourceRasters, NativeError> {
+        let base_metadata: CleanupMetadata = deserialize_json_file_bounded(
+            &detail_plan.base_metadata_path,
+            MAX_DETAIL_METADATA_BYTES,
+            "detail base metadata",
+        )
+        .map_err(|error| {
+            if error.code == NativeErrorCode::TooLarge {
+                error
+            } else {
+                invalid(format!(
+                    "Invalid detail base metadata {}: {error}",
+                    detail_plan.base_metadata_path.display(),
+                ))
+            }
+        })?;
+        let base_source = raster::read_image(
+            &detail_plan.base_raster_path,
+            options.max_pixels,
+            options.max_dimension,
+        )
+        .map_err(|error| {
+            map_raster_error(error, &detail_plan.base_raster_path, self.source_page_index)
+        })?;
+        let base_cleaned = detail_plan
+            .base_cleaned_raster_path
+            .as_ref()
+            .map(|path| {
+                raster::read_image(path, options.max_pixels, options.max_dimension)
+                    .map_err(|error| map_raster_error(error, path, self.source_page_index))
+            })
+            .transpose()?;
+        Ok(DetailSourceRasters {
+            base_metadata,
+            base_source,
+            base_cleaned,
+        })
+    }
+}
+
+/// Everything one page render needs besides its rasters.
+pub(crate) struct PageRenderRequest<'a> {
+    pub(crate) options: &'a CleanupOptions,
+    pub(crate) source_page_index: usize,
+    pub(crate) analysis_dpi: Option<f64>,
+    pub(crate) document_prior: Option<crate::split::DocumentPrior>,
+    pub(crate) detail_render_plan: Option<&'a DetailRenderPlan>,
+    pub(crate) canvas_scope: CanvasScope,
+    pub(crate) final_render: bool,
+    /// Every output can take a background and a foreground layer, so a final
+    /// render may publish the separable layers instead of the composite.
+    pub(crate) layer_destinations: bool,
+    pub(crate) page_ink_consistency: Option<PageInkConsistencyContext>,
+}
+
+impl<'a> PageRenderRequest<'a> {
+    fn for_page(
+        page: &'a Page,
+        canvas_scope: CanvasScope,
+        final_render: bool,
+        page_ink_consistency: Option<PageInkConsistencyContext>,
+    ) -> Self {
+        Self {
+            options: &page.options,
+            source_page_index: page.source_page_index,
+            analysis_dpi: page.analysis_dpi,
+            document_prior: page.document_prior,
+            detail_render_plan: page.detail_render_plan.as_ref(),
+            canvas_scope,
+            final_render,
+            layer_destinations: !page.outputs.is_empty()
+                && page.outputs.iter().all(|output| {
+                    output.background_output_path.is_some()
+                        && output.foreground_mask_output_path.is_some()
+                }),
+            page_ink_consistency,
+        }
+    }
+}
+
+/// One cleaned page before publication.
+pub(crate) struct RenderedPage {
+    pub(crate) outputs: Vec<CleanupResult>,
+    pub(crate) classification: LayoutClassification,
+    pub(crate) metadata: PageResultMetadata,
+    /// The options the page was cleaned with, at its scan resolution.
+    pub(crate) options: CleanupOptions,
+    pub(crate) timings: PageStageTimings,
+}
 
 pub(crate) fn map_analysis_error(error: crate::engine::render::AnalysisError) -> NativeError {
     let (code, message) = match error {
@@ -183,7 +383,7 @@ fn suffixed_path(path: &Path, index: usize) -> std::path::PathBuf {
 }
 
 pub(crate) fn decode_page_inputs(
-    page: &Page,
+    source: &impl PageRasterSource,
     options: &CleanupOptions,
     cache: &PageCache,
     retain_decoded: bool,
@@ -203,12 +403,7 @@ pub(crate) fn decode_page_inputs(
         Some(if let Some(cached) = cached {
             cached
         } else {
-            let decoded = Arc::new(
-                raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(|error| {
-                        map_raster_error(error, &page.input_path, page.source_page_index)
-                    })?,
-            );
+            let decoded = Arc::new(source.read_image(PageRaster::Input, options)?);
             if retain_decoded {
                 let bytes = decoded.gray.data().len().saturating_add(
                     decoded
@@ -240,12 +435,7 @@ pub(crate) fn decode_page_inputs(
         Some(if let Some(cached) = cached {
             cached
         } else {
-            let decoded = Arc::new(
-                raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(|error| {
-                        map_raster_error(error, &page.input_path, page.source_page_index)
-                    })?,
-            );
+            let decoded = Arc::new(source.read_gray(PageRaster::Input, options)?);
             if retain_decoded {
                 let bytes = decoded.data().len();
                 if let Ok(mut shared) = cache.shared.lock() {
@@ -260,20 +450,30 @@ pub(crate) fn decode_page_inputs(
     Ok((color_input, gray_input))
 }
 
-pub(crate) fn run_page(
-    page: &Page,
-    canvas_scope: CanvasScope,
-    final_render: bool,
-    document_canvas: Option<DocumentCanvas>,
-    fallback_destination: Option<(&Path, &Path)>,
-    page_ink_consistency: Option<PageInkConsistencyContext>,
+/// Cleans one page in memory: decode, analysis, render and the page's result
+/// metadata. The CLI publishes what this returns to the manifest's files; the
+/// browser engine returns it to its caller.
+pub(crate) fn render_page(
+    source: &impl PageRasterSource,
+    request: PageRenderRequest<'_>,
     cache: &PageCache,
     is_canceled: &AtomicBool,
-) -> Result<PageRunResult, Box<dyn Error>> {
+) -> Result<RenderedPage, Box<dyn Error>> {
+    let PageRenderRequest {
+        options,
+        source_page_index,
+        analysis_dpi,
+        document_prior,
+        detail_render_plan,
+        canvas_scope,
+        final_render,
+        layer_destinations,
+        page_ink_consistency,
+    } = request;
     if is_canceled.load(Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
     }
-    let options = page.options.clone();
+    let options = options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
@@ -285,7 +485,8 @@ pub(crate) fn run_page(
         options.output_mode,
         OutputMode::Color | OutputMode::Mixed | OutputMode::Auto
     );
-    let (color_input, gray_input) = decode_page_inputs(page, &options, cache, false, decode_color)?;
+    let (color_input, gray_input) =
+        decode_page_inputs(source, &options, cache, false, decode_color)?;
     if is_canceled.load(Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
     }
@@ -296,16 +497,15 @@ pub(crate) fn run_page(
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
     let options = options.at_scan_resolution(input_gray.width(), input_gray.height());
-    let canonical_analysis_input = page
-        .analysis_input_path
-        .as_ref()
-        .map(|path| match &color_input {
+    let canonical_analysis_input = source
+        .has(PageRaster::CanonicalAnalysis)
+        .then(|| match &color_input {
             // A preview names one raster as both its input and its analysis
             // plane; a second decode of it cost ~65 ms at four megapixels.
-            Some(input) if *path == page.input_path => Ok(Arc::clone(input)),
-            _ => raster::read_image(path, options.max_pixels, options.max_dimension)
-                .map(Arc::new)
-                .map_err(|error| map_raster_error(error, path, page.source_page_index)),
+            Some(input) if source.analysis_is_input() => Ok(Arc::clone(input)),
+            _ => source
+                .read_image(PageRaster::CanonicalAnalysis, &options)
+                .map(Arc::new),
         })
         .transpose()?;
     if let Some(canonical) = canonical_analysis_input.as_ref() {
@@ -331,18 +531,14 @@ pub(crate) fn run_page(
             .map(|canonical| CanonicalAnalysisPlane {
                 gray: &canonical.gray,
                 color: Some(&canonical.rgb),
-                dpi: page
-                    .analysis_dpi
-                    .expect("validated fixed analysis raster has a DPI")
+                dpi: analysis_dpi.expect("validated fixed analysis raster has a DPI")
                     * options.placement_scale,
             });
-    let trusted_foreground = page
-    .trusted_foreground_mask_path
-    .as_ref()
-    .map(|path| {
+    let trusted_foreground = source
+    .has(PageRaster::TrustedForegroundMask)
+    .then(|| {
         let selection =
-            raster::read_foreground_selection(path, options.max_pixels, options.max_dimension)
-            .map_err(|error| map_raster_error(error, path, page.source_page_index))?;
+            source.read_foreground_selection(PageRaster::TrustedForegroundMask, &options)?;
         if !aspect_ratio_matches(
             input_gray.width(),
             input_gray.height(),
@@ -368,12 +564,10 @@ pub(crate) fn run_page(
         .as_ref()
         .map(|(_, selection_width)| *selection_width);
     let trusted_foreground_mask = trusted_foreground.map(|(mask, _)| mask);
-    let trusted_mrc_background = page
-        .trusted_mrc_background_path
-        .as_ref()
-        .map(|path| {
-            let background = raster::read_gray(path, options.max_pixels, options.max_dimension)
-                .map_err(|error| map_raster_error(error, path, page.source_page_index))?;
+    let trusted_mrc_background = source
+        .has(PageRaster::TrustedMrcBackground)
+        .then(|| {
+            let background = source.read_gray(PageRaster::TrustedMrcBackground, &options)?;
             let (background_width, background_height) = (background.width(), background.height());
             if !aspect_ratio_matches(
                 input_gray.width(),
@@ -416,50 +610,13 @@ pub(crate) fn run_page(
             "Trusted MRC evidence must provide both background and foreground selection layers",
         )));
     }
-    let create_mixed_layers = final_render
-        && !page.outputs.is_empty()
-        && page.outputs.iter().all(|output| {
-            output.background_output_path.is_some() && output.foreground_mask_output_path.is_some()
-        });
-    let mut result = if let Some(detail_plan) = &page.detail_render_plan {
-        let base_metadata: CleanupMetadata = deserialize_json_file_bounded(
-            &detail_plan.base_metadata_path,
-            MAX_DETAIL_METADATA_BYTES,
-            "detail base metadata",
-        )
-        .map_err(|error| {
-            if error.code == NativeErrorCode::TooLarge {
-                error
-            } else {
-                invalid(format!(
-                    "Invalid detail base metadata {}: {error}",
-                    detail_plan.base_metadata_path.display(),
-                ))
-            }
-        })?;
-        let base_source = raster::read_image(
-            &detail_plan.base_raster_path,
-            options.max_pixels,
-            options.max_dimension,
-        )
-        .map_err(|error| {
-            map_raster_error(error, &detail_plan.base_raster_path, page.source_page_index)
-        })?;
-        let base_cleaned = detail_plan
-            .base_cleaned_raster_path
-            .as_ref()
-            .map(|path| raster::read_image(path, options.max_pixels, options.max_dimension))
-            .transpose()
-            .map_err(|error| {
-                map_raster_error(
-                    error,
-                    detail_plan
-                        .base_cleaned_raster_path
-                        .as_deref()
-                        .expect("base cleaned path exists when decoding succeeds"),
-                    page.source_page_index,
-                )
-            })?;
+    let create_mixed_layers = final_render && layer_destinations;
+    let mut result = if let Some(detail_plan) = detail_render_plan {
+        let DetailSourceRasters {
+            base_metadata,
+            base_source,
+            base_cleaned,
+        } = source.read_detail_sources(detail_plan, &options)?;
         clean_detail_page_with_color_cancellable(
             DetailRenderSources {
                 source_crop: input_gray,
@@ -471,7 +628,7 @@ pub(crate) fn run_page(
                     .map(|cleaned| (&cleaned.gray, Some(&cleaned.rgb))),
             },
             &options,
-            page.source_page_index,
+            source_page_index,
             detail_plan,
             &base_metadata,
             &mut timings,
@@ -486,8 +643,8 @@ pub(crate) fn run_page(
             trusted_foreground_mask.as_ref(),
             trusted_mrc_background.as_ref(),
             &options,
-            page.source_page_index,
-            page.document_prior,
+            source_page_index,
+            document_prior,
             cache,
             create_mixed_layers,
             // A concrete mode may have come from the user's setting or from
@@ -528,7 +685,7 @@ pub(crate) fn run_page(
     }
     let page_metadata = PageResultMetadata {
         version: crate::protocol::manifest_v3::VERSION,
-        source_page_index: page.source_page_index,
+        source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.layout_confidence,
         cutter_x_px: result.cutter_x,
@@ -543,7 +700,7 @@ pub(crate) fn run_page(
         reconciled: result.reconciliation.reconciled,
         cluster_agreement: result.reconciliation.cluster_agreement,
         split_diagnostics: result.split_diagnostics,
-        document_prior: page.document_prior,
+        document_prior,
         text_axis: None,
         recommended_output_mode: result
             .output_mode_recommendation
@@ -586,7 +743,38 @@ pub(crate) fn run_page(
         calibration_stroke_width_px: None,
         calibration_x_height_px: None,
     };
-    let destinations = resolve_destinations(page, result.outputs.len(), fallback_destination)?;
+    Ok(RenderedPage {
+        outputs: result.outputs,
+        classification: result.classification,
+        metadata: page_metadata,
+        options,
+        timings,
+    })
+}
+
+pub(crate) fn run_page(
+    page: &Page,
+    canvas_scope: CanvasScope,
+    final_render: bool,
+    document_canvas: Option<DocumentCanvas>,
+    fallback_destination: Option<(&Path, &Path)>,
+    page_ink_consistency: Option<PageInkConsistencyContext>,
+    cache: &PageCache,
+    is_canceled: &AtomicBool,
+) -> Result<PageRunResult, Box<dyn Error>> {
+    let RenderedPage {
+        mut outputs,
+        classification,
+        metadata: page_metadata,
+        options,
+        mut timings,
+    } = render_page(
+        page,
+        PageRenderRequest::for_page(page, canvas_scope, final_render, page_ink_consistency),
+        cache,
+        is_canceled,
+    )?;
+    let destinations = resolve_destinations(page, outputs.len(), fallback_destination)?;
     let matched_canvas = if final_render && options.match_page_size && !options.ocr_mode {
         let canvas = document_canvas
             .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
@@ -598,8 +786,7 @@ pub(crate) fn run_page(
         None
     };
     let matched_placements = if let Some(canvas) = matched_canvas {
-        let geometry_outputs = result
-            .outputs
+        let geometry_outputs = outputs
             .iter()
             .map(|output| {
                 let mut geometry = geometry_output_from_cleanup_result(output, &options);
@@ -609,7 +796,7 @@ pub(crate) fn run_page(
             .collect::<Vec<_>>();
         plan_canvas_placements(&geometry_outputs, &canvas)
             .into_iter()
-            .zip(&result.outputs)
+            .zip(&outputs)
             .map(|(mut placement, output)| {
                 placement.optical_content_bounds_x = output
                     .metadata
@@ -621,13 +808,12 @@ pub(crate) fn run_page(
             })
             .collect::<Vec<_>>()
     } else {
-        vec![None; result.outputs.len()]
+        vec![None; outputs.len()]
     };
-    let mut written = Vec::with_capacity(result.outputs.len());
+    let mut written = Vec::with_capacity(outputs.len());
     let write_started = Instant::now();
     let publication_result = (|| -> Result<(), Box<dyn Error>> {
-        for ((output, destination), matched_placement) in result
-            .outputs
+        for ((output, destination), matched_placement) in outputs
             .iter_mut()
             .zip(&destinations)
             .zip(matched_placements.into_iter())
@@ -648,7 +834,7 @@ pub(crate) fn run_page(
                 apply_canvas_metadata(&mut output.metadata, placement, &canvas);
                 match_picture_mask_in_memory(output, placement, &canvas);
                 match_tone_preservation_alpha_in_memory(output, placement, &canvas);
-                let spread_mixed = result.classification == LayoutClassification::TwoPageSpread
+                let spread_mixed = classification == LayoutClassification::TwoPageSpread
                     && output.mixed_layers.is_some();
                 if spread_mixed {
                     // The shared spread anchor is native canvas geometry. A
@@ -992,10 +1178,41 @@ pub(crate) fn run_classification(
     cache: &PageCache,
     is_canceled: &AtomicBool,
 ) -> Result<PageRunResult, Box<dyn Error>> {
+    let (metadata, timings) = classify_page(
+        page,
+        &page.options,
+        page.source_page_index,
+        canvas_scope,
+        document_prior,
+        recommend_output_mode,
+        plan_content,
+        cache,
+        is_canceled,
+    )?;
+    Ok(PageRunResult {
+        outputs: Vec::new(),
+        metadata,
+        page_metadata_path: page.page_metadata_path.clone(),
+        timings,
+    })
+}
+
+/// Analyzes one page in memory: its layout, content plan and diagnostics.
+pub(crate) fn classify_page(
+    source: &impl PageRasterSource,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    canvas_scope: CanvasScope,
+    document_prior: Option<crate::split::DocumentPrior>,
+    recommend_output_mode: bool,
+    plan_content: bool,
+    cache: &PageCache,
+    is_canceled: &AtomicBool,
+) -> Result<(PageResultMetadata, PageStageTimings), Box<dyn Error>> {
     if is_canceled.load(Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
     }
-    let options = page.options.clone();
+    let options = options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
@@ -1003,7 +1220,7 @@ pub(crate) fn run_classification(
     // is selected. A concrete final render does not publish or consume those
     // recommendations, so keep that lane grayscale-only.
     let (color_input, gray_input) =
-        decode_page_inputs(page, &options, cache, true, recommend_output_mode)?;
+        decode_page_inputs(source, &options, cache, true, recommend_output_mode)?;
     if is_canceled.load(Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
     }
@@ -1031,7 +1248,7 @@ pub(crate) fn run_classification(
     }
     let page_metadata = PageResultMetadata {
         version: crate::protocol::manifest_v3::VERSION,
-        source_page_index: page.source_page_index,
+        source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.confidence,
         cutter_x_px: result.cutter_x,
@@ -1087,12 +1304,7 @@ pub(crate) fn run_classification(
         calibration_stroke_width_px: result.calibration_stroke_width_px,
         calibration_x_height_px: result.calibration_x_height_px,
     };
-    Ok(PageRunResult {
-        outputs: Vec::new(),
-        metadata: page_metadata,
-        page_metadata_path: page.page_metadata_path.clone(),
-        timings,
-    })
+    Ok((page_metadata, timings))
 }
 
 /// Restates the resolutions an output reports in its placement's units, which

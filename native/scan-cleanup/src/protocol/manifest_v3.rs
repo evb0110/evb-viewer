@@ -742,35 +742,11 @@ impl ManifestV3 {
                     ));
                 }
             }
-            if page.options.max_pixels > crate::DEFAULT_MAX_PIXELS
-                || page.options.max_dimension > crate::DEFAULT_MAX_DIMENSION
-            {
-                return Err(NativeError::new(
-                    NativeErrorCode::TooLarge,
-                    format!(
-                        "Page {} raster guardrails exceed the native admission limits",
-                        page.source_page_index.saturating_add(1),
-                    ),
-                ));
-            }
-            page.options.validate().map_err(|error| {
-                invalid(format!(
-                    "Page {}: {error}",
-                    page.source_page_index.saturating_add(1),
-                ))
-            })?;
-            if page.options.render_crop.is_some()
-                && (self.operation != Operation::Render || self.render_mode != RenderMode::Preview)
-            {
-                return Err(invalid(
-                    "Render crop is supported only by preview render manifests",
-                ));
-            }
-            if page.options.render_crop.is_some() && page.options.match_page_size {
-                return Err(invalid(
-                    "Render crop cannot be combined with matched page-size output",
-                ));
-            }
+            validate_page_options(
+                &page.options,
+                page.source_page_index,
+                self.operation == Operation::Render && self.render_mode == RenderMode::Preview,
+            )?;
             if let Some(detail) = &page.detail_render_plan {
                 if self.operation != Operation::Render || self.render_mode != RenderMode::Preview {
                     return Err(invalid(
@@ -964,6 +940,39 @@ impl ManifestV3 {
 /// Producer-created files can legitimately be absent during shape
 /// validation, so only an existing path is checked here; execution admission
 /// applies the stricter primary-input contract below.
+/// The admission every page's options pass, from a manifest or a browser
+/// engine request: native raster guardrails, the options' own invariants, and
+/// a render crop only where a preview render can honor it.
+pub(crate) fn validate_page_options(
+    options: &CleanupOptions,
+    source_page_index: usize,
+    preview_render: bool,
+) -> Result<(), NativeError> {
+    let page_number = source_page_index.saturating_add(1);
+    if options.max_pixels > crate::DEFAULT_MAX_PIXELS
+        || options.max_dimension > crate::DEFAULT_MAX_DIMENSION
+    {
+        return Err(NativeError::new(
+            NativeErrorCode::TooLarge,
+            format!("Page {page_number} raster guardrails exceed the native admission limits"),
+        ));
+    }
+    options
+        .validate()
+        .map_err(|error| invalid(format!("Page {page_number}: {error}")))?;
+    if options.render_crop.is_some() && !preview_render {
+        return Err(invalid(
+            "Render crop is supported only by preview render manifests",
+        ));
+    }
+    if options.render_crop.is_some() && options.match_page_size {
+        return Err(invalid(
+            "Render crop cannot be combined with matched page-size output",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_existing_regular_path(
     path: &Path,
     page_number: usize,
