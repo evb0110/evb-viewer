@@ -1,3 +1,8 @@
+import {resolveObjectURL} from 'node:buffer';
+import {runInNewContext} from 'node:vm';
+import {
+    DJVU_COMPACT_FOREGROUND_SUBSAMPLE, hasDjvuCompactForegroundColor,
+} from '@contracts/djvuConversionPolicy';
 import {readFileSync} from 'node:fs';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -422,5 +427,115 @@ describe('DjVu document components', () => {
             height: 512,
             dpi: 300,
         })));
+    });
+});
+
+
+describe('DjVu foreground overlap routing', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it('routes two coincident colored blits like the one visible blit', async () => {
+        const urls: string[] = [];
+        const {createDjvuWorker} = await import('@app/platform/browser-api/djvujsLoader');
+        // Run the serialized bootstrap produced for a worker through its public
+        // factory. The library double supplies decoded page data at that seam.
+        const library = {
+            Worker: function (url: string) {
+                urls.push(url);
+            },
+            DjVuScript: function () {
+                class Page {
+                    info = {
+                        width: 24,
+                        height: 24,
+                        dpi: 300,
+                        flags: 0,
+                    };
+                    sjbz = null;
+                    fgbz = null;
+                    fg44 = null;
+                    fgimage = null;
+                    bgimage = null;
+                    init() {}
+                    decode() {}
+                }
+                return {Document: class {async getPage() { return new Page(); }}};
+            },
+        };
+        createDjvuWorker(library as never);
+        const blob = resolveObjectURL(urls[0]!);
+        expect(blob).toBeDefined();
+        const scope = {
+            self: {onmessage: null},
+            TextEncoder,
+        };
+        const decoded = runInNewContext(await blob!.text() + '\nDjVu;', scope);
+        URL.revokeObjectURL(urls[0]!);
+        const page = await new decoded.Document().getPage(1);
+        const bitmap = {
+            width: 24,
+            height: 24,
+            get: () => 1,
+        };
+        let colors = [{
+            r: 120,
+            g: 0,
+            b: 0,
+        }];
+        page.fgbz = {
+            getDataSize: () => colors.length,
+            getPixelByBlitIndex: (index: number) => colors[index],
+        };
+        page.sjbz = {
+            width: 24,
+            height: 24,
+            length: 10000,
+            blitList: [{
+                bitmap,
+                x: 0,
+                y: 0,
+            }],
+        };
+        const one = page.evbGetLayerInfo(DJVU_COMPACT_FOREGROUND_SUBSAMPLE);
+        colors = [
+            colors[0]!,
+            colors[0]!,
+        ];
+        page.sjbz.blitList.push({
+            bitmap,
+            x: 0,
+            y: 0,
+        });
+        const coincident = page.evbGetLayerInfo(DJVU_COMPACT_FOREGROUND_SUBSAMPLE);
+        expect(coincident.foreground).toEqual(one.foreground);
+        expect(hasDjvuCompactForegroundColor(coincident.foreground)).toBe(true);
+        expect(hasDjvuCompactForegroundColor(coincident.foreground))
+            .toBe(hasDjvuCompactForegroundColor(one.foreground));
+
+        // Different colors also use the last blit's color, as DjVu.js renders.
+        colors = [
+            {
+                r: 120,
+                g: 0,
+                b: 0,
+            },
+            {
+                r: 0,
+                g: 80,
+                b: 0,
+            },
+        ];
+        expect(page.evbGetLayerInfo(DJVU_COMPACT_FOREGROUND_SUBSAMPLE).foreground)
+            .toEqual({
+                dominantColor: [
+                    0,
+                    80,
+                    0,
+                ],
+                colorRatio: 1,
+            });
     });
 });
