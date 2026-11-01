@@ -55,6 +55,8 @@ files:
   - "!.devkit"
 
 mac:
+  # Tesseract and the native print helper require macOS 14.
+  minimumSystemVersion: "14.0"
   icon: resources/icon.icns
   artifactName: "EVB-Viewer-${version}-${arch}.${ext}"
   entitlementsInherit: build/entitlements.mac.plist

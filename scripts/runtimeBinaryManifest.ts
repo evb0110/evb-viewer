@@ -9,8 +9,9 @@ const RUNTIME_ASSET_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/d
 
 const RUNTIME_ARCHIVES = {
     'djvulibre-darwin-arm64': {
-        archiveBytes: 1266990,
-        archiveSha256: 'd1d15fb133cc885fb48bb952b42c7f3488cd340a532c595a99a4c7adea92d4d9',
+        releaseName: 'runtime-binaries-v3',
+        archiveBytes: 1174084,
+        archiveSha256: '036e07b7ce8e3da8c69aba2d559bc2daa57059e2287078465dc91a2bac54f8a7',
     },
     'djvulibre-linux-x64': {
         archiveBytes: 1982130,
@@ -35,8 +36,9 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: 'a675b31e4d01a8f25619c4e3f664de049022d4d92c93a9826422ac33209db836',
     },
     'poppler-darwin-arm64': {
-        archiveBytes: 5062527,
-        archiveSha256: '6af16714ed6ff3b81c806c0f225cbb0f27028c4ce9429aecb5985a9d85379304',
+        releaseName: 'runtime-binaries-v3',
+        archiveBytes: 7274975,
+        archiveSha256: 'eea821ec7dabec07f06b45d6836bc5bf6a91cdb58ebc5f170c901e21cf190888',
     },
     'poppler-linux-arm64': {
         releaseName: 'runtime-binaries-v2',
@@ -63,8 +65,9 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '4a34454a29526e77d388a3af26dbaaad3c30569f1edf968b2c3e9ddded7a0a05',
     },
     'qpdf-darwin-arm64': {
-        archiveBytes: 5097153,
-        archiveSha256: '8031fb1f62b159179bc38ba80bc3ee478141d2b511357db63f880c5edab60aa0',
+        releaseName: 'runtime-binaries-v3',
+        archiveBytes: 1269205,
+        archiveSha256: '5c4ea8be8fbb91b182d2315078cca249b34dcbd0cd3313efcc240d44e447a40b',
     },
     'qpdf-linux-x64': {
         releaseName: 'runtime-binaries-v2',
@@ -168,5 +171,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'a42ac03e7c34eae5e859e057d40735a8c150a77c4b56e1bd3514c6d3d86a23f7',
+    manifestSha256: 'b93da3cd47d6c6634715e48cc80fb983f36857aa378fc459a5d0d46b65db7194',
 };

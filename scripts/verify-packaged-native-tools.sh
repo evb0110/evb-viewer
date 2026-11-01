@@ -205,6 +205,35 @@ check_macos_file_arch() {
   esac
 }
 
+check_macos_file_minimum_os() {
+  local file_path="$1"
+  local expected_arch="$2"
+  local minimum_os="$3"
+  if ! file "$file_path" 2>/dev/null | grep -q 'Mach-O'; then
+    return 0
+  fi
+
+  local versions
+  versions="$(xcrun vtool -arch "$expected_arch" -show-build "$file_path" 2>/dev/null | awk '$1 == "minos" {print $2} $1 == "cmd" {legacy = ($2 == "LC_VERSION_MIN_MACOSX")} legacy && $1 == "version" {print $2; legacy = 0}')"
+  if [ -z "$versions" ]; then
+    echo "Error: Unable to determine Mach-O minimum OS for $file_path"
+    return 1
+  fi
+  local version
+  for version in $versions; do
+    if ! awk -v actual="$version" -v floor="$minimum_os" 'BEGIN {
+      split(actual, a, "."); split(floor, b, ".");
+      for (i = 1; i <= 3; i++) {
+        if (a[i]+0 < b[i]+0) exit 0;
+        if (a[i]+0 > b[i]+0) exit 1;
+      }
+    }'; then
+      echo "Error: $file_path requires macOS $version, above app minimum $minimum_os"
+      return 1
+    fi
+  done
+}
+
 is_macos_app_adhoc_signed() {
   local app_path="$1"
   if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
@@ -509,6 +538,12 @@ if [ "$platform" = "mac" ]; then
   fi
 
   expected_macho_arch="$(macos_macho_arch_for_release_arch "$arch")"
+  minimum_macos_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$mac_app_path/Contents/Info.plist")"
+  if ! [[ "$minimum_macos_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "Error: Invalid app LSMinimumSystemVersion: $minimum_macos_version"
+    exit 1
+  fi
+  xcrun --find vtool >/dev/null
   readonly_update_payload=0
   while IFS= read -r payload_path; do
     echo "Error: macOS update payload is not owner-writable; ShipIt cannot remove quarantine metadata: $payload_path"
@@ -520,6 +555,7 @@ if [ "$platform" = "mac" ]; then
 
   unresolved=0
   arch_mismatch=0
+  minimum_os_mismatch=0
   while IFS= read -r file; do
     refs="$(otool -L "$file" 2>/dev/null | grep -E '/opt/homebrew|/usr/local/opt|/usr/local/Cellar' || true)"
     if [ -n "$refs" ]; then
@@ -531,6 +567,9 @@ if [ "$platform" = "mac" ]; then
     if ! check_macos_file_arch "$file" "$expected_macho_arch"; then
       arch_mismatch=1
     fi
+    if ! check_macos_file_minimum_os "$file" "$expected_macho_arch" "$minimum_macos_version"; then
+      minimum_os_mismatch=1
+    fi
   done < <(
     find_tool_files "$platform_arch" "bin"
     find_tool_files "$platform_arch" "lib"
@@ -539,7 +578,7 @@ if [ "$platform" = "mac" ]; then
   if [ "$unresolved" -ne 0 ]; then
     exit 1
   fi
-  if [ "$arch_mismatch" -ne 0 ]; then
+  if [ "$arch_mismatch" -ne 0 ] || [ "$minimum_os_mismatch" -ne 0 ]; then
     exit 1
   fi
 

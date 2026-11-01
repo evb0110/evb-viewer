@@ -10,7 +10,10 @@ esac
 
 output_dir="$project_root/.tmp/pdf-print-dialog/$platform_arch/bin"
 mkdir -p "$output_dir"
+minimum_system_version="$(awk '/^  minimumSystemVersion:/ {gsub(/"/, "", $2); print $2}' "$project_root/electron-builder.yml")"
+[ -n "$minimum_system_version" ] || { echo "Missing macOS minimumSystemVersion" >&2; exit 1; }
 xcrun swiftc \
+  -target "$(uname -m)-apple-macosx$minimum_system_version" \
   -O \
   -framework AppKit \
   -framework PDFKit \

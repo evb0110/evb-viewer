@@ -37,7 +37,7 @@ pack_tree() {
     echo "Error: runtime resource tree is missing: resources/$relative_root" >&2
     exit 1
   fi
-  if [ "$family" != tesseract ] && { [ "$TARGET" = darwin-arm64 ] || { [ "$TARGET" = win32-x64 ] && [ "$family" != djvulibre ]; }; }; then
+  if [ "$TARGET" = win32-x64 ] && { [ "$family" = poppler ] || [ "$family" = qpdf ]; }; then
     local cached_archive
     cached_archive="$(find "$PROJECT_ROOT/.cache/runtime-binaries" -maxdepth 1 -type f \
       -name "$family-$TARGET-*.tar-gz" -print -quit 2>/dev/null || true)"

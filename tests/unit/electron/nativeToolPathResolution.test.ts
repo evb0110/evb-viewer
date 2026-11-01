@@ -93,6 +93,20 @@ describe('PDF native tool path boundary', () => {
         });
     });
 
+    it('resolves packaged macOS Poppler data from Resources beside the executable payload', () => {
+        const paths = resolvePdfNativeToolPaths({
+            exists: () => true,
+            isPackaged: true,
+            nativeToolsBase: '/app/Contents/MacOS/native-tools',
+            resourcesBase: '/app/Contents/Resources',
+            platform: 'darwin',
+            platformArch: 'darwin-arm64',
+        });
+        expect(paths.pdftoppm).toBe(path.join('/app/Contents/MacOS/native-tools/poppler/darwin-arm64/bin/pdftoppm'));
+        expect(paths.popplerDataDir).toBe(path.join('/app/Contents/Resources/poppler/darwin-arm64/share/poppler'));
+        expect(paths.popplerFontConfigDir).toBe(path.join('/app/Contents/Resources/poppler/darwin-arm64/etc/fonts'));
+    });
+
     it('keeps pdfimages and Poppler runtime directories optional', () => {
         expect(resolvePdfNativeToolPaths({
             exists: () => false,

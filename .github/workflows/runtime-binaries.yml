@@ -98,13 +98,13 @@ jobs:
           export TMPDIR="$PWD/.devkit/tmp"
           node --import tsx scripts/fetchRuntimeBinaries.ts --tessdata-only
 
-      - name: Fetch unchanged Darwin runtime families
+      - name: Fetch the pinned macOS 14 Tesseract runtime
         if: matrix.target == 'darwin-arm64'
         shell: bash
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
           node --import tsx scripts/fetchRuntimeBinaries.ts --target darwin-arm64 \
-            --family poppler --family qpdf --family djvulibre
+            --family tesseract
 
       - name: Fetch unchanged Windows x64 runtime families
         if: matrix.target == 'win32-x64'
@@ -161,12 +161,13 @@ jobs:
             "$image" bash scripts/bundle-tools-linux.sh
           sudo chown -R "$(id -u):$(id -g)" resources .devkit/tmp
 
-      - name: Build macOS Tesseract 5.5.3
+      - name: Build macOS PDF and DjVu tools from source
         if: matrix.target == 'darwin-arm64'
         shell: bash
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
-          bash scripts/build-tesseract-macos.sh
+          brew install cmake ninja meson pkgconf gnu-tar
+          bash scripts/build-pdf-tools-macos.sh
 
       - name: Build Windows Tesseract 5.5.3
         if: startsWith(matrix.target, 'win32-')
