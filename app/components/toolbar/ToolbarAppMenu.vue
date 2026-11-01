@@ -259,17 +259,20 @@ const appMenuItems = computed(() => {
         { type: 'separator' },
         createCommandItem('combine-files', t('menu.combineFiles'), 'i-ph-stack-plus'),
         { type: 'separator' },
-        createCommandItem(
-            'export-docx',
-            isExportingDocx ? t('ocr.cancel') : t('menu.exportDocx'),
-            isExportingDocx ? 'i-ph-stop' : getReaderCommandMenuIcon('export-docx'),
-            {
-                disabled: isExportDocxCommandDisabled.value,
-                shortcut: shortcutLabels.value.exportDocx,
-            },
-        ),
-        createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
-        createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
+        // Desktop's File > Export submenu.
+        createSubmenu(t('menu.export'), 'i-ph-export', [
+            createCommandItem(
+                'export-docx',
+                isExportingDocx ? t('ocr.cancel') : t('menu.exportDocx'),
+                isExportingDocx ? 'i-ph-stop' : getReaderCommandMenuIcon('export-docx'),
+                {
+                    disabled: isExportDocxCommandDisabled.value,
+                    shortcut: shortcutLabels.value.exportDocx,
+                },
+            ),
+            createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
+            createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
+        ]),
     ];
 
     if (canUseDjvu && isDjvuMode) {
