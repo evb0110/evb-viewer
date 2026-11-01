@@ -8,6 +8,7 @@ import {
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 import {
     BROWSER_SETTINGS_COOKIE_KEY,
+    expireLegacyBrowserSettingsCookie,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
     readBrowserPerformanceModeSnapshot,
@@ -128,22 +129,22 @@ describe('browserSettingsPersistence performanceMode', () => {
         });
     });
 
-    it('preserves committed storage over a stale legacy cookie', () => {
+    it('reads committed storage over a stale legacy cookie and writes nothing', () => {
+        const storageValue = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            performanceMode: 'medium',
+        });
         const browser = stubBrowserPersistence({
             cookieValue: serializeBrowserSettingsPayload({
                 ...DEFAULT_SETTINGS,
                 performanceMode: 'low',
             }),
-            storageValue: JSON.stringify({
-                ...DEFAULT_SETTINGS,
-                performanceMode: 'medium',
-            }),
+            storageValue,
         });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('medium');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'medium'});
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe(storageValue);
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('does not replace a future storage schema with a legacy cookie', () => {
@@ -194,37 +195,23 @@ describe('browserSettingsPersistence performanceMode', () => {
         });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('high');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'high'});
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe('{}');
+        expect(browser.cookieWrites).toEqual([]);
     });
 
-    it('migrates a legacy full-settings cookie to local storage and expires it', () => {
-        const browser = stubBrowserPersistence({cookieValue: serializeBrowserSettingsPayload({
-            ...DEFAULT_SETTINGS,
-            performanceMode: 'medium',
-        })});
-
-        expect(readBrowserPerformanceModeSnapshot()).toBe('medium');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'medium'});
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
-    });
-
-    it('merges locale and theme cookies before the early performance migration commits', () => {
+    it('reads a legacy full-settings cookie and leaves its migration to the settings capability', () => {
         const browser = stubBrowserPersistence({
-            cookieValue: serializeBrowserSettingsPayload(DEFAULT_SETTINGS),
+            cookieValue: serializeBrowserSettingsPayload({
+                ...DEFAULT_SETTINGS,
+                performanceMode: 'medium',
+            }),
             localeValue: 'ru',
             themeValue: 'dark',
         });
 
-        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({
-                locale: 'ru',
-                theme: 'dark',
-            });
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(readBrowserPerformanceModeSnapshot()).toBe('medium');
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBeUndefined();
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('leaves malformed stored settings for the settings capability to reset and report', () => {
@@ -271,7 +258,7 @@ describe('browserSettingsPersistence performanceMode', () => {
             protocol: 'https:',
         });
 
-        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
+        expireLegacyBrowserSettingsCookie();
         expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry(true)]);
     });
 

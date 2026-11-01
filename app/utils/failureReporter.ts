@@ -22,7 +22,10 @@ import {
 } from '@app/utils/electronPlatformBridge';
 import { safeGetLocalStorageItem } from '@app/utils/localStorage';
 import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
-import { isFutureBrowserSettingsPayload } from '@app/utils/browserSettingsPersistence';
+import {
+    hasFutureLegacyBrowserSettingsCookie,
+    isFutureBrowserSettingsPayload,
+} from '@app/utils/browserSettingsPersistence';
 
 /** A report held back until the user answers the first-error consent prompt. */
 export interface ILiveDiagnosticLease {
@@ -75,7 +78,7 @@ function readStartupPreference(): TClientDiagnosticsPreference {
     }
     const stored = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
     // Consent a newer version stored is not this version's to interpret.
-    if (isFutureBrowserSettingsPayload(stored)) {
+    if (isFutureBrowserSettingsPayload(stored) || hasFutureLegacyBrowserSettingsCookie()) {
         return 'unknown';
     }
     try {

@@ -12,8 +12,6 @@ import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     DEFAULT_SETTINGS,
     migrateSettings,
-    normalizeLocale,
-    normalizeTheme,
     sanitizeSettings,
     type ISettingsRecoveryNotice,
     type TSettingsRecoveryReason,
@@ -35,16 +33,16 @@ import {
 } from '@app/utils/localStorage';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
-    BROWSER_SETTINGS_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
+    hasFutureLegacyBrowserSettingsCookie,
+    readBrowserSettingsCookies,
     assertSupportedBrowserSettingsPayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
     parseBrowserSettingsStoragePayload,
 } from '@app/utils/browserSettingsPersistence';
-import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 import { DOCUMENTS_STORE } from '@app/platform/browser/browserDocumentConstants';
 import { runObjectStoreTransaction } from '@app/platform/browser/browserDocumentIdb';
@@ -90,37 +88,6 @@ function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
     if (!safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))) {
         throw new Error('Failed to persist browser settings to localStorage');
     }
-}
-
-function readBrowserSettingsCookies() {
-    if (typeof document === 'undefined') {
-        return null;
-    }
-
-    const getCookieValue = (key: string) => document.cookie.match(
-        new RegExp(`(?:^|; )${key}=([^;]*)`, 'u'),
-    )?.[1] ?? null;
-    const rawSettingsCookie = getCookieValue(BROWSER_SETTINGS_COOKIE_KEY);
-    const localeCookie = getCookieValue(BROWSER_LOCALE_COOKIE_KEY);
-    const themeCookie = getCookieValue(BROWSER_THEME_COOKIE_KEY);
-    if (rawSettingsCookie === null && localeCookie === null && themeCookie === null) {
-        return null;
-    }
-
-    const fallbackSettings: Partial<ISettingsData> = {};
-    if (localeCookie) {
-        fallbackSettings.locale = normalizeLocale(safeDecodeURIComponent(localeCookie));
-    }
-    if (themeCookie) {
-        fallbackSettings.theme = normalizeTheme(safeDecodeURIComponent(themeCookie));
-    }
-
-    return {
-        fallbackSettings,
-        rawSettings: rawSettingsCookie === null
-            ? null
-            : safeDecodeURIComponent(rawSettingsCookie),
-    };
 }
 
 function recordSettingsRecovery(reason: TSettingsRecoveryReason) {
@@ -341,7 +308,9 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
 function refreshSharedSettings() {
     const previousPreference = settingsState.clientDiagnosticsPreference;
     try {
-        const shared = readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
+        const shared = hasFutureLegacyBrowserSettingsCookie()
+            ? null
+            : readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
         settingsState = applyDiagnosticsPreferenceOverride(shared ?? { ...DEFAULT_SETTINGS });
     } catch {
         // A cleared, unreadable or unsupported shared preference grants nothing.
