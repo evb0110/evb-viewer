@@ -56,33 +56,25 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
             vi.unstubAllGlobals();
         });
 
-        it('offers the eight browser languages, each still to download', async () => {
+        it('offers every desktop language, each still to download', async () => {
             const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
+            const { AVAILABLE_OCR_LANGUAGES } = await import('@contracts/ocrLanguages');
 
             const languages = await browserOcrCapability.getLanguages();
-            expect(languages.map(language => language.code).sort())
-                .toEqual([
-                    'deu',
-                    'eng',
-                    'fra',
-                    'ita',
-                    'nld',
-                    'por',
-                    'rus',
-                    'spa',
-                ]);
+            expect(languages.map(language => language.code))
+                .toEqual(AVAILABLE_OCR_LANGUAGES.map(language => language.code));
             expect(new Set(languages.map(language => language.modelState))).toEqual(new Set(['missing']));
         });
 
-        it('refuses a language only the desktop app recognizes', async () => {
+        it('refuses a language outside the registry', async () => {
             const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
 
             await expect(browserOcrCapability.createSearchablePdf(requireDocumentRef('browser://documents/a/in.pdf'), [{
                 pageNumber: requirePageNumber(1),
-                languages: ['lat'],
+                languages: ['xyz'],
             }], requireRequestId('request-3'))).resolves.toMatchObject({
                 started: false,
-                error: expect.stringContaining('lat needs the desktop app'),
+                error: 'Unsupported OCR language: xyz',
                 errorEnvelope: {code: 'OCR_INVALID_PAYLOAD'},
             });
         });

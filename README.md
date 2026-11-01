@@ -24,10 +24,9 @@ extract pages, and export the result. The document is opened by the page itself
 and never uploaded, and the page operations run the same Rust code as the
 desktop app, compiled to WebAssembly.
 
-OCR runs in the browser too, for documents up to 16 MB in eight European
-languages. The rest of the heavy work stays on the desktop: larger OCR jobs and
-the other languages, scan cleanup, the assistant, and jobs larger than a
-browser tab's memory need the installed app.
+OCR runs in the browser too, in every language the desktop app reads. The rest
+of the heavy work stays on the desktop: scan cleanup, the assistant, and jobs
+larger than a browser tab's memory need the installed app.
 
 ## Install
 

@@ -96,17 +96,15 @@ The browser workspace recognizes text with the same Tesseract version, models
 and settings as the desktop app, running inside the page; the document never
 leaves the device. Its differences:
 
-- Languages: English, Russian, French, German, Portuguese (including
-  Brazilian), Spanish, Dutch and Italian. Other languages need the desktop app.
-- Each language model (4 to 15 MB) downloads from GitHub's copy of the
-  upstream models the first time it is used, which tells GitHub which language
-  was chosen, and stays in the browser's storage afterwards.
+- Languages: every language listed above, as in the desktop app.
+- Each language model (4 to 15 MB; Latin's is 101 MB) downloads from GitHub's
+  copy of the upstream models the first time it is used, which tells GitHub
+  which language was chosen, and stays in the browser's storage afterwards.
 - Documents up to 16 MB. Larger documents need the desktop app for now.
 - No image cleanup: Poor scan uses its recognition setting on the page as
   scanned, and inverted (light on dark) pages are not straightened out first.
-- Early-print reading (ſ, æ, œ) works as in the desktop app for the browser
-  languages; its two extra models (about 14 MB) download the first time a page
-  needs them. Latin text needs the desktop app.
+- Early-print reading (ſ, æ, œ) works as in the desktop app; its three extra
+  models (about 24 MB) download the first time a page needs them.
 - The browser draws the page with a different renderer than the desktop app,
   so on difficult scans a few words can come out differently.
 - The browser needs WebAssembly SIMD (Chrome 91, Firefox 89, Safari 16.4 or

@@ -29,15 +29,14 @@ import {
 } from '@contracts/browserPageOpsWorker';
 import {
     canReadEarlyPrint,
-    createEarlyPrintDictionary,
     hasLongSSignature,
     planEarlyPrintWordEdits,
+    readEarlyPrintDictionary,
 } from '@ocr-core/earlyPrintReading';
 import {
     hocrWordText,
     readHocrLines,
 } from '@ocr-core/hocrReading';
-import {readTraineddataWordList} from '@ocr-core/readTraineddataWordList';
 import type {IOcrWordEdit} from '@ocr-core/types';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
@@ -49,7 +48,9 @@ import type {
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
 import {
-    OCR_LANGUAGE_MODEL_BYTES, type TOcrModelCode,
+    EARLY_PRINT_MODEL_CODES,
+    OCR_LANGUAGE_MODEL_BYTES,
+    type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
@@ -119,15 +120,6 @@ function decodeBoundedText(bytes: Uint8Array | undefined, maxBytes: number, labe
         throw new Error(`Tesseract ${label} output is missing or exceeds its limit`);
     }
     return new TextDecoder().decode(bytes);
-}
-
-/**
- * The early-print dictionary of the selected languages, built from their own
- * models' word lists as desktop builds it (Latin is not a browser language).
- */
-async function loadEarlyPrintDictionary(languages: readonly string[]) {
-    const lists = await Promise.all([...new Set(languages)].map(async code => readTraineddataWordList(await readCachedOcrModel(code as TOcrModelCode))));
-    return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), false);
 }
 
 /** A failure the workspace explains in the user's language, by its code. */
@@ -335,10 +327,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
          */
         const readEarlyPrint = async (page: IPdfPage, dpi: number, languages: readonly string[]) => {
             earlyPrintModels ??= (async () => {
-                for (const code of [
-                    'ita_old',
-                    'fra',
-                ] as const) {
+                for (const code of EARLY_PRINT_MODEL_CODES) {
                     await ensureBrowserOcrModel(code, {signal});
                 }
             })();
@@ -346,7 +335,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             const dictionaryKey = [...languages].sort().join('+');
             let dictionary = dictionaries.get(dictionaryKey);
             if (!dictionary) {
-                dictionary = loadEarlyPrintDictionary(languages);
+                dictionary = readEarlyPrintDictionary(languages, readCachedOcrModel);
                 // Awaited after the engine runs; an early rejection is not an unhandled one.
                 dictionary.catch(() => {});
                 dictionaries.set(dictionaryKey, dictionary);
@@ -392,7 +381,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 base: baseLines,
                 longS: readHocrLines(decodeBoundedText(longS!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
                 ligatures: readHocrLines(decodeBoundedText(ligatures!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
-            }, await dictionary, {latin: false});
+            }, await dictionary, {latin: languages.includes('lat')});
             parseTsvOcrData(rereadTsv, {}, wordEdits);
             return {
                 pdf: requireTesseractPdf(pdf),

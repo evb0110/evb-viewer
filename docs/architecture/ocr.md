@@ -42,8 +42,7 @@ worker inside Tesseract cannot read messages. Models download from the pinned
 tessdata_best revision on GitHub into Cache Storage, are checked against the
 registry digests on arrival and when a worker loads them, and one download
 serves every caller in the tab and across tabs (`browserOcrModels.ts`). The
-browser offers English, Russian, French, German, Portuguese, Spanish, Dutch and
-Italian (`BROWSER_OCR_LANGUAGE_CODES`).
+browser offers every language in the registry, as desktop does.
 
 Page selection uses the shared `selectOcrPagesByExistingText` with the page-ops
 WASM visibility report and PDF.js text. The page-ops WASM `ocrTextLayer`
@@ -52,8 +51,9 @@ the appended revision. The result is staged as a receipt bound to its job,
 document and revision; applying it (`replaceWorkingCopyFromPath`) verifies the
 digest and commits only while both revisions still match. Early print reads
 as on desktop: a page with the long-s signature runs the selected models,
-`ita_old` and `fra` in one engine request on a fresh raster, and the planned
-word edits travel with the page to the writer. Scan cleanup is not in the
+`ita_old` and `fra` in one engine request on a fresh raster, with the same
+dictionary (`readEarlyPrintDictionary`), and the planned word edits travel with
+the page to the writer. Scan cleanup is not in the
 browser. OCR admission uses the PDF writer's request budget, including the
 recognized page layers; it does not reuse the generic editing byte limit.
 

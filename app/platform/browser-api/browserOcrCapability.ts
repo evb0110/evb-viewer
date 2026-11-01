@@ -12,7 +12,7 @@ import type {
 import type {IOcrCapability} from '@contracts/ocrPlatformFeature';
 import {
     AVAILABLE_OCR_LANGUAGES,
-    BROWSER_OCR_LANGUAGE_CODES,
+    isAvailableOcrLanguageCode,
     type IOcrLanguage,
 } from '@contracts/ocrLanguages';
 import {
@@ -83,7 +83,6 @@ const WASM_SIMD_PROBE = new Uint8Array([
     98,
     11,
 ]);
-const BROWSER_OCR_LANGUAGE_SET = new Set<string>(BROWSER_OCR_LANGUAGE_CODES);
 
 type TProgressListener = (progress: IOcrProgress) => void;
 type TCompleteListener = (result: IOcrCompleteResult) => void;
@@ -160,10 +159,8 @@ function findLanguageProblem(pages: readonly IOcrSearchablePdfPage[]) {
     const languages = new Set(pages.flatMap(page => page.languages));
     if (pages.some(page => page.languages.length === 0)) return 'Choose a language to recognize.';
     if (languages.size > 1) return 'OCR recognition accepts one language per request';
-    const unsupported = [...languages].filter(code => !BROWSER_OCR_LANGUAGE_SET.has(code));
-    return unsupported.length > 0
-        ? `The browser recognizes ${BROWSER_OCR_LANGUAGE_CODES.join(', ')}; ${unsupported.join(', ')} needs the desktop app.`
-        : null;
+    const unsupported = [...languages].find(code => !isAvailableOcrLanguageCode(code));
+    return unsupported === undefined ? null : `Unsupported OCR language: ${unsupported}`;
 }
 
 async function stageResult(requestId: TRequestId, sourceRef: TDocumentRef, sourceRevisionToken: TDocumentRevisionToken, data: Uint8Array) {
@@ -348,7 +345,6 @@ export const browserOcrCapability: IOcrCapability = {
     async getLanguages() {
         if (findUnsupportedReason() !== null) return [];
         return Promise.all(AVAILABLE_OCR_LANGUAGES
-            .filter(language => BROWSER_OCR_LANGUAGE_SET.has(language.code))
             .map(async (language): Promise<IOcrLanguage> => ({
                 code: language.code,
                 script: language.script,

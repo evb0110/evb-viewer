@@ -11,11 +11,10 @@ import type { IOcrFileResult } from '@electron/features/ocr/pipeline/types';
 import type { IOcrWordEdit } from '@ocr-core/types';
 import {
     canReadEarlyPrint,
-    createEarlyPrintDictionary,
     hasLongSSignature,
     planEarlyPrintWordEdits,
+    readEarlyPrintDictionary,
 } from '@ocr-core/earlyPrintReading';
-import { readTraineddataWordList } from '@ocr-core/readTraineddataWordList';
 import {
     hocrWordText,
     readHocrLines,
@@ -155,21 +154,13 @@ async function runTesseract(
 const dictionaries = new Map<string, Promise<ReadonlySet<string>>>();
 const MAX_CACHED_DICTIONARIES = 2;
 
-/**
- * The early-print dictionary of the selected languages: the union of their
- * word lists, loaded once per set of languages. Latin keeps its language
- * dictionary: script/Latin's multilingual DAWG exceeds the bounded reader
- * and includes words from languages the user did not select.
- */
+/** The early-print dictionary of the selected languages, loaded once per set of languages. */
 function loadEarlyPrintDictionary(tessdataPath: string, languages: readonly string[]) {
     const codes = [...new Set(languages)].sort();
     const key = `${tessdataPath}\0${codes.join('+')}`;
     let dictionary = dictionaries.get(key);
     if (!dictionary) {
-        dictionary = (async () => {
-            const lists = await Promise.all(codes.map(async code => readTraineddataWordList(await readFile(join(tessdataPath, `${code === 'lat' ? 'lat_dictionary' : code}.traineddata`)))));
-            return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), codes.includes('lat'));
-        })();
+        dictionary = readEarlyPrintDictionary(codes, code => readFile(join(tessdataPath, `${code}.traineddata`)));
         dictionary.catch(() => dictionaries.delete(key));
         dictionaries.set(key, dictionary);
         while (dictionaries.size > MAX_CACHED_DICTIONARIES) dictionaries.delete(dictionaries.keys().next().value!);
