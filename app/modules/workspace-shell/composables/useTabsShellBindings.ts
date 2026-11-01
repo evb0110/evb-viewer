@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TPaneDirection } from '@contracts/editorPanes';
+import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
@@ -303,8 +304,13 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         const action = mod && !event.shiftKey
             ? RENDERER_MENU_SHORTCUT_ACTIONS[event.key.toLowerCase()] ?? null
             : null;
-        // Like desktop's disabled New Pane Right, nothing happens when the pane cannot split.
-        return action === 'new-pane-right' && !options.canOpenNewPane('right') ? null : action;
+        if (action !== 'new-pane-right') {
+            return action;
+        }
+        // Desktop's CmdOrCtrl+\ is Command on macOS, and like its disabled New Pane
+        // Right, nothing happens when the pane cannot split.
+        const commandKey = isMacClientPlatform() ? event.metaKey : event.ctrlKey;
+        return commandKey && options.canOpenNewPane('right') ? action : null;
     }
 
     function isEditableShortcutTarget(target: EventTarget | null) {
