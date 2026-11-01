@@ -139,6 +139,10 @@ describe('afterPack extraResources preflight', () => {
             expect(await readFile(path.join(source, 'share/poppler/cMap/example'), 'utf8')).toBe('fixture');
             await expect(stat(path.join(destination, 'etc'))).rejects.toMatchObject({code: 'ENOENT'});
             await expect(stat(path.join(source, 'bin'))).rejects.toMatchObject({code: 'ENOENT'});
+            // A second pass over the packed app keeps the moved code.
+            moveMacNativeToolResources(context);
+            expect(await readFile(path.join(destination, 'bin/pdftoppm'), 'utf8')).toBe('fixture');
+            expect(await readFile(path.join(source, 'share/poppler/cMap/example'), 'utf8')).toBe('fixture');
         } finally {
             await rm(root, {
                 recursive: true,

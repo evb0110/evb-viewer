@@ -293,22 +293,23 @@ function moveMacNativeToolResources(context) {
             continue;
         }
 
+        // Only code belongs below Contents/MacOS. Fontconfig and Poppler's
+        // CMaps stay in Resources so codesign seals them as data.
+        const codeDirectories = [
+            'bin',
+            'lib',
+        ].filter(directory => fs.existsSync(path.join(src, directory)));
+        if (codeDirectories.length === 0) {
+            continue;
+        }
         const dst = path.join(nativeToolsDir, ...family.stagedRootSegments, tag);
         fs.rmSync(dst, {
             force: true,
             recursive: true,
         });
         fs.mkdirSync(dst, {recursive: true});
-        // Only code belongs below Contents/MacOS. Fontconfig and Poppler's
-        // CMaps stay in Resources so codesign seals them as data.
-        for (const directory of [
-            'bin',
-            'lib',
-        ]) {
-            const codePath = path.join(src, directory);
-            if (fs.existsSync(codePath)) {
-                fs.renameSync(codePath, path.join(dst, directory));
-            }
+        for (const directory of codeDirectories) {
+            fs.renameSync(path.join(src, directory), path.join(dst, directory));
         }
         removeEmptyDir(src);
         removeEmptyDir(path.dirname(src));
