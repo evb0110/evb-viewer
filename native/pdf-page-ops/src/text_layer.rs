@@ -1547,12 +1547,11 @@ pub(crate) fn text_operations(
                     } else {
                         None
                     };
-                    let measured_tj = operation.operands.len() == 1
-                        && operation.operands[0]
-                            .as_array()
-                            .is_ok_and(|values| values.len() == 1);
-                    if operation.operator == "TJ" && !measured_tj {
-                        // An unmeasured TJ array leaves the text position unknown.
+                    if operation.operator == "TJ"
+                        && !matches!(operation.operands.as_slice(),
+                            [Object::Array(values)] if matches!(values.as_slice(), [Object::String(..)]))
+                    {
+                        // An unmeasured TJ leaves the position unknown.
                         text.text_matrix = None;
                     }
                     if let Some(repaired) = repaired {
