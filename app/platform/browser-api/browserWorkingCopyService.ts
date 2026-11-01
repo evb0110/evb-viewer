@@ -123,8 +123,10 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
  * refuses the open.
  */
 async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, fileName: string) {
-    // A larger base cannot reach the page tool, which writes every edit.
-    if ((await browserDocumentStore.stat(workingPath)).size > BROWSER_QPDF_MAX_INPUT_BYTES) {
+    // A larger base cannot reach the page tool, which writes every edit; an
+    // empty file is refused later as an empty PDF.
+    const {size} = await browserDocumentStore.stat(workingPath);
+    if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) {
         return;
     }
     const revision = await browserDocumentStore.getDocumentRevision(workingPath);

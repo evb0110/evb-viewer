@@ -5,6 +5,7 @@ import {
     BROWSER_QPDF_ENGINE_ERROR_CODES,
     BROWSER_QPDF_ENGINE_REVISION,
     BROWSER_QPDF_MAX_DIAGNOSTIC_CHARACTERS,
+    BROWSER_QPDF_MAX_INPUT_BYTES,
     parseBrowserQpdfEngineRequest,
     type IBrowserQpdfNormalizeResult,
     type IBrowserQpdfRunResult,
@@ -23,14 +24,23 @@ import {getErrorMessage} from '@app/utils/error';
 declare const self: DedicatedWorkerGlobalScope;
 
 /** The part of the Emscripten module a command uses (`scripts/build-qpdf-wasm.sh`). */
+interface IQpdfFileStream {
+    path: string;
+    position: number;
+}
+
 interface IQpdfModule {
     callMain(args: string[]): number;
     FS: {
         mkdirTree(path: string): void;
         writeFile(path: string, data: Uint8Array, options?: {canOwn: boolean}): void;
         readFile(path: string): Uint8Array;
+        write(stream: IQpdfFileStream, buffer: Uint8Array, offset: number, length: number, position?: number, canOwn?: boolean): number;
     };
 }
+
+/** An output larger than the engine accepts as input; it could not be opened or edited next. */
+class OutputBudgetError extends Error {}
 
 type TQpdfModuleFactory = (options: {
     instantiateWasm: (
@@ -139,7 +149,28 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array): Promise
     }
     instance.FS.mkdirTree('/work');
     instance.FS.writeFile(INPUT_PATH, input, {canOwn: true});
-    const exitCode = instance.callMain(COMMAND_ARGS[command]());
+    // The file system grows JavaScript buffers outside Wasm memory, so the
+    // output is bounded as it is written, before it can be allocated.
+    const write = instance.FS.write.bind(instance.FS);
+    instance.FS.write = (stream, buffer, offset, length, position, canOwn) => {
+        if (stream.path === OUTPUT_PATH && (position ?? stream.position) + length > BROWSER_QPDF_MAX_INPUT_BYTES) {
+            throw new OutputBudgetError(`qpdf output exceeds ${BROWSER_QPDF_MAX_INPUT_BYTES} bytes`);
+        }
+        return write(stream, buffer, offset, length, position, canOwn);
+    };
+    let exitCode: number;
+    try {
+        exitCode = instance.callMain(COMMAND_ARGS[command]());
+    } catch (error) {
+        if (!(error instanceof OutputBudgetError)) throw error;
+        // Reported as qpdf's own failure exit, so callers refuse the rewrite.
+        return {
+            exitCode: 2,
+            stdout: log.stdout,
+            stderr: appendBounded(log.stderr, error.message),
+            output: null,
+        };
+    }
     const output = WRITING_COMMANDS.has(command) && isQpdfSuccessExitCode(exitCode)
         ? instance.FS.readFile(OUTPUT_PATH)
         : null;
