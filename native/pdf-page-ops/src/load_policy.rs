@@ -52,6 +52,11 @@ static ACTIVE_STREAM_LIMIT: AtomicUsize = AtomicUsize::new(MAX_DECOMPRESSED_PDF_
 static OBJECT_STREAM_LIMIT_HIT: AtomicBool = AtomicBool::new(false);
 
 impl PdfLoadPolicy {
+    /// The largest encoded file this policy's reader loads eagerly.
+    pub(crate) fn max_encoded_bytes(self) -> usize {
+        self.max_encoded_bytes
+    }
+
     fn lopdf_options(self) -> LoadOptions {
         let mut options =
             LoadOptions::with_max_decompressed_size(self.max_decompressed_stream_bytes);
@@ -220,7 +225,7 @@ pub(crate) fn load_pdf_bytes_bounded(bytes: &[u8], password: Option<&str>) -> Re
 /// loads its input eagerly from one request buffer. Admit what that buffer can
 /// carry, and the pages desktop admits through its path loads.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-const BROWSER_PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+pub(crate) const BROWSER_PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_encoded_bytes: PAGE_OP_WASM_MAX_BUFFER_BYTES,
     ..PDF_PATH_LOAD_POLICY
 };

@@ -102,7 +102,7 @@ fn classify_refusal(error: Box<dyn Error>) -> Result<AppendAdmission> {
 pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<AppendAdmission> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     let file_len = file.metadata().map_err(io_domain_error)?.len();
-    append_admission_from(&mut file, file_len, || {
+    append_admission_from(&mut file, file_len, PDF_PATH_LOAD_POLICY, || {
         let qpdf_path = qpdf_path.ok_or_else(large_base_needs_qpdf)?;
         let temp = TempQpdfFiles::create()?;
         match run_qpdf_bounded(
@@ -119,14 +119,20 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
 }
 
 /// The same admission for a PDF held in memory, as the browser holds its
-/// working copies. A base above the eager-load ceiling needs the qpdf page-tree
-/// read, which has no bundled library here, so it is refused as a request.
+/// working copies. The browser loads every base eagerly from one request
+/// buffer, so it judges against that reader's policy: only a base its buffer
+/// cannot carry is refused, as the engine limit it is.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn append_admission_of_bytes(bytes: &[u8]) -> Result<AppendAdmission> {
     append_admission_from(
         &mut std::io::Cursor::new(bytes),
         u64::try_from(bytes.len())?,
-        || Err(large_base_needs_qpdf()),
+        BROWSER_PDF_LOAD_POLICY,
+        || {
+            Ok(AppendAdmission::Limited(
+                "PDF exceeds the browser engine's request buffer".to_string(),
+            ))
+        },
     )
 }
 
@@ -140,6 +146,7 @@ fn large_base_needs_qpdf() -> Box<dyn Error> {
 fn append_admission_from(
     file: &mut (impl Read + Seek),
     file_len: u64,
+    policy: PdfLoadPolicy,
     large_base: impl FnOnce() -> Result<AppendAdmission>,
 ) -> Result<AppendAdmission> {
     let (tail_start, tail) = read_tail(file, file_len).map_err(io_domain_error)?;
@@ -147,7 +154,7 @@ fn append_admission_from(
         Ok(terminal) => terminal,
         Err(refusal) => return Ok(AppendAdmission::Repairable(refusal.to_string())),
     };
-    if file_len > MAX_ENCODED_PDF_BYTES as u64 {
+    if file_len > policy.max_encoded_bytes() as u64 {
         return large_base();
     }
     if !lopdf_reads_header(file)? {
@@ -163,16 +170,11 @@ fn append_admission_from(
     }
     let input_len = usize::try_from(file_len)?;
     let root = usize::try_from(terminal.offset)?;
-    match check_xref_chain(
-        root,
-        input_len,
-        PDF_PATH_LOAD_POLICY,
-        |offset, window_len| {
-            let window = read_window(file, offset, window_len.min(input_len - offset))?;
-            let truncated = offset + window.len() < input_len;
-            Ok((std::borrow::Cow::Owned(window), truncated))
-        },
-    ) {
+    match check_xref_chain(root, input_len, policy, |offset, window_len| {
+        let window = read_window(file, offset, window_len.min(input_len - offset))?;
+        let truncated = offset + window.len() < input_len;
+        Ok((std::borrow::Cow::Owned(window), truncated))
+    }) {
         Ok(_) => Ok(AppendAdmission::Appendable),
         Err(error) => classify_refusal(error),
     }
