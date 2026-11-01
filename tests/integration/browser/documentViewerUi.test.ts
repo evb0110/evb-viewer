@@ -7,14 +7,14 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFStream, PDFString, PDFHexString, StandardFonts, rgb,
+    PDFDocument, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, PDFStream, PDFString, PDFHexString, StandardFonts, rgb,
 } from 'pdf-lib';
 import {
     describe, expect, it,
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -1809,6 +1809,94 @@ describe('browser document lifecycle UI', () => {
             await context.close();
         }
     }, 300_000);
+
+    it('keeps the DjVu outline in a compact PDF at source detail', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-compact-outline-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        try {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            // Three 96x96 pages; the outline names pages by component id and by number.
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bookmark-component-ids.djvu'));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            const dialog = page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const convertButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await expect.poll(() => convertButton.isEnabled(), {timeout: 60_000}).toBe(true);
+            // The recommended method is the compact one; bookmarks are kept by default.
+            expect(await dialog.getByRole('checkbox', {name: 'Preserve bookmarks'}).isChecked()).toBe(true);
+            await convertButton.click();
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            const pdfRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                return api?.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath ?? null;
+            });
+            expect(pdfRef).toMatch(/\.pdf$/u);
+            const bytes = Uint8Array.from(await readPersistedDocumentBytes(page, pdfRef!));
+            writeFileSync(resolve(evidenceDir, 'compact.pdf'), bytes);
+            const pdf = await PDFDocument.load(bytes, {updateMetadata: false});
+            const pageRefs = pdf.getPages().map(pdfPage => pdfPage.ref.toString());
+            const outline: string[] = [];
+            let node = pdf.context.lookup(pdf.context.lookup(pdf.catalog.get(PDFName.of('Outlines')), PDFDict).get(PDFName.of('First')));
+            while (node instanceof PDFDict) {
+                const title = node.get(PDFName.of('Title'));
+                const destination = node.get(PDFName.of('Dest'));
+                const target = destination instanceof PDFArray ? destination.get(0) : null;
+                outline.push(`${title instanceof PDFHexString || title instanceof PDFString ? title.decodeText() : ''} -> ${target instanceof PDFRef ? pageRefs.indexOf(target.toString()) + 1 : 0}`);
+                node = pdf.context.lookup(node.get(PDFName.of('Next')));
+            }
+            expect(outline).toEqual([
+                'Page one -> 1',
+                'Page two component target -> 2',
+                'Page three numeric control -> 3',
+            ]);
+            // Source detail: each page keeps its 96 pixels across.
+            const imageWidths = [...pdf.context.enumerateIndirectObjects()]
+                .map(([
+                    , object,
+                ]) => object)
+                .filter((object): object is PDFRawStream => object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype'))?.toString() === '/Image')
+                .map(image => image.dict.get(PDFName.of('Width'))?.toString());
+            expect(imageWidths).toEqual([
+                '96',
+                '96',
+                '96',
+            ]);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 240_000);
 
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         try {

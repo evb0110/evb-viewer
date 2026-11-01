@@ -237,19 +237,6 @@ describe('browserDjvuConversionPipeline', () => {
         });
     });
 
-    it('uses the bookmark-capable streaming path when compact export must preserve bookmarks', () => {
-        expect(resolveBrowserDjvuCompactExportPlan([{
-            width: 100,
-            height: 100,
-            dpi: 300,
-        }], 40_000, true)).toEqual({
-            strategy: 'direct-fallback',
-            estimatedPageSpecBytes: 30_256,
-            maxPageSpecBytes: 40_000,
-            fallbackReason: 'bookmarks',
-        });
-    });
-
     it('reports text that only an unsampled middle page carries', async () => {
         // First, middle and last pages of five are 1, 3 and 5; only page 2 has text.
         const pageTexts = [

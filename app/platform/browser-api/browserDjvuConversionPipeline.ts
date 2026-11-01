@@ -49,6 +49,9 @@ import {
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import { toPdfDateString } from '@app/utils/pdfDate';
 import { toOwnedArrayBuffer } from '@app/platform/browser-api/browserDjvuCanvas';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
@@ -245,7 +248,7 @@ export interface IBrowserDjvuCompactExportPlan {
     strategy: 'compact-djvu-aware' | 'direct-fallback';
     estimatedPageSpecBytes: number;
     maxPageSpecBytes: number;
-    fallbackReason?: 'bookmarks' | 'memory-budget';
+    fallbackReason?: 'memory-budget';
 }
 
 function estimatePageSpecBytes(pageSizes: readonly IDjvuPageMetrics[]) {
@@ -262,14 +265,11 @@ function estimatePageSpecBytes(pageSizes: readonly IDjvuPageMetrics[]) {
 export function resolveBrowserDjvuCompactExportPlan(
     pageSizes: readonly IDjvuPageMetrics[],
     maxPageSpecBytes = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-    preserveBookmarks = false,
 ): IBrowserDjvuCompactExportPlan {
     const estimatedPageSpecBytes = estimatePageSpecBytes(pageSizes);
-    const fallbackReason = preserveBookmarks
-        ? 'bookmarks'
-        : estimatedPageSpecBytes > maxPageSpecBytes
-            ? 'memory-budget'
-            : undefined;
+    const fallbackReason = estimatedPageSpecBytes > maxPageSpecBytes
+        ? 'memory-budget'
+        : undefined;
     return {
         strategy: fallbackReason ? 'direct-fallback' : 'compact-djvu-aware',
         estimatedPageSpecBytes,
@@ -546,6 +546,34 @@ async function mapDjvuContentsToPdfBookmarks(
     return bookmarks;
 }
 
+/**
+ * Adds the outline to a PDF written without one, through the page-ops
+ * catalog writer desktop uses for the same job (save-mutations, appended).
+ */
+async function embedBrowserPdfBookmarks(
+    data: Uint8Array,
+    pageCount: number,
+    bookmarks: IPdfBookmarkEntry[],
+    signal?: AbortSignal,
+) {
+    if (bookmarks.length === 0) {
+        return data;
+    }
+    const result = await runBrowserPageOpsWorkerRequest('saveMutations', {
+        data,
+        mutations: {bookmarks: {
+            totalPages: pageCount,
+            untitledLabel: 'Untitled',
+            items: bookmarks,
+        }},
+        modifiedAt: toPdfDateString(),
+    }, signal ? {signal} : {});
+    if (isBrowserPageOpsWasmFailure(result)) {
+        throw new Error(`Browser DjVu bookmark embedding failed: ${result.error.message}`);
+    }
+    return result.data;
+}
+
 async function createPdfRenderWorkers(options: {
     worker: IDjvuWorker;
     renderConcurrency: number;
@@ -736,9 +764,11 @@ async function writePdfBytesToOutput(
 async function buildCompactPhotoPdfWithWasm(options: {
     worker: IDjvuWorker;
     pageSizes: IDjvuPageMetrics[];
+    preserveBookmarks: boolean;
     outputPath: TDocumentRef;
     signal?: AbortSignal;
     onPageProcessed?: (processed: number, total: number) => void;
+    onBookmarksStart?: () => void;
 }) {
     // The bundled djvu.js wrapper does not expose stable raw Sjbz/BG44/FG44 layer buffers.
     // Keep web compact export bounded by rendering capped photo-style PPM pages and letting
@@ -776,7 +806,17 @@ async function buildCompactPhotoPdfWithWasm(options: {
             wasmImagePreprocessing: {pageSpecs},
         }, options.signal);
         throwIfCanceled(options.signal);
-        return await writePdfBytesToOutput(options.outputPath, data, options.signal);
+        let output = data;
+        if (options.preserveBookmarks) {
+            const contents = await options.worker.doc.getContents().run().catch(() => null);
+            const bookmarks = await mapDjvuContentsToPdfBookmarks(options.worker, contents, options.signal);
+            if (bookmarks.length > 0) {
+                options.onBookmarksStart?.();
+                output = await embedBrowserPdfBookmarks(data, pageCount, bookmarks, options.signal);
+                throwIfCanceled(options.signal);
+            }
+        }
+        return await writePdfBytesToOutput(options.outputPath, output, options.signal);
     } catch (error) {
         const message = getErrorMessage(error);
         const isUnsupported = message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT';
@@ -980,16 +1020,10 @@ export async function runBrowserDjvuConversion(
             renderConcurrency,
         });
         const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
-            ? resolveBrowserDjvuCompactExportPlan(
-                pageSizes,
-                BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-                options.preserveBookmarks !== false,
-            )
+            ? resolveBrowserDjvuCompactExportPlan(pageSizes, BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES)
             : null;
         if (compactExportPlan?.strategy === 'direct-fallback') {
-            BrowserLogger.info('djvu-browser', compactExportPlan.fallbackReason === 'bookmarks'
-                ? 'Browser compact DjVu export cannot preserve bookmarks; using streaming direct export'
-                : 'Browser compact DjVu export exceeds in-memory WASM budget; using streaming direct export', {
+            BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds the WASM request boundary; using streaming direct export', {
                 jobId,
                 fallbackReason: compactExportPlan.fallbackReason,
                 estimatedPageSpecBytes: compactExportPlan.estimatedPageSpecBytes,
@@ -1009,6 +1043,7 @@ export async function runBrowserDjvuConversion(
             ? await buildCompactPhotoPdfWithWasm({
                 worker,
                 pageSizes,
+                preserveBookmarks: options.preserveBookmarks !== false,
                 outputPath,
                 signal: abortController.signal,
                 onPageProcessed: (processed, total) => {
@@ -1016,6 +1051,13 @@ export async function runBrowserDjvuConversion(
                         jobId,
                         phase: 'converting',
                         percent: Math.round((processed / total) * 90),
+                    });
+                },
+                onBookmarksStart: () => {
+                    emitProgress({
+                        jobId,
+                        phase: 'bookmarks',
+                        percent: 95,
                     });
                 },
             })
