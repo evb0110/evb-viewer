@@ -60,6 +60,24 @@ describe('browser file picker adapter', () => {
         expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
     });
 
+    it('dispatches a bytes download only while its request is still live', async () => {
+        const clicks: string[] = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+            clicks.push(this.download);
+        });
+        const {downloadBrowserBytes} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const canceled = new AbortController();
+        canceled.abort(new DOMException('Optimize canceled', 'AbortError'));
+
+        expect(() => downloadBrowserBytes(Uint8Array.of(1), 'canceled.pdf', 'application/pdf', canceled.signal))
+            .toThrow('Optimize canceled');
+        downloadBrowserBytes(Uint8Array.of(1), 'kept.pdf', 'application/pdf', new AbortController().signal);
+
+        expect(clicks).toEqual(['kept.pdf']);
+        expect(document.querySelectorAll('a')).toHaveLength(0);
+        click.mockRestore();
+    });
+
     it('aborts a writer when close times out before reporting the save as failed', async () => {
         vi.useFakeTimers();
         let aborted = false;

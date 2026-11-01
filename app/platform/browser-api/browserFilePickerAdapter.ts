@@ -495,7 +495,10 @@ export async function pickSingleFile(options: {
     return files[0] ?? null;
 }
 
-function downloadBlob(blob: Blob, fileName: string) {
+// Dispatching the anchor publishes the download, so a cancel is checked
+// immediately before it; nothing can take a dispatched download back.
+function downloadBlob(blob: Blob, fileName: string, signal?: AbortSignal) {
+    throwIfAborted(signal);
     const href = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = href;
@@ -522,6 +525,7 @@ export async function downloadBrowserDocument(
     const { size } = await browserDocumentStore.stat(ref);
     const parts: Blob[] = [];
     for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+        throwIfAborted(signal);
         const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset);
         const chunk = await browserDocumentStore.readRange(ref, offset, length);
         if (chunk.byteLength !== length) {
@@ -532,9 +536,12 @@ export async function downloadBrowserDocument(
             await yieldToBrowser();
         }
     }
-    // The download publishes the file; a cancel before it still wins.
-    throwIfAborted(signal);
-    downloadBlob(new Blob(parts, { type: mimeType }), fileName);
+    downloadBlob(new Blob(parts, { type: mimeType }), fileName, signal);
+}
+
+/** Downloads bytes already in hand. It never opens a picker. */
+export function downloadBrowserBytes(bytes: Uint8Array, fileName: string, mimeType: string, signal?: AbortSignal) {
+    downloadBlob(new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: mimeType }), fileName, signal);
 }
 
 export type TBrowserOutputTarget =
@@ -732,8 +739,7 @@ async function saveBlobToPickerOrDownload(
         };
     }
 
-    throwIfAborted(options.signal);
-    downloadBlob(blob, suggestedName);
+    downloadBlob(blob, suggestedName, options.signal);
 
     return {
         canceled: false,

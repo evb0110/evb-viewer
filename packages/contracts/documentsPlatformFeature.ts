@@ -1,5 +1,5 @@
 import type {
-    ICreateCombinedPdfFromFilesOptions,IPdfSerializedSaveOptions,
+    ICreateCombinedPdfFromFilesOptions,IPdfSerializedSaveOptions, TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
 import {
     PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA,
@@ -371,6 +371,11 @@ const savePdfDataLocalArgs = v.pipe(
     ]),
 );
 
+const prepareOptimizeAsCopyArgs = v.strictTuple([documentRefResult]);
+const preparedOptimizeAsCopyResult = v.custom<TPreparedPdfOptimizeCopy | null>(
+    value => value === null || typeof value === 'function',
+);
+
 export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
     path: ['documentFiles'],
     required: requiredEverywhere,
@@ -534,6 +539,14 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+        },
+        // Its picker must open inside the submit gesture, so it is called directly.
+        prepareOptimizePdfAsCopy: {
+            ...defineLocalMethod(
+                'prepareOptimizePdfAsCopy', 'async', prepareOptimizeAsCopyArgs, preparedOptimizeAsCopyResult,
+            ),
+            ...browserImplementedOptional,
+            lazy: 'direct',
         },
         applyPdfNativeMutationsToWorkingCopy: {
             ...defineIpcMethod(

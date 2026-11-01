@@ -717,6 +717,13 @@ export interface IDocumentsFileCapability {
         requestId?: TRequestId,
         revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<TPlatformPdfOptimizeResult>;
+    /**
+     * Browser only. Opens the Save As picker synchronously, inside the
+     * caller's user gesture, then resolves to an Optimize bound to the chosen
+     * target, or null when the picker was canceled. Electron picks its target
+     * in `optimizePdfAsCopy` itself and omits this.
+     */
+    prepareOptimizePdfAsCopy?: (nameFrom: TDocumentRef) => Promise<TPreparedPdfOptimizeCopy | null>;
     applyPdfNativeMutationsToWorkingCopy?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
@@ -847,6 +854,15 @@ export interface IDocumentsPdfValidationCapability extends Pick<
     | 'analyzePdfConformance'
     | 'validatePdfPath'
 > {}
+/**
+ * A renderer-local Optimize bound to the target its preparation picked: the
+ * four `optimizePdfAsCopy` arguments and the request's cancel signal. Never
+ * a worker or IPC wire shape.
+ */
+export type TPreparedPdfOptimizeCopy = (
+    ...args: [...Parameters<NonNullable<IDocumentsFileCapability['optimizePdfAsCopy']>>, signal?: AbortSignal]
+) => Promise<TPlatformPdfOptimizeResult>;
+
 export interface IDocumentsPdfExternalCapability extends Pick<
     IDocumentsFileCapability,
     | 'printPdfData'
@@ -866,6 +882,7 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'repairPdf'
     | 'optimizePdfForInteraction'
     | 'optimizePdfAsCopy'
+    | 'prepareOptimizePdfAsCopy'
     | 'applyPdfNativeMutationsToWorkingCopy'
     | 'commitStagedPdfNativeMutations'
     | 'cloneStagedPdfNativeMutationToWorkingCopy'

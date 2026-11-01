@@ -29,6 +29,7 @@ import {
 } from '@contracts/browserPageOpsWasm.generated';
 import {
     FakeIndexedDbFactory,
+    FakeLockManager,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
@@ -2050,6 +2051,111 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             const adopted = await capability.createWorkingCopyFromPath(saved!);
             await expect(store.read(adopted)).resolves.toEqual(expected);
         }
+        await expect(store.read(source)).resolves.toEqual(original);
+        await expect(store.read(working)).resolves.toEqual(original);
+        await expect(store.read(staged)).resolves.toEqual(frontier);
+    });
+
+    it.each([
+        'handle',
+        'download',
+        'queued-abort',
+        'writing-abort',
+        'closing-abort',
+    ] as const)('publishes a finalized Optimize frontier to its picked target: %s', async outcome => {
+        const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
+        const frontier = Uint8Array.of(37, 80, 68, 70, 5);
+        const sentinel = Uint8Array.of(83, 69, 78);
+        const downloads: Blob[] = [];
+        const controller = new AbortController();
+        let physical = sentinel;
+        const handle = createFileSystemFileHandle({
+            name: 'picked',
+            getFile: async () => new File([physical], 'picked', {type: 'application/pdf'}),
+            createWritable: async () => {
+                const chunks: Uint8Array[] = [];
+                return createFileSystemWritableFileStream({
+                    write: async chunk => {
+                        chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));
+                        if (outcome === 'writing-abort') controller.abort(new DOMException('Optimize canceled', 'AbortError'));
+                    },
+                    // A writer publishes only at close; abort discards its chunks.
+                    close: async () => {
+                        if (outcome === 'closing-abort') controller.abort(new DOMException('Optimize canceled', 'AbortError'));
+                        physical = Uint8Array.from(chunks.flatMap(chunk => [...chunk]));
+                    },
+                });
+            },
+        });
+        const {browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
+            throw new Error('A finalized publication must not open a picker');
+        }}});
+        class DownloadURL extends URL {}
+        Object.defineProperties(DownloadURL, {
+            createObjectURL: {value: (blob: Blob) => {downloads.push(blob); return 'blob:optimized';}},
+            revokeObjectURL: {value: () => {}},
+        });
+        vi.stubGlobal('URL', DownloadURL);
+        const locks = new FakeLockManager();
+        vi.stubGlobal('navigator', {locks});
+        const source = await store.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const staged = await store.createStoredDocument('stage.pdf', frontier, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'output',
+        });
+        const stagedOutput = await createBrowserStoreStagedArtifact(store, staged, {
+            leaseId: 'optimize-frontier',
+            sha256: createHash('sha256').update(frontier).digest('hex'),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: true,
+                semanticScopeSha256: 'a'.repeat(64),
+            },
+        });
+        const revisionOptions = await getRevisionOptions(store, working);
+        const {savePdfAsFromWorkingCopy} = await import('@app/platform/browser-api/browserSaveTargets');
+        if (outcome === 'queued-abort') locks.holdElsewhere('evb-viewer:browser-physical-save');
+
+        const publishing = savePdfAsFromWorkingCopy(working, {
+            stagedOutput,
+            optimizeLossless: true,
+        }, revisionOptions, {
+            kind: 'finalized',
+            target: {
+                canceled: false,
+                fileName: 'report-optimized',
+                handle: outcome === 'download' ? null : handle,
+            },
+            sourceRef: source,
+            signal: controller.signal,
+        });
+        if (outcome === 'queued-abort') {
+            await Promise.resolve();
+            controller.abort(new DOMException('Optimize canceled', 'AbortError'));
+            locks.releaseElsewhere('evb-viewer:browser-physical-save');
+        }
+
+        if (outcome === 'queued-abort' || outcome === 'writing-abort') {
+            await expect(publishing).rejects.toMatchObject({name: 'AbortError'});
+            expect(physical).toEqual(sentinel);
+            expect(downloads).toEqual([]);
+        } else {
+            const saved = await publishing;
+            if (outcome === 'download') {
+                expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(frontier);
+                expect(physical).toEqual(sentinel);
+            } else {
+                expect(physical).toEqual(frontier);
+            }
+            await expect(store.read(saved!)).resolves.toEqual(frontier);
+            await expect(store.getSaveTarget(saved!)).resolves.toMatchObject({saveName: 'report-optimized.pdf'});
+        }
+        // The finalized frontier is published as it is: no check, no second optimization.
+        expect(qpdfRun).not.toHaveBeenCalled();
+        expect((await locks.query()).held).toEqual([]);
         await expect(store.read(source)).resolves.toEqual(original);
         await expect(store.read(working)).resolves.toEqual(original);
         await expect(store.read(staged)).resolves.toEqual(frontier);

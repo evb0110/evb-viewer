@@ -15,6 +15,7 @@ import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserFileWriteOutcomeError,
+    downloadBrowserBytes,
     downloadBrowserDocument,
     ensureFileHandleWritePermission,
     pickSaveTarget,
@@ -27,6 +28,7 @@ import {
     handoffBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
+import {BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES} from '@contracts/browserPageOpsLimits';
 import {
     getPdfLosslessOptimizationSkipReason, PDF_LOSSLESS_OPTIMIZE_MIN_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
@@ -256,27 +258,44 @@ async function isEligibleForSaveAsOptimization(source: Uint8Array) {
     }
 }
 
+/**
+ * A frontier an operation already finished and validated, with the target
+ * picked during the request's user gesture. Save As publishes it as it is.
+ */
+export interface IBrowserFinalizedPublication {
+    kind: 'finalized';
+    target: Awaited<ReturnType<typeof pickSaveTarget>>;
+    /** The source captured with the operation's input, never reread here. */
+    sourceRef: TDocumentRef;
+    /** Cancels until the external write commits; bookkeeping then finishes. */
+    signal: AbortSignal;
+}
+
 /** Publishes the captured Save As frontier without changing the source or consuming its staging lease. */
 export async function savePdfAsFromWorkingCopy(
     workingCopyPath: TDocumentRef,
     saveOptions?: IPdfSaveAsOptions,
     revisionOptions?: IDocumentMutationRevisionOptions,
+    publication?: IBrowserFinalizedPublication,
 ): Promise<TDocumentRef | null> {
     const stagedOutput = saveOptions?.stagedOutput;
     if (stagedOutput && (!revisionOptions?.expectedDocumentRevisionToken || stagedOutput.path === workingCopyPath)) {
         throw new Error('Browser staged Save As requires a revision-checked target distinct from its output');
     }
+    if (publication && !stagedOutput) {
+        throw new Error('Browser finalized Save As requires a staged output');
+    }
+    const signal = publication?.signal;
     await browserDocumentStore.assertDocumentRevisionCurrent(
         workingCopyPath,
         revisionOptions?.expectedDocumentRevisionToken,
     );
     const saveTarget =
         await browserDocumentStore.getSaveTarget(workingCopyPath);
-    const previousSourceRef =
-        await browserDocumentStore.getSourceRef(workingCopyPath);
-    const suggestedName = ensurePdfExtension(saveTarget.saveName);
-    const saveResult = await pickSaveTarget({
-        suggestedName,
+    const previousSourceRef = publication?.sourceRef
+        ?? await browserDocumentStore.getSourceRef(workingCopyPath);
+    const saveResult = publication?.target ?? await pickSaveTarget({
+        suggestedName: ensurePdfExtension(saveTarget.saveName),
         pickerTypes: buildPdfSaveTypes(),
     });
 
@@ -286,7 +305,7 @@ export async function savePdfAsFromWorkingCopy(
     // Same as saveWorkingBytesToSource: the permission prompt runs before the
     // origin-wide save lock, and the write inside it never prompts.
     if (saveResult.handle) {
-        await ensureFileHandleWritePermission(saveResult.handle);
+        await ensureFileHandleWritePermission(saveResult.handle, signal);
     }
     let externalWriteCommitted: boolean | null = false;
     try {
@@ -295,31 +314,40 @@ export async function savePdfAsFromWorkingCopy(
             previousSourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
             async () => {
+                signal?.throwIfAborted();
                 const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
                     browserDocumentStore,
                     stagedOutput,
-                    {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES},
+                    {maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES},
                 ) : null;
+                signal?.throwIfAborted();
                 const normalizedFileName = ensurePdfExtension(saveResult.fileName);
                 const sourcePath = staged?.artifact.path ?? workingCopyPath;
                 const {size} = await browserDocumentStore.stat(sourcePath);
-                const source = staged?.bytes ?? (size <= BROWSER_QPDF_MAX_INPUT_BYTES
-                    ? await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}) : null);
-                const validation = source
-                    ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
-                    : await validateBrowserPdfPath(sourcePath);
-                if (!validation.isValid) throw new Error('Working copy is not a valid PDF');
-                const candidate = source
-                    && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
-                    && await isEligibleForSaveAsOptimization(source)
-                    ? await finishBrowserPdfCandidate(source, {fileName: normalizedFileName})
-                    : null;
-                // Unchanged refs keep the shared streaming path, even after an admitted check.
-                const publishedBytes = candidate ?? staged?.bytes;
+                let publishedBytes = staged?.bytes;
+                if (!publication) {
+                    const source = staged?.bytes ?? (size <= BROWSER_QPDF_MAX_INPUT_BYTES
+                        ? await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}) : null);
+                    const validation = source
+                        ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
+                        : await validateBrowserPdfPath(sourcePath);
+                    if (!validation.isValid) throw new Error('Working copy is not a valid PDF');
+                    const candidate = source
+                        && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
+                        && await isEligibleForSaveAsOptimization(source)
+                        ? await finishBrowserPdfCandidate(source, {fileName: normalizedFileName})
+                        : null;
+                    // Unchanged refs keep the shared streaming path, even after an admitted check.
+                    publishedBytes = candidate ?? staged?.bytes;
+                }
+                signal?.throwIfAborted();
                 const savedHandle = saveResult.handle;
                 if (savedHandle) {
-                    if (publishedBytes) await writeBytesToHandleInSaveLock(savedHandle, publishedBytes);
+                    if (publishedBytes) await writeBytesToHandleInSaveLock(savedHandle, publishedBytes, signal);
                     else await writeDocumentRefToHandle(savedHandle, workingCopyPath);
+                } else if (publication && publishedBytes) {
+                    // The picker already ran in the request's gesture; never reopen it.
+                    downloadBrowserBytes(publishedBytes, normalizedFileName, 'application/pdf', signal);
                 } else if (publishedBytes) {
                     // No handle means no save picker: the file goes out as a download.
                     const downloadResult = await saveBytesToPickerOrDownload(publishedBytes, {
@@ -331,6 +359,8 @@ export async function savePdfAsFromWorkingCopy(
                 } else {
                     await downloadBrowserDocument(workingCopyPath, normalizedFileName, 'application/pdf');
                 }
+                // Committed at a successful close or a dispatched download. The
+                // bookkeeping below finishes even if the request aborts now.
                 externalWriteCommitted = true;
                 const sourceRef = await reserveBrowserDocumentWorkingCopy(normalizedFileName);
                 try {
@@ -359,6 +389,7 @@ export async function savePdfAsFromWorkingCopy(
                     throw error;
                 }
             },
+            signal ? {signal} : {},
         );
     } catch (error) {
         if (error instanceof BrowserFileWriteOutcomeError) {
