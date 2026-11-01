@@ -28,21 +28,30 @@ pub(crate) fn parse_content(bytes: &[u8]) -> Result<lopdf::Result<Content>> {
             .saturating_mul(STEPS_PER_BYTE)
             .saturating_add(STEP_FLOOR),
     };
-    // lopdf tries an inline image wherever an operation may begin: at the
-    // start, after white space, and right after an image's `EI`. Every such
-    // `BI` is read; one inside a string or image data seldom forms a
-    // dictionary followed by `ID`, and refusing it only refuses the stream.
-    for (start, _) in bytes
-        .windows(2)
-        .enumerate()
-        .filter(|(_, pair)| *pair == b"BI")
-    {
-        let begins_operation = start == 0
-            || matches!(bytes[start - 1], b' ' | b'\t' | b'\r' | b'\n')
-            || bytes[..start].ends_with(b"EI");
-        if begins_operation {
-            reader.check_inline_image(start + 2)?;
-        }
+    // Walk the stream token by token, as lopdf does, so a `BI` inside a
+    // string, a comment or an image's data is never read as an image.
+    let mut position = reader.space(0)?;
+    while position < bytes.len() {
+        let rest = reader.rest(position);
+        position = if rest.starts_with(b"BI") && !rest.get(2).is_some_and(|byte| is_regular(*byte))
+        {
+            match reader.check_inline_image(position + 2)? {
+                Some(after_data) => after_data,
+                None => position + 2,
+            }
+        } else if let Some((_, end)) = reader.value(position, 0)? {
+            end
+        } else {
+            // An operator, or a token lopdf will reject on its own.
+            let operator = rest
+                .iter()
+                .take_while(|byte| is_regular(**byte))
+                .count()
+                .max(1);
+            reader.charge(operator)?;
+            position + operator
+        };
+        position = reader.space(position)?;
     }
     Ok(Content::decode(bytes))
 }
@@ -304,12 +313,14 @@ impl<'a> CandidateReader<'a> {
     /// The inline image whose dictionary starts after a `BI`, as lopdf sizes
     /// its data: /W, /H and /BPC are integers, components follow /IM or /CS,
     /// and unfiltered data spans `H * ceil(W * components * BPC / 8)` bytes.
-    fn check_inline_image(&mut self, after_bi: usize) -> Result<()> {
+    /// Returns where the content continues after the image's data, or `None`
+    /// when this is no inline image lopdf would read.
+    fn check_inline_image(&mut self, after_bi: usize) -> Result<Option<usize>> {
         let mut read = Vec::new();
         let start = self.content_space(after_bi)?;
         let end = self.entries(start, 0, Some(&mut read))?;
         if !self.rest(end).starts_with(b"ID") {
-            return Ok(());
+            return Ok(None);
         }
         let data = self.content_space(end + 2)?;
         // A later entry replaces an earlier one; the short key wins.
@@ -333,7 +344,7 @@ impl<'a> CandidateReader<'a> {
         }
         if sizes.contains(&0) {
             // lopdf stops at a size that is absent or not an integer.
-            return Ok(());
+            return self.after_image_data(data);
         }
         let components = if matches!(entry(b"IM", b"ImageMask"), Some(Value::Boolean(true))) {
             1
@@ -344,9 +355,9 @@ impl<'a> CandidateReader<'a> {
                     b"DeviceRGB" | b"RGB" => 3,
                     b"DeviceRGBA" | b"RGBA" | b"DeviceCMYK" | b"CMYK" => 4,
                     // lopdf refuses other colour spaces before sizing the data.
-                    _ => return Ok(()),
+                    _ => return self.after_image_data(data),
                 },
-                _ => return Ok(()),
+                _ => return self.after_image_data(data),
             }
         };
         let [width, height, bits] = sizes;
@@ -356,11 +367,36 @@ impl<'a> CandidateReader<'a> {
             .map(|bits| bits.div_ceil(8))
             .and_then(|stride| height.checked_mul(stride))
             .ok_or_else(|| refusal("whose data size overflows"))?;
+        // lopdf reads unfiltered data of this length; any other image, and
+        // data that runs past the stream's end, it skips to its `EI`.
         let unfiltered = entry(b"F", b"Filter").is_none();
-        if unfiltered && length as usize > self.bytes.len() - data {
-            return Err(refusal("whose data runs past the end of the stream"));
+        if unfiltered && length as usize <= self.bytes.len() - data {
+            // lopdf reads `EI` after the data and may begin the next operation
+            // right after it, even another image.
+            let end_marker = self.content_space(data + length as usize)?;
+            Ok(Some(if self.rest(end_marker).starts_with(b"EI") {
+                end_marker + 2
+            } else {
+                data + length as usize
+            }))
+        } else {
+            self.after_image_data(data)
         }
-        Ok(())
+    }
+
+    /// Where lopdf resumes after an image it skips: right after the first
+    /// `EI` with a space, CR or LF on both sides. Without one, lopdf refuses
+    /// the stream, so nothing after it is read.
+    fn after_image_data(&mut self, data: usize) -> Result<Option<usize>> {
+        let skipped = self.rest(data).windows(4).position(|window| {
+            matches!(window[0], b' ' | b'\n' | b'\r')
+                && &window[1..3] == b"EI"
+                && matches!(window[3], b' ' | b'\n' | b'\r')
+        });
+        self.charge(skipped.unwrap_or(self.bytes.len() - data))?;
+        Ok(Some(
+            skipped.map_or(self.bytes.len(), |offset| data + offset + 3),
+        ))
     }
 }
 
@@ -385,9 +421,18 @@ mod tests {
             // No `ID` follows, or the `BI` is inside a name.
             "BT (x BI /W -1) Tj ET",
             "/NBI /W -1 /H 1 /BPC 8 /CS /RGB ID x EI",
+            // Image-like text in a string, a comment or another image's data.
+            "BT /F1 9 Tf ( BI /W -1 /H 1 /BPC 8 /CS /RGB ID x EI) Tj ET",
+            "% BI /W -1 /H 1 /BPC 8 /CS /RGB ID x EI\nq Q",
+            "BI /W 1 /H 1 /BPC 8 /CS /G /F /AHx ID 0 BI /W -1 /H 1 /BPC 8 /CS /G ID x > EI Q",
+            // Data running past the stream's end: lopdf skips the image.
+            "BI /W 4 /H 4 /BPC 8 /CS /RGB ID x EI ",
         ] {
             assert!(!refused(content), "{content}");
         }
+        // Nested image-like text inside one string stays within the scan budget.
+        let nested = format!("BT ({}{}) Tj ET", " BI /X (".repeat(80), ")".repeat(80));
+        assert!(!refused(&nested));
     }
 
     #[test]
@@ -399,13 +444,12 @@ mod tests {
             "BI /W 4294967296 /H 1 /BPC 8 /CS /G ID x EI",
             // Overflows u32 even when lopdf would not read the data.
             "BI /W 65536 /H 65536 /BPC 8 /CS /CMYK /F /DCT ID x EI",
-            "BI /W 4 /H 4 /BPC 8 /CS /RGB ID x EI",
             // Read past a reference, an escaped key, a comment and nesting.
             "BI /D 1 0 R /W -1 /H 1 /BPC 8 /CS /G ID x EI",
             "BI /#57 -1 /H 1 /BPC 8 /CS /RGB ID x EI",
             "BI /DP << /K [1 (a\\)b) <0F>] >> % note\n/W -1 /H 1 /BPC 8 /CS /G ID x EI",
             // Right after the previous image's `EI`.
-            "BI /W 1 /H 1 /BPC 8 /CS /G ID xEIBI /W -1 /H 1 /BPC 8 /CS /G ID x EI",
+            "BI /W 1 /H 1 /BPC 8 /CS /Gray ID xEIBI /W -1 /H 1 /BPC 8 /CS /G ID x EI",
         ] {
             assert!(refused(content), "{content}");
         }
