@@ -366,6 +366,13 @@ fn dictionary_number(document: &Document, dictionary: &Dictionary, key: &[u8]) -
         .and_then(|value| resolved_number(document, value))
 }
 
+pub(crate) const COURIER_FONTS: [&[u8]; 4] = [
+    b"Courier",
+    b"Courier-Bold",
+    b"Courier-Oblique",
+    b"Courier-BoldOblique",
+];
+
 fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics> {
     let dictionary = resolved_dictionary(document, font)
         .ok_or("overlay-text source font is not a dictionary")?;
@@ -458,6 +465,19 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
         });
     }
 
+    let base = dictionary
+        .get(b"BaseFont")
+        .ok()
+        .and_then(|value| resolved_name(document, value));
+    if dictionary.get(b"Widths").is_err() && base.is_some_and(|base| COURIER_FONTS.contains(&base))
+    {
+        // Standard Courier, the usual scanner OCR font, is monospaced at 600 units.
+        return Ok(FontMetrics::Simple {
+            first_char: 0,
+            widths: vec![600.0; 256],
+            missing_width: None,
+        });
+    }
     let first = dictionary
         .get(b"FirstChar")
         .ok()
@@ -1613,8 +1633,7 @@ pub(crate) fn text_operations(
                 )
                 .into());
             }
-            "Tj" | "TJ" | "'" | "\"" | "Tm" | "Td" | "TD" | "T*" if strict =>
-            {
+            "Tj" | "TJ" | "'" | "\"" | "Tm" | "Td" | "TD" | "T*" if strict => {
                 return Err(format!(
                     "overlay-text source uses {} outside a text object",
                     operation.operator

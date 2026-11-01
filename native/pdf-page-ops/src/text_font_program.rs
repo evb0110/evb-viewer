@@ -165,10 +165,7 @@ pub(crate) fn simple_font_advances(
                 .and_then(|i| widths.get(i))
                 .and_then(|v| object_to_f64(document.dereference(v).ok()?.1).ok())
                 .or(missing)?
-        } else if matches!(
-            base,
-            b"Courier" | b"Courier-Bold" | b"Courier-Oblique" | b"Courier-BoldOblique"
-        ) {
+        } else if crate::text_layer::COURIER_FONTS.contains(&base) {
             600.0
         } else {
             let face = FontRef::from_index(program?, 0).ok()?;
