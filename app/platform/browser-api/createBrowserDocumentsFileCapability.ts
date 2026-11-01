@@ -491,8 +491,8 @@ export function createBrowserDocumentsFileCapability(
         onDocumentRevisionChanged(callback) {
             return browserDocumentStore.onDocumentRevisionChanged(callback);
         },
-        analyzePdfConformance(path) {
-            const analysis = analyzeBrowserPdfConformance(path);
+        analyzePdfConformance(path, options) {
+            const analysis = analyzeBrowserPdfConformance(path, options);
             handoffBrowserDocumentWorkingCopy(path, path, () => analysis.then(() => undefined, () => undefined));
             return analysis;
         },

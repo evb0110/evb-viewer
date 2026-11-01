@@ -4,7 +4,7 @@ import {
 } from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
 import {
-    buildPdfSaveRestrictions,
+    createPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
@@ -298,31 +298,12 @@ export async function analyzePdfConformancePath(
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
     const structuralFacts = await readPdfStructuralFactsFromPath(filePath, options);
-    const markerEvidence = options.markerEvidence === 'structural-only'
-        ? {
-            isSigned: false,
-            isEncrypted: false,
-            pdfaLevel: null,
-        }
-        : await readPdfMarkerEvidenceFromPath(filePath, options.signal);
-    const profileBase = {
-        isSigned: structuralFacts.isSigned || markerEvidence.isSigned,
-        isEncrypted: structuralFacts.isEncrypted || markerEvidence.isEncrypted,
-        isTagged: structuralFacts.isTagged,
-        pdfaLevel: markerEvidence.pdfaLevel,
-        hasAcroForm: structuralFacts.hasAcroForm,
-        hasXfa: structuralFacts.hasXfa,
-        canIncrementalSave: !(
-            structuralFacts.isEncrypted
-            || markerEvidence.isEncrypted
-            || structuralFacts.hasXfa
-        ),
-    };
-
-    return {
-        ...profileBase,
-        saveRestrictions: buildPdfSaveRestrictions(profileBase),
-    };
+    return options.markerEvidence === 'structural-only'
+        ? createPdfConformanceProfile(structuralFacts)
+        : createPdfConformanceProfile(
+            structuralFacts,
+            await readPdfMarkerEvidenceFromPath(filePath, options.signal),
+        );
 }
 
 export async function validatePdfStructureFromPath(

@@ -293,12 +293,16 @@ describe('browserWindowTabsCapability', () => {
         }
         const reading = Promise.withResolvers<undefined>();
         const resume = Promise.withResolvers<undefined>();
-        const readRange = store.readRange.bind(store);
-        vi.spyOn(store, 'readRange').mockImplementation(async (...args) => {
+        // Pause the analysis's read; the test's own reads below pass through.
+        const read = store.read.bind(store);
+        let paused = false;
+        vi.spyOn(store, 'read').mockImplementation(async (...args) => {
+            if (paused) return read(...args);
+            paused = true;
             reading.resolve(undefined);
             await resume.promise;
             if (outcome === 'failed-read') throw new Error('Conformance storage unavailable');
-            return readRange(...args);
+            return read(...args);
         });
         const analysis = capability.analyzePdfConformance(working);
         // Observe the result after releasing the paused read, including on failure.
