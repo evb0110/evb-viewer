@@ -390,6 +390,59 @@ fn recompress_images_appends_the_revision_the_desktop_command_appends() {
 }
 
 #[test]
+fn recompress_images_leaves_jpegs_without_usable_dimensions_alone() {
+    for width in [Some(Object::Integer(4_294_967_296)), None] {
+        let mut document = Document::load_mem(&image_pdf(&[(800, 480, 95, SCAN)])).unwrap();
+        let image = document
+            .objects
+            .values_mut()
+            .find_map(|object| {
+                object
+                    .as_stream_mut()
+                    .ok()
+                    .filter(|stream| stream.dict.has(b"Width"))
+            })
+            .unwrap();
+        match width.clone() {
+            Some(width) => image.dict.set("Width", width),
+            None => {
+                image.dict.remove(b"Width");
+            }
+        }
+        let input = save(&mut document);
+        let instructions = r#"{"targetDpi":150,"quality":75,"maxByteRatio":1,"skipPages":[]}"#;
+        let browser = run_wasm(OP_RECOMPRESS_IMAGES, &input, instructions, &[]);
+        assert!(browser.data.is_empty(), "{width:?}");
+        // An image without /Width is not a candidate at all; one that no u32 holds is unsupported.
+        let outcome = &browser.report["images"][0]["outcome"];
+        assert!(
+            if width.is_some() {
+                outcome == "unsupported"
+            } else {
+                outcome.is_null()
+            },
+            "{width:?}: {outcome}"
+        );
+    }
+}
+
+#[test]
+fn pdf_numbers_saturate_what_f32_cannot_carry() {
+    for (value, expected) in [
+        (1e44, f32::MAX),
+        (-1e44, f32::MIN),
+        (f64::INFINITY, f32::MAX),
+        (f64::NAN, 0.0),
+    ] {
+        assert_eq!(
+            crate::page_geometry::number_object(value),
+            Object::Real(expected),
+            "{value}"
+        );
+    }
+}
+
+#[test]
 fn replace_page_images_appends_the_revision_the_desktop_command_appends() {
     let scratch = Scratch::new("replace");
     let input = image_pdf(&[

@@ -544,8 +544,14 @@ fn recompress_image(
     };
     let source_bytes = source.bytes.len() as u64;
     let stream = incremental.previous_document.get_object(id)?.as_stream()?;
-    let stored = |key: &[u8]| stream.dict.get(key).and_then(Object::as_i64).unwrap_or(0) as u32;
-    let (width, height) = (stored(b"Width"), stored(b"Height"));
+    // A dimension that is absent or no positive u32 cannot be resampled.
+    let stored = |key: &[u8]| {
+        let value = stream.dict.get(key).and_then(Object::as_i64).ok()?;
+        u32::try_from(value).ok().filter(|value| *value > 0)
+    };
+    let (Some(width), Some(height)) = (stored(b"Width"), stored(b"Height")) else {
+        return Ok((ImageOutcome::Unsupported, source_bytes, 0));
+    };
     let scale = if usage.needed_scale * DOWNSAMPLE_ABOVE_TARGET < 1.0 {
         usage.needed_scale
     } else {

@@ -64,11 +64,12 @@ fn validate_ocr_text_layer<S>(instructions: &OcrTextLayerFile<S>) -> Result<()> 
         if let Some(inverse) = page.preprocess_inverse {
             if !(crate::split_pages::is_instruction_number(inverse.raster_width_px)
                 && crate::split_pages::is_instruction_number(inverse.raster_height_px)
-                && inverse.raster_width_px > 0.0
-                && inverse.raster_height_px > 0.0)
+                && inverse.raster_width_px >= 1.0
+                && inverse.raster_height_px >= 1.0)
             {
                 return Err(
-                    "ocr-text-layer raster dimensions must be positive and in range".into(),
+                    "ocr-text-layer raster dimensions must be at least one pixel and in range"
+                        .into(),
                 );
             }
             if !inverse
@@ -979,6 +980,7 @@ mod tests {
         for inverse in [
             serde_json::json!({"rasterWidthPx": 1e40, "rasterHeightPx": 1000, "matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}),
             serde_json::json!({"rasterWidthPx": 1000, "rasterHeightPx": 1000, "matrix": [[1, 0, 1e40], [0, 1, 0], [0, 0, 1]]}),
+            serde_json::json!({"rasterWidthPx": 1e-40, "rasterHeightPx": 1000, "matrix": [[1, 0, 1], [0, 1, 0], [0, 0, 1]]}),
         ] {
             let instructions: OcrTextLayerFile<usize> = serde_json::from_value(serde_json::json!({
                 "pages": [{"pageNumber": 1, "source": 0, "preprocessInverse": inverse}],
