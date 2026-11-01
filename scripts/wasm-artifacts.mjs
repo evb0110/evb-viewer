@@ -32,6 +32,7 @@ export const REQUIRED_WEB_WASM_ASSETS = [
             'evb_pdf_page_ops_output_len',
             'evb_pdf_page_ops_error_ptr',
             'evb_pdf_page_ops_error_len',
+            'evb_pdf_page_ops_append_admission',
         ],
     },
     {

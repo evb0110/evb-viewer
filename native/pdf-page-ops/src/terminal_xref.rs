@@ -13,7 +13,7 @@ struct TerminalXref {
     offset: u64,
 }
 
-fn read_tail(file: &mut File, file_len: u64) -> std::io::Result<(u64, Vec<u8>)> {
+fn read_tail(file: &mut (impl Read + Seek), file_len: u64) -> std::io::Result<(u64, Vec<u8>)> {
     let tail_start = file_len.saturating_sub(TERMINAL_TAIL_BYTES);
     file.seek(SeekFrom::Start(tail_start))?;
     let mut tail = Vec::new();
@@ -102,20 +102,10 @@ fn classify_refusal(error: Box<dyn Error>) -> Result<AppendAdmission> {
 pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<AppendAdmission> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     let file_len = file.metadata().map_err(io_domain_error)?.len();
-    let (tail_start, tail) = read_tail(&mut file, file_len).map_err(io_domain_error)?;
-    let terminal = match find_terminal_xref(&tail, file_len) {
-        Ok(terminal) => terminal,
-        Err(refusal) => return Ok(AppendAdmission::Repairable(refusal.to_string())),
-    };
-    if file_len > MAX_ENCODED_PDF_BYTES as u64 {
-        let qpdf_path = qpdf_path.ok_or_else(|| {
-            domain_error(
-                NativeErrorCode::InvalidRequest,
-                "Large PDF append admission requires the bundled qpdf",
-            )
-        })?;
+    append_admission_from(&mut file, file_len, || {
+        let qpdf_path = qpdf_path.ok_or_else(large_base_needs_qpdf)?;
         let temp = TempQpdfFiles::create()?;
-        return match run_qpdf_bounded(
+        match run_qpdf_bounded(
             path,
             qpdf_path,
             &["--suppress-recovery", "--show-npages"],
@@ -124,9 +114,43 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
         ) {
             Ok(_) => large_base_admission(&temp),
             Err(error) => classify_refusal(error),
-        };
+        }
+    })
+}
+
+/// The same admission for a PDF held in memory, as the browser holds its
+/// working copies. A base above the eager-load ceiling needs the qpdf page-tree
+/// read, which has no bundled library here, so it is refused as a request.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn append_admission_of_bytes(bytes: &[u8]) -> Result<AppendAdmission> {
+    append_admission_from(
+        &mut std::io::Cursor::new(bytes),
+        u64::try_from(bytes.len())?,
+        || Err(large_base_needs_qpdf()),
+    )
+}
+
+fn large_base_needs_qpdf() -> Box<dyn Error> {
+    domain_error(
+        NativeErrorCode::InvalidRequest,
+        "Large PDF append admission requires the bundled qpdf",
+    )
+}
+
+fn append_admission_from(
+    file: &mut (impl Read + Seek),
+    file_len: u64,
+    large_base: impl FnOnce() -> Result<AppendAdmission>,
+) -> Result<AppendAdmission> {
+    let (tail_start, tail) = read_tail(file, file_len).map_err(io_domain_error)?;
+    let terminal = match find_terminal_xref(&tail, file_len) {
+        Ok(terminal) => terminal,
+        Err(refusal) => return Ok(AppendAdmission::Repairable(refusal.to_string())),
+    };
+    if file_len > MAX_ENCODED_PDF_BYTES as u64 {
+        return large_base();
     }
-    if !lopdf_reads_header(&mut file)? {
+    if !lopdf_reads_header(file)? {
         return Ok(AppendAdmission::Repairable(
             "PDF does not start with a header line the PDF reader accepts".to_string(),
         ));
@@ -144,7 +168,7 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
         input_len,
         PDF_PATH_LOAD_POLICY,
         |offset, window_len| {
-            let window = read_window(&mut file, offset, window_len.min(input_len - offset))?;
+            let window = read_window(file, offset, window_len.min(input_len - offset))?;
             let truncated = offset + window.len() < input_len;
             Ok((std::borrow::Cow::Owned(window), truncated))
         },
@@ -161,7 +185,7 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
 
 /// lopdf reads offsets from the first `%PDF-`, so any byte before it shifts
 /// every cross-reference offset, and the header line must end in an EOL.
-fn lopdf_reads_header(file: &mut File) -> Result<bool> {
+fn lopdf_reads_header(file: &mut (impl Read + Seek)) -> Result<bool> {
     file.seek(SeekFrom::Start(0)).map_err(io_domain_error)?;
     let mut head = Vec::new();
     file.take(LOPDF_HEADER_LINE_BYTES as u64)
@@ -222,7 +246,11 @@ fn large_base_admission(temp: &TempQpdfFiles) -> Result<AppendAdmission> {
     })
 }
 
-pub(crate) fn read_window(file: &mut File, offset: usize, len: usize) -> Result<Vec<u8>> {
+pub(crate) fn read_window(
+    file: &mut (impl Read + Seek),
+    offset: usize,
+    len: usize,
+) -> Result<Vec<u8>> {
     file.seek(SeekFrom::Start(offset as u64))
         .map_err(io_domain_error)?;
     let mut window = vec![0; len];
@@ -360,6 +388,11 @@ mod tests {
         let appender_accepts = load_incremental_pdf_path(&path, None).is_ok()
             && read_terminal_xref(&path, len).is_ok();
         fs::remove_file(&path).unwrap();
+        assert_eq!(
+            append_admission_of_bytes(bytes).unwrap(),
+            admission,
+            "{label}: the browser's in-memory admission disagrees"
+        );
         assert_eq!(
             admission == AppendAdmission::Appendable,
             expected_appendable,
