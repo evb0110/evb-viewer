@@ -1,4 +1,4 @@
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES} from '@contracts/browserPageOpsLimits';
 import {
     isBrowserLegacyDocumentRef,
     type TDocumentRef,
@@ -96,11 +96,16 @@ export async function createBrowserStoreStagedArtifact(
     return artifact.output;
 }
 
-/** Reads one immutable, admitted receipt for publication or revision-checked commit. */
+/**
+ * Reads one immutable, admitted receipt for publication or revision-checked
+ * commit. Staged outputs come from the in-process engine, so by default they
+ * read up to the engine's own output ceiling; a download fallback passes its
+ * smaller budget.
+ */
 export async function readBrowserStoreStagedArtifact(
     store: IBrowserStagedArtifactStore,
     stagedArtifact: unknown,
-    {maxBytes = BROWSER_MAX_FULL_READ_BYTES}: {maxBytes?: number} = {},
+    {maxBytes = BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES}: {maxBytes?: number} = {},
 ) {
     const parsed = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, stagedArtifact, {abortEarly: true});
     if (!parsed.success || !isBrowserStoreStagedArtifact(parsed.output)) {

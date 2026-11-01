@@ -126,7 +126,6 @@ export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
 ): IBrowserDocumentCapabilities {
     const errorMessageProvider = {
-        useNativeApp: () => translateBrowserMessage('errors.browser.useNativeApp'),
         imageExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.imageExtensionMismatch', {extensions}),
         folderEmpty: () => translateBrowserMessage('errors.file.folderEmpty'),
     };

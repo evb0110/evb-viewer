@@ -94,7 +94,7 @@ afterAll(async () => {
 });
 
 describe('browser annotation save acceptance in Chromium', () => {
-    it('saves and reopens annotations within the save budget, and reads larger PDFs while explaining save limits', async () => {
+    it('saves and reopens annotations in small PDFs and in PDFs above the 16 MiB full-read default', async () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
@@ -118,19 +118,23 @@ describe('browser annotation save acceptance in Chromium', () => {
             expect(Array.from({length: annots.size()}, (_value, index) => annots.lookup(index, PDFDict)
                 .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
                 .toContain('после Привет café');
+            const saved = {
+                rangeReadsPreserved: true,
+                openedWithAnnotations: true,
+                canonicalWriterVerified: true,
+                savedAndReopened: true,
+            };
             expect(result).toEqual({
                 underCap: {
-                    openedWithAnnotations: true,
-                    canonicalWriterVerified: true,
-                    savedAndReopened: true,
+                    ...saved,
+                    inputBytes: expect.any(Number),
                 },
-                overCap: {
-                    openedWithAnnotations: true,
-                    rangeReadsPreserved: true,
-                    saveMessage: expect.stringContaining('Use the native app for files this large.'),
-                    saveRejectedWithLocalizedCap: true,
+                overFullReadDefault: {
+                    ...saved,
+                    inputBytes: expect.any(Number),
                 },
             });
+            expect(result.overFullReadDefault.inputBytes).toBeGreaterThan(16 * 1024 * 1024);
         } finally {
             await browser.close();
         }

@@ -16,7 +16,6 @@ import {
 } from '@contracts/shared';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import {
-    BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
@@ -62,7 +61,6 @@ import {
     openDocumentPaths,
 } from '@app/platform/browser-api/browserWorkingCopyService';
 import {
-    assertBrowserPathWithinFullReadBudget,
     savePdfAsFromWorkingCopy,
     saveWorkingBytesToSource,
     saveWorkingBytesToSourceStructured,
@@ -88,7 +86,12 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
+import {
+    DOCUMENT_LIST_HEADER,
+    REQUEST_HEADER,
+    REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
+    U32_BYTES,
+} from '@contracts/browserPageOpsWasm.generated';
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
 import {
@@ -114,10 +117,7 @@ interface IBrowserNativeMutationLease {
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
-    errorMessageProvider?: {
-        useNativeApp?: () => string;
-        folderEmpty?: () => string;
-    };
+    errorMessageProvider?: {folderEmpty?: () => string;};
 }
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability & IDocxExportFileCapability;
 const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -142,8 +142,6 @@ export function createBrowserDocumentsFileCapability(
         if (!sink) throw new Error('Unknown DOCX stream session');
         return sink;
     }
-    const browserUseNativeAppMessageProvider = options.errorMessageProvider?.useNativeApp
-        ?? (() => 'Use the native app for files this large.');
     const folderEmptyMessageProvider = options.errorMessageProvider?.folderEmpty
         ?? (() => 'No supported documents were found in the selected folder');
 
@@ -320,12 +318,7 @@ export function createBrowserDocumentsFileCapability(
         ),
         readFile: path => browserDocumentStore.read(path),
         async readPdfPageLabelRanges(path) {
-            await assertBrowserPathWithinFullReadBudget(
-                path,
-                'Reading PDF page labels',
-                `. ${browserUseNativeAppMessageProvider()}`,
-            );
-            const data = await browserDocumentStore.read(path);
+            const data = await browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - DOCUMENT_LIST_HEADER.bytes - U32_BYTES});
             const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {data}, {dedicated: true});
             return readBrowserPdfCatalogPart(catalog, 'pageLabels').map((range): IPdfPageLabelRange => ({
                 startPage: range.pageIndex + 1,
@@ -342,19 +335,18 @@ export function createBrowserDocumentsFileCapability(
             modifiedAt,
             options: IDocumentMutationRevisionOptions,
         ) {
-            await assertBrowserPathWithinFullReadBudget(
-                path,
-                'Saving documents',
-                `. ${browserUseNativeAppMessageProvider()}`,
-            );
             await browserDocumentStore.assertDocumentRevisionCurrent(
                 path,
                 options.expectedDocumentRevisionToken,
             );
-            const input = await browserDocumentStore.read(path);
+            // The document and its original appearance source share one
+            // engine request; the engine refuses the framed remainder exactly.
+            const requestBudget = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes;
+            const input = await browserDocumentStore.read(path, {maxBytes: requestBudget});
             const originalAppearanceSource = mutations.originalAppearanceSource;
-            if (originalAppearanceSource) await assertBrowserPathWithinFullReadBudget(originalAppearanceSource, 'Restoring text appearances', `. ${browserUseNativeAppMessageProvider()}`);
-            const originalAppearanceSourceData = originalAppearanceSource ? await browserDocumentStore.read(originalAppearanceSource) : undefined;
+            const originalAppearanceSourceData = originalAppearanceSource
+                ? await browserDocumentStore.read(originalAppearanceSource, {maxBytes: requestBudget - input.byteLength})
+                : undefined;
             const wasmResult = await runBrowserPageOpsWorkerRequest('saveMutations', {
                 data: input,
                 ...(originalAppearanceSourceData ? {originalAppearanceSourceData} : {}),
@@ -370,11 +362,6 @@ export function createBrowserDocumentsFileCapability(
                         message: wasmResult.error.message,
                     },
                 } satisfies IPdfNativeSaveResult;
-            }
-            if (wasmResult.data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
-                throw new Error(
-                    `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB. ${browserUseNativeAppMessageProvider()}`,
-                );
             }
             await browserDocumentStore.assertDocumentRevisionCurrent(
                 path,
