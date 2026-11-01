@@ -48,12 +48,7 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
     },
     combinePdfFiles: mocks.combinePdfFiles,
     isCombineCancellationSupported: mocks.isCombineCancellationSupported,
-    getCombinePdfCapabilities: () => ({
-        supportedExtensions: ['.pdf'],
-        maxInputs: 500,
-        maxInputBytes: 32 * 1024 * 1024,
-        maxTotalInputBytes: 64 * 1024 * 1024,
-    }),
+    getCombinePdfCapabilities: () => ({supportedExtensions: ['.pdf']}),
 }));
 const platformApi = createElectronPlatformApiFixture({
     documentFiles: {

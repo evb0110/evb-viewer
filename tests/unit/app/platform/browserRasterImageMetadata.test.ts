@@ -11,7 +11,6 @@ import {
 } from '@app/platform/browser-api/browserRasterImageMetadata';
 import {
     assertBrowserCombinedPdfOutputBytes,
-    assertBrowserCombinedPdfPageCount,
     consumeBrowserDecodedWorkingSet,
 } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
@@ -141,8 +140,7 @@ describe('browserRasterImageMetadata', () => {
         })).toBe(381);
     });
 
-    it('checks page counts, nonempty output and aggregate decoded working sets', () => {
-        expect(() => assertBrowserCombinedPdfPageCount(501)).toThrow('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
+    it('checks nonempty output and aggregate decoded working sets', () => {
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array())).toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(16 * 1024 * 1024 + 1))).not.toThrow();
         const budget = {

@@ -73,8 +73,6 @@ function assertBrowserCombineSources(paths: string[]) {
     );
 }
 
-const BROWSER_COMBINED_PDF_MAX_PAGES = 500;
-
 interface IBrowserDecodedWorkingSetBudget {
     usedBytes: number;
     maxBytes: number;
@@ -91,12 +89,6 @@ export function consumeBrowserDecodedWorkingSet(
         throw new Error(`ERR_BROWSER_PDF_COMBINE_DECODED_WORKING_SET_TOO_LARGE:${fileName}`);
     }
     budget.usedBytes += decodedBytes;
-}
-
-export function assertBrowserCombinedPdfPageCount(pageCount: number) {
-    if (pageCount > BROWSER_COMBINED_PDF_MAX_PAGES) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
-    }
 }
 
 export function assertBrowserCombinedPdfOutputBytes(bytes: Uint8Array) {

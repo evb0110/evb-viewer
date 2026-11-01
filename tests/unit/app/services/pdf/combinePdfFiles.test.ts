@@ -7,7 +7,6 @@ import {
     vi,
 } from 'vitest';
 import type {IDocumentsBatchProgress} from '@contracts/electronApiDocuments';
-import type {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {SerializableError} from '@contracts/serializableError';
@@ -381,20 +380,20 @@ describe('combinePdfFiles', () => {
         );
     });
 
-    it('rejects oversized browser inputs with a structured limit code before starting work', async () => {
+    it('hands the browser combiner more than 500 inputs and inputs over the former 32 MiB, as desktop does', async () => {
         mocks.hasElectronAPI.mockReturnValue(false);
-        const oversized = {
-            name: 'huge.png',
-            size: (32 * 1024 * 1024) + 1,
-        } as File;
+        const files = [
+            createFile('scan.png', (32 * 1024 * 1024) + 1),
+            ...Array.from({length: 600}, (_, index) => createFile(`doc-${index}.pdf`)),
+        ];
+        mocks.documentPicker.createCombinedPdfFromFiles.mockResolvedValue(new Uint8Array([4]));
 
         await expect(combinePdfFiles({
-            files: [{file: oversized}],
+            files: files.map(file => ({file})),
             outputName: 'combined.pdf',
             openErrorMessage: 'open failed',
-        })).rejects.toEqual(expect.objectContaining<Partial<CombinePdfError>>({code: 'limit'}));
-        expect(mocks.documentPicker.createCombinedPdfFromFiles).not.toHaveBeenCalled();
-        expect(mocks.logError).not.toHaveBeenCalled();
+        })).resolves.toMatchObject({kind: 'pdf'});
+        expect(mocks.documentPicker.createCombinedPdfFromFiles).toHaveBeenCalledWith(files, {onProgress: expect.any(Function)});
     });
 
     it('owns a genuine combine fault once and carries its receipt to the controller', async () => {

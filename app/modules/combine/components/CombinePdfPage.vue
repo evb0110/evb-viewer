@@ -193,8 +193,7 @@ const filesLabel = computed(() => t('combinePdf.fileCount', { count: files.value
 function isSupportedCombineFile(file: File) {
     const extension = file.name.toLocaleLowerCase().match(/\.[a-z0-9]+$/u)?.[0] ?? '';
     return combineCapabilities.supportedExtensions.includes(extension)
-        && file.size > 0
-        && file.size <= combineCapabilities.maxInputBytes;
+        && file.size > 0;
 }
 
 function toCombineFile(file: File): ICombineFile {

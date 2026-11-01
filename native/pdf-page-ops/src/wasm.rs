@@ -23,7 +23,6 @@ use crate::{
 
 use crate::wasm_abi::*;
 
-const MAX_DOCUMENT_LIST_PAGES: usize = 500;
 const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
 const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
 const MAX_REQUEST_BYTES: usize = PAGE_OP_WASM_MAX_BUFFER_BYTES;
@@ -318,7 +317,9 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         DOCUMENT_LIST_HEADER.document_count,
         "document count",
     )?;
-    if count == 0 || count > MAX_DOCUMENTS {
+    // Each document carries at least its length word, so the frame bounds the
+    // count before anything is reserved for it.
+    if count == 0 || count > request.len().saturating_sub(DOCUMENT_LIST_HEADER.bytes) / U32_BYTES {
         return Err("Invalid page-op WASM document count".into());
     }
     let mut offset = DOCUMENT_LIST_HEADER.bytes;
@@ -326,14 +327,6 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
     for _ in 0..count {
         let len = read_usize_le(request, &mut offset, "document length")?;
         documents.push(load_browser_pdf(take_bytes(request, &mut offset, len)?)?);
-    }
-    let total_pages = documents.iter().try_fold(0usize, |total, document| {
-        total
-            .checked_add(document.get_pages().len())
-            .ok_or("Browser page-op document page count overflow")
-    })?;
-    if total_pages > MAX_DOCUMENT_LIST_PAGES {
-        return Err("Browser page-op document list exceeds the 500-page limit".into());
     }
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM document-list request".into());

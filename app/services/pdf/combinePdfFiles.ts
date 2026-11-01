@@ -88,12 +88,7 @@ function classifyCombineError(error: unknown, signal?: AbortSignal): TCombinePdf
 
 interface ICombinePdfInputFile {file: File;}
 
-export interface ICombinePdfCapabilities {
-    supportedExtensions: readonly string[];
-    maxInputs: number;
-    maxInputBytes: number;
-    maxTotalInputBytes: number;
-}
+export interface ICombinePdfCapabilities {supportedExtensions: readonly string[];}
 
 const COMBINE_PDF_EXTENSIONS = [
     '.pdf',
@@ -110,23 +105,11 @@ const COMBINE_PDF_EXTENSIONS = [
     '.gif',
 ] as const;
 
+// Neither platform has a renderer count or byte ceiling: desktop's native
+// writer admits the paths it is given, and the browser's combine checks its
+// inputs against the request its engine can take.
 export function getCombinePdfCapabilities(): ICombinePdfCapabilities {
-    return hasElectronAPI() ? {
-        supportedExtensions: COMBINE_PDF_EXTENSIONS,
-        // Native file-backed combine is bounded by path/protocol safety, not
-        // by a renderer product count.
-        maxInputs: Number.MAX_SAFE_INTEGER,
-        // Electron hands native combine a list of paths. The native writer
-        // owns resource admission for that file-backed route, so renderer
-        // capabilities must not retain the browser's byte ceilings.
-        maxInputBytes: Number.MAX_SAFE_INTEGER,
-        maxTotalInputBytes: Number.MAX_SAFE_INTEGER,
-    } : {
-        supportedExtensions: COMBINE_PDF_EXTENSIONS,
-        maxInputs: 500,
-        maxInputBytes: 32 * 1024 * 1024,
-        maxTotalInputBytes: 64 * 1024 * 1024,
-    };
+    return {supportedExtensions: COMBINE_PDF_EXTENSIONS};
 }
 
 export function isCombineCancellationSupported() {
@@ -135,22 +118,11 @@ export function isCombineCancellationSupported() {
 }
 
 function assertCombineInputsWithinCapabilities(options: ICombinePdfFilesOptions) {
-    const capabilities = getCombinePdfCapabilities();
-    if (options.files.length === 0 || options.files.length > capabilities.maxInputs) {
+    if (options.files.length === 0) {
         throw new CombinePdfError('limit');
     }
-    let totalBytes = 0;
-    for (const {file} of options.files) {
-        if (file.size <= 0 || file.size > capabilities.maxInputBytes) {
-            throw new CombinePdfError(file.size <= 0 ? 'invalid-input' : 'limit');
-        }
-        if (!Number.isSafeInteger(file.size) || file.size > Number.MAX_SAFE_INTEGER - totalBytes) {
-            throw new CombinePdfError('limit');
-        }
-        totalBytes += file.size;
-    }
-    if (totalBytes > capabilities.maxTotalInputBytes) {
-        throw new CombinePdfError('limit');
+    if (options.files.some(({file}) => file.size <= 0)) {
+        throw new CombinePdfError('invalid-input');
     }
 }
 

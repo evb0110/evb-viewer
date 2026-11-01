@@ -7,7 +7,6 @@ import {
     BYTES_HEADER,
     DOCUMENT_LIST_HEADER,
     GEOMETRY_HEADER,
-    MAX_DOCUMENTS,
     MAX_U32,
     MUTATION_HEADER,
     NATIVE_MUTATION_HEADER,
@@ -472,7 +471,7 @@ function buildInstructedWasmRequest(operation: number, payload: IInstructedWasmR
 
 function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const documents = getDocumentList(request);
-    if (documents === null || documents.length === 0 || documents.length > MAX_DOCUMENTS) {
+    if (documents === null || documents.length === 0) {
         throw new Error('Invalid page-op WASM document list');
     }
     const encodedLengths = documents.map(document => toWasmU32(document.byteLength));

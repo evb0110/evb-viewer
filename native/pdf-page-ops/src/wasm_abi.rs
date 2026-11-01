@@ -67,7 +67,6 @@ abi! {
         MAX_ATTACHED_PDFS: usize = 100_000;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
-        MAX_DOCUMENTS: usize = 500;
         // The largest single wasm32 Rust allocation (isize::MAX there): one
         // request or one framed response. The 4 GiB address space must also
         // hold the parsed document and scratch, so a request near this

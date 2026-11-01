@@ -958,6 +958,17 @@ describe('browser page-ops WASM fast path', () => {
         expect(sourcePdf).toEqual(sourceSnapshot);
     });
 
+    it('merges more than 500 documents and reads catalogs of more than 500 pages, as desktop does', async () => {
+        const wasm = await loadWasmRunner();
+        const onePage = await createPdf({pageWidths: [200]});
+        const mergedResult = await wasm.run('mergePages', {documents: Array.from({length: 600}, () => onePage.slice())});
+        assertSuccessfulWasmMutation(mergedResult);
+        expect(mergedResult.pageCount).toBe(600);
+        expect((await PDFDocument.load(mergedResult.data)).getPageCount()).toBe(600);
+        await expect(wasm.run('readCatalog', {data: mergedResult.data})).resolves.toMatchObject({bookmarks: []});
+        await expect(wasm.run('conformance', {data: mergedResult.data})).resolves.toMatchObject({isEncrypted: false});
+    });
+
     it('preserves and offsets catalogs from every document in mergePages', async () => {
         const sourcePdf = await createMetadataPdf();
         const wasm = await loadWasmRunner();

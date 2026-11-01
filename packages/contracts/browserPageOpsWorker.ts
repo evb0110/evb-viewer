@@ -162,7 +162,7 @@ const workerRequestPayloadSchemas = {
             'landscape',
         ]),
     }),
-    mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1), v.maxLength(500))}),
+    mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1))}),
     ocrTextVisibility: v.object({
         data: pdfBytesSchema,
         pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),

@@ -93,13 +93,11 @@ const pageSpecSchema = v.union(pageSpecSchemas);
 const imagePreprocessingSchema = v.object({
     jpegQuality: v.optional(jpegQualitySchema),
     ppiCap: v.optional(ppiCapSchema),
-    pageSizes: v.optional(v.pipe(v.array(pageSizeSchema), v.maxLength(500))),
-    // A compact plan has one spec per page of the document; the request byte
-    // boundary, not a page count, bounds it.
+    pageSizes: v.optional(v.array(pageSizeSchema)),
     pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1))),
 });
 const combinePayloadSchema = v.pipe(v.object({
-    inputs: v.pipe(v.array(inputSchema), v.maxLength(500)),
+    inputs: v.array(inputSchema),
     wasmImagePreprocessing: v.optional(imagePreprocessingSchema),
 }), v.check(value => value.inputs.length > 0 || (value.wasmImagePreprocessing?.pageSpecs?.length ?? 0) > 0));
 

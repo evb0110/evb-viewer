@@ -327,9 +327,9 @@ describe('tryCombineImageInputsWithWasm', () => {
         }
     });
 
-    it('admits 500 one-page inputs through the browser combine worker', async () => {
+    it('combines more than 500 one-page inputs, as desktop does', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
-        const inputs = Array.from({length: 500}, (_value, index) => ({
+        const inputs = Array.from({length: 600}, (_value, index) => ({
             fileName: `page-${index + 1}.pgm`,
             data: createPgmBytes(index % 256),
         }));
@@ -345,32 +345,8 @@ describe('tryCombineImageInputsWithWasm', () => {
             throw new Error('Expected the browser combine worker to return PDF bytes');
         }
         const combined = await PDFDocument.load(response.data);
-        expect(combined.getPageCount()).toBe(500);
+        expect(combined.getPageCount()).toBe(600);
         expect(fetchMock).toHaveBeenCalledOnce();
-    });
-
-    it('rejects 501 image pages before loading combine WASM', async () => {
-        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
-        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
-        const inputs = Array.from({length: 501}, (_value, index) => ({
-            fileName: `page-${index + 1}.pgm`,
-            data: createPgmBytes(index % 256),
-        }));
-        const sourceSnapshot = inputs.map(input => input.data.slice());
-
-        await expect(tryCombineImageInputsWithWasm(inputs)).resolves.toMatchObject({
-            status: 'fatal',
-            error: {code: 'too-large'},
-        });
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(inputs.map(input => input.data)).toEqual(sourceSnapshot);
-
-        await expect(runBrowserPdfCombineWorker(inputs)).resolves.toEqual({
-            id: 1,
-            ok: false,
-            error: 'Invalid browser PDF combine worker request',
-        });
-        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('turns a valid two-frame TIFF into ordered worker PDF pages', async () => {
@@ -462,7 +438,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('counts TIFF frames toward the 500-page worker budget', async () => {
+    it('writes every TIFF frame as a page beyond 500 pages', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
         const inputs = [
             {
@@ -479,10 +455,12 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(response).toMatchObject({
             id: 1,
-            ok: false,
-            errorEnvelope: {code: 'too-large'},
+            ok: true,
         });
-        expect(response).not.toHaveProperty('data');
+        if (!response || typeof response !== 'object' || !('data' in response) || !(response.data instanceof Uint8Array)) {
+            throw new Error('Expected the browser combine worker to return PDF bytes');
+        }
+        expect((await PDFDocument.load(response.data)).getPageCount()).toBe(501);
         expect(fetchMock).toHaveBeenCalledOnce();
     });
 
