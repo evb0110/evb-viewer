@@ -1791,7 +1791,6 @@ export default {
             'annotationsUnavailable': 'La modifica delle annotazioni esistenti non è disponibile',
             'annotationsTooLarge': 'Il documento è aperto in lettura. L’importazione delle annotazioni esistenti supera il limite di memoria dello strumento del browser. Usa l’app desktop per modificarle.',
             'filePickerSetupDenied': 'L’accesso del browser ai file è stato negato. Scegli di nuovo Apri per usare il selettore compatibile.',
-            'largeSaveHandleHint': 'Usa un browser con accesso al file system locale abilitato per salvare documenti di grandi dimensioni.',
             'imageExtensionMismatch': 'L’esportazione non è stata salvata. Scegli un nome file che termini con {extensions}.',
             'useNativeApp': 'Usa l’app nativa per file di queste dimensioni.',
         },

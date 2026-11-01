@@ -1791,7 +1791,6 @@ export default {
             'annotationsUnavailable': 'Existing annotation editing is unavailable',
             'annotationsTooLarge': 'The document is open for reading. Importing existing annotations exceeds the browser tool’s memory limit. Use the desktop app to edit them.',
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
-            'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.',
             'imageExtensionMismatch': 'Export was not saved. Choose a file name ending in {extensions}.',
             'useNativeApp': 'Use the native app for files this large.',
         },

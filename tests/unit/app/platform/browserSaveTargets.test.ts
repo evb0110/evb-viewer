@@ -28,6 +28,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
 }));
 
 const filePickerMock = vi.hoisted(() => ({
+    downloadBrowserDocument: vi.fn(),
     ensureFileHandleWritePermission: vi.fn(),
     pickSaveTarget: vi.fn(),
     saveBytesToPickerOrDownload: vi.fn(),
@@ -40,10 +41,10 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
-    BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES: 64 * 1024 * 1024,
     BrowserFileWriteOutcomeError: class BrowserFileWriteOutcomeError extends Error {
         public readonly externalWriteCommitted = null;
     },
+    downloadBrowserDocument: (...args: unknown[]) => filePickerMock.downloadBrowserDocument(...args),
     ensureFileHandleWritePermission: (...args: unknown[]) => filePickerMock.ensureFileHandleWritePermission(...args),
     pickSaveTarget: (...args: unknown[]) => filePickerMock.pickSaveTarget(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => filePickerMock.saveBytesToPickerOrDownload(...args),
@@ -72,6 +73,7 @@ describe('browserSaveTargets', () => {
             operation: (mutation: unknown) => Promise<unknown>,
         ) => operation({
             writeSource: browserDocumentStoreMock.write,
+            writeSourceFromDocument: browserDocumentStoreMock.write,
             assertPhysicalSourceBaseCurrent: vi.fn(),
             acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
         }));
@@ -87,14 +89,10 @@ describe('browserSaveTargets', () => {
     });
 
     it('returns structured success when browser save completes', async () => {
-        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
-            canceled: false,
-            fileName: 'saved.pdf',
-            handle: null,
-        });
+        filePickerMock.downloadBrowserDocument.mockResolvedValue(undefined);
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working')))
             .resolves
             .toEqual({
                 ok: true,
@@ -104,32 +102,15 @@ describe('browserSaveTargets', () => {
             });
     });
 
-    it('advances the source base after a picker save so the next save is not seen as an external edit', async () => {
-        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
-            canceled: false,
-            fileName: 'saved.pdf',
-            handle: {kind: 'file'},
-        });
+    it('advances the source base after a download save so the next save is not seen as an external edit', async () => {
+        filePickerMock.downloadBrowserDocument.mockResolvedValue(undefined);
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
+        await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'));
 
         expect(browserDocumentStoreMock.acknowledgePhysicalSourceCommit).toHaveBeenCalledTimes(1);
         expect(browserDocumentStoreMock.assignSaveTarget)
             .toHaveBeenCalledBefore(browserDocumentStoreMock.acknowledgePhysicalSourceCommit);
-    });
-
-    it('leaves the source base untouched when the picker is canceled', async () => {
-        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
-            canceled: true,
-            fileName: 'saved.pdf',
-            handle: null,
-        });
-        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
-
-        await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
-
-        expect(browserDocumentStoreMock.acknowledgePhysicalSourceCommit).not.toHaveBeenCalled();
     });
 
     it('returns user-canceled when the picker is canceled', async () => {
@@ -140,7 +121,7 @@ describe('browserSaveTargets', () => {
         });
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working')))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -159,7 +140,7 @@ describe('browserSaveTargets', () => {
         filePickerMock.ensureFileHandleWritePermission.mockRejectedValueOnce(new Error('write permission denied'));
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working')))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -171,10 +152,10 @@ describe('browserSaveTargets', () => {
     });
 
     it('returns write-failed when the browser write path throws', async () => {
-        filePickerMock.saveBytesToPickerOrDownload.mockRejectedValue(new Error('disk denied'));
+        filePickerMock.downloadBrowserDocument.mockRejectedValue(new Error('disk denied'));
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working')))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -186,15 +167,11 @@ describe('browserSaveTargets', () => {
     });
 
     it('reports sync-required when browser bookkeeping fails after the external save commits', async () => {
-        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
-            canceled: false,
-            fileName: 'saved.pdf',
-            handle: null,
-        });
+        filePickerMock.downloadBrowserDocument.mockResolvedValue(undefined);
         browserDocumentStoreMock.assignSaveTarget.mockRejectedValue(new Error('state refresh failed'));
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working')))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -221,7 +198,6 @@ describe('browserSaveTargets', () => {
 
         const savePromise = saveWorkingBytesToSourceStructured(
             requireDocumentRef('browser://documents/working'),
-            () => 'hint',
             {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-picker')},
         );
         expect(browserDocumentStoreMock.runDocumentMutationWithSource).not.toHaveBeenCalled();
@@ -243,7 +219,7 @@ describe('browserSaveTargets', () => {
             'revision-before-picker',
             expect.any(Function),
         );
-        expect(filePickerMock.saveBytesToPickerOrDownload).not.toHaveBeenCalled();
+        expect(filePickerMock.downloadBrowserDocument).not.toHaveBeenCalled();
     });
 
     it('does not prompt for a revoked write permission while holding the physical-save lock', async () => {
@@ -276,6 +252,7 @@ describe('browserSaveTargets', () => {
             operation: (mutation: unknown) => Promise<unknown>,
         ) => locks.request('evb-viewer:browser-physical-save', {}, () => operation({
             writeSource: browserDocumentStoreMock.write,
+            writeSourceFromDocument: browserDocumentStoreMock.write,
             assertPhysicalSourceBaseCurrent: vi.fn(),
             acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
         })));
@@ -283,7 +260,7 @@ describe('browserSaveTargets', () => {
 
         let result: unknown;
         try {
-            result = await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
+            result = await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'));
         } finally {
             filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
             filePickerMock.writeDocumentRefToHandle.mockReset();

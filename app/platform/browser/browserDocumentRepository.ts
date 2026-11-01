@@ -78,7 +78,11 @@ export interface IBrowserDocumentMutation {
     assertPhysicalSourceBaseCurrent(): Promise<void>;
     acknowledgePhysicalSourceCommit(): Promise<void>;
 }
-export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation { writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>; }
+export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation {
+    writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>;
+    /** Replaces the source's bytes with the document's, read a chunk at a time. */
+    writeSourceFromDocument(): Promise<boolean>;
+}
 
 function createBrowserFileDocumentEntry(
     ref: TDocumentRef,
@@ -208,10 +212,19 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         data: Uint8Array | ArrayBuffer,
         options: ICreateStoredDocumentOptions & {ref?: TDocumentRef | undefined},
     ) {
-        const sourceBytes = toUint8Array(data);
-        const storageMode = resolveStoredDocumentStorageMode(sourceBytes.byteLength, options.storageMode);
+        // Content taken from another document is staged chunk by chunk below and
+        // read whole only when it is small enough to live inline.
+        const contentEntry = options.contentFrom ? await this.requireEntry(options.contentFrom) : null;
+        const size = options.contentFrom ? (await this.stat(options.contentFrom)).size : toUint8Array(data).byteLength;
+        const storageMode = resolveStoredDocumentStorageMode(size, options.storageMode);
+        const sourceBytes = !contentEntry
+            ? toUint8Array(data)
+            : storageMode === 'chunked' ? new Uint8Array() : await this.readEntryBytes(contentEntry, size);
         const bytes = storageMode === 'inline' ? cloneBytes(sourceBytes) : new Uint8Array();
         const kind = options.kind ?? 'source';
+        if (contentEntry && storageMode === 'chunked' && kind === 'source' && options.saveHandle && !options.sourceBaseWitness) {
+            throw new Error('A handle-backed source copied from another document needs its base witness');
+        }
         const sourceBaseWitness = options.sourceBaseWitness
             ?? (kind === 'source' && options.saveHandle && (storageMode === 'inline' || storageMode === 'chunked')
                 ? createBrowserStoredBytesWitness(sourceBytes)
@@ -224,7 +237,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             retention: options.retention ?? defaultRetentionForKind(kind),
             ...(options.sourceRef ? {sourceRef: options.sourceRef} : {}),
             data: bytes,
-            fileSize: storageMode === 'chunked' ? sourceBytes.byteLength : bytes.byteLength,
+            fileSize: storageMode === 'chunked' ? size : bytes.byteLength,
             contentToken: createBrowserDocumentContentToken(),
             saveKind: options.saveKind ?? 'generic',
             saveHandle: options.saveHandle ?? null,
@@ -234,12 +247,13 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             chunkSize: options.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
         });
 
+        const readChunk = contentEntry
+            ? (offset: number, length: number) => this.readEntryRange(contentEntry, offset, length)
+            : (offset: number, length: number) => Promise.resolve(sourceBytes.slice(offset, offset + length));
         return this.persistNewEntry(
             entry,
-            storageMode === 'chunked' && sourceBytes.byteLength > 0
-                ? (offset, length) => Promise.resolve(sourceBytes.slice(offset, offset + length))
-                : null,
-            sourceBytes.byteLength,
+            storageMode === 'chunked' && size > 0 ? readChunk : null,
+            size,
         );
     }
 
@@ -796,6 +810,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 write: (data, options = {}) => this.writeUnlocked(ref, data, options, true),
                 assertPhysicalSourceBaseCurrent: () => this.assertPhysicalSourceBaseCurrent(ref, sourceRef),
                 writeSource: data => this.writeUnlocked(sourceRef, data, {}, true),
+                writeSourceFromDocument: () => this.writeFromDocumentUnlocked(sourceRef, ref),
                 acknowledgePhysicalSourceCommit: () => this.acknowledgePhysicalSourceCommitUnlocked(ref, sourceRef),
             });
         });
@@ -843,6 +858,18 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         await this.persistEntry(workingEntry);
     }
 
+    private async writeFromDocumentUnlocked(ref: string, sourceRef: string) {
+        const source = await this.requireEntry(sourceRef);
+        const {size} = await this.stat(sourceRef);
+        await this.replaceContentUnlocked(
+            ref,
+            size,
+            (offset, length) => this.readEntryRange(source, offset, length),
+            () => this.readEntryBytes(source, size),
+        );
+        return true;
+    }
+
     private async writeUnlocked(
         ref: string,
         data: Uint8Array | ArrayBuffer,
@@ -852,11 +879,32 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         if (!revisionAlreadyChecked && options.skipDocumentRevisionCheckForBootstrap !== true) {
             await this.assertDocumentRevisionCurrent(ref, options.expectedDocumentRevisionToken);
         }
-        const entry = await this.requireEntry(ref);
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)
             : normalizePersistedWriteBytes(data);
-        const nextStorageMode = resolveByteBackedStorageMode(bytes.byteLength);
+        await this.replaceContentUnlocked(
+            ref,
+            bytes.byteLength,
+            (offset, length) => Promise.resolve(bytes.slice(offset, offset + length)),
+            () => Promise.resolve(bytes),
+        );
+
+        if (options.unloadAfterPersist) {
+            this.dropLoadedEntry(ref);
+            return true;
+        }
+        return true;
+    }
+
+    // A chunked result is staged from `readChunk`; only an inline one is read whole.
+    private async replaceContentUnlocked(
+        ref: string,
+        size: number,
+        readChunk: (offset: number, length: number) => Promise<Uint8Array>,
+        readAll: () => Promise<Uint8Array>,
+    ) {
+        const entry = await this.requireEntry(ref);
+        const nextStorageMode = resolveByteBackedStorageMode(size);
         const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
         const previousChunkGeneration = entry.chunkGeneration;
         const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
@@ -867,9 +915,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             if (nextStorageMode === 'chunked') {
                 const stagedLayout = await persistBrowserDocumentChunkGeneration(
                     entry.ref,
-                    bytes.byteLength,
+                    size,
                     BROWSER_DOCUMENT_CHUNK_SIZE,
-                    (offset, length) => Promise.resolve(bytes.slice(offset, offset + length)),
+                    readChunk,
                 );
                 stagedGeneration = stagedLayout.generation;
                 stagedChunkCount = stagedLayout.chunkCount;
@@ -878,7 +926,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.chunkCount = stagedLayout.chunkCount;
                 entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
                 entry.chunkGeneration = stagedLayout.generation;
-                entry.fileSize = bytes.byteLength;
+                entry.fileSize = size;
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
                 await this.persistEntry(entry);
@@ -886,6 +934,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 stagedGeneration = undefined;
                 stagedChunkCount = 0;
             } else {
+                const bytes = await readAll();
                 entry.storageMode = nextStorageMode;
                 entry.chunkCount = 0;
                 entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
@@ -907,12 +956,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             }
             throw error;
         }
-
-        if (options.unloadAfterPersist) {
-            this.dropLoadedEntry(ref);
-            return true;
-        }
-        return true;
     }
 
     public async assignSaveTarget(

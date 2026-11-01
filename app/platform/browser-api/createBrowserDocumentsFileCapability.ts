@@ -106,7 +106,6 @@ interface IBrowserNativeMutationLease {
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
     errorMessageProvider?: {
-        largeSaveHandleHint: () => string;
         useNativeApp?: () => string;
         folderEmpty?: () => string;
     };
@@ -284,7 +283,7 @@ export function createBrowserDocumentsFileCapability(
             }
         },
         async savePdfAs(workingCopyPath, saveOptions, revisionOptions?) {
-            return savePdfAsFromWorkingCopy(workingCopyPath, revisionOptions, saveOptions?.stagedOutput, browserUseNativeAppMessageProvider());
+            return savePdfAsFromWorkingCopy(workingCopyPath, revisionOptions, saveOptions?.stagedOutput);
         },
         savePdfDialog: suggestedName => pickOutputTarget(suggestedName, 'pdf'),
         saveDocxAs: workingCopyPath => pickOutputTarget(
@@ -438,7 +437,7 @@ export function createBrowserDocumentsFileCapability(
             }
             let committed: boolean;
             try {
-                committed = await saveWorkingBytesToSource(path, browserUseNativeAppMessageProvider, options, stagedOutput);
+                committed = await saveWorkingBytesToSource(path, options, stagedOutput);
             } catch (error) {
                 browserNativeMutationLeases.delete(stagedOutput.leaseId);
                 await retireBrowserDocumentWorkingCopy(stagedOutput.path);
@@ -573,7 +572,6 @@ export function createBrowserDocumentsFileCapability(
             const revision = await browserDocumentStore.getDocumentRevision(path);
             const saved = await saveWorkingBytesToSource(
                 path,
-                browserUseNativeAppMessageProvider,
                 {expectedDocumentRevisionToken: revision.token},
             );
             if (!saved) {
@@ -599,7 +597,6 @@ export function createBrowserDocumentsFileCapability(
                         mimeType:
                             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         pickerTypes: buildDocxSaveTypes(),
-                        downloadFallbackLabel: 'Saving documents',
                         ...(signal === undefined ? {} : {signal}),
                     });
                 }
@@ -659,7 +656,6 @@ export function createBrowserDocumentsFileCapability(
         async saveFileStructured(path, revisionOptions) {
             const result = await saveWorkingBytesToSourceStructured(
                 path,
-                browserUseNativeAppMessageProvider,
                 revisionOptions,
             );
             if (result.ok) {

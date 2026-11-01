@@ -5,10 +5,7 @@ import {
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
-import {
-    buildBrowserByteLimitError,
-    toBrowserOwnedArrayBuffer,
-} from '@app/platform/browser-api/browserPlatformHelpers';
+import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 import {
@@ -21,7 +18,6 @@ export interface IPickedBrowserFile {
     handle?: FileSystemFileHandle | null;
 }
 
-export const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
 // Each deadline bounds one step that does not depend on the file's size or on
@@ -42,10 +38,7 @@ type TPermissionCapableFileHandle = FileSystemFileHandle & {
     queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
     requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
 };
-let browserFilePickerMessages = {
-    largeSaveHandleHint: () => 'Use a browser with local file system access enabled to save large documents.',
-    imageExtensionMismatch: (extensions: string) => `Export was not saved. Choose a file name ending in ${extensions}.`,
-};
+let browserFilePickerMessages = {imageExtensionMismatch: (extensions: string) => `Export was not saved. Choose a file name ending in ${extensions}.`};
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
@@ -291,26 +284,6 @@ function createBrowserFilePickerSetupDeniedError() {
     return new BrowserFilePickerSetupDeniedError();
 }
 
-function buildBrowserLargeJobError(
-    label: string,
-    maxBytes: number,
-    hint?: string,
-) {
-    return buildBrowserByteLimitError(
-        label,
-        maxBytes,
-        'inputs',
-        hint,
-    );
-}
-
-function buildBrowserLargeDownloadFallbackError(
-    label: string,
-    maxBytes: number,
-) {
-    return buildBrowserLargeJobError(label, maxBytes, browserFilePickerMessages.largeSaveHandleHint());
-}
-
 export async function pickFiles(options: {
     accept: string;
     multiple?: boolean;
@@ -522,16 +495,46 @@ export async function pickSingleFile(options: {
     return files[0] ?? null;
 }
 
+function downloadBlob(blob: Blob, fileName: string) {
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = fileName;
+    anchor.rel = 'noopener';
+    anchor.style.display = 'none';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+}
+
+/**
+ * Downloads a stored document. Its bytes are read a chunk at a time into a
+ * Blob, which the browser may keep on disk, so no single buffer bounds the
+ * size of the download.
+ */
+export async function downloadBrowserDocument(ref: TDocumentRef, fileName: string, mimeType: string) {
+    const { size } = await browserDocumentStore.stat(ref);
+    const parts: Blob[] = [];
+    for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+        const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset);
+        const chunk = await browserDocumentStore.readRange(ref, offset, length);
+        if (chunk.byteLength !== length) {
+            throw new Error(`Browser download read ${chunk.byteLength} of ${length} bytes at ${offset}`);
+        }
+        parts.push(new Blob([toBrowserOwnedArrayBuffer(chunk)]));
+        if (offset > 0) {
+            await yieldToBrowser();
+        }
+    }
+    downloadBlob(new Blob(parts, { type: mimeType }), fileName);
+}
+
 async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],
-    options: {
-        signal?: AbortSignal;
-        downloadFallbackLabel?: string;
-        downloadFallbackMaxBytes?: number;
-        canDownloadWithoutHandle?: boolean;
-    } = {},
+    options: {signal?: AbortSignal} = {},
 ) {
     throwIfAborted(options.signal);
     const { saveFilePicker } = resolveBrowserCapabilityTier();
@@ -586,34 +589,8 @@ async function saveBlobToPickerOrDownload(
         };
     }
 
-    const maxDownloadBytes = options.downloadFallbackMaxBytes ?? BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES;
-    if (
-        options.canDownloadWithoutHandle === false
-        || blob.size > maxDownloadBytes
-    ) {
-        throw buildBrowserLargeDownloadFallbackError(
-            options.downloadFallbackLabel ?? 'Saving documents',
-            maxDownloadBytes,
-        );
-    }
-
     throwIfAborted(options.signal);
-    const href = URL.createObjectURL(blob);
-    try {
-        throwIfAborted(options.signal);
-    } catch (error) {
-        URL.revokeObjectURL(href);
-        throw error;
-    }
-    const anchor = document.createElement('a');
-    anchor.href = href;
-    anchor.download = suggestedName;
-    anchor.rel = 'noopener';
-    anchor.style.display = 'none';
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+    downloadBlob(blob, suggestedName);
 
     return {
         canceled: false,
@@ -668,27 +645,13 @@ export async function saveBytesToPickerOrDownload(
         mimeType: string;
         pickerTypes: IFilePickerAcceptType[];
         signal?: AbortSignal;
-        downloadFallbackLabel?: string;
-        downloadFallbackMaxBytes?: number;
-        canDownloadWithoutHandle?: boolean;
     },
 ) {
-    const fallbackOptions = {
-        ...(options.downloadFallbackLabel ? { downloadFallbackLabel: options.downloadFallbackLabel } : {}),
-        ...(options.signal === undefined ? {} : {signal: options.signal}),
-        ...(options.downloadFallbackMaxBytes !== undefined
-            ? { downloadFallbackMaxBytes: options.downloadFallbackMaxBytes }
-            : {}),
-        ...(options.canDownloadWithoutHandle !== undefined
-            ? { canDownloadWithoutHandle: options.canDownloadWithoutHandle }
-            : {}),
-    };
-
     return saveBlobToPickerOrDownload(
         new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
-        fallbackOptions,
+        options.signal === undefined ? {} : {signal: options.signal},
     );
 }
 

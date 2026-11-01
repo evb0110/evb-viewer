@@ -53,10 +53,7 @@ async function createAnnotatedFixture(paddingBytes = 0) {
 function createCapability() {
     return createBrowserDocumentsFileCapability({
         clearSearchCaches: async () => undefined,
-        errorMessageProvider: {
-            largeSaveHandleHint: () => 'Use the native app to save this file.',
-            useNativeApp: () => FULL_READ_CAP_MESSAGE,
-        },
+        errorMessageProvider: {useNativeApp: () => FULL_READ_CAP_MESSAGE},
     });
 }
 
