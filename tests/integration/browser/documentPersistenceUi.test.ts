@@ -2,12 +2,13 @@ import {
     createHash, randomBytes,
 } from 'node:crypto';
 import {
-    readFileSync, writeFileSync, rmSync, openSync, writeSync, closeSync,
+    readFileSync, writeFileSync, rmSync, openSync, writeSync, closeSync, mkdirSync,
 } from 'node:fs';
 import {
     basename, resolve,
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {chromium} from 'playwright';
 import type {
     Download, Page,
@@ -615,30 +616,225 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120000);
 
-    it('reports a reset of unusable stored settings once and nothing on a clean profile', async () => {
-        const context = await lifecycle.browser.newContext();
+    it.each([
+        'corrupt',
+        'clean',
+        'future-storage',
+        'future-cookie',
+        'future-between-pages',
+    ] as const)('recovers browser settings without overwriting another version (%s)', async (scenario) => {
+        // The full headless browser supports history-cache restores; the
+        // default headless shell always reports every tab as visible.
+        const historyBrowser = scenario === 'future-between-pages'
+            ? await chromium.launch({
+                headless: true,
+                channel: 'chromium',
+                ignoreDefaultArgs: ['--disable-back-forward-cache'],
+            })
+            : null;
+        const context = await (historyBrowser ?? lifecycle.browser).newContext({viewport: {
+            width: 1280,
+            height: 1000,
+        }});
+        const page = await context.newPage();
+        const settingsKey = 'evb-viewer:browser:settings';
+        const cookieKey = 'evb_viewer_settings';
+        const supported = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Compatible author',
+        }, null, 2);
+        const future = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            version: 99,
+            authorName: 'Future author must not be adopted',
+            clientDiagnosticsPreference: 'granted',
+        }, null, 2);
+        const requests: string[] = [];
+        const problems: string[] = [];
+        const historyMisses: unknown[] = [];
+        context.on('request', request => requests.push(request.url()));
+        page.on('pageerror', error => problems.push(error.message));
+        await context.route('**/api/1/envelope/**', route => route.fulfill({
+            status: 200,
+            body: '{}',
+        }));
+        const evidenceDirectory = process.env.EVB_SETTINGS_EVIDENCE_DIR;
+        if (evidenceDirectory) mkdirSync(evidenceDirectory, {recursive: true});
+        async function capture(phase: string) {
+            const evidence = {
+                scenario,
+                phase,
+                browser: lifecycle.browser.version(),
+                ready: await page.evaluate(() => Reflect.get(window, '__appReady') === true),
+                stored: await page.evaluate(key => localStorage.getItem(key), settingsKey),
+                cookie: (await context.cookies()).find(cookie => cookie.name === cookieKey)?.value ?? null,
+                diagnosticsRequests: requests.filter(url => /@sentry|sentry[_/.]|\/api\/1\/envelope/iu.test(url)),
+                problems,
+                resumeEvents: await page.evaluate(() => Reflect.get(window, '__settingsResumeEvents') as string[] | undefined),
+                historyMisses,
+            };
+            console.info('Browser settings evidence', JSON.stringify(evidence));
+            if (evidenceDirectory) {
+                writeFileSync(resolve(evidenceDirectory, `${scenario}-${phase}.json`), JSON.stringify(evidence, null, 2));
+                await page.screenshot({path: resolve(evidenceDirectory, `${scenario}-${phase}.png`)});
+            }
+            return evidence;
+        }
         try {
-            const page = await context.newPage();
             const notice = page.getByText('Saved settings could not be used, so defaults were restored.', {exact: false});
+            const newerNotice = page.getByText('These settings were saved by a newer version of EVB Viewer. They are kept unchanged, and this version uses its defaults and cannot save settings. Open the newer version to change them.', {exact: false});
             const loadApp = async (load: () => Promise<unknown>) => {
                 await load();
                 // Bootstrap adds the notice before it reports the app ready.
                 await page.waitForFunction(() => Reflect.get(window, '__appReady') === true, undefined, {timeout: 60_000});
             };
+            if (scenario.startsWith('future-')) {
+                // Seed a fresh origin before any app script runs. Whitespace in
+                // these raw values makes a parse-and-rewrite lose byte parity.
+                await context.addInitScript(({
+                    key, value,
+                }) => {
+                    if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+                }, {
+                    key: settingsKey,
+                    value: scenario === 'future-storage' ? future : supported,
+                });
+                await context.addCookies([{
+                    name: cookieKey,
+                    value: encodeURIComponent(scenario === 'future-cookie' ? future : supported),
+                    url: lifecycle.origin,
+                }]);
+            }
             await loadApp(() => page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'}));
-            await expect(notice.count()).resolves.toBe(0);
+            if (scenario === 'corrupt') {
+                await expect(notice.count()).resolves.toBe(0);
 
-            // Setup: storage corrupted outside the app, as by a crash mid-write or an extension.
-            await page.evaluate(() => window.localStorage.setItem('evb-viewer:browser:settings', '{"version": 2, "authorName": '));
-            await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
-            await notice.first().waitFor({timeout: 10_000});
-            const stored = await page.evaluate(() => window.localStorage.getItem('evb-viewer:browser:settings'));
-            expect(JSON.parse(stored ?? 'null')).toMatchObject({version: 2});
+                // Setup: storage corrupted outside the app, as by a crash mid-write or an extension.
+                await page.evaluate(() => window.localStorage.setItem('evb-viewer:browser:settings', '{"version": 2, "authorName": '));
+                await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
+                await notice.first().waitFor({timeout: 10_000});
+                const stored = await page.evaluate(() => window.localStorage.getItem('evb-viewer:browser:settings'));
+                expect(JSON.parse(stored ?? 'null')).toMatchObject({version: 2});
 
-            await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
-            await expect(notice.count()).resolves.toBe(0);
+                await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
+                await expect(notice.count()).resolves.toBe(0);
+                return;
+            }
+            if (scenario === 'future-storage' || scenario === 'future-cookie') {
+                await newerNotice.first().waitFor();
+                await capture('startup');
+            } else {
+                expect(await newerNotice.count()).toBe(0);
+                expect(await notice.count()).toBe(0);
+            }
+            await page.getByRole('button', {
+                name: 'Settings',
+                exact: true,
+            }).filter({visible: true}).first().click();
+            const author = page.getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            });
+            const consent = page.getByRole('switch', {
+                name: 'Send privacy-sanitized error diagnostics',
+                exact: true,
+            });
+            expect(await consent.isChecked()).toBe(false);
+            expect(await author.inputValue()).toBe(scenario === 'future-between-pages' ? 'Compatible author' : '');
+            if (scenario === 'future-between-pages') {
+                await page.evaluate(() => {
+                    const events: string[] = [];
+                    Reflect.set(window, '__settingsResumeEvents', events);
+                    document.addEventListener('visibilitychange', () => events.push(document.visibilityState));
+                    window.addEventListener('pageshow', event => events.push(`pageshow:${String(event.persisted)}`));
+                });
+                // The peer supplies a newer version's bytes. Loading another
+                // copy of this old app would contend with its cached document
+                // lease and make Chromium evict A before pageshow can run.
+                const away = `${lifecycle.origin}/__settings-history-away`;
+                await context.route(away, route => route.fulfill({
+                    contentType: 'text/html',
+                    body: '<p>Settings history navigation fixture</p>',
+                }));
+                const second = await context.newPage();
+                await second.goto(away);
+                const session = await context.newCDPSession(page);
+                await session.send('Page.enable');
+                session.on('Page.backForwardCacheNotUsed', event => historyMisses.push(event));
+                // Resume the original page from the history cache after another
+                // page writes newer settings. A reload would lose this listener
+                // and cannot satisfy the persisted pageshow assertion.
+                await page.goto(away);
+                await second.evaluate(({
+                    key, value,
+                }) => localStorage.setItem(key, value), {
+                    key: settingsKey,
+                    value: future,
+                });
+                await page.goBack({waitUntil: 'commit'});
+                await page.waitForFunction(() => {
+                    const events = Reflect.get(window, '__settingsResumeEvents') as string[] | undefined;
+                    return events?.includes('pageshow:true');
+                });
+                await session.detach();
+                expect(await author.inputValue()).not.toBe('Future author must not be adopted');
+                expect(await consent.isChecked()).toBe(false);
+            }
+            if (scenario !== 'clean') {
+                // A real keyboard event also exercises error reporting. Future
+                // consent must neither load the SDK nor transmit an envelope.
+                await author.evaluate(element => element.addEventListener('keydown', () => {
+                    throw new Error('Settings compatibility input failure');
+                }, {once: true}));
+                await author.press('ArrowRight');
+                await page.locator('.app-toast-error-id').first().waitFor();
+            }
+            await author.fill(`Saved by ${scenario}`);
+            if (scenario === 'clean') {
+                await page.waitForFunction(({
+                    key, name,
+                }) => JSON.parse(localStorage.getItem(key) ?? '{}').authorName === name, {
+                    key: settingsKey,
+                    name: `Saved by ${scenario}`,
+                });
+                expect(await newerNotice.count()).toBe(0);
+                expect(await page.getByText('Last save failed', {exact: true}).count()).toBe(0);
+            } else {
+                await page.getByText('Last save failed', {exact: true}).first().waitFor();
+                const refused = await capture('save-refused');
+                expect(refused.stored).toBe(scenario === 'future-cookie' ? supported : future);
+                // A supported legacy cookie is migrated away on a normal start.
+                expect(refused.cookie).toBe(scenario === 'future-between-pages' ? null : encodeURIComponent(scenario === 'future-cookie' ? future : supported));
+                expect(refused.diagnosticsRequests).toEqual([]);
+                if (scenario === 'future-between-pages') {
+                    // The other version releases ownership. The same live page
+                    // can save again without a reload or private settings API.
+                    await context.addCookies([{
+                        name: cookieKey,
+                        value: encodeURIComponent(supported),
+                        url: lifecycle.origin,
+                    }]);
+                    await page.evaluate(({
+                        key, value,
+                    }) => localStorage.setItem(key, value), {
+                        key: settingsKey,
+                        value: supported,
+                    });
+                    await author.fill('Saved after compatible settings returned');
+                    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) ?? '{}').authorName === 'Saved after compatible settings returned', settingsKey);
+                }
+            }
+            expect((await capture('passed')).diagnosticsRequests).toEqual([]);
         } finally {
-            await context.close();
+            try {
+                await capture('final');
+            } finally {
+                try {
+                    await context.close();
+                } finally {
+                    await historyBrowser?.close();
+                }
+            }
         }
     }, 120_000);
 
