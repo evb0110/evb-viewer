@@ -1,3 +1,4 @@
+import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupManualZones,
@@ -14,6 +15,9 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {Ref} from 'vue';
+import {isEqual} from 'es-toolkit/predicate';
+import {tryOnScopeDispose} from '@vueuse/core';
+import {cloneScanCleanupPreferenceValue} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     attachScanCleanupPageOverrideDefaults,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
@@ -142,11 +146,32 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             : null;
     });
 
+    // Override edits join the document's undo history where the workspace provides it.
+    const commandSink = getCurrentInstance() ? inject(workspaceCommandSinkKey, undefined) : undefined;
+    tryOnScopeDispose(() => commandSink?.reset('scan-cleanup'));
+
     function updateOverrides(
         pages: Iterable<number>,
         update: Parameters<typeof updateScanCleanupPageOverrides>[2],
     ) {
+        const before = cloneScanCleanupPreferenceValue(options.settings.pageOverrides);
         updateScanCleanupPageOverrides(options.settings.pageOverrides, pages, update, options.settings.marginsMm);
+        const after = cloneScanCleanupPreferenceValue(options.settings.pageOverrides);
+        if (isEqual(before, after)) return;
+        const apply = (snapshot: typeof before) => {
+            options.settings.pageOverrides = cloneScanCleanupPreferenceValue(snapshot);
+            attachScanCleanupPageOverrideDefaults(options.settings.pageOverrides, options.settings.pageOverrideDefaults, options.settings.marginsMm);
+            return true;
+        };
+        commandSink?.register({
+            source: 'scan-cleanup',
+            estimatedBytes: JSON.stringify([
+                before,
+                after,
+            ]).length * 2,
+            undo: () => apply(before),
+            cmd: () => apply(after),
+        });
     }
 
     function updatePageOverride(page: number, value: IScanCleanupPageOverride) {

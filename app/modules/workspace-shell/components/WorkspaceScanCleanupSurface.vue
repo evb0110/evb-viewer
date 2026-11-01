@@ -25,6 +25,7 @@
 <script setup lang="ts">
 import ScanCleanupWorkspaceLoading from '@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { workspaceCommandSinkKey } from '@app/types/workspaceCommand';
 import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const ScanCleanupWorkspace = defineAsyncComponent({
@@ -36,7 +37,11 @@ const ScanCleanupWorkspace = defineAsyncComponent({
 
 defineProps<{canTeleportToolbar: boolean;}>();
 
-const {file} = useDocumentContext();
+const {
+    file,
+    metadata,
+} = useDocumentContext();
+provide(workspaceCommandSinkKey, metadata.workspaceCommandSink);
 const {
     scanCleanup,
     scanCleanupSourceSha256,

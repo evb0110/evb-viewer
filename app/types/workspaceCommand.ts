@@ -1,3 +1,4 @@
+import type {InjectionKey} from 'vue';
 import type {TWorkspaceUndoSource} from '@app/types/workspaceUndoSource';
 
 export interface IWorkspaceCommandRegistration {
@@ -26,3 +27,6 @@ export interface IWorkspaceCommandSink {
     undo?: () => Promise<boolean> | boolean;
     redo?: () => Promise<boolean> | boolean;
 }
+
+/** The document's command sink, for editors mounted inside its workspace surface. */
+export const workspaceCommandSinkKey: InjectionKey<IWorkspaceCommandSink> = Symbol('workspaceCommandSink');
