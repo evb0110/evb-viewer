@@ -820,7 +820,8 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'parsePdfAnnotations'
     | 'cleanupFile'
 > {recovery?: {
-    createSnapshot(fileName: string, data: Uint8Array, sourceRef?: TDocumentRef): Promise<{
+    /** Copies `from` into a durable recovery document, chunk by chunk. */
+    createSnapshot(fileName: string, from: TDocumentRef, sourceRef?: TDocumentRef): Promise<{
         ref: TDocumentRef;
         revisionToken: TDocumentRevisionToken;
     }>;

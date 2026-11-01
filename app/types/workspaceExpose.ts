@@ -1,7 +1,10 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ICropMargins } from '@app/types/crop';
 import type { TPageMoveOperation } from '@contracts/pageNumbers';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
@@ -323,7 +326,17 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         uri: string,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    createRecoverySnapshotBytes: (recovery?: IWorkspaceCheckpointTab['annotationRecovery']) => Promise<Uint8Array | null>;
+    /** A durable recovery copy of the document's current state, or null when it changed meanwhile. */
+    createRecoverySnapshot: (
+        target: {
+            fileName: string;
+            sourceRef?: TDocumentRef | null
+        },
+        recovery?: IWorkspaceCheckpointTab['annotationRecovery'],
+    ) => Promise<{
+        ref: TDocumentRef;
+        revisionToken: TDocumentRevisionToken
+    } | null>;
     commentAtPoint?: (
         pageNumber: number,
         pageX: number,

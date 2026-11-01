@@ -369,7 +369,7 @@ export function createWorkspaceExpose(
                 : null;
         },
         getAutomationStateSnapshot,
-        createRecoverySnapshotBytes: save.createRecoverySnapshotBytes,
+        createRecoverySnapshot: save.createRecoverySnapshot,
         scrollToPage: (page: number) => {
             view.documentViewerRef.value?.scrollToPage(page);
         },

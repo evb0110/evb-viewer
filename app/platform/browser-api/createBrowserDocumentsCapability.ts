@@ -171,11 +171,12 @@ export function createBrowserDocumentsCapability(
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
         recovery: {
-            async createSnapshot(fileName, data, sourceRef) {
+            async createSnapshot(fileName, from, sourceRef) {
                 const ref = await reserveBrowserDocumentWorkingCopy(fileName, sourceRef);
                 try {
-                    await browserDocumentStore.createStoredDocument(fileName, data, {
+                    await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), {
                         ref,
+                        contentFrom: from,
                         mimeType: 'application/pdf',
                         kind: 'working',
                         retention: 'durable',

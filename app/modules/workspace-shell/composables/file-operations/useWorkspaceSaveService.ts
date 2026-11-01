@@ -59,7 +59,7 @@ import {
     buildSaveTransactionRequest,
     completeSuccessfulSaveState,
     createPageMutationWriterSave,
-    createRecoverySnapshotBytes as createRecoverySnapshotBytesForService,
+    createRecoverySnapshot as createRecoverySnapshotForService,
     createReloadWaiter,
     createWorkspaceSavePlan,
     getNativeSaveTransactionOptions,
@@ -537,7 +537,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const isAnySaveAdmitted = ref(false);
     const acknowledgedUnencryptedSaveSessions = new Set<string>();
     const nativeSaveTransactionOptions = () => getNativeSaveTransactionOptions(deps);
-    const createRecoverySnapshotBytes = createRecoverySnapshotBytesForService(
+    const createRecoverySnapshot = createRecoverySnapshotForService(
         deps,
         runWithDocumentOperationLease,
     );
@@ -853,7 +853,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleSave: saveIfDirty,
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
-        createRecoverySnapshotBytes,
+        createRecoverySnapshot,
         createPageMutationWriterSave: (options: {
             currentPage: Readonly<Ref<number>>;
             waitForPdfReload: (page: number) => Promise<unknown>;
