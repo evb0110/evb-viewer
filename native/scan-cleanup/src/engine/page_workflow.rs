@@ -1227,7 +1227,12 @@ impl FinishedOutput {
                 .mixed_layers
                 .as_ref()
                 .expect("a layer plan is made only for an output with layers");
-            let foreground_role = plan.foreground_plane(layers).role;
+            // The role alone, since producing the plane downsamples the foreground.
+            let foreground_role = if layers.foreground_alpha.is_some() {
+                PlaneRole::ForegroundAlpha
+            } else {
+                PlaneRole::ForegroundMask
+            };
             let published = sink
                 .publish(&plan.background_plane(layers))
                 .and_then(|()| sink.publish(&plan.foreground_plane(layers)));
