@@ -514,7 +514,11 @@ describe('browser recovery without Web Locks', () => {
             setTimeout,
             clearTimeout,
         });
-        vi.stubGlobal('document', {title: 'EVB Viewer'});
+        // The startup consent read checks the settings cookies, as a page always can.
+        vi.stubGlobal('document', {
+            title: 'EVB Viewer',
+            cookie: '',
+        });
         vi.stubGlobal('BroadcastChannel', class {
             addEventListener() {}
             removeEventListener() {}
