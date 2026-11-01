@@ -69,9 +69,23 @@ import {
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 import {
     analyzeBrowserScanCleanupPage,
+    deriveBrowserScanCleanupInkContexts,
+    finishBrowserScanCleanupPageAnalysis,
     preprocessBrowserOcrPage,
+    reconcileBrowserScanCleanupDocument,
+    renderBrowserScanCleanupPage,
     renderBrowserScanCleanupPreview,
+    sampleBrowserScanCleanupPageInk,
+    type TBrowserScanCleanupOutcome,
 } from '@app/platform/browser-api/browserScanCleanupWasm';
+import type {
+    IScanCleanupWasmRenderedOutput,
+    TScanCleanupWasmPlaneRole,
+} from '@contracts/scan-cleanup/browserScanCleanupWasm';
+import type {
+    OutputPlanes,
+    PageReconciliation,
+} from '@contracts/scan-cleanup/nativeWire.generated';
 import {
     createOcrScanCleanupOptions,
     readOcrScanCleanupGeometry,
@@ -6446,3 +6460,848 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM agains
         });
     }
 });
+
+/** One manifest output destination with every plane it can take. */
+interface IParityDestination {
+    output: string;
+    metadata: string;
+    planes: Array<[TScanCleanupWasmPlaneRole, string]>;
+}
+
+function parityDestination(dir: string, name: string, backgroundExtension: 'png' | 'ppm' | 'pgm'): IParityDestination {
+    return {
+        output: join(dir, `${name}.png`),
+        metadata: join(dir, `${name}.json`),
+        planes: [
+            [
+                'bilevel',
+                join(dir, `${name}.pbm`),
+            ],
+            [
+                'background',
+                join(dir, `${name}-background.${backgroundExtension}`),
+            ],
+            [
+                'foreground-mask',
+                join(dir, `${name}-mask.pbm`),
+            ],
+            [
+                'foreground-alpha',
+                join(dir, `${name}-alpha.pgm`),
+            ],
+            [
+                'picture-mask',
+                join(dir, `${name}-picture.pbm`),
+            ],
+            [
+                'tone-preservation-alpha',
+                join(dir, `${name}-tone.png`),
+            ],
+        ],
+    };
+}
+
+function manifestOutput(destination: IParityDestination): INativeScanCleanupOutputV3 {
+    const path = (role: TScanCleanupWasmPlaneRole) => destination.planes.find(([planeRole]) => planeRole === role)![1];
+    return {
+        outputPath: destination.output,
+        metadataPath: destination.metadata,
+        bilevelOutputPath: path('bilevel'),
+        backgroundOutputPath: path('background'),
+        foregroundMaskOutputPath: path('foreground-mask'),
+        foregroundAlphaOutputPath: path('foreground-alpha'),
+        pictureMaskOutputPath: path('picture-mask'),
+        tonePreservationAlphaOutputPath: path('tone-preservation-alpha'),
+    };
+}
+
+function everyPlane(background: 'png' | 'ppm' | 'pgm'): OutputPlanes {
+    return {
+        bilevel: true,
+        background,
+        foregroundMask: true,
+        foregroundAlpha: true,
+        pictureMask: true,
+        tonePreservationAlpha: true,
+    };
+}
+
+/** The browser output carries exactly the files the CLI published, byte for byte. */
+async function expectPublished(label: string, output: IScanCleanupWasmRenderedOutput, destination: IParityDestination) {
+    expect(output.metadataJson, `${label} metadata`).toBe(await readFile(destination.metadata, 'utf8'));
+    for (const [
+        role,
+        path,
+    ] of [
+            [
+                'composite',
+                destination.output,
+            ] as [TScanCleanupWasmPlaneRole, string],
+            ...destination.planes,
+        ]) {
+        const plane = output.planes.find(candidate => candidate.role === role);
+        expect(plane !== undefined, `${label} ${role} published by both or neither`).toBe(existsSync(path));
+        if (plane) expect(Buffer.from(plane.data).equals(await readFile(path)), `${label} ${role} bytes`).toBe(true);
+    }
+}
+
+async function runCliManifest(dir: string, manifest: object) {
+    const path = join(dir, `manifest-${createHash('sha256').update(JSON.stringify(manifest)).digest('hex').slice(0, 12)}.json`);
+    await writeFile(path, JSON.stringify(manifest));
+    await runCliNativeToolCommand(scanCleanupCliBinary!, [
+        '--manifest',
+        path,
+    ], {env: {
+        ...process.env,
+        RAYON_NUM_THREADS: '2',
+    }});
+}
+
+function unwrap<TResult>(outcome: TBrowserScanCleanupOutcome<TResult>): TResult {
+    if (outcome.status === 'failed') throw new Error(`${outcome.error.code}: ${outcome.error.message}`);
+    return outcome.result;
+}
+
+/** A colored photo beside four text rules: a final render publishes it as layers. */
+function mixedParityPage() {
+    const width = 180;
+    const height = 120;
+    const data = new Uint8Array(width * height * 3).fill(248);
+    const set = (x: number, y: number, rgb: [number, number, number]) => data.set(rgb, (y * width + x) * 3);
+    for (let y = 24; y < 94; y += 1) {
+        for (let x = 96; x < 168; x += 1) {
+            set(x, y, [
+                30 + (x * 7 + y * 11) % 180,
+                45 + (x * 13 + y * 3) % 150,
+                70 + (x * 5 + y * 17) % 150,
+            ]);
+        }
+    }
+    for (const y of [
+        22,
+        42,
+        62,
+        82,
+    ]) {
+        for (let x = 16; x < 78; x += 1) {
+            set(x, y, [
+                18,
+                18,
+                18,
+            ]);
+            set(x, y + 1, [
+                18,
+                18,
+                18,
+            ]);
+        }
+    }
+    const options: INativeScanCleanupOptionsV3 = {
+        ...renderOptions(600, {}),
+        sourceDpi: 300,
+        requestedRenderDpi: 600,
+        outputMode: 'mixed',
+        layout: 'force-single',
+        normalizeIllumination: false,
+        matchPageSize: true,
+        pageAlignment: 'center',
+        margins: {
+            leftMm: 0,
+            topMm: 0,
+            rightMm: 0,
+            bottomMm: 0,
+        },
+        automaticContentBoxes: {full: {
+            xNormalized: 0,
+            yNormalized: 10 / 120,
+            widthNormalized: 170 / 180,
+            heightNormalized: 100 / 120,
+            rotationDegrees: 0,
+        }},
+        manualZones: {
+            picture: [{
+                polygon: {
+                    points: [
+                        {
+                            xNormalized: 0.5,
+                            yNormalized: 0.15,
+                        },
+                        {
+                            xNormalized: 0.96,
+                            yNormalized: 0.15,
+                        },
+                        {
+                            xNormalized: 0.96,
+                            yNormalized: 0.85,
+                        },
+                        {
+                            xNormalized: 0.5,
+                            yNormalized: 0.85,
+                        },
+                    ],
+                    rotationDegrees: 0,
+                },
+                layer: 'painter2',
+            }],
+            fill: [],
+        },
+    };
+    return {
+        bytes: encodePng({
+            width,
+            height,
+            data,
+            channels: 3,
+            depth: 8,
+        }),
+        options,
+        canvas: {
+            widthPoints: 21.6,
+            heightPoints: 14.4,
+            widthPx: 180,
+            heightPx: 120,
+        },
+    };
+}
+
+const GLYPH_CANVAS = {
+    widthPoints: 211.2,
+    heightPoints: 144,
+    widthPx: 880,
+    heightPx: 600,
+};
+// The spread at half size is 600 x 435 pixels at 75 DPI; a leaf is half.
+const SPREAD_LEAF_CANVAS = {
+    widthPoints: 288,
+    heightPoints: 417.6,
+    widthPx: 300,
+    heightPx: 435,
+};
+
+const PARITY_FINAL_CASES: Array<{
+    label: string;
+    read: () => Promise<{
+        bytes: Uint8Array;
+        options: INativeScanCleanupOptionsV3;
+        canvas: typeof GLYPH_CANVAS
+    }>;
+    background: 'png' | 'ppm' | 'pgm';
+    outputs: number;
+}> = [
+    ...([
+        [
+            'a bw page on a matched canvas',
+            {},
+            'ppm',
+        ],
+        [
+            'a grayscale page with a PGM background destination',
+            {outputMode: 'grayscale'},
+            'pgm',
+        ],
+        [
+            'an unmatched color page',
+            {
+                outputMode: 'color',
+                matchPageSize: false,
+            },
+            'png',
+        ],
+    ] as const).map(([
+        label,
+        overrides,
+        background,
+    ]) => ({
+        label,
+        read: async () => ({
+            bytes: (await readParityRaster(PARITY_GLYPH_FIXTURES[0]!, 300)).bytes,
+            options: {
+                ...renderOptions(300, {}),
+                matchPageSize: true,
+                ...overrides,
+            },
+            canvas: GLYPH_CANVAS,
+        }),
+        background,
+        outputs: 1,
+    })),
+    ...([
+        'ppm',
+        'png',
+    ] as const).map(background => ({
+        label: `a mixed page with separable layers and a ${background.toUpperCase()} background`,
+        read: async () => mixedParityPage(),
+        background,
+        outputs: 1,
+    })),
+    ...([
+        'bw',
+        'mixed',
+    ] as const).map(outputMode => ({
+        label: `a ${outputMode} spread on a matched canvas`,
+        read: async () => ({
+            bytes: (await readHalfSizeSpread()).bytes,
+            options: renderOptions(75, {
+                layout: 'force-two-page',
+                outputMode,
+                matchPageSize: true,
+                margins: {
+                    leftMm: 2,
+                    topMm: 2,
+                    rightMm: 2,
+                    bottomMm: 2,
+                },
+            }),
+            canvas: SPREAD_LEAF_CANVAS,
+        }),
+        background: 'ppm' as const,
+        outputs: 2,
+    })),
+];
+
+/** Twelve producer MRC pages: enough body text for a document ink prior. */
+function mrcParityPages() {
+    const textPage = (glyphWidth: number, glyphHeight: number) => {
+        const width = 120;
+        const height = 100;
+        const raw = new Uint8Array(width * height).fill(250);
+        const selection = new Uint8Array(width * height).fill(255);
+        for (let row = 0; row < 4; row += 1) {
+            for (let column = 0; column < 6; column += 1) {
+                const left = 5 + column * 18;
+                const top = 5 + row * 23;
+                for (let y = Math.max(0, top - 1); y < Math.min(height, top + glyphHeight + 1); y += 1) {
+                    for (let x = Math.max(0, left - 1); x < Math.min(width, left + glyphWidth + 1); x += 1) raw[y * width + x] = 180;
+                }
+                for (let y = top; y < top + glyphHeight; y += 1) {
+                    for (let x = left; x < left + glyphWidth; x += 1) {
+                        raw[y * width + x] = 32;
+                        selection[y * width + x] = 0;
+                    }
+                }
+            }
+        }
+        const png = (data: Uint8Array) => encodePng({
+            width,
+            height,
+            data,
+            channels: 1,
+            depth: 8,
+        });
+        return {
+            input: png(raw),
+            selection: png(selection),
+        };
+    };
+    return Array.from({length: 12}, (_, index) => index === 0 ? textPage(4, 20) : textPage(5, 16));
+}
+
+describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM final render and document steps against the native CLI${missingParityTools.length ? ` (skipped: missing ${missingParityTools.join(', ')})` : ''}`, () => {
+    for (const parityCase of PARITY_FINAL_CASES) {
+        it(`renders ${parityCase.label} to the files a final manifest publishes`, async () => {
+            stubBrowserWasmGlobals();
+            const dir = await createParityDir();
+            const page = await parityCase.read();
+            const input = join(dir, 'input.png');
+            await writeFile(input, page.bytes);
+            const destinations = [
+                0,
+                1,
+            ].map(index => parityDestination(dir, `out-${String(index)}`, parityCase.background));
+            const pageMetadataPath = join(dir, 'page.json');
+            await runCliManifest(dir, {
+                version: 3,
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                documentCanvas: page.canvas,
+                pages: [{
+                    inputPath: input,
+                    sourcePageIndex: 0,
+                    pageMetadataPath,
+                    options: page.options,
+                    outputs: destinations.map(manifestOutput),
+                }],
+            });
+            const browser = unwrap(await renderBrowserScanCleanupPage({
+                input: page.bytes,
+                page: {
+                    options: page.options,
+                    sourcePageIndex: 0,
+                    canvasScope: 'document',
+                    renderMode: 'final',
+                    documentCanvas: page.canvas,
+                    outputs: [
+                        everyPlane(parityCase.background),
+                        everyPlane(parityCase.background),
+                    ],
+                },
+                planes: 'encoded',
+            }));
+            expect(browser.pageMetadataJson).toBe(await readFile(pageMetadataPath, 'utf8'));
+            expect(browser.outputs).toHaveLength(parityCase.outputs);
+            for (const [
+                index,
+                output,
+            ] of browser.outputs.entries()) await expectPublished(`output ${String(index)}`, output, destinations[index]!);
+        }, 120_000);
+    }
+
+    it('returns raw final planes with the pixels of the encoded ones', async () => {
+        stubBrowserWasmGlobals();
+        const page = mixedParityPage();
+        const request = (planes: 'raw' | 'encoded') => renderBrowserScanCleanupPage({
+            input: page.bytes,
+            page: {
+                options: page.options,
+                sourcePageIndex: 0,
+                canvasScope: 'document',
+                renderMode: 'final',
+                documentCanvas: page.canvas,
+                outputs: [everyPlane('ppm')],
+            },
+            planes,
+        });
+        const [encoded] = unwrap(await request('encoded')).outputs;
+        const [raw] = unwrap(await request('raw')).outputs;
+        expect(raw!.planes.map(plane => [
+            plane.role,
+            plane.kind,
+            plane.encoding,
+        ]))
+            .toEqual(encoded!.planes.map(plane => [
+                plane.role,
+                plane.kind,
+                'raw',
+            ]));
+        for (const [
+            index,
+            plane,
+        ] of raw!.planes.entries()) {
+            const file = encoded!.planes[index]!;
+            if (file.encoding === 'png') {
+                expect(Buffer.from(decodePng(file.data).data as Uint8Array).equals(Buffer.from(plane.data)), plane.role).toBe(true);
+            } else if (file.encoding === 'ppm' && plane.kind === 'gray8') {
+                // A gray background in a PPM repeats each sample in all three channels.
+                const rgb = file.data.subarray(file.data.byteLength - plane.data.byteLength * 3);
+                expect(plane.data.every((sample, pixel) => rgb[pixel * 3] === sample && rgb[pixel * 3 + 2] === sample), plane.role).toBe(true);
+            } else {
+                // PBM, PGM and color PPM carry the raw rows after their header.
+                expect(Buffer.from(file.data.subarray(file.data.byteLength - plane.data.byteLength)).equals(Buffer.from(plane.data)), plane.role).toBe(true);
+            }
+        }
+    });
+
+    it('previews a page on the document canvas with its PDF geometry as a preview manifest does', async () => {
+        stubBrowserWasmGlobals();
+        const dir = await createParityDir();
+        const raster = await readParityRaster(PARITY_GLYPH_FIXTURES[0]!, 300);
+        const input = join(dir, 'input.png');
+        await writeFile(input, raster.bytes);
+        const options = {
+            ...renderOptions(300, {}),
+            matchPageSize: true,
+        };
+        const pdfPage = {
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 211.2,
+            heightPoints: 144,
+            rotation: 0,
+            sourceDpi: 300,
+        };
+        const destination = parityDestination(dir, 'out', 'ppm');
+        const pageMetadataPath = join(dir, 'page.json');
+        await runCliManifest(dir, {
+            version: 3,
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            documentCanvas: GLYPH_CANVAS,
+            pages: [{
+                inputPath: input,
+                sourcePageIndex: 0,
+                pageMetadataPath,
+                options,
+                pdfPage,
+                outputs: [{
+                    outputPath: destination.output,
+                    metadataPath: destination.metadata,
+                }],
+            }],
+        });
+        const browser = unwrap(await renderBrowserScanCleanupPage({
+            input: raster.bytes,
+            page: {
+                options,
+                sourcePageIndex: 0,
+                canvasScope: 'page',
+                renderMode: 'preview',
+                documentCanvas: GLYPH_CANVAS,
+                pdfPage,
+                outputs: [{}],
+            },
+            planes: 'encoded',
+        }));
+        expect(browser.pageMetadataJson).toBe(await readFile(pageMetadataPath, 'utf8'));
+        await expectPublished('preview', browser.outputs[0]!, destination);
+        expect(browser.outputs[0]!.metadata.uniformCanvas).toBe(true);
+    });
+
+    it('renders a detail of a preview as a detail manifest does', async () => {
+        stubBrowserWasmGlobals();
+        const dir = await createParityDir();
+        const raster = await readParityRaster(PARITY_GLYPH_FIXTURES[0]!, 300);
+        const source = join(dir, 'source.png');
+        await writeFile(source, raster.bytes);
+        const options = renderOptions(300, {
+            outputMode: 'grayscale',
+            layout: 'force-single',
+        });
+        const base = parityDestination(dir, 'base', 'ppm');
+        await runCliManifest(dir, {
+            version: 3,
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            pages: [{
+                inputPath: source,
+                sourcePageIndex: 0,
+                pageMetadataPath: join(dir, 'base-page.json'),
+                options,
+                outputs: [{
+                    outputPath: base.output,
+                    metadataPath: base.metadata,
+                }],
+            }],
+        });
+        const decoded = decodePng(raster.bytes);
+        const crop = {
+            x: 100,
+            y: 80,
+            width: 300,
+            height: 200,
+        };
+        const cropData = new Uint8Array(crop.width * crop.height);
+        for (let y = 0; y < crop.height; y += 1) {
+            for (let x = 0; x < crop.width; x += 1) {
+                cropData[y * crop.width + x] = Number(decoded.data[((crop.y + y) * decoded.width + crop.x + x) * decoded.channels]);
+            }
+        }
+        const cropBytes = encodePng({
+            width: crop.width,
+            height: crop.height,
+            data: cropData,
+            channels: 1,
+            depth: 8,
+        });
+        const cropPath = join(dir, 'crop.png');
+        await writeFile(cropPath, cropBytes);
+        const sampled = {
+            xPx: crop.x,
+            yPx: crop.y,
+            widthPx: crop.width,
+            heightPx: crop.height,
+        };
+        const geometry = {
+            sourceCrop: sampled,
+            fullSourceWidthPx: decoded.width,
+            fullSourceHeightPx: decoded.height,
+            scale: 1,
+            renderRegion: {
+                xPx: 140,
+                yPx: 100,
+                widthPx: 200,
+                heightPx: 150,
+            },
+            sampledRegion: sampled,
+        };
+        const detail = parityDestination(dir, 'detail', 'ppm');
+        const pageMetadataPath = join(dir, 'detail-page.json');
+        await runCliManifest(dir, {
+            version: 3,
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            pages: [{
+                inputPath: cropPath,
+                sourcePageIndex: 0,
+                pageMetadataPath,
+                options,
+                detailRenderPlan: {
+                    ...geometry,
+                    baseMetadataPath: base.metadata,
+                    baseRasterPath: source,
+                    baseCleanedRasterPath: base.output,
+                },
+                outputs: [{
+                    outputPath: detail.output,
+                    metadataPath: detail.metadata,
+                }],
+            }],
+        });
+        const browser = unwrap(await renderBrowserScanCleanupPage({
+            input: cropBytes,
+            page: {
+                options,
+                sourcePageIndex: 0,
+                canvasScope: 'page',
+                renderMode: 'preview',
+            },
+            detail: {
+                geometry,
+                baseMetadataJson: await readFile(base.metadata, 'utf8'),
+                baseSource: raster.bytes,
+                baseCleaned: new Uint8Array(await readFile(base.output)),
+            },
+            planes: 'encoded',
+        }));
+        expect(browser.pageMetadataJson).toBe(await readFile(pageMetadataPath, 'utf8'));
+        await expectPublished('detail', browser.outputs[0]!, detail);
+    });
+
+    it('renders producer MRC pages under the document ink prior a render manifest derives', async () => {
+        stubBrowserWasmGlobals();
+        const dir = await createParityDir();
+        const pages = mrcParityPages();
+        const background = encodePng({
+            width: 60,
+            height: 50,
+            data: new Uint8Array(60 * 50).fill(250),
+            channels: 1,
+            depth: 8,
+        });
+        const backgroundPath = join(dir, 'background.png');
+        await writeFile(backgroundPath, background);
+        const options = renderOptions(150, {
+            sourceHasBilevelLayer: true,
+            sourceBackgroundDpi: 75,
+            outputMode: 'bw',
+            layout: 'force-single',
+            normalizeIllumination: false,
+            margins: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            automaticContentBoxes: {full: {
+                xNormalized: 0.04,
+                yNormalized: 0.04,
+                widthNormalized: 0.9,
+                heightNormalized: 0.92,
+                rotationDegrees: 0,
+            }},
+        });
+        const destinations = pages.map((_, index) => parityDestination(dir, `out-${String(index)}`, 'ppm'));
+        const manifestPages = [];
+        for (const [
+            index,
+            page,
+        ] of pages.entries()) {
+            const inputPath = join(dir, `input-${String(index)}.png`);
+            const selectionPath = join(dir, `selection-${String(index)}.png`);
+            await writeFile(inputPath, page.input);
+            await writeFile(selectionPath, page.selection);
+            manifestPages.push({
+                inputPath,
+                trustedForegroundMaskPath: selectionPath,
+                trustedMrcBackgroundPath: backgroundPath,
+                sourcePageIndex: index,
+                pageMetadataPath: join(dir, `page-${String(index)}.json`),
+                options,
+                outputs: [manifestOutput(destinations[index]!)],
+            });
+        }
+        await runCliManifest(dir, {
+            version: 3,
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            pages: manifestPages,
+        });
+        const samples = [];
+        for (const [
+            index,
+            page,
+        ] of pages.entries()) {
+            samples.push(unwrap(await sampleBrowserScanCleanupPageInk({
+                trustedMrc: {
+                    selection: page.selection,
+                    selectionEncoding: 'raster',
+                    background,
+                },
+                page: {
+                    options,
+                    sourcePageIndex: index,
+                },
+            })).sample);
+        }
+        expect(samples.every(sample => sample !== null)).toBe(true);
+        const {contexts} = unwrap(await deriveBrowserScanCleanupInkContexts({samples}));
+        for (const [
+            index,
+            page,
+        ] of pages.entries()) {
+            const browser = unwrap(await renderBrowserScanCleanupPage({
+                input: page.input,
+                trustedMrc: {
+                    selection: page.selection,
+                    selectionEncoding: 'raster',
+                    background,
+                },
+                page: {
+                    options,
+                    sourcePageIndex: index,
+                    canvasScope: 'document',
+                    renderMode: 'final',
+                    pageInkConsistency: contexts[index]!,
+                    outputs: [everyPlane('ppm')],
+                },
+                planes: 'encoded',
+            }));
+            expect(browser.pageMetadataJson).toBe(await readFile(join(dir, `page-${String(index)}.json`), 'utf8'));
+            await expectPublished(`MRC page ${String(index)}`, browser.outputs[0]!, destinations[index]!);
+        }
+        expect(JSON.parse(await readFile(destinations[0]!.metadata, 'utf8')).inkConsistencyDiagnostics.applied).toBe(true);
+    }, 120_000);
+
+    for (const lossless of [
+        false,
+        true,
+    ]) {
+        it(`reconciles a ${lossless ? 'lossless' : 'page-plan'} analysis batch to the pages an analyze manifest writes`, async () => {
+            stubBrowserWasmGlobals();
+            const dir = await createParityDir();
+            const spreads = await Promise.all([
+                1,
+                2,
+                3,
+                4,
+            ].map(page => readHalfSizeSpreadPage(page)));
+            // The first spread shifted a twentieth of its width: its cutter
+            // falls off the document's, so reconciliation analyzes it again.
+            const pages = [
+                ...spreads,
+                shiftRight(spreads[0]!, 20),
+            ];
+            const options = renderOptions(75, {outputMode: 'auto'});
+            const renderMode = lossless ? 'final' : 'preview';
+            const canvasScope = lossless ? 'document' : 'page';
+            const pdfPage = {
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 576,
+                heightPoints: 417.6,
+                rotation: 0,
+                sourceDpi: 75,
+            };
+            const manifestPages = [];
+            for (const [
+                index,
+                bytes,
+            ] of pages.entries()) {
+                const inputPath = join(dir, `input-${String(index)}.png`);
+                await writeFile(inputPath, bytes);
+                manifestPages.push({
+                    inputPath,
+                    sourcePageIndex: index,
+                    pageMetadataPath: join(dir, `page-${String(index)}.json`),
+                    options,
+                    outputs: [],
+                    ...(lossless ? {pdfPage} : {}),
+                });
+            }
+            await runCliManifest(dir, {
+                version: 3,
+                operation: 'analyze',
+                renderMode,
+                canvasScope,
+                ...(lossless ? {documentCanvas: SPREAD_LEAF_CANVAS} : {}),
+                pages: manifestPages,
+            });
+            const analyze = async (index: number, documentPrior?: PageReconciliation['prior']) => unwrap(await analyzeBrowserScanCleanupPage({
+                input: pages[index]!,
+                page: {
+                    options,
+                    sourcePageIndex: index,
+                    canvasScope,
+                    ...(documentPrior === undefined ? {} : {documentPrior}),
+                },
+            }));
+            const firstPass = [];
+            for (const index of pages.keys()) firstPass.push(await analyze(index));
+            const {pages: decisions} = unwrap(await reconcileBrowserScanCleanupDocument({candidates: firstPass.map(page => page.reconciliation)}));
+            expect(decisions.map(decision => decision?.kind ?? 'none')).toContain('rerun');
+            expect(decisions.map(decision => decision?.kind ?? 'none')).toContain('update');
+            for (const [
+                index,
+                decision,
+            ] of decisions.entries()) {
+                const analysis = decision?.kind === 'rerun'
+                    ? await analyze(index, decision.prior)
+                    : firstPass[index]!;
+                const finished = unwrap(await finishBrowserScanCleanupPageAnalysis({
+                    pageMetadataJson: analysis.pageMetadataJson,
+                    ...(decision === null ? {} : {reconciliation: decision}),
+                    ...(lossless
+                        ? {pdfPlacement: {
+                            pdfPage,
+                            options,
+                            renderMode,
+                            documentCanvas: SPREAD_LEAF_CANVAS,
+                        }}
+                        : {}),
+                }));
+                expect(finished.pageMetadataJson, `page ${String(index)} (${decision?.kind ?? 'none'})`)
+                    .toBe(await readFile(join(dir, `page-${String(index)}.json`), 'utf8'));
+            }
+        }, 180_000);
+    }
+});
+
+/** One of the four soft-gutter spreads at half size, as {@link readHalfSizeSpread} reads the first. */
+async function readHalfSizeSpreadPage(page: number) {
+    const path = PARITY_SPREAD_FIXTURE.replace('p00001', `p0000${String(page)}`);
+    const source = decodePng(await readFile(join(process.cwd(), path)));
+    const width = Math.floor(source.width / 2);
+    const height = Math.floor(source.height / 2);
+    const channels = source.channels;
+    const data = new Uint8Array(width * height * channels);
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            for (let channel = 0; channel < channels; channel += 1) {
+                const sample = (dx: number, dy: number) => Number(source.data[((2 * y + dy) * source.width + 2 * x + dx) * channels + channel]);
+                data[(y * width + x) * channels + channel] = Math.round((sample(0, 0) + sample(1, 0) + sample(0, 1) + sample(1, 1)) / 4);
+            }
+        }
+    }
+    return encodePng({
+        width,
+        height,
+        data,
+        channels,
+        depth: 8,
+    });
+}
+
+/** The page moved right by `1 / fraction` of its width over white. */
+function shiftRight(bytes: Uint8Array, fraction: number) {
+    const source = decodePng(bytes);
+    const shift = Math.floor(source.width / fraction);
+    const data = new Uint8Array(source.width * source.height * source.channels).fill(255);
+    for (let y = 0; y < source.height; y += 1) {
+        for (let x = shift; x < source.width; x += 1) {
+            for (let channel = 0; channel < source.channels; channel += 1) {
+                data[(y * source.width + x) * source.channels + channel] = Number(source.data[(y * source.width + x - shift) * source.channels + channel]);
+            }
+        }
+    }
+    return encodePng({
+        width: source.width,
+        height: source.height,
+        data,
+        channels: source.channels,
+        depth: 8,
+    });
+}
