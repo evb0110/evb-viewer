@@ -1311,6 +1311,182 @@ describe('browser document lifecycle UI', () => {
         }
     }, 240_000);
 
+    // T6/T3: storage-backed browser PDFs print every sheet, including unsaved notes.
+    it('prints a browser PDF above the in-memory limit, its current page and an unsaved note', async () => {
+        const evidence = resolve(process.cwd(), `.devkit/browser-print-large-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 800,
+        }});
+        const problems = collectConsoleProblems(page);
+        const observations: unknown[] = [];
+        try {
+            await page.addInitScript(() => {
+                window.print = () => {
+                    const sheets = Array.from(document.querySelectorAll<HTMLImageElement>('.browser-print-page img'), image => {
+                        if (!image.complete || image.naturalWidth === 0) throw new Error('An unloaded sheet reached window.print');
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.naturalWidth;
+                        canvas.height = image.naturalHeight;
+                        const context = canvas.getContext('2d')!;
+                        context.drawImage(image, 0, 0);
+                        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let inkPixels = 0;
+                        let yellowPixels = 0;
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            if (pixels[index + 3]! > 8 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 245) inkPixels += 1;
+                            if (pixels[index]! > 150 && pixels[index + 1]! > 100 && pixels[index + 2]! < 100) yellowPixels += 1;
+                        }
+                        return {
+                            inkPixels,
+                            yellowPixels,
+                            image: canvas.toDataURL('image/png'),
+                        };
+                    });
+                    Reflect.set(window.top!, '__largePdfPrintSheets', sheets);
+                };
+            });
+            const pdf = await PDFDocument.create();
+            const font = await pdf.embedFont(StandardFonts.Helvetica);
+            for (let index = 0; index < 2; index += 1) {
+                const sheet = pdf.addPage([
+                    612,
+                    792,
+                ]);
+                sheet.drawText(`Browser large PDF print page ${String(index + 1)}`, {
+                    x: 48,
+                    y: 710,
+                    size: 24,
+                    font,
+                });
+                sheet.drawRectangle({
+                    x: 48,
+                    y: 560,
+                    width: 420,
+                    height: 64,
+                    color: rgb(0, 0, 0),
+                });
+            }
+            // A referenced, uncompressed stream makes a valid 20 MB PDF rather
+            // than trailing padding after EOF, above the 16 MiB in-memory limit.
+            pdf.catalog.set(PDFName.of('PrintFixturePadding'), pdf.context.register(pdf.context.stream(Buffer.alloc(20_000_000, 0x20))));
+            const bytes = Buffer.from(await pdf.save({useObjectStreams: false}));
+            await openPdfFromChooser(page, {
+                name: 'browser-print-20mb.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            const source = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.([
+                    'pdfSourceState',
+                    'totalPages',
+                ]);
+            });
+            expect(source).toMatchObject({
+                totalPages: 2,
+                pdfSourceState: {
+                    hasInMemoryData: false,
+                    reloadKind: 'path',
+                    reloadPath: expect.stringMatching(/^browser:\/\//u),
+                },
+            });
+            observations.push({
+                bytes: bytes.length,
+                source,
+            });
+            const readSheets = async (action: string) => {
+                await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__largePdfPrintSheets'))), {timeout: 15_000}).toBe(true);
+                const sheets = await page.evaluate(() => {
+                    const sheets = Reflect.get(window, '__largePdfPrintSheets') as Array<{
+                        inkPixels: number;
+                        yellowPixels: number;
+                        image: string;
+                    }>;
+                    Reflect.deleteProperty(window, '__largePdfPrintSheets');
+                    return sheets;
+                });
+                observations.push({
+                    action,
+                    sheets: sheets.map(({
+                        inkPixels, yellowPixels,
+                    }) => ({
+                        inkPixels,
+                        yellowPixels,
+                    })),
+                });
+                for (const [
+                    index,
+                    sheet,
+                ] of sheets.entries()) {
+                    writeFileSync(resolve(evidence, `${action}-${String(index + 1)}.png`), Buffer.from(sheet.image.split(',')[1]!, 'base64'));
+                    expect(sheet.inkPixels).toBeGreaterThan(1_000);
+                }
+                return sheets;
+            };
+            const printAll = async () => {
+                await page.getByRole('button', {
+                    name: 'Print',
+                    exact: true,
+                }).click();
+                await page.getByRole('button', {
+                    name: 'Print...',
+                    exact: true,
+                }).click();
+            };
+            await printAll();
+            const clean = await readSheets('clean-all');
+            expect(clean).toHaveLength(2);
+            expect(clean[0]!.yellowPixels).toBe(0);
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Print Current Page/u}).click();
+            expect(await readSheets('clean-current')).toHaveLength(1);
+
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 200,
+                y: 200,
+            }});
+            const note = page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            });
+            await note.fill('Unsaved large PDF print note');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
+            await printAll();
+            const dirty = await readSheets('dirty-all');
+            expect(dirty).toHaveLength(2);
+            expect(dirty[0]!.yellowPixels).toBeGreaterThan(50);
+            expect(dirty[1]!.yellowPixels).toBe(0);
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
+        } finally {
+            await page.screenshot({path: resolve(evidence, 'workspace.png')});
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+            await page.context().close();
+        }
+    }, 90_000);
+
     it('opens URI destinations by pointer and Enter with no opener or console failure', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-external-url-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
