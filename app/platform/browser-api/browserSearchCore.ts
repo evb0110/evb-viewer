@@ -4,7 +4,6 @@ import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdf
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
-import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 
 interface IExtractBrowserSearchDocumentTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
 
@@ -20,12 +19,6 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
 
 export async function loadBrowserSearchDocument(pdfPath: string) {
     const pdfDocument = await loadBrowserPdfjsDocument(pdfPath);
-    try {
-        validateBrowserSearchPageCount(pdfDocument.numPages);
-    } catch (error) {
-        await pdfDocument.loadingTask.destroy();
-        throw error;
-    }
     return {
         pageCount: pdfDocument.numPages,
         extractPage: (pageNumber: number, options: IExtractBrowserSearchDocumentTextOptions = {}) =>

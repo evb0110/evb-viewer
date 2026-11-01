@@ -5,7 +5,11 @@ import type {
     IPdfSearchResult,
     TSearchResultOffset,
 } from '@contracts/search';
-import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
+import {
+    SEARCH_EXCERPT_CONTEXT_CHARS,
+    SEARCH_REGEX_MAX_EXECUTION_MS,
+    SEARCH_RESULT_LIMIT,
+} from '@contracts/search';
 import {validateSearchQuery} from '@pdf-core';
 import {buildPdfSearchExcerpt} from '@pdf-core/pdfSearchCore';
 import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
@@ -15,12 +19,6 @@ import type {
     ISearchCapability,
 } from '@contracts/searchPlatformFeature';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
-import {
-    SEARCH_EXCERPT_CONTEXT_CHARS,
-    SEARCH_RESULT_LIMIT,
-    validateBrowserSearchPageCount,
-    validateBrowserSearchQueryCost,
-} from '@app/platform/browser-api/browserSearchLimits';
 import {
     BrowserSearchWorkerUnavailableError,
     canUseBrowserSearchWorker,
@@ -910,10 +908,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 useRegex: Boolean(options.useRegex),
             };
             validateSearchQuery(query, matchOptions);
-            if (options.pageCount !== undefined) {
-                validateBrowserSearchPageCount(options.pageCount);
-            }
-            validateBrowserSearchQueryCost(query, options.pageCount);
             if (matchOptions.useRegex && !canUseBrowserSearchWorker()) {
                 throw new BrowserSearchWorkerUnavailableError(
                     'Browser search worker is required for regular expression search',

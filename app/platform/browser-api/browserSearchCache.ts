@@ -1,5 +1,4 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import {BROWSER_SEARCH_MAX_PAGE_COUNT} from '@app/platform/browser-api/browserSearchLimits';
 
 export interface ISearchDocumentTextSource {
     kind: string;
@@ -119,7 +118,6 @@ export function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearc
         || !Number.isFinite(value.fileSize)
         || value.fileSize < 0
         || !isPositiveInteger(value.pageCount)
-        || value.pageCount > BROWSER_SEARCH_MAX_PAGE_COUNT
     ) {
         return null;
     }
