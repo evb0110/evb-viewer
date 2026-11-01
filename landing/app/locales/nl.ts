@@ -53,7 +53,7 @@ export default {
         },
         installers: {
             heading: 'Desktopdownloads',
-            description: 'Desktopbuilds voegen scanopschoning, OCR in ongeveer 30 talen, native OS-integratie en zwaardere workflows zoals grote samenvoegingen toe. De aanbevolen installer is gebaseerd op je huidige apparaat, maar elke build blijft selecteerbaar.',
+            description: 'Desktopbuilds voegen scanopschoning, native OS-integratie en zwaardere workflows zoals grote samenvoegingen toe. De aanbevolen installer is gebaseerd op je huidige apparaat, maar elke build blijft selecteerbaar.',
             loading: 'Links naar de nieuwste release worden geladen...',
             error: 'Release-artefacten konden nu niet worden geladen.',
             retry: 'Opnieuw proberen',
@@ -157,7 +157,7 @@ export default {
                 },
                 languages: {
                     question: 'Welke talen herkent de OCR?',
-                    answer: 'Ongeveer 30, waaronder Engels, Duits, Frans, Russisch, Grieks, Hebreeuws, Arabisch en Syrisch. Engels en Russisch zitten bij de app; andere modellen worden eenmalig gedownload wanneer je ze voor het eerst kiest. De browserapp leest Engels, Russisch, Frans, Duits, Portugees, Spaans, Nederlands en Italiaans.',
+                    answer: 'Ongeveer 30, waaronder Engels, Duits, Frans, Russisch, Grieks, Hebreeuws, Arabisch en Syrisch. Engels en Russisch zitten bij de app; andere modellen worden eenmalig gedownload wanneer je ze voor het eerst kiest. De browserapp leest dezelfde talen.',
                 },
                 formats: {
                     question: 'Welke bestanden opent het?',
@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Kan ik het gebruiken zonder iets te installeren?',
-                    answer: 'Ja, op {webAppUrl}. De browserapp opent lokale PDF’s, DjVu-bestanden en afbeeldingen en voert OCR uit in acht Europese talen; scanopschoning, andere OCR-talen, bestanden boven 16 MB en grote samenvoegingen vereisen de desktopapp.',
+                    answer: 'Ja, op {webAppUrl}. De browserapp opent lokale PDF’s, DjVu-bestanden en afbeeldingen en voert OCR uit in dezelfde talen als de desktopapp; scanopschoning, bestanden boven 16 MB en grote samenvoegingen vereisen de desktopapp.',
                 },
                 assistant: {
                     question: 'Gebruikt het AI?',
@@ -175,7 +175,7 @@ export default {
         },
         entryPoints: {
             heading: 'Kies het juiste startpunt',
-            description: 'Begin in de browser voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR, of kies de desktop-app voor scanopschoning, OCR in ongeveer 30 talen, native OS-integratie en grotere samenvoegingen.',
+            description: 'Begin in de browser voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR in ongeveer 30 talen, of kies de desktop-app voor scanopschoning, native OS-integratie en grotere samenvoegingen.',
             web: {
                 title: 'Web-app',
                 description: 'Het beste voor het direct openen van lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen, en daarna bekijken, markeren en exporteren zonder iets te installeren.',
@@ -186,8 +186,8 @@ export default {
             },
             desktop: {
                 title: 'Desktop-app',
-                description: 'Het beste voor scanopschoning, OCR in ongeveer 30 talen, native OS-integratie, grotere samenvoegklussen en workflows die meer nodig hebben dan de geheugenlimieten van de browser.',
-                point1: 'Scanopschoning en OCR in ongeveer 30 talen',
+                description: 'Het beste voor scanopschoning, native OS-integratie, grotere samenvoegklussen en workflows die meer nodig hebben dan de geheugenlimieten van de browser.',
+                point1: 'Scanopschoning vóór OCR',
                 point2: 'Grotere samenvoeg- en exportklussen',
                 point3: 'Native desktopdialogen en OS-integratie',
                 action: 'Desktopbuilds bekijken',
@@ -204,7 +204,7 @@ export default {
         seo: {
             title: 'EVB Viewer-functies voor browser en desktop',
             ogTitle: 'EVB Viewer functieoverzicht',
-            ogDescription: 'Bekijk wat EVB Viewer vandaag in de browser dekt en wat de desktop-app toevoegt voor scanopschoning, meer OCR-talen, native OS-integratie en grotere klussen.',
+            ogDescription: 'Bekijk wat EVB Viewer vandaag in de browser dekt en wat de desktop-app toevoegt voor scanopschoning, native OS-integratie en grotere klussen.',
         },
         hero: {
             badge: 'Native scanopschoning en OCR',
@@ -218,11 +218,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, afbeeldingen en DjVu waar het past',
-                description: 'Browserworkflows openen lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen. De desktop-app voegt scanopschoning en meer OCR-talen toe en vermijdt browsergeheugenlimieten bij zwaardere klussen.',
+                description: 'Browserworkflows openen lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen. De desktop-app voegt scanopschoning toe en vermijdt browsergeheugenlimieten bij zwaardere klussen.',
             },
             ocr: {
                 title: 'OCR met doorzoekbare uitvoer',
-                description: 'OCR draait lokaal in de browser en in desktopbuilds en houdt het doorzoekbare resultaat binnen het bewerkte document. De browser leest acht Europese talen; desktopbuilds ongeveer 30.',
+                description: 'OCR draait lokaal in de browser en in desktopbuilds en houdt het doorzoekbare resultaat binnen het bewerkte document. Beide lezen dezelfde talen, ongeveer 30.',
             },
             annotations: {
                 title: 'Uitgebreide annotatietools',
@@ -243,7 +243,7 @@ export default {
         },
         workflow: {
             heading: 'Hoe het product in echt werk past',
-            description: 'Een typische EVB Viewer-sessie begint met snel browserwerk en gaat naar desktop wanneer scanopschoning, meer OCR-talen of schaal daarom vraagt.',
+            description: 'Een typische EVB Viewer-sessie begint met snel browserwerk en gaat naar desktop wanneer scanopschoning of schaal daarom vraagt.',
             load: {
                 title: 'Start in de browser',
                 body: 'Open meteen een lokale PDF, DjVu-bestand of afbeelding wanneer installatie de taak zou vertragen.',
@@ -254,7 +254,7 @@ export default {
             },
             edit: {
                 title: 'Ga naar desktop voor opschoning of schaal',
-                body: 'Installeer de desktop-app voor scanopschoning, OCR in ongeveer 30 talen, native OS-integratie en grotere samenvoeg/exportklussen.',
+                body: 'Installeer de desktop-app voor scanopschoning, native OS-integratie en grotere samenvoeg/exportklussen.',
             },
             export: {
                 title: 'Exporteer het resultaat',
@@ -285,11 +285,11 @@ export default {
         seo: {
             title: 'EVB Viewer-documentatie voor browser- en desktopworkflows',
             ogTitle: 'EVB Viewer gebruikershandleiding',
-            ogDescription: 'Begin met de browser-app voor lokale bestanden en OCR en installeer daarna de desktop-app wanneer je scanopschoning, meer OCR-talen, native OS-integratie of grotere samenvoeg/exportklussen nodig hebt.',
+            ogDescription: 'Begin met de browser-app voor lokale bestanden en OCR en installeer daarna de desktop-app wanneer je scanopschoning, native OS-integratie of grotere samenvoeg/exportklussen nodig hebt.',
         },
         hero: {
             title: 'Gidsen voor de browser- en desktop-app',
-            subtitle: 'Begin met de web-app voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR, en ga daarna naar de desktop-app voor scanopschoning, meer OCR-talen, native OS-integratie of grotere samenvoeg/exportklussen.',
+            subtitle: 'Begin met de web-app voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR, en ga daarna naar de desktop-app voor scanopschoning, native OS-integratie of grotere samenvoeg/exportklussen.',
         },
         guideCardAction: 'Naar sectie springen',
         browserQuickstart: {
@@ -298,7 +298,7 @@ export default {
             li1: 'Open een PDF, DjVu-bestand of ondersteunde afbeelding direct in de browserwerkruimte.',
             li2: 'Gebruik zoeken, notities, markeringen, pagina’s herschikken, bijsnijden, OCR en exporteren zonder de desktop-app te installeren. Bewaar zeer grote samenvoegbatches voor desktop.',
             li3: 'Browserworkflows zijn het best voor lichtere bestanden, snelle reviewrondes en beperkte samenvoegbatches.',
-            li4: 'OCR in de browser leest Engels, Russisch, Frans, Duits, Portugees, Spaans, Nederlands en Italiaans; ga naar de desktop-app voor scanopschoning of andere talen.',
+            li4: 'OCR in de browser leest dezelfde talen als de desktop-app; ga naar de desktop-app voor scanopschoning.',
         },
         bookmarks: {
             title: 'Op deze pagina',
@@ -319,7 +319,7 @@ export default {
         },
         workspace: {
             heading: 'Werkruimteoverzicht',
-            intro: 'EVB Viewer is een documentwerkruimte voor browser en desktop. De browser opent lokale PDF’s, DjVu-bestanden en afbeeldingen en voert OCR uit; desktop voegt scanopschoning, meer OCR-talen, native OS-integratie en meer ruimte voor grote klussen toe.',
+            intro: 'EVB Viewer is een documentwerkruimte voor browser en desktop. De browser opent lokale PDF’s, DjVu-bestanden en afbeeldingen en voert OCR uit; desktop voegt scanopschoning, native OS-integratie en meer ruimte voor grote klussen toe.',
             li1: 'Boven: tabbalk voor openen, herschikken, splitsen en verplaatsen van tabbladen.',
             li2: 'Onder tabbladen: werkbalk voor opslaan, export, OCR, zoom, selectie-/handmodus en instellingen.',
             li3: 'Midden: documentviewer met enkele pagina of tegenoverliggende pagina-indelingen.',
@@ -328,7 +328,7 @@ export default {
         },
         unsigned: {
             heading: 'Desktopbuilds installeren',
-            intro: 'Gebruik desktopbuilds voor scanopschoning, OCR in ongeveer 30 talen, native OS-integratie en zwaardere workflows zoals grote samenvoegingen. Download installers uit de EVB Viewer-downloadsectie of officiële releases.',
+            intro: 'Gebruik desktopbuilds voor scanopschoning, native OS-integratie en zwaardere workflows zoals grote samenvoegingen. Download installers uit de EVB Viewer-downloadsectie of officiële releases.',
             li1: 'Installeer altijd bestanden die onder {repo}-releases zijn gepubliceerd.',
             li2: 'Als je besturingssysteem een waarschuwing toont, gebruik dan de platformspecifieke override-stappen hieronder.',
             macosHeading: 'macOS (DMG):',
@@ -408,7 +408,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR en exports',
-            intro: 'Exports zijn in het hele product beschikbaar. OCR draait lokaal in de browser voor acht Europese talen en in desktopbuilds voor ongeveer 30, waar ook scanopschoning beschikbaar is.',
+            intro: 'Exports zijn in het hele product beschikbaar. OCR draait lokaal in de browser en in desktopbuilds in dezelfde talen; scanopschoning is alleen beschikbaar op desktop.',
             li1: 'De OCR-pop-up ondersteunt alle pagina’s, huidige pagina of aangepaste bereiken.',
             li2: 'Taalkeuze is gegroepeerd op schriftfamilies voor snellere instelling.',
             li3: 'Je kunt lopende OCR annuleren en voortgang per pagina volgen.',
