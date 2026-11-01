@@ -7,7 +7,7 @@ import {
     measureDjvuCompactRasterStats,
     type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
-import type { IBrowserPdfCombineWasmPageSpec } from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import type { IBrowserPdfCombineWasmPageSpec } from '@contracts/browserPdfCombineWorker';
 import type { IDjvuWorker } from '@app/platform/browser-api/djvujsLoader';
 import { toBrowserDjvuDecodeError } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import {

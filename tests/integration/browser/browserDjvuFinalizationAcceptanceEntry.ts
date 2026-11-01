@@ -23,7 +23,7 @@ import {
     normalizeDjvuPdfSubsample,
     resolveDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
-import type {IBrowserPdfCombineWasmPageSpec} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import type {IBrowserPdfCombineWasmPageSpec} from '@contracts/browserPdfCombineWorker';
 import {tryCombineImageInputsWithWasm} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import {createBrowserImageExportCapability} from '@app/platform/browser-api/createBrowserImageExportCapability';
 import {requirePageNumber} from '@contracts/pageNumbers';

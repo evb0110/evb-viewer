@@ -9,6 +9,8 @@ import * as v from 'valibot';
 // WASM32 Rust allocations must fit isize; actual available memory is checked
 // by the allocator. This is an ABI boundary, not a document-size policy.
 export const BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES = 0x7fff_ffff;
+// The per-image pixel limit desktop's image combiner applies by default.
+export const BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS = 80_000_000;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const byteArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
@@ -86,6 +88,22 @@ const pageSpecSchemas = [
             rgbChannelSchema,
             rgbChannelSchema,
         ]),
+    }),
+    // Desktop Optimize's `image-bw` page: its shared black-and-white route.
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('image-bw'),
+        image: inputSchema,
+        jpegQuality: v.optional(v.never()),
+        ppiCap: v.optional(v.literal(0)),
+    }),
+    // Desktop Optimize's `image-jpeg` page: JPEG, or Flate when that is smaller.
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('image-jpeg-with-flate-fallback'),
+        image: inputSchema,
+        jpegQuality: jpegQualitySchema,
+        ppiCap: v.optional(v.literal(0)),
     }),
 ] as const;
 

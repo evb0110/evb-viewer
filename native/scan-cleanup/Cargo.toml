@@ -12,6 +12,10 @@ workspace = true
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+default = ["wasm-exports"]
+wasm-exports = []
+
 [dependencies]
 crc32fast = "1.5.2"
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }

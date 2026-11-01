@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { parseBrowserSearchWorkerRequest } from '@app/platform/browser-api/browserSearchWorker.types';
-import { parseBrowserPdfCombineWorkerRequest } from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import { parseBrowserPdfCombineWorkerRequest } from '@contracts/browserPdfCombineWorker';
 import { parseBrowserPageOpsWorkerRequest } from '@contracts/browserPageOpsWorker';
 
 describe('browser worker request parsers', () => {
@@ -152,6 +152,65 @@ describe('browser worker request parsers', () => {
                 }]},
             },
         })).toBeNull();
+    });
+
+    it('parses the Optimize page kinds only with the options desktop gives them', () => {
+        const image = {
+            fileName: 'page.pgm',
+            data: new Uint8Array([1]),
+        };
+        const pageSize = {
+            widthPoints: 72,
+            heightPoints: 72,
+        };
+        const parse = (spec: Record<string, unknown>) => parseBrowserPdfCombineWorkerRequest({
+            id: 7,
+            type: 'combinePdfs',
+            payload: {
+                inputs: [],
+                wasmImagePreprocessing: {pageSpecs: [{
+                    pageSize,
+                    image,
+                    ...spec,
+                }]},
+            },
+        });
+
+        expect(parse({kind: 'image-bw'})).not.toBeNull();
+        expect(parse({
+            kind: 'image-bw',
+            ppiCap: 0,
+        })).not.toBeNull();
+        expect(parse({
+            kind: 'image-jpeg-with-flate-fallback',
+            jpegQuality: 82,
+        })).not.toBeNull();
+        for (const spec of [
+            {
+                kind: 'image-bw',
+                jpegQuality: 60,
+            },
+            {
+                kind: 'image-bw',
+                ppiCap: 300,
+            },
+            {kind: 'image-jpeg-with-flate-fallback'},
+            {
+                kind: 'image-jpeg-with-flate-fallback',
+                jpegQuality: 0,
+            },
+            {
+                kind: 'image-jpeg-with-flate-fallback',
+                jpegQuality: 82,
+                ppiCap: 200,
+            },
+            {
+                kind: 'image-bw',
+                image: undefined,
+            },
+        ]) {
+            expect(parse(spec)).toBeNull();
+        }
     });
 
     it('parses and rejects browser page operation worker requests', () => {

@@ -5,7 +5,7 @@ import type {
     IBrowserPdfCombineWasmImagePreprocessing,
     IBrowserPdfCombineWasmPageSpec,
     TBrowserPdfCombineWasmPageKind,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
 import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatformHelpers';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -20,7 +20,10 @@ import {
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
 } from '@contracts/getCheckedWasmMemoryView';
 import {PDF_COMBINE_OUTPUT_POLICY} from '@contracts/pdfCombineOutputPolicy';
-import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {
+    BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS,
+    BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
+} from '@contracts/browserPdfCombineWorker';
 import {createBrowserPdfCombineOutputErrorEnvelope} from '@app/platform/browser-api/browserPdfCombineLimits';
 
 interface IPdfImageCombineWasmExports {
@@ -44,10 +47,10 @@ const WASM_PAGE_KIND_CODES: Record<TBrowserPdfCombineWasmPageKind, number> = {
     mask: 2,
     layered: 3,
     'layered-color': 4,
+    'image-bw': 5,
+    'image-jpeg-with-flate-fallback': 6,
 };
 const DEFAULT_DPI = 0;
-// The per-image pixel limit desktop's image combiner applies by default.
-const MAX_PIXELS = 80_000_000;
 const MAX_TIFF_FRAMES = 250;
 const REQUEST_HEADER_BYTES = 4 + (6 * 4);
 const INPUT_HEADER_BYTES = 8;
@@ -77,6 +80,7 @@ const WASM_LAYER_IMAGE_EXTENSIONS = new Set([
     '.ppm',
 ]);
 const WASM_MASK_EXTENSIONS = new Set(['.pbm']);
+const WASM_GRAY_RENDER_EXTENSIONS = new Set(['.pgm']);
 
 let wasmExportsPromise: Promise<IPdfImageCombineWasmExports | null> | null = null;
 
@@ -159,6 +163,8 @@ function isSupportedMaskInput(input: IBrowserPdfCombineInput | undefined) {
 function pageSpecInputs(spec: IBrowserPdfCombineWasmPageSpec): IBrowserPdfCombineInput[] {
     switch (spec.kind) {
         case 'image':
+        case 'image-bw':
+        case 'image-jpeg-with-flate-fallback':
             return spec.image ? [spec.image] : [];
         case 'mask':
             return spec.mask ? [spec.mask] : [];
@@ -190,6 +196,12 @@ function canUsePageSpec(spec: IBrowserPdfCombineWasmPageSpec) {
         return (spec.ppiCap ?? 0) > 0 || (spec.jpegQuality ?? 0) > 0
             ? isSupportedPreprocessableImageInput(spec.image)
             : isSupportedGenericImageInput(spec.image);
+    }
+    if (spec.kind === 'image-bw') {
+        return WASM_GRAY_RENDER_EXTENSIONS.has(getBrowserFileExtension(spec.image.fileName));
+    }
+    if (spec.kind === 'image-jpeg-with-flate-fallback') {
+        return isSupportedPreprocessableImageInput(spec.image);
     }
     if (spec.kind === 'mask') {
         return isSupportedMaskInput(spec.mask);
@@ -411,7 +423,7 @@ function writeRequestHeader(
     // Desktop's file-backed assembler has no page cap; the request frame and
     // the allocation that must hold the output bound the job here.
     offset = writeU32(view, offset, 0xffff_ffff);
-    offset = writeU32(view, offset, MAX_PIXELS);
+    offset = writeU32(view, offset, BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS);
     offset = writeU32(view, offset, MAX_TIFF_FRAMES);
     offset = writeU32(view, offset, itemCount);
     return offset;
@@ -485,8 +497,14 @@ function buildV3WasmRequest(
         offset = writeU32(view, offset, WASM_PAGE_KIND_CODES[spec.kind]);
         offset = writeF64(view, offset, spec.pageSize.widthPoints);
         offset = writeF64(view, offset, spec.pageSize.heightPoints);
-        offset = writeU32(view, offset, boundedU32OrDefault(spec.jpegQuality, integerOrDefault(options?.jpegQuality, 0)));
-        offset = writeU32(view, offset, boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
+        // The Optimize kinds carry exactly their own options, never the request defaults.
+        const ownsOptions = spec.kind === 'image-bw' || spec.kind === 'image-jpeg-with-flate-fallback';
+        offset = writeU32(view, offset, ownsOptions
+            ? boundedU32OrDefault(spec.jpegQuality, 0)
+            : boundedU32OrDefault(spec.jpegQuality, integerOrDefault(options?.jpegQuality, 0)));
+        offset = writeU32(view, offset, ownsOptions
+            ? 0
+            : boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
         if (version === REQUEST_VERSION_PAGE_TRANSFORMS) {
             const rotationDegrees = spec.rotationDegrees ?? 0;
             if (![

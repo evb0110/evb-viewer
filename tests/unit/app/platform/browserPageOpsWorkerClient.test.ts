@@ -463,6 +463,88 @@ describe('browserPageOpsWorkerClient', () => {
         expect(cancellable.outcome).toBe('canceled by the user');
     });
 
+    it('gives replacement attachments their own buffers and keeps the caller base', async () => {
+        FakeWorker.autoRespond = false;
+        const base = new TextEncoder().encode('%PDF-base');
+        const shared = new TextEncoder().encode('%PDF-attachments');
+        const first = shared.subarray(0, 8);
+        const second = shared.subarray(8);
+        const controller = new AbortController();
+        const request = runBrowserPageOpsWorkerRequest('replacePageImages', {
+            data: base,
+            replacementPdfs: [
+                first,
+                second,
+                first,
+            ],
+            instructions: {
+                maxByteRatio: 0.9,
+                pages: [],
+            },
+        }, {signal: controller.signal});
+        const settled = request.catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+
+        const call = FakeWorker.instances.at(-1)?.postMessageCalls.at(-1);
+        const payload = (call?.message as {payload: {
+            data: Uint8Array;
+            replacementPdfs: Uint8Array[]
+        }}).payload;
+        expect(new TextDecoder().decode(base)).toBe('%PDF-base');
+        expect(payload.data.buffer).not.toBe(base.buffer);
+        expect(payload.replacementPdfs.map(pdf => new TextDecoder().decode(pdf))).toEqual([
+            '%PDF-att',
+            'achments',
+            '%PDF-att',
+        ]);
+        const buffers = [
+            payload.data.buffer,
+            ...payload.replacementPdfs.map(pdf => pdf.buffer),
+        ];
+        expect(new Set(buffers).size).toBe(4);
+        expect(new Set(call?.transfer).size).toBe(call?.transfer.length);
+        expect(call?.transfer).toEqual(buffers);
+        expect(shared.byteLength).toBe(16);
+        controller.abort(new Error('test finished'));
+        await expect(settled).resolves.toMatchObject({message: 'test finished'});
+    });
+
+    it('refuses the main-thread engine for a pass that must stay cancellable', async () => {
+        vi.stubGlobal('Worker', function () { throw new Error('Worker startup is unavailable'); });
+        const result = runBrowserPageOpsWorkerRequest('recompressImages', {
+            data: Uint8Array.of(1),
+            instructions: {
+                maxByteRatio: 0.9,
+                targetDpi: 200,
+                quality: 82,
+            },
+        }, {
+            signal: new AbortController().signal,
+            requireWorker: true,
+        });
+        await expect(result).rejects.toThrow('recompressImages requires a worker');
+    });
+
+    it('ends a signaled pass at its explicit deadline', async () => {
+        FakeWorker.autoRespond = false;
+        const outcome = runBrowserPageOpsWorkerRequest('recompressImages', {
+            data: Uint8Array.of(1),
+            instructions: {
+                maxByteRatio: 0.9,
+                targetDpi: 200,
+                quality: 82,
+            },
+        }, {
+            signal: new AbortController().signal,
+            timeoutMs: 1_800_000,
+        }).then(() => 'resolved', (error: unknown) => (error instanceof Error ? error.message : String(error)));
+        await vi.advanceTimersByTimeAsync(1_799_999);
+        expect(FakeWorker.instances.at(-1)?.terminated).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(outcome).resolves.toContain('timed out after 1800000ms');
+        expect(FakeWorker.instances.at(-1)?.terminated).toBe(true);
+    });
+
     it('does not report an idle worker termination', async () => {
         const result = runBrowserPageOpsWorkerRequest('rotate', {
             data: new Uint8Array([1]),

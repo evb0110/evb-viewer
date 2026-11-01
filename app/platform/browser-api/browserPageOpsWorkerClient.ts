@@ -97,6 +97,35 @@ async function buildWorkerRequestWithTransfers(
         };
     }
 
+    if (request.type === 'replacePageImages') {
+        // The base and every attachment get their own buffer, so a caller's
+        // base survives and no backing buffer is transferred twice.
+        const transferredBuffers = new Set<ArrayBuffer>();
+        const ownBuffer = async (source: Uint8Array) => {
+            let data = await toTransferableRequestData(source);
+            if (transferredBuffers.has(data.buffer)) data = data.slice();
+            transferredBuffers.add(data.buffer);
+            transfer.push(data.buffer);
+            return data;
+        };
+        const data = await ownBuffer(request.payload.data);
+        const replacementPdfs: Uint8Array[] = [];
+        for (const replacement of request.payload.replacementPdfs) {
+            replacementPdfs.push(await ownBuffer(replacement));
+        }
+        return {
+            request: {
+                ...request,
+                payload: {
+                    ...request.payload,
+                    data,
+                    replacementPdfs,
+                },
+            },
+            transfer,
+        };
+    }
+
     if (request.type === 'mergePages') {
         const transferredBuffers = new Set<ArrayBuffer>();
         const documents: Uint8Array[] = [];
@@ -233,10 +262,16 @@ async function runAdmittedPageOperation<TResult>(
     }
 }
 
-interface IRunBrowserPageOpsWorkerRequestOptions {
+export interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
     dedicated?: boolean;
+    /** Replaces the default deadline: none with a signal, else size-scaled. */
     timeoutMs?: number;
+    /**
+     * Refuses the main-thread fallback, which runs as one synchronous task
+     * that neither an abort nor a deadline can stop.
+     */
+    requireWorker?: boolean;
     // A dedicated request copies its input so the caller keeps it; a caller
     // that reads its input again after a failure transfers it instead.
     transferInput?: boolean;
@@ -343,9 +378,13 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
     yieldAdmitted: () => Promise<void>,
+    requireWorker = false,
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     if (type === 'textBoxAppearance') {
         throw new BrowserPageOpsWorkerUnavailableError('Text appearance generation requires a worker');
+    }
+    if (requireWorker) {
+        throw new BrowserPageOpsWorkerUnavailableError(`The browser page operation ${type} requires a worker`);
     }
     // Without a worker the engine runs on this thread as one long task, with
     // the same request ceiling as the worker.
@@ -371,7 +410,7 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
                 if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
                     throw error;
                 }
-                return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted);
+                return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker);
             }
             await yieldAdmitted();
         }
@@ -392,7 +431,7 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
             return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
         }
         return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) => (
-            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted)
+            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker)
         ));
     }
     if (options.dedicated) {
@@ -404,6 +443,9 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         browserPageOpsWorkerClient.createRequestId(),
         type,
         payload,
-        options.signal ? {signal: options.signal} : {},
+        {
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+        },
     );
 }

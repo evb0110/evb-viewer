@@ -8,12 +8,13 @@ import type {
     IBrowserPdfCombineWasmPageSpec,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
 import {
+    BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS,
     BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
     getBrowserPdfCombineWorkerRequestId,
     parseBrowserPdfCombineWorkerRequest,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
     getBrowserFileExtension,
@@ -34,10 +35,9 @@ import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import { createBrowserPdfCombineOutputError } from '@app/platform/browser-api/browserPdfCombineLimits';
 import {createPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 
-const MAX_IMAGE_PIXELS = 80_000_000;
 const MAX_INPUT_BYTES = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
 function assertImageDimensions(width: number, height: number, fileName: string) {
-    if (width < 1 || height < 1 || width > MAX_IMAGE_PIXELS / height) {
+    if (width < 1 || height < 1 || width > BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS / height) {
         throw new Error(`ERR_BROWSER_PDF_COMBINE_IMAGE_TOO_LARGE:${fileName}`);
     }
 }

@@ -5,8 +5,8 @@ import type {
     IBrowserPdfCombineWorkerResultMap,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
+import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@contracts/browserPdfCombineWorker';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
@@ -173,6 +173,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     type: K,
     payload: IBrowserPdfCombineWorkerRequestMap[K],
     signal?: AbortSignal,
+    options: {timeoutMs?: number} = {},
 ): Promise<IBrowserPdfCombineWorkerResultMap[K]> {
     if (signal?.aborted) {
         throw signal.reason instanceof Error
@@ -192,7 +193,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             : new DOMException('PDF combine was canceled.', 'AbortError'),
     );
     signal?.addEventListener('abort', abort, {once: true});
-    const deadlineMs = getCombineDeadlineMs(payload, signal);
+    const deadlineMs = options.timeoutMs ?? getCombineDeadlineMs(payload, signal);
     try {
         return await browserPdfCombineWorkerOwner.run(request.id, client => {
             const worker = client.getWorker();

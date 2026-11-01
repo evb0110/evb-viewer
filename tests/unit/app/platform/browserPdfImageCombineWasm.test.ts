@@ -51,6 +51,25 @@ function createPgmBytes(value: number) {
     return bytes;
 }
 
+function createNetpbmBytes(channels: 1 | 3, width: number, height: number, pixel: (x: number, y: number, channel: number) => number) {
+    const header = new TextEncoder().encode(`${channels === 1 ? 'P5' : 'P6'}\n${width} ${height}\n255\n`);
+    const bytes = new Uint8Array(header.byteLength + (width * height * channels));
+    bytes.set(header);
+    let offset = header.byteLength;
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            for (let channel = 0; channel < channels; channel += 1) bytes[offset++] = pixel(x, y, channel);
+        }
+    }
+    return bytes;
+}
+
+// A smooth, lightly textured photograph: JPEG keeps it smaller than Flate.
+function photo(x: number, y: number, channel: number) {
+    const grain = ((x * 7_919) ^ (y * 104_729) ^ (channel * 1_299_709)) & 15;
+    return Math.round(128 + (70 * Math.sin(x / 9) * Math.cos(y / 13)) + (channel * 12) + grain - 8);
+}
+
 function createTwoFrameTiffBytes() {
     const pages = [
         {
@@ -347,6 +366,130 @@ describe('tryCombineImageInputsWithWasm', () => {
         const combined = await PDFDocument.load(response.data);
         expect(combined.getPageCount()).toBe(600);
         expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        [
+            'RGB',
+            3,
+            'page.ppm',
+        ],
+        [
+            'gray',
+            1,
+            'page.pgm',
+        ],
+    ] as const)('writes Optimize %s pages as JPEG or Flate, whichever desktop would keep', async (_label, channels, fileName) => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const pageSize = {
+            widthPoints: 48,
+            heightPoints: 48,
+        };
+        const combine = (data: Uint8Array) => tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-jpeg-with-flate-fallback',
+            pageSize,
+            jpegQuality: 82,
+            image: {
+                fileName,
+                data,
+            },
+        }]});
+
+        const photograph = await combine(createNetpbmBytes(channels, 128, 128, photo));
+        const flat = await combine(createNetpbmBytes(channels, 128, 128, () => 200));
+
+        for (const [
+            outcome,
+            isJpeg,
+        ] of [
+                [
+                    photograph,
+                    true,
+                ],
+                [
+                    flat,
+                    false,
+                ],
+            ] as const) {
+            if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+            expect(Buffer.from(outcome.data).toString('latin1').includes('/DCTDecode')).toBe(isJpeg);
+            expect((await PDFDocument.load(outcome.data)).getPage(0).getSize()).toEqual({
+                width: 48,
+                height: 48,
+            });
+        }
+    });
+
+    it('writes an Optimize black-and-white page as one bilevel image', async () => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const square = createNetpbmBytes(1, 96, 96, (x, y) => (x >= 24 && x < 72 && y >= 24 && y < 72 ? 20 : 235));
+
+        const outcome = await tryCombineImageInputsWithWasm([], {
+            jpegQuality: 82,
+            ppiCap: 300,
+            pageSpecs: [{
+                kind: 'image-bw',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: 'page.pgm',
+                    data: square,
+                },
+            }],
+        });
+
+        if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        const text = Buffer.from(outcome.data).toString('latin1');
+        expect(text).toContain('/BitsPerComponent 1');
+        expect(text).toContain('/Width 96');
+        expect((await PDFDocument.load(outcome.data)).getPage(0).getSize()).toEqual({
+            width: 72,
+            height: 72,
+        });
+    });
+
+    it('keeps the Optimize kinds to the renders desktop gives them', async () => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const pageSize = {
+            widthPoints: 72,
+            heightPoints: 72,
+        };
+        const rgb = {
+            fileName: 'page.ppm',
+            data: createNetpbmBytes(3, 8, 8, () => 128),
+        };
+
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-bw',
+            pageSize,
+            image: rgb,
+        }]})).resolves.toEqual({status: 'unsupported'});
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-jpeg-with-flate-fallback',
+            pageSize,
+            jpegQuality: 60,
+            image: {
+                fileName: 'page.png',
+                data: new Uint8Array(8),
+            },
+        }]})).resolves.toEqual({status: 'unsupported'});
+        // A misnamed render still reaches the engine, which checks its bytes.
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-bw',
+            pageSize,
+            image: {
+                ...rgb,
+                fileName: 'page.pgm',
+            },
+        }]})).resolves.toMatchObject({
+            status: 'fatal',
+            error: {message: expect.stringContaining('binary Netpbm render')},
+        });
     });
 
     it('turns a valid two-frame TIFF into ordered worker PDF pages', async () => {

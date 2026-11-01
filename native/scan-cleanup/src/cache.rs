@@ -38,7 +38,14 @@ impl SourceFingerprint {
 
     /// A raster the caller handed over in memory. Its cache lives for one
     /// request, so the page index alone tells its entries apart.
-    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    #[cfg(any(
+        test,
+        all(
+            target_family = "wasm",
+            target_os = "unknown",
+            feature = "wasm-exports"
+        )
+    ))]
     pub(crate) fn in_memory(page_index: usize) -> Self {
         Self {
             path: PathBuf::new(),

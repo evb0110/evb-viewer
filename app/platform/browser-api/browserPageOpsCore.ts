@@ -21,7 +21,10 @@ import {
     isBrowserPageOpsWasmFailure,
     tryRunBrowserPageOpsWithWasm,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
-import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    runBrowserPageOpsWorkerRequest,
+    type IRunBrowserPageOpsWorkerRequestOptions,
+} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 
 async function requireBrowserPageOpsWasmResult<T>(
@@ -240,7 +243,7 @@ export function overlayPdfTextLayers(
 export function recompressPdfImages(
     data: Uint8Array,
     instructions: IRecompressImagesInstructions,
-    options: {signal?: AbortSignal} = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'requireWorker'> = {},
 ): Promise<TWriterResult<'recompressImages'>> {
     return requireBrowserPageOpsWasmResult('image recompression', () => runBrowserPageOpsWorkerRequest(
         'recompressImages',
@@ -261,7 +264,7 @@ export function replacePdfPageImages(
     data: Uint8Array,
     replacementPdfs: Uint8Array[],
     instructions: IReplacePageImagesInstructions,
-    options: {signal?: AbortSignal} = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'requireWorker'> = {},
 ): Promise<TWriterResult<'replacePageImages'>> {
     return requireBrowserPageOpsWasmResult('page image replacement', () => runBrowserPageOpsWorkerRequest(
         'replacePageImages',
