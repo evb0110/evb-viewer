@@ -2474,9 +2474,8 @@ describe('browser document lifecycle UI', () => {
             expect(startupFrames.some(frame => !frame.workspaceToolbar), 'frames before the handoff were recorded').toBe(true);
             expect(startupFrames.filter(frame => frame.menus !== 2 || !frame.expanded || !frame.connected || !frame.viewEntries)).toEqual([]);
 
-            // Escape closes the View submenu, then Menu, whose trigger takes focus back.
-            await page.keyboard.press('Escape');
-            await expect.poll(visibleMenuCount).toBe(1);
+            // Escape in the View submenu closes the whole menu, as the menu library
+            // does, and Menu's trigger takes focus back.
             await page.keyboard.press('Escape');
             await expect.poll(visibleMenuCount).toBe(0);
             await expect.poll(() => hasFocus(appMenuTrigger)).toBe(true);

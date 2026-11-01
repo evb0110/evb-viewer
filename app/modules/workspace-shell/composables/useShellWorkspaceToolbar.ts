@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import { useResizeObserver } from '@vueuse/core';
+import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
@@ -93,6 +96,13 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     // the row that holds their triggers leaves the screen.
     watch(() => options.isToolbarHidden() || !showShellMenus.value, (hidden) => {
         if (hidden) {
+            shellToolbarAppMenuOpen.value = false;
+            shellToolbarOverflowMenuOpen.value = false;
+        }
+    });
+    // A dialog takes over from a window menu, whichever command or shortcut opened it.
+    useEventListener('focusin', (event) => {
+        if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"]')) {
             shellToolbarAppMenuOpen.value = false;
             shellToolbarOverflowMenuOpen.value = false;
         }

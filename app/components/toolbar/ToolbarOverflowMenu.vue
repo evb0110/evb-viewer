@@ -1,13 +1,14 @@
 <template>
-    <UDropdownMenu
-        v-model:open="isOpen"
-        :items="overflowMenuItems"
-        :content="contentOptions"
-        :ui="overflowMenuUi"
-        portal="body"
-    >
-        <span class="toolbar-popover-trigger">
-            <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
+    <!-- The button itself is the menu's trigger, so closing returns focus to it. -->
+    <span class="toolbar-popover-trigger">
+        <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
+            <UDropdownMenu
+                v-model:open="isOpen"
+                :items="overflowMenuItems"
+                :content="contentOptions"
+                :ui="overflowMenuUi"
+                portal="body"
+            >
                 <UButton
                     :icon="triggerIcon"
                     variant="ghost"
@@ -18,44 +19,44 @@
                     :aria-expanded="hasOverflowMenuCommands ? isOpen : false"
                     :disabled="!hasOverflowMenuCommands"
                 />
-            </AppTooltip>
-        </span>
 
-        <template #print-current-page-leading>
-            <UIcon
-                v-if="isPreparingCurrentPagePrint"
-                name="i-ph-circle-notch"
-                class="overflow-menu-icon toolbar-menu-icon animate-spin"
-            />
-            <PrintCurrentPageIcon v-else class="overflow-menu-icon toolbar-menu-icon" />
-        </template>
+                <template #print-current-page-leading>
+                    <UIcon
+                        v-if="isPreparingCurrentPagePrint"
+                        name="i-ph-circle-notch"
+                        class="overflow-menu-icon toolbar-menu-icon animate-spin"
+                    />
+                    <PrintCurrentPageIcon v-else class="overflow-menu-icon toolbar-menu-icon" />
+                </template>
 
-        <template #facing-first-single-leading>
-            <span class="overflow-menu-icon toolbar-menu-icon--facing-first-single">
-                <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
-                <span class="toolbar-menu-icon-badge" aria-hidden="true">1</span>
-            </span>
-        </template>
+                <template #facing-first-single-leading>
+                    <span class="overflow-menu-icon toolbar-menu-icon--facing-first-single">
+                        <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
+                        <span class="toolbar-menu-icon-badge" aria-hidden="true">1</span>
+                    </span>
+                </template>
 
-        <template #scan-cleanup-leading>
-            <span class="overflow-menu-icon overflow-menu-scan-cleanup-icon">
-                <ScanCleanupScissorsIcon class="size-[var(--app-toolbar-icon-size)]" />
-                <span
-                    v-if="scanCleanupRunning"
-                    class="overflow-menu-running-dot"
-                    aria-hidden="true"
-                />
-            </span>
-        </template>
+                <template #scan-cleanup-leading>
+                    <span class="overflow-menu-icon overflow-menu-scan-cleanup-icon">
+                        <ScanCleanupScissorsIcon class="size-[var(--app-toolbar-icon-size)]" />
+                        <span
+                            v-if="scanCleanupRunning"
+                            class="overflow-menu-running-dot"
+                            aria-hidden="true"
+                        />
+                    </span>
+                </template>
 
-        <template #item-trailing="{ item }">
-            <UIcon
-                v-if="isOverflowMenuItemChecked(item)"
-                name="i-ph-check"
-                class="overflow-menu-check"
-            />
-        </template>
-    </UDropdownMenu>
+                <template #item-trailing="{ item }">
+                    <UIcon
+                        v-if="isOverflowMenuItemChecked(item)"
+                        name="i-ph-check"
+                        class="overflow-menu-check"
+                    />
+                </template>
+            </UDropdownMenu>
+        </AppTooltip>
+    </span>
 </template>
 
 <script setup lang="ts">
@@ -516,7 +517,9 @@ function buildViewItems() {
         }));
     }
 
-    if (canUseViewModes && shouldShowMenuCommand('view-mode', 2)) {
+    // Commands a document cannot use stay in place, disabled, so switching to
+    // another document never moves a focused entry onto a different command.
+    if (shouldShowMenuCommand('view-mode', 2)) {
         items.push(
             createViewModeItem('single', t('zoom.singlePage'), 'i-ph-file'),
             createViewModeItem('facing', t('zoom.facingPages'), 'i-ph-book-open'),
@@ -538,10 +541,10 @@ function buildViewItems() {
         }));
     }
 
-    if (canToggleContinuousScroll && shouldShowMenuCommand('continuous-scroll', 2)) {
+    if (shouldShowMenuCommand('continuous-scroll', 2)) {
         items.push(createReaderCommandItem('continuous-scroll', 'toggle-continuous-scroll', t('zoom.continuousScroll'), {
             checked: continuousScroll,
-            disabled: !hasInteractiveDocument.value,
+            disabled: !hasInteractiveDocument.value || !canToggleContinuousScroll,
         }));
     }
 
@@ -646,7 +649,7 @@ function createViewModeItem(
     const item: IToolbarOverflowMenuCommandItem = {
         label,
         checked: viewMode === mode,
-        disabled: !hasInteractiveDocument.value,
+        disabled: !hasInteractiveDocument.value || !canUseViewModes,
         onSelect: () => handleViewModeCommand(mode),
     };
 
