@@ -2087,6 +2087,59 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(createHash('sha256').update(new Uint8Array(await downloads[0]!.arrayBuffer())).digest('hex')).toBe(hash.digest('hex'));
     });
 
+    it.each([
+        'finalizeChunkedDocument',
+        'readRange',
+    ] as const)('cancels a DOCX while commit waits for %s, without publishing a download', async (phase) => {
+        const downloads: Blob[] = [];
+        class DownloadURL extends URL {}
+        Object.defineProperties(DownloadURL, {
+            createObjectURL: {value: (blob: Blob) => {
+                downloads.push(blob);
+                return 'blob:canceled-docx';
+            }},
+            revokeObjectURL: {value: () => {}},
+        });
+        vi.stubGlobal('URL', DownloadURL);
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
+        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
+        if (!outputPath) throw new Error('Expected browser DOCX output path');
+        const {sessionId} = await capability.beginDocxFileStream(outputPath);
+        await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        // Both waits occur after commit starts and before the download is published.
+        const finalize = browserDocumentStore.finalizeChunkedDocument.bind(browserDocumentStore);
+        const readRange = browserDocumentStore.readRange.bind(browserDocumentStore);
+        const pending = phase === 'finalizeChunkedDocument'
+            ? vi.spyOn(browserDocumentStore, 'finalizeChunkedDocument').mockImplementationOnce(async (...args) => {
+                entered.resolve(undefined);
+                await release.promise;
+                return finalize(...args);
+            })
+            : vi.spyOn(browserDocumentStore, 'readRange').mockImplementationOnce(async (...args) => {
+                entered.resolve(undefined);
+                await release.promise;
+                return readRange(...args);
+            });
+        try {
+            const commit = capability.commitDocxFileStream(sessionId);
+            const commitResult = commit.then(() => 'published', (error: unknown) => error);
+            await entered.promise;
+            const canceled = capability.cancelDocxFileStream(sessionId);
+            release.resolve(undefined);
+
+            expect.soft(await canceled).toBe(true);
+            expect.soft(await commitResult).toMatchObject({name: 'AbortError'});
+            expect(downloads).toHaveLength(0);
+        } finally {
+            release.resolve(undefined);
+            pending.mockRestore();
+        }
+    });
+
     it('writes a streamed DOCX through its file handle and leaves no download', async () => {
         const createObjectURL = vi.fn(() => 'blob:unexpected');
         class TestURL extends URL {}

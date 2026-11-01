@@ -231,3 +231,103 @@ describe('browser file picker adapter', () => {
     });
 
 });
+
+
+function createSinkProbeHandle(
+    name: string,
+    operations: Pick<FileSystemWritableFileStream, 'write' | 'close' | 'abort'>,
+) {
+    const handle = createFileSystemFileHandle({name});
+    const writable = Object.assign(new WritableStream(), {
+        seek: async (_position: number) => {},
+        truncate: async (_size: number) => {},
+        ...operations,
+    }) satisfies FileSystemWritableFileStream;
+    vi.spyOn(handle, 'createWritable').mockResolvedValue(writable);
+    return handle;
+}
+
+describe('CAP-EXPORT sink outcome probes', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('preserves a non-abort close error without publishing and lets abort confirm discard', async () => {
+        const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const failure = new DOMException('disk full', 'QuotaExceededError');
+        let published = false;
+        const sink = await openBrowserOutputSink({
+            fileName: 'output.tiff',
+            handle: createSinkProbeHandle('output.tiff', {
+                write: async () => {},
+                close: async () => {throw failure;},
+                abort: async () => {published = false;},
+            }),
+        }, {mimeType: 'image/tiff'});
+        await sink.write(Uint8Array.of(1));
+        await expect(sink.close()).rejects.toBe(failure);
+        await expect(sink.abort()).resolves.toBe(true);
+        expect(published).toBe(false);
+    });
+
+    it('reports publication when cancellation arrives after writable.close starts', async () => {
+        const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        let published = false;
+        const sink = await openBrowserOutputSink({
+            fileName: 'output.docx',
+            handle: createSinkProbeHandle('output.docx', {
+                write: async () => {},
+                close: async () => {entered.resolve(undefined); await release.promise; published = true;},
+                abort: async () => {throw new Error('already closing');},
+            }),
+        }, {mimeType: 'application/octet-stream'});
+        const close = sink.close();
+        await entered.promise;
+        const canceled = sink.abort();
+        release.resolve(undefined);
+        await expect(close).resolves.toBeUndefined();
+        await expect(canceled).resolves.toBe(false);
+        expect(published).toBe(true);
+    });
+
+    it('does not confirm cancellation when a timed-out close may still publish', async () => {
+        vi.useFakeTimers();
+        const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        let published = false;
+        const sink = await openBrowserOutputSink({
+            fileName: 'late.docx',
+            handle: createSinkProbeHandle('late.docx', {
+                write: async () => {},
+                close: async () => {entered.resolve(undefined); await release.promise; published = true;},
+                abort: async () => {throw new DOMException('still closing', 'InvalidStateError');},
+            }),
+        }, {mimeType: 'application/octet-stream'});
+        await sink.write(Uint8Array.of(1));
+        const closeResult = sink.close().catch((error: unknown) => error);
+        await entered.promise;
+        const canceled = sink.abort().catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(181_000);
+        const outcome = await closeResult;
+        if (!(outcome instanceof Error) || !('externalWriteCommitted' in outcome)) {
+            throw new Error('Expected an unknown browser file write outcome');
+        }
+        const canceledResult = await canceled;
+        release.resolve(undefined);
+        await Promise.resolve(undefined);
+        await Promise.resolve(undefined);
+        console.log('late-close evidence', JSON.stringify({
+            error: outcome.name,
+            externalWriteCommitted: outcome.externalWriteCommitted,
+            canceled: canceledResult,
+            published,
+        }));
+        expect(outcome).toMatchObject({
+            name: 'BrowserFileWriteOutcomeError',
+            externalWriteCommitted: null,
+        });
+        expect(published).toBe(true);
+        expect(canceledResult).not.toBe(true);
+    });
+});
