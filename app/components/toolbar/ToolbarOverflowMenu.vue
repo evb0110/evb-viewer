@@ -31,9 +31,9 @@
         </template>
 
         <template #facing-first-single-leading>
-            <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
+            <span class="overflow-menu-icon toolbar-menu-icon--facing-first-single">
                 <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
-                <span class="overflow-menu-icon-badge">1</span>
+                <span class="toolbar-menu-icon-badge" aria-hidden="true">1</span>
             </span>
         </template>
 
@@ -703,10 +703,6 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
     min-width: min(var(--app-toolbar-overflow-menu-min-width), var(--app-floating-panel-viewport-width));
 }
 
-.overflow-menu-icon--facing-first-single {
-    position: relative;
-}
-
 .overflow-menu-scan-cleanup-icon {
     position: relative;
 }
@@ -728,29 +724,6 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
         opacity: 0.45;
         transform: scale(0.8);
     }
-}
-
-.overflow-menu-icon-badge {
-    position: absolute;
-    top: var(--app-toolbar-overflow-badge-offset-top);
-    right: var(--app-toolbar-overflow-badge-offset-inline-end);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: var(--app-space-9xl);
-    height: var(--app-space-9xl);
-    padding: 0 var(--app-space-3xs);
-    border-radius: var(--app-radius-full);
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    font-size: var(--app-toolbar-overflow-badge-font-size);
-    line-height: var(--app-line-height-tight);
-    font-weight: 700;
-}
-
-.overflow-menu-item.is-active .overflow-menu-icon-badge {
-    color: var(--ui-text);
 }
 
 .overflow-menu-check {

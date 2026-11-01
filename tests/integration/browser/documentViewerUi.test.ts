@@ -1874,5 +1874,151 @@ describe('browser document lifecycle UI', () => {
                 await context.close();
             }
         }
-    });
+    }, 120_000);
+
+    it('runs desktop\'s File, Pages and View menu commands from the page menu', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const menuItem = (name: string) => page.locator('[role="menuitem"], [role="menuitemcheckbox"]').filter({hasText: new RegExp(`^${name}`, 'u')});
+        const openMenu = async (submenu?: string) => {
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            if (submenu) {
+                await menuItem(submenu).click();
+            }
+        };
+        const closeMenu = async () => {
+            await page.keyboard.press('Escape');
+            await page.keyboard.press('Escape');
+            await page.getByRole('menu').first().waitFor({state: 'hidden'});
+        };
+        const choose = async (submenu: string | undefined, name: string) => {
+            await openMenu(submenu);
+            await menuItem(name).click();
+            await page.getByRole('menu').first().waitFor({state: 'hidden'});
+        };
+        const isLandscape = (pageNumber: number) => page.locator(`.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="${String(pageNumber)}"]`).first().evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > rect.height;
+        });
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            // The workspace toolbar replaces the shell toolbar shortly after
+            // startup, and the swap closes a menu opened before it.
+            await page.locator('#editor-global-toolbar-host > *').first().waitFor({timeout: 30_000});
+
+            // Without a document desktop's View menu is disabled, and it shows
+            // neither view rotation nor a Pages menu.
+            await openMenu('View');
+            expect(await menuItem('Zoom In').getAttribute('aria-disabled')).toBe('true');
+            expect(await menuItem('Rotate View Clockwise').count()).toBe(0);
+            await closeMenu();
+            await openMenu();
+            expect(await menuItem('Pages').count()).toBe(0);
+            await closeMenu();
+
+            const fixture = await PDFDocument.create();
+            for (const label of [
+                'First portrait page',
+                'Second portrait page',
+            ]) {
+                fixture.addPage([
+                    400,
+                    600,
+                ]).drawText(label, {
+                    x: 40,
+                    y: 540,
+                });
+            }
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'menu-parity.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="2"] canvas').first().waitFor({timeout: 30_000});
+            expect(await isLandscape(1)).toBe(false);
+            expect(await isLandscape(2)).toBe(false);
+
+            // Pages: the selection commands wait for a selected page.
+            await openMenu('Pages');
+            expect(await menuItem('Delete Selected Pages').getAttribute('aria-disabled')).toBe('true');
+            expect(await menuItem('Insert Pages').getAttribute('aria-disabled')).toBeNull();
+            await closeMenu();
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            const selectFirst = page.locator('.workspace-host[data-workspace-active="true"] [data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle');
+            await selectFirst.click();
+            await expect.poll(() => selectFirst.getAttribute('aria-pressed')).toBe('true');
+            await openMenu('Pages');
+            expect(await menuItem('Delete Selected Pages').getAttribute('aria-disabled')).toBeNull();
+            await menuItem('Rotate Clockwise').click();
+            await expect.poll(() => isLandscape(1)).toBe(true);
+            expect(await isLandscape(2)).toBe(false);
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
+            });
+
+            // View: the shortcut the browser honors is shown; view rotation
+            // turns every page, and the chosen layout is checked.
+            await openMenu('View');
+            expect(await menuItem('Zoom In').innerText()).toMatch(/(?:⌘|Ctrl\+)=/u);
+            expect(await menuItem('Rotate View Clockwise').getAttribute('aria-disabled')).toBeNull();
+            await menuItem('Rotate View Clockwise').click();
+            await expect.poll(() => isLandscape(2)).toBe(true);
+            expect(await isLandscape(1)).toBe(false);
+            await choose('View', 'Facing Pages');
+            await expect.poll(() => page.evaluate(() => {
+                const [
+                    first,
+                    second,
+                ] = [
+                    1,
+                    2,
+                ].map(pageNumber => document.querySelector(`.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="${String(pageNumber)}"]`)!.getBoundingClientRect());
+                return Math.abs(first!.top - second!.top) < 2 && second!.left >= first!.right - 1;
+            })).toBe(true);
+            await openMenu('View');
+            expect(await menuItem('Facing Pages').getAttribute('aria-checked')).toBe('true');
+            expect(await menuItem('Single Page').getAttribute('aria-checked')).toBe('false');
+            await closeMenu();
+
+            // File and View: tabs and panes.
+            const tabs = page.locator('[data-tab-list] [role="tab"]');
+            const tabCount = await tabs.count();
+            await openMenu();
+            expect(await menuItem('New Tab').innerText()).not.toMatch(/⌘|Ctrl\+/u);
+            await menuItem('New Tab').click();
+            await expect.poll(() => tabs.count()).toBe(tabCount + 1);
+            // Each tab's workspace brings its own toolbar, and with it the menu.
+            await page.locator('.workspace-host[data-workspace-active="true"] .workspace-transfer-content').waitFor();
+            await choose(undefined, 'Close Tab');
+            await expect.poll(() => tabs.count()).toBe(tabCount);
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor();
+            await choose('View', 'New Pane Right');
+            await expect.poll(() => page.locator('.editor-pane[data-editor-pane-id]').count()).toBe(2);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
 });

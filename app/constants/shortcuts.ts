@@ -95,7 +95,11 @@ const SHORTCUTS = {
     },
     actualSize: {
         key: '0',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
+    },
+    newPaneRight: {
+        key: '\\',
+        modifiers: ['mod'],
     },
 } as const satisfies Record<string, IShortcutDef>;
 

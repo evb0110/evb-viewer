@@ -93,3 +93,31 @@
         display: none;
     }
 }
+
+// Facing pages with the first page single: the facing icon badged with a 1.
+.toolbar-menu-icon--facing-first-single {
+    position: relative;
+}
+
+.toolbar-menu-icon-badge {
+    position: absolute;
+    top: var(--app-toolbar-overflow-badge-offset-top);
+    right: var(--app-toolbar-overflow-badge-offset-inline-end);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--app-space-9xl);
+    height: var(--app-space-9xl);
+    padding: 0 var(--app-space-3xs);
+    border-radius: var(--app-radius-full);
+    border: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    font-size: var(--app-toolbar-overflow-badge-font-size);
+    line-height: var(--app-line-height-tight);
+    font-weight: 700;
+}
+
+.toolbar-menu-item.is-active .toolbar-menu-icon-badge {
+    color: var(--ui-text);
+}

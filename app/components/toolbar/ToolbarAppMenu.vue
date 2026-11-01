@@ -27,8 +27,16 @@
                 <PrintCurrentPageIcon v-else class="app-menu-icon toolbar-menu-icon" />
             </template>
 
+            <template #facing-first-single-leading>
+                <span class="app-menu-icon toolbar-menu-icon toolbar-menu-icon--facing-first-single">
+                    <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
+                    <span class="toolbar-menu-icon-badge" aria-hidden="true">1</span>
+                </span>
+            </template>
+
             <template #item-trailing="{ item }">
-                <span v-if="getMenuShortcut(item)" class="app-menu-shortcut toolbar-menu-shortcut">
+                <UIcon v-if="hasMenuChildren(item)" name="i-ph-caret-right" class="app-menu-submenu-icon" />
+                <span v-else-if="getMenuShortcut(item)" class="app-menu-shortcut toolbar-menu-shortcut">
                     {{ getMenuShortcut(item) }}
                 </span>
             </template>
@@ -43,11 +51,20 @@ import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDis
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 import type { TToolbarAppMenuCommand } from '@app/types/toolbarMenuCommands';
+import { useRecentFiles } from '@app/composables/useRecentFiles';
+import {
+    dispatchBrowserMenuEvent,
+    onBrowserMenuDocumentStateChange,
+    readBrowserMenuDocumentState,
+    type TBrowserMenuEventArgs,
+    type TBrowserMenuEventName,
+} from '@app/platform/browserMenuBar';
 
 const { t } = useTypedI18n();
 const { isBrowserRuntime } = useRuntimeEnvironment();
+const { recentFiles } = useRecentFiles();
 
-type TToolbarAppMenuItem = IToolbarAppMenuStructuralItem | IToolbarAppMenuCommandItem;
+type TToolbarAppMenuItem = IToolbarAppMenuStructuralItem | IToolbarAppMenuCommandItem | IToolbarAppMenuSubmenuItem;
 
 interface IToolbarAppMenuStructuralItem {
     type: 'label' | 'separator';
@@ -61,7 +78,24 @@ interface IToolbarAppMenuCommandItem {
     disabled?: boolean;
     shortcut?: string;
     loading?: boolean;
+    type?: 'checkbox';
+    checked?: boolean;
+    class?: string;
     onSelect: () => void;
+}
+
+interface IToolbarAppMenuSubmenuItem {
+    label: string;
+    icon: string;
+    children: TToolbarAppMenuItem[];
+}
+
+interface IMenuEventItemOptions {
+    disabled?: boolean;
+    shortcut?: string;
+    slot?: string;
+    /** A checkbox or radio entry of desktop's menu: shown with its check. */
+    checked?: boolean;
 }
 
 interface IProps {
@@ -146,6 +180,12 @@ const emitMenuCommand = {
 } satisfies Record<TToolbarAppMenuCommand, () => void>;
 
 const shortcutLabels = useShortcutLabels();
+// The state the renderer reports for desktop's native menu (useMenuSync); the
+// items below that desktop's menu also shows take their availability from it.
+const menuState = shallowRef(readBrowserMenuDocumentState());
+onScopeDispose(onBrowserMenuDocumentStateChange((state) => {
+    menuState.value = state;
+}));
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const hasExportableRasterSource = computed(() => (hasPdf || isDjvuMode) && documentBusy !== true);
 const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
@@ -191,6 +231,7 @@ const appMenuItems = computed(() => {
             label: t('menu.file'),
         },
         createCommandItem('open-file', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.value.openFile}),
+        createSubmenu(t('menu.openRecent'), 'i-ph-clock', buildOpenRecentItems()),
         createCommandItem('save', t('menu.save'), getReaderCommandMenuIcon('save'), {
             disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.value.save,
@@ -240,6 +281,9 @@ const appMenuItems = computed(() => {
 
     items.push(
         { type: 'separator' },
+        createMenuEventItem('onMenuNewTab', t('menu.newTab'), 'i-ph-plus'),
+        createMenuEventItem('onMenuCloseTab', t('menu.closeTab'), 'i-ph-x', {disabled: menuState.value?.canCloseTab !== true}),
+        { type: 'separator' },
         {
             type: 'label',
             label: t('menu.edit'),
@@ -255,10 +299,136 @@ const appMenuItems = computed(() => {
         { type: 'separator' },
         createCommandItem('insert-image-from-file', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
         createCommandItem('paste-image-from-clipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
+        { type: 'separator' },
+    );
+    if (menuState.value?.supportsPdfMutation ?? menuState.value?.hasDocument) {
+        items.push(createSubmenu(t('menu.pages'), 'i-ph-files', buildPagesItems()));
+    }
+    items.push(
+        createSubmenu(t('menu.view'), 'i-ph-eye', buildViewItems()),
+        createSubmenu(t('menu.help'), 'i-ph-question', [{
+            label: t('menu.acknowledgements'),
+            icon: 'i-ph-info',
+            onSelect: () => {
+                close();
+                void navigateTo('/about');
+            },
+        }]),
     );
 
     return items;
 });
+
+function buildOpenRecentItems(): TToolbarAppMenuItem[] {
+    if (recentFiles.value.length === 0) {
+        return [{
+            label: t('menu.noRecentFiles'),
+            disabled: true,
+            onSelect: () => {},
+        }];
+    }
+
+    return [
+        ...recentFiles.value.map(file => createMenuEventItem('onMenuOpenRecentFile', file.fileName, undefined, {}, file.originalPath)),
+        { type: 'separator' },
+        createMenuEventItem('onMenuClearRecentFiles', t('menu.clearRecentFiles')),
+    ];
+}
+
+// Desktop's Pages menu, with its availability rules.
+function buildPagesItems(): TToolbarAppMenuItem[] {
+    const state = menuState.value;
+    const selectedPageCount = state?.selectedPageCount ?? 0;
+    const canOperateOnSelection = (state?.canMutatePages ?? state?.hasDocument ?? false) && selectedPageCount > 0;
+    return [
+        createMenuEventItem('onMenuDeletePages', t('menu.deleteSelectedPages'), 'i-ph-trash', {disabled: !canOperateOnSelection || selectedPageCount >= (state?.totalPages ?? 0)}),
+        createMenuEventItem('onMenuExtractPages', t('menu.extractSelectedPages'), 'i-ph-export', {disabled: !canOperateOnSelection}),
+        { type: 'separator' },
+        createMenuEventItem('onMenuRotateCw', t('menu.rotateClockwise'), 'i-ph-arrow-clockwise', {disabled: !canOperateOnSelection}),
+        createMenuEventItem('onMenuRotateCcw', t('menu.rotateCounterclockwise'), 'i-ph-arrow-counter-clockwise', {disabled: !canOperateOnSelection}),
+        { type: 'separator' },
+        createMenuEventItem('onMenuInsertPages', t('menu.insertPages'), 'i-ph-file-plus', {disabled: !(state?.canMutatePages ?? state?.hasDocument ?? false)}),
+    ];
+}
+
+// Desktop's View menu, with its availability rules. The Assistant entry is
+// left out: the assistant panel is desktop-only.
+function buildViewItems(): TToolbarAppMenuItem[] {
+    const state = menuState.value;
+    const hasDocument = state?.hasDocument ?? false;
+    const disabled = !(state?.interactive ?? hasDocument);
+    const items: TToolbarAppMenuItem[] = [
+        createMenuEventItem('onMenuZoomIn', t('menu.zoomIn'), 'i-ph-plus', {
+            disabled,
+            shortcut: shortcutLabels.value.zoomIn,
+        }),
+        createMenuEventItem('onMenuZoomOut', t('menu.zoomOut'), 'i-ph-minus', {
+            disabled,
+            shortcut: shortcutLabels.value.zoomOut,
+        }),
+        { type: 'separator' },
+        createMenuEventItem('onMenuActualSize', t('menu.actualSize'), 'i-ph-frame-corners', {
+            disabled,
+            shortcut: shortcutLabels.value.actualSize,
+            checked: state?.isActualSizeActive === true,
+        }),
+        createMenuEventItem('onMenuFitWidth', t('menu.fitWidth'), getReaderCommandMenuIcon('fit-width'), {
+            disabled,
+            shortcut: shortcutLabels.value.fitWidth,
+            checked: state?.isFitWidthActive === true,
+        }),
+        createMenuEventItem('onMenuFitHeight', t('menu.fitHeight'), getReaderCommandMenuIcon('fit-height'), {
+            disabled,
+            shortcut: shortcutLabels.value.fitHeight,
+            checked: state?.isFitHeightActive === true,
+        }),
+    ];
+    if (state?.supportsContinuousScroll ?? state?.canContinuousScroll) {
+        items.push(
+            { type: 'separator' },
+            createMenuEventItem('onMenuToggleContinuousScroll', t('zoom.continuousScroll'), getReaderCommandMenuIcon('continuous-scroll'), {
+                disabled: disabled || state?.canContinuousScroll !== true,
+                checked: state?.continuousScroll === true,
+            }),
+        );
+    }
+    if (state?.supportsViewMode ?? hasDocument) {
+        const viewMode = state?.viewMode ?? 'single';
+        items.push(
+            { type: 'separator' },
+            createMenuEventItem('onMenuViewModeSingle', t('menu.singlePage'), 'i-ph-file', {
+                disabled,
+                checked: viewMode === 'single',
+            }),
+            createMenuEventItem('onMenuViewModeFacing', t('menu.facingPages'), 'i-ph-book-open', {
+                disabled,
+                checked: viewMode === 'facing',
+            }),
+            createMenuEventItem('onMenuViewModeFacingFirstSingle', t('menu.facingWithFirstSingle'), undefined, {
+                disabled,
+                checked: viewMode === 'facing-first-single',
+                slot: 'facing-first-single',
+            }),
+        );
+    }
+    if (state?.supportsViewRotation ?? hasDocument) {
+        items.push(
+            { type: 'separator' },
+            createMenuEventItem('onMenuViewRotationCw', t('menu.rotateViewClockwise'), 'i-ph-arrow-clockwise', {disabled}),
+            createMenuEventItem('onMenuViewRotationCcw', t('menu.rotateViewCounterclockwise'), 'i-ph-arrow-counter-clockwise', {disabled}),
+        );
+    }
+    const paneDisabled = state?.canCreatePane === false;
+    items.push(
+        { type: 'separator' },
+        createMenuEventItem('onMenuSplitEditor', t('menu.newPaneRight'), 'i-ph-square-split-horizontal', {
+            disabled: paneDisabled,
+            shortcut: shortcutLabels.value.newPaneRight,
+        }, 'right'),
+        createMenuEventItem('onMenuSplitEditor', t('menu.newPaneDown'), 'i-ph-square-split-vertical', {disabled: paneDisabled}, 'down'),
+    );
+    return items;
+}
 
 function close() {
     emit('update:open', false);
@@ -308,6 +478,55 @@ function createCommandItem(
     return item;
 }
 
+function createSubmenu(label: string, icon: string, children: TToolbarAppMenuItem[]): IToolbarAppMenuSubmenuItem {
+    return {
+        label,
+        icon,
+        children,
+    };
+}
+
+/** An entry of desktop's menu: it sends the platform menu event desktop's item sends. */
+function createMenuEventItem<TName extends TBrowserMenuEventName>(
+    name: TName,
+    label: string,
+    icon?: string,
+    options: IMenuEventItemOptions = {},
+    ...args: TBrowserMenuEventArgs[TName]
+): IToolbarAppMenuCommandItem {
+    const item: IToolbarAppMenuCommandItem = {
+        label,
+        onSelect: () => {
+            dispatchBrowserMenuEvent(name, ...args);
+            close();
+        },
+    };
+    if (icon !== undefined) {
+        item.icon = icon;
+    }
+    if (options.disabled !== undefined) {
+        item.disabled = options.disabled;
+    }
+    if (options.shortcut !== undefined) {
+        item.shortcut = options.shortcut;
+    }
+    if (options.slot !== undefined) {
+        item.slot = options.slot;
+    }
+    if (options.checked !== undefined) {
+        item.type = 'checkbox';
+        item.checked = options.checked;
+        if (options.checked) {
+            item.class = 'is-active';
+        }
+    }
+    return item;
+}
+
+function hasMenuChildren(item: unknown) {
+    return typeof item === 'object' && item !== null && 'children' in item;
+}
+
 function getMenuShortcut(item: unknown) {
     if (typeof item !== 'object' || item === null || !('shortcut' in item)) {
         return '';
@@ -321,6 +540,13 @@ function getMenuShortcut(item: unknown) {
 
 .app-menu {
     min-width: min(var(--app-toolbar-app-menu-min-width), var(--app-floating-panel-viewport-width));
+}
+
+.app-menu-submenu-icon {
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+    flex-shrink: 0;
+    color: var(--ui-text-muted);
 }
 </style>
 
