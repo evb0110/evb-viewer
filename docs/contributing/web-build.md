@@ -45,6 +45,9 @@
   step holds the whole source; only memory bounds a page's decode. An
   indirect DjVu opens when its index is selected in Open together with the
   files beside it; each component name resolves to the selected file.
+  Printing a DjVu converts the selected pages, lays them out with the
+  page-ops print layout, and prints them through the workspace's browser
+  print frame.
 - Desktop app updates unavailable in browser runtime
 
 ## Architecture and checks

@@ -1,6 +1,7 @@
 import type {
     IDjvuConvertResult,
     IDjvuOpenResult,
+    IDjvuPrintResult,
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
 import {
@@ -18,8 +19,8 @@ const DEFAULT_TERMINAL_JOB_TTL_MS = 60 * 60 * 1_000;
 const DEFAULT_MAX_TERMINAL_JOBS = 64;
 
 interface ITerminalBrowserDjvuJob {
-    kind: 'open' | 'convert';
-    promise: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>;
+    kind: 'open' | 'convert' | 'print';
+    promise: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult> | Promise<IDjvuPrintResult>;
     timer: ReturnType<typeof setTimeout>;
 }
 
@@ -134,6 +135,44 @@ export class BrowserDurableDjvuJobs {
         return job;
     }
 
+    /**
+     * Runs a print preparation under its job id. It finishes as the call
+     * returns, with the prepared PDF as the job's artifact.
+     */
+    async runPrint(jobId: TJobId, run: () => Promise<IDjvuPrintResult>) {
+        this.#states.set(jobId, this.#createState(jobId, 'djvu-print', 'converting'));
+        const result = await run().catch((error: unknown): IDjvuPrintResult => ({
+            success: false,
+            jobId,
+            error: getErrorMessage(error),
+        }));
+        const updatedAtMs = createEpochMs();
+        const progress = {
+            jobId,
+            phase: 'printing' as const,
+            percent: result.success ? 100 : 0,
+        };
+        this.#states.set(jobId, result.success && result.printablePdfPath
+            ? {
+                jobId,
+                operation: 'djvu-print',
+                status: 'completed',
+                artifactPath: result.printablePdfPath,
+                progress,
+                updatedAtMs,
+            }
+            : {
+                jobId,
+                operation: 'djvu-print',
+                status: result.canceled ? 'canceled' : 'failed',
+                ...(result.error ? {error: result.error} : {}),
+                progress,
+                updatedAtMs,
+            });
+        this.#retainTerminalJob(jobId, 'print', Promise.resolve(result));
+        return result;
+    }
+
     getState(jobId: TJobId) {
         return this.#states.get(jobId) ?? null;
     }
@@ -150,8 +189,8 @@ export class BrowserDurableDjvuJobs {
 
     #retainTerminalJob(
         jobId: TJobId,
-        kind: 'open' | 'convert',
-        promise: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>,
+        kind: ITerminalBrowserDjvuJob['kind'],
+        promise: ITerminalBrowserDjvuJob['promise'],
     ) {
         const previous = this.#terminalJobs.get(jobId);
         if (previous) {
@@ -174,7 +213,7 @@ export class BrowserDurableDjvuJobs {
         }
     }
 
-    #deleteTerminalJob(jobId: TJobId, expectedPromise?: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>) {
+    #deleteTerminalJob(jobId: TJobId, expectedPromise?: ITerminalBrowserDjvuJob['promise']) {
         const terminal = this.#terminalJobs.get(jobId);
         if (!terminal || expectedPromise && terminal.promise !== expectedPromise) {
             return;
@@ -192,7 +231,7 @@ export class BrowserDurableDjvuJobs {
 
     #createState(
         jobId: TJobId,
-        operation: 'djvu-open' | 'djvu-convert',
+        operation: 'djvu-open' | 'djvu-convert' | 'djvu-print',
         phase: 'loading' | 'converting',
     ): TDocumentOutputJobState {
         return {

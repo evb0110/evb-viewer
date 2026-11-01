@@ -40,6 +40,7 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 
 const driverMocks = vi.hoisted(() => ({
     cancel: vi.fn(async (_jobId: TJobId) => true),
+    cleanupTemp: vi.fn(async (_path: TDocumentRef) => undefined),
     createDocumentProjectionSession: vi.fn((options: unknown) => options),
     ensurePdfProjection: vi.fn(async (
         _session: unknown,
@@ -59,6 +60,7 @@ const driverMocks = vi.hoisted(() => ({
 
 const platformApi = createElectronPlatformApiFixture({djvu: {
     cancel: driverMocks.cancel as never,
+    cleanupTemp: driverMocks.cleanupTemp as never,
     getJobState: driverMocks.getJobState as never,
     printDjvuPath: driverMocks.printDjvuPath as never,
 }});
@@ -313,6 +315,54 @@ describe('WorkspaceDocumentDriver', () => {
         expect(driverMocks.getJobState).toHaveBeenCalledWith('djvu-print-job');
         expect(driverMocks.getJobState.mock.invocationCallOrder[0])
             .toBeLessThan(onNativePrintHandoffStart.mock.invocationCallOrder[0]!);
+    });
+
+    it('hands a PDF the platform prepared without printing it to the workspace print', async () => {
+        driverMocks.printDjvuPath.mockResolvedValueOnce({
+            success: true,
+            canceled: false,
+            jobId: 'djvu-print-job',
+            printablePdfPath: requireDocumentRef('browser://documents/source-print.pdf'),
+        } as never);
+        driverMocks.getJobState.mockResolvedValueOnce({
+            operation: 'djvu-print',
+            status: 'completed',
+            artifactPath: 'browser://documents/source-print.pdf',
+        });
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/source.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        }).activeDocumentDriver.value!;
+        const onNativePrintHandoffStart = vi.fn();
+
+        const result = await driver.run({
+            kind: 'prepare-print',
+            request: {
+                orientation: 'auto',
+                viewMode: 'single',
+                pageNumbers: [2],
+            },
+            fileName: 'source.djvu',
+            sourceCapabilities: driver.view.defaultSourceCapabilities ?? {
+                annotations: false,
+                directImageExport: false,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            },
+            onNativePrintHandoffStart,
+        });
+
+        expect(result).toMatchObject({
+            status: 'printable-pdf',
+            documentRef: 'browser://documents/source-print.pdf',
+        });
+        expect(onNativePrintHandoffStart).not.toHaveBeenCalled();
+        await (result as {release: () => Promise<void>}).release();
+        expect(driverMocks.cleanupTemp).toHaveBeenCalledWith('browser://documents/source-print.pdf');
     });
 
     it('cancels the admitted native print job before its dialog handoff', async () => {

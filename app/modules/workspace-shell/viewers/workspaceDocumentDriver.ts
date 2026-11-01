@@ -304,6 +304,13 @@ export interface IWorkspaceDriverCommand {
 export type TWorkspaceDriverCommandResult =
     | {status: 'completed'}
     | {
+        // A platform without a print dialog of its own prepared this PDF; the
+        // workspace prints it, then releases it.
+        status: 'printable-pdf';
+        documentRef: TDocumentRef;
+        release(): Promise<void>;
+    }
+    | {
         status: 'unavailable';
         capability: keyof IWorkspaceViewerCapabilities;
     };
@@ -392,6 +399,7 @@ async function prepareDjvuPrint(
     };
     throwIfDriverPrintAborted(command.signal);
     command.signal?.addEventListener('abort', cancelPrint, { once: true });
+    let printablePdfPath: TDocumentRef | null = null;
     try {
         const printSession = createDocumentProjectionSession({
             id: `${String(sourcePath)}:${requestId}`,
@@ -419,6 +427,7 @@ async function prepareDjvuPrint(
             if (!result.success) {
                 throw new Error(result.error ?? 'DjVu print preparation failed');
             }
+            printablePdfPath = result.printablePdfPath ?? null;
             const outputState = await getDjvuCapability().getJobState(result.jobId ?? jobId);
             if (
                 outputState?.operation !== 'djvu-print'
@@ -434,6 +443,14 @@ async function prepareDjvuPrint(
                 capabilities: PDF_SOURCE_CAPABILITIES,
             };
         }}, 'print', command.signal);
+        if (printablePdfPath) {
+            const documentRef = printablePdfPath;
+            return {
+                status: 'printable-pdf',
+                documentRef,
+                release: () => getDjvuCapability().cleanupTemp(documentRef),
+            };
+        }
         command.onNativePrintHandoffStart?.();
         return {status: 'completed'};
     } finally {

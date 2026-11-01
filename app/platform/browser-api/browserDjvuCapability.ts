@@ -13,6 +13,7 @@ import {
 import {
     createJobId,
     createRequestId,
+    requireJobId,
     type TJobId,
 } from '@contracts/shared';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
@@ -28,6 +29,7 @@ import {
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
+import { prepareBrowserDjvuPrint } from '@app/platform/browser-api/prepareBrowserDjvuPrint';
 import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
@@ -122,11 +124,10 @@ export const browserDjvuCapability = {
         });
         return Promise.resolve(handle);
     },
-    printDjvuPath() {
-        return Promise.resolve({
-            success: false,
-            error: 'DjVu printing is only available in the desktop app',
-        });
+    printDjvuPath(djvuPath, options) {
+        // The job id the print driver cancels and reads, as desktop names it.
+        const jobId = requireJobId(`djvu-print-${options.requestId ?? createRequestId('djvu-print')}`);
+        return browserDurableDjvuJobs.runPrint(jobId, () => prepareBrowserDjvuPrint(djvuPath, options, jobId));
     },
     cancel(jobId) {
         return Promise.resolve(cancelBrowserDjvuConversion(jobId));

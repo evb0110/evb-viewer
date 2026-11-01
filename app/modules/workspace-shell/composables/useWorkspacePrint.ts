@@ -38,6 +38,7 @@ import {
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { readDocumentBytes } from '@app/utils/documentBytes';
 import {
     useFailureToast,
     type FailurePresentation,
@@ -1068,6 +1069,25 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     },
                 });
                 assertPrintRunCurrent(printOwner);
+                if (driverResult.status === 'printable-pdf') {
+                    let printablePdf: Uint8Array;
+                    try {
+                        printablePdf = await readDocumentBytes(driverResult.documentRef);
+                    } finally {
+                        await driverResult.release().catch((error: unknown) => {
+                            BrowserLogger.warn('workspace-print', 'Failed to release the prepared print PDF', {error: getErrorMessage(error)});
+                        });
+                    }
+                    assertPrintRunCurrent(printOwner);
+                    await printPdfDataWithNativeHandoff(
+                        printablePdf,
+                        resolveBrowserPrintTitle(payload, printOwner.fileName),
+                        signal,
+                        printRunId,
+                        printOwner,
+                    );
+                    return;
+                }
                 if (driverResult.status === 'completed') {
                     if (nativePrintHandoff.started !== true) {
                         closePrintDialogForSystemDialog();

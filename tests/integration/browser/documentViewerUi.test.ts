@@ -1982,6 +1982,77 @@ describe('browser document lifecycle UI', () => {
         }
     }, 240_000);
 
+    it('prints a DjVu document through the browser print dialog', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-print-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        try {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                // The print dialog's sheets, as the browser would print them.
+                window.print = () => {
+                    const sheets = Array.from(document.querySelectorAll<HTMLCanvasElement>('.browser-print-page canvas')).map((canvas) => {
+                        const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let ink = 0;
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) ink += 1;
+                        }
+                        return {
+                            ink,
+                            image: canvas.toDataURL(),
+                        };
+                    });
+                    Reflect.set(window.top!, '__djvuPrint', sheets);
+                };
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            // Page 1 is a JB2 mask of four black lines; page 2 is faint pencil.
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__djvuPrint'))), {timeout: 60_000}).toBe(true);
+            const sheets = await page.evaluate(() => Reflect.get(window, '__djvuPrint') as Array<{
+                ink: number;
+                image: string;
+            }>);
+            for (const [
+                index,
+                sheet,
+            ] of sheets.entries()) {
+                writeFileSync(resolve(evidenceDir, `printed-${index + 1}.png`), Buffer.from(sheet.image.split(',')[1]!, 'base64'));
+            }
+            expect(sheets).toHaveLength(2);
+            expect(sheets[0]!.ink).toBeGreaterThan(1_000);
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 180_000);
+
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {
