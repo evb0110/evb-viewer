@@ -266,6 +266,16 @@ placeholder of another shape, no Start page and no other tab's surface appears i
 and the sequence never goes back a step. Added 2026-10-01 on the owner's
 request (#920).
 
+**T6. The browser does what desktop does.** Applies to every operation the
+desktop app performs on a document: opening, OCR, search, page operations,
+annotation saves, combining, conversion and export. The browser workspace does
+not refuse it, drop an input or stop it early because of a size, count or time
+limit that desktop does not apply. A limit the browser engine itself cannot
+pass, such as the wasm32 address space, ends the operation with a clear error
+that names it, and the next operation still works. Desktop's cancellation is
+offered for the same operations. Added 2026-11-01 on the owner's request to
+remove the browser's artificial caps.
+
 ## Lifecycle
 
 **C1. Closing is clean.** Closing a tab or window at any moment, including during
