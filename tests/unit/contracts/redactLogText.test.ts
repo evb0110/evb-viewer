@@ -14,6 +14,38 @@ describe('redactLogText', () => {
         );
     });
 
+    it('hides whole paths with spaces, in quotes, JSON data and messages', () => {
+        const cases: Array<[string, string]> = [
+            [
+                'Failed to open /Users/evb/My Documents/scan 1677.pdf: boom',
+                'Failed to open /Users/[redacted]: boom',
+            ],
+            [
+                JSON.stringify({path: '/Users/evb/My Documents/scan 1677.pdf'}),
+                '{"path":"/Users/[redacted]"}',
+            ],
+            [
+                JSON.stringify({path: 'C:\\Users\\evb\\My Docs\\scan.pdf'}),
+                '{"path":"C:\\\\Users\\\\[redacted]"}',
+            ],
+            [
+                JSON.stringify({ref: 'browser://documents/abc123/My Thesis Draft.pdf'}),
+                '{"ref":"browser://documents/abc123/[redacted]"}',
+            ],
+            [
+                JSON.stringify({url: 'file:///Users/evb/My Docs/a.pdf'}),
+                '{"url":"file://[redacted]"}',
+            ],
+        ];
+        for (const [
+            input,
+            expected,
+        ] of cases) {
+            expect(redactLogText(input)).toBe(expected);
+            expect(redactLogText(expected)).toBe(expected);
+        }
+    });
+
     it('keeps URL redaction idempotent', () => {
         const input = 'https://user:pass@[::1]:3235/path?access_token=secret&empty=#fragment';
         const redacted = redactLogText(input);

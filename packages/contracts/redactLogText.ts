@@ -1,37 +1,52 @@
 const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s]+/giu;
 const DATA_URL_PATTERN = /\bdata:[^\s]+/giu;
 const SECRET_ASSIGNMENT_PATTERN = /(?<![\w-])["']?(?:x[-_])?(?:authorization|auth[-_]?token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key|password|passwd|pwd|secret|token)\b["']?\s*[:=]\s*/giu;
-const HOME_PATH_REDACTION_PATTERNS: ReadonlyArray<{
+interface IRedaction {
     pattern: RegExp;
-    replacement: string;
-}> = [
-    {
-        pattern: /\/Users\/[^/\s"',)]+(?:\/[^\s"',)]+)*/gu,
-        replacement: '/Users/[redacted]',
-    },
-    {
-        pattern: /[A-Za-z]:\\Users\\[^\\\s"',)]+(?:\\[^\s"',)]+)*/gu,
-        replacement: 'C:\\Users\\[redacted]',
-    },
+    replacement: (match: string) => string;
+}
+
+// A quoted path (JSON log data, quoted messages) runs to its closing quote,
+// spaces and JSON-escaped backslashes included. An unquoted one runs to a
+// document extension on its line, or else to the next whitespace.
+const QUOTED_PATH_START = String.raw`(?<=(["']))`;
+const QUOTED_PATH_TAIL = String.raw`(?:\\.|(?!\1)[^\\\n])*`;
+const DOCUMENT_PATH_TAIL = String.raw`[^\n"']*?\.(?:pdf|djvu?|png|jpe?g|tiff?|docx)\b`;
+
+function pathRedactions(prefix: string, plainTail: string, replacement: IRedaction['replacement']): IRedaction[] {
+    // An already redacted path stays as it is, so redacting again changes nothing.
+    const start = `${prefix}(?!\\[redacted\\])`;
+    return [
+        `${QUOTED_PATH_START}${start}${QUOTED_PATH_TAIL}`,
+        `${start}${DOCUMENT_PATH_TAIL}`,
+        `${start}${plainTail}`,
+    ].map(source => ({
+        pattern: new RegExp(source, 'giu'),
+        replacement,
+    }));
+}
+
+const HOME_PATH_REDACTION_PATTERNS: readonly IRedaction[] = [
+    ...pathRedactions(String.raw`\/Users\/`, String.raw`[^/\s"',)]+(?:\/[^\s"',)]+)*`, () => '/Users/[redacted]'),
+    ...pathRedactions(
+        String.raw`[A-Za-z]:(?:\\\\|\\)Users(?:\\\\|\\)`,
+        String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
+        match => (match.includes('\\\\') ? 'C:\\\\Users\\\\[redacted]' : 'C:\\Users\\[redacted]'),
+    ),
 ];
 
-const NON_URL_REDACTION_PATTERNS: ReadonlyArray<{
-    pattern: RegExp;
-    replacement: string;
-}> = [
+const NON_URL_REDACTION_PATTERNS: readonly IRedaction[] = [
     {
         pattern: /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gu,
-        replacement: 'Bearer [redacted]',
+        replacement: () => 'Bearer [redacted]',
     },
-    {
-        pattern: /file:\/\/[^\s"',)]+/giu,
-        replacement: 'file://[redacted]',
-    },
-    {
-        // Browser workspace documents: keep the opaque id, hide the file name.
-        pattern: /(browser:\/\/documents\/[^/\s"',)]+)\/[^\s"',)]+/giu,
-        replacement: '$1/[redacted]',
-    },
+    ...pathRedactions(String.raw`file:\/\/`, String.raw`[^\s"',)]+`, () => 'file://[redacted]'),
+    // Browser workspace documents: keep the opaque id, hide the file name.
+    ...pathRedactions(
+        String.raw`browser:\/\/documents\/`,
+        String.raw`[^/\s"',)]+\/[^\s"',)]+`,
+        match => match.replace(/^(browser:\/\/documents\/[^/]+)\/.*$/su, '$1/[redacted]'),
+    ),
 ];
 
 function findQuotedValueEnd(value: string, start: number) {
