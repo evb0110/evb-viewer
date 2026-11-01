@@ -25,7 +25,7 @@ function countInkPixels(pixels: Uint8ClampedArray) {
 
 async function readSavedScanPixels(bytes: Uint8Array) {
     const pdf = await PDFDocument.load(bytes);
-    const counts: number[] = [];
+    const counts: Array<number | null> = [];
     for (const page of pdf.getPages()) {
         const images = page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
         if (!images) {
@@ -35,8 +35,16 @@ async function readSavedScanPixels(bytes: Uint8Array) {
             .map(value => pdf.context.lookup(value))
             .find(value => value instanceof PDFRawStream
                 && value.dict.get(PDFName.of('Subtype')) === PDFName.of('Image'));
-        if (!(image instanceof PDFRawStream)
-            || image.dict.get(PDFName.of('Filter')) !== PDFName.of('DCTDecode')) {
+        if (!(image instanceof PDFRawStream)) {
+            throw new Error('Exported scan page has no image');
+        }
+        // A page kept as its JB2 mask is a bilevel image mask; the test
+        // renders that page, as the browser cannot decode its JBIG2 here.
+        if (image.dict.get(PDFName.of('ImageMask'))?.toString() === 'true') {
+            counts.push(null);
+            continue;
+        }
+        if (image.dict.get(PDFName.of('Filter')) !== PDFName.of('DCTDecode')) {
             throw new Error('Compact scan page has no decodable JPEG image');
         }
         const bitmap = await createImageBitmap(new Blob(
@@ -108,10 +116,11 @@ async function installBrowserDjvuRasterContentAcceptance() {
                 if (!result.success || !result.pdfPath) {
                     throw new Error(`Compact export failed: ${result.error ?? 'no PDF'}`);
                 }
-                const outputInkPixels = await readSavedScanPixels(await browserDocumentStore.read(result.pdfPath));
+                const outputPdf = await browserDocumentStore.read(result.pdfPath);
                 Reflect.set(globalThis, '__evbDjvuRasterContentResult', {
                     sourceInkPixels,
-                    outputInkPixels,
+                    outputInkPixels: await readSavedScanPixels(outputPdf),
+                    outputPdf: Array.from(outputPdf),
                     success: result.success,
                 });
             } catch (error) {

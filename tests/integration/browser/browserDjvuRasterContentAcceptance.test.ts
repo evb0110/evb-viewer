@@ -1,8 +1,10 @@
+import {execFileSync} from 'node:child_process';
 import {
     mkdir,
     mkdtemp,
     readFile,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import {
     createServer,
@@ -14,6 +16,7 @@ import {
 } from 'node:path';
 import {build} from 'esbuild';
 import {chromium} from 'playwright';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     afterAll,
     beforeAll,
@@ -96,6 +99,33 @@ beforeAll(async () => {
     origin = `http://127.0.0.1:${address.port}`;
 });
 
+// Renders one page of the saved PDF as a reader sees it and counts its ink.
+async function renderSavedPageInkPixels(pdfBytes: number[], pageNumber: number) {
+    const pdfPath = join(temporaryDirectory, 'saved.pdf');
+    const outputPrefix = join(temporaryDirectory, `saved-page-${pageNumber}`);
+    await writeFile(pdfPath, Uint8Array.from(pdfBytes));
+    execFileSync(getPdfNativeToolPaths().pdftoppm, [
+        '-r',
+        '300',
+        '-gray',
+        '-singlefile',
+        '-f',
+        String(pageNumber),
+        '-l',
+        String(pageNumber),
+        pdfPath,
+        outputPrefix,
+    ]);
+    const pgm = await readFile(`${outputPrefix}.pgm`);
+    // P5 header: magic, size and maximum value, one per line.
+    const headerLength = pgm.indexOf('\n', pgm.indexOf('\n', pgm.indexOf('\n') + 1) + 1) + 1;
+    let ink = 0;
+    for (let offset = headerLength; offset < pgm.length; offset += 1) {
+        if (pgm[offset]! < 200) ink += 1;
+    }
+    return ink;
+}
+
 afterAll(async () => {
     if (server) {
         await new Promise<void>(resolveClose => server.close(() => resolveClose()));
@@ -130,12 +160,15 @@ describe('browser compact DjVu saved scan pixels', () => {
             expect(result.error).toBeUndefined();
             expect(result.success).toBe(true);
             expect(result.sourceInkPixels).toHaveLength(2);
-            expect(result.outputInkPixels).toHaveLength(2);
             for (const inkPixels of result.sourceInkPixels) {
                 expect(inkPixels).toBeGreaterThan(0);
             }
-            for (const inkPixels of result.outputInkPixels) {
-                expect(inkPixels).toBeGreaterThan(0);
+            expect(result.outputInkPixels).toHaveLength(2);
+            for (const [
+                index,
+                inkPixels,
+            ] of result.outputInkPixels.entries()) {
+                expect(inkPixels ?? await renderSavedPageInkPixels(result.outputPdf, index + 1)).toBeGreaterThan(0);
             }
         } finally {
             await browser.close();

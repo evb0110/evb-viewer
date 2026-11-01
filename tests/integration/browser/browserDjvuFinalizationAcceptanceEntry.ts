@@ -18,10 +18,11 @@ import {
 } from '@contracts/shared';
 import {withBrowserDjvuWorker} from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import {getDjvuWorkerPageSizes} from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {buildBrowserDjvuCompactPage} from '@app/platform/browser-api/buildBrowserDjvuCompactPage';
 import {
-    DJVU_COMPACT_PHOTO_PPI_CAP,
-    renderDjvuPageAsPpm,
-} from '@app/platform/browser-api/browserDjvuRasterizer';
+    normalizeDjvuPdfSubsample,
+    resolveDjvuCompactFidelityPreset,
+} from '@contracts/djvuConversionPolicy';
 import type {IBrowserPdfCombineWasmPageSpec} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {tryCombineImageInputsWithWasm} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import {createBrowserImageExportCapability} from '@app/platform/browser-api/createBrowserImageExportCapability';
@@ -144,14 +145,14 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1) {
             index,
             pageSize,
         ] of pageSizes.entries()) {
-            const rendered = await renderDjvuPageAsPpm(worker, index + 1, pageSize);
-            pageSpecs.push({
-                kind: 'image',
-                pageSize: rendered.pageSize,
-                jpegQuality: 85,
-                ppiCap: DJVU_COMPACT_PHOTO_PPI_CAP,
-                image: rendered.input,
-            });
+            // The export below passes no subsample, which selects this preset.
+            const page = await buildBrowserDjvuCompactPage(
+                worker,
+                index + 1,
+                pageSize,
+                resolveDjvuCompactFidelityPreset(normalizeDjvuPdfSubsample(undefined)),
+            );
+            pageSpecs.push(page.spec);
         }
         const result = await tryCombineImageInputsWithWasm([], {pageSpecs});
         if (result.status !== 'success') {

@@ -64,7 +64,7 @@ function assertImageDimensions(width: number, height: number, fileName: string) 
 }
 
 function isNetpbmExtension(extension: string) {
-    return extension === '.pgm' || extension === '.ppm';
+    return extension === '.pbm' || extension === '.pgm' || extension === '.ppm';
 }
 
 async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array) {

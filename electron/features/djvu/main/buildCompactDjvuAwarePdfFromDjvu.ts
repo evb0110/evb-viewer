@@ -20,9 +20,16 @@ import {
 import { fileURLToPath } from 'url';
 import { createInterface } from 'node:readline';
 import { limitAsync } from 'es-toolkit/promise';
-import type {
-    IDjvuConversionPageMetrics,
-    TDjvuCompactFidelityPreset,
+import {
+    DJVU_COMPACT_FOREGROUND_DOMINANT_NON_WHITE_MAX,
+    DJVU_COMPACT_FOREGROUND_SUBSAMPLE,
+    DJVU_COMPACT_REAL_MASK_MIN_BYTES,
+    getDjvuCompactFidelity,
+    hasDjvuCompactForegroundColor,
+    isDjvuCompactFlatBackground,
+    measureDjvuCompactRasterStats,
+    type IDjvuConversionPageMetrics,
+    type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
@@ -45,10 +52,7 @@ import {
     getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
 } from '@electron/utils/nativeTerminationProof';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {
-    getCompactDjvuFidelity,
-    openCompactDjvuFidelityManifestWriter,
-} from '@electron/features/djvu/main/compactDjvuFidelity';
+import { openCompactDjvuFidelityManifestWriter } from '@electron/features/djvu/main/openCompactDjvuFidelityManifestWriter';
 import {
     loadOrBuildCompactDjvuPage,
     openCompactDjvuCheckpointJob,
@@ -149,22 +153,12 @@ const PROGRESS_EXTRACTION_CAP = 86;
 const PROGRESS_COMBINE_START = 88;
 const PROGRESS_COMBINE_CAP = 94;
 const DEFAULT_DPI = 300;
-const FOREGROUND_COLOR_RATIO_MIN = 0.05;
-const FOREGROUND_COLOR_SATURATION_MIN = 24;
-const FOREGROUND_DOMINANT_NON_WHITE_MAX = 230;
-const FOREGROUND_NEAR_BLACK_MAX = 80;
-const BACKGROUND_FLAT_NON_WHITE_RATIO = 0.002;
-const BACKGROUND_FLAT_MIN_CHANNEL = 220;
-const BACKGROUND_FLAT_CHANNEL_RANGE = 20;
-const BACKGROUND_FLAT_COLOR_RATIO = 0.02;
 const DJVU_COMPACT_MAX_PAGE_WORKERS = 2;
-const DJVU_COMPACT_FOREGROUND_SUBSAMPLE = 12;
 const DJVU_COMPACT_BACKGROUND_JPEG_QUALITY = 80;
 const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
 const DJVU_COMPACT_PHOTO_PPI_CAP = 300;
 
 const DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES = 192 * 1024 * 1024;
-const DJVU_COMPACT_REAL_MASK_MIN_BYTES = 128;
 const DJVU_COMPACT_DUMP_TIMEOUT_MS = 20_000;
 const DJVU_COMPACT_DUMP_MAX_STDOUT_BYTES = 64 * 1024;
 const DJVU_COMPACT_DUMP_MAX_LINE_BYTES = 256 * 1024;
@@ -794,7 +788,7 @@ async function buildCompactPageSpec(
     structure: IDjvuPageStructure | null,
 ): Promise<ICompactPageSpec> {
     const pagePrefix = join(pageTempDir, `page-${String(pageNumber).padStart(5, '0')}-${randomUUID()}`);
-    const fidelity = getCompactDjvuFidelity(options.qualityPreset);
+    const fidelity = getDjvuCompactFidelity(options.qualityPreset);
     if (!structure) {
         return buildPhotoPageSpec(options, pagePrefix, pageNumber, null, 'DjVu layer structure unavailable; rendering capped photo page');
     }
@@ -826,7 +820,7 @@ async function buildCompactPageSpec(
         ? await analyzeForegroundColor(foregroundColorPath)
         : null;
 
-    if (foregroundColor && hasRealForegroundColor(foregroundColor)) {
+    if (foregroundColor && hasDjvuCompactForegroundColor(foregroundColor)) {
         return buildPhotoPageSpec(
             options,
             pagePrefix,
@@ -848,7 +842,7 @@ async function buildCompactPageSpec(
 
     const backgroundPath = await renderBackgroundLayer(options, pagePrefix, pageNumber, structure);
     const backgroundStats = await readNetpbmStats(backgroundPath);
-    if (isFlatBackground(backgroundStats)) {
+    if (isDjvuCompactFlatBackground(backgroundStats)) {
         return {
             pageNumber,
             kind: 'bitonal',
@@ -965,7 +959,7 @@ async function buildPhotoPageSpec(
     throwIfAborted(options.signal);
     const photoPath = `${pagePrefix}-photo.ppm`;
     const renderOptions = resolvePhotoRenderOptions(options, pageNumber, structure);
-    const fidelity = getCompactDjvuFidelity(options.qualityPreset);
+    const fidelity = getDjvuCompactFidelity(options.qualityPreset);
     const result = await renderDjvuPageToImage(
         options.djvuPath,
         photoPath,
@@ -1015,7 +1009,7 @@ function resolvePhotoRenderOptions(
     const pageInfo = structure?.info;
     const metrics = options.pageSizes?.[pageNumber - 1] ?? null;
     const dpi = positiveNumber(pageInfo?.dpi) ?? positiveNumber(options.sourceDpi) ?? DEFAULT_DPI;
-    const fidelity = getCompactDjvuFidelity(options.qualityPreset);
+    const fidelity = getDjvuCompactFidelity(options.qualityPreset);
     const width = positiveNumber(metrics?.width) ?? positiveNumber(pageInfo?.width);
     const height = positiveNumber(metrics?.height) ?? positiveNumber(pageInfo?.height);
     if (width && height) {
@@ -1063,13 +1057,6 @@ async function analyzeForegroundColor(foregroundPath: string): Promise<IForegrou
     };
 }
 
-function hasRealForegroundColor(analysis: IForegroundColorAnalysis) {
-    const spread = colorSpread(analysis.dominantColor);
-    const maxChannel = Math.max(...analysis.dominantColor);
-    return analysis.colorRatio > FOREGROUND_COLOR_RATIO_MIN
-        && spread > FOREGROUND_COLOR_SATURATION_MIN
-        && maxChannel >= FOREGROUND_NEAR_BLACK_MAX;
-}
 
 function resolveNativePdfImageCombinePath() {
     const isPackaged = __dirname.includes('app.asar');
@@ -1215,75 +1202,9 @@ async function readNetpbmStatsFallback(path: string) {
         throw new Error('PBM foreground probes are not supported');
     }
 
-    const payload = data.subarray(info.dataOffset);
-    const totalPixels = info.width * info.height;
-    let nonWhitePixels = 0;
-    let darkPixels = 0;
-    let colorPixels = 0;
-    let maxDarkRun = 0;
-    let minChannel = 255;
-    let maxChannel = 0;
-
-    if (info.magic === 'P5') {
-        for (let y = 0; y < info.height; y += 1) {
-            let darkRun = 0;
-            for (let x = 0; x < info.width; x += 1) {
-                const value = payload[y * info.width + x] ?? 255;
-                minChannel = Math.min(minChannel, value);
-                maxChannel = Math.max(maxChannel, value);
-                const isNonWhite = value < 245;
-                const isDark = value < 80;
-                if (isNonWhite) {
-                    nonWhitePixels += 1;
-                }
-                if (isDark) {
-                    darkPixels += 1;
-                    darkRun += 1;
-                    maxDarkRun = Math.max(maxDarkRun, darkRun);
-                } else {
-                    darkRun = 0;
-                }
-            }
-        }
-    } else {
-        for (let y = 0; y < info.height; y += 1) {
-            let darkRun = 0;
-            for (let x = 0; x < info.width; x += 1) {
-                const offset = (y * info.width + x) * 3;
-                const red = payload[offset] ?? 255;
-                const green = payload[offset + 1] ?? 255;
-                const blue = payload[offset + 2] ?? 255;
-                const min = Math.min(red, green, blue);
-                const max = Math.max(red, green, blue);
-                minChannel = Math.min(minChannel, min);
-                maxChannel = Math.max(maxChannel, max);
-                const isNonWhite = red < 245 || green < 245 || blue < 245;
-                const isDark = red < 80 && green < 80 && blue < 80;
-                if (isNonWhite) {
-                    nonWhitePixels += 1;
-                    if (max - min > 12) {
-                        colorPixels += 1;
-                    }
-                }
-                if (isDark) {
-                    darkPixels += 1;
-                    darkRun += 1;
-                    maxDarkRun = Math.max(maxDarkRun, darkRun);
-                } else {
-                    darkRun = 0;
-                }
-            }
-        }
-    }
-
     return {
         ...info,
-        nonWhiteRatio: nonWhitePixels / totalPixels,
-        darkRatio: darkPixels / totalPixels,
-        colorRatio: colorPixels / Math.max(1, nonWhitePixels),
-        maxDarkRunRatio: maxDarkRun / Math.max(1, info.width),
-        minChannel,
-        maxChannel,
+        ...measureDjvuCompactRasterStats(data.subarray(info.dataOffset), info.width, info.height, info.magic === 'P5' ? 1 : 3),
     } satisfies INetpbmStats;
 }
 
@@ -1304,7 +1225,7 @@ async function readDominantForegroundColor(path: string): Promise<[number, numbe
     if (info.magic === 'P5') {
         for (let index = 0; index < info.width * info.height; index += 1) {
             const value = payload[index] ?? 255;
-            if (value >= FOREGROUND_DOMINANT_NON_WHITE_MAX) {
+            if (value >= DJVU_COMPACT_FOREGROUND_DOMINANT_NON_WHITE_MAX) {
                 continue;
             }
             const weight = 255 - value;
@@ -1320,7 +1241,7 @@ async function readDominantForegroundColor(path: string): Promise<[number, numbe
             const green = payload[offset + 1] ?? 255;
             const blue = payload[offset + 2] ?? 255;
             const max = Math.max(red, green, blue);
-            if (max >= FOREGROUND_DOMINANT_NON_WHITE_MAX) {
+            if (max >= DJVU_COMPACT_FOREGROUND_DOMINANT_NON_WHITE_MAX) {
                 continue;
             }
             const weight = 255 - max;
@@ -1343,10 +1264,6 @@ async function readDominantForegroundColor(path: string): Promise<[number, numbe
         Math.round(greenTotal / weightTotal),
         Math.round(blueTotal / weightTotal),
     ];
-}
-
-function colorSpread(color: [number, number, number]) {
-    return Math.max(...color) - Math.min(...color);
 }
 
 async function readPbmMaskStats(path: string) {
@@ -1401,17 +1318,6 @@ async function readPbmMaskStatsFallback(path: string) {
     } satisfies IPbmMaskStats;
 }
 
-function isFlatBackground(stats: INetpbmStats) {
-    if (stats.nonWhiteRatio <= BACKGROUND_FLAT_NON_WHITE_RATIO) {
-        return true;
-    }
-
-    const colorTotalRatio = stats.colorRatio * stats.nonWhiteRatio;
-    return stats.darkRatio === 0
-        && stats.minChannel >= BACKGROUND_FLAT_MIN_CHANNEL
-        && stats.maxChannel - stats.minChannel <= BACKGROUND_FLAT_CHANNEL_RANGE
-        && colorTotalRatio <= BACKGROUND_FLAT_COLOR_RATIO;
-}
 
 async function assertNetpbmReadSafe(path: string) {
     const fileStat = await stat(path);

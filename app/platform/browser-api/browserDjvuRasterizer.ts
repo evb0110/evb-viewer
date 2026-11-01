@@ -13,8 +13,6 @@ import {
     releaseDjvuCanvas as releaseCanvas,
 } from '@app/platform/browser-api/browserDjvuCanvas';
 
-export const DJVU_COMPACT_PHOTO_PPI_CAP = 300;
-
 export class DjvuCanceledError extends Error {
     constructor() {
         super('DjVu conversion canceled');
@@ -52,7 +50,7 @@ export interface IRenderedDjvuPpmPage {
     };
 }
 
-export function positiveInteger(value: unknown) {
+function positiveInteger(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
         ? Math.trunc(value)
         : null;
@@ -63,8 +61,8 @@ function pointsFromPixels(pixels: number, dpi: number) {
 }
 
 // The decoded raster is already rotated, so its own size sets the output.
-function compactPhotoTargetSize(width: number, height: number, dpi: number) {
-    const scale = Math.max(1, dpi / DJVU_COMPACT_PHOTO_PPI_CAP);
+function compactPhotoTargetSize(width: number, height: number, dpi: number, ppiCap: number) {
+    const scale = Math.max(1, dpi / ppiCap);
     return {
         height: Math.max(1, Math.round(height / scale)),
         width: Math.max(1, Math.round(width / scale)),
@@ -189,15 +187,20 @@ export async function renderDjvuPagePreviewPng(
     }
 }
 
+/**
+ * Renders a page as the PPM of a compact photo page: upright, and reduced to
+ * at most `ppiCap` pixels per inch.
+ */
 export async function renderDjvuPageAsPpm(
     worker: IDjvuWorker,
     pageNumber: number,
     pageSize: IDjvuPageMetrics,
+    ppiCap: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPpmPage> {
     const imageData = await decodeDjvuPageImageData(worker, pageNumber, signal);
-    const dpi = positiveInteger(pageSize.dpi) ?? DJVU_COMPACT_PHOTO_PPI_CAP;
-    const targetSize = compactPhotoTargetSize(imageData.width, imageData.height, dpi);
+    const dpi = positiveInteger(pageSize.dpi) ?? ppiCap;
+    const targetSize = compactPhotoTargetSize(imageData.width, imageData.height, dpi, ppiCap);
     let data: Uint8Array;
     if (imageData.width === targetSize.width && imageData.height === targetSize.height) {
         data = rgbaToPpmBytes(imageData.width, imageData.height, imageData.data);

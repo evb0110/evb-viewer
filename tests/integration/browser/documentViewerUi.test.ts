@@ -1898,6 +1898,90 @@ describe('browser document lifecycle UI', () => {
         }
     }, 240_000);
 
+    it('keeps a bitonal DjVu as bilevel masks in a compact PDF', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-compact-masks-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        try {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            // Page 1 is a JB2 mask; page 2 is an IW44 background only.
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            const dialog = page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const convertButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await expect.poll(() => convertButton.isEnabled(), {timeout: 60_000}).toBe(true);
+            await convertButton.click();
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            const pdfRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                return api?.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath ?? null;
+            });
+            expect(pdfRef).toMatch(/\.pdf$/u);
+            const bytes = Uint8Array.from(await readPersistedDocumentBytes(page, pdfRef!));
+            writeFileSync(resolve(evidenceDir, 'compact.pdf'), bytes);
+            const pdf = await PDFDocument.load(bytes, {updateMetadata: false});
+            // As desktop writes it: page 1, a JB2 mask, stays a bilevel image
+            // mask at the source resolution; page 2, background only, is a photo.
+            const pageImages = pdf.getPages().map((pdfPage) => {
+                const xObjects = pdfPage.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
+                const image = xObjects?.values().map(value => pdf.context.lookup(value)).find(value => value instanceof PDFRawStream);
+                return image instanceof PDFRawStream
+                    ? {
+                        width: image.dict.get(PDFName.of('Width'))?.toString(),
+                        mask: image.dict.get(PDFName.of('ImageMask'))?.toString() ?? null,
+                        filter: image.dict.get(PDFName.of('Filter'))?.toString() ?? null,
+                    }
+                    : null;
+            });
+            expect(pageImages).toEqual([
+                expect.objectContaining({
+                    width: '512',
+                    mask: 'true',
+                }),
+                {
+                    width: '512',
+                    mask: null,
+                    filter: '/DCTDecode',
+                },
+            ]);
+            expect(pageImages[0]?.filter).not.toBe('/DCTDecode');
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 240_000);
+
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {

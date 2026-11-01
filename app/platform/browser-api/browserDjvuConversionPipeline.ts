@@ -13,8 +13,11 @@ import type {
 } from '@contracts/electronApiDjvu';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
+    getDjvuCompactFidelity,
     normalizeDjvuPdfSubsample,
+    resolveDjvuCompactFidelityPreset,
     resolveDjvuPdfExportStrategy,
+    type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
@@ -41,6 +44,7 @@ import {
     type IStreamingPdfSink,
 } from '@app/platform/browser-api/streamingImagePdfWriter';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { buildBrowserDjvuCompactPage } from '@app/platform/browser-api/buildBrowserDjvuCompactPage';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     decodeFailureReceipt,
@@ -58,18 +62,13 @@ import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {
     DjvuCanceledError,
-    DJVU_COMPACT_PHOTO_PPI_CAP,
-    positiveInteger,
     renderDjvuPage,
-    renderDjvuPageAsPpm,
     throwIfDjvuCanceled as throwIfCanceled,
     type IDjvuPageMetrics,
     type IRenderedDjvuPage,
 } from '@app/platform/browser-api/browserDjvuRasterizer';
 
-const DJVU_PAGE_SPEC_OVERHEAD_BYTES = 256;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 0.92;
-const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
 const DJVU_PDF_RENDER_WORKER_LIMIT = 3;
 const DJVU_PDF_MEDIUM_PAGE_PIXEL_COUNT = 16_000_000;
 const DJVU_PDF_LARGE_PAGE_PIXEL_COUNT = 32_000_000;
@@ -205,7 +204,7 @@ export function resolveBrowserDjvuPdfRenderSettings(
         strategy,
         subsample: requestedSubsample,
         jpegQuality: strategy === 'compact-djvu-aware'
-            ? DJVU_COMPACT_PHOTO_JPEG_QUALITY
+            ? getDjvuCompactFidelity(resolveDjvuCompactFidelityPreset(requestedSubsample)).photoQuality
             : DJVU_DIRECT_PDF_JPEG_QUALITY,
     };
 }
@@ -244,38 +243,16 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
     );
 }
 
-export interface IBrowserDjvuCompactExportPlan {
-    strategy: 'compact-djvu-aware' | 'direct-fallback';
-    estimatedPageSpecBytes: number;
-    maxPageSpecBytes: number;
-    fallbackReason?: 'memory-budget';
-}
-
-function estimatePageSpecBytes(pageSizes: readonly IDjvuPageMetrics[]) {
-    return pageSizes.reduce((totalBytes, page) => {
-        const width = positiveInteger(page.width) ?? 1;
-        const height = positiveInteger(page.height) ?? 1;
-        const dpi = positiveInteger(page.dpi) ?? DJVU_COMPACT_PHOTO_PPI_CAP;
-        const scale = Math.max(1, dpi / DJVU_COMPACT_PHOTO_PPI_CAP);
-        return totalBytes + DJVU_PAGE_SPEC_OVERHEAD_BYTES
-            + Math.max(1, Math.round(width / scale)) * Math.max(1, Math.round(height / scale)) * 3;
-    }, 0);
-}
-
-export function resolveBrowserDjvuCompactExportPlan(
-    pageSizes: readonly IDjvuPageMetrics[],
-    maxPageSpecBytes = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-): IBrowserDjvuCompactExportPlan {
-    const estimatedPageSpecBytes = estimatePageSpecBytes(pageSizes);
-    const fallbackReason = estimatedPageSpecBytes > maxPageSpecBytes
-        ? 'memory-budget'
-        : undefined;
-    return {
-        strategy: fallbackReason ? 'direct-fallback' : 'compact-djvu-aware',
-        estimatedPageSpecBytes,
-        maxPageSpecBytes,
-        ...(fallbackReason ? {fallbackReason} : {}),
-    };
+/**
+ * A compact plan larger than one WASM request can hold. The request is built
+ * in one WASM32 allocation, so past this boundary the export streams the
+ * direct PDF instead.
+ */
+class BrowserDjvuCompactPlanTooLargeError extends Error {
+    public constructor(public readonly plannedBytes: number) {
+        super(`Browser compact DjVu export exceeds the WASM request boundary (${plannedBytes} bytes planned)`);
+        this.name = 'BrowserDjvuCompactPlanTooLargeError';
+    }
 }
 
 interface IFinalizablePdfSink extends IStreamingPdfSink {
@@ -761,20 +738,24 @@ async function writePdfBytesToOutput(
     }
 }
 
-async function buildCompactPhotoPdfWithWasm(options: {
+async function buildCompactDjvuPdfWithWasm(options: {
     worker: IDjvuWorker;
     pageSizes: IDjvuPageMetrics[];
+    preset: TDjvuCompactFidelityPreset;
     preserveBookmarks: boolean;
     outputPath: TDocumentRef;
     signal?: AbortSignal;
     onPageProcessed?: (processed: number, total: number) => void;
     onBookmarksStart?: () => void;
 }) {
-    // The bundled djvu.js wrapper does not expose stable raw Sjbz/BG44/FG44 layer buffers.
-    // Keep web compact export bounded by rendering capped photo-style PPM pages and letting
-    // the Rust WASM encoder own JPEG quality, grayscale detection, and PDF image embedding.
+    // Each page keeps the DjVu layers desktop's compact export keeps: a JB2
+    // mask the WASM writer encodes as a bilevel image, over the background at
+    // its own resolution when the background is not flat, or the rendered
+    // page as a photo where layers would lose its colors.
     const pageSpecs: IBrowserPdfCombineWasmPageSpec[] = [];
+    const routes = new Map<string, number>();
     const pageCount = options.pageSizes.length;
+    let plannedBytes = 0;
 
     for (const [
         index,
@@ -782,22 +763,33 @@ async function buildCompactPhotoPdfWithWasm(options: {
     ] of options.pageSizes.entries()) {
         throwIfCanceled(options.signal);
         const pageNumber = index + 1;
-        const renderedPage = await renderDjvuPageAsPpm(
+        const page = await buildBrowserDjvuCompactPage(
             options.worker,
             pageNumber,
             pageSize,
+            options.preset,
             options.signal,
         );
-        pageSpecs.push({
-            kind: 'image',
-            pageSize: renderedPage.pageSize,
-            jpegQuality: DJVU_COMPACT_PHOTO_JPEG_QUALITY,
-            ppiCap: DJVU_COMPACT_PHOTO_PPI_CAP,
-            image: renderedPage.input,
-        });
+        for (const input of [
+            page.spec.image,
+            page.spec.background,
+            page.spec.mask,
+        ]) {
+            plannedBytes += input?.data.byteLength ?? 0;
+        }
+        if (plannedBytes > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES) {
+            throw new BrowserDjvuCompactPlanTooLargeError(plannedBytes);
+        }
+        pageSpecs.push(page.spec);
+        routes.set(page.route, (routes.get(page.route) ?? 0) + 1);
         options.onPageProcessed?.(pageNumber, pageCount);
         await yieldToBrowser();
     }
+    BrowserLogger.info('djvu-browser', 'Browser compact DjVu pages planned', {
+        pageCount,
+        plannedBytes,
+        routes: Object.fromEntries(routes),
+    });
 
     throwIfCanceled(options.signal);
     try {
@@ -1019,77 +1011,64 @@ export async function runBrowserDjvuConversion(
             jpegQuality: renderSettings.jpegQuality,
             renderConcurrency,
         });
-        const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
-            ? resolveBrowserDjvuCompactExportPlan(pageSizes, BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES)
-            : null;
-        if (compactExportPlan?.strategy === 'direct-fallback') {
-            BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds the WASM request boundary; using streaming direct export', {
+        const preserveBookmarks = options.preserveBookmarks !== false;
+        const reportPageProcessed = (processed: number, total: number) => {
+            emitProgress({
                 jobId,
-                fallbackReason: compactExportPlan.fallbackReason,
-                estimatedPageSpecBytes: compactExportPlan.estimatedPageSpecBytes,
-                maxPageSpecBytes: compactExportPlan.maxPageSpecBytes,
+                phase: 'converting',
+                percent: Math.round((processed / total) * 90),
             });
+        };
+        const reportBookmarksStart = () => {
+            emitProgress({
+                jobId,
+                phase: 'bookmarks',
+                percent: 95,
+            });
+        };
+        const buildDirectPdf = () => buildPdfWithOptionalBookmarks({
+            worker,
+            pageSizes,
+            subsample: renderSettings.subsample,
+            jpegQuality: DJVU_DIRECT_PDF_JPEG_QUALITY,
+            renderConcurrency,
+            createRenderWorker: async () => {
+                const renderWorker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
+                attachDjvuJobWorker(jobId, renderWorker);
+                return renderWorker;
+            },
+            preserveBookmarks,
+            outputPath,
+            signal: abortController.signal,
+            onPageProcessed: reportPageProcessed,
+            onBookmarksStart: reportBookmarksStart,
+        });
+        let pdfPath: TDocumentRef;
+        if (renderSettings.strategy === 'compact-djvu-aware') {
+            try {
+                pdfPath = await buildCompactDjvuPdfWithWasm({
+                    worker,
+                    pageSizes,
+                    preset: resolveDjvuCompactFidelityPreset(renderSettings.subsample),
+                    preserveBookmarks,
+                    outputPath,
+                    signal: abortController.signal,
+                    onPageProcessed: reportPageProcessed,
+                    onBookmarksStart: reportBookmarksStart,
+                });
+            } catch (error) {
+                if (!(error instanceof BrowserDjvuCompactPlanTooLargeError) && !isPdfCombineOutputTooLargeError(error)) {
+                    throw error;
+                }
+                BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds the WASM boundary; using streaming direct export', {
+                    jobId,
+                    error: getErrorMessage(error),
+                });
+                pdfPath = await buildDirectPdf();
+            }
+        } else {
+            pdfPath = await buildDirectPdf();
         }
-        const useCompactWasm = compactExportPlan?.strategy === 'compact-djvu-aware';
-        const streamingRenderSettings = useCompactWasm
-            ? renderSettings
-            : {
-                strategy: 'direct' as const,
-                subsample: renderSettings.subsample,
-                jpegQuality: DJVU_DIRECT_PDF_JPEG_QUALITY,
-            };
-
-        const pdfPath = useCompactWasm
-            ? await buildCompactPhotoPdfWithWasm({
-                worker,
-                pageSizes,
-                preserveBookmarks: options.preserveBookmarks !== false,
-                outputPath,
-                signal: abortController.signal,
-                onPageProcessed: (processed, total) => {
-                    emitProgress({
-                        jobId,
-                        phase: 'converting',
-                        percent: Math.round((processed / total) * 90),
-                    });
-                },
-                onBookmarksStart: () => {
-                    emitProgress({
-                        jobId,
-                        phase: 'bookmarks',
-                        percent: 95,
-                    });
-                },
-            })
-            : await buildPdfWithOptionalBookmarks({
-                worker,
-                pageSizes,
-                subsample: streamingRenderSettings.subsample,
-                jpegQuality: streamingRenderSettings.jpegQuality,
-                renderConcurrency,
-                createRenderWorker: async () => {
-                    const renderWorker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
-                    attachDjvuJobWorker(jobId, renderWorker);
-                    return renderWorker;
-                },
-                preserveBookmarks: options.preserveBookmarks !== false,
-                outputPath,
-                signal: abortController.signal,
-                onPageProcessed: (processed, total) => {
-                    emitProgress({
-                        jobId,
-                        phase: 'converting',
-                        percent: Math.round((processed / total) * 90),
-                    });
-                },
-                onBookmarksStart: () => {
-                    emitProgress({
-                        jobId,
-                        phase: 'bookmarks',
-                        percent: 95,
-                    });
-                },
-            });
 
         emitProgress({
             jobId,
