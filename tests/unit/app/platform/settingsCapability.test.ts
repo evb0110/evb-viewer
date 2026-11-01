@@ -565,8 +565,13 @@ describe('browserSettingsCapability', () => {
         expect(await reloaded.browserSettingsCapability.getRecoveryNotice()).toBeNull();
     });
 
-    it('reports unavailable storage as unreadable without a write', async () => {
+    it('reports unavailable storage as unreadable without a write, even with bootstrap cookies', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const {
+            BROWSER_LOCALE_COOKIE_KEY,
+            BROWSER_THEME_COOKIE_KEY,
+        } = await import('@app/utils/browserSettingsPersistence');
+        vi.stubGlobal('document', {cookie: `${BROWSER_LOCALE_COOKIE_KEY}=ru; ${BROWSER_THEME_COOKIE_KEY}=dark`});
         const setItem = vi.fn();
         vi.stubGlobal('window', {localStorage: {
             getItem: () => {
@@ -576,7 +581,7 @@ describe('browserSettingsCapability', () => {
         }});
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
-        await expect(browserSettingsCapability.get()).resolves.toMatchObject({locale: 'en'});
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({locale: 'ru'});
         expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'unreadable'});
         expect(setItem).not.toHaveBeenCalled();
     });

@@ -127,7 +127,11 @@ function recordSettingsRecovery(reason: TSettingsRecoveryReason) {
     settingsRecoveryNotice ??= {reason};
 }
 
-function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {}) {
+/** The stored settings, and whether storage could be read at all. */
+function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {}): {
+    settings: ISettingsData | null;
+    available: boolean;
+} {
     const result = readLocalStorageItem(SETTINGS_STORAGE_KEY);
     if (result.status === 'unavailable') {
         if (options.allowUnavailable) {
@@ -135,12 +139,18 @@ function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {
                 // Storage may come back on the next load, so nothing is overwritten.
                 recordSettingsRecovery('unreadable');
             }
-            return null;
+            return {
+                settings: null,
+                available: false,
+            };
         }
         throw result.error;
     }
     if (result.status === 'absent') {
-        return null;
+        return {
+            settings: null,
+            available: true,
+        };
     }
 
     const rawSettings = result.value;
@@ -152,11 +162,14 @@ function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {
         safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
         recordSettingsRecovery('corrupt');
     }
-    return settings;
+    return {
+        settings,
+        available: true,
+    };
 }
 
 function readLatestBrowserSettingsForSave() {
-    const persistedSettings = readBrowserSettingsFromStorage();
+    const persistedSettings = readBrowserSettingsFromStorage().settings;
     if (persistedSettings) {
         return applyDiagnosticsPreferenceOverride(persistedSettings);
     }
@@ -249,7 +262,10 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
 }
 
 function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}): IBrowserSettingsReadResult | null {
-    const persistedSettings = readBrowserSettingsFromStorage(options);
+    const {
+        settings: persistedSettings,
+        available: storageAvailable,
+    } = readBrowserSettingsFromStorage(options);
     const cookieSnapshot = readBrowserSettingsCookies();
     if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
         assertSupportedBrowserSettingsPayload(cookieSnapshot.rawSettings);
@@ -268,9 +284,12 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
             );
             let persisted = false;
             try {
-                writeBrowserSettingsToStorage(legacySettings);
-                expireLegacyBrowserSettingsCookie();
-                persisted = true;
+                // Storage that could not be read is not overwritten.
+                if (storageAvailable) {
+                    writeBrowserSettingsToStorage(legacySettings);
+                    expireLegacyBrowserSettingsCookie();
+                    persisted = true;
+                }
             } catch (error) {
                 if (!options.allowUnavailable) {
                     throw error;
@@ -298,8 +317,10 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
         );
         let persisted = false;
         try {
-            writeBrowserSettingsToStorage(bootstrapSettings);
-            persisted = true;
+            if (storageAvailable) {
+                writeBrowserSettingsToStorage(bootstrapSettings);
+                persisted = true;
+            }
         } catch (error) {
             if (!options.allowUnavailable) {
                 throw error;
@@ -317,7 +338,7 @@ function refreshSharedSettings() {
     const previousPreference = settingsState.clientDiagnosticsPreference;
     try {
         settingsState = applyDiagnosticsPreferenceOverride(
-            readBrowserSettingsFromStorage({allowUnavailable: true}) ?? { ...DEFAULT_SETTINGS },
+            readBrowserSettingsFromStorage({allowUnavailable: true}).settings ?? { ...DEFAULT_SETTINGS },
         );
     } catch {
         // A cleared, unreadable or unsupported shared preference grants nothing.
