@@ -14,7 +14,6 @@ import type {
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
     normalizeDjvuPdfSubsample,
-    resolveBrowserDjvuConversionPreflight,
     resolveDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -28,7 +27,7 @@ import {
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
 import type { IBrowserPdfCombineWasmPageSpec } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import {BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import type {
     IDjvuContentsItem,
     IDjvuWorker,
@@ -68,8 +67,6 @@ import {
 const DJVU_PAGE_SPEC_OVERHEAD_BYTES = 256;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 0.92;
 const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
-const DJVU_BROWSER_WORKER_SOURCE_MAX_BYTES = 192 * 1024 * 1024;
-const DJVU_WORKER_COPY_BUDGET_BYTES = 192 * 1024 * 1024;
 const DJVU_PDF_RENDER_WORKER_LIMIT = 3;
 const DJVU_PDF_MEDIUM_PAGE_PIXEL_COUNT = 16_000_000;
 const DJVU_PDF_LARGE_PAGE_PIXEL_COUNT = 32_000_000;
@@ -78,8 +75,9 @@ const DJVU_ESTIMATE_PRESETS = [
     2,
     4,
 ] as const;
-const DJVU_INFO_TEXT_SAMPLE_PAGES = 3;
 const DJVU_ESTIMATE_SAMPLE_PAGES = 3;
+const DJVU_TEXT_SCAN_YIELD_PAGES = 16;
+const DJVU_TEXT_SCAN_CACHE_ENTRIES = 16;
 
 type TBrowserDjvuBoundaryOperation =
     | 'bookmarks'
@@ -212,7 +210,6 @@ export function resolveBrowserDjvuPdfRenderSettings(
 export function resolveBrowserDjvuPdfRenderConcurrency(
     pageSizes: ReadonlyArray<Pick<IDjvuPageMetrics, 'width' | 'height'>>,
     hardwareConcurrency = typeof navigator === 'undefined' ? undefined : navigator.hardwareConcurrency,
-    sourceBytes = 0,
     tier: THostResourceTier = 'medium',
 ) {
     const pageCount = Math.max(1, pageSizes.length);
@@ -235,20 +232,14 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
         : maxPagePixels >= DJVU_PDF_MEDIUM_PAGE_PIXEL_COUNT
             ? 2
             : DJVU_PDF_RENDER_WORKER_LIMIT;
-    const sourceCopyLimit = sourceBytes > 0
-        ? Math.max(1, Math.floor(DJVU_WORKER_COPY_BUDGET_BYTES / sourceBytes))
-        : DJVU_PDF_RENDER_WORKER_LIMIT;
     const tierWorkerLimit = tier === 'low' ? 1 : DJVU_PDF_RENDER_WORKER_LIMIT;
     return Math.min(
         pageCount,
         tierWorkerLimit,
         pixelWorkerLimit,
-        sourceCopyLimit,
         hardwareWorkerCount,
     );
 }
-
-export { resolveBrowserDjvuConversionPreflight } from '@contracts/djvuConversionPolicy';
 
 export interface IBrowserDjvuCompactExportPlan {
     strategy: 'compact-djvu-aware' | 'direct-fallback';
@@ -270,7 +261,7 @@ function estimatePageSpecBytes(pageSizes: readonly IDjvuPageMetrics[]) {
 
 export function resolveBrowserDjvuCompactExportPlan(
     pageSizes: readonly IDjvuPageMetrics[],
-    maxPageSpecBytes = BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
+    maxPageSpecBytes = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
     preserveBookmarks = false,
 ): IBrowserDjvuCompactExportPlan {
     const estimatedPageSpecBytes = estimatePageSpecBytes(pageSizes);
@@ -817,30 +808,53 @@ function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
     return uniq(candidates).slice(0, maxSamples);
 }
 
+const textScanResults = new Map<string, boolean>();
+
+/**
+ * Whether any page carries a text layer. Pages are read in order until one
+ * has text, as the desktop scan does, so a document whose only text is on an
+ * unsampled page is still reported correctly. The answer is kept per file
+ * version.
+ */
+async function detectBrowserDjvuHasText(djvuPath: TDocumentRef, worker: IDjvuWorker, pageCount: number) {
+    const {
+        size, modifiedAt,
+    } = isBrowserDocumentRef(djvuPath)
+        ? await browserDocumentStore.stat(djvuPath)
+        : {
+            size: -1,
+            modifiedAt: -1,
+        };
+    const versionKey = `${djvuPath}\u0000${size}\u0000${modifiedAt}`;
+    const cached = textScanResults.get(versionKey);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let hasText = false;
+    for (let pageNumber = 1; pageNumber <= pageCount && !hasText; pageNumber += 1) {
+        const text = await worker.doc.getPage(pageNumber).getText().run().catch(() => '');
+        hasText = text.trim().length > 0;
+        if (pageNumber % DJVU_TEXT_SCAN_YIELD_PAGES === 0) {
+            await yieldToBrowser();
+        }
+    }
+    textScanResults.set(versionKey, hasText);
+    for (const key of textScanResults.keys()) {
+        if (textScanResults.size <= DJVU_TEXT_SCAN_CACHE_ENTRIES) break;
+        textScanResults.delete(key);
+    }
+    return hasText;
+}
+
 export async function getBrowserDjvuInfo(djvuPath: TDocumentRef): Promise<IDjvuInfo> {
     return withBrowserDjvuWorker(djvuPath, async (worker) => {
         const pageSizes = await getDjvuWorkerPageSizes(worker);
         const contents = await worker.doc.getContents().run().catch(() => null);
-        const samplePages = pickSamplePageNumbers(
-            pageSizes.length,
-            DJVU_INFO_TEXT_SAMPLE_PAGES,
-        );
-
-        let hasText = false;
-        for (const pageNumber of samplePages) {
-            const text = await worker.doc.getPage(pageNumber).getText().run().catch(() => '');
-            if (text.trim().length > 0) {
-                hasText = true;
-                break;
-            }
-            await yieldToBrowser();
-        }
-
         return {
             pageCount: pageSizes.length,
             sourceDpi: pageSizes[0]?.dpi ?? 300,
             hasBookmarks: Boolean(contents && contents.length > 0),
-            hasText,
+            hasText: await detectBrowserDjvuHasText(djvuPath, worker, pageSizes.length),
             metadata: {},
         };
     }, 'info');
@@ -917,17 +931,6 @@ export async function runBrowserDjvuConversion(
             };
         }
 
-        const sourceBytes = isBrowserDocumentRef(djvuPath)
-            ? (await browserDocumentStore.stat(djvuPath)).size
-            : 0;
-        if (sourceBytes > DJVU_BROWSER_WORKER_SOURCE_MAX_BYTES) {
-            return {
-                success: false as const,
-                jobId,
-                error: 'Browser DjVu processing is limited to 192MB source files. Use the Electron app for this archival job.',
-                expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
-            };
-        }
         emitProgress({
             jobId,
             phase: 'loading',
@@ -945,18 +948,6 @@ export async function runBrowserDjvuConversion(
                 success: false as const,
                 jobId,
                 error: 'DjVu document has no pages',
-                expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
-            };
-        }
-        const preflight = resolveBrowserDjvuConversionPreflight(pageSizes);
-        if (!preflight.allowed) {
-            const limitDescription = preflight.reason === 'page-count'
-                ? `has ${preflight.pageCount} pages, but converting in the browser supports up to ${preflight.maxPages}`
-                : 'has pages too large to convert in the browser';
-            return {
-                success: false as const,
-                jobId,
-                error: `This document ${limitDescription}. Use the desktop app to convert it.`,
                 expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
             };
         }
@@ -979,7 +970,7 @@ export async function runBrowserDjvuConversion(
                 expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
             };
         }
-        const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes, options.hostTier ?? 'medium');
+        const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, options.hostTier ?? 'medium');
         BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
             jobId,
             pageCount,
@@ -991,7 +982,7 @@ export async function runBrowserDjvuConversion(
         const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
             ? resolveBrowserDjvuCompactExportPlan(
                 pageSizes,
-                BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
+                BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
                 options.preserveBookmarks !== false,
             )
             : null;

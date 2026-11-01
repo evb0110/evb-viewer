@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 // @vitest-environment happy-dom
 
 import {
@@ -20,7 +21,10 @@ import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-vi
 
 const djvuRouteMocks = vi.hoisted(() => ({loadDjvuJs: vi.fn()}));
 
-vi.mock('@app/platform/browser-api/djvujsLoader', () => ({loadDjvuJs: djvuRouteMocks.loadDjvuJs}));
+vi.mock(import('@app/platform/browser-api/djvujsLoader'), async importOriginal => ({
+    ...await importOriginal(),
+    loadDjvuJs: djvuRouteMocks.loadDjvuJs,
+}));
 
 describe('document page sources', () => {
     it('exposes one cancellable full-document DjVu search provider with the known page count', async () => {
@@ -185,17 +189,16 @@ describe('document page sources', () => {
             },
         }));
         const nativeGetPageSizes = vi.fn(async () => []);
-        const browserPageSizes = Array.from({length: 10_000}, () => ({
-            width: 600,
-            height: 800,
-            dpi: 300,
+        // A small bundled file: the routing reads the native page count, and
+        // the DjVu.js route then reads this file's own 501-page table.
+        const sourceBytes = new Uint8Array(readFileSync('tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
+        const browserGetComponentDirectory = vi.fn(async () => ({
+            names: Array.from({length: 501}, (_, index) => `page-${index}.djvu`),
+            flags: Array.from({length: 501}, () => 1),
         }));
-        const browserGetPageSizes = vi.fn(async () => browserPageSizes);
         const worker = {
-            doc: {
-                getPagesQuantity: () => ({run: async () => 10_000}),
-                getPagesSizes: () => ({run: browserGetPageSizes}),
-            },
+            worker: {postMessage: vi.fn()},
+            doc: {evbGetComponentDirectory: () => ({run: browserGetComponentDirectory})},
             createDocument: vi.fn(async () => undefined),
             terminate: vi.fn(),
             revokeObjectURL: vi.fn(),
@@ -203,11 +206,15 @@ describe('document page sources', () => {
         function TestWorker() {
             return worker;
         }
-        djvuRouteMocks.loadDjvuJs.mockResolvedValue({Worker: TestWorker});
+        djvuRouteMocks.loadDjvuJs.mockResolvedValue({
+            Worker: TestWorker,
+            DjVuScript: () => undefined,
+        });
         const electronApi = createElectronPlatformApiFixture({
             documentFiles: {
-                readFile: vi.fn(async () => Uint8Array.of(1)),
-                statFile: vi.fn(async () => ({size: 1})),
+                readFile: vi.fn(async () => sourceBytes),
+                readFileRange: vi.fn(async (_path: string, offset: number, length: number) => sourceBytes.slice(offset, offset + length)),
+                statFile: vi.fn(async () => ({size: sourceBytes.byteLength})),
             },
             djvu: {
                 getInfo: nativeGetInfo,
@@ -221,9 +228,9 @@ describe('document page sources', () => {
             const browserPreview = await createDjvuPagePreviewSourceFromPath(
                 requireDocumentRef('/tmp/small-many-pages.djvu'),
             );
-            await expect(browserPreview.getPageSizes()).resolves.toHaveLength(10_000);
+            await expect(browserPreview.getPageSizes()).resolves.toHaveLength(501);
             expect(nativeGetInfo).toHaveBeenCalledOnce();
-            expect(browserGetPageSizes).toHaveBeenCalledOnce();
+            expect(browserGetComponentDirectory).toHaveBeenCalledOnce();
             browserPreview.terminate();
 
             pageCount = 10_001;

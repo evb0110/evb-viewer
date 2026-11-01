@@ -99,51 +99,6 @@ export function estimateDjvuPdfConversionSource(metrics: IDjvuPdfConversionMetri
     };
 }
 
-export const BROWSER_DJVU_CONVERSION_MAX_PAGES = 500;
-export const BROWSER_DJVU_CONVERSION_MAX_PAGE_PIXELS = 80_000_000;
-
-export interface IBrowserDjvuPreflightPageSize {
-    width?: number | undefined;
-    height?: number | undefined;
-}
-
-export interface IBrowserDjvuConversionPreflight {
-    allowed: boolean;
-    maxPagePixels: number;
-    maxPages: number;
-    observedMaxPagePixels: number;
-    pageCount: number;
-    reason?: 'page-count' | 'page-pixels';
-}
-
-export function resolveBrowserDjvuConversionPreflight(
-    pageSizes: readonly IBrowserDjvuPreflightPageSize[],
-    pageCount = pageSizes.length,
-): IBrowserDjvuConversionPreflight {
-    const observedMaxPagePixels = pageSizes.reduce((maxPixels, page) => {
-        const width = Number.isFinite(page.width) ? Math.max(0, Math.trunc(page.width ?? 0)) : 0;
-        const height = Number.isFinite(page.height) ? Math.max(0, Math.trunc(page.height ?? 0)) : 0;
-        return Math.max(maxPixels, width * height);
-    }, 0);
-    const observedPageCount = Math.max(
-        pageSizes.length,
-        Number.isFinite(pageCount) ? Math.trunc(pageCount) : 0,
-    );
-    const reason = observedPageCount > BROWSER_DJVU_CONVERSION_MAX_PAGES
-        ? 'page-count'
-        : observedMaxPagePixels > BROWSER_DJVU_CONVERSION_MAX_PAGE_PIXELS
-            ? 'page-pixels'
-            : undefined;
-    return {
-        allowed: reason === undefined,
-        maxPagePixels: BROWSER_DJVU_CONVERSION_MAX_PAGE_PIXELS,
-        maxPages: BROWSER_DJVU_CONVERSION_MAX_PAGES,
-        observedMaxPagePixels,
-        pageCount: observedPageCount,
-        ...(reason ? {reason} : {}),
-    };
-}
-
 export function evaluateDjvuPdfConversionPolicy(
     source: IDjvuPdfConversionSourceEstimate,
     subsample: number | undefined,

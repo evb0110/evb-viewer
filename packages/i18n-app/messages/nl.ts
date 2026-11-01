@@ -1035,8 +1035,6 @@ export default {
             'advancedRaster': 'Rasteropties (geavanceerd)',
             'advancedRasterHint': 'Rastert elke pagina op een vaste resolutie. Grotere bestanden; kies dit alleen als exacte pixeluitvoer nodig is.',
             'directDisabledReason': 'Overschrijdt de limiet voor directe conversie bij deze resolutie.',
-            'browserPageLimit': 'Dit document heeft {pages} pagina\'s, maar converteren in de browser ondersteunt er maximaal {maxPages}. Gebruik de desktop-app voor grotere documenten.',
-            'browserPixelLimit': 'Sommige pagina\'s zijn te groot om in de browser te converteren. Gebruik de desktop-app voor dit document.',
         },
     },
     'common': {

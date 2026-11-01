@@ -1036,8 +1036,6 @@ export default {
             'advancedRaster': 'Opções raster (avançadas)',
             'advancedRasterHint': 'Rasteriza cada página em uma resolução fixa. Arquivos maiores; escolha apenas se precisar de saída pixel a pixel.',
             'directDisabledReason': 'Excede o limite de tamanho da conversão direta nesta resolução.',
-            'browserPageLimit': 'Este documento tem {pages} páginas, mas a conversão no navegador suporta no máximo {maxPages}. Use o aplicativo de desktop para documentos maiores.',
-            'browserPixelLimit': 'Algumas páginas são grandes demais para converter no navegador. Use o aplicativo de desktop para este documento.',
         },
     },
     'common': {

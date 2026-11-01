@@ -23,13 +23,14 @@ import {
 } from '@app/platform/browserDocumentStore';
 import {
     releaseBrowserDjvuViewingWorker,
+    resolveDjvuPreviewTargetWidth,
     retainBrowserDjvuViewingWorker,
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
 import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
-import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import {
     cancelBrowserDjvuConversion,
     estimateBrowserDjvuSizes,
@@ -155,27 +156,17 @@ export const browserDjvuCapability = {
     getPageSizes(djvuPath) {
         return withBrowserDjvuWorker(djvuPath, worker => getDjvuWorkerPageSizes(worker), 'page-sizes');
     },
-    renderPagePreview(djvuPath, pageNumber, _options) {
+    renderPagePreview(djvuPath, pageNumber, options) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
             const pageSizes = await getDjvuWorkerPageSizes(worker);
             const requestedPageNumber = requirePageNumber(pageNumber, pageSizes.length);
             const pageSize = pageSizes[requestedPageNumber - 1];
             if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
-            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
-            const pageObject = await worker.doc.getPage(requestedPageNumber).createPngObjectUrl().run();
-            try {
-                const response = await fetch(pageObject.url);
-                if (!response.ok) {
-                    throw new Error(`Failed to read DjVu page preview: ${response.status}`);
-                }
-                return {
-                    bytes: new Uint8Array(await response.arrayBuffer()),
-                    width: pageObject.width,
-                    height: pageObject.height,
-                };
-            } finally {
-                worker.revokeObjectURL(pageObject.url);
-            }
+            return renderDjvuPagePreviewPng(
+                worker,
+                requestedPageNumber,
+                resolveDjvuPreviewTargetWidth(pageSize, options),
+            );
         }, 'preview');
     },
     estimateSizes: estimateBrowserDjvuSizes,

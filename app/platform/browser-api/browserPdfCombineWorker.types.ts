@@ -6,7 +6,6 @@ import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import * as v from 'valibot';
 
-export const BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
 // WASM32 Rust allocations must fit isize; actual available memory is checked
 // by the allocator. This is an ABI boundary, not a document-size policy.
 export const BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES = 0x7fff_ffff;
@@ -95,7 +94,9 @@ const imagePreprocessingSchema = v.object({
     jpegQuality: v.optional(jpegQualitySchema),
     ppiCap: v.optional(ppiCapSchema),
     pageSizes: v.optional(v.pipe(v.array(pageSizeSchema), v.maxLength(500))),
-    pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1), v.maxLength(500))),
+    // A compact plan has one spec per page of the document; the request byte
+    // boundary, not a page count, bounds it.
+    pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1))),
 });
 const combinePayloadSchema = v.pipe(v.object({
     inputs: v.pipe(v.array(inputSchema), v.maxLength(500)),

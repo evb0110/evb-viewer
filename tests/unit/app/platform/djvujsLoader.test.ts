@@ -4,8 +4,13 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {
-    createDjvuPagePreviewSourceFromPath, createDjvuWorkerFromPath,
+    createDjvuPagePreviewSourceFromPath, createDjvuWorkerFromPath, getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {
+    parseDjvuPageHead,
+    readBrowserDjvuSourceLayout,
+} from '@app/platform/browser-api/browserDjvuSource';
+import { DJVU_COMPONENT_BASE_URL } from '@app/platform/browser-api/djvujsLoader';
 import {
     afterEach,
     beforeEach,
@@ -51,6 +56,36 @@ function installDocumentDouble() {
     return scripts;
 }
 
+interface IScriptDownload {
+    /** Delivers one more chunk of the script body. */
+    push(): void;
+    /** Ends the script body. */
+    close(): void;
+}
+
+function installScriptDownload(): IScriptDownload[] {
+    const downloads: IScriptDownload[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+        let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+        const body = new ReadableStream<Uint8Array>({start(controller) {
+            streamController = controller;
+            init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason));
+        }});
+        downloads.push({
+            push: () => streamController?.enqueue(new Uint8Array([0x20])),
+            close: () => streamController?.close(),
+        });
+        return new Response(body);
+    }));
+    return downloads;
+}
+
+async function finishDownload(downloads: IScriptDownload[], index = downloads.length - 1) {
+    await vi.waitFor(() => expect(downloads[index]).toBeDefined());
+    downloads[index]!.close();
+    await vi.advanceTimersByTimeAsync(0);
+}
+
 describe('loadDjvuJs', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -64,10 +99,13 @@ describe('loadDjvuJs', () => {
 
     it('shares one script load across concurrent callers', async () => {
         const scripts = installDocumentDouble();
+        const downloads = installScriptDownload();
         const { loadDjvuJs } = await import('@app/platform/browser-api/djvujsLoader');
 
         const firstLoad = loadDjvuJs();
         const secondLoad = loadDjvuJs();
+        await finishDownload(downloads);
+        expect(downloads).toHaveLength(1);
         expect(scripts).toHaveLength(1);
 
         const djvuGlobal = {Worker: vi.fn()};
@@ -87,15 +125,18 @@ describe('loadDjvuJs', () => {
 
     it('removes a failed script and allows a clean retry', async () => {
         const scripts = installDocumentDouble();
+        const downloads = installScriptDownload();
         const { loadDjvuJs } = await import('@app/platform/browser-api/djvujsLoader');
 
         const firstLoad = loadDjvuJs();
+        await finishDownload(downloads);
         scripts[0]?.dispatchEvent(new Event('error'));
 
         await expect(firstLoad).rejects.toThrow('Failed to load DjVu.js');
         expect(scripts).toHaveLength(0);
 
         const retry = loadDjvuJs();
+        await finishDownload(downloads);
         expect(scripts).toHaveLength(1);
         const djvuGlobal = {Worker: vi.fn()};
         Reflect.set(window, 'DjVu', djvuGlobal);
@@ -103,20 +144,24 @@ describe('loadDjvuJs', () => {
         await expect(retry).resolves.toBe(djvuGlobal);
     });
 
-    it('times out a hung load, removes it, and permits retry', async () => {
+    it('abandons a download that stops sending data, then permits retry', async () => {
         const scripts = installDocumentDouble();
+        const downloads = installScriptDownload();
         const {
-            DJVU_SCRIPT_LOAD_TIMEOUT_MS,
+            DJVU_SCRIPT_STALL_TIMEOUT_MS,
             loadDjvuJs,
         } = await import('@app/platform/browser-api/djvujsLoader');
 
         const firstLoad = loadDjvuJs();
-        const rejection = expect(firstLoad).rejects.toThrow('Timed out loading DjVu.js');
-        await vi.advanceTimersByTimeAsync(DJVU_SCRIPT_LOAD_TIMEOUT_MS);
+        const rejection = expect(firstLoad).rejects.toMatchObject({name: 'TimeoutError'});
+        await vi.waitFor(() => expect(downloads).toHaveLength(1));
+        downloads[0]!.push();
+        await vi.advanceTimersByTimeAsync(DJVU_SCRIPT_STALL_TIMEOUT_MS);
         await rejection;
         expect(scripts).toHaveLength(0);
 
         const retry = loadDjvuJs();
+        await finishDownload(downloads);
         expect(scripts).toHaveLength(1);
         const djvuGlobal = {Worker: vi.fn()};
         Reflect.set(window, 'DjVu', djvuGlobal);
@@ -124,11 +169,36 @@ describe('loadDjvuJs', () => {
         await expect(retry).resolves.toBe(djvuGlobal);
     });
 
+    it('keeps a slow download that keeps delivering data', async () => {
+        const scripts = installDocumentDouble();
+        const downloads = installScriptDownload();
+        const {
+            DJVU_SCRIPT_STALL_TIMEOUT_MS,
+            loadDjvuJs,
+        } = await import('@app/platform/browser-api/djvujsLoader');
+
+        const load = loadDjvuJs();
+        await vi.waitFor(() => expect(downloads).toHaveLength(1));
+        // Four chunks, each just inside the stall window: two minutes in all.
+        for (let chunk = 0; chunk < 4; chunk += 1) {
+            await vi.advanceTimersByTimeAsync(DJVU_SCRIPT_STALL_TIMEOUT_MS - 1_000);
+            downloads[0]!.push();
+        }
+        await finishDownload(downloads, 0);
+        expect(scripts).toHaveLength(1);
+        const djvuGlobal = {Worker: vi.fn()};
+        Reflect.set(window, 'DjVu', djvuGlobal);
+        scripts[0]?.dispatchEvent(new Event('load'));
+        await expect(load).resolves.toBe(djvuGlobal);
+    });
+
     it('rejects and removes a script that loads without exposing the API', async () => {
         const scripts = installDocumentDouble();
+        const downloads = installScriptDownload();
         const { loadDjvuJs } = await import('@app/platform/browser-api/djvujsLoader');
 
         const load = loadDjvuJs();
+        await finishDownload(downloads);
         scripts[0]?.dispatchEvent(new Event('load'));
 
         await expect(load).rejects.toThrow('without exposing window.DjVu');
@@ -158,32 +228,53 @@ describe('DjVu document components', () => {
     const index = new Uint8Array(readFileSync('tests/fixtures/djvu/sources/indirect/index.djvu'));
     const bundled = new Uint8Array(readFileSync('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu'));
 
-    function installWorker(pageSizes: typeof sizes) {
+    // The bundled fixture's DIRM: two page components in this order.
+    const bundledDirectory = {
+        names: [
+            'low-dpi.djvu',
+            'high-dpi.djvu',
+        ],
+        flags: [
+            1,
+            1,
+        ],
+    };
+
+    function installWorker() {
+        const created: Array<{
+            documentBytes: Uint8Array;
+            options: unknown
+        }> = [];
         class TestWorker {
-            doc = {
-                getPagesQuantity: () => ({run: async () => 2}),
-                getPagesSizes: () => ({run: async () => pageSizes}),
-            };
-            async createDocument() {}
+            worker = {postMessage() {}};
+            doc = {evbGetComponentDirectory: () => ({run: async () => bundledDirectory})};
+            async createDocument(buffer: ArrayBuffer, options: unknown) {
+                created.push({
+                    documentBytes: new Uint8Array(buffer),
+                    options,
+                });
+            }
             terminate() {}
         }
-        return {Worker: TestWorker};
+        return {
+            created,
+            djvuGlobal: {
+                Worker: TestWorker,
+                DjVuScript: () => undefined,
+            },
+        };
     }
 
     it.each([
         {
             name: 'indirect',
             bytes: index,
-            workerSizes: new Array<(typeof sizes)[number]>(2),
         },
         {
             name: 'bundled',
             bytes: bundled,
-            workerSizes: sizes,
         },
-    ])('supplies both $name desktop page geometries', async ({
-        bytes, workerSizes,
-    }) => {
+    ])('supplies both $name desktop page geometries', async ({bytes}) => {
         const electronAPI = createElectronPlatformApiFixture({
             documentFiles: {
                 statFile: async () => ({size: bytes.byteLength}),
@@ -207,7 +298,7 @@ describe('DjVu document components', () => {
         });
         vi.stubGlobal('window', {
             electronAPI,
-            DjVu: installWorker(workerSizes),
+            DjVu: installWorker().djvuGlobal,
         });
         const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/books/Гиргас.djvu'));
         try {
@@ -226,15 +317,78 @@ describe('DjVu document components', () => {
         }
     });
 
-    it('refuses a browser index without a sibling-file grant before missing page geometry escapes', async () => {
-        vi.stubGlobal('window', {DjVu: installWorker(new Array<(typeof sizes)[number]>(2))});
+    function stubBrowserSource(bytes: Uint8Array) {
         vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: index.length,
+            size: bytes.length,
             modifiedAt: 1,
         });
-        vi.spyOn(browserDocumentStore, 'readRange').mockResolvedValue(index);
-        vi.spyOn(browserDocumentStore, 'unload').mockImplementation(() => {});
+        return vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(async (_ref, offset, length) => bytes.slice(offset, offset + length));
+    }
+
+    it('refuses a browser index without a sibling-file grant before missing page geometry escapes', async () => {
+        vi.stubGlobal('window', {DjVu: installWorker().djvuGlobal});
+        stubBrowserSource(index);
         await expect(createDjvuWorkerFromPath(requireDocumentRef('browser://documents/index.djvu')))
             .rejects.toMatchObject({errorEnvelope: {code: 'djvu-components-required'}});
+    });
+
+    it('opens a bundled browser DjVu as an index whose pages load by component', async () => {
+        const {
+            created,
+            djvuGlobal,
+        } = installWorker();
+        vi.stubGlobal('window', {DjVu: djvuGlobal});
+        stubBrowserSource(bundled);
+        const worker = await createDjvuWorkerFromPath(requireDocumentRef('browser://documents/bundled-components.djvu'));
+        try {
+            await expect(getDjvuWorkerPageSizes(worker)).resolves.toEqual(sizes);
+            const opened = created[0]!;
+            expect(opened.options).toEqual({baseUrl: DJVU_COMPONENT_BASE_URL});
+            // The decoder receives the DIRM without its bundled flag and offset table.
+            const ascii = new TextDecoder('ascii');
+            expect(ascii.decode(opened.documentBytes.subarray(0, 8))).toBe('AT&TFORM');
+            expect(ascii.decode(opened.documentBytes.subarray(12, 20))).toBe('DJVMDIRM');
+            expect(opened.documentBytes[24]! & 0x80).toBe(0);
+            expect(opened.documentBytes.byteLength).toBeLessThan(bundled.byteLength / 10);
+        } finally {
+            worker.terminate();
+        }
+    });
+
+    it('reads each bundled component as a standalone DjVu file', async () => {
+        const layout = await readBrowserDjvuSourceLayout({
+            fileSize: bundled.byteLength,
+            readRange: async (offset, length) => bundled.slice(offset, offset + length),
+        });
+        const second = await layout.readComponent({
+            index: 1,
+            name: 'high-dpi.djvu',
+        });
+        // djvudump: FORM:DJVU [188] {high-dpi.djvu}, so 4 magic + 8 header + 188 bytes.
+        expect(second.byteLength).toBe(4 + 8 + 188);
+        const ascii = new TextDecoder('ascii');
+        expect(ascii.decode(second.subarray(0, 8))).toBe('AT&TFORM');
+        expect(ascii.decode(second.subarray(12, 16))).toBe('DJVU');
+        expect(parseDjvuPageHead(await layout.readComponentHead({
+            index: 1,
+            name: 'high-dpi.djvu',
+        }), 2)).toEqual(sizes[1]);
+    });
+
+    it('reads every page of a document above the former browser page limits', async () => {
+        const manyPages = new Uint8Array(readFileSync('tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
+        const layout = await readBrowserDjvuSourceLayout({
+            fileSize: manyPages.byteLength,
+            readRange: async (offset, length) => manyPages.slice(offset, offset + length),
+        });
+        const heads = await Promise.all(Array.from({length: 501}, (_, index) => layout.readComponentHead({
+            index,
+            name: '',
+        })));
+        expect(heads.map((head, index) => parseDjvuPageHead(head, index + 1))).toEqual(Array.from({length: 501}, () => ({
+            width: 512,
+            height: 512,
+            dpi: 300,
+        })));
     });
 });

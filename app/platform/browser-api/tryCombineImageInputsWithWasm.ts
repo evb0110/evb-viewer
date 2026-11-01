@@ -46,7 +46,11 @@ const WASM_PAGE_KIND_CODES: Record<TBrowserPdfCombineWasmPageKind, number> = {
     'layered-color': 4,
 };
 const DEFAULT_DPI = 0;
-const MAX_PAGES = 500;
+// Plain image combines keep the desktop in-memory assembler's page limit. A
+// page-spec plan (a converted DjVu) declares its own page count instead; the
+// request byte boundary bounds it, as desktop's file-backed assembler does.
+const MAX_IMAGE_INPUT_PAGES = 500;
+// The per-image pixel limit desktop's image combiner applies by default.
 const MAX_PIXELS = 80_000_000;
 const MAX_TIFF_FRAMES = 250;
 const REQUEST_HEADER_BYTES = 4 + (6 * 4);
@@ -348,9 +352,6 @@ function getWasmRequestLength(
 ) {
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
     if (pageSpecs) {
-        if (pageSpecs.length > MAX_PAGES) {
-            return Number.POSITIVE_INFINITY;
-        }
         const encoder = new TextEncoder();
         const encodedPageInputs = pageSpecs.map(spec => pageSpecInputs(spec).map(input => ({
             input,
@@ -362,7 +363,7 @@ function getWasmRequestLength(
             resolvePageSpecRequestVersion(pageSpecs),
         );
     }
-    if (inputs.length > MAX_PAGES) {
+    if (inputs.length > MAX_IMAGE_INPUT_PAGES) {
         return Number.POSITIVE_INFINITY;
     }
     const encoder = new TextEncoder();
@@ -406,6 +407,7 @@ function writeRequestHeader(
     view: DataView,
     version: number,
     itemCount: number,
+    maxPages: number,
 ) {
     const encoder = new TextEncoder();
     let offset = 0;
@@ -414,7 +416,7 @@ function writeRequestHeader(
     offset += REQUEST_MAGIC.length;
     offset = writeU32(view, offset, version);
     offset = writeU32(view, offset, DEFAULT_DPI);
-    offset = writeU32(view, offset, MAX_PAGES);
+    offset = writeU32(view, offset, maxPages);
     offset = writeU32(view, offset, MAX_PIXELS);
     offset = writeU32(view, offset, MAX_TIFF_FRAMES);
     offset = writeU32(view, offset, itemCount);
@@ -442,7 +444,7 @@ function buildV1WasmRequest(
     const encodedNames = inputs.map(input => getEncodedName(input, encoder));
     const request = new Uint8Array(getV1RequestLength(inputs, encodedNames));
     const view = new DataView(request.buffer);
-    let offset = writeRequestHeader(request, view, REQUEST_VERSION, inputs.length);
+    let offset = writeRequestHeader(request, view, REQUEST_VERSION, inputs.length, MAX_IMAGE_INPUT_PAGES);
 
     for (const [
         index,
@@ -477,7 +479,7 @@ function buildV3WasmRequest(
         version,
     ));
     const view = new DataView(request.buffer);
-    let offset = writeRequestHeader(request, view, version, pageSpecs.length);
+    let offset = writeRequestHeader(request, view, version, pageSpecs.length, pageSpecs.length);
 
     for (const [
         index,

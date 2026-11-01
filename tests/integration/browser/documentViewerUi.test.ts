@@ -1712,6 +1712,77 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('opens and converts DjVu documents above the former browser limits', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-former-limits-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const openFixture = async (name: string) => {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources', name));
+            return {
+                page,
+                problems,
+            };
+        };
+        try {
+            // A 10000x8001 page: 80 million pixels, above the former 45-megapixel open limit.
+            const huge = await openFixture('huge-page.djvu');
+            const sourceImage = huge.page.locator('[data-testid="document-page-source-image"]').first();
+            await sourceImage.waitFor({
+                state: 'visible',
+                timeout: 90_000,
+            });
+            await expect.poll(() => sourceImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+            await huge.page.screenshot({path: resolve(evidenceDir, 'huge-page.png')});
+            expect(huge.problems).toEqual([]);
+
+            // 501 pages, above the former 500-page conversion limit.
+            const many = await openFixture('browser-boundary-501-pages.djvu');
+            const pageControls = many.page.locator('.page-controls').first();
+            await expect.poll(() => pageControls.innerText(), {timeout: 90_000}).toMatch(/\b501\b/u);
+            await many.page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            const dialog = many.page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const convertButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await expect.poll(() => convertButton.isEnabled(), {timeout: 90_000}).toBe(true);
+            await convertButton.click();
+            await many.page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            await expect.poll(() => many.page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+                .toContain('browser-boundary-501-pages.pdf');
+            await expect.poll(() => pageControls.innerText()).toMatch(/\b501\b/u);
+            await many.page.screenshot({path: resolve(evidenceDir, 'converted-501.png')});
+            expect(many.problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 300_000);
+
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {

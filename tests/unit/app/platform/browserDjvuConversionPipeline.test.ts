@@ -7,9 +7,9 @@ import {
 
 import {
     assertBrowserDjvuSource,
+    getBrowserDjvuInfo,
     runBrowserDjvuConversion,
     resolveBrowserDjvuCompactExportPlan,
-    resolveBrowserDjvuConversionPreflight,
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
     withBrowserDjvuWorker,
@@ -210,7 +210,6 @@ describe('browserDjvuConversionPipeline', () => {
         expect(resolveBrowserDjvuPdfRenderConcurrency(
             ordinaryPages,
             8,
-            0,
             tier,
         )).toBe(expectedConcurrency);
     });
@@ -251,28 +250,35 @@ describe('browserDjvuConversionPipeline', () => {
         });
     });
 
-    it('reports browser conversion boundaries before raster rendering starts', () => {
-        expect(resolveBrowserDjvuConversionPreflight(Array.from({length: 500}, () => ({
-            width: 8_000,
-            height: 10_000,
-        })))).toMatchObject({
-            allowed: true,
-            maxPagePixels: 80_000_000,
-            maxPages: 500,
+    it('reports text that only an unsampled middle page carries', async () => {
+        // First, middle and last pages of five are 1, 3 and 5; only page 2 has text.
+        const pageTexts = [
+            '',
+            'Only page two has a text layer',
+            '',
+            '',
+            '',
+        ];
+        vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 7,
         });
-        expect(resolveBrowserDjvuConversionPreflight(Array.from({length: 501}, () => ({
+        mocks.getPageSizes.mockResolvedValue(pageTexts.map(() => ({
             width: 100,
             height: 100,
-        })))).toMatchObject({
-            allowed: false,
-            reason: 'page-count',
+            dpi: 300,
+        })));
+        mocks.createWorker.mockResolvedValue({
+            doc: {
+                getContents: () => ({run: async () => null}),
+                getPage: (pageNumber: number) => ({getText: () => ({run: async () => pageTexts[pageNumber - 1] ?? ''})}),
+            },
+            terminate: vi.fn(),
         });
-        expect(resolveBrowserDjvuConversionPreflight([{
-            width: 10_000,
-            height: 8_001,
-        }])).toMatchObject({
-            allowed: false,
-            reason: 'page-pixels',
+
+        await expect(getBrowserDjvuInfo(requireDocumentRef('browser://documents/text-on-page-two.djvu'))).resolves.toMatchObject({
+            pageCount: 5,
+            hasText: true,
         });
     });
 

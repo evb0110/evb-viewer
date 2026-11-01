@@ -8,9 +8,7 @@ import {
 import {
     createDjvuCanvas,
     encodeDjvuCanvas,
-    fetchDjvuObjectUrlBytes,
     getDjvuCanvas2dContext,
-    loadDjvuBitmap,
     releaseDjvuCanvas,
     toOwnedArrayBuffer,
     type TDjvuCanvas,
@@ -155,35 +153,6 @@ describe('encodeDjvuCanvas', () => {
         await expect(encodeDjvuCanvas(asDjvuCanvas(canvas), 'image/png'))
             .rejects
             .toThrow('Failed to encode canvas as image/png');
-    });
-});
-
-describe('fetchDjvuObjectUrlBytes', () => {
-    it('returns the fetched bytes', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([
-            1,
-            2,
-        ]))));
-        const bytes = await fetchDjvuObjectUrlBytes('blob:doc');
-        expect([...bytes]).toEqual([
-            1,
-            2,
-        ]);
-    });
-
-    it('throws with the HTTP status on failure', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(null, {status: 404})));
-        await expect(fetchDjvuObjectUrlBytes('blob:doc'))
-            .rejects
-            .toThrow('Failed to read DjVu page image: 404');
-    });
-});
-
-describe('loadDjvuBitmap', () => {
-    it('rejects when the runtime has no image decoder', async () => {
-        await expect(loadDjvuBitmap(new Uint8Array([1])))
-            .rejects
-            .toThrow('Image decoding is unavailable');
     });
 });
 

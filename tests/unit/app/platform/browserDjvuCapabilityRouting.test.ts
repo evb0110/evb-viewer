@@ -29,9 +29,10 @@ vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
 const {browserDjvuCapability} = await import(
     '@app/platform/browser-api/browserDjvuCapability'
 );
-const {assertBrowserDjvuRasterDimensions} = await import(
-    '@app/platform/browser-api/assertBrowserDjvuRasterDimensions'
-);
+const {
+    assertBrowserDjvuRasterDimensions,
+    toBrowserDjvuDecodeError,
+} = await import('@app/platform/browser-api/assertBrowserDjvuRasterDimensions');
 
 function openForViewing(djvuPath: string) {
     return new Promise<IDjvuOpenResult>((resolve) => {
@@ -88,23 +89,16 @@ describe('browserDjvuCapability routing', () => {
         expect(mocks.createWorker).toHaveBeenCalledWith('browser://documents/book.djvu');
     });
 
-    it('admits pages by validity first and then by the full-resolution raster limit', () => {
-        expect(() => assertBrowserDjvuRasterDimensions(6000, 7500)).not.toThrow();
+    it('admits pages by validity first and then by what the decoder and canvas can hold', () => {
+        // 80 million pixels: refused by the former 45-megapixel browser budget.
+        expect(() => assertBrowserDjvuRasterDimensions(10_000, 8001)).not.toThrow();
+        // An edge DjVu.js reads as a negative INFO size; its worker reads it unsigned.
+        expect(() => assertBrowserDjvuRasterDimensions(33_000, 64)).not.toThrow();
         for (const [
             width,
             height,
             code,
         ] of [
-                [
-                    10_000,
-                    8001,
-                    'djvu-raster-limit',
-                ],
-                [
-                    32_769,
-                    1,
-                    'djvu-raster-limit',
-                ],
                 [
                     0,
                     100,
@@ -125,6 +119,32 @@ describe('browserDjvuCapability routing', () => {
         }
     });
 
+    it('refuses a full-resolution raster the browser canvas cannot allocate', () => {
+        // Chromium's measured canvas area limit: 268,435,456 pixels.
+        class AreaLimitedCanvas {
+            public constructor(public width: number, public height: number) {}
+            getContext() {
+                const drawable = this.width * this.height <= 268_435_456;
+                return {
+                    fillStyle: '',
+                    fillRect() {},
+                    getImageData: () => ({data: new Uint8ClampedArray([
+                        0,
+                        0,
+                        0,
+                        drawable ? 255 : 0,
+                    ])}),
+                };
+            }
+        }
+        vi.stubGlobal('OffscreenCanvas', AreaLimitedCanvas);
+        expect(() => assertBrowserDjvuRasterDimensions(16_384, 16_384, 'DjVu page 1')).not.toThrow();
+        expect(() => assertBrowserDjvuRasterDimensions(20_000, 14_000, 'DjVu page 1')).toThrow(expect.objectContaining({errorEnvelope: expect.objectContaining({
+            code: 'djvu-raster-limit',
+            message: expect.stringContaining('largest canvas'),
+        })}));
+    });
+
     it('reports the typed reason for a refused open of a browser document', async () => {
         const worker = {terminate: vi.fn()};
         mocks.createWorker.mockResolvedValue(worker);
@@ -138,16 +158,19 @@ describe('browserDjvuCapability routing', () => {
             errorEnvelope: {code: 'invalid-djvu'},
         });
 
-        let limitError: unknown;
-        try {
-            assertBrowserDjvuRasterDimensions(10_000, 8001, 'DjVu page 1');
-        } catch (error) {
-            limitError = error;
-        }
+        const limitError = toBrowserDjvuDecodeError(
+            {
+                name: 'RangeError',
+                message: 'Array buffer allocation failed',
+            },
+            40_000,
+            40_000,
+            'DjVu page 1',
+        );
         mocks.getPageSizes.mockRejectedValueOnce(limitError);
         await expect(openForViewing('browser://documents/huge.djvu')).resolves.toMatchObject({
             success: false,
-            error: expect.stringContaining('10000x8001'),
+            error: expect.stringContaining('40000x40000'),
             errorEnvelope: {code: 'djvu-raster-limit'},
         });
 

@@ -1,5 +1,3 @@
-import { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
-
 export type TDjvuCanvas = OffscreenCanvas | HTMLCanvasElement;
 
 export function createDjvuCanvas(width: number, height: number) {
@@ -62,20 +60,122 @@ export async function encodeDjvuCanvas(
     return new Uint8Array(await blob.arrayBuffer());
 }
 
-export async function fetchDjvuObjectUrlBytes(url: string) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Failed to read DjVu page image: ${response.status}`);
-    }
-    return new Uint8Array(await response.arrayBuffer());
-}
-
-export async function loadDjvuBitmap(bytes: Uint8Array) {
-    const blob = new Blob([toOwnedArrayBuffer(bytes)], { type: 'image/png' });
-    return decodeBrowserImageBlob(blob, { fallbackErrorMessage: 'Failed to decode DjVu page image' });
-}
-
 export function releaseDjvuCanvas(canvas: TDjvuCanvas) {
     canvas.width = 0;
     canvas.height = 0;
+}
+
+// Every browser allocates a canvas of this size; larger ones are measured.
+const UNIVERSAL_CANVAS_EDGE = 4096;
+// Tiles of a raster too large for one canvas; each is drawn scaled.
+const DJVU_TILE_EDGE = 4096;
+// Each tile is drawn with this much of its neighbours, so smoothing at a tile
+// edge samples real pixels instead of the transparent canvas border.
+const DJVU_TILE_OVERLAP = 2;
+const canvasAllocationResults = new Map<string, boolean>();
+
+function probeCanvasAllocation(width: number, height: number) {
+    let canvas: TDjvuCanvas | null = null;
+    try {
+        canvas = createDjvuCanvas(width, height);
+        const context = getDjvuCanvas2dContext(canvas);
+        if (!context) {
+            return false;
+        }
+        // A canvas past the browser's limit still constructs, but stays blank.
+        context.fillStyle = '#000000';
+        context.fillRect(width - 1, height - 1, 1, 1);
+        return context.getImageData(width - 1, height - 1, 1, 1).data[3] === 255;
+    } catch {
+        return false;
+    } finally {
+        if (canvas) {
+            releaseDjvuCanvas(canvas);
+        }
+    }
+}
+
+/**
+ * Whether this browser can allocate and draw a canvas of this size. The
+ * answer comes from allocating one, because the limits differ by browser and
+ * device; the result is kept per size.
+ */
+export function canAllocateDjvuCanvas(width: number, height: number) {
+    if (width <= UNIVERSAL_CANVAS_EDGE && height <= UNIVERSAL_CANVAS_EDGE) {
+        return true;
+    }
+    if (typeof OffscreenCanvas === 'undefined' && typeof document === 'undefined') {
+        // No canvas exists here, so nothing this guard protects can run.
+        return true;
+    }
+    const key = `${width}x${height}`;
+    let allowed = canvasAllocationResults.get(key);
+    if (allowed === undefined) {
+        allowed = probeCanvasAllocation(width, height);
+        canvasAllocationResults.set(key, allowed);
+    }
+    return allowed;
+}
+
+/**
+ * Draws a decoded page scaled onto `context`. A page that fits one canvas is
+ * drawn through it; a larger one is drawn tile by tile, so the browser's
+ * canvas limit binds only the output size, never the source.
+ */
+export function drawDjvuImageDataScaled(
+    context: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
+    imageData: ImageData,
+    targetWidth: number,
+    targetHeight: number,
+) {
+    const scaleX = targetWidth / imageData.width;
+    const scaleY = targetHeight / imageData.height;
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    if (canAllocateDjvuCanvas(imageData.width, imageData.height)) {
+        const source = createDjvuCanvas(imageData.width, imageData.height);
+        try {
+            const sourceContext = getDjvuCanvas2dContext(source);
+            if (!sourceContext) {
+                throw new Error('Canvas 2D context is unavailable');
+            }
+            sourceContext.putImageData(imageData, 0, 0);
+            context.drawImage(source, 0, 0, targetWidth, targetHeight);
+        } finally {
+            releaseDjvuCanvas(source);
+        }
+        return;
+    }
+
+    const tileEdge = DJVU_TILE_EDGE + (2 * DJVU_TILE_OVERLAP);
+    const tile = createDjvuCanvas(tileEdge, tileEdge);
+    try {
+        const tileContext = getDjvuCanvas2dContext(tile);
+        if (!tileContext) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+        for (let y = 0; y < imageData.height; y += DJVU_TILE_EDGE) {
+            for (let x = 0; x < imageData.width; x += DJVU_TILE_EDGE) {
+                const sourceX = Math.max(0, x - DJVU_TILE_OVERLAP);
+                const sourceY = Math.max(0, y - DJVU_TILE_OVERLAP);
+                const sourceWidth = Math.min(imageData.width, x + DJVU_TILE_EDGE + DJVU_TILE_OVERLAP) - sourceX;
+                const sourceHeight = Math.min(imageData.height, y + DJVU_TILE_EDGE + DJVU_TILE_OVERLAP) - sourceY;
+                tileContext.clearRect(0, 0, tileEdge, tileEdge);
+                tileContext.putImageData(imageData, -sourceX, -sourceY, sourceX, sourceY, sourceWidth, sourceHeight);
+                context.drawImage(
+                    tile,
+                    0,
+                    0,
+                    sourceWidth,
+                    sourceHeight,
+                    sourceX * scaleX,
+                    sourceY * scaleY,
+                    sourceWidth * scaleX,
+                    sourceHeight * scaleY,
+                );
+            }
+        }
+    } finally {
+        releaseDjvuCanvas(tile);
+    }
 }

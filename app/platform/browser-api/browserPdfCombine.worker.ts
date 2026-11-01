@@ -10,7 +10,6 @@ import type {
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {
-    BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
     BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
     getBrowserPdfCombineWorkerRequestId,
     parseBrowserPdfCombineWorkerRequest,
@@ -218,9 +217,12 @@ async function preparePageSpec(
     return prepared;
 }
 
-function addInputBytes(total: number, input: IBrowserPdfCombineInput, maxBytes = MAX_INPUT_BYTES) {
-    if (input.data.byteLength > maxBytes || total > maxBytes - input.data.byteLength) {
-        if (maxBytes === BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES) {
+// A request is admitted up to the WASM32 allocation boundary. Page specs are
+// a generated plan, so exceeding it is an output too large to build in one
+// request rather than an oversized user input.
+function addInputBytes(total: number, input: IBrowserPdfCombineInput, isPageSpecPlan = false) {
+    if (input.data.byteLength > MAX_INPUT_BYTES || total > MAX_INPUT_BYTES - input.data.byteLength) {
+        if (isPageSpecPlan) {
             throw createPdfCombineOutputTooLargeError('Image combine WASM request exceeds the admission ceiling');
         }
         throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
@@ -255,9 +257,7 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
                 pageSpec.mask,
             ]) {
                 if (input) {
-                    totalInputBytes = addInputBytes(totalInputBytes, input, request.payload.inputs.length === 0
-                        ? BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES
-                        : MAX_INPUT_BYTES);
+                    totalInputBytes = addInputBytes(totalInputBytes, input, request.payload.inputs.length === 0);
                 }
             }
         }
