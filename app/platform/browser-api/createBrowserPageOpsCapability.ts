@@ -36,12 +36,12 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
-import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserPageOpsWorkerUnavailableError,
     canUseBrowserPageOpsWorker,
@@ -100,13 +100,9 @@ interface ICreateBrowserPageOpsOptions {
     ) => Promise<void>;
 }
 
-const BROWSER_PAGE_OP_PDF_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
-const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
-const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
-const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
+// A page operation's input and any insertion source travel in one engine
+// request; the engine refuses the framed remainder exactly.
+const BROWSER_PAGE_OP_INPUT_MAX_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes;
 /**
  * Browser page moves still need a full permutation for pdf-lib. Keep that
  * fallback deliberately small. Desktop uses the qpdf range operation and has
@@ -122,14 +118,6 @@ let browserPageOpsCorePromise: Promise<TBrowserPageOpsCoreModule> | null = null;
 function loadBrowserPageOpsCore() {
     browserPageOpsCorePromise ??= import('@app/platform/browser-api/browserPageOpsCore');
     return browserPageOpsCorePromise;
-}
-
-function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
-    return buildBrowserByteLimitError(label, maxBytes, 'PDFs');
-}
-
-function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
-    return buildBrowserByteLimitError(label, maxBytes, 'jobs');
 }
 
 function assertBrowserPageOpsSource(path: string, operation: string) {
@@ -274,49 +262,10 @@ export function createBrowserPageOpsCapability(
         }
     }
 
-    async function ensurePdfWithinBudget(
-        path: string,
-        label: string,
-        maxBytes = BROWSER_PAGE_OP_PDF_MAX_BYTES,
-    ) {
-        assertBrowserPageOpsSource(path, label);
-        const { size } = await browserDocumentStore.stat(path);
-        if (size > maxBytes) {
-            throw buildBrowserPageOpLimitError(label, maxBytes);
-        }
-    }
-
-    async function getCombinedInputBytes(paths: string[], maxBytes?: number) {
-        let totalBytes = 0;
-        for (const [
-            index,
-            path,
-        ] of paths.entries()) {
-            assertBrowserPageOpsSource(path, 'Combining page-operation inputs');
-            if (index > 0) {
-                await yieldToBrowser();
-            }
-
-            const { size } = await browserDocumentStore.stat(path);
-            totalBytes += size;
-            if (typeof maxBytes === 'number' && totalBytes > maxBytes) {
-                return totalBytes;
-            }
-        }
-        return totalBytes;
-    }
-
-    async function ensureCombinedInputsWithinBudget(paths: string[], label: string) {
-        const totalBytes = await getCombinedInputBytes(paths, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
-        if (totalBytes > BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES) {
-            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
-        }
-    }
-
     async function readWorkingCopyBytes(path: string) {
         assertBrowserPageOpsSource(path, 'Reading page-operation input');
         await yieldToBrowser();
-        return browserDocumentStore.read(path);
+        return browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES});
     }
 
     function shouldReadSinglePdfInsertionSource(sourcePaths: string[]) {
@@ -331,6 +280,7 @@ export function createBrowserPageOpsCapability(
     async function readInsertionBytes(
         sourcePaths: string[],
         requestId: TRequestId | undefined,
+        destinationBytes: number,
     ) {
         for (const sourcePath of sourcePaths) {
             assertBrowserPageOpsSource(sourcePath, 'Inserting pages');
@@ -340,7 +290,7 @@ export function createBrowserPageOpsCapability(
             if (sourcePath === undefined) {
                 throw new Error('A single PDF insertion source is required');
             }
-            return browserDocumentStore.read(sourcePath);
+            return browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES - destinationBytes});
         }
 
         return options.createCombinedPdfFromPaths(
@@ -363,33 +313,13 @@ export function createBrowserPageOpsCapability(
 
     async function runWorkerBackedPdfOperation<K extends TBrowserPageOpsWorkerRequestType>(options: {
         path: string;
-        label: string;
-        maxBytes: number;
         type: K;
         createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K];
         runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>;
     }) {
-        await ensurePdfWithinBudget(
-            options.path,
-            options.label,
-            options.maxBytes,
-        );
-
-        const { size } = await browserDocumentStore.stat(options.path);
-        const workerAvailable = canUseBrowserPageOpsWorker();
-        if (
-            !workerAvailable
-            && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
-        ) {
-            throw buildBrowserPageOpLimitError(
-                options.label,
-                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-            );
-        }
-
         const data = await readWorkingCopyBytes(options.path);
         let directData = data;
-        if (workerAvailable) {
+        if (canUseBrowserPageOpsWorker()) {
             try {
                 return await runBrowserPageOpsWorkerRequest(
                     options.type,
@@ -403,13 +333,7 @@ export function createBrowserPageOpsCapability(
             }
         }
 
-        if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
-            throw buildBrowserPageOpLimitError(
-                options.label,
-                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-            );
-        }
-
+        // Without a worker the engine runs here, as one long task.
         return runDirectPdfOperation(() => options.runDirect(directData));
     }
 
@@ -418,12 +342,8 @@ export function createBrowserPageOpsCapability(
         data: Uint8Array,
         pageCount: number,
         mutationOptions: IPageOpsMutationOptions | undefined,
-        label: string,
         pageIdentityDelta?: IPageIdentityDelta,
     ): Promise<IStoredPageMutationResult> {
-        if (data.byteLength > BROWSER_PAGE_OP_PDF_MAX_BYTES) {
-            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_PDF_MAX_BYTES);
-        }
         if (mutationOptions === undefined) {
             await browserDocumentStore.write(workingCopyPath, data);
         } else {
@@ -443,8 +363,6 @@ export function createBrowserPageOpsCapability(
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
-                    label: 'Deleting pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
                     type: 'deletePages',
                     createPayload: (data) => ({
                         data,
@@ -460,7 +378,6 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
-                    'Deleting pages',
                     createDeletePageIdentityDelta(_totalPages, selectedPages),
                 );
             });
@@ -492,8 +409,6 @@ export function createBrowserPageOpsCapability(
 
             const result = await runWorkerBackedPdfOperation({
                 path: workingCopyPath,
-                label: 'Extracting pages',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
                 type: 'extractPages',
                 createPayload: (data) => ({
                     data,
@@ -551,8 +466,6 @@ export function createBrowserPageOpsCapability(
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
-                    label: 'Reordering pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
                     type: 'reorderPages',
                     createPayload: (data) => ({
                         data,
@@ -568,7 +481,6 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
-                    'Reordering pages',
                     createReorderPageIdentityDelta(newOrder.length, newOrder),
                 );
             });
@@ -656,40 +568,13 @@ export function createBrowserPageOpsCapability(
         },
         async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths, requestId, mutationOptions) {
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                await ensurePdfWithinBudget(
-                    workingCopyPath,
-                    'Inserting pages',
-                    BROWSER_PAGE_OP_INSERT_MAX_BYTES,
-                );
-                await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
-                const [
-                    { size },
-                    totalInputBytes,
-                ] = await Promise.all([
-                    browserDocumentStore.stat(workingCopyPath),
-                    getCombinedInputBytes(sourcePaths),
-                ]);
-                if (size + totalInputBytes > BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES) {
-                    throw buildBrowserPageOpJobLimitError(
-                        'Inserting pages',
-                        BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES,
-                    );
-                }
-                const workerAvailable = canUseBrowserPageOpsWorker();
-                if (
-                    !workerAvailable
-                    && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
-                ) {
-                    throw buildBrowserPageOpLimitError(
-                        'Inserting pages',
-                        BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-                    );
-                }
+                assertBrowserPageOpsSource(workingCopyPath, 'Inserting pages');
                 const destinationData = await readWorkingCopyBytes(workingCopyPath);
-                const insertionData = await readInsertionBytes(sourcePaths, requestId);
+                const insertionData = await readInsertionBytes(sourcePaths, requestId, destinationData.byteLength);
 
-                let result: IBrowserPageOpsWorkerResultMap['insertPages'];
-                if (workerAvailable) {
+                let directInputs: [Uint8Array, Uint8Array] = [destinationData, insertionData];
+                let result: IBrowserPageOpsWorkerResultMap['insertPages'] | null = null;
+                if (canUseBrowserPageOpsWorker()) {
                     try {
                         result = await runBrowserPageOpsWorkerRequest('insertPages', {
                             data: destinationData,
@@ -700,29 +585,21 @@ export function createBrowserPageOpsCapability(
                         if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
                             throw error;
                         }
-                        if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
-                            throw buildBrowserPageOpLimitError(
-                                'Inserting pages',
-                                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-                            );
-                        }
+                        // The worker took the transferred inputs; read them again.
                         const directDestinationData = await readWorkingCopyBytes(workingCopyPath);
-                        const directInsertionData = await readInsertionBytes(sourcePaths, requestId);
-                        result = await runDirectPdfOperation(async () => {
-                            const { insertPdfPages } = await loadBrowserPageOpsCore();
-                            return insertPdfPages(
-                                directDestinationData,
-                                directInsertionData,
-                                afterPage,
-                            );
-                        });
+                        directInputs = [
+                            directDestinationData,
+                            await readInsertionBytes(sourcePaths, requestId, directDestinationData.byteLength),
+                        ];
                     }
-                } else {
+                }
+                if (result === null) {
+                    const [directDestinationData, directInsertionData] = directInputs;
                     result = await runDirectPdfOperation(async () => {
                         const { insertPdfPages } = await loadBrowserPageOpsCore();
                         return insertPdfPages(
-                            destinationData,
-                            insertionData,
+                            directDestinationData,
+                            directInsertionData,
                             afterPage,
                         );
                     });
@@ -732,7 +609,6 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
-                    'Inserting pages',
                     createInsertPageIdentityDelta(
                         _totalPages,
                         afterPage,
@@ -746,8 +622,6 @@ export function createBrowserPageOpsCapability(
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
-                    label: 'Rotating pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
                     type: 'rotate',
                     createPayload: (data) => ({
                         data,
@@ -764,7 +638,6 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
-                    'Rotating pages',
                 );
             });
         },
@@ -774,8 +647,6 @@ export function createBrowserPageOpsCapability(
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
-                    label: 'Cropping pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
                     type: 'crop',
                     createPayload: (data) => ({
                         data,
@@ -792,7 +663,6 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
-                    'Cropping pages',
                 );
             });
         },
@@ -801,8 +671,6 @@ export function createBrowserPageOpsCapability(
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
-                    label: 'Removing crop',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
                     type: 'removeCrop',
                     createPayload: (data) => ({
                         data,
@@ -818,7 +686,6 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
-                    'Removing page crops',
                 );
             });
         },
@@ -836,8 +703,6 @@ export function createBrowserPageOpsCapability(
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
             return runWorkerBackedPdfOperation({
                 path: workingCopyPath,
-                label: 'Inspecting page geometry',
-                maxBytes: BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES,
                 type: 'getPageGeometry',
                 createPayload: (data) => ({
                     data,
@@ -852,8 +717,6 @@ export function createBrowserPageOpsCapability(
         async readOutline(workingCopyPath): Promise<IPdfBookmarkEntry[]> {
             const catalog = await runWorkerBackedPdfOperation({
                 path: workingCopyPath,
-                label: 'Reading bookmarks',
-                maxBytes: BROWSER_PAGE_OP_PDF_MAX_BYTES,
                 type: 'readCatalog',
                 createPayload: (data) => ({data}),
                 runDirect: async (data) => {

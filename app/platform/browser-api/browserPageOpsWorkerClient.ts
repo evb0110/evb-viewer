@@ -18,7 +18,6 @@ import {
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
 import {tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -326,10 +325,8 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
     if (type === 'textBoxAppearance') {
         throw new BrowserPageOpsWorkerUnavailableError('Text appearance generation requires a worker');
     }
-    const data = (payload as IBrowserPageOpsWorkerRequestMap['decrypt']).data;
-    if (data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
-        throw new BrowserPageOpsWorkerUnavailableError('Browser page operation exceeds the direct fallback byte budget');
-    }
+    // Without a worker the engine runs on this thread as one long task, with
+    // the same request ceiling as the worker.
     const result = await tryRunBrowserPageOpsWithWasm(type, payload, yieldAdmitted);
     await yieldAdmitted();
     return result as IBrowserPageOpsWorkerResultMap[K];
