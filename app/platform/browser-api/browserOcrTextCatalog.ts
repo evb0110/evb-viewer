@@ -37,8 +37,12 @@ async function readPdfjsPageText(page: IPdfPage) {
         .join(''));
 }
 
-/** The EVB layer lines of the pages that have one, when the document can be read whole. */
-async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signal?: AbortSignal) {
+/**
+ * The EVB layer lines of the pages that have one, when the document can be
+ * read whole: the logical text desktop reads from an EVB OCR layer, for the
+ * text catalog and search alike.
+ */
+export async function readEvbLayerLines(ref: string, pageNumbers: number[], signal?: AbortSignal) {
     const layers = new Map<number, {
         text: string;
         layout: IDocumentTextPageLayout

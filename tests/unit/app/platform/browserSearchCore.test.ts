@@ -1,4 +1,5 @@
 import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+import type * as TExtractBrowserSearchPageTextModule from '@app/platform/browser-api/extractBrowserSearchPageText';
 
 import {
     beforeEach,
@@ -31,7 +32,10 @@ vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
     yieldToBrowser: mocks.yieldToBrowser,
 }));
 
-vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', () => ({extractBrowserSearchPageData: mocks.extractBrowserSearchPageData}));
+vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', async importOriginal => ({
+    ...await importOriginal<typeof TExtractBrowserSearchPageTextModule>(),
+    extractBrowserSearchPageData: mocks.extractBrowserSearchPageData,
+}));
 
 describe('browserSearchCore', () => {
     beforeEach(() => {
