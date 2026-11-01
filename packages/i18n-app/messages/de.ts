@@ -737,6 +737,7 @@ export default {
         'resize': 'Seitenleiste anpassen',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Der Browser hat das Lesen der Zwischenablage blockiert. Drücken Sie Strg+V (⌘V auf dem Mac), um das Bild einzufügen.',
         'toolDefaults': 'Werkzeugvorgaben',
         'selectedProperties': 'Eigenschaften ausgewählter Anmerkungen',
         'mixedValues': 'Gemischt',

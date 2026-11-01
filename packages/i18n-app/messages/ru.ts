@@ -217,6 +217,7 @@ export default {
         'resize': 'Изменить ширину боковой панели',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Браузер запретил чтение буфера обмена. Нажмите Ctrl+V (⌘V на Mac), чтобы вставить изображение.',
         'toolDefaults': 'Параметры инструмента',
         'selectedProperties': 'Свойства выбранных аннотаций',
         'mixedValues': 'Разные',

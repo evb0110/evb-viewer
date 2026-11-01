@@ -737,6 +737,7 @@ export default {
         'resize': 'Zijbalk vergroten/verkleinen',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'De browser heeft het lezen van het klembord geblokkeerd. Druk op Ctrl+V (⌘V op een Mac) om de afbeelding te plakken.',
         'toolDefaults': 'Gereedschapsinstellingen',
         'selectedProperties': 'Eigenschappen van geselecteerde annotaties',
         'mixedValues': 'Gemengd',

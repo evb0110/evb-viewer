@@ -217,6 +217,7 @@ export default {
         'resize': 'Resize sidebar',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'The browser blocked reading the clipboard. Press Ctrl+V (⌘V on a Mac) to paste the image.',
         'toolDefaults': 'Tool defaults',
         'selectedProperties': 'Selected annotation properties',
         'mixedValues': 'Mixed',

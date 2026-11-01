@@ -737,6 +737,7 @@ export default {
         'resize': 'Ridimensiona barra laterale',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Il browser ha bloccato la lettura degli appunti. Premi Ctrl+V (⌘V su Mac) per incollare l’immagine.',
         'toolDefaults': 'Impostazioni dello strumento',
         'selectedProperties': 'Proprietà delle annotazioni selezionate',
         'mixedValues': 'Misto',

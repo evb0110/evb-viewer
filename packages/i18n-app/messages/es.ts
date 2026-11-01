@@ -737,6 +737,7 @@ export default {
         'resize': 'Redimensionar panel lateral',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'El navegador bloqueó la lectura del portapapeles. Pulsa Ctrl+V (⌘V en Mac) para pegar la imagen.',
         'toolDefaults': 'Valores de la herramienta',
         'selectedProperties': 'Propiedades de las anotaciones seleccionadas',
         'mixedValues': 'Mixto',

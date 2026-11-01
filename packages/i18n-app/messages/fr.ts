@@ -737,6 +737,7 @@ export default {
         'resize': 'Redimensionner le panneau latéral',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Le navigateur a bloqué la lecture du presse-papiers. Appuyez sur Ctrl+V (⌘V sur Mac) pour coller l’image.',
         'toolDefaults': 'Paramètres de l’outil',
         'selectedProperties': 'Propriétés des annotations sélectionnées',
         'mixedValues': 'Mixte',
