@@ -270,6 +270,16 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: bash scripts/release/configure-macos-signing.sh
 
+      # Stapler's HTTP/3 (UDP 443) connections to Apple drop on hosted macOS 15
+      # runners; blocking UDP 443 makes it use HTTPS over TCP. Remove once
+      # https://github.com/actions/runner-images/issues/14924 is fixed.
+      - name: Send stapler traffic over TCP
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
+          sudo pfctl -E
+
       - name: Package installer (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -291,16 +301,6 @@ jobs:
 
           bash scripts/release/run-with-retries.sh 3 20 "macOS packaging" \
             pnpm exec electron-builder --publish never --mac "--$EVB_RELEASE_TARGET_ARCH"
-
-      # Stapler's HTTP/3 (UDP 443) connections to Apple drop on hosted macOS 15
-      # runners; blocking UDP 443 makes it use HTTPS over TCP. Remove once
-      # https://github.com/actions/runner-images/issues/14924 is fixed.
-      - name: Send stapler traffic over TCP
-        if: runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
-        shell: bash
-        run: |
-          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
-          sudo pfctl -E
 
       - name: Notarize and staple macOS disk images
         if: runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
