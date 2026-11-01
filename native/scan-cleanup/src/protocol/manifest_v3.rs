@@ -20,6 +20,10 @@ pub const MAX_STAGED_INPUT_PEAK_PIXELS: u64 = 1_000_000_000;
 /// documents, so this is never a document page-count limit.
 pub const MAX_MANIFEST_PAGES_PER_BATCH: usize = 20_000;
 pub const MAX_MANIFEST_PATH_BYTES: usize = 4_096;
+/// Bytes one manifest may take. Eight KiB per page leaves room for normal
+/// authored options while preventing a byte-sized manifest from turning the
+/// additive unknown-field pass into an unbounded allocation.
+pub const MAX_MANIFEST_BYTES: usize = MAX_MANIFEST_PAGES_PER_BATCH * 8 * 1024;
 
 fn deserialize_manifest_pages<'de, D>(deserializer: D) -> Result<Vec<Page>, D::Error>
 where

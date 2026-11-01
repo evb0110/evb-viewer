@@ -68,11 +68,9 @@ abi! {
         REQUEST_VERSION_INSTRUCTED: u32 = 5;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
-        // The largest single wasm32 Rust allocation (isize::MAX there): one
-        // request or one framed response. The 4 GiB address space must also
-        // hold the parsed document and scratch, so a request near this
-        // ceiling fails as an allocation failure rather than at a policy.
-        MAX_BUFFER_BYTES: usize = 0x7fff_ffff;
+        // One request or one framed response, up to the largest single
+        // wasm32 allocation; the parsed document shares the address space.
+        MAX_BUFFER_BYTES: usize = evb_native_support::wasm_request_allocation::WASM_MAX_BUFFER_BYTES;
         RESPONSE_MUTATION: u32 = 1;
         RESPONSE_GEOMETRY: u32 = 2;
         RESPONSE_ANNOTATION_PARSE: u32 = 3;

@@ -42,13 +42,15 @@ use crate::io::{pbm, raster};
 use crate::protocol::manifest_v3::{
     validate_document_canvas, validate_matched_canvas_plan, validate_page_options, AnalysisPurpose,
     CanvasScope, DetailRenderGeometry, DocumentCanvas, Operation, PageAdmission, RenderMode,
-    MAX_MANIFEST_PAGES_PER_BATCH,
+    MAX_MANIFEST_BYTES, MAX_MANIFEST_PAGES_PER_BATCH,
 };
 use crate::split::DocumentPrior;
 use crate::CleanupOptions;
 use evb_native_support::{
     bounded_io::deserialize_json_slice,
-    wasm_request_allocation::{WasmRequestAllocation, WASM_REQUEST_ALLOCATION_ABI_VERSION},
+    wasm_request_allocation::{
+        WasmRequestAllocation, WASM_MAX_BUFFER_BYTES, WASM_REQUEST_ALLOCATION_ABI_VERSION,
+    },
     NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
 use scan_primitives::GrayImage;
@@ -113,10 +115,10 @@ pub(crate) const RESULT_HEADER_BYTES: usize = 3 * U32_BYTES;
 pub(crate) const OUTPUT_HEADER_BYTES: usize = 2 * U32_BYTES;
 /// Plane: role, kind, encoding, width, height, byte length; then the bytes.
 pub(crate) const PLANE_HEADER_BYTES: usize = 6 * U32_BYTES;
-pub(crate) const MAX_REQUEST_JSON_BYTES: usize = 16 * 1024 * 1024;
-// A WASM32 allocation layout uses a signed pointer-sized length.
-pub(crate) const MAX_REQUEST_BYTES: usize = 1024 * 1024 * 1024;
-pub(crate) const MAX_OUTPUT_BYTES: usize = 1024 * 1024 * 1024;
+/// A request's JSON is one manifest's worth of pages at most, as the CLI reads.
+pub(crate) const MAX_REQUEST_JSON_BYTES: usize = MAX_MANIFEST_BYTES;
+pub(crate) const MAX_REQUEST_BYTES: usize = WASM_MAX_BUFFER_BYTES;
+pub(crate) const MAX_OUTPUT_BYTES: usize = WASM_MAX_BUFFER_BYTES;
 
 thread_local! {
     static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
