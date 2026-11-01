@@ -41,6 +41,7 @@ import {
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
+import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
@@ -343,6 +344,20 @@ export function createBrowserPageOpsCapability(
         );
     }
 
+    async function combinePickedFiles(pickedFiles: IPickedBrowserFile[], signal: AbortSignal) {
+        const sourcePaths = await Promise.all(pickedFiles.map(picked => browserDocumentStore.registerFile(picked.file, {
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'generic',
+            saveHandle: picked.handle ?? null,
+        })));
+        try {
+            return await readInsertionBytes(sourcePaths, undefined, 0, signal);
+        } finally {
+            await Promise.allSettled(sourcePaths.map(sourcePath => browserDocumentStore.cleanupDetachedDocument(sourcePath)));
+        }
+    }
+
     async function runDirectPdfOperation<T>(
         run: () => Promise<T>,
     ) {
@@ -468,12 +483,12 @@ export function createBrowserPageOpsCapability(
         });
     }
 
-    async function insertPagesFromFiles(
+    /** `readInsertion` reads the pages to insert each time it is called, given the destination's size. */
+    async function insertPages(
         operation: IActivePageOperation,
         totalPages: number,
         afterPage: number,
-        sourcePaths: string[],
-        requestId: TRequestId | undefined,
+        readInsertion: (destinationBytes: number) => Promise<Uint8Array>,
         mutationOptions: IPageOpsMutationOptions | undefined,
     ) {
         const {
@@ -483,7 +498,7 @@ export function createBrowserPageOpsCapability(
         return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
             assertBrowserPageOpsSource(workingCopyPath, 'Inserting pages');
             const destinationData = await readWorkingCopyBytes(workingCopyPath);
-            const insertionData = await readInsertionBytes(sourcePaths, requestId, destinationData.byteLength, signal);
+            const insertionData = await readInsertion(destinationData.byteLength);
 
             let directInputs: [Uint8Array, Uint8Array] = [
                 destinationData,
@@ -509,7 +524,7 @@ export function createBrowserPageOpsCapability(
                     const directDestinationData = await readWorkingCopyBytes(workingCopyPath);
                     directInputs = [
                         directDestinationData,
-                        await readInsertionBytes(sourcePaths, requestId, directDestinationData.byteLength, signal),
+                        await readInsertion(directDestinationData.byteLength),
                     ];
                 }
             }
@@ -689,36 +704,29 @@ export function createBrowserPageOpsCapability(
                 };
             }
 
-            const sourcePaths = await Promise.all(
-                pickedFiles.map(async (picked) =>
-                    browserDocumentStore.registerFile(picked.file, {
-                        kind: 'source',
-                        retention: 'transient',
-                        saveKind: 'generic',
-                        saveHandle: picked.handle ?? null,
-                    }),
-                ),
+            // The insertion reads from the picked files, as desktop reads their
+            // paths: no stored document waits in the edit queue, where storage
+            // maintenance could collect it. Several files are combined first.
+            const [single] = pickedFiles;
+            const insertion = pickedFiles.length === 1 && single && /\.pdf$/iu.test(single.file.name)
+                ? single.file
+                : new Blob([toBrowserOwnedArrayBuffer(await combinePickedFiles(pickedFiles, operation.controller.signal))]);
+            return insertPages(
+                operation,
+                totalPages,
+                afterPage,
+                async () => new Uint8Array(await insertion.arrayBuffer()),
+                mutationOptions,
             );
-
-            try {
-                return await insertPagesFromFiles(
-                    operation,
-                    totalPages,
-                    afterPage,
-                    sourcePaths,
-                    undefined,
-                    mutationOptions,
-                );
-            } finally {
-                await Promise.allSettled(
-                    sourcePaths.map(async (sourcePath) => {
-                        await browserDocumentStore.cleanupDetachedDocument(sourcePath);
-                    }),
-                );
-            }
         }),
         insertFile: withUserCancel((operation, _workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[], requestId?: TRequestId, mutationOptions?: IPageOpsMutationOptions) => (
-            insertPagesFromFiles(operation, totalPages, afterPage, sourcePaths, requestId, mutationOptions)
+            insertPages(
+                operation,
+                totalPages,
+                afterPage,
+                destinationBytes => readInsertionBytes(sourcePaths, requestId, destinationBytes, operation.controller.signal),
+                mutationOptions,
+            )
         )),
         rotate: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, angle: TPageOpsRotationAngle, mutationOptions?: IPageOpsMutationOptions) => {
             const selectedPages = materializePageSelection(pages, totalPages, 'Rotating pages');
