@@ -8,6 +8,7 @@ import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { runBrowserDjvuConversion } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import { layoutPdfForPrint } from '@app/platform/browser-api/browserPageOpsCore';
+import { BROWSER_PAGE_OPS_MAX_REQUEST_BYTES } from '@contracts/browserPageOpsLimits';
 
 function createPrintDocument(name: string, data: Uint8Array) {
     return browserDocumentStore.createStoredDocument(name, data, {
@@ -51,7 +52,7 @@ export async function prepareBrowserDjvuPrint(
         if (options.viewMode === 'single' && options.orientation === 'auto') {
             printablePath = convertedPath;
         } else {
-            const laidOut = await layoutPdfForPrint(await browserDocumentStore.read(convertedPath), {
+            const laidOut = await layoutPdfForPrint(await browserDocumentStore.read(convertedPath, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES}), {
                 viewMode: options.viewMode,
                 orientation: options.orientation,
             });
