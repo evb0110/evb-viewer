@@ -2051,41 +2051,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(createObjectURL).not.toHaveBeenCalled();
     });
 
-    it('does not download or retain a DOCX output when its writer is already canceled', async () => {
-        const createObjectURL = vi.fn(() => 'blob:docx-canceled');
-        const revokeObjectURL = vi.fn();
-        const NativeURL = URL;
-        class TestURL extends NativeURL {}
-        Object.defineProperties(TestURL, {
-            createObjectURL: {value: createObjectURL},
-            revokeObjectURL: {value: revokeObjectURL},
-        });
-        vi.stubGlobal('URL', TestURL);
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
-        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
-        expect(outputPath).not.toBeNull();
-        if (!outputPath) {
-            throw new Error('Expected browser DOCX output path');
-        }
-
-        const controller = new AbortController();
-        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
-        const writeDocxFile = capability.writeDocxFile as (
-            path: string,
-            data: Uint8Array,
-            signal?: AbortSignal,
-        ) => Promise<boolean>;
-
-        await expect(writeDocxFile(outputPath, Uint8Array.of(1, 2, 3), controller.signal))
-            .rejects.toMatchObject({name: 'AbortError'});
-        await expect(browserDocumentStore.exists(outputPath)).resolves.toBe(false);
-        expect(createObjectURL).not.toHaveBeenCalled();
-        expect(revokeObjectURL).not.toHaveBeenCalled();
-    });
-
     it.each([
         'save',
         'save-as',

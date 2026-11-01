@@ -233,7 +233,6 @@ export function createBrowserDocumentsCapability(
         saveDocxAs: fileCapability.saveDocxAs,
         writeFile: fileCapability.writeFile,
         replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
-        writeDocxFile: fileCapability.writeDocxFile,
         beginDocxFileStream: fileCapability.beginDocxFileStream,
         writeDocxFileStreamChunk: fileCapability.writeDocxFileStreamChunk,
         commitDocxFileStream: fileCapability.commitDocxFileStream,

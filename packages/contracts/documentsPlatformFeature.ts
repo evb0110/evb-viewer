@@ -71,7 +71,6 @@ import {
     savePdfDialogArgs,
     statFileArgs,
     validationResult,
-    writeDocxArgs,
     writeFileArgs,
 } from '@contracts/documentsPlatformFeatureSchemas';
 import {PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA} from '@contracts/pdfPathPrintOptions';
@@ -477,9 +476,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         replaceWorkingCopyFromPath: defineIpcMethod(
             'replaceWorkingCopyFromPath', 'file:replaceWorkingCopyFromPath', replaceWorkingCopyArgs,
             booleanResult, 'replaceWorkingCopyFromPath', 'sender',
-        ),
-        writeDocxFile: defineIpcMethod(
-            'writeDocxFile', 'file:writeDocx', writeDocxArgs, booleanResult, 'writeDocxFile', 'sender',
         ),
         saveFileStructured: defineIpcMethod(
             'saveFileStructured', 'file:saveStructured', saveFileStructuredArgs,

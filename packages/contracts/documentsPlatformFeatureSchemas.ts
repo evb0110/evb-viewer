@@ -215,10 +215,6 @@ const replaceWorkingCopyArgs = v.strictTuple([
     documentRefSchema,
     optionalRevisionOptionsSchema,
 ]);
-const writeDocxArgs = v.strictTuple([
-    documentRefSchema,
-    uint8ArraySchema,
-]);
 const saveFileStructuredArgs = v.strictTuple([
     documentRefSchema,
     optionalRevisionOptionsSchema,
@@ -573,7 +569,6 @@ export {
     savePdfDialogArgs,
     statFileArgs,
     validationResult,
-    writeDocxArgs,
     writeFileArgs,
 };
 

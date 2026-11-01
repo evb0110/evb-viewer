@@ -78,7 +78,6 @@ const documentsClientMock = vi.hoisted(() => ({
     printPdfPath: vi.fn(async () => ({success: true})),
     writeFile: vi.fn(async () => true),
     replaceWorkingCopyFromPath: vi.fn(async () => true),
-    writeDocxFile: vi.fn(async () => true),
     createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
     createWorkingCopyFromPath: vi.fn(async () => '/tmp/working-copy.pdf'),
     saveFileStructured: vi.fn(async () => ({

@@ -53,8 +53,6 @@ import {
     pickFolderFiles,
     pickSaveTarget,
     pickSingleFile,
-    saveBytesToPickerOrDownload,
-    writeBytesToHandle,
     type IBrowserOutputSink,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import {
@@ -626,34 +624,6 @@ export function createBrowserDocumentsFileCapability(
             docxStreams.delete(sessionId);
             await sink.abort();
             return true;
-        },
-        async writeDocxFile(path, data, signal) {
-            try {
-                signal?.throwIfAborted();
-                const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-                await browserDocumentStore.write(path, bytes);
-                signal?.throwIfAborted();
-                const saveTarget = await browserDocumentStore.getSaveTarget(path);
-                signal?.throwIfAborted();
-
-                if (saveTarget.saveHandle) {
-                    await writeBytesToHandle(saveTarget.saveHandle, bytes, signal);
-                } else {
-                    await saveBytesToPickerOrDownload(bytes, {
-                        suggestedName: ensureDocxExtension(saveTarget.saveName),
-                        mimeType:
-                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        pickerTypes: buildDocxSaveTypes(),
-                        ...(signal === undefined ? {} : {signal}),
-                    });
-                }
-                signal?.throwIfAborted();
-                return true;
-            } finally {
-                if (signal?.aborted) {
-                    await browserDocumentStore.remove(path).catch(() => undefined);
-                }
-            }
         },
         async createWorkingCopyFromData(fileName, data, originalPath, password) {
             return createBrowserWorkingCopyFromBytes({

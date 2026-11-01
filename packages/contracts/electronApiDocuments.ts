@@ -700,7 +700,6 @@ export interface IDocumentsFileCapability {
         sourcePath: TDocumentRef,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
-    writeDocxFile: (path: TDocumentRef, data: Uint8Array, signal?: AbortSignal) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TPlatformDocumentSaveResult>;
@@ -862,7 +861,6 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'saveDocxAs'
     | 'writeFile'
     | 'replaceWorkingCopyFromPath'
-    | 'writeDocxFile'
     | 'saveFileStructured'
     | 'savePdfData'
     | 'repairPdf'

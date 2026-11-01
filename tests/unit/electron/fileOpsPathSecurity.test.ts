@@ -61,7 +61,6 @@ const mocks = vi.hoisted(() => ({
     validatePdfFile: vi.fn(),
     nativeSpawn: vi.fn(),
     nativeTermination: vi.fn(),
-    consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
     getWorkingCopyBackingEntry: vi.fn(),
     admittedWorkingCopyBackingEntry: null as typeof TViMockOriginalModule.getWorkingCopyBackingEntry | null,
@@ -139,7 +138,6 @@ vi.mock('@electron/pdf/nativeToolPaths', async importOriginal => ({
     getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
 }));
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
-vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => {
     const actual = await importOriginal<typeof TViMockOriginalModule>();
@@ -224,7 +222,6 @@ const {
 const { resolveExistingReadablePdfPath } = await import('@electron/features/documents/main/documentFilePathResolution');
 const {
     handleFileWrite,
-    handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
 } = await import('@electron/features/documents/main/documentFileWriteHandlers');
 const {
@@ -262,7 +259,6 @@ describe('fileOps path security', () => {
         mocks.isAllowedWritePath.mockReturnValue(true);
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/safe.pdf');
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/safe.pdf');
-        mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(null);
         mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
@@ -1910,38 +1906,6 @@ describe('fileOps path security', () => {
             }),
         );
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
-    });
-
-    it('rejects invalid DOCX write payloads before consuming the approved path', async () => {
-        await expect(
-            handleFileWriteDocx(
-                writeContext,
-                '/tmp/electron-test/export.docx',
-                'not-bytes',
-            ),
-        ).rejects.toThrow('Invalid data: must be a Uint8Array');
-
-        expect(mocks.consumeAllowedDocxWritePath).not.toHaveBeenCalled();
-        expect(mocks.writeFile).not.toHaveBeenCalled();
-    });
-
-    it('consumes DOCX write grants for the invoking sender only', async () => {
-        await handleFileWriteDocx(
-            writeContext,
-            '/tmp/electron-test/export.docx',
-            new Uint8Array([9]),
-        );
-
-        expect(mocks.consumeAllowedDocxWritePath).toHaveBeenCalledWith('/tmp/electron-test/export.docx', 42);
-        expect(mocks.open).toHaveBeenCalledWith(
-            expect.stringMatching(new RegExp(`^${escapeRegExp(`${dirname(resolve('/tmp/electron-test/export.docx'))}${sep}.`)}[0-9a-f]{16}\\.tmp$`, 'u')),
-            'wx',
-        );
-        expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
-        expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(new RegExp(`^${escapeRegExp(`${dirname(resolve('/tmp/electron-test/export.docx'))}${sep}.`)}[0-9a-f]{16}\\.tmp$`, 'u')),
-            resolve('/tmp/electron-test/export.docx'),
-        );
     });
 
     it('serializes concurrent first range handle opens for the same path', async () => {
