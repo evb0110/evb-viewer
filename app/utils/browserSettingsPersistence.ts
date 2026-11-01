@@ -116,18 +116,6 @@ export function isFutureBrowserSettingsPayload(raw: unknown) {
     }
 }
 
-/**
- * Whether the stored settings or the legacy settings cookie belong to a newer
- * schema. Settings another deploy's newer tab wrote are neither read nor
- * written over here; this version runs on defaults instead.
- */
-export function hasFutureBrowserSettings() {
-    const stored = readLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
-    const legacyCookie = readBrowserSettingsCookies()?.rawSettings ?? null;
-    return (stored.status === 'present' && isFutureBrowserSettingsPayload(stored.value))
-        || (legacyCookie !== null && isFutureBrowserSettingsPayload(legacyCookie));
-}
-
 function isAppLocale(value: unknown): value is TAppLocale {
     return typeof value === 'string' && SUPPORTED_LOCALES.has(value);
 }
@@ -251,17 +239,20 @@ function readBrowserSettingsCookies() {
 }
 
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
-    if (hasFutureBrowserSettings()) {
-        return DEFAULT_SETTINGS.performanceMode;
-    }
     const storageRead = readLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
     const storageSnapshot = storageRead.status === 'present' ? storageRead.value : null;
+    const cookieSnapshot = readBrowserSettingsCookies();
+    const legacyCookie = cookieSnapshot?.rawSettings ?? null;
+    // Settings another deploy's newer tab wrote are neither read nor written
+    // over here; this version runs on defaults instead. The check reads the
+    // same snapshots the migration below writes from.
+    if (isFutureBrowserSettingsPayload(storageSnapshot) || isFutureBrowserSettingsPayload(legacyCookie)) {
+        return DEFAULT_SETTINGS.performanceMode;
+    }
     const existingStorageSettings = parseStoredBrowserSettingsSnapshot(storageSnapshot);
     // Nothing is written over storage that cannot be read; the settings
     // capability reports it as unreadable.
     const storageReadable = storageRead.status !== 'unavailable';
-    const cookieSnapshot = readBrowserSettingsCookies();
-    const legacyCookie = cookieSnapshot?.rawSettings ?? null;
     if (legacyCookie !== null) {
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(legacyCookie);
         if (isValidLegacyCookie) {
@@ -288,9 +279,7 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
             }
             return migratedSettings.performanceMode;
         }
-        if (!isFutureBrowserSettingsPayload(legacyCookie)) {
-            expireLegacyBrowserSettingsCookie();
-        }
+        expireLegacyBrowserSettingsCookie();
     } else if (cookieSnapshot && storageReadable && (storageSnapshot === null || existingStorageSettings)) {
         // Locale and theme cookies are only a partial migration. Start with
         // the committed settings snapshot so an early performance-mode read
@@ -310,7 +299,6 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
         return migratedSettings.performanceMode;
     }
 
-    assertSupportedBrowserSettingsPayload(storageSnapshot);
     if (isValidBrowserSettingsStoragePayload(storageSnapshot)) {
         return parseBrowserSettingsPayload(storageSnapshot).performanceMode;
     }

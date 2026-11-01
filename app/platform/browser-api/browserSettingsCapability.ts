@@ -17,6 +17,7 @@ import {
     sanitizeSettings,
     type ISettingsRecoveryNotice,
     type TSettingsRecoveryReason,
+    UnsupportedSettingsSchemaError,
 } from '@contracts/settings';
 import {
     formatLogData,
@@ -38,7 +39,6 @@ import {
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
-    hasFutureBrowserSettings,
     assertSupportedBrowserSettingsPayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
@@ -265,13 +265,14 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
 }
 
 function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}): IBrowserSettingsReadResult | null {
+    // Either source written by a newer version throws before anything is written.
+    const cookieSnapshot = readBrowserSettingsCookies();
+    assertSupportedBrowserSettingsPayload(cookieSnapshot?.rawSettings ?? null);
     const {
         settings: persistedSettings,
         available: storageAvailable,
     } = readBrowserSettingsFromStorage(options);
-    const cookieSnapshot = readBrowserSettingsCookies();
     if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
-        assertSupportedBrowserSettingsPayload(cookieSnapshot.rawSettings);
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(cookieSnapshot.rawSettings);
         if (isValidLegacyCookie) {
             if (persistedSettings) {
@@ -340,9 +341,7 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
 function refreshSharedSettings() {
     const previousPreference = settingsState.clientDiagnosticsPreference;
     try {
-        const shared = hasFutureBrowserSettings()
-            ? null
-            : readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
+        const shared = readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
         settingsState = applyDiagnosticsPreferenceOverride(shared ?? { ...DEFAULT_SETTINGS });
     } catch {
         // A cleared, unreadable or unsupported shared preference grants nothing.
@@ -429,21 +428,25 @@ export const browserSettingsCapability: ISettingsCapability = {
     },
     get() {
         return Promise.resolve().then(() => {
-            if (!browserSettingsLoaded && hasFutureBrowserSettings()) {
-                // A newer version's settings stay as they are, and saves are
-                // refused; desktop instead quarantines its file and writes defaults.
-                settingsState = applyDiagnosticsPreferenceOverride({ ...DEFAULT_SETTINGS });
-                recordSettingsRecovery('unsupported');
-                browserSettingsLoaded = true;
-            }
             if (!browserSettingsLoaded) {
-                const migration = readAndMigrateBrowserSettings({
-                    allowUnavailable: true,
-                    recordRecovery: true,
-                });
-                settingsState = migration?.settings ?? { ...DEFAULT_SETTINGS };
-                settingsState = applyDiagnosticsPreferenceOverride(settingsState);
-                writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
+                let migration: IBrowserSettingsReadResult | null = null;
+                let unsupported = false;
+                try {
+                    migration = readAndMigrateBrowserSettings({
+                        allowUnavailable: true,
+                        recordRecovery: true,
+                    });
+                } catch (error) {
+                    if (!(error instanceof UnsupportedSettingsSchemaError)) throw error;
+                    // A newer version's settings stay as they are, and saves are
+                    // refused; desktop instead quarantines its file and writes defaults.
+                    recordSettingsRecovery('unsupported');
+                    unsupported = true;
+                }
+                settingsState = applyDiagnosticsPreferenceOverride(migration?.settings ?? { ...DEFAULT_SETTINGS });
+                if (!unsupported) {
+                    writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
+                }
                 browserSettingsLoaded = true;
             }
             return sanitizeSettings(settingsState);
