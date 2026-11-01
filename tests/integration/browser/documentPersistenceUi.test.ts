@@ -1407,11 +1407,18 @@ describe('browser document lifecycle UI', () => {
             await page.keyboard.press('Enter');
             await page.locator('#editor-global-toolbar-host button[aria-label^="Zoom In"]:not([disabled])').first().click();
             await expect.poll(async () => (await readView()).zoom, {timeout: 15_000}).not.toBe(opened.zoom);
-            // The browser shows no view-rotation control yet (desktop has it in its View menu).
-            await page.evaluate(() => {
-                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-                if (!testApi?.callActiveWorkspaceSyncCommand?.('handleViewRotationCw').called) throw new Error('View rotation is unavailable');
-            });
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {
+                name: 'View',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {
+                name: 'Rotate View Clockwise',
+                exact: true,
+            }).click();
             await expect.poll(readView, {timeout: 15_000}).toMatchObject({
                 indicator: '4',
                 visibleText: 'Reading page 4',
