@@ -73,12 +73,18 @@ const cropMarginsSchema = v.object({
 
 /**
  * What the Rust OCR writer appends for each recognized page: the target page,
- * the index of its Tesseract page PDF in `pagePdfs`, and the edits early-print
- * reading made to Tesseract's words.
+ * the index of its Tesseract page PDF in `pagePdfs`, the edits early-print
+ * reading made to Tesseract's words, and, when preprocessing moved the pixels
+ * Tesseract read, the matrix mapping them back to the rendered raster.
  */
 const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({pages: v.pipe(v.array(v.object({
     pageNumber: positiveIntegerSchema,
     source: nonNegativeIntegerSchema,
+    preprocessInverse: v.optional(v.object({
+        rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+        rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+        matrix: v.pipe(v.array(v.pipe(v.array(v.pipe(v.number(), v.finite())), v.length(3))), v.length(3)),
+    })),
     normalizeGreekMicroSign: v.optional(v.boolean()),
     wordEdits: v.optional(v.array(v.object({
         word: nonNegativeIntegerSchema,

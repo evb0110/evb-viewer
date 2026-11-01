@@ -2,6 +2,7 @@ import {
     OCR_LANGUAGE_MODEL_SHA256,
     type TOcrModelCode,
 } from '@contracts/ocrLanguages';
+import type {TOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import * as v from 'valibot';
 
 /** Where a pass reads its page and models inside the engine's file system. */
@@ -44,18 +45,40 @@ const passSchema = v.object({
     outputs: v.pipe(v.array(enginePathSchema), v.minLength(1), v.maxLength(8)),
 });
 
+/** A PNM page (the assembled PPM, or a cleaned page as PGM/PPM) or the rendered tiles to assemble. */
+const imageSchema = v.union([
+    v.pipe(bytesSchema, v.check(image => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES)),
+    rasterSchema,
+]);
+
 const recognizeRequestSchema = v.object({
     id: requestIdSchema,
     type: v.literal('recognize'),
     payload: v.object({
-        image: v.union([
-            v.pipe(bytesSchema, v.check(image => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES)),
-            rasterSchema,
-        ]),
+        image: imageSchema,
         models: v.pipe(v.array(modelCodeSchema), v.minLength(1), v.maxLength(16)),
         passes: v.pipe(v.array(passSchema), v.minLength(1), v.maxLength(8)),
     }),
 });
+
+/** Cleans the page raster with the scan-cleanup engine before recognition, as desktop OCR does. */
+const preprocessRequestSchema = v.object({
+    id: requestIdSchema,
+    type: v.literal('preprocess'),
+    payload: v.object({
+        image: imageSchema,
+        mode: v.picklist([
+            'clean',
+            'polarity-only',
+        ] as const satisfies readonly TOcrScanCleanupMode[]),
+        dpi: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+    }),
+});
+
+const requestSchema = v.variant('type', [
+    recognizeRequestSchema,
+    preprocessRequestSchema,
+]);
 
 const passResultSchema = v.object({
     stderr: v.pipe(v.string(), v.maxLength(BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS)),
@@ -64,11 +87,31 @@ const passResultSchema = v.object({
 
 export const BROWSER_OCR_ENGINE_RESULT_SCHEMA = v.object({passes: v.array(passResultSchema)});
 
-export type TBrowserOcrEngineRequest = v.InferOutput<typeof recognizeRequestSchema>;
+const finiteSchema = v.pipe(v.number(), v.finite());
+const dimensionSchema = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(BROWSER_OCR_MAX_RASTER_DIMENSION_PX));
+
+/**
+ * The page Tesseract reads. A cleaned page keeps the rendered raster's size;
+ * `inverseMatrix` maps its pixels back to the rendered raster when cleanup
+ * moved them. With `failure` the cleanup was unusable and `image` is the
+ * rendered raster itself, recognized as on desktop with a diagnostic.
+ */
+export const BROWSER_OCR_PREPROCESS_RESULT_SCHEMA = v.object({
+    image: v.pipe(bytesSchema, v.check(image => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES)),
+    width: dimensionSchema,
+    height: dimensionSchema,
+    inverseMatrix: v.optional(v.pipe(v.array(v.pipe(v.array(finiteSchema), v.length(3))), v.length(3))),
+    failure: v.optional(v.pipe(v.string(), v.maxLength(4096))),
+});
+
+export type TBrowserOcrEngineRequest = v.InferOutput<typeof requestSchema>;
+export type TBrowserOcrRecognizeRequest = v.InferOutput<typeof recognizeRequestSchema>;
+export type TBrowserOcrPreprocessRequest = v.InferOutput<typeof preprocessRequestSchema>;
 export type IBrowserOcrEnginePass = v.InferOutput<typeof passSchema>;
 export type IBrowserOcrEngineResult = v.InferOutput<typeof BROWSER_OCR_ENGINE_RESULT_SCHEMA>;
+export type IBrowserOcrPreprocessResult = v.InferOutput<typeof BROWSER_OCR_PREPROCESS_RESULT_SCHEMA>;
 
 export function parseBrowserOcrEngineRequest(value: unknown) {
-    const parsed = v.safeParse(recognizeRequestSchema, value, {abortEarly: true});
+    const parsed = v.safeParse(requestSchema, value, {abortEarly: true});
     return parsed.success ? parsed.output : null;
 }
