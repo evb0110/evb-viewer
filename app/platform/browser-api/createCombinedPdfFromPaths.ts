@@ -73,24 +73,6 @@ function assertBrowserCombineSources(paths: string[]) {
     );
 }
 
-interface IBrowserDecodedWorkingSetBudget {
-    usedBytes: number;
-    maxBytes: number;
-}
-
-export function consumeBrowserDecodedWorkingSet(
-    budget: IBrowserDecodedWorkingSetBudget,
-    width: number,
-    height: number,
-    fileName: string,
-) {
-    const decodedBytes = width * height * 4;
-    if (!Number.isSafeInteger(decodedBytes) || decodedBytes < 0 || budget.usedBytes > budget.maxBytes - decodedBytes) {
-        throw new Error(`ERR_BROWSER_PDF_COMBINE_DECODED_WORKING_SET_TOO_LARGE:${fileName}`);
-    }
-    budget.usedBytes += decodedBytes;
-}
-
 export function assertBrowserCombinedPdfOutputBytes(bytes: Uint8Array) {
     if (bytes.byteLength === 0) {
         throw createBrowserPdfCombineOutputError();
