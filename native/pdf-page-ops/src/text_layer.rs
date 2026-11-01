@@ -782,11 +782,9 @@ fn repaired_show_operations(
     Ok(Some(operations))
 }
 
-/// Strings past this length are not OCR words; copy them without measuring.
+/// Longer shows are not OCR words and are copied unmeasured, bounding memory.
 const MAX_REPAIRED_SHOW_BYTES: usize = 64 * 1024;
 
-/// Rewrites a right-to-left show into logical order. Returns `None` to copy the
-/// operation unchanged; an unmeasured show leaves the text position unknown.
 fn repair_show_string(
     bytes: &[u8],
     format: lopdf::StringFormat,
@@ -817,10 +815,8 @@ fn repair_show_string(
                 .iter()
                 .filter_map(|glyph| glyph.character)
                 .collect::<String>();
-            if !contains_rtl(&source) {
-                return Ok(None);
-            }
-            let ordered = if line_matrix.a >= 0.0 {
+            let has_rtl = contains_rtl(&source);
+            let ordered = if has_rtl && line_matrix.a >= 0.0 {
                 let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
                     return Ok(None);
                 };
@@ -834,7 +830,7 @@ fn repair_show_string(
                 line_matrix,
                 final_matrix,
                 format,
-                line_matrix.a < 0.0,
+                has_rtl && line_matrix.a < 0.0,
                 |_| Ok(true),
             )?
         }
