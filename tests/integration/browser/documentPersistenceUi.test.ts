@@ -1299,9 +1299,13 @@ describe('browser document lifecycle UI', () => {
                 await page.evaluate(() => Reflect.get(window, '__resumeLateConformance')());
                 await page.waitForFunction(() => Reflect.get(window, '__lateConformanceDone') === true);
             }
+            const recentOpen = page.locator('[data-recent-open-actionable="true"] .recent-open')
+                .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'});
+            // Recent registration and Close finish asynchronously. Wait for the
+            // saved document on Start before navigation can interrupt either.
+            await recentOpen.waitFor({state: 'visible'});
             await page.reload({waitUntil: 'domcontentloaded'});
-            await page.locator('[data-recent-open-actionable="true"] .recent-open')
-                .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'}).click();
+            await recentOpen.click();
             await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
             if (operation === 'save-as') {
                 await expect.poll(() => page.locator('.textLayer').first().innerText()).toContain('Hello Arabic world');
