@@ -15,7 +15,7 @@ import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { LOCALE_CODES } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import {
-    safeGetLocalStorageItem,
+    readLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
 import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
@@ -239,11 +239,15 @@ function readBrowserSettingsCookies() {
 }
 
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
-    const storageSnapshot = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    const storageRead = readLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    const storageSnapshot = storageRead.status === 'present' ? storageRead.value : null;
     if (storageSnapshot !== null && isFutureBrowserSettingsPayload(storageSnapshot)) {
         assertSupportedBrowserSettingsPayload(storageSnapshot);
     }
     const existingStorageSettings = parseStoredBrowserSettingsSnapshot(storageSnapshot);
+    // Nothing is written over storage that cannot be read; the settings
+    // capability reports it as unreadable.
+    const storageReadable = storageRead.status !== 'unavailable';
     const cookieSnapshot = readBrowserSettingsCookies();
     const legacyCookie = cookieSnapshot?.rawSettings ?? null;
     if (legacyCookie !== null) {
@@ -253,6 +257,9 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
                 legacyCookie,
                 cookieSnapshot?.fallbackSettings,
             );
+            if (!storageReadable) {
+                return cookieSettings.performanceMode;
+            }
             const migratedSettings = existingStorageSettings
                 ? migrateSettings({
                     ...cookieSettings,
@@ -272,7 +279,7 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
         if (!isFutureBrowserSettingsPayload(legacyCookie)) {
             expireLegacyBrowserSettingsCookie();
         }
-    } else if (cookieSnapshot && (storageSnapshot === null || existingStorageSettings)) {
+    } else if (cookieSnapshot && storageReadable && (storageSnapshot === null || existingStorageSettings)) {
         // Locale and theme cookies are only a partial migration. Start with
         // the committed settings snapshot so an early performance-mode read
         // cannot erase settings saved by the main settings capability. Unusable
