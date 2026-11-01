@@ -24,8 +24,14 @@ export interface IPickedBrowserFile {
 export const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
+// Each deadline bounds one step that does not depend on the file's size or on
+// a person: a permission query, opening the writer, or one bounded chunk. A
+// stalled step fails instead of holding the origin-wide save lock forever.
 const BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS = 120_000;
 const BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS = 180_000;
+// close() hashes and moves the written file, so its time grows with the file:
+// every further 8 MiB adds a second to its deadline.
+const BROWSER_FILE_CLOSE_BYTES_PER_EXTRA_SECOND = 8 * 1024 * 1024;
 const BROWSER_INPUT_PICKER_FOCUS_CANCEL_INITIAL_DELAY_MS = 2_000;
 const BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRY_DELAY_MS = 1_000;
 const BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRIES = 3;
@@ -153,11 +159,13 @@ async function abortAfterBrowserFileWriteError(
 
 async function closeBrowserFileWritable(
     writable: FileSystemWritableFileStream,
+    bytesWritten: number,
 ) {
     try {
         await runBrowserFileHandlePhase(
             'closing file writer',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS
+                + Math.ceil(bytesWritten / BROWSER_FILE_CLOSE_BYTES_PER_EXTRA_SECOND) * 1_000,
             () => writable.close(),
         );
     } catch (error) {
@@ -169,6 +177,43 @@ async function closeBrowserFileWritable(
         // can publish the file after the save request has returned.
         throw new BrowserFileWriteOutcomeError(error, null);
     }
+}
+
+// Writes in bounded chunks, so each deadline measures progress, not file size.
+async function writeBrowserFileChunks(
+    writable: FileSystemWritableFileStream,
+    data: Blob | Uint8Array,
+    signal?: AbortSignal,
+) {
+    const size = data instanceof Blob ? data.size : data.byteLength;
+    for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+        throwIfAborted(signal);
+        const end = Math.min(size, offset + BROWSER_DOCUMENT_CHUNK_SIZE);
+        const chunk = data instanceof Blob
+            ? data.slice(offset, end)
+            : toBrowserOwnedArrayBuffer(data.subarray(offset, end));
+        await runBrowserFileHandlePhase(
+            'writing file chunk',
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            () => writable.write(chunk),
+        );
+    }
+    throwIfAborted(signal);
+}
+
+// A permission prompt waits for the person, however long they take. Only
+// cancelling the operation ends the wait early.
+function waitForPermissionAnswer<T>(answer: Promise<T>, signal?: AbortSignal) {
+    if (!signal) return answer;
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        if (signal.aborted) {
+            onAbort();
+            return;
+        }
+        signal.addEventListener('abort', onAbort, {once: true});
+        answer.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+    });
 }
 
 async function queryFileHandleWritePermission(handle: FileSystemFileHandle) {
@@ -185,7 +230,7 @@ async function queryFileHandleWritePermission(handle: FileSystemFileHandle) {
         : 'granted';
 }
 
-export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
+export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle, signal?: AbortSignal) {
     const permissionHandle = handle as TPermissionCapableFileHandle;
     const descriptor = { mode: 'readwrite' as const };
     const requestPermission = permissionHandle.requestPermission?.bind(permissionHandle);
@@ -196,11 +241,7 @@ export async function ensureFileHandleWritePermission(handle: FileSystemFileHand
     }
 
     const nextPermission = requestPermission
-        ? await runBrowserFileHandlePhase(
-            'file write permission',
-            BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
-            () => requestPermission(descriptor),
-        )
+        ? await waitForPermissionAnswer(requestPermission(descriptor), signal)
         : currentPermission;
     if (nextPermission !== 'granted') {
         throw createBrowserFileWritePermissionError();
@@ -505,7 +546,7 @@ async function saveBlobToPickerOrDownload(
 
             assertImageExportHandleName(handle, pickerTypes);
             throwIfAborted(options.signal);
-            await ensureFileHandleWritePermission(handle);
+            await ensureFileHandleWritePermission(handle, options.signal);
             throwIfAborted(options.signal);
             const writable = await runBrowserFileHandlePhase(
                 'opening file for writing',
@@ -513,17 +554,11 @@ async function saveBlobToPickerOrDownload(
                 () => handle.createWritable(),
             );
             try {
-                throwIfAborted(options.signal);
-                await runBrowserFileHandlePhase(
-                    'writing file bytes',
-                    BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-                    () => writable.write(blob),
-                );
-                throwIfAborted(options.signal);
+                await writeBrowserFileChunks(writable, blob, options.signal);
             } catch (error) {
                 await abortAfterBrowserFileWriteError(writable, error);
             }
-            await closeBrowserFileWritable(writable);
+            await closeBrowserFileWritable(writable, blob.size);
             throwIfAborted(options.signal);
             return {
                 canceled: false,
@@ -663,7 +698,7 @@ export async function writeBytesToHandle(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    await ensureFileHandleWritePermission(handle);
+    await ensureFileHandleWritePermission(handle, signal);
     await writeBytesAfterPermission(handle, data, signal);
 }
 
@@ -692,18 +727,12 @@ async function writeBytesAfterPermission(
         () => handle.createWritable(),
     );
     try {
-        throwIfAborted(signal);
-        await runBrowserFileHandlePhase(
-            'writing file bytes',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-            () => writable.write(toBrowserOwnedArrayBuffer(data)),
-        );
-        throwIfAborted(signal);
+        await writeBrowserFileChunks(writable, data, signal);
     } catch (error) {
         await abortAfterBrowserFileWriteError(writable, error);
     }
 
-    await closeBrowserFileWritable(writable);
+    await closeBrowserFileWritable(writable, data.byteLength);
 }
 
 // Inside the physical-save lock, after the caller's preflight. It never prompts.
@@ -717,8 +746,9 @@ export async function writeDocumentRefToHandle(
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
         () => handle.createWritable(),
     );
+    let size = 0;
     try {
-        const { size } = await browserDocumentStore.stat(ref);
+        ({ size } = await browserDocumentStore.stat(ref));
         for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
             const chunk = await browserDocumentStore.readRange(
                 ref,
@@ -738,5 +768,5 @@ export async function writeDocumentRefToHandle(
         await abortAfterBrowserFileWriteError(writable, error);
     }
 
-    await closeBrowserFileWritable(writable);
+    await closeBrowserFileWritable(writable, size);
 }

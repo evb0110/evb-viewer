@@ -103,7 +103,8 @@ describe('browser file picker adapter', () => {
         }
         expect(close).toHaveBeenCalledOnce();
 
-        await vi.advanceTimersByTimeAsync(180_000);
+        // The close deadline is three minutes plus a second per started 8 MiB.
+        await vi.advanceTimersByTimeAsync(181_000);
         const error = await saveError;
         expect(error).toBeInstanceOf(Error);
         expect(error.message).toContain('Browser file save did not finish while waiting for closing file writer');
@@ -112,6 +113,53 @@ describe('browser file picker adapter', () => {
         releaseClose();
         await Promise.resolve();
         expect(committed).toBe(false);
+    });
+
+    it('saves a large file whose disk writes progress slowly, however long the whole write takes', async () => {
+        vi.useFakeTimers();
+        const saved: number[] = [];
+        // A slow disk: 30 seconds per MiB, six minutes for the whole file.
+        const write = vi.fn((data: FileSystemWriteChunkType) => new Promise<void>((resolve) => {
+            const byteLength = data instanceof Blob ? data.size : ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? data.byteLength : 0;
+            setTimeout(() => {
+                saved.push(byteLength);
+                resolve();
+            }, byteLength / (1024 * 1024) * 30_000);
+        }));
+        const writable = Object.assign(new WritableStream(), {
+            abort: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+            seek: vi.fn(async (_position: number) => {}),
+            truncate: vi.fn(async (_size: number) => {}),
+            write,
+        }) satisfies FileSystemWritableFileStream;
+        const handle = Object.assign(createFileSystemFileHandle({name: 'large.pdf'}), {createWritable: async () => writable});
+        const {writeBytesToHandle} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+
+        const save = writeBytesToHandle(handle, new Uint8Array(12 * 1024 * 1024)).then(() => 'saved', (error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(400_000);
+
+        await expect(save).resolves.toBe('saved');
+        expect(saved.reduce((total, byteLength) => total + byteLength, 0)).toBe(12 * 1024 * 1024);
+    });
+
+    it('waits for a write permission answer given after minutes, and stops waiting when the save is cancelled', async () => {
+        vi.useFakeTimers();
+        const createHandle = (answerAfterMs: number) => Object.assign(createFileSystemFileHandle({name: 'prompted.pdf'}), {
+            queryPermission: async () => 'prompt' as const,
+            requestPermission: () => new Promise<'granted'>(resolve => setTimeout(() => resolve('granted'), answerAfterMs)),
+        });
+        const {ensureFileHandleWritePermission} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+
+        const answered = ensureFileHandleWritePermission(createHandle(10 * 60_000)).then(() => 'granted', (error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(10 * 60_000);
+        await expect(answered).resolves.toBe('granted');
+
+        const controller = new AbortController();
+        const cancelled = ensureFileHandleWritePermission(createHandle(60 * 60_000), controller.signal).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        controller.abort();
+        await expect(cancelled).resolves.toMatchObject({name: 'AbortError'});
     });
 
     it('checks a revoked write grant inside the save lock without prompting or opening a writer', async () => {
