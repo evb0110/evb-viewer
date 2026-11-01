@@ -300,6 +300,11 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         }
     }, {flush: 'sync'});
 
+    const imageCommandGuard = {
+        category: 'user-visible-operation',
+        scope: 'workspace',
+        message: 'Failed to insert image',
+    } as const;
     usePageShortcuts({
         isActive: computed(() => isActive.value && !document.isMoving.value),
         hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? file.djvuSourcePath.value)),
@@ -336,6 +341,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         handleToggleSidebar: () => {
             view.showSidebar.value = !view.showSidebar.value;
         },
+        handleInsertImageFromFile: () => void runDetached(djvuProjection.handleInsertImageFromFile, imageCommandGuard),
+        handlePasteImageFromClipboard: () => void runDetached(djvuProjection.handlePasteImageFromClipboard, imageCommandGuard),
     });
     const crop = useWorkspaceCrop({
         pdfViewerRef,

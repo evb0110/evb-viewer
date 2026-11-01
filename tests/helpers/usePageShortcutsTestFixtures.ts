@@ -62,6 +62,8 @@ export function createPageShortcutDeps() {
         handleSave: vi.fn(),
         handlePrint: vi.fn(),
         handleToggleSidebar: vi.fn(),
+        handleInsertImageFromFile: vi.fn(),
+        handlePasteImageFromClipboard: vi.fn(),
     };
 }
 

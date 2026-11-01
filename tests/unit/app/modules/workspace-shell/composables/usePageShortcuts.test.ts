@@ -684,6 +684,60 @@ describe('usePageShortcuts', () => {
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
     });
 
+    it.each([
+        [
+            'i',
+            'handleInsertImageFromFile',
+        ],
+        [
+            'v',
+            'handlePasteImageFromClipboard',
+        ],
+    ] as const)('routes web Shift+Cmd/Ctrl+%s to the Edit menu image command', async (key, command) => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
+            key: key.toUpperCase(),
+            ctrlKey: true,
+            shiftKey: true,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(deps[command]).toHaveBeenCalledOnce();
+    });
+
+    it('leaves Shift+Cmd/Ctrl+V to the Electron menu and to editable fields', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+        const pastePlainText = {
+            key: 'V',
+            ctrlKey: true,
+            shiftKey: true,
+        } as const;
+
+        getCapturedOnEventFired()?.(createKeyboardEventFixture(pastePlainText));
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const fakeInput = {
+            isContentEditable: false,
+            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
+            ...pastePlainText,
+            target: fakeInput,
+        }));
+
+        expect(deps.handlePasteImageFromClipboard).not.toHaveBeenCalled();
+    });
+
     it('closes visible shortcut menus on outside pointerdown', async () => {
         const deps = createDeps();
         deps.annotationContextMenuVisible.value = true;

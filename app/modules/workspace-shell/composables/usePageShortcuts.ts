@@ -56,6 +56,8 @@ interface IPageShortcutsDeps {
     handleSave: () => void;
     handlePrint: () => void;
     handleToggleSidebar: () => void;
+    handleInsertImageFromFile: () => void;
+    handlePasteImageFromClipboard: () => void;
 }
 
 function isEditingText(target: EventTarget | null) {
@@ -188,6 +190,20 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         if (key === 's' && !event.shiftKey && shouldHandleRendererAccelerators) {
             event.preventDefault();
         }
+    }
+
+    // Web-only: the desktop Edit menu owns these accelerators.
+    function handleImageShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
+        if (!event.shiftKey || !shouldHandleRendererAccelerators || (key !== 'i' && key !== 'v')) {
+            return false;
+        }
+        event.preventDefault();
+        if (key === 'i') {
+            deps.handleInsertImageFromFile();
+        } else {
+            deps.handlePasteImageFromClipboard();
+        }
+        return true;
     }
 
     function handleZoomShortcut(event: KeyboardEvent, shouldHandleRendererAccelerators: boolean) {
@@ -377,6 +393,9 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
 
+        if (handleImageShortcut(event, key, shouldHandleRendererAccelerators)) {
+            return;
+        }
         preventReactiveLetterShortcut(event, key, shouldHandleRendererAccelerators);
         handleZoomShortcut(event, shouldHandleRendererAccelerators);
     }
