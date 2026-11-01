@@ -5,10 +5,7 @@ import {
 } from '@contracts/pdfAnnotationParseTypes';
 import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
 import {isRecord} from '@contracts/runtimeGuards';
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import * as v from 'valibot';
-
-const BROWSER_ANNOTATION_PARSE_MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 
 const headerSchema = v.strictObject({
     format: v.literal('evb-pdf-annotation-parse'),
@@ -57,6 +54,11 @@ function decodeChunk(value: unknown, expectedChunkIndex: number, lineNumber: num
     return result.output.entries;
 }
 
+/**
+ * Reads the parse output one JSONL line at a time, as desktop reads its parse
+ * session chunk by chunk, so the output's total size is not a limit. Each line
+ * and the entry count keep the shared parse limits.
+ */
 export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
     IPdfAnnotationParseResult,
     'pageCount' | 'entities' | 'foreign'
@@ -64,43 +66,32 @@ export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
     if (!(data instanceof Uint8Array) || data.byteLength === 0) {
         throw new Error('PDF annotation parse WASM output is empty');
     }
-    if (data.byteLength > BROWSER_ANNOTATION_PARSE_MAX_OUTPUT_BYTES) {
-        throw new Error(
-            `PDF annotation parse browser output exceeds ${BROWSER_ANNOTATION_PARSE_MAX_OUTPUT_BYTES} bytes`,
-        );
-    }
-    let text: string;
-    try {
-        text = new TextDecoder('utf-8', {fatal: true}).decode(data);
-    } catch (error) {
-        throw new Error('PDF annotation parse WASM output is not valid UTF-8', {cause: error});
-    }
-    const rawLines = text.split('\n');
-    if (rawLines.at(-1) === '') {
-        rawLines.pop();
-    }
-    if (rawLines.length === 0) {
-        throw new Error('PDF annotation parse WASM output is missing its header');
-    }
-    const encoder = new TextEncoder();
-    const lines = rawLines.map((line, index) => {
-        const byteLength = encoder.encode(`${line}\n`).byteLength;
-        if (byteLength > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES) {
-            throw new Error(
-                `PDF annotation parse WASM output line ${index + 1} exceeds ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} bytes`,
-            );
-        }
-        return line.endsWith('\r') ? line.slice(0, -1) : line;
-    });
-    const pageCount = decodeHeader(parseJsonLine(lines[0]!, 1));
+    // A UTF-8 multi-byte sequence never contains 0x0A, so lines split on bytes.
+    const decoder = new TextDecoder('utf-8', {fatal: true});
+    let pageCount: number | null = null;
     const entities: IPdfAnnotationParseResult['entities'] = [];
     const foreign: IPdfAnnotationParseResult['foreign'] = [];
-    for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
-        const entries = decodeChunk(
-            parseJsonLine(lines[lineIndex]!, lineIndex + 1),
-            lineIndex - 1,
-            lineIndex + 1,
-        );
+    for (let start = 0, lineNumber = 1; start < data.byteLength; lineNumber += 1) {
+        const newline = data.indexOf(0x0a, start);
+        const end = newline === -1 ? data.byteLength : newline;
+        if (end + 1 - start > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES) {
+            throw new Error(
+                `PDF annotation parse WASM output line ${lineNumber} exceeds ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} bytes`,
+            );
+        }
+        let line: string;
+        try {
+            line = decoder.decode(data.subarray(start, end));
+        } catch (error) {
+            throw new Error('PDF annotation parse WASM output is not valid UTF-8', {cause: error});
+        }
+        start = end + 1;
+        const value = parseJsonLine(line.endsWith('\r') ? line.slice(0, -1) : line, lineNumber);
+        if (pageCount === null) {
+            pageCount = decodeHeader(value);
+            continue;
+        }
+        const entries = decodeChunk(value, lineNumber - 2, lineNumber);
         if (entities.length + foreign.length + entries.length > PDF_ANNOTATION_PARSE_MAX_ENTRIES) {
             throw new Error(
                 `PDF annotation parse WASM output contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`,
@@ -113,6 +104,9 @@ export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
                 entities.push(entry);
             }
         }
+    }
+    if (pageCount === null) {
+        throw new Error('PDF annotation parse WASM output is missing its header');
     }
     return {
         pageCount,

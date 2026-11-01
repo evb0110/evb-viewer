@@ -29,6 +29,10 @@ import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
+import {
+    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
+    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+} from '@contracts/pdfAnnotationParseTypes';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
@@ -626,6 +630,56 @@ describe('browser page-ops WASM fast path', () => {
             'lifecycle-text-box-two',
         ]);
         expect(parsed.foreign).toEqual([]);
+    });
+
+    it('decodes annotation parse output of any total size and keeps the desktop entry limit', async () => {
+        const data = new Uint8Array(await readFile(join(
+            process.cwd(),
+            'tests/fixtures/electron/freetext-lifecycle-test.pdf',
+        )));
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('parseAnnotations', {data});
+        if (result === null || 'status' in result) {
+            throw new Error('Expected annotation parse WASM output');
+        }
+        const [
+            header,
+            firstChunk,
+        ] = new TextDecoder().decode(result.data).split('\n');
+        const note = (JSON.parse(firstChunk!) as {entries: Array<Record<string, unknown>>}).entries[0]!;
+        const output = (entryCount: number, entriesPerLine: number, entry: unknown = note) => {
+            const lines = [header!];
+            for (let offset = 0; offset < entryCount; offset += entriesPerLine) {
+                lines.push(JSON.stringify({
+                    chunkIndex: lines.length - 1,
+                    entries: new Array(Math.min(entriesPerLine, entryCount - offset)).fill(entry),
+                }));
+            }
+            return new TextEncoder().encode(`${lines.join('\r\n')}\n`);
+        };
+
+        // Desktop reads its parse session without a total byte limit.
+        const longNote = {
+            ...note,
+            contents: 'Long note text. '.repeat(500),
+        };
+        const large = output(2_500, 400, longNote);
+        expect(large.byteLength).toBeGreaterThan(16 * 1024 * 1024);
+        const parsed = decodeBrowserPdfAnnotationsOutput(large);
+        expect(parsed.entities).toHaveLength(2_500);
+        expect(parsed.entities.at(-1)).toEqual(longNote);
+
+        expect(() => decodeBrowserPdfAnnotationsOutput(output(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1, 2_000)))
+            .toThrow(`contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`);
+        const longLine = new TextEncoder().encode(`${header}\n${JSON.stringify({
+            chunkIndex: 0,
+            entries: [],
+            padding: 'x'.repeat(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES),
+        })}\n`);
+        expect(decodeBrowserPdfAnnotationsOutput(output(1, 1)).entities).toEqual([note]);
+        expect(() => decodeBrowserPdfAnnotationsOutput(longLine)).toThrow('line 2 exceeds');
+        expect(() => decodeBrowserPdfAnnotationsOutput(Uint8Array.of(...new TextEncoder().encode(`${header}\n`), 0xff, 0x0a)))
+            .toThrow('not valid UTF-8');
     });
 
     it('matches pdf-lib page summaries for representative operations', async () => {

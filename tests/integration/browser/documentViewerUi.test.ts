@@ -1403,6 +1403,80 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('imports every note when the annotation parse output exceeds 16 MiB', async () => {
+        // Desktop reads its parse output without a total byte limit, so the
+        // browser lists all 2,500 notes whose parse output is about 21 MB.
+        const noteCount = 2_500;
+        const pdf = await PDFDocument.create();
+        const text = 'Long imported note text. '.repeat(320);
+        for (let pageIndex = 0; pageIndex < 10; pageIndex += 1) {
+            const pdfPage = pdf.addPage([
+                612,
+                792,
+            ]);
+            pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj(Array.from({length: noteCount / 10}, (_, index) => {
+                const x = 20 + (index % 25) * 22;
+                const y = 20 + Math.floor(index / 25) * 70;
+                return pdf.context.register(pdf.context.obj({
+                    Type: 'Annot',
+                    Subtype: 'Text',
+                    Rect: [
+                        x,
+                        y,
+                        x + 18,
+                        y + 18,
+                    ],
+                    Contents: PDFHexString.fromText(`Note ${pageIndex * (noteCount / 10) + index + 1}. ${text}`),
+                    T: PDFString.of('Importer'),
+                    NM: PDFString.of(`imported-note-${pageIndex}-${index}`),
+                    M: PDFString.of('D:20260101000000Z'),
+                    Open: false,
+                }));
+            })));
+        }
+        try {
+            const page = await lifecycle.browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles({
+                name: 'many-long-notes.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save({useObjectStreams: true})),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.notes-list-header .notes-count:visible').first().textContent(), {timeout: 120_000})
+                .toBe(`(${noteCount})`);
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 240_000);
+
     it('shows a literal percent sequence in a browser file name exactly on its tab', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {
