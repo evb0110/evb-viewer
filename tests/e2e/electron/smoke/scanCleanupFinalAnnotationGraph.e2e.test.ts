@@ -15,7 +15,7 @@ import {
     clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    openPdfInApp, clickVisibleToolbarButton,
+    openPdfInApp, clickVisibleToolbarButton, openDocumentSidebarTab,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     type IWorkspaceExposeProbeWindow, readWorkspaceStateValues,
@@ -25,6 +25,101 @@ const fixture = createElectronE2ESessionFixture({ sessionName: () => `e2e-scanli
 const evidence = resolve(process.env.SCANLINKS6_PROOF_DIR ?? `.devkit/tmp/cleanup-final-graph-${Date.now()}`, 'final-annotation-graph');
 mkdirSync(evidence, { recursive: true });
 describe('public catalog cleanup proof', () => {
+    it('preserves searchable hidden OCR with text state outside BT/ET', async () => {
+        const {
+            page, name,
+        } = fixture.getSession();
+        const directory = resolve(evidence, 'outside-text-state');
+        mkdirSync(directory, {recursive: true});
+        const source = resolve(directory, 'source.pdf');
+        writeFileSync(source, Buffer.from(readFileSync(resolve('tests/fixtures/release/scan-cleanup-outside-text-state.pdf.hex'), 'utf8').replace(/\s/gu, ''), 'hex'));
+
+        async function extractText(path: string) {
+            const document = await pdfjs.getDocument({
+                data: new Uint8Array(readFileSync(path)),
+                ...createPdfjsNodeDocumentOptions(),
+            }).promise;
+            try {
+                const pages: string[] = [];
+                for (let number = 1; number <= document.numPages; number += 1) {
+                    const content = await (await document.getPage(number)).getTextContent();
+                    pages.push(content.items.flatMap(item => 'str' in item ? [item.str] : []).join(' '));
+                }
+                return pages;
+            } finally {
+                await document.loadingTask.destroy();
+            }
+        }
+        const sourceText = await extractText(source);
+        expect(sourceText.join(' ')).toContain('Tagereise');
+        await openPdfInApp(page, source);
+        for (const toast of await page.$$('button[data-slot="close"]')) {
+            if (await toast.isVisible()) await clickAsUser(page, toast);
+        }
+        await clickVisibleToolbarButton(page, 'Scan cleanup');
+        await page.waitForFunction(count => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === count
+            && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed', {timeout: 90000}, sourceText.length);
+        if (await page.$('.scan-cleanup-first-run-guidance')) {
+            await clickAsUser(page, '.scan-cleanup-first-run-guidance button');
+            await page.waitForSelector('.scan-cleanup-first-run-guidance', {hidden: true});
+        }
+        await clickAsUser(page, '[data-settings-scope="all"]');
+        await clickAsUser(page, '[aria-label="Page layout"]');
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="option"]'))
+            .find(el => el.checkVisibility() && el.textContent?.trim() === 'Force single pages'), undefined, {description: 'Force single pages'});
+        for (const label of [
+            'Keep original images',
+            'Crop each output page to its content',
+            'Match page size with other pages',
+            'Skip blank pages',
+        ]) {
+            const id = await page.$$eval('label', (labels, text) => labels.find(el => el.textContent?.trim() === text)?.getAttribute('for'), label);
+            expect(id, label).toBeTruthy();
+            const selector = `[id="${id}"]`;
+            if (await page.$eval(selector, el => el.getAttribute('aria-checked') === 'true')) await clickAsUser(page, selector);
+            await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-checked') === 'false', {}, selector);
+        }
+        await page.waitForFunction(selector => {
+            const button = document.querySelector<HTMLButtonElement>(selector);
+            return button && !button.disabled && button.textContent?.includes('Clean');
+        }, {timeout: 90000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await page.waitForFunction(source => {
+            const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues?.(['originalPath']);
+            return typeof state?.originalPath === 'string' && state.originalPath !== source && state.originalPath.endsWith('— cleaned.pdf');
+        }, {timeout: 180000}, source);
+        const state = await readWorkspaceStateValues(page, ['originalPath']);
+        const saved = resolve(directory, 'output.pdf');
+        copyFileSync(state.originalPath as string, saved);
+        const outputText = await extractText(saved);
+
+        await openPdfInApp(page, saved);
+        await openDocumentSidebarTab(page, 'search');
+        await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .document-search-bar input');
+        await page.keyboard.type('Tagereise');
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => {
+            const results = document.querySelector('.workspace-host[data-workspace-active="true"] .document-search-results');
+            const text = results?.textContent ?? '';
+            return !results?.querySelector('.document-search-results-spinner')
+                && (text.includes('Tagereise') || text.includes('No results'));
+        }, {timeout: 90000});
+        const searchText = await page.$eval('.workspace-host[data-workspace-active="true"] .document-search-results', el => el.textContent?.replace(/\s+/gu, ' ').trim());
+        const matches = await page.$$('.workspace-host[data-workspace-active="true"] .document-search-result-snippet');
+        await page.screenshot({path: resolve(directory, 'search.png')});
+        writeFileSync(resolve(directory, 'result.json'), JSON.stringify({
+            session: name,
+            sourceText,
+            outputText,
+            searchText,
+            searchResultCount: matches.length,
+        }, null, 2));
+        // Saved bytes and rendered search results must both retain the source OCR.
+        expect.soft(outputText).toHaveLength(sourceText.length);
+        expect.soft(outputText.join(' ')).toContain('Einleitung.');
+        expect.soft(outputText.join(' ')).toContain('Tagereise');
+        expect.soft(matches.length, searchText).toBeGreaterThan(0);
+    }, 300000);
     for (const mode of [
         'lossless',
         'lossless-crop',

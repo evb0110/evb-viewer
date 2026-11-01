@@ -1309,7 +1309,9 @@ pub(crate) fn text_operations(
                 text.end_text();
                 operations.push(operation);
             }
-            "Tr" if in_text => {
+            // Text state (Tr, Tf, TL, Tc, Tw, Tz, Ts) is graphics state, valid
+            // outside BT/ET. Scanner OCR layers often select the font there.
+            "Tr" => {
                 if strict
                     && (operation.operands.len() != 1
                         || object_to_f64(&operation.operands[0]).is_err())
@@ -1319,7 +1321,7 @@ pub(crate) fn text_operations(
                 // The overlay is search data, never visible page ink.
                 operations.push(ContentOperation::new("Tr", vec![3.into()]));
             }
-            "Tf" if in_text => {
+            "Tf" => {
                 let parsed = operation
                     .operands
                     .first()
@@ -1359,7 +1361,7 @@ pub(crate) fn text_operations(
                 }
                 operations.push(operation);
             }
-            "TL" if in_text => {
+            "TL" => {
                 let value = operation
                     .operands
                     .first()
@@ -1581,7 +1583,7 @@ pub(crate) fn text_operations(
                     operations.push(operation);
                 }
             }
-            "Tc" | "Tw" | "Tz" | "Ts" if in_text => {
+            "Tc" | "Tw" | "Tz" | "Ts" => {
                 let value = operation
                     .operands
                     .first()
@@ -1611,9 +1613,7 @@ pub(crate) fn text_operations(
                 )
                 .into());
             }
-            "Tj" | "TJ" | "'" | "\"" | "Tf" | "TL" | "Tm" | "Td" | "TD" | "T*" | "Tc" | "Tw"
-            | "Tz" | "Ts" | "Tr"
-                if strict =>
+            "Tj" | "TJ" | "'" | "\"" | "Tm" | "Td" | "TD" | "T*" if strict =>
             {
                 return Err(format!(
                     "overlay-text source uses {} outside a text object",

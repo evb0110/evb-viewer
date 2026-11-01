@@ -1109,6 +1109,66 @@ fn overlay_text_filters_each_split_page_to_its_visible_source_half() {
 }
 
 #[test]
+fn overlay_text_keeps_text_state_selected_outside_text_objects() {
+    // Internet Archive OCR layers select the font and render mode before BT.
+    let source = path("outside-state-source", "pdf");
+    let input = path("outside-state-input", "pdf");
+    let output = path("outside-state-output", "pdf");
+    let instructions = path("outside-state-instructions", "json");
+    save_single_page(
+        &source,
+        b"3 Tr /F1 6 Tf q 1 0 0 1 5 0 cm BT 1 0 0 1 15 60 Tm (LEFT_ONLY) Tj ET /F1 6 Tf BT 1 0 0 1 115 60 Tm (RIGHT_ONLY) Tj ET Q"
+            .to_vec(),
+        dictionary! {"Font" => dictionary! {"F1" => measurable_helvetica_font()}},
+    );
+
+    for (pages, json) in [
+        (
+            1,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+        ),
+        (
+            2,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true}]}"#,
+        ),
+    ] {
+        if pages == 1 {
+            save_empty_pages(&input, 1);
+        } else {
+            save_half_pages(&input, 2);
+        }
+        write(&instructions, json).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let texts = (1..=pages)
+            .map(|page| {
+                let extracted = pdftotext_page(&output, page, &[]);
+                assert!(
+                    extracted.stderr.is_empty(),
+                    "{}",
+                    String::from_utf8_lossy(&extracted.stderr)
+                );
+                String::from_utf8_lossy(&extracted.stdout).into_owned()
+            })
+            .collect::<Vec<_>>();
+        if pages == 1 {
+            assert!(texts[0].contains("LEFT_ONLY") && texts[0].contains("RIGHT_ONLY"));
+        } else {
+            assert!(texts[0].contains("LEFT_ONLY") && !texts[0].contains("RIGHT_ONLY"));
+            assert!(texts[1].contains("RIGHT_ONLY") && !texts[1].contains("LEFT_ONLY"));
+        }
+    }
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
 fn split_text_filter_tracks_consecutive_shows_and_splits_strings_and_tj_arrays_at_the_seam() {
     let source = path("split-glyph-source", "pdf");
     let input = path("split-glyph-input", "pdf");
