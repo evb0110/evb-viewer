@@ -1880,6 +1880,7 @@ export default {
             'load': 'Não foi possível carregar as configurações',
             'recovered': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi mantido como cópia de recuperação quando possível.',
             'recoveredWithPath': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi colocado em quarentena em {path}.',
+            'newerVersion': 'Estas configurações foram salvas por uma versão mais recente do EVB Viewer. Elas são mantidas sem alterações; esta versão usa os padrões e não consegue salvar configurações. Abra a versão mais recente para alterá-las.',
         },
         'runtime': {
             'title': 'Algo deu errado',

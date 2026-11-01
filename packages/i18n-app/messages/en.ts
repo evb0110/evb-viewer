@@ -1869,6 +1869,7 @@ export default {
             'load': 'Failed to load settings',
             'recovered': 'Saved settings could not be used, so defaults were restored. The previous file was kept as a recovery copy when possible.',
             'recoveredWithPath': 'Saved settings could not be used, so defaults were restored. The previous file was quarantined at {path}.',
+            'newerVersion': 'These settings were saved by a newer version of EVB Viewer. They are kept unchanged, and this version uses its defaults and cannot save settings. Open the newer version to change them.',
         },
         'runtime': {
             'title': 'Something went wrong',

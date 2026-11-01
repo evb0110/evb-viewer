@@ -1869,6 +1869,7 @@ export default {
             'load': 'Einstellungen konnten nicht geladen werden',
             'recovered': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde, wenn möglich, als Wiederherstellungskopie behalten.',
             'recoveredWithPath': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde unter {path} unter Quarantäne gestellt.',
+            'newerVersion': 'Diese Einstellungen wurden von einer neueren Version von EVB Viewer gespeichert. Sie bleiben unverändert; diese Version verwendet ihre Standardeinstellungen und kann keine Einstellungen speichern. Öffnen Sie die neuere Version, um sie zu ändern.',
         },
         'runtime': {
             'title': 'Etwas ist schiefgelaufen',

@@ -1880,6 +1880,7 @@ export default {
             'load': 'Não foi possível carregar as definições',
             'recovered': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi guardado como cópia de recuperação quando possível.',
             'recoveredWithPath': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi colocado em quarentena em {path}.',
+            'newerVersion': 'Estas definições foram guardadas por uma versão mais recente do EVB Viewer. Mantêm-se inalteradas; esta versão usa os valores predefinidos e não consegue guardar definições. Abra a versão mais recente para as alterar.',
         },
         'runtime': {
             'title': 'Algo correu mal',

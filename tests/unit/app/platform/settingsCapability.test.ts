@@ -155,7 +155,7 @@ describe('browserSettingsCapability', () => {
         expect(settings.theme).toBe('light');
     });
 
-    it('preserves a future storage schema and fails closed', async () => {
+    it('runs on defaults beside a future storage schema, preserves it and refuses to save over it', async () => {
         const localStorage = new MemoryStorage();
         const futureSettings = JSON.stringify({
             version: 99,
@@ -167,7 +167,11 @@ describe('browserSettingsCapability', () => {
 
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
-        await expect(browserSettingsCapability.get()).rejects.toMatchObject({
+        const { DEFAULT_SETTINGS } = await import('@contracts/settings');
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({authorName: DEFAULT_SETTINGS.authorName});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'unsupported'});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toBeNull();
+        await expect(browserSettingsCapability.save({authorName: 'Older tab'})).rejects.toMatchObject({
             code: 'unsupported-settings-schema',
             version: 99,
         });
@@ -252,6 +256,45 @@ describe('browserSettingsCapability', () => {
 
         expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'granted'});
         expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('clientDiagnosticsPreference');
+    });
+
+    it('grants no consent and saves nothing while a newer version owns either settings source', async () => {
+        const localStorage = new MemoryStorage();
+        const browserWindow = Object.assign(new EventTarget(), {localStorage});
+        vi.stubGlobal('window', browserWindow);
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        const {BROWSER_SETTINGS_COOKIE_KEY} = await import('@app/utils/browserSettingsPersistence');
+        const supported = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        });
+        localStorage.setItem(SETTINGS_STORAGE_KEY, supported);
+        const futureCookie = encodeURIComponent(JSON.stringify({
+            version: 99,
+            clientDiagnosticsPreference: 'granted',
+        }));
+        const cookieWrites: string[] = [];
+        vi.stubGlobal('document', {
+            get cookie() {
+                return `${BROWSER_SETTINGS_COOKIE_KEY}=${futureCookie}`;
+            },
+            set cookie(value: string) {
+                cookieWrites.push(value);
+            },
+        });
+
+        // The reporter reads consent before settings load.
+        const reporter = await import('@app/utils/failureReporter');
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('unknown');
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'unknown'});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'unsupported'});
+        browserWindow.dispatchEvent(new Event('pageshow'));
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'unknown'});
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('unknown');
+        await expect(browserSettingsCapability.save({authorName: 'Older tab'})).rejects.toMatchObject({code: 'unsupported-settings-schema'});
+        expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(supported);
+        expect(cookieWrites).toEqual([]);
     });
 
     it('delivers current shared settings and fails closed when storage is cleared or unsupported', async () => {

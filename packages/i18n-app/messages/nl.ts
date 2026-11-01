@@ -1869,6 +1869,7 @@ export default {
             'load': 'Instellingen konden niet worden geladen',
             'recovered': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is indien mogelijk als herstelkopie bewaard.',
             'recoveredWithPath': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is in quarantaine geplaatst op {path}.',
+            'newerVersion': 'Deze instellingen zijn opgeslagen door een nieuwere versie van EVB Viewer. Ze blijven ongewijzigd; deze versie gebruikt haar standaardinstellingen en kan geen instellingen opslaan. Open de nieuwere versie om ze te wijzigen.',
         },
         'runtime': {
             'title': 'Er is iets misgegaan',

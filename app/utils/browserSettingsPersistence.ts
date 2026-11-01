@@ -116,6 +116,18 @@ export function isFutureBrowserSettingsPayload(raw: unknown) {
     }
 }
 
+/**
+ * Whether the stored settings or the legacy settings cookie belong to a newer
+ * schema. Settings another deploy's newer tab wrote are neither read nor
+ * written over here; this version runs on defaults instead.
+ */
+export function hasFutureBrowserSettings() {
+    const stored = readLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    const legacyCookie = readBrowserSettingsCookies()?.rawSettings ?? null;
+    return (stored.status === 'present' && isFutureBrowserSettingsPayload(stored.value))
+        || (legacyCookie !== null && isFutureBrowserSettingsPayload(legacyCookie));
+}
+
 function isAppLocale(value: unknown): value is TAppLocale {
     return typeof value === 'string' && SUPPORTED_LOCALES.has(value);
 }
@@ -239,11 +251,11 @@ function readBrowserSettingsCookies() {
 }
 
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
+    if (hasFutureBrowserSettings()) {
+        return DEFAULT_SETTINGS.performanceMode;
+    }
     const storageRead = readLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
     const storageSnapshot = storageRead.status === 'present' ? storageRead.value : null;
-    if (storageSnapshot !== null && isFutureBrowserSettingsPayload(storageSnapshot)) {
-        assertSupportedBrowserSettingsPayload(storageSnapshot);
-    }
     const existingStorageSettings = parseStoredBrowserSettingsSnapshot(storageSnapshot);
     // Nothing is written over storage that cannot be read; the settings
     // capability reports it as unreadable.

@@ -38,6 +38,7 @@ import {
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
+    hasFutureBrowserSettings,
     assertSupportedBrowserSettingsPayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
@@ -169,6 +170,8 @@ function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {
 }
 
 function readLatestBrowserSettingsForSave() {
+    // Either source written by a newer version refuses the save.
+    assertSupportedBrowserSettingsPayload(readBrowserSettingsCookies()?.rawSettings ?? null);
     const persistedSettings = readBrowserSettingsFromStorage().settings;
     if (persistedSettings) {
         return applyDiagnosticsPreferenceOverride(persistedSettings);
@@ -337,9 +340,10 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
 function refreshSharedSettings() {
     const previousPreference = settingsState.clientDiagnosticsPreference;
     try {
-        settingsState = applyDiagnosticsPreferenceOverride(
-            readBrowserSettingsFromStorage({allowUnavailable: true}).settings ?? { ...DEFAULT_SETTINGS },
-        );
+        const shared = hasFutureBrowserSettings()
+            ? null
+            : readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
+        settingsState = applyDiagnosticsPreferenceOverride(shared ?? { ...DEFAULT_SETTINGS });
     } catch {
         // A cleared, unreadable or unsupported shared preference grants nothing.
         settingsState = applyDiagnosticsPreferenceOverride({ ...DEFAULT_SETTINGS });
@@ -425,6 +429,13 @@ export const browserSettingsCapability: ISettingsCapability = {
     },
     get() {
         return Promise.resolve().then(() => {
+            if (!browserSettingsLoaded && hasFutureBrowserSettings()) {
+                // A newer version's settings stay as they are, and saves are
+                // refused; desktop instead quarantines its file and writes defaults.
+                settingsState = applyDiagnosticsPreferenceOverride({ ...DEFAULT_SETTINGS });
+                recordSettingsRecovery('unsupported');
+                browserSettingsLoaded = true;
+            }
             if (!browserSettingsLoaded) {
                 const migration = readAndMigrateBrowserSettings({
                     allowUnavailable: true,

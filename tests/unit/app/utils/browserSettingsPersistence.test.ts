@@ -156,8 +156,25 @@ describe('browserSettingsPersistence performanceMode', () => {
             storageValue: futureSettings,
         });
 
-        expect(() => readBrowserPerformanceModeSnapshot()).toThrow('newer than the supported version');
+        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
         expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe(futureSettings);
+        expect(browser.cookieWrites).toEqual([]);
+    });
+
+    it('reads defaults and writes nothing beside a future legacy settings cookie', () => {
+        const futureCookie = JSON.stringify({
+            version: DEFAULT_SETTINGS.version + 1,
+            performanceMode: 'high',
+        });
+        const browser = stubBrowserPersistence({
+            cookieValue: futureCookie,
+            storageValue: JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                performanceMode: 'medium',
+            }),
+        });
+
+        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
         expect(browser.cookieWrites).toEqual([]);
     });
 

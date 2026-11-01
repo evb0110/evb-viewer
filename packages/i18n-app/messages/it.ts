@@ -1869,6 +1869,7 @@ export default {
             'load': 'Impossibile caricare le impostazioni',
             'recovered': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato conservato come copia di recupero quando possibile.',
             'recoveredWithPath': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato messo in quarantena in {path}.',
+            'newerVersion': 'Queste impostazioni sono state salvate da una versione più recente di EVB Viewer. Restano invariate; questa versione usa i valori predefiniti e non può salvare impostazioni. Apri la versione più recente per modificarle.',
         },
         'runtime': {
             'title': 'Qualcosa è andato storto',
