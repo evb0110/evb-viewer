@@ -421,13 +421,13 @@ async function prepareDjvuPrint(
                 pdfStrategy: 'compact-djvu-aware',
                 ...(command.fileName ? { fileName: command.fileName } : {}),
             });
+            printablePdfPath = result.printablePdfPath ?? null;
             if (command.signal?.aborted || result.canceled) {
                 throw createDriverPrintAbortError();
             }
             if (!result.success) {
                 throw new Error(result.error ?? 'DjVu print preparation failed');
             }
-            printablePdfPath = result.printablePdfPath ?? null;
             const outputState = await getDjvuCapability().getJobState(result.jobId ?? jobId);
             if (
                 outputState?.operation !== 'djvu-print'
@@ -453,6 +453,10 @@ async function prepareDjvuPrint(
         }
         command.onNativePrintHandoffStart?.();
         return {status: 'completed'};
+    } catch (error) {
+        // A print that ends here, a late cancel included, keeps nothing it prepared.
+        if (printablePdfPath) await getDjvuCapability().cleanupTemp(printablePdfPath).catch(() => undefined);
+        throw error;
     } finally {
         command.signal?.removeEventListener('abort', cancelPrint);
     }
