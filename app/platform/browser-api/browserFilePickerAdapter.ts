@@ -542,15 +542,21 @@ export type TBrowserOutputTarget =
 
 export interface IBrowserOutputSink {
     write(chunk: Uint8Array): Promise<void>;
+    /** Publishes the output; after an abort() that came first it discards it and rejects. */
+    close(): Promise<void>;
+    /** Discards the output; false when it was published first. */
+    abort(): Promise<boolean>;
+}
+
+interface IBrowserOutput {
+    write(chunk: Uint8Array): Promise<void>;
     close(): Promise<void>;
     abort(): Promise<void>;
 }
 
 /**
- * Opens one output file for streamed bytes. With a handle the bytes go to the
- * file a chunk at a time. Without one they are staged as chunks of the store
- * record `stagingRef` and downloaded as one file on close, so neither path
- * holds the whole output in memory.
+ * Opens one output file for streamed bytes. As on desktop, a cancel wins until
+ * the output is published, also while it closes.
  */
 export async function openBrowserOutputSink(
     target: TBrowserOutputTarget,
@@ -559,7 +565,38 @@ export async function openBrowserOutputSink(
         signal?: AbortSignal
     },
 ): Promise<IBrowserOutputSink> {
-    const {signal} = options;
+    const controller = new AbortController();
+    const signal = options.signal ? AbortSignal.any([
+        options.signal,
+        controller.signal,
+    ]) : controller.signal;
+    const output = await openBrowserOutput(target, options.mimeType, signal);
+    let closing: Promise<void> | undefined;
+    return {
+        write: chunk => output.write(chunk),
+        close: () => closing ??= output.close().catch(async (error: unknown) => {
+            if (signal.aborted) await output.abort();
+            throw error;
+        }),
+        async abort() {
+            controller.abort();
+            if (closing) return closing.then(() => false, () => true);
+            await output.abort();
+            return true;
+        },
+    };
+}
+
+/**
+ * With a handle the bytes go to the file a chunk at a time. Without one they
+ * are staged as chunks of the store record `stagingRef` and downloaded as one
+ * file on close, so neither path holds the whole output in memory.
+ */
+async function openBrowserOutput(
+    target: TBrowserOutputTarget,
+    mimeType: string,
+    signal: AbortSignal,
+): Promise<IBrowserOutput> {
     throwIfAborted(signal);
     if ('handle' in target) {
         const {handle} = target;
@@ -580,7 +617,10 @@ export async function openBrowserOutputSink(
                     await abortAfterBrowserFileWriteError(writable, error);
                 }
             },
-            close: () => closeBrowserFileWritable(writable, bytesWritten),
+            async close() {
+                throwIfAborted(signal);
+                await closeBrowserFileWritable(writable, bytesWritten);
+            },
             abort: async () => {
                 await abortBrowserFileWritable(writable);
             },
@@ -619,7 +659,8 @@ export async function openBrowserOutputSink(
                 chunkCount,
                 chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
             });
-            await downloadBrowserDocument(stagingRef, target.fileName, options.mimeType);
+            throwIfAborted(signal);
+            await downloadBrowserDocument(stagingRef, target.fileName, mimeType);
         },
         abort: () => browserDocumentStore.clearChunkedDocument(stagingRef),
     };

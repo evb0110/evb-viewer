@@ -621,17 +621,13 @@ export function createBrowserDocumentsFileCapability(
             return true;
         },
         async commitDocxFileStream(sessionId) {
-            const sink = requireDocxStream(sessionId);
-            docxStreams.delete(sessionId);
-            await sink.close();
+            await requireDocxStream(sessionId).close().finally(() => docxStreams.delete(sessionId));
             return true;
         },
         async cancelDocxFileStream(sessionId) {
             const sink = docxStreams.get(sessionId);
-            if (!sink) return false;
             docxStreams.delete(sessionId);
-            await sink.abort();
-            return true;
+            return sink ? sink.abort() : false;
         },
         async createWorkingCopyFromData(fileName, data, originalPath, password) {
             return createBrowserWorkingCopyFromBytes({
