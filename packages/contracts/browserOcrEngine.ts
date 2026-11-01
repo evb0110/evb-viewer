@@ -102,6 +102,11 @@ export const BROWSER_OCR_PREPROCESS_RESULT_SCHEMA = v.object({
     height: dimensionSchema,
     inverseMatrix: v.optional(v.pipe(v.array(v.pipe(v.array(finiteSchema), v.length(3))), v.length(3))),
     failure: v.optional(v.pipe(v.string(), v.maxLength(4096))),
+    /** The cleaned page's size when it differs from the render's; the image is then the render. */
+    preprocessedSize: v.optional(v.object({
+        width: v.pipe(v.number(), v.integer(), v.minValue(1)),
+        height: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    })),
 });
 
 export type TBrowserOcrEngineRequest = v.InferOutput<typeof requestSchema>;

@@ -209,12 +209,13 @@ function encodePnm(plane: IScanCleanupWasmPlane) {
 /**
  * Runs desktop's OCR preprocessing on the rendered page: the shared pinned
  * options, an output of the input's size and a usable inverse transform, or
- * the rendered page itself with the reason it was not cleaned.
+ * the rendered page itself with the reason it was not cleaned or the cleaned
+ * page's other size.
  */
 async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Promise<IBrowserOcrPreprocessResult> {
     const raster = readRaster(payload.image);
     const size = payload.image instanceof Uint8Array ? readPpmSize(raster) : payload.image;
-    const outcome = await preprocessBrowserOcrPage(raster, size, payload.mode, payload.dpi);
+    const outcome = await preprocessBrowserOcrPage(raster, payload.mode, payload.dpi);
     if (outcome.status === 'failed') {
         return {
             image: raster,
@@ -223,8 +224,20 @@ async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Pro
             failure: outcome.error.message,
         };
     }
+    const {plane} = outcome.result;
+    if (plane.width !== size.width || plane.height !== size.height) {
+        return {
+            image: raster,
+            width: size.width,
+            height: size.height,
+            preprocessedSize: {
+                width: plane.width,
+                height: plane.height,
+            },
+        };
+    }
     return {
-        image: encodePnm(outcome.result.plane),
+        image: encodePnm(plane),
         width: size.width,
         height: size.height,
         ...(outcome.result.inverseTransform ? {inverseMatrix: outcome.result.inverseTransform.matrix} : {}),

@@ -187,16 +187,13 @@ export interface IBrowserOcrScanCleanupResult extends IOcrScanCleanupGeometry {p
 
 /**
  * Preprocesses one rendered OCR page exactly as desktop OCR does: the shared
- * pinned options, page scope, one output of the input's size, and an inverse
- * transform OCR can map recognized words back through. A failure leaves the
- * fallback to the caller, which recognizes the raw render and reports it.
+ * pinned options, page scope, one output, and an inverse transform OCR can map
+ * recognized words back through. A failure, or an output of another size than
+ * the input, leaves the fallback to the caller, which recognizes the raw
+ * render and reports it.
  */
 export async function preprocessBrowserOcrPage(
     input: TScanCleanupEncodedRaster,
-    inputSize: {
-        width: number;
-        height: number
-    },
     mode: TOcrScanCleanupMode,
     dpi: number,
     planeEncoding: TScanCleanupWasmPreviewEncoding = 'raw',
@@ -217,9 +214,6 @@ export async function preprocessBrowserOcrPage(
     ] = rendered.result.outputs;
     if (!output || extra.length > 0) {
         return failed('invalid-request', 'OCR preprocessing produced no single page');
-    }
-    if (output.plane.width !== inputSize.width || output.plane.height !== inputSize.height) {
-        return failed('invalid-request', 'OCR preprocessing changed image dimensions');
     }
     try {
         return {

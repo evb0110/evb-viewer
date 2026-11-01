@@ -47,7 +47,10 @@ import {
 import {
     estimateOcrPageResidentBytes, tryPreprocessOcrImage,
 } from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
-import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
+import {
+    createOcrPreprocessingGeometryDiagnostic,
+    getOcrScanCleanupMode,
+} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {writeSearchablePdf} from '@electron/features/ocr/pipeline/writeSearchablePdf';
 import {
     buildPopplerEnv,
@@ -395,20 +398,13 @@ async function processOcrPage(
                     ocrImagePath = candidateOcrImage.path;
                     preprocessInverse = candidateOcrImage.inverseTransform?.matrix;
                 } else {
-                    const rawSize = `${dims.width}x${dims.height}`;
-                    const cleanSize = `${candidateDims.width}x${candidateDims.height}`;
-                    log('warn', 'OCR preprocessing changed image dimensions', {
-                        pageNumber: page.pageNumber,
-                        rawSize,
-                        cleanSize,
-                        action: 'using raw page render to preserve text-layer alignment',
-                    });
-                    diagnostics.push({
-                        code: 'OCR_PREPROCESSING_GEOMETRY_CHANGED',
-                        severity: 'warning',
-                        pageNumber: requirePageNumber(page.pageNumber),
-                        message: `Preprocessing changed image dimensions from ${rawSize} to ${cleanSize}; used raw render to preserve alignment`,
-                    });
+                    const diagnostic = createOcrPreprocessingGeometryDiagnostic(
+                        requirePageNumber(page.pageNumber),
+                        dims,
+                        candidateDims,
+                    );
+                    log('warn', diagnostic.message, {pageNumber: page.pageNumber});
+                    diagnostics.push(diagnostic);
                 }
             }
         }

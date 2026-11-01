@@ -55,7 +55,10 @@ import {
     type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
+import {
+    createOcrPreprocessingGeometryDiagnostic,
+    getOcrScanCleanupMode,
+} from '@contracts/scan-cleanup/ocrPreprocessing';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
 import {
     resolveOcrExtractionDpi,
@@ -366,6 +369,16 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 return {
                     image: cleaned.image,
                     diagnostic: failed(cleaned.failure),
+                };
+            }
+            if (cleaned.preprocessedSize !== undefined) {
+                return {
+                    image: cleaned.image,
+                    diagnostic: createOcrPreprocessingGeometryDiagnostic(
+                        requirePageNumber(pageNumber),
+                        cleaned,
+                        cleaned.preprocessedSize,
+                    ),
                 };
             }
             return {

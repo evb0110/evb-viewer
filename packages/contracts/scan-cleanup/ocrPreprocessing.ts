@@ -1,4 +1,8 @@
-import type {TOcrPreprocessingMode} from '@contracts/electronApiOcr';
+import type {
+    IOcrDiagnostic,
+    TOcrPreprocessingMode,
+} from '@contracts/electronApiOcr';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
 import type {INativeScanCleanupOptionsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TNativeScanCleanupOutputArtifactMetadataV3} from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -127,4 +131,26 @@ export function readOcrScanCleanupGeometry(metadata: TNativeScanCleanupOutputArt
         throw new Error('native preprocessing inverse transform is singular or non-finite');
     }
     return inverseTransform === undefined ? {} : {inverseTransform};
+}
+
+interface IOcrRasterSize {
+    width: number;
+    height: number;
+}
+
+/**
+ * A preprocessed page of another size than its render would misplace the text
+ * layer, so OCR reads the render and both platforms report this warning.
+ */
+export function createOcrPreprocessingGeometryDiagnostic(
+    pageNumber: TPageNumber,
+    raw: IOcrRasterSize,
+    clean: IOcrRasterSize,
+): IOcrDiagnostic {
+    return {
+        code: 'OCR_PREPROCESSING_GEOMETRY_CHANGED',
+        severity: 'warning',
+        pageNumber,
+        message: `Preprocessing changed image dimensions from ${raw.width}x${raw.height} to ${clean.width}x${clean.height}; used raw render to preserve alignment`,
+    };
 }

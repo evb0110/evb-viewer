@@ -6361,7 +6361,7 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM agains
             const raster = await parityCase.read(dir);
             const cli = await runCliPage(dir, raster, createOcrScanCleanupOptions(parityCase.mode, raster.dpi), true);
             const [expected] = await readCliOutputs(cli, 1);
-            const browser = await preprocessBrowserOcrPage(raster.bytes, raster, parityCase.mode, raster.dpi, 'png');
+            const browser = await preprocessBrowserOcrPage(raster.bytes, parityCase.mode, raster.dpi, 'png');
             if (browser.status === 'failed') throw new Error(browser.error.message);
             expect(Buffer.from(browser.result.plane.data).equals(Buffer.from(expected!.png))).toBe(true);
             expect(browser.result.inverseTransform)
@@ -6372,7 +6372,7 @@ describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM agains
     it('returns OCR pixels as a raw plane of the input size', async () => {
         stubBrowserWasmGlobals();
         const raster = await readParityRaster(PARITY_GLYPH_FIXTURES[1]!, 300);
-        const browser = await preprocessBrowserOcrPage(raster.bytes, raster, 'polarity-only', raster.dpi);
+        const browser = await preprocessBrowserOcrPage(raster.bytes, 'polarity-only', raster.dpi);
         if (browser.status === 'failed') throw new Error(browser.error.message);
         expect(browser.result.plane).toMatchObject({
             kind: 'gray8',
