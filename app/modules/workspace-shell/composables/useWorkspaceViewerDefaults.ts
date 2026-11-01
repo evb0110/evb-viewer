@@ -29,7 +29,7 @@ interface IUseWorkspaceViewerDefaultsOptions {
     preserveInitialStateForFirstSource?: boolean | undefined;
     /** The view's viewer, told when the reader zooms, as a scroll tells it. */
     documentViewerRef?: Ref<Pick<IDocumentViewerExpose, 'observeReaderCommand'> | null>;
-    viewRotation?: Ref<TPdfViewRotation>;
+    viewRotation: Ref<TPdfViewRotation>;
 }
 
 // A saved view of nulls: applied, it keeps every setting as shown.
@@ -78,6 +78,7 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
 
         options.viewMode.value = options.appSettings.value.defaultViewMode;
         options.continuousScroll.value = options.appSettings.value.defaultContinuousScroll;
+        options.viewRotation.value = 0;
 
         const preset = options.appSettings.value.defaultZoomPreset;
         if (preset === 'fit-width' || preset === 'fit-height') {
@@ -131,9 +132,7 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     function applyView(state: TSavedView) {
         options.continuousScroll.value = state.continuousScroll ?? options.continuousScroll.value;
         options.viewMode.value = state.viewMode ?? options.viewMode.value;
-        if (options.viewRotation && state.viewRotation != null) {
-            options.viewRotation.value = state.viewRotation;
-        }
+        options.viewRotation.value = state.viewRotation ?? options.viewRotation.value;
         if (state.zoomMode === 'fit-width' || state.zoomMode === 'fit-height') {
             setFitMode(state.zoomMode);
         } else if (state.zoom !== null || state.zoomMode === 'custom') {

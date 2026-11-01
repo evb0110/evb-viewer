@@ -22,6 +22,65 @@ import {
     openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
 } from './documentLifecycleTestHelpers';
 
+// A six-page portrait PDF whose pages read "<label> page <n>".
+async function createReadingBook(label: string, name: string) {
+    const pdf = await PDFDocument.create();
+    for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
+        pdf.addPage([
+            400,
+            600,
+        ]).drawText(`${label} page ${String(pageNumber)}`, {
+            x: 40,
+            y: 500,
+            size: 24,
+        });
+    }
+    return {
+        name,
+        mimeType: 'application/pdf',
+        buffer: Buffer.from(await pdf.save()),
+    };
+}
+
+// What the reader sees of the active view: the toolbar's page and zoom, and
+// the page in the middle of the viewport with its painted orientation.
+function readReadingView(page: Page) {
+    return page.evaluate(() => {
+        const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
+        const viewport = host?.getBoundingClientRect();
+        const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
+            const rect = container.getBoundingClientRect();
+            return viewport && rect.bottom > viewport.top + viewport.height / 4 && rect.top < viewport.bottom - viewport.height / 4;
+        });
+        const rect = visible?.getBoundingClientRect();
+        return {
+            indicator: document.querySelector('.page-controls-current-primary')?.textContent?.trim(),
+            zoom: document.querySelector('.zoom-controls-display-value')?.textContent?.trim(),
+            visibleText: visible?.querySelector('.textLayer')?.textContent?.trim(),
+            landscape: rect ? rect.width > rect.height : null,
+        };
+    });
+}
+
+async function settleActiveOpen(page: Page) {
+    await page.evaluate(async () => {
+        const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+        if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
+    });
+}
+
+// Opens a reading book through Start's Open File button and the file chooser.
+async function openReadingBook(page: Page, label: string, name: string) {
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', {
+        name: 'Open File',
+        exact: true,
+    }).first().click();
+    await (await chooser).setFiles(await createReadingBook(label, name));
+    await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe(`${label} page 1`);
+    await settleActiveOpen(page);
+}
+
 describe('browser document lifecycle UI', () => {
     // T3: Save publishes a page edit to the original unsigned form; a populated
     // signature requires Save As and leaves the original file untouched.
@@ -1254,6 +1313,63 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    // R4: with "Reopen documents where I left off" off, a document opened in
+    // the tab that closing the last tab leaves starts at page 1 with the
+    // default zoom and no view rotation, whatever the closed document showed.
+    it('opens the next PDF in the emptied last tab at its defaults, not the closed view', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const readView = () => readReadingView(page);
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            await openReadingBook(page, 'First', 'first.pdf');
+            const opened = await readView();
+            expect(opened).toMatchObject({
+                indicator: '1',
+                landscape: false,
+            });
+
+            await page.locator('.page-controls-display').click();
+            await page.locator('.page-controls-inline-input').fill('4');
+            await page.keyboard.press('Enter');
+            await page.locator('#editor-global-toolbar-host button[aria-label^="Zoom In"]:not([disabled])').first().click();
+            await expect.poll(async () => (await readView()).zoom, {timeout: 15_000}).not.toBe(opened.zoom);
+            // The browser shows no view-rotation control yet (desktop has it in its View menu).
+            await page.evaluate(() => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!testApi?.callActiveWorkspaceSyncCommand?.('handleViewRotationCw').called) throw new Error('View rotation is unavailable');
+            });
+            await expect.poll(readView, {timeout: 15_000}).toMatchObject({
+                indicator: '4',
+                visibleText: 'First page 4',
+                landscape: true,
+            });
+
+            await page.getByRole('button', {name: 'Close Tab'}).click();
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').count()).toBe(1);
+            await waitForOpenFileReady(page);
+            await openReadingBook(page, 'Second', 'second.pdf');
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-last-tab-next-open.png')});
+            await expect.poll(readView, {timeout: 15_000}).toEqual({
+                ...opened,
+                visibleText: 'Second page 1',
+            });
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
+
     // R4: with "Reopen documents where I left off" on, a Recent PDF reopens at
     // the page, zoom and view rotation it was closed at; a file of the same
     // name and page count with other bytes opens at its start.
@@ -1264,53 +1380,9 @@ describe('browser document lifecycle UI', () => {
         }});
         const page = await context.newPage();
         const problems = collectConsoleProblems(page);
-        const createBook = async (label: string) => {
-            const pdf = await PDFDocument.create();
-            for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
-                pdf.addPage([
-                    400,
-                    600,
-                ]).drawText(`${label} page ${String(pageNumber)}`, {
-                    x: 40,
-                    y: 500,
-                    size: 24,
-                });
-            }
-            return {
-                name: 'reading-view.pdf',
-                mimeType: 'application/pdf',
-                buffer: Buffer.from(await pdf.save()),
-            };
-        };
-        const readView = () => page.evaluate(() => {
-            const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
-            const viewport = host?.getBoundingClientRect();
-            const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
-                const rect = container.getBoundingClientRect();
-                return viewport && rect.bottom > viewport.top + viewport.height / 4 && rect.top < viewport.bottom - viewport.height / 4;
-            });
-            const rect = visible?.getBoundingClientRect();
-            return {
-                indicator: document.querySelector('.page-controls-current-primary')?.textContent?.trim(),
-                zoom: document.querySelector('.zoom-controls-display-value')?.textContent?.trim(),
-                visibleText: visible?.querySelector('.textLayer')?.textContent?.trim(),
-                landscape: rect ? rect.width > rect.height : null,
-            };
-        });
-        const settle = () => page.evaluate(async () => {
-            const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-            if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
-        });
-        const openFile = async (label: string) => {
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            await (await chooser).setFiles(await createBook(label));
-            await expect.poll(async () => (await readView()).visibleText, {timeout: 30_000}).toBe(`${label} page 1`);
-            await settle();
-        };
+        const readView = () => readReadingView(page);
+        const settle = () => settleActiveOpen(page);
+        const openFile = (label: string) => openReadingBook(page, label, 'reading-view.pdf');
         try {
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
