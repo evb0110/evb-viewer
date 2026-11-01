@@ -684,7 +684,6 @@ describe('scan cleanup preview navigation', () => {
         const preview = vi.fn((_request: IScanCleanupPreviewRequest) => retiredPreview.promise);
         const cancelPreview = vi.fn(async () => true);
         capability.value = {
-            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...backend.capability,
             preview,
             cancelPreview,
@@ -1081,7 +1080,6 @@ describe('scan cleanup preview navigation', () => {
         const backend = previewBackend();
         let rawListener: ((raw: IScanCleanupRawPreviewEvent) => void) | null = null;
         capability.value = {
-            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             ...backend.capability,
             onPreviewRaw: (listener) => {
                 rawListener = listener;

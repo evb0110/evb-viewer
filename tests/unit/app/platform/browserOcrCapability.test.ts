@@ -252,7 +252,7 @@ describe('browser scan cleanup preview admission', () => {
         const basePreview = capability.preview(base);
         await vi.waitFor(() => expect(renders.pending).toHaveLength(1));
         const detail = capability.preview(request({
-            visible: undefined,
+            visible: false,
             detail: {
                 viewports: {full: {
                     xNormalized: 0,
@@ -313,7 +313,7 @@ describe('browser scan cleanup preview admission', () => {
     it('refuses a detail with no base of the same picture', async () => {
         const capability = await loadCapability();
         await expect(capability.preview(request({
-            visible: undefined,
+            visible: false,
             detail: {
                 viewports: {full: {
                     xNormalized: 0,
