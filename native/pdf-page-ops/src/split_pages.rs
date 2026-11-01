@@ -39,15 +39,26 @@ pub(crate) fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
     Ok(())
 }
 
+/// The largest magnitude an instruction coordinate, scale, translation or
+/// raster size may have. Page geometry stays far below it, and products of a
+/// few such values stay within the f32 range of the PDF reals the writers
+/// emit, so untrusted instructions fail validation instead of the writer.
+const MAX_INSTRUCTION_MAGNITUDE: f64 = 1.0e9;
+
+pub(crate) fn is_instruction_number(value: f64) -> bool {
+    value.is_finite() && value.abs() <= MAX_INSTRUCTION_MAGNITUDE
+}
+
 pub(crate) fn validate_crop_rect(rect: SplitCropRect) -> Result<PdfRect> {
-    if !rect.x.is_finite()
-        || !rect.y.is_finite()
-        || !rect.width.is_finite()
-        || !rect.height.is_finite()
+    if ![rect.x, rect.y, rect.width, rect.height]
+        .into_iter()
+        .all(is_instruction_number)
         || rect.width <= 0.0
         || rect.height <= 0.0
     {
-        return Err("split-pages cropRect must contain finite positive dimensions".into());
+        return Err(
+            "split-pages cropRect must contain finite, in-range positive dimensions".into(),
+        );
     }
     Ok(PdfRect {
         x1: rect.x,
@@ -102,13 +113,17 @@ pub(crate) fn materialized_page_dictionary(
 pub(crate) fn validate_content_transform(
     transform: SplitContentTransform,
 ) -> Result<SplitContentTransform> {
-    if !transform.scale.is_finite()
+    if ![
+        transform.scale,
+        transform.translate_x,
+        transform.translate_y,
+    ]
+    .into_iter()
+    .all(is_instruction_number)
         || transform.scale <= 0.0
-        || !transform.translate_x.is_finite()
-        || !transform.translate_y.is_finite()
     {
         return Err(
-            "split-pages contentTransform must be a finite positive scale with finite translation"
+            "split-pages contentTransform must be a finite, in-range positive scale and translation"
                 .into(),
         );
     }

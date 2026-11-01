@@ -62,22 +62,24 @@ fn validate_ocr_text_layer<S>(instructions: &OcrTextLayerFile<S>) -> Result<()> 
             return Err("ocr-text-layer page numbers must be positive and unique".into());
         }
         if let Some(inverse) = page.preprocess_inverse {
-            if !(inverse.raster_width_px.is_finite()
-                && inverse.raster_height_px.is_finite()
+            if !(crate::split_pages::is_instruction_number(inverse.raster_width_px)
+                && crate::split_pages::is_instruction_number(inverse.raster_height_px)
                 && inverse.raster_width_px > 0.0
                 && inverse.raster_height_px > 0.0)
             {
-                return Err("ocr-text-layer raster dimensions must be positive".into());
+                return Err(
+                    "ocr-text-layer raster dimensions must be positive and in range".into(),
+                );
             }
             if !inverse
                 .matrix
                 .iter()
                 .flatten()
-                .all(|value| value.is_finite())
+                .all(|value| crate::split_pages::is_instruction_number(*value))
                 || determinant(inverse.matrix).abs() <= 1e-12
             {
                 return Err(
-                    "ocr-text-layer preprocessing inverse must be a finite invertible 3x3 matrix"
+                    "ocr-text-layer preprocessing inverse must be a finite, in-range invertible 3x3 matrix"
                         .into(),
                 );
             }
@@ -970,6 +972,23 @@ mod tests {
         let matrix = ocr_layer_matrix(view, 0, source, Some(&inverse)).unwrap();
         // 10 px of a 1000 px raster over a 100 pt page is 1 pt.
         assert_point(apply(matrix, 50.0, 50.0), (49.0, 50.0));
+    }
+
+    #[test]
+    fn refuses_preprocessing_inverses_no_pdf_real_can_carry() {
+        for inverse in [
+            serde_json::json!({"rasterWidthPx": 1e40, "rasterHeightPx": 1000, "matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}),
+            serde_json::json!({"rasterWidthPx": 1000, "rasterHeightPx": 1000, "matrix": [[1, 0, 1e40], [0, 1, 0], [0, 0, 1]]}),
+        ] {
+            let instructions: OcrTextLayerFile<usize> = serde_json::from_value(serde_json::json!({
+                "pages": [{"pageNumber": 1, "source": 0, "preprocessInverse": inverse}],
+            }))
+            .unwrap();
+            assert!(validate_ocr_text_layer(&instructions)
+                .unwrap_err()
+                .to_string()
+                .contains("range"));
+        }
     }
 
     #[test]

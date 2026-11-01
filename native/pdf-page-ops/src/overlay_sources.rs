@@ -23,8 +23,14 @@ fn validate_text_layer(instructions: TextLayerFile) -> Result<TextLayerFile> {
     for instruction in &instructions.pages {
         overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
         overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
-        if !instruction.matrix.iter().all(|value| value.is_finite()) {
-            return Err("overlay-text matrix values must be finite".into());
+        if !instruction
+            .matrix
+            .into_iter()
+            .all(crate::split_pages::is_instruction_number)
+        {
+            return Err(
+                "overlay-text matrix values must be finite and within the instruction range".into(),
+            );
         }
         let determinant = instruction.matrix[0] * instruction.matrix[3]
             - instruction.matrix[1] * instruction.matrix[2];
@@ -35,12 +41,16 @@ fn validate_text_layer(instructions: TextLayerFile) -> Result<TextLayerFile> {
             crate::split_pages::validate_crop_rect(region.rect)?;
             let determinant =
                 region.matrix[0] * region.matrix[3] - region.matrix[1] * region.matrix[2];
-            if !region.matrix.iter().all(|value| value.is_finite())
+            if !region
+                .matrix
+                .into_iter()
+                .all(crate::split_pages::is_instruction_number)
                 || !determinant.is_finite()
                 || determinant.abs() <= f64::EPSILON
             {
                 return Err(
-                    "overlay-text sourceRegion matrix must be finite and invertible".into(),
+                    "overlay-text sourceRegion matrix must be finite, in range and invertible"
+                        .into(),
                 );
             }
         }

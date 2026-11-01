@@ -501,6 +501,25 @@ fn instructed_writers_validate_instructions_as_the_desktop_commands_do() {
             1,
             "invertible",
         ),
+        // Finite numbers no PDF real can carry fail validation, not the writer.
+        (
+            OP_OVERLAY_TEXT,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,1e40,0]}]}"#,
+            1,
+            "instruction range",
+        ),
+        (
+            OP_SPLIT_PAGES,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":1e40,"height":120}}]}]}"#,
+            0,
+            "cropRect",
+        ),
+        (
+            OP_SPLIT_PAGES,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":1e40,"translateY":0}}]}]}"#,
+            0,
+            "contentTransform",
+        ),
     ] {
         let attached: Vec<&[u8]> = vec![&source; attachments];
         let error = run_request(&instructed_request(
