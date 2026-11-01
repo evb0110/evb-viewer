@@ -3,12 +3,13 @@ import {
     stat,
 } from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
+import type {detectPdfaLevelFromPdfText} from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfConformanceProfile,
-    detectPdfaLevelFromPdfText,
-    hasPdfEncryptMarkersInPdfText,
-    hasPdfSignatureMarkersInPdfText,
-} from '@pdf-core';
+    scanPdfMarkerEvidence,
+    PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
+    PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
+} from '@pdf-core/pdfConformanceHelpers';
 import type {IPdfConformanceProfile} from '@contracts/pdfConformance';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
@@ -25,8 +26,6 @@ import {
 } from '@electron/features/documents/main/pdfConformanceCapabilityError';
 import * as v from 'valibot';
 
-const PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
-const PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES = 4 * 1024;
 const PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES = 1 * 1024 * 1024;
 const PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -83,37 +82,6 @@ function getSafeFileSize(value: number | bigint) {
         );
     }
     return size;
-}
-
-function scanPdfMarkerEvidence(data: Uint8Array): IPdfMarkerEvidence {
-    let isSigned = false;
-    let isEncrypted = false;
-    let pdfaLevel: IPdfMarkerEvidence['pdfaLevel'] = null;
-
-    for (let offset = 0; offset < data.byteLength;) {
-        const end = Math.min(
-            data.byteLength,
-            offset + PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
-        );
-        const text = Buffer.from(data.buffer, data.byteOffset + offset, end - offset)
-            .toString('latin1');
-        isSigned ||= hasPdfSignatureMarkersInPdfText(text);
-        isEncrypted ||= hasPdfEncryptMarkersInPdfText(text);
-        pdfaLevel ??= detectPdfaLevelFromPdfText(text);
-        if (end === data.byteLength) {
-            break;
-        }
-        offset = Math.max(
-            offset + 1,
-            end - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES,
-        );
-    }
-
-    return {
-        isSigned,
-        isEncrypted,
-        pdfaLevel,
-    };
 }
 
 async function readPdfMarkerEvidenceFromPath(

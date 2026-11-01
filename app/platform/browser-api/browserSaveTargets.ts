@@ -3,6 +3,7 @@ import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
     IDocumentMutationRevisionOptions,
+    IPdfSaveAsOptions,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import {
@@ -25,6 +26,17 @@ import {
     reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
     handoffBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
+import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
+import {
+    getPdfLosslessOptimizationSkipReason, PDF_LOSSLESS_OPTIMIZE_MIN_BYTES,
+} from '@pdf-core/pdfConformanceHelpers';
+import {
+    isQpdfSuccessExitCode, QPDF_LOSSLESS_REWRITE_TIMEOUT_MS, shouldKeepPdfOptimizationCandidate,
+} from '@pdf-core/qpdfCommands';
+import {runBrowserQpdfCommand} from '@app/platform/browser-api/browserQpdfEngineClient';
+import {
+    analyzeBrowserPdfConformanceData, validateBrowserPdfData, validateBrowserPdfPath,
+} from '@app/platform/browser-api/browserPdfValidation';
 import { getErrorMessage } from '@app/utils/error';
 
 export class BrowserExternalSaveSyncRequiredError extends Error {
@@ -193,12 +205,64 @@ export async function saveWorkingBytesToSourceStructured(
     }
 }
 
+function isAbortError(error: unknown) {
+    return error instanceof Error && error.name === 'AbortError';
+}
+
+/**
+ * Desktop's structural finish: a qpdf lossless rewrite, kept only when it is
+ * a nonempty, strictly smaller copy that passes its own full check. Returns
+ * null to publish `input` unchanged; qpdf works on a copy, so `input` stays
+ * intact. Any other failure falls back to `input`. Abort always throws.
+ * Callers decide eligibility before calling.
+ */
+export async function finishBrowserPdfCandidate(
+    input: Uint8Array,
+    options: {
+        fileName: string;
+        signal?: AbortSignal
+    },
+): Promise<Uint8Array | null> {
+    const {signal} = options;
+    try {
+        signal?.throwIfAborted();
+        const result = await runBrowserQpdfCommand('lossless-rewrite', input.slice(), {
+            timeoutMs: QPDF_LOSSLESS_REWRITE_TIMEOUT_MS,
+            ...(signal ? {signal} : {}),
+        });
+        signal?.throwIfAborted();
+        const candidate = result.output;
+        // The cheap size gate runs before the candidate's full check.
+        if (!isQpdfSuccessExitCode(result.exitCode) || !candidate?.byteLength || candidate.byteLength >= input.byteLength) {
+            return null;
+        }
+        const validation = await validateBrowserPdfData(candidate, options);
+        signal?.throwIfAborted();
+        return shouldKeepPdfOptimizationCandidate(input.byteLength, candidate.byteLength, validation) ? candidate : null;
+    } catch (error) {
+        signal?.throwIfAborted();
+        if (isAbortError(error)) throw error;
+        return null;
+    }
+}
+
+/** Ordinary Save As skips optional optimization unless strict analysis proves the PDF eligible. */
+async function isEligibleForSaveAsOptimization(source: Uint8Array) {
+    try {
+        return getPdfLosslessOptimizationSkipReason(await analyzeBrowserPdfConformanceData(source)) === null;
+    } catch (error) {
+        if (isAbortError(error)) throw error;
+        return false;
+    }
+}
+
 /** Publishes the captured Save As frontier without changing the source or consuming its staging lease. */
 export async function savePdfAsFromWorkingCopy(
     workingCopyPath: TDocumentRef,
+    saveOptions?: IPdfSaveAsOptions,
     revisionOptions?: IDocumentMutationRevisionOptions,
-    stagedOutput?: ITypedStagedArtifact,
-) {
+): Promise<TDocumentRef | null> {
+    const stagedOutput = saveOptions?.stagedOutput;
     if (stagedOutput && (!revisionOptions?.expectedDocumentRevisionToken || stagedOutput.path === workingCopyPath)) {
         throw new Error('Browser staged Save As requires a revision-checked target distinct from its output');
     }
@@ -234,16 +298,32 @@ export async function savePdfAsFromWorkingCopy(
                 const staged = stagedOutput ? await readBrowserStoreStagedArtifact(
                     browserDocumentStore,
                     stagedOutput,
+                    {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES},
                 ) : null;
                 const normalizedFileName = ensurePdfExtension(saveResult.fileName);
+                const sourcePath = staged?.artifact.path ?? workingCopyPath;
+                const {size} = await browserDocumentStore.stat(sourcePath);
+                const source = staged?.bytes ?? (size <= BROWSER_QPDF_MAX_INPUT_BYTES
+                    ? await browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES}) : null);
+                const validation = source
+                    ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
+                    : await validateBrowserPdfPath(sourcePath);
+                if (!validation.isValid) throw new Error('Working copy is not a valid PDF');
+                const candidate = source
+                    && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
+                    && await isEligibleForSaveAsOptimization(source)
+                    ? await finishBrowserPdfCandidate(source, {fileName: normalizedFileName})
+                    : null;
+                // Unchanged refs keep the shared streaming path, even after an admitted check.
+                const publishedBytes = candidate ?? staged?.bytes;
                 const savedHandle = saveResult.handle;
                 if (savedHandle) {
-                    if (staged) await writeBytesToHandleInSaveLock(savedHandle, staged.bytes);
+                    if (publishedBytes) await writeBytesToHandleInSaveLock(savedHandle, publishedBytes);
                     else await writeDocumentRefToHandle(savedHandle, workingCopyPath);
-                } else if (staged) {
+                } else if (publishedBytes) {
                     // No handle means no save picker: the file goes out as a download.
-                    const downloadResult = await saveBytesToPickerOrDownload(staged.bytes, {
-                        suggestedName,
+                    const downloadResult = await saveBytesToPickerOrDownload(publishedBytes, {
+                        suggestedName: normalizedFileName,
                         mimeType: 'application/pdf',
                         pickerTypes: buildPdfSaveTypes(),
                     });
@@ -256,18 +336,18 @@ export async function savePdfAsFromWorkingCopy(
                 try {
                     // A downloaded copy's record is created holding its bytes, so
                     // peer collection never sees an empty committed target.
-                    await browserDocumentStore.createStoredDocument(normalizedFileName, savedHandle ? new Uint8Array() : staged?.bytes ?? new Uint8Array(), {
+                    await browserDocumentStore.createStoredDocument(normalizedFileName, savedHandle ? new Uint8Array() : publishedBytes ?? new Uint8Array(), {
                         ref: sourceRef,
                         mimeType: 'application/pdf',
                         saveKind: 'pdf',
                         kind: 'source',
                         saveHandle: savedHandle,
                         ...(savedHandle ? {storageMode: 'handle' as const} : {}),
-                        ...(!savedHandle && !staged ? {contentFrom: workingCopyPath} : {}),
+                        ...(!savedHandle && !publishedBytes ? {contentFrom: workingCopyPath} : {}),
                     });
                     if (savedHandle) {
                         await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
-                            fileSize: staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size,
+                            fileSize: publishedBytes?.byteLength ?? size,
                             saveHandle: savedHandle,
                             saveName: normalizedFileName,
                         });

@@ -1,3 +1,4 @@
+import {PDF_LOSSLESS_OPTIMIZE_MIN_BYTES} from '@pdf-core/pdfConformanceHelpers';
 function integer(
     raw: string | undefined,
     fallback: number,
@@ -144,7 +145,7 @@ export const runtimeConfig = {
             get largePdfSaveOptimizeMinBytes() { // 64 MiB; let the save benchmark exercise optimization with its small fixture
                 return integer(
                     process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES,
-                    64 * 1024 * 1024,
+                    PDF_LOSSLESS_OPTIMIZE_MIN_BYTES,
                     1,
                     Number.MAX_SAFE_INTEGER,
                     false,

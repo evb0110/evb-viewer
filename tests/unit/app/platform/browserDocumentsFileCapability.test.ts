@@ -1,3 +1,4 @@
+import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
@@ -22,6 +23,7 @@ import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import {
     DOCUMENT_LIST_HEADER, U32_BYTES,
 } from '@contracts/browserPageOpsWasm.generated';
@@ -115,6 +117,12 @@ function createOversizedPdfFile(fileName: string, size: number): File {
     ));
     return file;
 }
+
+const qpdfRun = vi.hoisted(() => vi.fn());
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserQpdfEngineClient>(),
+    runBrowserQpdfCommand: qpdfRun,
+}));
 
 const browserPdfCombineWorkerMock = vi.hoisted(() => ({
     canUse: vi.fn(() => false),
@@ -334,6 +342,13 @@ async function loadBrowserDocumentsFileCapability(
 describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
+        qpdfRun.mockReset();
+        qpdfRun.mockImplementation(async command => ({
+            exitCode: 0,
+            stdout: command === 'page-count' ? '1' : '',
+            stderr: '',
+            output: null,
+        }));
         browserPdfCombineWorkerMock.canUse.mockReset();
         browserPdfCombineWorkerMock.canUse.mockReturnValue(false);
         browserPdfCombineWorkerMock.cloneInput.mockClear();
@@ -742,7 +757,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/large-validation.pdf');
-        const largeSize = BROWSER_FULL_READ_LIMIT + 1;
+        const largeSize = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: largeSize,
             modifiedAt: 0,
@@ -764,7 +779,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             isValid: true,
             tool: 'browser',
             errors: [],
-            warnings: [],
+            warnings: [expect.stringContaining(`${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB`)],
         });
 
         expect(readSpy).not.toHaveBeenCalled();
@@ -782,7 +797,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/multi-range-validation.pdf');
         const chunkSize = 4 * 1024 * 1024;
-        const largeSize = BROWSER_FULL_READ_LIMIT + 1;
+        const largeSize = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: largeSize,
             modifiedAt: 0,
@@ -818,7 +833,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             isValid: true,
             tool: 'browser',
             errors: [],
-            warnings: [],
+            warnings: [expect.stringContaining(`${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB`)],
         });
 
         expect(readSpy).not.toHaveBeenCalled();
@@ -838,7 +853,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/failed-range-validation.pdf');
         const chunkSize = 4 * 1024 * 1024;
-        const largeSize = BROWSER_FULL_READ_LIMIT + 1;
+        const largeSize = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: largeSize,
             modifiedAt: 0,
@@ -1773,6 +1788,29 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(clearSearchCaches).toHaveBeenCalledOnce();
     });
 
+    it('uses the user filename at the savePdfData boundary and never opens a writer after refusal', async () => {
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const bytes = await createPdfBytes();
+        const source = await browserDocumentStore.createStoredDocument('User $& name.pdf', bytes, PDF_SOURCE_OPTIONS);
+        const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+        qpdfRun.mockResolvedValue({
+            exitCode: 2,
+            stdout: '',
+            stderr: '/work/input.pdf: damaged',
+            output: null,
+        });
+        const write = vi.spyOn(browserDocumentStore, 'write');
+        const result = await capability.savePdfData(working, bytes, {
+            ...await getRevisionOptions(browserDocumentStore, working),
+            workingCopyOnly: true,
+        });
+        expect(result.errors).toEqual(['qpdf(validate-pdf) failed with exit code 2. User $& name.pdf: damaged']);
+        expect(write).not.toHaveBeenCalled();
+        expect(bytes.byteLength).toBeGreaterThan(0);
+    });
+
     it('fails browser saves without opening the writer when write permission is denied', async () => {
         const {
             capability,
@@ -1878,6 +1916,143 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(originalBytes);
         await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : originalBytes);
         await expect(browserDocumentStore.exists(stagedRef)).resolves.toBe(true);
+    });
+
+    it.each([
+        'smaller-handle',
+        'smaller-download',
+        'warnings',
+        'tagged',
+        'acroform',
+        'off',
+        'automatic',
+        'signed',
+        'encrypted',
+        'pdfa',
+        'xfa',
+        'preflight-failed',
+        'rewrite-failed',
+        'rewrite-timeout',
+        'output-limit',
+        'equal',
+        'larger',
+        'empty',
+        'candidate-invalid',
+        'source-invalid',
+        'source-unavailable',
+        'preflight-abort',
+        'rewrite-abort',
+        'candidate-abort',
+    ])('preserves the Save As frontier and published/adopted bytes: %s', async outcome => {
+        const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
+        const frontier = outcome === 'pdfa' ? new TextEncoder().encode('<pdfaid:part>2</pdfaid:part>') : Uint8Array.of(37, 80, 68, 70, 5, 6, 7);
+        const candidate = Uint8Array.of(37, 80, 68, 70, 9);
+        const downloads: Blob[] = [];
+        let physical = new Uint8Array();
+        const handle = createFileSystemFileHandle({
+            name: 'optimized.pdf',
+            getFile: async () => new File([physical], 'optimized.pdf', {type: 'application/pdf'}),
+            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {physical = new Uint8Array(requireArrayBufferChunk(chunk));}}),
+        });
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: outcome === 'smaller-download' ? undefined : async () => handle}});
+        if (outcome === 'smaller-download') {
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {value: (blob: Blob) => {downloads.push(blob); return 'blob:optimized';}},
+                revokeObjectURL: {value: () => {}},
+            });
+            vi.stubGlobal('URL', DownloadURL);
+        }
+        const source = await store.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const staged = await store.createStoredDocument('stage.pdf', frontier, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'output',
+        });
+        const stagedOutput = await createBrowserStoreStagedArtifact(store, staged, {
+            leaseId: 'optimization-frontier',
+            sha256: createHash('sha256').update(frontier).digest('hex'),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: true,
+                semanticScopeSha256: 'a'.repeat(64),
+            },
+        });
+        browserAnnotationParseMock.run.mockImplementation(async () => {
+            if (outcome === 'preflight-abort') throw new DOMException('reset', 'AbortError');
+            if (outcome === 'preflight-failed') throw new Error('structure unavailable');
+            return {
+                isSigned: outcome === 'signed',
+                isEncrypted: outcome === 'encrypted',
+                isTagged: outcome === 'tagged',
+                hasAcroForm: outcome === 'acroform',
+                hasXfa: outcome === 'xfa',
+            };
+        });
+        let checks = 0;
+        qpdfRun.mockImplementation(async command => {
+            if (command === 'lossless-rewrite') {
+                if (outcome === 'rewrite-abort') throw new DOMException('reset', 'AbortError');
+                if (outcome === 'rewrite-timeout' || outcome === 'output-limit') throw new Error(outcome);
+                return {
+                    exitCode: outcome === 'rewrite-failed' ? 2 : outcome === 'warnings' ? 3 : 0,
+                    stdout: '',
+                    stderr: '',
+                    output: outcome === 'equal' ? frontier.slice() : outcome === 'larger' ? original.slice() : outcome === 'empty' ? new Uint8Array() : candidate.slice(),
+                };
+            }
+            checks += 1;
+            if (outcome === 'source-unavailable') {
+                const {BrowserQpdfEngineUnavailableError} = await import('@app/platform/browser-api/browserQpdfEngineClient');
+                throw new BrowserQpdfEngineUnavailableError('download unavailable');
+            }
+            if (checks === 2 && outcome === 'candidate-abort') throw new DOMException('reset', 'AbortError');
+            return {
+                exitCode: (checks === 1 && outcome === 'source-invalid') || (checks === 2 && outcome === 'candidate-invalid') ? 2 : 0,
+                stdout: '',
+                stderr: '',
+                output: null,
+            };
+        });
+        if (outcome === 'automatic') {
+            const stat = store.stat.bind(store);
+            vi.spyOn(store, 'stat').mockImplementation(async path => ({
+                ...await stat(path),
+                ...(path === working ? {size: 64 * 1024 ** 2} : {}),
+            }));
+            // Use an unchanged frontier here; receipt size intentionally pins the real stage.
+        }
+        const save = capability.savePdfAs(working, {
+            optimizeLossless: outcome !== 'off' && outcome !== 'automatic',
+            ...(outcome === 'automatic' ? {} : {stagedOutput}),
+        }, await getRevisionOptions(store, working));
+        if (outcome.endsWith('abort') || outcome === 'source-invalid' || outcome === 'source-unavailable') {
+            await expect(save).rejects.toThrow();
+            expect(physical).toEqual(new Uint8Array());
+        } else {
+            const saved = await save;
+            const optimized = [
+                'smaller-handle',
+                'smaller-download',
+                'warnings',
+                'tagged',
+                'acroform',
+                'automatic',
+            ].includes(outcome);
+            const expected = optimized ? candidate : outcome === 'automatic' ? original : frontier;
+            if (outcome === 'smaller-download') expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(expected);
+            else expect(physical).toEqual(expected);
+            await expect(store.read(saved!)).resolves.toEqual(expected);
+            const adopted = await capability.createWorkingCopyFromPath(saved!);
+            await expect(store.read(adopted)).resolves.toEqual(expected);
+        }
+        await expect(store.read(source)).resolves.toEqual(original);
+        await expect(store.read(working)).resolves.toEqual(original);
+        await expect(store.read(staged)).resolves.toEqual(frontier);
     });
 
     it('streams oversized browser save-as to a picked file handle', async () => {

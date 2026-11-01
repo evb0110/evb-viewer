@@ -55,7 +55,7 @@ beforeAll(async () => {
     await build({
         bundle: true,
         entryPoints: [resolve(process.cwd(), 'tests/integration/browser/browserDocumentSourceVersionAcceptanceEntry.ts')],
-        format: 'iife',
+        format: 'esm',
         outfile: bundlePath,
         platform: 'browser',
         sourcemap: false,
@@ -100,7 +100,11 @@ describe('browser source version acceptance in Chromium', () => {
         try {
             const page = await browser.newPage();
             await page.goto(origin);
-            await page.addScriptTag({path: bundlePath});
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserRealInputPickerRecentAcceptance') === 'function');
             await page.evaluate(() => {
                 HTMLInputElement.prototype.click = function() {
                     // The test supplies files to the real DOM input with
@@ -149,7 +153,11 @@ describe('browser source version acceptance in Chromium', () => {
         try {
             const page = await browser.newPage();
             await page.goto(origin);
-            await page.addScriptTag({path: bundlePath});
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDocumentSourceVersionAcceptance') === 'function');
             const result = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserDocumentSourceVersionAcceptance');
                 if (typeof run !== 'function') {
@@ -190,7 +198,11 @@ describe('browser source version acceptance in Chromium', () => {
         try {
             const page = await browser.newPage();
             await page.goto(origin);
-            await page.addScriptTag({path: bundlePath});
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPickerAndRecentAcceptance') === 'function');
             const result = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserPickerAndRecentAcceptance');
                 if (typeof run !== 'function') {
@@ -229,7 +241,11 @@ describe('browser source version acceptance in Chromium', () => {
         try {
             const page = await browser.newPage();
             await page.goto(origin);
-            await page.addScriptTag({path: bundlePath});
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserMaterializedSaveConflictAcceptance') === 'function');
             const result = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserMaterializedSaveConflictAcceptance');
                 if (typeof run !== 'function') {

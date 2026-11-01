@@ -1,3 +1,4 @@
+import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
     afterEach,
     beforeEach,
@@ -13,6 +14,16 @@ import {
     createFileSystemFileHandle, FakeLockManager, FakeIndexedDbFactory, MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type * as TDocumentIdb from '@app/platform/browser/browserDocumentIdb';
+
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserQpdfEngineClient>(),
+    runBrowserQpdfCommand: async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        output: null,
+    }),
+}));
 
 const recoveryMocks = vi.hoisted(() => ({
     clearBrowserWorkspaceRecovery: vi.fn(),
@@ -139,7 +150,10 @@ function stubBrowserGlobals(href = 'http://localhost:3235/', locks?: FakeLockMan
     };
 
     vi.stubGlobal('window', windowStub);
-    vi.stubGlobal('document', { title: 'EVB Viewer Web' });
+    vi.stubGlobal('document', {
+        title: 'EVB Viewer Web',
+        cookie: '',
+    });
     vi.stubGlobal('navigator', locks ? {locks} : {});
     vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
     return {
@@ -228,7 +242,7 @@ describe('browserWindowTabsCapability', () => {
             });
             let savedRef: string | null = null;
             const revision = await store.getDocumentRevision(working);
-            const save = savePdfAsFromWorkingCopy(working, {expectedDocumentRevisionToken: revision.token}).then(ref => { savedRef = ref; });
+            const save = savePdfAsFromWorkingCopy(working, undefined, {expectedDocumentRevisionToken: revision.token}).then(ref => { savedRef = ref; });
             let next: ReturnType<typeof requireDocumentRef> | null = null;
             try {
                 await vi.waitFor(() => expect(savedRef).not.toBeNull());

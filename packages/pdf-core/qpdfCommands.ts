@@ -1,4 +1,5 @@
 import {compact} from 'es-toolkit';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
 
 /**
  * The qpdf command lines EVB Viewer runs and how it reads their results. Desktop
@@ -68,4 +69,39 @@ export function parseQpdfPageCount(stdout: string) {
     const text = stdout.trim();
     const pageCount = Number(text);
     return /^[1-9]\d*$/u.test(text) && Number.isSafeInteger(pageCount) ? pageCount : null;
+}
+
+const QPDF_VALIDATE_BASE_TIMEOUT_MS = 30_000;
+export const QPDF_VALIDATE_MAX_TIMEOUT_MS = 10 * 60_000;
+const QPDF_VALIDATE_TIMEOUT_SCALE_START_BYTES = 64 * 1024 * 1024;
+const QPDF_VALIDATE_TIMEOUT_BYTES_PER_STEP = 16 * 1024 * 1024;
+const QPDF_VALIDATE_TIMEOUT_STEP_MS = 1_000;
+export const QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS = 10_000;
+export const QPDF_LOSSLESS_REWRITE_TIMEOUT_MS = 600_000;
+
+export function resolveQpdfValidationTimeoutMs(fileSize: number | bigint | undefined) {
+    const normalizedFileSize = typeof fileSize === 'bigint'
+        ? Number(fileSize > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : fileSize)
+        : fileSize;
+    if (typeof normalizedFileSize !== 'number' || !Number.isFinite(normalizedFileSize)) {
+        return QPDF_VALIDATE_BASE_TIMEOUT_MS;
+    }
+    const extraBytes = Math.max(0, normalizedFileSize - QPDF_VALIDATE_TIMEOUT_SCALE_START_BYTES);
+    const extraSteps = Math.ceil(extraBytes / QPDF_VALIDATE_TIMEOUT_BYTES_PER_STEP);
+    return Math.min(
+        QPDF_VALIDATE_MAX_TIMEOUT_MS,
+        QPDF_VALIDATE_BASE_TIMEOUT_MS + extraSteps * QPDF_VALIDATE_TIMEOUT_STEP_MS,
+    );
+}
+
+/**
+ * Both shells keep an optimized PDF only when it is a nonempty, valid and
+ * strictly smaller copy; otherwise they publish the original unchanged.
+ */
+export function shouldKeepPdfOptimizationCandidate(
+    originalBytes: number,
+    candidateBytes: number,
+    validation: IPdfValidationResult,
+) {
+    return candidateBytes > 0 && candidateBytes < originalBytes && validation.isValid;
 }

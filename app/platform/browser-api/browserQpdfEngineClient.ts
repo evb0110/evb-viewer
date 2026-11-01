@@ -19,13 +19,14 @@ import {
 } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
 import * as v from 'valibot';
+import {QPDF_LOSSLESS_REWRITE_TIMEOUT_MS} from '@pdf-core/qpdfCommands';
 
 // A job holds whole documents in Wasm memory and the file system, and the
 // document's own open needs that memory next, so the worker ends as soon as it
 // is idle. The browser keeps the compiled engine cached between workers.
 const ENGINE_IDLE_TTL_MS = 0;
 // Desktop bounds a whole-file qpdf rewrite by ten minutes.
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = QPDF_LOSSLESS_REWRITE_TIMEOUT_MS;
 
 type TRequestType = TBrowserQpdfEngineRequest['type'];
 type TPendingEngineRequest = ITypedPendingBrowserWorkerRequest<TRequestType, unknown>;
@@ -34,6 +35,13 @@ export interface IBrowserQpdfRequestOptions {
     signal?: AbortSignal;
     /** Ends the engine when the command takes longer; defaults to desktop's rewrite bound. */
     timeoutMs?: number;
+}
+
+export class BrowserQpdfEngineTimeoutError extends Error {
+    public constructor(public readonly timeoutMs: number) {
+        super(`qpdf did not finish within ${timeoutMs}ms`);
+        this.name = 'BrowserQpdfEngineTimeoutError';
+    }
 }
 
 export class BrowserQpdfEngineUnavailableError extends Error {
@@ -106,7 +114,7 @@ function requestEngine<TSchema extends v.GenericSchema>(
                 resolve(parsed.output);
                 return true;
             },
-        }, () => new Error('qpdf did not finish within its time limit'), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        }, () => new BrowserQpdfEngineTimeoutError(options.timeoutMs ?? DEFAULT_TIMEOUT_MS), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
         worker.postMessage({
             id: requestId,
             type,

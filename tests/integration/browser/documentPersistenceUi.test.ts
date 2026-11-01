@@ -11,6 +11,8 @@ import {
     PDFDocument, PDFName,
 } from 'pdf-lib';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {spawnSync} from 'node:child_process';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {chromium} from 'playwright';
 import type {
     Download, Page,
@@ -166,6 +168,121 @@ describe('browser document lifecycle UI', () => {
             await context.close();
         }
     }, 180_000);
+    // T3/T4: lossless Save As publishes the accepted staged note and adopts the exact saved bytes.
+    // Existing browser-integration lane budget: 120_000 ms, including reopen and the next ordinary Save.
+    it('losslessly optimizes the staged Save As frontier and adopts it for the next save', async () => {
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1600,
+            height: 900,
+        }});
+        const savedPath = resolve(process.cwd(), `.devkit/qp2-ui-${process.pid}.pdf`);
+        try {
+            const pdf = await PDFDocument.create();
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText('Lossless frontier fixture', {
+                x: 40,
+                y: 720,
+            });
+            pdf.catalog.set(PDFName.of('Fixture'), pdf.context.obj(Array.from({length: 2000}, (_, index) =>
+                pdf.context.register(pdf.context.obj({
+                    Index: index,
+                    Value: `Reachable fixture dictionary ${index}`,
+                })))));
+            const original = Buffer.from(await pdf.save({useObjectStreams: false}));
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.locator('.rail-item', {hasText: 'Settings'}).click();
+            const optimize = page.getByRole('switch', {
+                name: 'PDF Save As',
+                exact: true,
+            });
+            if (await optimize.getAttribute('aria-checked') !== 'true') await optimize.click();
+            await expect.poll(() => optimize.getAttribute('aria-checked')).toBe('true');
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').optimizePdfOnSaveAs === true);
+            await openPdfFromChooser(page, {
+                name: 'lossless-frontier.pdf',
+                mimeType: 'application/pdf',
+                buffer: original,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            await addNote(page, 'Accepted staged frontier', {
+                x: 200,
+                y: 220,
+            });
+            await page.evaluate(`(async () => {
+                const {getDocumentFilesCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                const {browserDocumentStore: store} = await import('/_nuxt/platform/browserDocumentStore.ts');
+                const capability = getDocumentFilesCapability();
+                const saveAs = capability.savePdfAs.bind(capability);
+                capability.savePdfAs = async (working, options, revision) => {
+                    Reflect.set(window, '__qp2FrontierSize', (await store.stat(options?.stagedOutput?.path ?? working)).size);
+                    Reflect.set(window, '__qp2HasStage', Boolean(options?.stagedOutput));
+                    Reflect.set(window, '__qp2OptimizeRequested', options?.optimizeLossless);
+                    return saveAs(working, options, revision);
+                };
+            })()`);
+            const downloaded = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            await (await downloaded).saveAs(savedPath);
+            const saved = readFileSync(savedPath);
+            expect(await page.evaluate(() => Reflect.get(window, '__qp2OptimizeRequested'))).toBe(true);
+            expect(saved.toString('latin1')).toMatch(/\/Linearized\s/u);
+            expect(saved.length).toBeLessThan(await page.evaluate(() => Number(Reflect.get(window, '__qp2FrontierSize'))));
+            expect(await page.evaluate(() => Reflect.get(window, '__qp2HasStage'))).toBe(true);
+            const check = spawnSync(getPdfNativeToolPaths().qpdf, [
+                '--check',
+                savedPath,
+            ], {encoding: 'utf8'});
+            expect(check.error).toBeUndefined();
+            expect(check.status, check.stderr).toBe(0);
+            const reopened = await PDFDocument.load(saved);
+            expect(reopened.getPageCount()).toBe(1);
+            expect(noteTexts(reopened)).toContain('Accepted staged frontier');
+            writeFileSync(resolve(process.cwd(), '.devkit/qp2-saveas-evidence.json'), JSON.stringify({
+                sourceBytes: original.length,
+                frontierBytes: await page.evaluate(() => Number(Reflect.get(window, '__qp2FrontierSize'))),
+                savedBytes: saved.length,
+                sourceSha256: createHash('sha256').update(original).digest('hex'),
+                savedSha256: createHash('sha256').update(saved).digest('hex'),
+                qpdf: {
+                    status: check.status,
+                    stdout: check.stdout,
+                    stderr: check.stderr,
+                },
+            }, null, 2));
+            const reopenedPage = await lifecycle.browser.newPage();
+            await openPdfFromChooser(reopenedPage, savedPath);
+            await expect.poll(() => reopenedPage.locator('.textLayer').first().innerText()).toContain('Lossless frontier fixture');
+            await reopenedPage.close();
+            await addNote(page, 'After optimized adoption', {
+                x: 300,
+                y: 320,
+            });
+            const nextDownload = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            await (await nextDownload).saveAs(savedPath);
+            const next = await PDFDocument.load(readFileSync(savedPath));
+            expect(noteTexts(next)).toEqual(new Set([
+                'Accepted staged frontier',
+                'After optimized adoption',
+            ]));
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+            rmSync(savedPath, {force: true});
+        }
+    }, 120_000);
 
     // T3: Save publishes a page edit to the original unsigned form; a populated
     // signature requires Save As and leaves the original file untouched.

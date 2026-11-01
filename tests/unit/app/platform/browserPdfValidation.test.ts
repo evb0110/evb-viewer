@@ -1,3 +1,5 @@
+import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
+import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
 
 import { readFile } from 'node:fs/promises';
@@ -10,7 +12,6 @@ import {
     vi,
 } from 'vitest';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
-import { cast } from '@tests/helpers/cast';
 import {
     createPdfConformanceFixture,
     type TPdfConformanceFixtureKind,
@@ -18,6 +19,7 @@ import {
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
+    requireEntry: vi.fn(async () => ({fileName: 'User $& file.pdf'})),
     read: vi.fn(),
     readRange: vi.fn(),
 }));
@@ -38,7 +40,7 @@ vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
     yieldToBrowser: vi.fn(async () => {}),
 }));
 // The worker runs the same page-ops WASM; this runs it in the test process.
-const runPageOpsInProcess = vi.hoisted(() => async (type: 'conformance', payload: {data: Uint8Array}) => {
+const runPageOpsInProcess = vi.hoisted(() => vi.fn(async (type: 'conformance', payload: {data: Uint8Array}) => {
     const {
         isBrowserPageOpsWasmFailure,
         tryRunBrowserPageOpsWithWasm,
@@ -48,8 +50,14 @@ const runPageOpsInProcess = vi.hoisted(() => async (type: 'conformance', payload
         throw new Error(result.error.message);
     }
     return result;
-});
+}));
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: runPageOpsInProcess}));
+
+const qpdfRun = vi.hoisted(() => vi.fn());
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserQpdfEngineClient>(),
+    runBrowserQpdfCommand: qpdfRun,
+}));
 
 const NativeWebAssembly = WebAssembly;
 
@@ -73,6 +81,14 @@ const CONSERVATIVE_RESTRICTION = 'incremental_save_not_supported';
 describe('browserPdfValidation', () => {
     beforeEach(() => {
         vi.resetModules();
+        qpdfRun.mockReset();
+        qpdfRun.mockImplementation(async command => ({
+            exitCode: 0,
+            stdout: command === 'page-count' ? '1' : '',
+            stderr: '',
+            output: null,
+        }));
+        runPageOpsInProcess.mockClear();
         vi.unstubAllGlobals();
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.read.mockReset();
@@ -217,54 +233,151 @@ describe('browserPdfValidation', () => {
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
     });
 
-    it('reports loaded data as valid when its teardown fails', async () => {
-        const {getPdfjsLib} = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
-        vi.mocked(getPdfjsLib).mockResolvedValue(cast<Awaited<ReturnType<typeof getPdfjsLib>>>({getDocument: pdfjsMock.getDocument}));
-        const destroy = vi.fn(async () => {
-            throw new Error('PDF.js worker already terminated');
+    it.each([
+        0,
+        3,
+    ])('accepts full checks with exit %s and preserves caller bytes and display names', async exitCode => {
+        const data = Uint8Array.of(1, 2, 3);
+        qpdfRun.mockImplementation(async (_command, input) => {
+            structuredClone(input, {transfer: [input.buffer]});
+            return {
+                exitCode,
+                stdout: 'checking /work/input.pdf\ninformation',
+                stderr: 'warning /work/output.pdf',
+                output: null,
+            };
         });
-        pdfjsMock.getDocument.mockReturnValue({
-            promise: Promise.resolve({numPages: 1}),
-            destroy,
-        });
-
         const {validateBrowserPdfData} = await import('@app/platform/browser-api/browserPdfValidation');
-        await expect(validateBrowserPdfData(Uint8Array.of(1, 2, 3))).resolves.toMatchObject({
+        await expect(validateBrowserPdfData(data, {fileName: 'My $& file.pdf'})).resolves.toEqual({
             isValid: true,
+            tool: 'qpdf',
             errors: [],
+            warnings: [
+                'information',
+                'warning My $& file.pdf',
+            ],
         });
-        expect(destroy).toHaveBeenCalledOnce();
+        expect(data).toEqual(Uint8Array.of(1, 2, 3));
     });
 
-    it('reports the load failure of data, not its teardown', async () => {
-        const {getPdfjsLib} = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
-        vi.mocked(getPdfjsLib).mockResolvedValue(cast<Awaited<ReturnType<typeof getPdfjsLib>>>({getDocument: pdfjsMock.getDocument}));
-        pdfjsMock.getDocument.mockReturnValue({
-            promise: Promise.reject(new Error('Invalid PDF structure.')),
-            destroy: vi.fn(async () => {
-                throw new Error('PDF.js worker already terminated');
-            }),
+    it.each([
+        '0',
+        '-1',
+        '1.2',
+        '9007199254740992',
+        '1\nwarning',
+    ])('refuses invalid page counts: %s', async stdout => {
+        storeDocument(Uint8Array.of(1));
+        qpdfRun.mockResolvedValue({
+            exitCode: 3,
+            stdout,
+            stderr: 'warning',
+            output: null,
         });
+        const {validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
+        await expect(validateBrowserPdfPath('browser://documents/input', {purpose: 'opening'})).resolves.toMatchObject({
+            isValid: false,
+            errors: ['PDF structural validation returned an invalid page count'],
+            warnings: [],
+        });
+    });
 
+    it.each([
+        'opening',
+        'save',
+    ] as const)('uses the page tree for %s with stderr-only warnings', async purpose => {
+        storeDocument(Uint8Array.of(1));
+        qpdfRun.mockResolvedValue({
+            exitCode: 3,
+            stdout: '2',
+            stderr: 'warning /work/input.pdf',
+            output: null,
+        });
+        const {validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
+        await expect(validateBrowserPdfPath('browser://documents/input', {purpose})).resolves.toMatchObject({
+            isValid: true,
+            warnings: ['warning User $& file.pdf'],
+        });
+        expect(qpdfRun).toHaveBeenCalledWith('page-count', expect.any(Uint8Array), {timeoutMs: 10_000});
+        expect(browserDocumentStoreMock.read).toHaveBeenCalledWith('browser://documents/input', {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
+    });
+
+    it.each([
+        2,
+        9,
+    ])('refuses qpdf exit %s without a structural fallback', async exitCode => {
+        qpdfRun.mockResolvedValue({
+            exitCode,
+            stdout: 'useful stdout',
+            stderr: '  ',
+            output: null,
+        });
         const {validateBrowserPdfData} = await import('@app/platform/browser-api/browserPdfValidation');
+        await expect(validateBrowserPdfData(Uint8Array.of(1))).resolves.toMatchObject({
+            isValid: false,
+            errors: [`qpdf(validate-pdf) failed with exit code ${exitCode}. No process output was captured.`],
+            warnings: [],
+        });
+        expect(runPageOpsInProcess).not.toHaveBeenCalled();
+    });
+
+    it('uses actual structure only after a full-check timeout', async () => {
+        await stubPageOpsWasmFetch();
+        const {BrowserQpdfEngineTimeoutError} = await import('@app/platform/browser-api/browserQpdfEngineClient');
+        const {validateBrowserPdfData} = await import('@app/platform/browser-api/browserPdfValidation');
+        qpdfRun.mockRejectedValue(new BrowserQpdfEngineTimeoutError(30_000));
+        await expect(validateBrowserPdfData(await createPdfConformanceFixture('plain'))).resolves.toMatchObject({
+            isValid: true,
+            warnings: ['qpdf validation timed out after 30000ms; fallback PDF structure validation succeeded.'],
+        });
         await expect(validateBrowserPdfData(Uint8Array.of(1, 2, 3))).resolves.toMatchObject({
             isValid: false,
-            errors: ['Invalid PDF structure.'],
+            warnings: [],
         });
     });
 
-    it('reports a loaded stored document as valid when its teardown fails', async () => {
-        browserDocumentStoreMock.stat.mockResolvedValue({size: 3});
-        const destroy = vi.fn(async () => {
-            throw new Error('PDF.js worker already terminated');
-        });
-        pdfjsMock.loadBrowserPdfjsDocument.mockResolvedValue({loadingTask: {destroy}});
+    it('does not fall back on a page-count timeout or a worker reset', async () => {
+        storeDocument(Uint8Array.of(1));
+        const {BrowserQpdfEngineTimeoutError} = await import('@app/platform/browser-api/browserQpdfEngineClient');
+        const {
+            validateBrowserPdfPath, validateBrowserPdfData,
+        } = await import('@app/platform/browser-api/browserPdfValidation');
+        qpdfRun.mockRejectedValueOnce(new BrowserQpdfEngineTimeoutError(10_000));
+        await expect(validateBrowserPdfPath('browser://documents/input', {purpose: 'save'})).resolves.toMatchObject({isValid: false});
+        qpdfRun.mockRejectedValueOnce(new DOMException('reset', 'AbortError'));
+        await expect(validateBrowserPdfData(Uint8Array.of(1))).rejects.toMatchObject({name: 'AbortError'});
+        expect(runPageOpsInProcess).not.toHaveBeenCalled();
+    });
 
-        const {validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
-        await expect(validateBrowserPdfPath('/tmp/browser.pdf')).resolves.toMatchObject({
+    it('admits the conformance payload only after accounting for its generated framing', async () => {
+        const {
+            analyzeBrowserPdfConformanceData, BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES,
+        } = await import('@app/platform/browser-api/browserPdfValidation');
+        expect(BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES).toBe(2147483627);
+        const data = Uint8Array.of(1);
+        Object.defineProperty(data, 'byteLength', {value: BROWSER_PDF_CONFORMANCE_MAX_INPUT_BYTES + 1});
+        await expect(analyzeBrowserPdfConformanceData(data)).rejects.toMatchObject({code: 'browser-byte-limit'});
+        expect(runPageOpsInProcess).not.toHaveBeenCalled();
+    });
+
+    it('keeps the above-cap range route with an explicit diagnostic and refuses data before copying', async () => {
+        const {BROWSER_QPDF_MAX_INPUT_BYTES} = await import('@contracts/browserQpdfEngine');
+        browserDocumentStoreMock.stat.mockResolvedValue({size: BROWSER_QPDF_MAX_INPUT_BYTES + 1});
+        const destroy = vi.fn(async () => {});
+        pdfjsMock.loadBrowserPdfjsDocument.mockResolvedValue({loadingTask: {destroy}});
+        const {
+            validateBrowserPdfPath, validateBrowserPdfData,
+        } = await import('@app/platform/browser-api/browserPdfValidation');
+        await expect(validateBrowserPdfPath('browser://documents/large')).resolves.toMatchObject({
             isValid: true,
-            errors: [],
+            tool: 'browser',
+            warnings: [expect.stringContaining(`${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB`)],
         });
-        expect(destroy).toHaveBeenCalledOnce();
+        // No oversized allocation is needed to prove admission happens before slice/transfer.
+        const data = Uint8Array.of(1);
+        Object.defineProperty(data, 'byteLength', {value: BROWSER_QPDF_MAX_INPUT_BYTES + 1});
+        await expect(validateBrowserPdfData(data)).rejects.toMatchObject({code: 'browser-byte-limit'});
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        expect(qpdfRun).not.toHaveBeenCalled();
     });
 });

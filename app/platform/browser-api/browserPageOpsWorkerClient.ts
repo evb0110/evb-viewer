@@ -236,6 +236,7 @@ async function runAdmittedPageOperation<TResult>(
 interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
     dedicated?: boolean;
+    timeoutMs?: number;
     // A dedicated request copies its input so the caller keeps it; a caller
     // that reads its input again after a failure transfers it instead.
     transferInput?: boolean;
@@ -255,6 +256,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     options: {
         signal?: AbortSignal;
         preserveInputOwnership?: boolean;
+        timeoutMs?: number;
     } = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     const request: IBrowserPageOpsWorkerRequest<K> = {
@@ -268,7 +270,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     }
     const worker = client.getWorker();
 
-    const deadlineMs = getEngineDeadlineMs(payload, options.signal);
+    const deadlineMs = options.timeoutMs ?? getEngineDeadlineMs(payload, options.signal);
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
         let removeAbortListener: () => void = () => undefined;
         let settled = false;
@@ -355,9 +357,9 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
 function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-    signal?: AbortSignal,
-    transferInput = false,
+    options: IRunBrowserPageOpsWorkerRequestOptions,
 ) {
+    const {signal} = options;
     return runAdmittedPageOperation(signal, async (client, requestId, yieldAdmitted) => {
         if (isCpuPageOperation(type)) {
             // Worker startup and the ownership-preserving copy must not extend
@@ -374,8 +376,8 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
             await yieldAdmitted();
         }
         return runBrowserPageOpsWorkerRequestWithClient(client, requestId, type, payload, {
-            ...(signal ? {signal} : {}),
-            preserveInputOwnership: !transferInput,
+            ...options,
+            preserveInputOwnership: !options.transferInput,
         });
     });
 }
@@ -387,14 +389,14 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     if (isCpuPageOperation(type)) {
         if (canUseBrowserPageOpsWorker()) {
-            return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+            return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
         }
         return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) => (
             runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted)
         ));
     }
     if (options.dedicated) {
-        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal, options.transferInput);
+        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
     }
 
     return runBrowserPageOpsWorkerRequestWithClient(

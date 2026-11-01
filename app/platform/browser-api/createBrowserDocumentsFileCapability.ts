@@ -320,7 +320,7 @@ export function createBrowserDocumentsFileCapability(
             }
         },
         async savePdfAs(workingCopyPath, saveOptions, revisionOptions?) {
-            return savePdfAsFromWorkingCopy(workingCopyPath, revisionOptions, saveOptions?.stagedOutput);
+            return savePdfAsFromWorkingCopy(workingCopyPath, saveOptions, revisionOptions);
         },
         savePdfDialog: suggestedName => pickOutputTarget(suggestedName, 'pdf'),
         saveDocxAs: workingCopyPath => pickOutputTarget(
@@ -535,7 +535,7 @@ export function createBrowserDocumentsFileCapability(
             handoffBrowserDocumentWorkingCopy(path, path, () => analysis.then(() => undefined, () => undefined));
             return analysis;
         },
-        validatePdfPath: path => validateBrowserPdfPath(path),
+        validatePdfPath: (path, options) => validateBrowserPdfPath(path, options),
         printPdfData() {
             return Promise.resolve({
                 success: false,
@@ -567,7 +567,8 @@ export function createBrowserDocumentsFileCapability(
             return committed;
         },
         async savePdfData(path, data, options, commitCallbacks) {
-            const validation = await validateBrowserPdfData(data);
+            const {saveName} = await browserDocumentStore.getSaveTarget(path);
+            const validation = await validateBrowserPdfData(data, {fileName: saveName});
             if (!validation.isValid) {
                 return validation;
             }

@@ -1,4 +1,10 @@
 import {
+    resolveQpdfValidationTimeoutMs, shouldKeepPdfOptimizationCandidate,
+} from '@pdf-core/qpdfCommands';
+import {
+    getPdfLosslessOptimizationSkipReason, scanPdfMarkerEvidence, PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES, createPdfConformanceProfile,
+} from '@pdf-core/pdfConformanceHelpers';
+import {
     describe,
     expect,
     it,
@@ -11,9 +17,81 @@ import {
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core';
-import { createPdfConformanceProfile } from '@pdf-core/pdfConformanceHelpers';
 
 describe('PDF conformance contract helpers', () => {
+    it('scales the shared full-check timeout and clamps unknown or huge sizes', () => {
+        expect([
+            undefined,
+            NaN,
+            Infinity,
+            -1,
+            64 * 1024 ** 2,
+            256 * 1024 ** 2,
+            1024 ** 3,
+            2n ** 64n,
+        ].map(resolveQpdfValidationTimeoutMs))
+            .toEqual([
+                30000,
+                30000,
+                30000,
+                30000,
+                30000,
+                42000,
+                90000,
+                600000,
+            ]);
+    });
+
+    it('keeps only a nonempty, valid and strictly smaller optimization candidate', () => {
+        const valid = {
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        };
+        const invalid = {
+            ...valid,
+            isValid: false,
+            errors: ['damaged'],
+        };
+        expect([
+            shouldKeepPdfOptimizationCandidate(100, 99, valid),
+            shouldKeepPdfOptimizationCandidate(100, 100, valid),
+            shouldKeepPdfOptimizationCandidate(100, 101, valid),
+            shouldKeepPdfOptimizationCandidate(100, 0, valid),
+            shouldKeepPdfOptimizationCandidate(100, 99, invalid),
+        ]).toEqual([
+            true,
+            false,
+            false,
+            false,
+            false,
+        ]);
+    });
+
+    it('keeps ordered exclusions and permits tagged PDFs and ordinary forms', () => {
+        const profile = {
+            ...createDefaultPdfConformanceProfile(),
+            isTagged: true,
+            hasAcroForm: true,
+        };
+        expect(getPdfLosslessOptimizationSkipReason(profile)).toBeNull();
+        profile.hasXfa = true;
+        expect(getPdfLosslessOptimizationSkipReason(profile)).toBe('XFA PDF');
+        profile.pdfaLevel = 'PDF/A-2B';
+        expect(getPdfLosslessOptimizationSkipReason(profile)).toBe('PDF/A-2B PDF');
+        profile.isEncrypted = true;
+        expect(getPdfLosslessOptimizationSkipReason(profile)).toBe('encrypted PDF');
+        profile.isSigned = true;
+        expect(getPdfLosslessOptimizationSkipReason(profile)).toBe('signed PDF');
+    });
+
+    it('finds markers across bounded scan windows', () => {
+        const bytes = new Uint8Array(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES + 100);
+        bytes.set(new TextEncoder().encode('/ByteRange [0 1]'), PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - 4);
+        expect(scanPdfMarkerEvidence(bytes).isSigned).toBe(true);
+    });
+
     it('creates the default conformance profile', () => {
         expect(createDefaultPdfConformanceProfile()).toEqual({
             isSigned: false,

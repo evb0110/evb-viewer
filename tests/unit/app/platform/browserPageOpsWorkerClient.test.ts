@@ -186,6 +186,22 @@ describe('browserPageOpsWorkerClient', () => {
         vi.unstubAllGlobals();
     });
 
+    it('lets strict conformance use its ten-minute bound and terminates it at that bound', async () => {
+        FakeWorker.autoRespond = false;
+        let failure: unknown;
+        const pending = runBrowserPageOpsWorkerRequest('conformance', {data: Uint8Array.of(1)}, {
+            dedicated: true,
+            timeoutMs: 600_000,
+        })
+            .catch(error => {failure = error;});
+        await vi.advanceTimersByTimeAsync(121_001);
+        expect(failure).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(478_999);
+        await pending;
+        expect(failure).toMatchObject({message: expect.stringContaining('600000ms')});
+        expect(FakeWorker.lastInstance?.terminated).toBe(true);
+    });
+
     it('rejects malformed catalog bookmark fields through the shared codec', async () => {
         const {decodeBrowserPdfCatalog} = await import('@contracts/browserPdfCatalog');
         const baseBookmark = {
