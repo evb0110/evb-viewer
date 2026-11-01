@@ -58,7 +58,7 @@ export interface IRunCommandOptions {
     longLived?: boolean;
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
-    allowedExitCodes?: number[];
+    allowedExitCodes?: readonly number[];
     signal?: AbortSignal;
     cancelGroup?: string;
     commandLabel?: string;

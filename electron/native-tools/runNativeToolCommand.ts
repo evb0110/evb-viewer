@@ -35,7 +35,7 @@ export interface IRunNativeToolCommandOptions {
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
     rejectOnStdoutTruncation?: boolean;
-    allowedExitCodes?: number[];
+    allowedExitCodes?: readonly number[];
     signal?: AbortSignal;
     cancelGroup?: string;
     commandLabel?: string;

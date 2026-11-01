@@ -19,6 +19,10 @@ import { getErrorMessage } from '@electron/utils/error';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
+    getQpdfLosslessRewriteArgs,
+    QPDF_SUCCESS_EXIT_CODES,
+} from '@pdf-core/qpdfCommands';
+import {
     analyzePdfConformanceFile,
     validatePdfFile,
 } from '@electron/features/documents/main/pdfConformance';
@@ -97,17 +101,8 @@ async function rewritePdfLosslessly(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
-    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
-        '--linearize',
-        '--stream-data=preserve',
-        '--object-streams=generate',
-        inputPath,
-        outputPath,
-    ], {
-        allowedExitCodes: [
-            0,
-            3,
-        ],
+    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, getQpdfLosslessRewriteArgs(inputPath, outputPath), {
+        allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
         commandLabel: label,
         timeoutMs: QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS,
         ...(signal ? { signal } : {}),
