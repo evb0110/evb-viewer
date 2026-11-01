@@ -996,7 +996,7 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
-        expect(record.version).toBe(8);
+        expect(record.version).toBe(9);
         expect(record.pageCount).toBe(3);
         expect(record.pages).toEqual([{
             pageNumber: 2,
@@ -1005,8 +1005,17 @@ describe('createBrowserSearchCapability', () => {
         expect('pageTexts' in record).toBe(false);
     });
 
-    it('migrates a legacy page-text array without padding a million-page record', async () => {
-        const path = '/tmp/legacy-million.pdf';
+    it('discards cache records an older extractor wrote and reads the page again', async () => {
+        const path = '/tmp/older-extractor.pdf';
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'fresh'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            loadingTask: {destroy: vi.fn(async () => {})},
+        }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
             1,
@@ -1018,42 +1027,24 @@ describe('createBrowserSearchCapability', () => {
         await capability.resetCache();
         const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
+        // Version 8 cached right-to-left OCR pages as PDF.js glyph items.
         database?.getStoreRecords('document-text').set(path, {
-            version: 7,
+            version: 8,
             pdfPath: path,
             fileSize: 3,
             contentSignature: 'content-token-1',
             documentRevision: 'drt1:browser:content-token-1',
-            pageCount: 1_000_000,
-            pageTexts: ['needle'],
-            textBytes: 12,
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: 'stale',
+            }],
+            textBytes: 10,
         });
 
-        const arrayFrom = vi.spyOn(Array, 'from');
-        capability.onProgress(progress => {
-            if (progress.processed === 1) {
-                void capability.cancel(requireRequestId('legacy-million'));
-            }
-        });
-        await expect(capability.warmIndex(path, {requestId: requireRequestId('legacy-million')})).resolves.toBe(false);
-        await vi.waitFor(() => {
-            const migrated = requirePersistedRecord(
-                database?.getStoreRecords('document-text').get(path),
-            );
-            expect(migrated.version).toBe(8);
-            expect(migrated.pages).toEqual([{
-                pageNumber: 1,
-                text: 'needle',
-            }]);
-            expect('pageTexts' in migrated).toBe(false);
-        });
-        expect(arrayFrom.mock.calls.some(([value]) => (
-            typeof value === 'object'
-            && value !== null
-            && 'length' in value
-            && Number(value.length) >= 1_000_000
-        ))).toBe(false);
-        arrayFrom.mockRestore();
+        await expect(capability.run(path, 'stale', {requestId: requireRequestId('older-extractor')}))
+            .resolves.toMatchObject({results: []});
+        expect(getPage).toHaveBeenCalledWith(1);
     });
 
     it('cancels a million-page direct scan after one delivered page', async () => {

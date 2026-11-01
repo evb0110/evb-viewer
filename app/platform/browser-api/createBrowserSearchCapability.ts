@@ -143,8 +143,9 @@ const SEARCH_PERSISTED_CACHE_MAX_RECORDS = 16;
 const SEARCH_PERSISTED_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
 const SEARCH_CACHE_DB_VERSION = 2;
-const SEARCH_CACHE_RECORD_VERSION = 8;
-const SEARCH_CACHE_LEGACY_RECORD_VERSION = 7;
+// 9: right-to-left pages read their EVB OCR lines; older records hold the
+// PDF.js text of those pages and are discarded.
+const SEARCH_CACHE_RECORD_VERSION = 9;
 const SEARCH_CACHE_STORE = 'document-text';
 const SEARCH_CACHE_LAST_ACCESSED_INDEX = 'last-accessed-at';
 const PDFJS_TEXT_SOURCE: ISearchDocumentTextSource = {
@@ -503,7 +504,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     const searchDocumentCache = new Map<string, IPreparedSearchDocumentCache>();
     const activeSearchRequests = new Map<TRequestId, {
         generation: number;
-        canceled: boolean
+        canceled: boolean;
+        // Ends work a search started outside its own loop, such as reading EVB OCR lines.
+        abort: AbortController;
     }>();
     const activeMatchWorkerSearchRequests = new Map<TRequestId, {
         generation: number;
@@ -561,9 +564,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         cancelMatchWorkerRequest(requestId);
         const generation = nextSearchGeneration + 1;
         nextSearchGeneration = generation;
+        activeSearchRequests.get(requestId)?.abort.abort();
         activeSearchRequests.set(requestId, {
             generation,
             canceled: false,
+            abort: new AbortController(),
         });
         return generation;
     }
@@ -604,6 +609,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         return consumeCancellation(requestId, generation);
     }
 
+    function extractionSignal(requestId: TRequestId | undefined, generation: number | undefined) {
+        const active = requestId === undefined ? undefined : activeSearchRequests.get(requestId);
+        return active?.generation === generation ? active?.abort.signal : undefined;
+    }
+
     function isSearchCanceled(requestId: TRequestId | undefined, generation: number | undefined) {
         return consumeCancellation(requestId, generation);
     }
@@ -634,10 +644,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         if (!record) {
             return null;
         }
-        if (
-            record.version !== SEARCH_CACHE_RECORD_VERSION
-            && record.version !== SEARCH_CACHE_LEGACY_RECORD_VERSION
-        ) {
+        if (record.version !== SEARCH_CACHE_RECORD_VERSION) {
             return null;
         }
         if (record.fileSize !== fileSize) {
@@ -746,9 +753,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     ? undefined
                     : async () => {
                         document ??= await (await import('@app/platform/browser-api/browserSearchCore')).loadBrowserSearchDocument(pdfPath);
-                        const page = await document.extractPage(pageNumber, {shouldContinue: () => (
-                            !isExtractionCanceled(options.requestId, options.requestGeneration)
-                        )});
+                        const signal = extractionSignal(options.requestId, options.requestGeneration);
+                        const page = await document.extractPage(pageNumber, {
+                            shouldContinue: () => !isExtractionCanceled(options.requestId, options.requestGeneration),
+                            ...(signal === undefined ? {} : {signal}),
+                        });
                         rememberPageData(cache, page);
                         return page;
                     });
@@ -798,25 +807,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             options.expectedPageCount,
         );
         if (validPersistedRecord) {
-            if (validPersistedRecord.version === SEARCH_CACHE_LEGACY_RECORD_VERSION) {
-                const migratedPages = new Map<number, string>();
-                for (const page of validPersistedRecord.pages) {
-                    migratedPages.set(page.pageNumber, page.text);
-                }
-                void bestEffortSearchCache(persistSearchCacheRecord(createPersistedSearchCacheRecord(
-                    pdfPath,
-                    fileSize,
-                    contentSignature,
-                    documentRevision,
-                    validPersistedRecord.pageCount,
-                    migratedPages,
-                    createSearchCacheAccessTimestamp(),
-                    SEARCH_CACHE_RECORD_VERSION,
-                    validPersistedRecord.textSource ?? PDFJS_TEXT_SOURCE,
-                )));
-            } else {
-                void bestEffortSearchCache(touchPersistedSearchCacheRecord(validPersistedRecord));
-            }
+            void bestEffortSearchCache(touchPersistedSearchCacheRecord(validPersistedRecord));
             hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
             return iterateCachedDocumentPages(pdfPath, cache, validPersistedRecord.pageCount, options);
         }
@@ -829,6 +820,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         let pageCount = 0;
         try {
             const {iterateBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
+            const signal = extractionSignal(options.requestId, options.requestGeneration);
             pageCount = await iterateBrowserSearchDocumentPages(
                 pdfPath,
                 async (page, totalPages) => {
@@ -850,11 +842,14 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                         }
                     }
                 },
-                {shouldContinue: () => (
-                    !isExtractionCanceled(options.requestId, options.requestGeneration)
-                        && !canceled
-                        && (options.continueExtractionAfterStop === true || !stopped)
-                )},
+                {
+                    shouldContinue: () => (
+                        !isExtractionCanceled(options.requestId, options.requestGeneration)
+                            && !canceled
+                            && (options.continueExtractionAfterStop === true || !stopped)
+                    ),
+                    ...(signal === undefined ? {} : {signal}),
+                },
             );
         } catch (error) {
             if (isBrowserSearchCanceledError(error)) {
@@ -1053,6 +1048,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 const active = activeSearchRequests.get(requestId);
                 if (active) {
                     active.canceled = true;
+                    active.abort.abort();
                 }
                 cancelMatchWorkerRequest(requestId);
             }

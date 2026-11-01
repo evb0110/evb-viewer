@@ -16,8 +16,11 @@ const mocks = vi.hoisted(() => ({
     extractBrowserSearchPageData: vi.fn(),
     getDocument: vi.fn(),
     getPage: vi.fn(),
+    readEvbLayerLines: vi.fn(),
     yieldToBrowser: vi.fn(),
 }));
+
+vi.mock('@app/platform/browser-api/browserOcrTextCatalog', () => ({readEvbLayerLines: mocks.readEvbLayerLines}));
 
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
     createPdfjsDocumentInitFromBrowserDocument: mocks.createPdfjsDocumentInitFromBrowserDocument,
@@ -54,6 +57,34 @@ describe('browserSearchCore', () => {
             }),
         });
         mocks.yieldToBrowser.mockResolvedValue(undefined);
+    });
+
+    it('reads a right-to-left page from its EVB OCR lines under the search signal', async () => {
+        mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'ש ל ו ם'});
+        mocks.readEvbLayerLines.mockResolvedValue(new Map([[
+            1,
+            {text: 'שלום'},
+        ]]));
+        const signal = new AbortController().signal;
+        const { loadBrowserSearchDocument } = await import('@app/platform/browser-api/browserSearchCore');
+        const document = await loadBrowserSearchDocument('/tmp/rtl.pdf');
+
+        await expect(document.extractPage(1, {signal})).resolves.toMatchObject({text: 'שלום'});
+        expect(mocks.readEvbLayerLines).toHaveBeenCalledWith('/tmp/rtl.pdf', [1], signal);
+    });
+
+    it('stops at the canceled search instead of returning the EVB read', async () => {
+        mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'ש ל ו ם'});
+        let continueSearch = true;
+        mocks.readEvbLayerLines.mockImplementation(async () => {
+            continueSearch = false;
+            return new Map();
+        });
+        const { loadBrowserSearchDocument } = await import('@app/platform/browser-api/browserSearchCore');
+        const document = await loadBrowserSearchDocument('/tmp/rtl.pdf');
+
+        await expect(document.extractPage(1, {shouldContinue: () => continueSearch}))
+            .rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
     });
 
     it('cancels after getPage resolves without starting page text extraction', async () => {

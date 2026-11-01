@@ -9,7 +9,11 @@ import {
 import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import { readEvbLayerLines } from '@app/platform/browser-api/browserOcrTextCatalog';
 
-interface IExtractBrowserSearchDocumentTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
+interface IExtractBrowserSearchDocumentTextOptions {
+    shouldContinue?: () => Promise<boolean> | boolean;
+    /** Aborts work the extraction started outside its own steps. */
+    signal?: AbortSignal;
+}
 
 export interface IExtractedBrowserSearchPage extends IBrowserSearchPageData {pageNumber: number;}
 
@@ -27,9 +31,9 @@ export async function loadBrowserSearchDocument(pdfPath: string) {
     // those pages' EVB OCR lines, as desktop and the text catalog do. They are
     // read once, and only for a document that has such a page.
     let evbLayers: ReturnType<typeof readEvbLayerLines> | undefined;
-    const readEvbLayerText = async (pageNumber: number) => {
+    const readEvbLayerText = async (pageNumber: number, signal?: AbortSignal) => {
         // A layer that cannot be read leaves search on the PDF.js text.
-        evbLayers ??= readEvbLayerLines(pdfPath, Array.from({length: pdfDocument.numPages}, (_, index) => index + 1))
+        evbLayers ??= readEvbLayerLines(pdfPath, Array.from({length: pdfDocument.numPages}, (_, index) => index + 1), signal)
             .catch(() => new Map());
         return (await evbLayers).get(pageNumber)?.text;
     };
@@ -44,7 +48,7 @@ export async function loadBrowserSearchDocument(pdfPath: string) {
 async function extractBrowserSearchDocumentPage(
     pdfDocument: IPdfDocument,
     pageNumber: number,
-    readEvbLayerText: (pageNumber: number) => Promise<string | undefined>,
+    readEvbLayerText: (pageNumber: number, signal?: AbortSignal) => Promise<string | undefined>,
     options: IExtractBrowserSearchDocumentTextOptions = {},
 ): Promise<IExtractedBrowserSearchPage> {
     await throwIfBrowserSearchCanceled(options.shouldContinue);
@@ -57,8 +61,9 @@ async function extractBrowserSearchDocumentPage(
     );
     await throwIfBrowserSearchCanceled(options.shouldContinue);
     const evbText = hasRightToLeftSearchText(pageData.text)
-        ? await readEvbLayerText(pageNumber)
+        ? await readEvbLayerText(pageNumber, options.signal)
         : undefined;
+    await throwIfBrowserSearchCanceled(options.shouldContinue);
     return {
         pageNumber,
         ...pageData,

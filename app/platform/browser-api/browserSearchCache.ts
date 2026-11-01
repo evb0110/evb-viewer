@@ -81,33 +81,6 @@ function parsePersistedPageRecords(
     return pages;
 }
 
-function parseLegacyPersistedPageTexts(
-    value: unknown,
-    pageCount: number,
-): IPersistedSearchPageText[] | null {
-    if (!Array.isArray(value) || value.length > pageCount) {
-        return null;
-    }
-    const pages: IPersistedSearchPageText[] = [];
-    const legacyPageTexts = value as readonly unknown[];
-    for (let index = 0; index < legacyPageTexts.length; index += 1) {
-        const text = legacyPageTexts[index];
-        if (text === undefined) {
-            continue;
-        }
-        if (typeof text !== 'string') {
-            return null;
-        }
-        if (text.length > 0) {
-            pages.push({
-                pageNumber: index + 1,
-                text,
-            });
-        }
-    }
-    return pages;
-}
-
 export function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearchDocumentCacheRecord | null {
     if (!isRecord(value)) {
         return null;
@@ -122,9 +95,7 @@ export function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearc
         return null;
     }
 
-    const pages = value.pages !== undefined
-        ? parsePersistedPageRecords(value.pages, value.pageCount)
-        : parseLegacyPersistedPageTexts(value.pageTexts, value.pageCount);
+    const pages = parsePersistedPageRecords(value.pages, value.pageCount);
     if (!pages) {
         return null;
     }
