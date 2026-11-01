@@ -177,7 +177,9 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         default_dpi,
         max_pages,
         max_pixels,
-        max_bilevel_pixels: max_pixels,
+        // As on desktop: a photo raster has the header's limit, a bilevel mask
+        // desktop's own, so a large scanned page stays a lossless mask.
+        max_bilevel_pixels: crate::DEFAULT_MAX_BILEVEL_PIXELS,
         max_output_bytes: u64::MAX,
         allow_large_output: true,
         max_tiff_frames: read_usize_le(request, offset, "max_tiff_frames")?,
@@ -521,6 +523,20 @@ mod tests {
         let next_pointer = evb_pdf_image_combine_alloc(1);
         assert!(!next_pointer.is_null());
         unsafe { evb_pdf_image_combine_free(next_pointer, 1) };
+    }
+
+    #[test]
+    fn header_admits_desktop_bilevel_masks_beside_the_photo_limit() {
+        let mut request = Vec::new();
+        for value in [0_u32, 1, 80_000_000, 1, 1] {
+            request.extend_from_slice(&value.to_le_bytes());
+        }
+        let header = parse_request_header(&request, &mut 0).unwrap();
+        assert_eq!(header.options.max_pixels, 80_000_000);
+        assert_eq!(
+            header.options.max_bilevel_pixels,
+            crate::DEFAULT_MAX_BILEVEL_PIXELS
+        );
     }
 
     #[test]
