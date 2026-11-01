@@ -2611,7 +2611,7 @@ describe('browser document lifecycle UI', () => {
         const activeFitHeight = () => page.evaluate(() => {
             const host = document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]');
             const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            const firstPage = host?.querySelector<HTMLElement>('.page_container--rendered[data-page="1"]');
+            const firstPage = host?.querySelector<HTMLElement>('.page_container--rendered[data-page="1"], [data-testid="document-page-source-image"]');
             if (!viewport || !firstPage) {
                 return null;
             }
@@ -2751,6 +2751,44 @@ describe('browser document lifecycle UI', () => {
             const firstClosedFrame = outsideFrames.findIndex(frame => frame.menus === 0);
             expect(firstClosedFrame).toBeGreaterThanOrEqual(0);
             expect(outsideFrames.slice(firstClosedFrame).filter(frame => frame.menus !== 0 || frame.expanded)).toEqual([]);
+
+            // A focused PDF-only entry becomes disabled on a DjVu. The open
+            // menu must keep keyboard navigation and run the DjVu command.
+            await page.locator(`[role="tab"][data-tab-id="${emptyTabId}"]`).click();
+            const djvuChooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await djvuChooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+            await page.locator('.workspace-host[data-workspace-active="true"] [data-testid="document-page-source-image"]').first().waitFor({timeout: 60_000});
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await menuItem('Fit Height').click();
+            await expect.poll(activeFitHeight).toBe(true);
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(pdfTabId);
+            await moreToolsTrigger.click();
+            await page.keyboard.type('single');
+            const focusedMenuText = () => page.evaluate(() => document.activeElement?.textContent?.trim());
+            await expect.poll(focusedMenuText).toBe('Single Page');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(emptyTabId);
+            await expect.poll(() => menuItem('Single Page').getAttribute('aria-disabled')).toBe('true');
+            await expect.poll(() => page.evaluate(() => {
+                const focused = document.activeElement;
+                return focused !== null && focused.closest('.overflow-menu.toolbar-menu-panel') !== null
+                    && !focused.matches(':disabled');
+            })).toBe(true);
+            await page.keyboard.press('ArrowDown');
+            await expect.poll(focusedMenuText).toBe('Fit Height');
+            // Expire the menu library's one-second typeahead buffer from "single".
+            await page.waitForTimeout(1_100);
+            await page.keyboard.press('f');
+            await expect.poll(focusedMenuText).toBe('Fit Width');
+            await page.keyboard.press('Enter');
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(activeFitHeight).toBe(false);
             expect(problems).toEqual([]);
         } finally {
             releaseWorkspace();
