@@ -898,7 +898,6 @@ export default {
                 'off': 'Usa el escaneo tal cual.',
                 'clean': 'Endereza y limpia primero la imagen de la página.',
             },
-            'browserUnavailable': 'La limpieza de imagen requiere la aplicación de escritorio; el navegador lee las páginas tal como se escanearon.',
         },
         'pageSegmentation': {
             'label': 'Distribución del texto',

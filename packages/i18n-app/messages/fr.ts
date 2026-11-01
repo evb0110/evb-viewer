@@ -899,7 +899,6 @@ export default {
                 'off': 'Utilise le scan tel quel.',
                 'clean': 'Redresse et nettoie d’abord l’image de la page.',
             },
-            'browserUnavailable': 'Le nettoyage d’image nécessite l’application de bureau ; le navigateur lit les pages telles qu’elles ont été numérisées.',
         },
         'pageSegmentation': {
             'label': 'Mise en page du texte',

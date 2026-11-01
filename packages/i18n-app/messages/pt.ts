@@ -899,7 +899,6 @@ export default {
                 'off': 'Usa a digitalização tal como está.',
                 'clean': 'Endireita e limpa primeiro a imagem da página.',
             },
-            'browserUnavailable': 'A limpeza de imagem requer a aplicação desktop; o navegador lê as páginas tal como foram digitalizadas.',
         },
         'pageSegmentation': {
             'label': 'Disposição do texto',

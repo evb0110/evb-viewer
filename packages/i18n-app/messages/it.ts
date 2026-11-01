@@ -898,7 +898,6 @@ export default {
                 'off': 'Usa la scansione così com’è.',
                 'clean': 'Raddrizza e ripulisce prima l’immagine della pagina.',
             },
-            'browserUnavailable': 'La pulizia dell’immagine richiede l’app desktop; il browser legge le pagine così come sono state scansionate.',
         },
         'pageSegmentation': {
             'label': 'Layout del testo',

@@ -101,8 +101,10 @@ leaves the device. Its differences:
   copy of the upstream models the first time it is used, which tells GitHub
   which language was chosen, and stays in the browser's storage afterwards.
 - Documents up to 16 MB. Larger documents need the desktop app for now.
-- No image cleanup: Poor scan uses its recognition setting on the page as
-  scanned, and inverted (light on dark) pages are not straightened out first.
+- Image cleanup works as in the desktop app: inverted (light on dark) pages
+  are turned dark on light first, and Clean scan straightens and cleans the
+  page before recognition. Cleaning runs on one processor core, so a page
+  takes a few seconds longer than in the desktop app.
 - Early-print reading (ſ, æ, œ) works as in the desktop app; its three extra
   models (about 24 MB) download the first time a page needs them.
 - The browser draws the page with a different renderer than the desktop app,

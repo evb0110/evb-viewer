@@ -378,7 +378,6 @@ export default {
                 'off': 'Use the scan as-is.',
                 'clean': 'Straighten and clean up the page image first.',
             },
-            'browserUnavailable': 'Image cleanup needs the desktop app; the browser reads pages as scanned.',
         },
         'pageSegmentation': {
             'label': 'Text layout',

@@ -898,7 +898,6 @@ export default {
                 'off': 'Gebruik de scan ongewijzigd.',
                 'clean': 'Maak de pagina-afbeelding eerst recht en schoon.',
             },
-            'browserUnavailable': 'Beeldopschoning vereist de desktop-app; de browser leest de pagina’s zoals ze gescand zijn.',
         },
         'pageSegmentation': {
             'label': 'Tekstindeling',

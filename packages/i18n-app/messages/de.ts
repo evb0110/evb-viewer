@@ -898,7 +898,6 @@ export default {
                 'off': 'Scan unverändert verwenden.',
                 'clean': 'Seitenbild zuerst begradigen und bereinigen.',
             },
-            'browserUnavailable': 'Die Bildbereinigung erfordert die Desktop-App; der Browser liest die Seiten wie gescannt.',
         },
         'pageSegmentation': {
             'label': 'Textlayout',
