@@ -77,14 +77,17 @@ vi.mock('vue-i18n', async () => {
 });
 afterAll(() => vi.unstubAllGlobals());
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    diagnostic: vi.fn(),
-    diagnosticThrottled: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    warnThrottled: vi.fn(),
-    debug: vi.fn(),
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        diagnostic: vi.fn(),
+        diagnosticThrottled: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        warnThrottled: vi.fn(),
+        debug: vi.fn(),
+    },
+    setBrowserLogSink: vi.fn(),
+}));
 
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', async importOriginal => {
     const original = await importOriginal<typeof PdfPageRendererModule>();
