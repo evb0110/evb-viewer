@@ -4,6 +4,7 @@ import {
     buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
+import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import {
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
@@ -91,11 +92,6 @@ export async function extractBrowserSearchPageText(
     } finally {
         await cleanupBrowserSearchPage(page);
     }
-}
-
-/** Hebrew, Syriac, Arabic and their presentation forms: text PDF.js reads in logical order only through text content. */
-export function hasRightToLeftSearchText(text: string) {
-    return /[\u0590-\u08AC\uFB1D-\uFDFF\uFE70-\uFEFF]/u.test(text);
 }
 
 function hasUsableGeometry(page: IBrowserSearchPageData) {

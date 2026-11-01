@@ -4,9 +4,9 @@ import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdf
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     extractBrowserSearchPageData,
-    hasRightToLeftSearchText,
+    type IBrowserSearchPageData,
 } from '@app/platform/browser-api/extractBrowserSearchPageText';
-import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
+import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import { readEvbLayerLines } from '@app/platform/browser-api/browserOcrTextCatalog';
 
 interface IExtractBrowserSearchDocumentTextOptions {

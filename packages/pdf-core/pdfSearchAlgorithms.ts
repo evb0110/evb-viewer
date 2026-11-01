@@ -773,3 +773,8 @@ export function buildPdfSearchExcerpt(
         after: text.slice(endOffset, excerptEnd).replace(/\s+/g, ' ').trimEnd(),
     };
 }
+
+/** Hebrew, Syriac, Arabic and their presentation forms: text PDF.js reads in logical order only through text content. */
+export function hasRightToLeftSearchText(text: string) {
+    return /[\u0590-\u08AC\uFB1D-\uFDFF\uFE70-\uFEFF]/u.test(text);
+}
