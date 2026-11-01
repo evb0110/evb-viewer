@@ -235,7 +235,7 @@ export function createBrowserDocumentsFileCapability(
                 multiple: true,
                 pickerTypes: buildOpenPdfPickerTypes(),
             });
-            const indirectDjvu = await findIndirectDjvuSelection(pickedFiles);
+            const indirectDjvu = await findIndirectDjvuSelection<IPickedBrowserFile>(pickedFiles);
             if (pickedFiles.length > 1 && !indirectDjvu) {
                 return openPickedBatch(pickedFiles);
             }
