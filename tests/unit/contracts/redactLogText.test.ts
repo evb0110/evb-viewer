@@ -25,6 +25,10 @@ describe('redactLogText', () => {
                 'browser://documents/abc/[redacted], fallback=ocr.pdf',
             ],
             [
+                'failed to read "C:\\Users\\alice\\" EACCES while reading document.pdf',
+                'failed to read "C:\\Users\\[redacted]" EACCES while reading document.pdf',
+            ],
+            [
                 JSON.stringify({path: '/Users/evb/My Documents/scan 1677.pdf'}),
                 '{"path":"/Users/[redacted]"}',
             ],

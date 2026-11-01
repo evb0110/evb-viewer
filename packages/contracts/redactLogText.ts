@@ -11,12 +11,20 @@ interface IRedaction {
 // next whitespace. A path already redacted is left alone, so redacting again
 // changes nothing.
 const QUOTED_PATH_START = String.raw`(?<=(["']))`;
+// JSON escapes a quote as \" and a backslash as \\; in raw text a backslash
+// is only a Windows separator, so a quote after it closes the value.
 const QUOTED_PATH_TAIL = String.raw`(?:\\.|(?!\1)[^\\\n])*`;
+const RAW_QUOTED_PATH_TAIL = String.raw`(?:(?!\1)[^\n])*`;
 
-function pathRedactions(prefix: string, plainTail: string, replacement: IRedaction['replacement']): IRedaction[] {
+function pathRedactions(
+    prefix: string,
+    plainTail: string,
+    replacement: IRedaction['replacement'],
+    quotedTail = QUOTED_PATH_TAIL,
+): IRedaction[] {
     const start = `${prefix}(?!\\[redacted\\])`;
     return [
-        `${QUOTED_PATH_START}${start}${QUOTED_PATH_TAIL}`,
+        `${QUOTED_PATH_START}${start}${quotedTail}`,
         `${start}${plainTail}`,
     ].map(source => ({
         pattern: new RegExp(source, 'giu'),
@@ -26,10 +34,17 @@ function pathRedactions(prefix: string, plainTail: string, replacement: IRedacti
 
 const HOME_PATH_REDACTION_PATTERNS: readonly IRedaction[] = [
     ...pathRedactions(String.raw`\/Users\/`, String.raw`[^/\s"',)]+(?:\/[^\s"',)]+)*`, () => '/Users/[redacted]'),
+    // JSON-escaped Windows paths (doubled separators), then raw ones.
     ...pathRedactions(
-        String.raw`[A-Za-z]:(?:\\\\|\\)Users(?:\\\\|\\)`,
+        String.raw`[A-Za-z]:\\\\Users\\\\`,
         String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
-        match => (match.includes('\\\\') ? 'C:\\\\Users\\\\[redacted]' : 'C:\\Users\\[redacted]'),
+        () => 'C:\\\\Users\\\\[redacted]',
+    ),
+    ...pathRedactions(
+        String.raw`[A-Za-z]:\\Users\\`,
+        String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
+        () => 'C:\\Users\\[redacted]',
+        RAW_QUOTED_PATH_TAIL,
     ),
 ];
 
