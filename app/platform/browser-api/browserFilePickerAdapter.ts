@@ -530,6 +530,16 @@ export async function downloadBrowserDocument(ref: TDocumentRef, fileName: strin
     downloadBlob(new Blob(parts, { type: mimeType }), fileName);
 }
 
+export type TBrowserOutputTarget =
+    | {
+        fileName: string;
+        handle: FileSystemFileHandle
+    }
+    | {
+        fileName: string;
+        stagingRef: TDocumentRef
+    };
+
 export interface IBrowserOutputSink {
     write(chunk: Uint8Array): Promise<void>;
     close(): Promise<void>;
@@ -543,20 +553,16 @@ export interface IBrowserOutputSink {
  * holds the whole output in memory.
  */
 export async function openBrowserOutputSink(
-    target: {
-        fileName: string;
-        handle: FileSystemFileHandle | null
-    },
+    target: TBrowserOutputTarget,
     options: {
         mimeType: string;
-        stagingRef: TDocumentRef;
         signal?: AbortSignal
     },
 ): Promise<IBrowserOutputSink> {
     const {signal} = options;
     throwIfAborted(signal);
-    const {handle} = target;
-    if (handle) {
+    if ('handle' in target) {
+        const {handle} = target;
         await ensureFileHandleWritePermission(handle, signal);
         throwIfAborted(signal);
         const writable = await runBrowserFileHandlePhase(
@@ -581,7 +587,7 @@ export async function openBrowserOutputSink(
         };
     }
 
-    const {stagingRef} = options;
+    const {stagingRef} = target;
     await browserDocumentStore.prepareChunkedDocument(stagingRef);
     let buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
     let filled = 0;

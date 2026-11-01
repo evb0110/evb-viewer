@@ -64,6 +64,7 @@ let bundlePath = '';
 let temporaryDirectory = '';
 let djvuBytes: Buffer;
 let mixedDpiDjvuBytes: Buffer;
+let boundaryDjvuBytes: Buffer;
 let djvuScriptBytes: Buffer;
 let combineWorkerBytes: Buffer;
 let combineWasmBytes: Buffer;
@@ -160,6 +161,7 @@ beforeAll(async () => {
     combineWasmBytes = await readFile(resolve(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
     djvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
     mixedDpiDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/mixed-dpi.djvu'));
+    boundaryDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
     djvuScriptBytes = await readFile(resolve(process.cwd(), 'public/vendor/djvujs/djvu.js'));
     server = createServer((_request, response) => {
         if (_request.url === '/browserPdfCombine.worker.ts') {
@@ -185,6 +187,11 @@ beforeAll(async () => {
         if (_request.url === '/fixtures/mixed-dpi.djvu') {
             response.writeHead(200, {'content-type': 'application/octet-stream'});
             response.end(mixedDpiDjvuBytes);
+            return;
+        }
+        if (_request.url === '/fixtures/browser-boundary-501-pages.djvu') {
+            response.writeHead(200, {'content-type': 'application/octet-stream'});
+            response.end(boundaryDjvuBytes);
             return;
         }
         if (_request.url?.startsWith('/pdf/')) {
@@ -491,6 +498,69 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await browser.close();
         }
     });
+    // T3: a multi-page TIFF holds every page. Its decoded pages once had to fit
+    // 64 MiB: without a file handle always, and for DjVu even with one.
+    it('writes multi-page TIFFs whose decoded pages exceed 64 MiB through a handle and as a download', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance') === 'function');
+            const runExport = (sourceKind: 'djvu' | 'pdf', pageCount: number) => page.evaluate<{
+                success: boolean;
+                error?: string;
+                saved?: {
+                    byteLength: number;
+                    frames: Array<{
+                        width: number;
+                        height: number
+                    }>
+                } | null;
+            }, [string, number]>(
+                ([
+                    kind,
+                    count,
+                ]) => Reflect.get(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance')(kind, count),
+                [
+                    sourceKind,
+                    pageCount,
+                ],
+            );
+
+            // Seventy 512 x 512 DjVu pages decode to 70 MiB of RGBA.
+            const djvu = await runExport('djvu', 70);
+            expect(djvu).toMatchObject({success: true});
+            expect(djvu.saved!.byteLength).toBeGreaterThan(70 * 1024 * 1024);
+            expect(djvu.saved!.frames).toHaveLength(70);
+            expect(djvu.saved!.frames.every(frame => frame.width === 512 && frame.height === 512)).toBe(true);
+
+            // Ten Letter pages at 144 DPI decode to 74 MiB of RGBA.
+            const download = page.waitForEvent('download');
+            const pdf = await runExport('pdf', 10);
+            expect(pdf).toMatchObject({success: true});
+            const downloaded = await readFile((await (await download).path())!);
+            expect((await download).suggestedFilename()).toBe('browser-letter-image-export.tif');
+            expect(downloaded.byteLength).toBeGreaterThan(64 * 1024 * 1024);
+            const frames = UTIF.decode(downloaded);
+            expect(frames).toHaveLength(10);
+            expect(frames.map(frame => [
+                firstNumber(frame.t256),
+                firstNumber(frame.t257),
+            ])).toEqual(
+                Array.from({length: 10}, () => [
+                    1224,
+                    1584,
+                ]),
+            );
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
     it('exposes DjVu PNG density before image data to header readers', async () => {
         const browser = await chromium.launch({headless: true});
         try {

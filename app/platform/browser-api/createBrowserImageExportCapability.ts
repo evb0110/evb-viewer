@@ -23,9 +23,12 @@ import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExpor
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
+    openBrowserOutputSink,
     pickSaveTarget,
     saveBytesToPickerOrDownload,
     writeBytesToHandle,
+    type IBrowserOutputSink,
+    type TBrowserOutputTarget,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import {
     buildImageExportPickerTypes,
@@ -96,7 +99,6 @@ class BrowserImageExportPageBudgetError extends RangeError {
     }
 }
 
-const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
 const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
 let utifModulePromise: Promise<TUtifModule> | null = null;
 
@@ -383,48 +385,41 @@ type TTiffPageRenderer = (
     pageNumber: number,
 ) => Promise<Pick<IRenderedPdfPage, 'rgba' | 'width' | 'height'>>;
 
-async function encodeRenderedTiffToWritable(
+// Streams the header and then each page's RGBA as it renders, so one page is
+// in memory at a time. The header's offsets are fixed before any page renders.
+async function writeRenderedTiff(
     pageDescriptors: IBrowserTiffPageDescriptor[],
     encoder: ITiffEncoderModule,
     renderPage: TTiffPageRenderer,
-    handle: FileSystemFileHandle,
+    sink: IBrowserOutputSink,
     onPageWritten?: (processed: number) => void,
 ) {
-    const writable = await handle.createWritable();
-    try {
-        const {
-            header,
-            firstDataOffset,
-        } = encodeMultiPageTiffHeader(pageDescriptors, encoder);
-        await writable.write(header);
-        const paddingLength = firstDataOffset - header.length;
-        if (paddingLength > 0) {
-            await writable.write(new Uint8Array(paddingLength));
-        }
-
-        for (let index = 0; index < pageDescriptors.length; index += 1) {
-            const descriptor = pageDescriptors[index];
-            if (!descriptor) {
-                throw new Error('Missing TIFF page descriptor');
-            }
-            const rendered = await renderPage(descriptor.pageNumber);
-            if (rendered.rgba.byteLength !== descriptor.dataLength) {
-                throw new Error('Rendered TIFF page size did not match the expected descriptor size');
-            }
-
-            await writable.write(toUint8Array(rendered.rgba));
-            onPageWritten?.(index + 1);
-            await yieldToBrowser();
-        }
-
-        await writable.close();
-        return header.length
-            + Math.max(0, firstDataOffset - header.length)
-            + sumBy(pageDescriptors, descriptor => descriptor.dataLength);
-    } catch (error) {
-        await writable.abort().catch(() => undefined);
-        throw error;
+    const {
+        header,
+        firstDataOffset,
+    } = encodeMultiPageTiffHeader(pageDescriptors, encoder);
+    await sink.write(header);
+    const paddingLength = firstDataOffset - header.length;
+    if (paddingLength > 0) {
+        await sink.write(new Uint8Array(paddingLength));
     }
+
+    for (let index = 0; index < pageDescriptors.length; index += 1) {
+        const descriptor = pageDescriptors[index];
+        if (!descriptor) {
+            throw new Error('Missing TIFF page descriptor');
+        }
+        const rendered = await renderPage(descriptor.pageNumber);
+        if (rendered.rgba.byteLength !== descriptor.dataLength) {
+            throw new Error('Rendered TIFF page size did not match the expected descriptor size');
+        }
+
+        await sink.write(toUint8Array(rendered.rgba));
+        onPageWritten?.(index + 1);
+        await yieldToBrowser();
+    }
+
+    return firstDataOffset + sumBy(pageDescriptors, descriptor => descriptor.dataLength);
 }
 
 async function encodeRenderedTiffToBytes(
@@ -720,11 +715,6 @@ async function exportBrowserDjvuAsTiff(
         }
 
         const pageDescriptors = buildDjvuTiffPageDescriptors(sizes, targetPages);
-        const estimatedRgbaBytes = sumBy(pageDescriptors, descriptor => descriptor.dataLength);
-        if (estimatedRgbaBytes > BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES) {
-            throw new Error('Browser DjVu TIFF export exceeds the 64MB decoded-image limit');
-        }
-
         return await exportRenderedPagesAsTiff(pageDescriptors, pageNumber => renderBrowserDjvuPage(worker, pageNumber), saveTarget, requestId);
     } finally {
         worker.terminate();
@@ -746,69 +736,59 @@ async function exportRenderedPagesAsTiff(
     });
     emitPageProgress(0);
 
-    if (saveTarget.handle) {
-        const fileSize = await encodeRenderedTiffToWritable(
-            pageDescriptors,
-            encoder,
-            renderPage,
-            saveTarget.handle,
-            emitPageProgress,
-        );
+    // Without a handle the TIFF is staged in its output record, which also
+    // keeps it in Recent Files, and downloaded from there.
+    const {
+        fileName,
+        handle,
+    } = saveTarget;
+    const target: TBrowserOutputTarget = handle
+        ? {
+            fileName,
+            handle,
+        }
+        : {
+            fileName,
+            stagingRef: await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), {
+                mimeType: 'image/tiff',
+                saveKind: 'generic',
+                kind: 'output',
+                retention: 'transient',
+                saveHandle: null,
+            }),
+        };
+    let published = false;
+    try {
+        const sink = await openBrowserOutputSink(target, {mimeType: 'image/tiff'});
+        let fileSize: number;
+        try {
+            fileSize = await writeRenderedTiff(pageDescriptors, encoder, renderPage, sink, emitPageProgress);
+        } catch (error) {
+            await sink.abort();
+            throw error;
+        }
+        await sink.close();
+        const outputRef = 'handle' in target
+            ? await storeTiffAtHandle(target.handle, fileSize)
+            : target.stagingRef;
+        if (!('handle' in target)) await browserDocumentStore.touchRecentFile(outputRef);
+        published = true;
         emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
             phase: 'combining',
             processed: 1,
             total: 1,
             percent: 100,
         });
-        const outputRef = await storeTiffAtHandle(saveTarget.handle, fileSize);
         return {
             success: true as const,
             outputPath: outputRef,
             outputPaths: [outputRef],
         };
+    } finally {
+        if (!published && 'stagingRef' in target) {
+            await browserDocumentStore.remove(target.stagingRef).catch(() => undefined);
+        }
     }
-
-    const estimatedRgbaBytes = sumBy(pageDescriptors, descriptor => descriptor.dataLength);
-    if (estimatedRgbaBytes > BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES) {
-        throw new Error('Multi-page TIFF export without a file handle exceeds the 64MB decoded-image limit');
-    }
-    const bytes = await encodeRenderedTiffToBytes(
-        pageDescriptors,
-        encoder,
-        renderPage,
-        emitPageProgress,
-    );
-    const saveResult = await saveBytesToPickerOrDownload(bytes, {
-        suggestedName: saveTarget.fileName,
-        mimeType: 'image/tiff',
-        pickerTypes: buildTiffSaveTypes(),
-    });
-    if (saveResult.canceled) {
-        return {
-            success: false as const,
-            canceled: true as const,
-        };
-    }
-    const outputRef = await browserDocumentStore.createStoredDocument(saveResult.fileName, bytes, {
-        mimeType: 'image/tiff',
-        saveKind: 'generic',
-        kind: 'output',
-        retention: 'transient',
-        saveHandle: saveResult.handle ?? null,
-        storageMode: saveResult.handle ? 'handle' : 'inline',
-    });
-    await browserDocumentStore.touchRecentFile(outputRef);
-    emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
-        phase: 'combining',
-        processed: 1,
-        total: 1,
-        percent: 100,
-    });
-    return {
-        success: true as const,
-        outputPath: outputRef,
-        outputPaths: [outputRef],
-    };
 }
 
 interface ICaptureHandleTrack extends MediaStreamTrack {

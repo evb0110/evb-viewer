@@ -301,6 +301,26 @@ async function stagePdfFixture(pageCount = 1) {
     );
 }
 
+async function stageLetterPdfFixture(pageCount: number) {
+    const document = await PDFDocument.create();
+    for (let page = 0; page < pageCount; page += 1) {
+        document.addPage([
+            612,
+            792,
+        ]);
+    }
+    return browserDocumentStore.createStoredDocument(
+        'browser-letter-image-export.pdf',
+        await document.save(),
+        {
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'generic',
+        },
+    );
+}
+
 // Exports page 1 under the chosen name and reads back the saved bytes and stored name.
 async function exportFirstPageAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string) {
     await installImageExportDestination(chosenName);
@@ -415,3 +435,61 @@ async function runBrowserPdfMultiPageTiffExportAcceptance(chosenName: string) {
 }
 
 Reflect.set(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance', runBrowserPdfMultiPageTiffExportAcceptance);
+
+// Counts the frames of a big-endian classic TIFF by walking its IFD chain.
+function summarizeTiff(bytes: Uint8Array) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const frames: Array<{
+        width: number;
+        height: number
+    }> = [];
+    for (let offset = view.getUint32(4); offset !== 0; offset = view.getUint32(offset + 2 + view.getUint16(offset) * 12)) {
+        const frame = {
+            width: 0,
+            height: 0,
+        };
+        for (let entry = 0; entry < view.getUint16(offset); entry += 1) {
+            const at = offset + 2 + entry * 12;
+            const tag = view.getUint16(at);
+            const value = view.getUint16(at + 2) === 3 ? view.getUint16(at + 8) : view.getUint32(at + 8);
+            if (tag === 256) frame.width = value;
+            if (tag === 257) frame.height = value;
+        }
+        frames.push(frame);
+    }
+    return {
+        byteLength: bytes.byteLength,
+        frames,
+    };
+}
+
+// Exports pages 1..pageCount as one TIFF whose decoded pages exceed 64 MiB:
+// DjVu through a chosen file handle, PDF as a download without one.
+async function runBrowserLargeMultiPageTiffExportAcceptance(sourceKind: 'djvu' | 'pdf', pageCount: number) {
+    const sourcePath = sourceKind === 'djvu'
+        ? await stageDjvuFixture('/fixtures/browser-boundary-501-pages.djvu')
+        : await stageLetterPdfFixture(pageCount);
+    if (sourceKind === 'djvu') await installImageExportDestination('large.tiff');
+    else Reflect.set(window, 'showSaveFilePicker', undefined);
+    try {
+        const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            sourcePath,
+            Array.from({length: pageCount}, (_, index) => requirePageNumber(index + 1)),
+            requireRequestId(`browser-large-${sourceKind}-multi-page-tiff-export`),
+            sourceKind,
+        );
+        return {
+            success: result.success,
+            saved: sourceKind === 'djvu' ? summarizeTiff((await readImageExportDestination()).bytes) : null,
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    } finally {
+        await browserDocumentStore.remove(sourcePath);
+    }
+}
+
+Reflect.set(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance', runBrowserLargeMultiPageTiffExportAcceptance);

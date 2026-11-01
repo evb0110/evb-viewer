@@ -597,13 +597,19 @@ export function createBrowserDocumentsFileCapability(
         // handle, into `path`'s own record and then a download.
         async beginDocxFileStream(path) {
             const saveTarget = await browserDocumentStore.getSaveTarget(path);
-            const sink = await openBrowserOutputSink({
-                fileName: ensureDocxExtension(saveTarget.saveName),
-                handle: saveTarget.saveHandle,
-            }, {
-                mimeType: DOCX_MIME_TYPE,
-                stagingRef: path,
-            });
+            const fileName = ensureDocxExtension(saveTarget.saveName);
+            const sink = await openBrowserOutputSink(
+                saveTarget.saveHandle
+                    ? {
+                        fileName,
+                        handle: saveTarget.saveHandle,
+                    }
+                    : {
+                        fileName,
+                        stagingRef: path,
+                    },
+                {mimeType: DOCX_MIME_TYPE},
+            );
             const sessionId = createSessionId('browser-docx');
             docxStreams.set(sessionId, sink);
             return {sessionId};
