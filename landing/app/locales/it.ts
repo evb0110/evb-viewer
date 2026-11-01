@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Posso usarlo senza installare nulla?',
-                    answer: 'Sì, su {webAppUrl}. L’app web apre PDF, file DjVu e immagini locali ed esegue l’OCR nelle stesse lingue dell’app desktop; la pulizia delle scansioni, i file oltre 16 MB e le unioni di grandi dimensioni richiedono l’app desktop.',
+                    answer: 'Sì, su {webAppUrl}. L’app web apre PDF, file DjVu e immagini locali, esegue l’OCR nelle stesse lingue dell’app desktop e modifica, salva, unisce e ottimizza anche documenti di grandi dimensioni; per produrre una scansione pulita serve ancora l’app desktop.',
                 },
                 assistant: {
                     question: 'Usa l\'IA?',

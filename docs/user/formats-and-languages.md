@@ -100,7 +100,8 @@ leaves the device. Its differences:
 - Each language model (4 to 15 MB; Latin's is 101 MB) downloads from GitHub's
   copy of the upstream models the first time it is used, which tells GitHub
   which language was chosen, and stays in the browser's storage afterwards.
-- Documents up to 16 MB. Larger documents need the desktop app for now.
+- Large documents work as in the desktop app, up to about 2 GB, the most the
+  browser's WebAssembly engine can hold at once.
 - Image cleanup works as in the desktop app: inverted (light on dark) pages
   are turned dark on light first, and Clean scan straightens and cleans the
   page before recognition. Cleaning runs on one processor core, so a page

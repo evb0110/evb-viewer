@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: '¿Puedo usarlo sin instalar nada?',
-                    answer: 'Sí, en {webAppUrl}. La aplicación web abre PDF, archivos DjVu e imágenes locales y hace OCR en los mismos idiomas que la aplicación de escritorio; la limpieza de escaneos, los archivos de más de 16 MB y las combinaciones grandes necesitan la aplicación de escritorio.',
+                    answer: 'Sí, en {webAppUrl}. La aplicación web abre PDF, archivos DjVu e imágenes locales, hace OCR en los mismos idiomas que la aplicación de escritorio y edita, guarda, combina y optimiza documentos grandes; para producir un escaneo limpio todavía se necesita la aplicación de escritorio.',
                 },
                 assistant: {
                     question: '¿Usa IA?',

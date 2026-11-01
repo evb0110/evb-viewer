@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Can I use it without installing anything?',
-                    answer: 'Yes, at {webAppUrl}. The browser app opens local PDFs, DjVu files, and images and runs OCR in the same languages as the desktop app; scan cleanup, files over 16 MB, and large merges need the desktop app.',
+                    answer: 'Yes, at {webAppUrl}. The browser app opens local PDFs, DjVu files, and images, runs OCR in the same languages as the desktop app, and edits, saves, combines, and optimizes large documents; producing a cleaned scan still needs the desktop app.',
                 },
                 assistant: {
                     question: 'Does it use AI?',

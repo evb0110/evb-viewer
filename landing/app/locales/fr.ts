@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Puis-je l\'utiliser sans rien installer ?',
-                    answer: 'Oui, sur {webAppUrl}. L’application web ouvre des PDF, des fichiers DjVu et des images locaux et fait l’OCR dans les mêmes langues que l’application de bureau ; le nettoyage des numérisations, les fichiers de plus de 16 Mo et les grandes fusions nécessitent l’application de bureau.',
+                    answer: 'Oui, sur {webAppUrl}. L’application web ouvre des PDF, des fichiers DjVu et des images locaux, fait l’OCR dans les mêmes langues que l’application de bureau et modifie, enregistre, combine et optimise aussi les gros documents ; produire une numérisation nettoyée nécessite encore l’application de bureau.',
                 },
                 assistant: {
                     question: 'Utilise-t-il l\'IA ?',

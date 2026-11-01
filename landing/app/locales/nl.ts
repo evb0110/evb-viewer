@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Kan ik het gebruiken zonder iets te installeren?',
-                    answer: 'Ja, op {webAppUrl}. De browserapp opent lokale PDF’s, DjVu-bestanden en afbeeldingen en voert OCR uit in dezelfde talen als de desktopapp; scanopschoning, bestanden boven 16 MB en grote samenvoegingen vereisen de desktopapp.',
+                    answer: 'Ja, op {webAppUrl}. De browserapp opent lokale PDF’s, DjVu-bestanden en afbeeldingen, voert OCR uit in dezelfde talen als de desktopapp en bewerkt, bewaart, combineert en optimaliseert ook grote documenten; voor het maken van een opgeschoonde scan is de desktopapp nog nodig.',
                 },
                 assistant: {
                     question: 'Gebruikt het AI?',

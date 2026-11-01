@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Posso usar sem instalar nada?',
-                    answer: 'Sim, em {webAppUrl}. O aplicativo web abre PDFs, arquivos DjVu e imagens locais e faz OCR nos mesmos idiomas do aplicativo para desktop; a limpeza de digitalizações, arquivos acima de 16 MB e combinações grandes exigem o aplicativo para desktop.',
+                    answer: 'Sim, em {webAppUrl}. O aplicativo web abre PDFs, arquivos DjVu e imagens locais, faz OCR nos mesmos idiomas do aplicativo para desktop e edita, salva, combina e otimiza documentos grandes; produzir uma digitalização limpa ainda exige o aplicativo para desktop.',
                 },
                 assistant: {
                     question: 'Ele usa IA?',
