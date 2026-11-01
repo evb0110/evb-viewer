@@ -1,37 +1,38 @@
 import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
+    IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
-    containsPdfEncryptMarker,
     createConservativePdfConformanceFallbackProfile,
+    createPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
+    hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
     PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
 
-function decodePdfBinary(bytes: Uint8Array) {
-    return pdfBinaryDecoder.decode(bytes);
+function readPdfMarkerEvidence(bytes: Uint8Array) {
+    const text = pdfBinaryDecoder.decode(bytes);
+    return {
+        isSigned: hasPdfSignatureMarkersInPdfText(text),
+        isEncrypted: hasPdfEncryptMarkersInPdfText(text),
+        pdfaLevel: detectPdfaLevelFromPdfText(text),
+    };
 }
 
-function detectBrowserPdfaLevel(bytes: Uint8Array) {
-    return detectPdfaLevelFromPdfText(decodePdfBinary(bytes));
-}
-
-function detectBrowserSignatureMarkers(bytes: Uint8Array) {
-    return hasPdfSignatureMarkersInPdfText(decodePdfBinary(bytes));
-}
-
-async function readPdfMarkerRegions(path: string) {
-    const { size } = await browserDocumentStore.stat(path);
+// A file beyond the full-read budget is judged by markers in its first and
+// last regions only.
+async function readPdfMarkerRegions(path: string, size: number) {
     const head = await browserDocumentStore.readRange(
         path,
         0,
@@ -41,44 +42,49 @@ async function readPdfMarkerRegions(path: string) {
     const tail = tailStart < size
         ? await browserDocumentStore.readRange(path, tailStart, size - tailStart)
         : new Uint8Array();
-
-    return {
-        size,
-        head,
-        tail,
-    };
-}
-
-function mergePdfMarkerRegions(head: Uint8Array, tail: Uint8Array) {
     const merged = new Uint8Array(head.byteLength + tail.byteLength);
     merged.set(head, 0);
     merged.set(tail, head.byteLength);
     return merged;
 }
 
-function buildMarkerOnlyConformanceProfile(bytes: Uint8Array): IPdfConformanceProfile {
-    return createConservativePdfConformanceFallbackProfile({
-        isSigned: detectBrowserSignatureMarkers(bytes),
-        isEncrypted: containsPdfEncryptMarker(bytes),
-        pdfaLevel: detectBrowserPdfaLevel(bytes),
-    });
+// The same pdf-page-ops structural reader desktop runs. A document it cannot
+// read (encrypted, malformed, past the browser page-op page limit) keeps the
+// conservative marker profile, which refuses incremental saves.
+async function readPdfStructuralFacts(path: string, data: Uint8Array) {
+    try {
+        return await runBrowserPageOpsWorkerRequest('conformance', {data}, {dedicated: true});
+    } catch (error) {
+        BrowserLogger.debug('pdf-validation', 'PDF structure is unavailable; using the conservative marker profile', {
+            path,
+            error,
+        });
+        return null;
+    }
 }
 
-export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConformanceProfile> {
-    const {
-        size,
-        head,
-        tail,
-    } = await readPdfMarkerRegions(path);
-
+export async function analyzeBrowserPdfConformance(
+    path: string,
+    options: IPdfConformanceAnalysisOptions = {},
+): Promise<IPdfConformanceProfile> {
+    const { size } = await browserDocumentStore.stat(path);
     if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        const markers = mergePdfMarkerRegions(head, tail);
-        return buildMarkerOnlyConformanceProfile(markers);
+        return createConservativePdfConformanceFallbackProfile(
+            readPdfMarkerEvidence(await readPdfMarkerRegions(path, size)),
+        );
     }
 
     const bytes = await browserDocumentStore.read(path);
     await yieldToBrowser();
-    return buildMarkerOnlyConformanceProfile(bytes);
+    const structuralFacts = await readPdfStructuralFacts(path, bytes);
+    if (!structuralFacts) {
+        return createConservativePdfConformanceFallbackProfile(readPdfMarkerEvidence(bytes));
+    }
+    // Save restrictions follow the structure alone, as on desktop: a marker
+    // such as an unsigned signature field does not force Save As.
+    return options.purpose === 'save-restrictions'
+        ? createPdfConformanceProfile(structuralFacts)
+        : createPdfConformanceProfile(structuralFacts, readPdfMarkerEvidence(bytes));
 }
 
 // Validation asks whether the document loads. Once it has, a failure to

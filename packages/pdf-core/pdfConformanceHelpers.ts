@@ -12,6 +12,17 @@ export const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const pdfBinaryDecoder = new TextDecoder('latin1');
 
 type TPdfConformanceFallbackOverrides = Partial<Omit<TPdfConformanceProfileBase, 'canIncrementalSave'>>;
+type TPdfStructuralConformanceFacts = Pick<
+    TPdfConformanceProfileBase,
+    'isSigned' | 'isEncrypted' | 'isTagged' | 'hasAcroForm' | 'hasXfa'
+>;
+type TPdfConformanceMarkerEvidence = Pick<TPdfConformanceProfileBase, 'isSigned' | 'isEncrypted' | 'pdfaLevel'>;
+
+const NO_PDF_CONFORMANCE_MARKER_EVIDENCE: TPdfConformanceMarkerEvidence = {
+    isSigned: false,
+    isEncrypted: false,
+    pdfaLevel: null,
+};
 
 export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     const partMatch = text.match(PDFA_PART_PATTERN);
@@ -46,6 +57,33 @@ export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
         hasXfa: false,
         canIncrementalSave: true,
         saveRestrictions: [],
+    };
+}
+
+/**
+ * The conformance policy for a document whose structure pdf-page-ops read.
+ * The structure decides tagging, forms and XFA. Byte markers can only add a
+ * signature or encryption the structure did not show, and only they carry the
+ * PDF/A claim; a caller that wants the structural answer alone omits them.
+ */
+export function createPdfConformanceProfile(
+    structuralFacts: TPdfStructuralConformanceFacts,
+    markerEvidence: TPdfConformanceMarkerEvidence = NO_PDF_CONFORMANCE_MARKER_EVIDENCE,
+): IPdfConformanceProfile {
+    const isEncrypted = structuralFacts.isEncrypted || markerEvidence.isEncrypted;
+    const profileBase = {
+        isSigned: structuralFacts.isSigned || markerEvidence.isSigned,
+        isEncrypted,
+        isTagged: structuralFacts.isTagged,
+        pdfaLevel: markerEvidence.pdfaLevel,
+        hasAcroForm: structuralFacts.hasAcroForm,
+        hasXfa: structuralFacts.hasXfa,
+        canIncrementalSave: !(isEncrypted || structuralFacts.hasXfa),
+    };
+
+    return {
+        ...profileBase,
+        saveRestrictions: buildPdfSaveRestrictions(profileBase),
     };
 }
 

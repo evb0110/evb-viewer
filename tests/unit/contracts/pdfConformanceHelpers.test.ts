@@ -11,6 +11,7 @@ import {
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core';
+import { createPdfConformanceProfile } from '@pdf-core/pdfConformanceHelpers';
 
 describe('PDF conformance contract helpers', () => {
     it('creates the default conformance profile', () => {
@@ -63,6 +64,41 @@ describe('PDF conformance contract helpers', () => {
             saveRestrictions: [
                 'signed_original_requires_save_as',
                 'encrypted_document_requires_preservation',
+                'pdfa_preservation_required:PDF/A-2B',
+                'incremental_save_not_supported',
+            ],
+        });
+    });
+
+    it('lets markers widen structural signature and encryption facts and carry PDF/A', () => {
+        const structuralFacts = {
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: true,
+            hasAcroForm: true,
+            hasXfa: false,
+        };
+
+        expect(createPdfConformanceProfile(structuralFacts)).toEqual({
+            ...structuralFacts,
+            pdfaLevel: null,
+            canIncrementalSave: true,
+            saveRestrictions: ['tagged_pdf_requires_structure_preservation'],
+        });
+        expect(createPdfConformanceProfile(structuralFacts, {
+            isSigned: true,
+            isEncrypted: true,
+            pdfaLevel: 'PDF/A-2B',
+        })).toEqual({
+            ...structuralFacts,
+            isSigned: true,
+            isEncrypted: true,
+            pdfaLevel: 'PDF/A-2B',
+            canIncrementalSave: false,
+            saveRestrictions: [
+                'signed_original_requires_save_as',
+                'encrypted_document_requires_preservation',
+                'tagged_pdf_requires_structure_preservation',
                 'pdfa_preservation_required:PDF/A-2B',
                 'incremental_save_not_supported',
             ],
