@@ -539,6 +539,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'optimizePdfAsCopy'},
         },
         // Its picker must open inside the submit gesture, so it is called directly.
         prepareOptimizePdfAsCopy: {

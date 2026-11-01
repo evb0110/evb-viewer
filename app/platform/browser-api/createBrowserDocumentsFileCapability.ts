@@ -2,7 +2,10 @@ import type {
     IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
     IPdfNativeSaveResult,
+    IPdfOptimizeOptions,
+    TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
+import {isPdfOptimizePreset} from '@contracts/electronApiDocuments';
 import { readBrowserPdfCatalogPart } from '@contracts/browserPdfCatalog';
 import {
     PDF_PAGE_LABEL_STYLE_VALUES,
@@ -38,6 +41,7 @@ import {
     ensureDocxExtension,
     ensurePdfExtension,
     getExtension,
+    getOptimizedPdfName,
 } from '@app/platform/browser-api/browserFileName';
 import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
@@ -129,6 +133,33 @@ function createValidBrowserOutputResult(): IPdfValidationResult {
         tool: 'browser',
         errors: [],
         warnings: [],
+    };
+}
+
+type TPickedSaveTarget = Awaited<ReturnType<typeof pickSaveTarget>>;
+
+/**
+ * Opens the Optimize picker now, in the caller's task, so a click's user
+ * activation reaches it: no await precedes the picker call.
+ */
+function pickOptimizeTarget(nameFrom: string) {
+    return pickSaveTarget({
+        suggestedName: getOptimizedPdfName(getBrowserDocumentFileName(nameFrom)),
+        pickerTypes: buildPdfSaveTypes(),
+    });
+}
+
+/** Optimize bound to the target it was picked for; it owns nothing else. */
+function bindOptimizeTarget(target: TPickedSaveTarget): TPreparedPdfOptimizeCopy {
+    return async (path, options, requestId, revisionOptions, signal) => {
+        if (!isPdfOptimizePreset((options as Partial<IPdfOptimizeOptions> | undefined)?.preset)) {
+            throw new Error('Invalid PDF optimize options');
+        }
+        const {optimizeBrowserPdfAsCopy} = await import('@app/platform/browser-api/optimizeBrowserPdfAsCopy');
+        return optimizeBrowserPdfAsCopy(path, {preset: options.preset}, requestId, revisionOptions, {
+            target,
+            ...(signal ? {signal} : {}),
+        });
     };
 }
 
@@ -321,6 +352,13 @@ export function createBrowserDocumentsFileCapability(
         },
         async savePdfAs(workingCopyPath, saveOptions, revisionOptions?) {
             return savePdfAsFromWorkingCopy(workingCopyPath, saveOptions, revisionOptions);
+        },
+        prepareOptimizePdfAsCopy(nameFrom) {
+            return pickOptimizeTarget(nameFrom).then(target => (target.canceled ? null : bindOptimizeTarget(target)));
+        },
+        // A direct caller picks before any of its own work, as desktop does.
+        async optimizePdfAsCopy(path, options, requestId, revisionOptions) {
+            return bindOptimizeTarget(await pickOptimizeTarget(path))(path, options, requestId, revisionOptions);
         },
         savePdfDialog: suggestedName => pickOutputTarget(suggestedName, 'pdf'),
         saveDocxAs: workingCopyPath => pickOutputTarget(

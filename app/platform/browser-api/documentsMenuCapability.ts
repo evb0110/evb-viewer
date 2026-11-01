@@ -1,10 +1,10 @@
 import type {
     IDocumentsMenuCapability,
     IOpenPdfDirectBatchProgress,
+    IPdfOptimizeProgress,
 } from '@contracts/electronApiDocuments';
 import type { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
-import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import {
     setBrowserMenuDocumentState,
     subscribeBrowserMenuEvent,
@@ -30,6 +30,14 @@ export const onBrowserOpenDocumentDirectBatchProgress = (
     };
 };
 
+const pdfOptimizeProgressListeners = new Set<(progress: IPdfOptimizeProgress) => void>();
+
+export function emitBrowserPdfOptimizeProgress(progress: IPdfOptimizeProgress) {
+    pdfOptimizeProgressListeners.forEach((listener) => {
+        listener(progress);
+    });
+}
+
 // The page's application menu (ToolbarAppMenu) dispatches desktop's menu events.
 export const browserDocumentsMenuCapability = {
     setMenuDocumentState: (state) => {
@@ -37,7 +45,12 @@ export const browserDocumentsMenuCapability = {
         return Promise.resolve(undefined);
     },
     setMenuTabCount: async (_tabCount) => {},
-    onPdfOptimizeProgress: noopUnsubscribe,
+    onPdfOptimizeProgress: (callback) => {
+        pdfOptimizeProgressListeners.add(callback);
+        return () => {
+            pdfOptimizeProgressListeners.delete(callback);
+        };
+    },
     onMenuOpenPdf: subscribeBrowserMenuEvent('onMenuOpenPdf'),
     onMenuInsertImageFromFile: subscribeBrowserMenuEvent('onMenuInsertImageFromFile'),
     onMenuPasteImageFromClipboard: subscribeBrowserMenuEvent('onMenuPasteImageFromClipboard'),

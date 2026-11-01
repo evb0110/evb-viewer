@@ -2161,6 +2161,98 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(store.read(staged)).resolves.toEqual(frontier);
     });
 
+    it.each([
+        'saved',
+        'not-smaller',
+        'invalid',
+        'signed',
+        'picker-cancel',
+    ] as const)('optimizes a browser copy to the target picked in the submit task: %s', async outcome => {
+        const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
+        const candidate = Uint8Array.of(37, 80, 68, 70, 9);
+        let physical = new Uint8Array();
+        let pickerCalls = 0;
+        const handle = createFileSystemFileHandle({
+            name: 'report-optimized.pdf',
+            getFile: async () => new File([physical], 'report-optimized.pdf', {type: 'application/pdf'}),
+            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {physical = new Uint8Array(requireArrayBufferChunk(chunk));}}),
+        });
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
+            pickerCalls += 1;
+            if (outcome === 'picker-cancel') throw new DOMException('Canceled', 'AbortError');
+            return handle;
+        }}});
+        const {onPdfOptimizeProgress} = (await import('@app/platform/browser-api/documentsMenuCapability')).browserDocumentsMenuCapability;
+        const phases: string[] = [];
+        onPdfOptimizeProgress(progress => phases.push(`${progress.phase}:${progress.percent}`));
+        const source = await store.createStoredDocument('report.pdf', original, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        browserAnnotationParseMock.run.mockImplementation(async () => ({
+            isSigned: outcome === 'signed',
+            isEncrypted: false,
+            isTagged: false,
+            hasAcroForm: false,
+            hasXfa: false,
+        }));
+        let checks = 0;
+        qpdfRun.mockImplementation(async command => {
+            if (command === 'lossless-rewrite') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                    output: outcome === 'not-smaller' ? original.slice() : candidate.slice(),
+                };
+            }
+            checks += 1;
+            return {
+                exitCode: outcome === 'invalid' && checks === 2 ? 2 : 0,
+                stdout: '',
+                stderr: outcome === 'invalid' && checks === 2 ? 'damaged' : '',
+                output: null,
+            };
+        });
+
+        const selection = capability.prepareOptimizePdfAsCopy!(working);
+        // The picker opened in this task, before any await.
+        expect(pickerCalls).toBe(1);
+        const prepared = await selection;
+        if (outcome === 'picker-cancel') {
+            expect(prepared).toBeNull();
+            expect(qpdfRun).not.toHaveBeenCalled();
+        } else if (outcome === 'signed') {
+            await expect(prepared!(working, {preset: 'lossless'}, undefined, await getRevisionOptions(store, working)))
+                .rejects.toThrow('does not rewrite a signed PDF');
+            expect(qpdfRun).not.toHaveBeenCalled();
+        } else {
+            const result = await prepared!(working, {preset: 'lossless'}, undefined, await getRevisionOptions(store, working));
+            expect(result).toMatchObject({
+                outcome,
+                preset: 'lossless',
+                originalBytes: original.byteLength,
+                pageCount: null,
+                optimizedPages: 0,
+            });
+            if (outcome === 'saved') {
+                expect(result.optimizedBytes).toBe(candidate.byteLength);
+                expect(physical).toEqual(candidate);
+                await expect(store.read(result.path!)).resolves.toEqual(candidate);
+                const adopted = await capability.createWorkingCopyFromPath(result.path!);
+                await expect(store.read(adopted)).resolves.toEqual(candidate);
+                expect(phases.at(-1)).toBe('complete:100');
+            } else {
+                expect(result.path).toBeNull();
+                expect(physical).toEqual(new Uint8Array());
+                expect(phases.at(-1)).toBe(outcome === 'invalid' ? 'validating:90' : 'complete:100');
+            }
+        }
+        if (outcome !== 'saved') expect(physical).toEqual(new Uint8Array());
+        await expect(store.read(source)).resolves.toEqual(original);
+        await expect(store.read(working)).resolves.toEqual(original);
+    });
+
     it('streams oversized browser save-as to a picked file handle', async () => {
         const writes: Uint8Array[] = [];
         const savedBytes = new Uint8Array(BROWSER_FULL_READ_LIMIT + 1);

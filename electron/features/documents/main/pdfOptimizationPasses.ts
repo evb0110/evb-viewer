@@ -4,6 +4,11 @@ import * as v from 'valibot';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
+import {
+    MAX_BYTE_RATIO,
+    PDF_OPTIMIZE_PASS_TIMEOUT_MS,
+    type IPdfImageRecompression,
+} from '@pdf-core/pdfOptimization';
 
 /**
  * The in-place passes of a raster optimization. Each rewrites what pages
@@ -11,13 +16,7 @@ import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
  * and reports the pages it changed.
  */
 
-const PASS_TIMEOUT_MS = 30 * 60 * 1000;
 const PASS_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
-/**
- * A page or image is re-encoded only when that saves at least a tenth of its
- * bytes: a smaller gain is not worth replacing its own image with a lossy one.
- */
-const MAX_BYTE_RATIO = 0.9;
 
 const pageNumber = v.pipe(v.number(), v.integer(), v.minValue(1));
 const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
@@ -48,16 +47,6 @@ export interface IReplacementPage {
     replacementPageNumber: number;
 }
 
-/**
- * How a preset recompresses the JPEG images that pages draw, such as the
- * photos of a typeset book: each is shrunk to `dpi` at the largest size a
- * page shows it and encoded again at `quality`. Text and drawings around
- * them are not touched.
- */
-export interface IPdfImageRecompression {
-    dpi: number;
-    quality: number;
-}
 
 interface IPassCancellation {
     signal?: AbortSignal;
@@ -97,7 +86,7 @@ async function runPageOpsPass(
         getPdfNativeToolPaths().qpdf,
     ], {
         commandLabel: `evb-pdf-page-ops(${command})`,
-        timeoutMs: PASS_TIMEOUT_MS,
+        timeoutMs: PDF_OPTIMIZE_PASS_TIMEOUT_MS,
         maxStdoutBytes: PASS_MAX_STDOUT_BYTES,
         rejectOnStdoutTruncation: true,
         ...cancellation,

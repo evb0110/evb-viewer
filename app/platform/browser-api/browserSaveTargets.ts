@@ -266,7 +266,7 @@ export interface IBrowserFinalizedPublication {
     kind: 'finalized';
     target: Awaited<ReturnType<typeof pickSaveTarget>>;
     /** The source captured with the operation's input, never reread here. */
-    sourceRef: TDocumentRef;
+    sourceRef: string;
     /** Cancels until the external write commits; bookkeeping then finishes. */
     signal: AbortSignal;
 }
