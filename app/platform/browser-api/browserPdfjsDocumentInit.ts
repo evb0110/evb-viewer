@@ -8,10 +8,8 @@ import {
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
-import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
-const PDFJS_MAX_RANGE_REQUEST_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 
 type TPdfjsLib = typeof PdfjsLibNamespace;
 type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
@@ -73,22 +71,25 @@ async function createPdfjsDocumentInitFromBrowserDocument(
             this.aborted = true;
         };
 
+        /**
+         * Serves a range of any length as chunk-sized reads. Every delivery
+         * keeps the request's begin offset and only the last one ends it, so
+         * no range needs a buffer of its whole length.
+         */
         private async loadRange(begin: number, end: number) {
             try {
-                const length = end - begin;
                 await assertBrowserDocumentUnchanged(path, size, contentSignature);
-                const chunk = await readCompleteBrowserDocumentRange(
-                    path,
-                    begin,
-                    Math.max(0, length),
-                    end,
-                );
-                await assertBrowserDocumentUnchanged(path, size, contentSignature);
-                if (this.aborted) {
-                    return;
-                }
+                for (let pieceBegin = begin; pieceBegin < end;) {
+                    const pieceEnd = Math.min(end, pieceBegin + PDFJS_RANGE_CHUNK_SIZE);
+                    const piece = await readCompleteBrowserDocumentRange(path, pieceBegin, pieceEnd);
+                    await assertBrowserDocumentUnchanged(path, size, contentSignature);
+                    if (this.aborted) {
+                        return;
+                    }
 
-                this.onDataRange(begin, chunk);
+                    this.onDataRange(begin, piece, pieceEnd === end);
+                    pieceBegin = pieceEnd;
+                }
             } catch (error) {
                 if (!this.aborted) {
                     this.aborted = true;
@@ -126,18 +127,9 @@ async function assertBrowserDocumentUnchanged(
 async function readCompleteBrowserDocumentRange(
     path: string,
     begin: number,
-    length: number,
     end: number,
 ) {
-    if (length <= 0) {
-        return new Uint8Array();
-    }
-    if (length > PDFJS_MAX_RANGE_REQUEST_BYTES) {
-        throw new Error(
-            `Browser PDF range request exceeds the safe ${PDFJS_MAX_RANGE_REQUEST_BYTES} byte capacity`,
-        );
-    }
-
+    const length = end - begin;
     let cursor = begin;
     let output: Uint8Array | null = null;
     let outputOffset = 0;
