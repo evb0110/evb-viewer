@@ -969,6 +969,33 @@ describe('browser page-ops WASM fast path', () => {
         await expect(wasm.run('conformance', {data: mergedResult.data})).resolves.toMatchObject({isEncrypted: false});
     });
 
+    it('reads more than 2,048 page-label ranges, as desktop does', async () => {
+        const wasm = await loadWasmRunner();
+        const pdfDocument = await PDFDocument.create();
+        const nums = [];
+        for (let pageIndex = 0; pageIndex < 3_000; pageIndex += 1) {
+            pdfDocument.addPage([
+                100,
+                100,
+            ]);
+            nums.push(PDFNumber.of(pageIndex), pdfDocument.context.obj({
+                S: PDFName.of(pageIndex % 2 === 0 ? 'D' : 'r'),
+                P: PDFString.of(`part-${pageIndex}-`),
+            }));
+        }
+        pdfDocument.catalog.set(PDFName.of('PageLabels'), pdfDocument.context.obj({Nums: pdfDocument.context.obj(nums)}));
+        const catalog = await wasm.run('readCatalog', {data: await pdfDocument.save()});
+        if (catalog === null || 'status' in catalog || !catalog.pageLabels) {
+            throw new Error('Expected the browser page-ops catalog to read the page labels');
+        }
+        expect(catalog.pageLabels).toHaveLength(3_000);
+        expect(catalog.pageLabels[2_999]).toMatchObject({
+            pageIndex: 2_999,
+            style: 'r',
+            prefix: 'part-2999-',
+        });
+    });
+
     it('preserves and offsets catalogs from every document in mergePages', async () => {
         const sourcePdf = await createMetadataPdf();
         const wasm = await loadWasmRunner();

@@ -9,10 +9,7 @@ import {isPdfDateString} from '@contracts/pdfDateString';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
-import {
-    BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
-    decodeBrowserPdfCatalog,
-} from '@contracts/browserPdfCatalog';
+import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import type {
     IBrowserPdfCatalog,
     IBrowserPdfCatalogBookmark,
@@ -333,7 +330,7 @@ const conformanceFactsSchema = v.object({
 // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
 const catalogResultSchema = v.pipe(
     v.unknown(),
-    v.transform(value => decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})),
+    v.transform(value => decodeBrowserPdfCatalog(value)),
     v.check(value => value !== null),
     v.transform(value => value as IBrowserPdfCatalog),
 );

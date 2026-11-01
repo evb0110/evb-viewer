@@ -238,7 +238,7 @@ describe('browserPageOpsWorkerClient', () => {
             },
         ];
         for (const malformed of malformedCatalogs) {
-            expect(decodeBrowserPdfCatalog(malformed, {maxPageLabels: 2_048})).toBeNull();
+            expect(decodeBrowserPdfCatalog(malformed)).toBeNull();
         }
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
@@ -246,14 +246,14 @@ describe('browserPageOpsWorkerClient', () => {
                 pageIndex: undefined,
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
                 pageYRatio: 'bad',
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
@@ -263,7 +263,7 @@ describe('browserPageOpsWorkerClient', () => {
                 pageIndex: 0,
                 prefix: 'Page ',
             }],
-        }, {maxPageLabels: 2_048})).toEqual({
+        })).toEqual({
             bookmarks: [{
                 ...baseBookmark,
                 pageYRatio: 0.25,
@@ -283,7 +283,7 @@ describe('browserPageOpsWorkerClient', () => {
                 pageIndex: 0,
                 prefix: '頁',
             }],
-        }, {maxPageLabels: 2_048})).toMatchObject({
+        })).toMatchObject({
             bookmarks: [{
                 title: '章节 α',
                 pageIndex: null,
@@ -299,14 +299,14 @@ describe('browserPageOpsWorkerClient', () => {
                 pageYRatio: Number.NaN,
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
                 pageYRatio: Number.POSITIVE_INFINITY,
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
@@ -316,14 +316,13 @@ describe('browserPageOpsWorkerClient', () => {
                 }],
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
     });
 
     it('enforces the named reader budgets at the exact boundary and one over', async () => {
         const {
             decodeBrowserPdfCatalog, BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
-            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS, BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
-            BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
+            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS, BROWSER_PDF_CATALOG_MAX_PAGE_LABELS,
         } = await import('@contracts/browserPdfCatalog');
         const bookmark = (items: unknown[] = []) => ({
             title: 'Chapter α',
@@ -345,28 +344,24 @@ describe('browserPageOpsWorkerClient', () => {
 
         expect(decodeBrowserPdfCatalog({
             bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS}, () => bookmark()),
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS),
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).not.toBeNull();
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS),
+        })).not.toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS + 1}, () => bookmark()),
             pageLabels: [],
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH)],
             pageLabels: [],
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).not.toBeNull();
+        })).not.toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH + 1)],
             pageLabels: [],
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [],
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS),
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})).not.toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [],
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS + 1),
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})).toBeNull();
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS + 1),
+        })).toBeNull();
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {

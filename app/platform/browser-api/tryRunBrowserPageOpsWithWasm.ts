@@ -43,10 +43,7 @@ import {
     BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
     isBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-import {
-    BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
-    decodeBrowserPdfCatalog,
-} from '@contracts/browserPdfCatalog';
+import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type {ICropMargins} from '@contracts/shared';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
@@ -90,7 +87,7 @@ const wasmIdentityBindingsSchema = BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA
 const wasmCatalogResultSchema = v.pipe(
     v.unknown(),
     // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
-    v.transform(value => decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})),
+    v.transform(value => decodeBrowserPdfCatalog(value)),
     v.check(value => value !== null),
     v.transform(value => value as NonNullable<typeof value>),
 );

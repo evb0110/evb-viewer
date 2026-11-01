@@ -41,6 +41,9 @@ macro_rules! abi {
             writeln!(output, "export const REQUEST_MAGIC = '{}';", std::str::from_utf8(REQUEST_MAGIC).unwrap()).unwrap();
             $(writeln!(output, "export const {} = {};", stringify!($constant), $constant).unwrap();)*
             writeln!(output, "export const MAX_U32 = {};", u32::MAX).unwrap();
+            // The catalog reader returns at most this many bookmarks or
+            // page-label ranges; the browser decodes with desktop's ceiling.
+            writeln!(output, "export const MAX_CATALOG_ENTRIES = {};", crate::catalog::CATALOG_WALK_NODE_LIMIT).unwrap();
             output.push_str("\nexport const OPERATION_CODES = {\n");
             $(writeln!(output, "    {}: {},", $ts_operation, $operation).unwrap();)*
             output.push_str("} as const;\n");

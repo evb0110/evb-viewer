@@ -22,6 +22,7 @@ export const RESPONSE_REPORTED_PDF = 8;
 export const RESPONSE_REPORTED_INCREMENT = 9;
 export const NATIVE_MUTATION_POSTCONDITIONS_VERIFIED = 1;
 export const MAX_U32 = 4294967295;
+export const MAX_CATALOG_ENTRIES = 100000;
 
 export const OPERATION_CODES = {
     deletePages: 1,
