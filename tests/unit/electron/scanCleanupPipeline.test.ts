@@ -7,6 +7,11 @@ import {
     writeFile,
 } from 'fs/promises';
 import {createHash} from 'node:crypto';
+import {existsSync} from 'node:fs';
+import {
+    decode as decodePng,
+    encode as encodePng,
+} from 'fast-png';
 import { tmpdir } from 'os';
 import {
     join,
@@ -28,7 +33,10 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
-import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {
+    INativeScanCleanupOptionsV3,
+    INativeScanCleanupOutputV3,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     isScanCleanupCompactLayeredRaster,
     type IDetectedPageRaster,
@@ -59,6 +67,17 @@ import {
     resolveScanCleanupCombineEnv,mapScanCleanupRasterPages,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
+import {
+    analyzeBrowserScanCleanupPage,
+    preprocessBrowserOcrPage,
+    renderBrowserScanCleanupPreview,
+} from '@app/platform/browser-api/browserScanCleanupWasm';
+import {
+    createOcrScanCleanupOptions,
+    readOcrScanCleanupGeometry,
+    type TOcrScanCleanupMode,
+} from '@contracts/scan-cleanup/ocrPreprocessing';
+import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {
     resolveCliNativeToolPath,
     runCliNativeToolCommand,
@@ -6074,4 +6093,356 @@ it.each([
     await expect(stat(scratch)).resolves.toBeDefined();
     proofs[1]!.resolve(true);
     await expect.poll(() => stat(scratch).then(() => true, () => false)).toBe(false);
+});
+
+// The browser engine is the CLI's Rust built for wasm32. Given the same raster
+// bytes and options, a browser page must come out exactly as a desktop page:
+// the same PNG bytes, the same metadata JSON, the same page plan.
+const scanCleanupCliBinary = resolveCliNativeToolPath(
+    'evb-scan-cleanup',
+    'scan-cleanup',
+    process.cwd(),
+    process.env.EVB_SCAN_CLEANUP_PATH,
+);
+const scanCleanupWasmPath = join(process.cwd(), 'public', 'wasm', 'evb-scan-cleanup.wasm');
+const parityPdftoppmBinary = resolveCliNativeToolPath('pdftoppm', 'poppler', process.cwd());
+const missingParityTools = [
+    scanCleanupCliBinary === null ? 'evb-scan-cleanup' : '',
+    existsSync(scanCleanupWasmPath) ? '' : 'public/wasm/evb-scan-cleanup.wasm',
+    parityPdftoppmBinary === null ? 'pdftoppm' : '',
+].filter(Boolean);
+if (process.env.EVB_REQUIRE_SCAN_CLEANUP_NATIVE_TESTS === '1' && missingParityTools.length > 0) {
+    throw new Error(`Required scan-cleanup WASM parity prerequisites missing: ${missingParityTools.join(', ')}`);
+}
+
+const PARITY_GLYPH_FIXTURES = [
+    'native/scan-cleanup/tests/fixtures/glyphs/bedjan-p2-speckles-input.png',
+    'native/scan-cleanup/tests/fixtures/glyphs/hebrew-bhs-p126-niqqud-input.png',
+    'native/scan-cleanup/tests/fixtures/glyphs/arabic-wright-p82-dots-input.png',
+];
+const PARITY_SPREAD_FIXTURE = 'native/scan-cleanup/tests/fixtures/split/spread-luther-soft-gutter-p00001.png';
+const PARITY_RELEASE_PDF = 'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf';
+
+interface IParityRaster {
+    label: string;
+    bytes: Uint8Array;
+    width: number;
+    height: number;
+    dpi: number;
+}
+
+function readRasterSize(bytes: Uint8Array) {
+    if (bytes[0] === 0x50 && bytes[1] === 0x36) {
+        const [
+            , width,
+            height,
+        ] = Buffer.from(bytes.subarray(0, 64)).toString('latin1').split(/\s+/u);
+        return {
+            width: Number(width),
+            height: Number(height),
+        };
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return {
+        width: view.getUint32(16),
+        height: view.getUint32(20),
+    };
+}
+
+async function readParityRaster(path: string, dpi: number): Promise<IParityRaster> {
+    const bytes = new Uint8Array(await readFile(join(process.cwd(), path)));
+    return {
+        label: path,
+        bytes,
+        dpi,
+        ...readRasterSize(bytes),
+    };
+}
+
+/**
+ * The spread fixture at half size, so a spread case runs well inside the
+ * default test time. Both routes read these same bytes.
+ */
+async function readHalfSizeSpread(): Promise<IParityRaster> {
+    const source = decodePng(await readFile(join(process.cwd(), PARITY_SPREAD_FIXTURE)));
+    const width = Math.floor(source.width / 2);
+    const height = Math.floor(source.height / 2);
+    const channels = source.channels;
+    const data = new Uint8Array(width * height * channels);
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            for (let channel = 0; channel < channels; channel += 1) {
+                const sample = (dx: number, dy: number) => Number(source.data[((2 * y + dy) * source.width + 2 * x + dx) * channels + channel]);
+                data[(y * width + x) * channels + channel] = Math.round((sample(0, 0) + sample(1, 0) + sample(0, 1) + sample(1, 1)) / 4);
+            }
+        }
+    }
+    return {
+        label: `${PARITY_SPREAD_FIXTURE} at half size`,
+        bytes: encodePng({
+            width,
+            height,
+            data,
+            channels,
+            depth: 8,
+        }),
+        width,
+        height,
+        dpi: 75,
+    };
+}
+
+/** Page 1 of the release fixture as the PPM Poppler hands the desktop pipeline. */
+async function renderReleasePpm(dir: string, dpi: number): Promise<IParityRaster> {
+    const prefix = join(dir, `release-${dpi}`);
+    await runCliNativeToolCommand(parityPdftoppmBinary!, [
+        '-r',
+        String(dpi),
+        '-f',
+        '1',
+        '-l',
+        '1',
+        '-singlefile',
+        join(process.cwd(), PARITY_RELEASE_PDF),
+        prefix,
+    ]);
+    const bytes = new Uint8Array(await readFile(`${prefix}.ppm`));
+    return {
+        label: `${PARITY_RELEASE_PDF} page 1 at ${dpi} DPI`,
+        bytes,
+        dpi,
+        ...readRasterSize(bytes),
+    };
+}
+
+/** One direct CLI render: the route desktop OCR preprocessing takes. */
+async function runCliPage(dir: string, raster: IParityRaster, options: INativeScanCleanupOptionsV3, ocrMode: boolean) {
+    const name = createHash('sha256').update(raster.label).update(JSON.stringify(options)).digest('hex').slice(0, 16);
+    const input = join(dir, `${name}-input${raster.bytes[0] === 0x50 ? '.ppm' : '.png'}`);
+    const output = join(dir, `${name}-output.png`);
+    const metadata = join(dir, `${name}-output.json`);
+    await writeFile(input, raster.bytes);
+    await runCliNativeToolCommand(scanCleanupCliBinary!, [
+        '--input',
+        input,
+        '--output',
+        output,
+        '--metadata',
+        metadata,
+        ...(ocrMode ? ['--ocr-mode'] : []),
+        '--options',
+        JSON.stringify(options),
+    ], {env: {
+        ...process.env,
+        RAYON_NUM_THREADS: '2',
+    }});
+    return {
+        output,
+        metadata,
+    };
+}
+
+async function readCliOutputs(paths: {
+    output: string;
+    metadata: string
+}, count: number) {
+    const suffixed = (path: string, index: number) => count === 1
+        ? path
+        : path.replace(/(\.[a-z]+)$/u, `-${index === 0 ? 'left' : 'right'}$1`);
+    return Promise.all(Array.from({length: count}, async (_, index) => ({
+        png: new Uint8Array(await readFile(suffixed(paths.output, index))),
+        metadataJson: await readFile(suffixed(paths.metadata, index), 'utf8'),
+    })));
+}
+
+function renderOptions(dpi: number, overrides: Partial<INativeScanCleanupOptionsV3>): INativeScanCleanupOptionsV3 {
+    return {
+        ...createOcrScanCleanupOptions('clean', dpi),
+        ocrMode: false,
+        matchPageSize: false,
+        ...overrides,
+    };
+}
+
+function stubBrowserWasmGlobals() {
+    vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+        expect(String(url)).toBe('https://viewer.test/wasm/evb-scan-cleanup.wasm');
+        return new Response(new Uint8Array(await readFile(scanCleanupWasmPath)), {headers: {'content-type': 'application/octet-stream'}});
+    }));
+    onTestFinished(() => {
+        vi.unstubAllGlobals();
+    });
+}
+
+async function createParityDir() {
+    const dir = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-wasm-parity-'));
+    onTestFinished(() => rm(dir, {
+        force: true,
+        recursive: true,
+    }));
+    return dir;
+}
+
+const PARITY_OCR_CASES = [
+    ...PARITY_GLYPH_FIXTURES.map(path => ({
+        label: path.split('/').at(-1)!,
+        read: () => readParityRaster(path, 300),
+    })),
+    {
+        label: 'release page 1, Poppler PPM',
+        read: (dir: string) => renderReleasePpm(dir, 72),
+    },
+].flatMap(raster => ([
+    'clean',
+    'polarity-only',
+] satisfies TOcrScanCleanupMode[]).map(mode => ({
+    ...raster,
+    mode,
+})));
+
+const PARITY_RENDER_CASES: Array<{
+    read: () => Promise<IParityRaster>;
+    options: Partial<INativeScanCleanupOptionsV3>;
+    outputs: number
+}> = [
+    ...[
+        {},
+        {binarization: 'sauvola'},
+        {binarization: 'wolf'},
+        {
+            outputMode: 'grayscale',
+            layout: 'force-single',
+        },
+        {
+            outputMode: 'color',
+            layout: 'force-single',
+        },
+        {
+            outputMode: 'mixed',
+            layout: 'force-single',
+        },
+        {outputMode: 'auto'},
+        {
+            layout: 'force-single',
+            manualSkewDegrees: 1.25,
+        },
+    ].map(options => ({
+        read: () => readParityRaster(PARITY_GLYPH_FIXTURES[0]!, 300),
+        options: options as Partial<INativeScanCleanupOptionsV3>,
+        outputs: 1,
+    })),
+    {
+        read: readHalfSizeSpread,
+        options: {layout: 'force-two-page'},
+        outputs: 2,
+    },
+];
+
+describe.skipIf(missingParityTools.length > 0)(`browser scan-cleanup WASM against the native CLI${missingParityTools.length ? ` (skipped: missing ${missingParityTools.join(', ')})` : ''}`, () => {
+    for (const parityCase of PARITY_OCR_CASES) {
+        it(`preprocesses ${parityCase.label} for OCR (${parityCase.mode}) to the CLI bytes and inverse transform`, async () => {
+            stubBrowserWasmGlobals();
+            const dir = await createParityDir();
+            const raster = await parityCase.read(dir);
+            const cli = await runCliPage(dir, raster, createOcrScanCleanupOptions(parityCase.mode, raster.dpi), true);
+            const [expected] = await readCliOutputs(cli, 1);
+            const browser = await preprocessBrowserOcrPage(raster.bytes, raster, parityCase.mode, raster.dpi, 'png');
+            if (browser.status === 'failed') throw new Error(browser.error.message);
+            expect(Buffer.from(browser.result.plane.data).equals(Buffer.from(expected!.png))).toBe(true);
+            expect(browser.result.inverseTransform)
+                .toEqual(readOcrScanCleanupGeometry(decodeNativeScanCleanupOutputMetadataJson(expected!.metadataJson)).inverseTransform);
+        });
+    }
+
+    it('returns OCR pixels as a raw plane of the input size', async () => {
+        stubBrowserWasmGlobals();
+        const raster = await readParityRaster(PARITY_GLYPH_FIXTURES[1]!, 300);
+        const browser = await preprocessBrowserOcrPage(raster.bytes, raster, 'polarity-only', raster.dpi);
+        if (browser.status === 'failed') throw new Error(browser.error.message);
+        expect(browser.result.plane).toMatchObject({
+            kind: 'gray8',
+            encoding: 'raw',
+            width: raster.width,
+            height: raster.height,
+        });
+        expect(browser.result.plane.data.byteLength).toBe(raster.width * raster.height);
+    });
+
+    for (const parityCase of PARITY_RENDER_CASES) {
+        it(`renders ${parityCase.outputs === 2 ? 'a spread' : 'a Syriac page'} ${JSON.stringify(parityCase.options)} to the CLI bytes and metadata`, async () => {
+            stubBrowserWasmGlobals();
+            const dir = await createParityDir();
+            const raster = await parityCase.read();
+            const options = renderOptions(raster.dpi, parityCase.options);
+            const expected = await readCliOutputs(await runCliPage(dir, raster, options, false), parityCase.outputs);
+            const browser = await renderBrowserScanCleanupPreview({
+                input: raster.bytes,
+                page: {
+                    options,
+                    sourcePageIndex: 0,
+                    canvasScope: 'page',
+                },
+                planeEncoding: 'png',
+            });
+            if (browser.status === 'failed') throw new Error(browser.error.message);
+            expect(browser.result.outputs).toHaveLength(parityCase.outputs);
+            for (const [
+                index,
+                output,
+            ] of browser.result.outputs.entries()) {
+                expect(Buffer.from(output.plane.data).equals(Buffer.from(expected[index]!.png)), `output ${index} PNG bytes`).toBe(true);
+                expect(output.metadataJson, `output ${index} metadata`).toBe(expected[index]!.metadataJson);
+            }
+        });
+    }
+
+    for (const parityCase of [
+        {
+            label: 'a spread',
+            read: readHalfSizeSpread,
+        },
+        {
+            label: 'a Poppler PPM page',
+            read: (dir: string) => renderReleasePpm(dir, 72),
+        },
+    ]) {
+        it(`analyzes ${parityCase.label} to the page plan an analyze manifest writes`, async () => {
+            stubBrowserWasmGlobals();
+            const dir = await createParityDir();
+            const raster = await parityCase.read(dir);
+            const options = renderOptions(raster.dpi, {outputMode: 'auto'});
+            const input = join(dir, `analyze-input${raster.bytes[0] === 0x50 ? '.ppm' : '.png'}`);
+            const pageMetadataPath = join(dir, 'analyze-page.json');
+            const manifestPath = join(dir, 'analyze-manifest.json');
+            await writeFile(input, raster.bytes);
+            await writeFile(manifestPath, JSON.stringify({
+                version: 3,
+                operation: 'analyze',
+                renderMode: 'preview',
+                canvasScope: 'page',
+                pages: [{
+                    inputPath: input,
+                    sourcePageIndex: 0,
+                    pageMetadataPath,
+                    options,
+                    outputs: [],
+                }],
+            }));
+            await runCliNativeToolCommand(scanCleanupCliBinary!, [
+                '--manifest',
+                manifestPath,
+            ]);
+            const browser = await analyzeBrowserScanCleanupPage({
+                input: raster.bytes,
+                page: {
+                    options,
+                    sourcePageIndex: 0,
+                    canvasScope: 'page',
+                },
+            });
+            if (browser.status === 'failed') throw new Error(browser.error.message);
+            expect(browser.result.pageMetadataJson).toBe(await readFile(pageMetadataPath, 'utf8'));
+        });
+    }
 });
