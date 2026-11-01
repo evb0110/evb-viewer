@@ -33,17 +33,32 @@ import {cast} from '@tests/helpers/cast';
 
 const recoveryMocks = vi.hoisted(() => ({
     consumeNativePdfMutationProjection: vi.fn(),
-    readDocumentBytes: vi.fn(),
+    createSnapshot: vi.fn(),
+    cleanupSnapshot: vi.fn(),
+    cleanupFile: vi.fn(),
 }));
 
 vi.mock('@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection', () => ({consumeNativePdfMutationProjection: recoveryMocks.consumeNativePdfMutationProjection}));
-vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: recoveryMocks.readDocumentBytes}));
 vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     ...await importOriginal<typeof PlatformDocuments>(),
-    getDocumentWorkingCopyCapability: () => ({cleanupFile: async () => undefined}),
+    getDocumentWorkingCopyCapability: () => ({
+        cleanupFile: recoveryMocks.cleanupFile,
+        recovery: {
+            createSnapshot: recoveryMocks.createSnapshot,
+            cleanupSnapshot: recoveryMocks.cleanupSnapshot,
+        },
+    }),
 }));
 
 const RECOVERY_CLONE_REF = requireDocumentRef('browser://documents/recovery-clone.pdf');
+const RECOVERY_TARGET = {
+    fileName: 'document.recovery.pdf',
+    sourceRef: requireDocumentRef('browser://documents/original.pdf'),
+};
+const RECOVERY_SNAPSHOT = {
+    ref: requireDocumentRef('browser://documents/durable-recovery.pdf'),
+    revisionToken: requireDocumentRevisionToken('recovery-revision'),
+};
 const RECOVERY_PROJECTION = cast<never>({
     mutations: {updates: []},
     noteTextUpdates: [],
@@ -105,7 +120,10 @@ function buildPlan(options: {
 describe('workspaceSavePlan', () => {
     beforeEach(() => {
         recoveryMocks.consumeNativePdfMutationProjection.mockReset();
-        recoveryMocks.readDocumentBytes.mockReset();
+        recoveryMocks.createSnapshot.mockReset();
+        recoveryMocks.createSnapshot.mockResolvedValue(RECOVERY_SNAPSHOT);
+        recoveryMocks.cleanupSnapshot.mockReset();
+        recoveryMocks.cleanupFile.mockReset();
     });
     it('represents clean Save and Save As as working-copy sourced serialized plans', () => {
         const save = buildPlan();
@@ -265,7 +283,6 @@ describe('workspaceSavePlan', () => {
             operation: () => Promise<T>,
         ) => operation()));
         recoveryMocks.consumeNativePdfMutationProjection.mockResolvedValue(RECOVERY_CLONE_REF);
-        recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(4, 5, 6));
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const {deps} = createDeps({
             persistAllAnnotationNotes: async () => {throw new Error('Sustained note update rejection');},
@@ -279,7 +296,12 @@ describe('workspaceSavePlan', () => {
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(4, 5, 6));
+        await expect(service.createRecoverySnapshot(RECOVERY_TARGET)).resolves.toEqual(RECOVERY_SNAPSHOT);
+        expect(recoveryMocks.createSnapshot).toHaveBeenCalledWith(
+            RECOVERY_TARGET.fileName, RECOVERY_CLONE_REF, RECOVERY_TARGET.sourceRef,
+        );
+        expect(recoveryMocks.cleanupFile).toHaveBeenCalledWith(RECOVERY_CLONE_REF);
+        expect(recoveryMocks.cleanupSnapshot).not.toHaveBeenCalled();
         expect(runWithDocumentOperationLease).toHaveBeenCalledWith('recovery-snapshot', expect.any(Function));
         expect(runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
             mode: 'snapshot',
@@ -321,10 +343,13 @@ describe('workspaceSavePlan', () => {
         });
         deps.runSaveTransaction = runSaveTransaction;
         deps.pdfViewerRef = ref({runSaveTransaction});
-        recoveryMocks.readDocumentBytes.mockImplementation(async () => {
+        let recoveredBytes: Uint8Array | null = null;
+        recoveryMocks.createSnapshot.mockImplementation(async (_fileName, from) => {
+            expect(from).toBe(deps.workingCopyPath.value);
             captureStarted.resolve(undefined);
             await publication.promise;
-            return bytes;
+            recoveredBytes = bytes.slice();
+            return RECOVERY_SNAPSHOT;
         });
         const mutation = session.operationLease.runExclusive('page-operation', async () => {
             await commit.promise;
@@ -334,7 +359,7 @@ describe('workspaceSavePlan', () => {
         });
         // Recovery is requested while the mutation is still committing. The
         // existing lease admits it against the committed byte revision.
-        const capture = useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes();
+        const capture = useWorkspaceSaveServiceForTest(deps).createRecoverySnapshot(RECOVERY_TARGET);
         const outcome = capture.catch(error => error as Error);
         commit.resolve(undefined);
         await mutation;
@@ -344,9 +369,11 @@ describe('workspaceSavePlan', () => {
         deps.pdfDocument.value = null;
         publication.resolve(undefined);
         const recovered = await outcome;
-        expect(recovered).toEqual(bytes);
-        if (!(recovered instanceof Uint8Array)) throw new Error('Recovery lost the committed PDF');
-        expect((await PDFDocument.load(recovered)).getPage(0).getRotation().angle).toBe(90);
+        expect(recovered).toEqual(RECOVERY_SNAPSHOT);
+        expect(recoveredBytes).toEqual(bytes);
+        if (!recoveredBytes) throw new Error('Recovery lost the committed PDF');
+        expect((await PDFDocument.load(recoveredBytes)).getPage(0).getRotation().angle).toBe(90);
+        expect(recoveryMocks.cleanupSnapshot).not.toHaveBeenCalled();
         expect(deps.hasPendingUnsavedChanges?.value).toBe(true);
     });
 
@@ -362,15 +389,19 @@ describe('workspaceSavePlan', () => {
             },
             verifiedUnchangedWorkingCopy: true,
         }));
-        recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(9, 8, 7));
         const {deps} = createDeps({
+            annotationDirty: ref(true),
             hasPendingUnsavedChanges: computed(() => true),
             documentRevisionToken: ref(requireDocumentRevisionToken('working-bytes-revision')),
             workingCopyPath: ref(requireDocumentRef('browser://documents/working.pdf')),
             runSaveTransaction,
             pdfViewerRef: ref({runSaveTransaction}),
         });
-        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(9, 8, 7));
+        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshot(RECOVERY_TARGET)).resolves.toEqual(RECOVERY_SNAPSHOT);
+        expect(recoveryMocks.createSnapshot).toHaveBeenCalledWith(
+            RECOVERY_TARGET.fileName, deps.workingCopyPath.value, RECOVERY_TARGET.sourceRef,
+        );
+        expect(recoveryMocks.consumeNativePdfMutationProjection).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -383,7 +414,6 @@ describe('workspaceSavePlan', () => {
             workingByteRevision: 'revision-0',
         },
     ])('withholds a draft recovery copy from a different admitted byte base: $workingByteRevision $workingCopyRef', async (base) => {
-        recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(4, 5, 6));
         const {deps} = createDeps({
             annotationDirty: ref(true),
             hasPendingUnsavedChanges: computed(() => true),
@@ -391,20 +421,89 @@ describe('workspaceSavePlan', () => {
             workingCopyPath: ref(requireDocumentRef('browser://documents/recovery.pdf')),
             pdfViewerRef: ref({runSaveTransaction: vi.fn()}),
         });
-        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes({
+        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshot(RECOVERY_TARGET, {
             ...base,
             artifactId: 'draft-capture',
             documentInstanceId: 'document-1',
             annotationMutationGeneration: 1,
         })).resolves.toBeNull();
+        expect(recoveryMocks.createSnapshot).not.toHaveBeenCalled();
     });
 
-    it('does not serialize a recovery snapshot for a clean document', async () => {
+    it('copies the unchanged admitted byte base for matching drafts without materializing edits', async () => {
+        const runSaveTransaction = vi.fn();
+        const workingCopyRef = requireDocumentRef('browser://documents/working.pdf');
+        const workingByteRevision = requireDocumentRevisionToken('draft-base-revision');
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken: ref(workingByteRevision),
+            workingCopyPath: ref(workingCopyRef),
+            pdfViewerRef: ref({runSaveTransaction}),
+        });
+
+        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshot(RECOVERY_TARGET, {
+            artifactId: 'draft-capture',
+            documentInstanceId: 'document-1',
+            annotationMutationGeneration: 1,
+            workingCopyRef,
+            workingByteRevision,
+        })).resolves.toEqual(RECOVERY_SNAPSHOT);
+
+        expect(recoveryMocks.createSnapshot).toHaveBeenCalledWith(
+            RECOVERY_TARGET.fileName, workingCopyRef, RECOVERY_TARGET.sourceRef,
+        );
+        expect(runSaveTransaction).not.toHaveBeenCalled();
+        expect(deps.hasPendingUnsavedChanges?.value).toBe(true);
+    });
+
+    it.each([
+        'revision',
+        'working-copy',
+        'annotation-frontier',
+    ] as const)('cleans up the recovery copy and detached clone when the %s changes during copying', async change => {
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const workingCopyPath = ref(requireDocumentRef('browser://documents/working.pdf'));
+        const assertAnnotationSaveCurrent = vi.fn(async () => {
+            if (change === 'annotation-frontier') throw new Error('Annotation frontier changed');
+        });
+        const runSaveTransaction = vi.fn(async () => cast<IPdfViewerSaveTransactionResult>({
+            source: 'native-mutation-projection',
+            nativeMutationProjection: RECOVERY_PROJECTION,
+            assertAnnotationSaveCurrent,
+        }));
+        recoveryMocks.consumeNativePdfMutationProjection.mockResolvedValue(RECOVERY_CLONE_REF);
+        recoveryMocks.createSnapshot.mockImplementation(async () => {
+            if (change === 'revision') documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
+            if (change === 'working-copy') workingCopyPath.value = requireDocumentRef('browser://documents/replacement.pdf');
+            return RECOVERY_SNAPSHOT;
+        });
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken,
+            workingCopyPath,
+            runSaveTransaction,
+            pdfViewerRef: ref({runSaveTransaction}),
+        });
+
+        const capture = useWorkspaceSaveServiceForTest(deps).createRecoverySnapshot(RECOVERY_TARGET);
+        if (change === 'annotation-frontier') await expect(capture).rejects.toThrow('Annotation frontier changed');
+        else await expect(capture).resolves.toBeNull();
+        expect(recoveryMocks.createSnapshot).toHaveBeenCalledWith(
+            RECOVERY_TARGET.fileName, RECOVERY_CLONE_REF, RECOVERY_TARGET.sourceRef,
+        );
+        expect(recoveryMocks.cleanupSnapshot).toHaveBeenCalledWith(RECOVERY_SNAPSHOT.ref);
+        expect(recoveryMocks.cleanupFile).toHaveBeenCalledWith(RECOVERY_CLONE_REF);
+    });
+
+    it('does not create a recovery snapshot for a clean document', async () => {
         const runSaveTransaction = vi.fn();
         const {deps} = createDeps({pdfViewerRef: ref({runSaveTransaction})});
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.createRecoverySnapshotBytes()).resolves.toBeNull();
+        await expect(service.createRecoverySnapshot(RECOVERY_TARGET)).resolves.toBeNull();
+        expect(recoveryMocks.createSnapshot).not.toHaveBeenCalled();
         expect(runSaveTransaction).not.toHaveBeenCalled();
     });
 
@@ -428,6 +527,7 @@ describe('workspaceSavePlan', () => {
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.createRecoverySnapshotBytes()).resolves.toBeNull();
+        await expect(service.createRecoverySnapshot(RECOVERY_TARGET)).resolves.toBeNull();
+        expect(recoveryMocks.createSnapshot).not.toHaveBeenCalled();
     });
 });

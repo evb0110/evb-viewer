@@ -18,6 +18,10 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
@@ -363,6 +367,82 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         utifMock.toRGBA8.mockReturnValue(new Uint8Array());
         pdfjsModule.getDocument.mockReset();
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
+    });
+
+    it('keeps a durable multi-chunk recovery copy unchanged across reload and working-copy rewrites', async () => {
+        const {
+            BROWSER_DOCUMENT_CHUNK_SIZE, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability();
+        const {createBrowserDocumentsCapability} = await import('@app/platform/browser-api/createBrowserDocumentsCapability');
+        const {BrowserDocumentStore: ReloadedBrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        const {saveBrowserWorkspaceRecovery} = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        const {documentWorkingCopy} = createBrowserDocumentsCapability({clearSearchCaches: () => {}});
+        const recovery = documentWorkingCopy.recovery!;
+        const sourceRef = await store.createStoredDocument('original.pdf', Uint8Array.of(37, 80, 68, 70), PDF_SOURCE_OPTIONS);
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const bytes = new Uint8Array(2 * BROWSER_DOCUMENT_CHUNK_SIZE + 17);
+        bytes.fill(1, 0, BROWSER_DOCUMENT_CHUNK_SIZE);
+        bytes.fill(2, BROWSER_DOCUMENT_CHUNK_SIZE, 2 * BROWSER_DOCUMENT_CHUNK_SIZE);
+        bytes.fill(3, 2 * BROWSER_DOCUMENT_CHUNK_SIZE);
+        await store.writeForBootstrap(workingRef, bytes, 'test-setup');
+        const expectedDigest = createHash('sha256').update(bytes).digest('hex');
+
+        const snapshot = await recovery.createSnapshot('document.recovery.pdf', workingRef, sourceRef);
+        expect(snapshot.ref).not.toBe(workingRef);
+        const paneId = requirePaneId('pane-1');
+        const tabId = requireTabId('tab-1');
+        await expect(saveBrowserWorkspaceRecovery('window:recovery-test', 0, {
+            version: 1,
+            capturedAt: requireEpochMs(1),
+            activePaneId: paneId,
+            activeTabId: tabId,
+            layout: {
+                type: 'leaf',
+                paneId,
+            },
+            panes: [{
+                paneId,
+                tabIds: [tabId],
+                activeTabId: tabId,
+            }],
+            tabs: [{
+                tabId,
+                paneId,
+                fileName: 'document.recovery.pdf',
+                sourceRef,
+                workingCopyRef: snapshot.ref,
+                requiresSaveAsOnFirstSave: true,
+                isDirty: true,
+                isDjvu: false,
+                currentPage: requirePageNumber(1),
+                zoom: 1,
+                zoomMode: 'custom',
+            }],
+        }, [snapshot.ref])).resolves.toMatchObject({saved: true});
+        expect(await store.requireEntry(snapshot.ref)).toMatchObject({
+            storageMode: 'chunked',
+            chunkCount: 3,
+            retention: 'durable',
+            sourceRef,
+        });
+        const readDigest = async (documents: BrowserDocumentStore) => {
+            const digest = createHash('sha256');
+            for (let offset = 0; offset < bytes.length; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+                digest.update(await documents.readRange(snapshot.ref, offset, Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, bytes.length - offset)));
+            }
+            return digest.digest('hex');
+        };
+        expect(await readDigest(store)).toBe(expectedDigest);
+
+        await store.writeForBootstrap(workingRef, Uint8Array.of(9, 8, 7), 'later-edit');
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(9, 8, 7));
+        expect(await readDigest(store)).toBe(expectedDigest);
+        store.unload(workingRef);
+        store.unload(snapshot.ref);
+        const reloaded = new ReloadedBrowserDocumentStore();
+        await expect(reloaded.stat(snapshot.ref)).resolves.toMatchObject({size: bytes.length});
+        expect(await readDigest(reloaded)).toBe(expectedDigest);
+        await expect(reloaded.getDocumentRevision(snapshot.ref)).resolves.toMatchObject({token: snapshot.revisionToken});
     });
 
     it.each([
