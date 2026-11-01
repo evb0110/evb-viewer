@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import {isBrowserLegacyDocumentRef} from '@contracts/documentRef';
 import type { Ref } from 'vue';
 import {
     getFailureReceipt,
@@ -900,7 +901,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             || payload.orientation !== 'auto';
         const managedPrintPath = deps.printPath?.value
             ?? (isPathSource ? sourcePdf.path : requiresLayoutComposition ? deps.workingCopyPath.value : null);
-        if (!managedPrintPath) {
+        // A browser document of any size prints through the browser's own
+        // print path; only a native file goes to the platform dialog.
+        if (!managedPrintPath || isBrowserLegacyDocumentRef(managedPrintPath)) {
             return false;
         }
 
