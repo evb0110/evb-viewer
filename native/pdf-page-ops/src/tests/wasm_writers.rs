@@ -587,7 +587,21 @@ fn instructed_writers_validate_instructions_as_the_desktop_commands_do() {
     }
 }
 
+const WORDS: &str = "BT /F1 9 Tf 10 10 Td (Words) Tj ET\n";
 const OCR_PAGE_ONE: &str = r#"{"pages":[{"pageNumber":1,"source":0}]}"#;
+
+/// The error a writer request ends with, which it must end with.
+fn refused(operation: u32, data: &[u8], instructions: &str, attachments: &[&[u8]]) -> String {
+    match run_request(&instructed_request(
+        operation,
+        data,
+        instructions,
+        attachments,
+    )) {
+        Ok(_) => panic!("operation {operation} succeeded: {instructions}"),
+        Err(error) => error.to_string(),
+    }
+}
 
 fn first_page_content(bytes: &[u8]) -> Vec<u8> {
     let document = Document::load_mem(bytes).unwrap();
@@ -620,5 +634,45 @@ fn ocr_text_layer_without_recognized_text_leaves_the_page_painting_as_it_did() {
         .unwrap();
         let saved = [target.as_slice(), &output[MUTATION_HEADER.bytes..]].concat();
         assert_eq!(first_page_content(&saved), first_page_content(&target));
+    }
+}
+
+#[test]
+fn writers_refuse_inline_images_whose_size_no_parser_can_hold() {
+    let replacement = image_pdf(&[(1, 1, 50, SCAN)]);
+    let source = image_pdf(&[(1, 1, 50, WORDS)]);
+    let plain = image_pdf(&[(800, 480, 95, SCAN)]);
+    for width in ["-1", "2147483647"] {
+        let image = format!("BI /W {width} /H 1 /BPC 8 /CS /RGB ID x EI\n");
+        let input = image_pdf(&[(800, 480, 95, &format!("{SCAN}{image}"))]);
+        let source_with_image = image_pdf(&[(1, 1, 50, &format!("{WORDS}{image}"))]);
+        for (operation, data, instructions, attachment) in [
+            (
+                OP_RECOMPRESS_IMAGES,
+                &input,
+                r#"{"targetDpi":72,"quality":70,"maxByteRatio":0.9,"skipPages":[]}"#,
+                None,
+            ),
+            (
+                OP_OVERLAY_TEXT,
+                &plain,
+                r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+                Some(&source_with_image),
+            ),
+            (
+                OP_REPLACE_PAGE_IMAGES,
+                &input,
+                r#"{"maxByteRatio":0.9,"pages":[{"pageNumber":1,"replacement":0,"replacementPageNumber":1}]}"#,
+                Some(&replacement),
+            ),
+            (OP_OCR_TEXT_LAYER, &input, OCR_PAGE_ONE, Some(&source)),
+        ] {
+            let attachments: Vec<&[u8]> = attachment.into_iter().map(Vec::as_slice).collect();
+            let error = refused(operation, data, instructions, &attachments);
+            assert!(
+                error.contains("inline image"),
+                "{operation} /W {width}: {error}"
+            );
+        }
     }
 }

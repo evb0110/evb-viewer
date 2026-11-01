@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
     assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect, load_pdf_path,
-    load_readonly_metadata_pdf_path, reclassify_domain_error, resolve_inherited_box,
+    load_readonly_metadata_pdf_path, parse_content, reclassify_domain_error, resolve_inherited_box,
     resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
     NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
     MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
@@ -249,7 +249,7 @@ fn decode_page_content_with_limit(
                 )
             }
         })?;
-    Content::decode(&bytes).map_err(|error| {
+    parse_content(&bytes)?.map_err(|error| {
         domain_error(
             NativeErrorCode::CorruptXref,
             format!("Failed to parse PDF page content: {error}"),

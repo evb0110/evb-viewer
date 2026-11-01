@@ -144,7 +144,7 @@ fn appearance_fills(document: &impl PdfObjectSource, annotation: &Dictionary) ->
     let normal = ap.and_then(|ap| entry(document, ap, b"N")?.as_stream().ok());
     let limit = MAX_STAMP_APPEARANCE_STREAM_BYTES;
     let bytes = normal.and_then(|n| plain_stream_with_limit(n, limit).ok());
-    let content = bytes.and_then(|bytes| lopdf::content::Content::decode(&bytes).ok());
+    let content = bytes.and_then(|bytes| parse_content(&bytes).ok()?.ok());
     let fills = |o: &lopdf::content::Operation| {
         ["f", "F", "f*", "B", "B*", "b", "b*", "sh", "Do", "BI"].contains(&o.operator.as_str())
     };

@@ -186,7 +186,7 @@ pub(crate) fn strip_previous_ocr_text(
             changed = true;
             continue;
         }
-        let Ok(content) = Content::decode(&bytes) else {
+        let Ok(content) = parse_content(&bytes)? else {
             kept.push(content_id);
             continue;
         };

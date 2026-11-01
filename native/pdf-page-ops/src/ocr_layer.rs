@@ -124,7 +124,7 @@ fn apply_ocr_word_edits(
         return Ok(());
     }
     let bytes = source.get_page_content_with_limit(page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
-    let mut content = Content::decode(&bytes)?;
+    let mut content = parse_content(&bytes)??;
     // Each word's text-show operator, with the `Tz` set since the previous word.
     let mut words: Vec<(usize, Option<usize>)> = Vec::new();
     let mut scaling = None;
@@ -374,7 +374,7 @@ impl PageTextInspection<'_> {
             self.doubt("the page's Form XObjects exceed the inspection budget");
             return Ok(());
         }
-        let Ok(content) = Content::decode(&bytes) else {
+        let Ok(Ok(content)) = parse_content(&bytes) else {
             self.doubt("a Form XObject's content could not be parsed");
             return Ok(());
         };
@@ -425,7 +425,7 @@ fn inspect_page_text_visibility(
             }
             continue;
         }
-        let Ok(content) = Content::decode(&bytes) else {
+        let Ok(Ok(content)) = parse_content(&bytes) else {
             inspection.doubt("a page content stream could not be parsed");
             continue;
         };
@@ -455,7 +455,7 @@ fn inspect_page_text_visibility(
 /// where each line stands from its glyphs' `Tm`.
 /// A layer drawn as a Form XObject by earlier versions has no inline text.
 fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
-    let content = Content::decode(bytes).ok()?;
+    let content = parse_content(bytes).ok()?.ok()?;
     let mut lines: Vec<OcrLayerLine> = Vec::new();
     let mut line: Option<OcrLayerLine> = None;
     let mut block = 0u32;

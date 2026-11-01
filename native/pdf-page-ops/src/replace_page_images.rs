@@ -434,9 +434,10 @@ fn replace_page_images(
 ) -> Result<(ReplacePageOutcome, u64, u64)> {
     materialize_page_contents(incremental, structural, page_id)?;
     let document = &incremental.previous_document;
-    let content = page_content_with_limit(document, page_id, MAX_REPLACEMENT_CONTENT_BYTES)
-        .ok()
-        .and_then(|bytes| Content::decode(&bytes).ok());
+    let content = match page_content_with_limit(document, page_id, MAX_REPLACEMENT_CONTENT_BYTES) {
+        Ok(bytes) => parse_content(&bytes)?.ok(),
+        Err(_) => None,
+    };
     let Some(content) = content else {
         return Ok((ReplacePageOutcome::UnsupportedText, 0, 0));
     };

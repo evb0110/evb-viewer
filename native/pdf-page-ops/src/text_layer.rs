@@ -1260,7 +1260,7 @@ pub(crate) fn text_operations(
             }
             error => Box::new(error) as Box<dyn Error>,
         })?;
-    let content = Content::decode(&bytes)?;
+    let content = parse_content(&bytes)??;
     let strict = filter.is_some();
     let source_fonts = if strict {
         Some(page_fonts(source, page_id)?)

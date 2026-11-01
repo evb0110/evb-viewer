@@ -11,7 +11,6 @@
 
 use super::*;
 use crate::split_pages::PdfMatrix;
-use lopdf::content::Content;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
@@ -204,8 +203,7 @@ impl ImageWalk<'_> {
             xobjects.as_ref(),
             PdfMatrix::IDENTITY,
             &mut forms,
-        );
-        Ok(())
+        )
     }
 
     fn walk_content(
@@ -215,10 +213,10 @@ impl ImageWalk<'_> {
         xobjects: Option<&Dictionary>,
         start: PdfMatrix,
         forms: &mut Vec<ObjectId>,
-    ) {
-        let Ok(content) = Content::decode(bytes) else {
+    ) -> Result<()> {
+        let Ok(content) = parse_content(bytes)? else {
             self.pin_all(xobjects);
-            return;
+            return Ok(());
         };
         let mut placement = start;
         let mut saved = Vec::new();
@@ -228,7 +226,10 @@ impl ImageWalk<'_> {
                 "Q" => placement = saved.pop().unwrap_or(start),
                 "cm" => match PdfMatrix::from_operation(operation) {
                     Some(matrix) => placement = placement.concat(matrix),
-                    None => return self.pin_all(xobjects),
+                    None => {
+                        self.pin_all(xobjects);
+                        return Ok(());
+                    }
                 },
                 "Do" => {
                     let id = operation
@@ -238,12 +239,13 @@ impl ImageWalk<'_> {
                         .and_then(|name| xobjects?.get(name).ok())
                         .and_then(|entry| entry.as_reference().ok());
                     if let Some(id) = id {
-                        self.draw(page_number, id, placement, xobjects, forms);
+                        self.draw(page_number, id, placement, xobjects, forms)?;
                     }
                 }
                 _ => {}
             }
         }
+        Ok(())
     }
 
     fn draw(
@@ -253,9 +255,9 @@ impl ImageWalk<'_> {
         placement: PdfMatrix,
         parent_xobjects: Option<&Dictionary>,
         forms: &mut Vec<ObjectId>,
-    ) {
+    ) -> Result<()> {
         let Ok(stream) = self.document().get_object(id).and_then(Object::as_stream) else {
-            return;
+            return Ok(());
         };
         let subtype = stream.dict.get(b"Subtype").and_then(Object::as_name).ok();
         if subtype == Some(b"Image") {
@@ -269,7 +271,7 @@ impl ImageWalk<'_> {
             };
             let (Some(width), Some(height)) = (size(b"Width"), size(b"Height")) else {
                 self.pinned.insert(id);
-                return;
+                return Ok(());
             };
             // The unit square maps to the two sides of the drawn image.
             let drawn_width = placement.a.hypot(placement.b) / 72.0 * self.target_dpi;
@@ -277,15 +279,15 @@ impl ImageWalk<'_> {
             let needed = (drawn_width / width as f64).max(drawn_height / height as f64);
             if !needed.is_finite() {
                 self.pinned.insert(id);
-                return;
+                return Ok(());
             }
             let usage = self.uses.entry(id).or_default();
             usage.needed_scale = usage.needed_scale.max(needed);
             usage.pages.insert(page_number);
-            return;
+            return Ok(());
         }
         if subtype != Some(b"Form") || forms.contains(&id) {
-            return;
+            return Ok(());
         }
         let resources = stream
             .dict
@@ -314,10 +316,10 @@ impl ImageWalk<'_> {
         self.pin_patterns_and_fonts(resources.as_ref());
         let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id)) else {
             self.pin_all(xobjects.as_ref());
-            return;
+            return Ok(());
         };
         forms.push(id);
-        self.walk_content(
+        let result = self.walk_content(
             page_number,
             &content,
             xobjects.as_ref(),
@@ -325,6 +327,7 @@ impl ImageWalk<'_> {
             forms,
         );
         forms.pop();
+        result
     }
 }
 
