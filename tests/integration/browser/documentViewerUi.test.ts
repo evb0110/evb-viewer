@@ -2357,6 +2357,232 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('keeps window menus open through startup and active-document changes', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_024,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        let releaseWorkspace = () => {};
+        const workspaceGate = new Promise<void>((resolveGate) => {
+            releaseWorkspace = resolveGate;
+        });
+        let workspaceHeld = false;
+        const appMenuTrigger = page.getByRole('button', {
+            name: 'Menu',
+            exact: true,
+        });
+        const moreToolsTrigger = page.getByRole('button', {
+            name: 'More tools',
+            exact: true,
+        });
+        const menuItem = (name: string) => page.locator('[role="menuitem"], [role="menuitemcheckbox"]').filter({hasText: new RegExp(`^${name}`, 'u')});
+        const visibleMenuCount = () => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
+            .filter(menu => menu.getBoundingClientRect().width > 0).length);
+        const selectedTabId = () => page.locator('[role="tab"][aria-selected="true"]').first().getAttribute('data-tab-id');
+        // The trigger, or the wrapper the menu library made its trigger, holds focus.
+        const hasFocus = (trigger: typeof appMenuTrigger) => trigger.evaluate((button) => {
+            const focused = document.activeElement;
+            return focused !== null && focused !== document.body && (focused === button || focused.contains(button));
+        });
+        // Records, on every frame until stopped, what a person sees of the open
+        // menus and their trigger: the same trigger node must stay connected and
+        // expanded, and the View submenu must keep showing View's entries.
+        const startFrameRecorder = (triggerLabel: string) => page.evaluate((label) => {
+            const trigger = document.querySelector<HTMLElement>(`button[aria-label="${label}"]`);
+            const frames: Array<{
+                menus: number;
+                expanded: boolean;
+                connected: boolean;
+                viewEntries: boolean;
+                pagesEntries: boolean;
+                workspaceToolbar: boolean;
+            }> = [];
+            let recording = true;
+            const record = () => {
+                if (!recording) {
+                    return;
+                }
+                const menus = Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
+                    .filter(menu => menu.getBoundingClientRect().width > 0);
+                const texts = menus.map(menu => menu.textContent ?? '');
+                frames.push({
+                    menus: menus.length,
+                    expanded: trigger?.getAttribute('aria-expanded') === 'true',
+                    connected: trigger?.isConnected === true,
+                    viewEntries: texts.some(text => text.includes('Zoom In') && text.includes('Fit Height')),
+                    pagesEntries: texts.some(text => text.includes('Delete Selected Pages')),
+                    workspaceToolbar: document.querySelector('#editor-global-toolbar-host > [role="toolbar"]') !== null,
+                });
+                requestAnimationFrame(record);
+            };
+            requestAnimationFrame(record);
+            Reflect.set(window, '__menuFrames', {
+                frames,
+                stop: () => {
+                    recording = false;
+                },
+            });
+        }, triggerLabel);
+        const readFrames = () => page.evaluate(() => (Reflect.get(window, '__menuFrames') as {frames: Array<Record<string, boolean | number>>;}).frames);
+        const stopFrameRecorder = () => page.evaluate(() => (Reflect.get(window, '__menuFrames') as {stop: () => void}).stop());
+        const waitForRecordedFrames = (count: number) => page.waitForFunction(
+            minimum => (Reflect.get(window, '__menuFrames') as {frames: unknown[]}).frames.length >= minimum,
+            count,
+            {timeout: 10_000},
+        );
+        const activeFitHeight = () => page.evaluate(() => {
+            const host = document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]');
+            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const firstPage = host?.querySelector<HTMLElement>('.page_container--rendered[data-page="1"]');
+            if (!viewport || !firstPage) {
+                return null;
+            }
+            return firstPage.getBoundingClientRect().height <= viewport.clientHeight + 1;
+        });
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            // Hold only the real workspace module, so the window is ready and
+            // its startup toolbar is shown while the workspace still loads.
+            await page.route(/\/components\/DocumentWorkspace\.vue(?:\?|$)/u, async (route) => {
+                workspaceHeld = true;
+                await workspaceGate;
+                await route.continue();
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'commit'});
+            await page.waitForFunction(() => Reflect.get(window, '__appReady') === true, undefined, {timeout: 30_000});
+            expect(workspaceHeld, 'the workspace module is held while the window is ready').toBe(true);
+
+            // Startup: Menu and View stay open while the workspace toolbar
+            // replaces the startup toolbar.
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await menuItem('Zoom In').waitFor();
+            await startFrameRecorder('Menu');
+            releaseWorkspace();
+            await page.locator('#editor-global-toolbar-host > [role="toolbar"]').waitFor({timeout: 30_000});
+            await page.waitForFunction(() => {
+                const frames = (Reflect.get(window, '__menuFrames') as {frames: Array<{workspaceToolbar: boolean}>}).frames;
+                return frames.filter(frame => frame.workspaceToolbar).length >= 10;
+            }, undefined, {timeout: 10_000});
+            await stopFrameRecorder();
+            const startupFrames = await readFrames();
+            expect(startupFrames.some(frame => !frame.workspaceToolbar), 'frames before the handoff were recorded').toBe(true);
+            expect(startupFrames.filter(frame => frame.menus !== 2 || !frame.expanded || !frame.connected || !frame.viewEntries)).toEqual([]);
+
+            // Escape closes the View submenu, then Menu, whose trigger takes focus back.
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(1);
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(() => hasFocus(appMenuTrigger)).toBe(true);
+
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const fixture = await PDFDocument.create();
+            for (const label of [
+                'First page',
+                'Second page',
+            ]) {
+                fixture.addPage([
+                    400,
+                    600,
+                ]).drawText(label, {
+                    x: 40,
+                    y: 540,
+                });
+            }
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'menu-lifetime.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30_000});
+            expect(await activeFitHeight()).toBe(false);
+            const pdfTabId = await selectedTabId();
+            await page.getByRole('button', {
+                name: 'New Tab',
+                exact: true,
+            }).click();
+            await expect.poll(selectedTabId).not.toBe(pdfTabId);
+            const emptyTabId = await selectedTabId();
+
+            // Ctrl+Tab to the PDF: the open View submenu stays View and its
+            // entries become available; Fit Height acts on the PDF.
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled')).toBe('true');
+            await startFrameRecorder('Menu');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(pdfTabId);
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled'), {timeout: 15_000}).toBeNull();
+            await expect.poll(() => menuItem('Pages').count()).toBe(1);
+            await waitForRecordedFrames(10);
+            await stopFrameRecorder();
+            expect((await readFrames()).filter(frame => frame.menus !== 2 || !frame.connected || !frame.viewEntries || frame.pagesEntries)).toEqual([]);
+            await menuItem('Fit Height').click();
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(activeFitHeight, {timeout: 15_000}).toBe(true);
+
+            // Back to the empty tab: View stays open and its entries turn off.
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled')).toBeNull();
+            await startFrameRecorder('Menu');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(emptyTabId);
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled'), {timeout: 15_000}).toBe('true');
+            await expect.poll(() => menuItem('Pages').count()).toBe(0);
+            await waitForRecordedFrames(10);
+            await stopFrameRecorder();
+            expect((await readFrames()).filter(frame => frame.menus !== 2 || !frame.connected || !frame.viewEntries || frame.pagesEntries)).toEqual([]);
+            await page.keyboard.press('Escape');
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(0);
+
+            // More tools stays open across Ctrl+Tab, Escape hands focus back to
+            // its trigger, and an outside click dismisses it for good.
+            await moreToolsTrigger.click();
+            await expect.poll(visibleMenuCount).toBe(1);
+            await startFrameRecorder('More tools');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(pdfTabId);
+            await waitForRecordedFrames(10);
+            await stopFrameRecorder();
+            expect((await readFrames()).filter(frame => frame.menus !== 1 || !frame.expanded || !frame.connected)).toEqual([]);
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(() => hasFocus(moreToolsTrigger)).toBe(true);
+
+            await moreToolsTrigger.click();
+            await expect.poll(visibleMenuCount).toBe(1);
+            const outside = await page.locator('.workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]').first().boundingBox();
+            expect(outside).not.toBeNull();
+            await startFrameRecorder('More tools');
+            await page.mouse.click(outside!.x + 40, outside!.y + outside!.height - 40);
+            await expect.poll(visibleMenuCount).toBe(0);
+            await waitForRecordedFrames(30);
+            await stopFrameRecorder();
+            const outsideFrames = await readFrames();
+            const firstClosedFrame = outsideFrames.findIndex(frame => frame.menus === 0);
+            expect(firstClosedFrame).toBeGreaterThanOrEqual(0);
+            expect(outsideFrames.slice(firstClosedFrame).filter(frame => frame.menus !== 0 || frame.expanded)).toEqual([]);
+            expect(problems).toEqual([]);
+        } finally {
+            releaseWorkspace();
+            await context.close();
+        }
+    }, 120_000);
+
     it('runs desktop\'s File, Pages and View menu commands from the page menu', async () => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1_280,
@@ -2396,9 +2622,6 @@ describe('browser document lifecycle UI', () => {
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
-            // The workspace toolbar replaces the shell toolbar shortly after
-            // startup, and the swap closes a menu opened before it.
-            await page.locator('#editor-global-toolbar-host > *').first().waitFor({timeout: 30_000});
 
             // Without a document desktop's View menu is disabled, and it shows
             // neither view rotation nor a Pages menu.
