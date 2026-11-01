@@ -38,6 +38,13 @@ import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@pdf-core/tiffEncoding';
+import {
+    crc32,
+    encodeUtf8,
+    makeCentralHeader,
+    makeEndOfCentralDirectory,
+    makeLocalHeader,
+} from '@app/utils/docxStreaming';
 import type {
     ITiffEncoderModule,
     ITiffImageDescriptor,
@@ -157,8 +164,23 @@ function releaseCanvas(canvas: HTMLCanvasElement) {
     canvas.height = 0;
 }
 
-function buildBrowserImageExportFileName(pageNumber: number) {
-    return `page-${String(pageNumber).padStart(3, '0')}.jpg`;
+function padImageExportNumber(value: number) {
+    return String(value).padStart(3, '0');
+}
+
+// Desktop's names: one page saves under the chosen name, suggested as below;
+// several pages save beside each other under the template's stem.
+function buildSinglePageImageExportName(pageNumber: number) {
+    return `document-page-${padImageExportNumber(pageNumber)}.jpg`;
+}
+
+const MULTI_PAGE_IMAGE_EXPORT_TEMPLATE = 'document-pages.jpg';
+
+function buildMultiPageImageExportName(sourceKind: 'pdf' | 'djvu', pageNumber: number, index: number) {
+    const stem = MULTI_PAGE_IMAGE_EXPORT_TEMPLATE.replace(/\.jpg$/u, '');
+    return sourceKind === 'pdf'
+        ? `${stem}-${padImageExportNumber(index + 1)}.jpg`
+        : `${stem}-page-${padImageExportNumber(pageNumber)}.jpg`;
 }
 
 async function withRenderedPdfPageCanvas<T>(
@@ -552,73 +574,255 @@ function getTargetPages(pdfDocument: { numPages: number }, pageNumbers?: number[
     return targetPages;
 }
 
+type TImagePageRenderer = (pageNumber: number, format: TBrowserImageExportFormat) => Promise<Uint8Array>;
+
+type TBrowserOutputDirectoryPicker = (options?: {
+    mode?: 'read' | 'readwrite';
+    id?: string
+}) => Promise<FileSystemDirectoryHandle>;
+
+/** The chosen output folder, null when the person cancels, undefined when this browser has no folder picker. */
+async function pickImageExportDirectory() {
+    const showDirectoryPicker = typeof window === 'undefined'
+        ? undefined
+        : (window as Window & {showDirectoryPicker?: TBrowserOutputDirectoryPicker}).showDirectoryPicker;
+    if (typeof showDirectoryPicker !== 'function') return undefined;
+    try {
+        return await showDirectoryPicker.call(window, {
+            mode: 'readwrite',
+            id: 'evb-image-export',
+        });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return null;
+        throw error;
+    }
+}
+
+async function hasDirectoryEntry(directory: FileSystemDirectoryHandle, name: string) {
+    try {
+        await directory.getFileHandle(name);
+        return true;
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') return false;
+        // A folder of that name, or an unreadable entry, still occupies the name.
+        return true;
+    }
+}
+
+// As desktop does, an existing file keeps its name: the output takes "-1", "-2" and on.
+async function claimDirectoryFileName(directory: FileSystemDirectoryHandle, name: string, claimed: Set<string>) {
+    const extension = name.slice(name.lastIndexOf('.'));
+    const stem = name.slice(0, -extension.length);
+    let candidate = name;
+    for (let conflict = 1; claimed.has(candidate) || await hasDirectoryEntry(directory, candidate); conflict += 1) {
+        candidate = `${stem}-${conflict}${extension}`;
+    }
+    claimed.add(candidate);
+    return candidate;
+}
+
+async function exportImagePagesToDirectory(
+    directory: FileSystemDirectoryHandle,
+    names: string[],
+    targetPages: number[],
+    renderPage: TImagePageRenderer,
+    onPageWritten: (processed: number) => void,
+) {
+    const outputRefs: TDocumentRef[] = [];
+    const claimed = new Set<string>();
+    try {
+        for (const [
+            index,
+            pageNumber,
+        ] of targetPages.entries()) {
+            const fileName = await claimDirectoryFileName(directory, names[index]!, claimed);
+            const handle = await directory.getFileHandle(fileName, {create: true});
+            const outputRef = await saveImageExport({
+                fileName,
+                handle,
+            }, format => renderPage(pageNumber, format));
+            if (!outputRef) throw new Error('A handle-backed image export cannot be canceled');
+            outputRefs.push(outputRef);
+            onPageWritten(index + 1);
+            if (index % 2 === 1) await yieldToBrowser();
+        }
+    } catch (error) {
+        await releaseImageExports(outputRefs);
+        throw error;
+    }
+    return outputRefs;
+}
+
+// Where no folder can be chosen, the pages download as one ZIP of STORED
+// entries (they are compressed images already), streamed as they encode.
+async function exportImagePagesAsZip(
+    names: string[],
+    targetPages: number[],
+    renderPage: TImagePageRenderer,
+    onPageWritten: (processed: number) => void,
+) {
+    const zipName = MULTI_PAGE_IMAGE_EXPORT_TEMPLATE.replace(/\.jpg$/u, '.zip');
+    const stagingRef = await browserDocumentStore.createStoredDocument(zipName, new Uint8Array(), {
+        mimeType: 'application/zip',
+        saveKind: 'generic',
+        kind: 'output',
+        retention: 'transient',
+        saveHandle: null,
+    });
+    try {
+        const sink = await openBrowserOutputSink({
+            fileName: zipName,
+            stagingRef,
+        }, {mimeType: 'application/zip'});
+        try {
+            const centralHeaders: Uint8Array[] = [];
+            let offset = 0;
+            for (const [
+                index,
+                pageNumber,
+            ] of targetPages.entries()) {
+                const entryName = encodeUtf8(names[index]!);
+                const bytes = await renderPage(pageNumber, resolveImageExportFormat(names[index]!, 'jpeg'));
+                const crc = crc32(bytes);
+                const localHeader = makeLocalHeader(entryName, crc, bytes.byteLength);
+                centralHeaders.push(makeCentralHeader(entryName, crc, bytes.byteLength, offset));
+                await sink.write(localHeader);
+                await sink.write(bytes);
+                offset += localHeader.byteLength + bytes.byteLength;
+                onPageWritten(index + 1);
+                await yieldToBrowser();
+            }
+            const centralSize = sumBy(centralHeaders, header => header.byteLength);
+            for (const header of centralHeaders) await sink.write(header);
+            await sink.write(makeEndOfCentralDirectory(centralHeaders.length, centralSize, offset));
+        } catch (error) {
+            await sink.abort();
+            throw error;
+        }
+        await sink.close();
+    } finally {
+        // The download holds its own copy; a ZIP is not a document to reopen.
+        await browserDocumentStore.remove(stagingRef).catch(() => undefined);
+    }
+}
+
+type TImageExportDestination =
+    | {
+        kind: 'file';
+        saveTarget: Awaited<ReturnType<typeof pickSaveTarget>>
+    }
+    | {
+        kind: 'directory';
+        directory: FileSystemDirectoryHandle
+    }
+    | {kind: 'zip'};
+
+// One page goes to the file the person names, in the format its name selects.
+// Several pages go, as on desktop, into one chosen folder under deterministic
+// names, or into one ZIP download where the browser cannot choose a folder.
+// The picker opens before slow work where it can, while the click that asked
+// for the export still allows it.
+async function chooseImageExportDestination(pageCount: number, firstPage: number): Promise<TImageExportDestination | null> {
+    if (pageCount === 1) {
+        const saveTarget = await pickSaveTarget({
+            suggestedName: buildSinglePageImageExportName(firstPage),
+            pickerTypes: buildImageExportPickerTypes(),
+        });
+        return saveTarget.canceled ? null : {
+            kind: 'file',
+            saveTarget,
+        };
+    }
+    const directory = await pickImageExportDirectory();
+    if (directory === null) return null;
+    return directory ? {
+        kind: 'directory',
+        directory,
+    } : {kind: 'zip'};
+}
+
+const CANCELED_IMAGE_EXPORT = {
+    success: false as const,
+    canceled: true as const,
+};
+
+async function writeBrowserImagePages(
+    destination: TImageExportDestination,
+    sourceKind: 'pdf' | 'djvu',
+    targetPages: number[],
+    renderPage: TImagePageRenderer,
+    requestId: TRequestId | undefined,
+) {
+    const onPageWritten = (processed: number) => emitBrowserImageExportProgress(requestId, 'images', {
+        phase: 'rendering',
+        processed,
+        total: targetPages.length,
+        percent: (processed / targetPages.length) * 100,
+    });
+    const [firstPage] = targetPages;
+    if (firstPage === undefined) return CANCELED_IMAGE_EXPORT;
+    if (destination.kind === 'file') {
+        const outputRef = await saveImageExport(destination.saveTarget, format => renderPage(firstPage, format));
+        if (!outputRef) return CANCELED_IMAGE_EXPORT;
+        onPageWritten(1);
+        return {
+            success: true as const,
+            outputPaths: [outputRef],
+        };
+    }
+    const names = targetPages.map((pageNumber, index) => buildMultiPageImageExportName(sourceKind, pageNumber, index));
+    onPageWritten(0);
+    if (destination.kind === 'directory') {
+        return {
+            success: true as const,
+            outputPaths: await exportImagePagesToDirectory(destination.directory, names, targetPages, renderPage, onPageWritten),
+        };
+    }
+    await exportImagePagesAsZip(names, targetPages, renderPage, onPageWritten);
+    // The ZIP is one download, not a stored output: the count of exported
+    // pages is the selection's.
+    return {
+        success: true as const,
+        outputPaths: [],
+    };
+}
+
 async function exportBrowserDjvuPagesAsImages(
     workingCopyPath: TDocumentRef,
     pageNumbers: number[] | undefined,
     requestId: TRequestId | undefined,
 ) {
     const worker = await createDjvuWorkerFromPath(workingCopyPath);
-    const outputRefs: TDocumentRef[] = [];
     try {
         const sizes = await getDjvuWorkerPageSizes(worker);
         const targetPages = getTargetPages({numPages: sizes.length}, pageNumbers);
-        if (targetPages.length === 0) {
-            return {
-                success: false as const,
-                canceled: true as const,
-            };
-        }
-        for (const [
-            index,
-            pageNumber,
-        ] of targetPages.entries()) {
+        const pageSizes = targetPages.map((pageNumber) => {
             const pageSize = sizes[pageNumber - 1];
             if (!pageSize) {
                 throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
             }
             assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
-            const saveTarget = await pickSaveTarget({
-                suggestedName: `document-page-${String(pageNumber).padStart(3, '0')}.png`,
-                pickerTypes: buildImageExportPickerTypes(),
-            });
-            // The decoder only produces PNG. The chosen name decides the encoding and the stored name.
-            const outputRef = saveTarget.canceled ? null : await saveImageExport(saveTarget, async (format) => {
-                const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-                try {
-                    const response = await fetch(rendered.url);
-                    if (!response.ok) {
-                        throw new Error(`Failed to render DjVu page ${pageNumber}`);
-                    }
-                    const pngBytes = new Uint8Array(await response.arrayBuffer());
-                    return format === 'png'
-                        ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
-                        : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
-                } finally {
-                    worker.revokeObjectURL(rendered.url);
+            return pageSize;
+        });
+        const destination = targetPages.length ? await chooseImageExportDestination(targetPages.length, targetPages[0]!) : null;
+        if (!destination) return CANCELED_IMAGE_EXPORT;
+        // The decoder only produces PNG; the output name decides the encoding.
+        return await writeBrowserImagePages(destination, 'djvu', targetPages, async (pageNumber, format) => {
+            const pageSize = pageSizes[targetPages.indexOf(pageNumber)]!;
+            const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            try {
+                const response = await fetch(rendered.url);
+                if (!response.ok) {
+                    throw new Error(`Failed to render DjVu page ${pageNumber}`);
                 }
-            });
-            if (!outputRef) {
-                await releaseImageExports(outputRefs);
-                return {
-                    success: false as const,
-                    canceled: true as const,
-                };
+                const pngBytes = new Uint8Array(await response.arrayBuffer());
+                return format === 'png'
+                    ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
+                    : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
+            } finally {
+                worker.revokeObjectURL(rendered.url);
             }
-            outputRefs.push(outputRef);
-            emitBrowserImageExportProgress(requestId, 'images', {
-                phase: 'rendering',
-                processed: index + 1,
-                total: targetPages.length,
-                percent: ((index + 1) / targetPages.length) * 100,
-            });
-        }
-        return {
-            success: true as const,
-            outputPaths: outputRefs,
-        };
-    } catch (error) {
-        await releaseImageExports(outputRefs);
-        throw error;
+        }, requestId);
     } finally {
         worker.terminate();
     }
@@ -911,86 +1115,27 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             if (sourceKind === 'djvu') {
                 return exportBrowserDjvuPagesAsImages(workingCopyPath, pageNumbers, requestId);
             }
-            const firstPageNumber = pageNumbers?.[0] ?? 1;
-            const firstSaveTarget = await pickSaveTarget({
-                suggestedName: buildBrowserImageExportFileName(firstPageNumber),
-                pickerTypes: buildImageExportPickerTypes(),
-            });
-            if (firstSaveTarget.canceled) {
-                return {
-                    success: false,
-                    canceled: true,
-                };
-            }
+            // An explicit selection knows its size, so its picker opens before
+            // the document loads; all pages need the page count first.
+            let destination = pageNumbers?.length
+                ? await chooseImageExportDestination(pageNumbers.length, pageNumbers[0]!)
+                : undefined;
+            if (destination === null) return CANCELED_IMAGE_EXPORT;
             const pdfDocument = await loadPdfDocument(workingCopyPath);
-            let targetPages: number[];
             try {
-                targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
-            } catch (error) {
-                await pdfDocument.destroy();
-                throw error;
-            }
-            const outputRefs: TDocumentRef[] = [];
-
-            if (targetPages.length === 0) {
-                await pdfDocument.destroy();
-                return {
-                    success: false,
-                    canceled: true,
-                };
-            }
-
-            try {
-                emitBrowserImageExportProgress(requestId, 'images', {
-                    phase: 'rendering',
-                    processed: 0,
-                    total: targetPages.length,
-                    percent: 0,
-                });
-                for (let index = 0; index < targetPages.length; index += 1) {
-                    const pageNumber = targetPages[index];
-                    if (pageNumber === undefined) {
-                        throw new Error('Missing image export page number');
-                    }
-                    const saveTarget = index === 0
-                        ? firstSaveTarget
-                        : await pickSaveTarget({
-                            suggestedName: buildBrowserImageExportFileName(pageNumber),
-                            pickerTypes: buildImageExportPickerTypes(),
-                        });
-                    const outputRef = saveTarget.canceled ? null : await saveImageExport(saveTarget, format => (
-                        renderPdfPageToImageBytes(pdfDocument.pdfDocument, pageNumber, format)
-                    ));
-                    if (!outputRef) {
-                        await releaseImageExports(outputRefs);
-                        return {
-                            success: false,
-                            canceled: true,
-                        };
-                    }
-                    outputRefs.push(outputRef);
-                    emitBrowserImageExportProgress(requestId, 'images', {
-                        phase: 'rendering',
-                        processed: index + 1,
-                        total: targetPages.length,
-                        percent: ((index + 1) / targetPages.length) * 100,
-                    });
-
-                    if (index % 2 === 1) {
-                        await yieldToBrowser();
-                    }
-                }
-            } catch (error) {
-                await releaseImageExports(outputRefs);
-                throw error;
+                const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
+                destination ??= targetPages.length ? await chooseImageExportDestination(targetPages.length, targetPages[0]!) : null;
+                if (!destination) return CANCELED_IMAGE_EXPORT;
+                return await writeBrowserImagePages(
+                    destination,
+                    'pdf',
+                    targetPages,
+                    (pageNumber, format) => renderPdfPageToImageBytes(pdfDocument.pdfDocument, pageNumber, format),
+                    requestId,
+                );
             } finally {
                 await pdfDocument.destroy();
             }
-
-            return {
-                success: true,
-                outputPaths: outputRefs,
-            };
         },
         async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId, sourceKind) {
             assertBrowserImageExportSource(workingCopyPath);

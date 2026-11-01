@@ -561,6 +561,118 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     }, 120_000);
 
+    // T3: a page export writes every selected page after one destination
+    // choice, as desktop does; it once asked for a file name for every page.
+    it('exports several pages into one chosen folder under desktop names, or as one ZIP download', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserBatchImageExportAcceptance') === 'function');
+            const runExport = (sourceKind: 'djvu' | 'pdf', pageCount: number, withDirectoryPicker: boolean) => page.evaluate<{
+                success: boolean;
+                outputCount: number | null;
+                prompts: {
+                    directory: number;
+                    save: number
+                };
+                files: Array<{
+                    name: string;
+                    head: number[];
+                    text: string | null
+                }>;
+            }, [string, number, boolean]>(
+                ([
+                    kind,
+                    count,
+                    directory,
+                ]) => Reflect.get(globalThis, '__evbRunBrowserBatchImageExportAcceptance')(kind, count, directory),
+                [
+                    sourceKind,
+                    pageCount,
+                    withDirectoryPicker,
+                ],
+            );
+
+            const pdf = await runExport('pdf', 5, true);
+            expect(pdf).toMatchObject({
+                success: true,
+                outputCount: 5,
+                prompts: {
+                    directory: 1,
+                    save: 0,
+                },
+            });
+            // The earlier export keeps its name and bytes; the new first page takes "-1".
+            expect(pdf.files.map(file => file.name)).toEqual([
+                'document-pages-001-1.jpg',
+                'document-pages-001.jpg',
+                'document-pages-002.jpg',
+                'document-pages-003.jpg',
+                'document-pages-004.jpg',
+                'document-pages-005.jpg',
+            ]);
+            expect(pdf.files.find(file => file.name === 'document-pages-001.jpg')?.text).toBe('earlier export');
+            expect(pdf.files.filter(file => file.name !== 'document-pages-001.jpg').every(file => file.head.join() === JPEG_SIGNATURE.join())).toBe(true);
+
+            const djvu = await runExport('djvu', 3, true);
+            expect(djvu).toMatchObject({
+                success: true,
+                outputCount: 3,
+                prompts: {
+                    directory: 1,
+                    save: 0,
+                },
+            });
+            expect(djvu.files.map(file => file.name)).toEqual([
+                'document-pages-001.jpg',
+                'document-pages-page-001.jpg',
+                'document-pages-page-002.jpg',
+                'document-pages-page-003.jpg',
+            ]);
+
+            const download = page.waitForEvent('download');
+            const zipped = await runExport('pdf', 4, false);
+            expect(zipped).toMatchObject({
+                success: true,
+                prompts: {
+                    directory: 0,
+                    save: 0,
+                },
+            });
+            expect((await download).suggestedFilename()).toBe('document-pages.zip');
+            const archive = await readFile((await (await download).path())!);
+            // Walk the STORED local entries the archive opens with.
+            const entries: Array<{
+                name: string;
+                head: number[]
+            }> = [];
+            for (let offset = 0; archive.readUInt32LE(offset) === 0x04034B50;) {
+                const size = archive.readUInt32LE(offset + 18);
+                const nameLength = archive.readUInt16LE(offset + 26);
+                const dataStart = offset + 30 + nameLength + archive.readUInt16LE(offset + 28);
+                entries.push({
+                    name: archive.toString('utf8', offset + 30, offset + 30 + nameLength),
+                    head: [...archive.subarray(dataStart, dataStart + 3)],
+                });
+                offset = dataStart + size;
+            }
+            expect(entries.map(entry => entry.name)).toEqual([
+                'document-pages-001.jpg',
+                'document-pages-002.jpg',
+                'document-pages-003.jpg',
+                'document-pages-004.jpg',
+            ]);
+            expect(entries.every(entry => entry.head.join() === JPEG_SIGNATURE.join())).toBe(true);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
     it('exposes DjVu PNG density before image data to header readers', async () => {
         const browser = await chromium.launch({headless: true});
         try {

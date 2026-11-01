@@ -493,3 +493,77 @@ async function runBrowserLargeMultiPageTiffExportAcceptance(sourceKind: 'djvu' |
 }
 
 Reflect.set(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance', runBrowserLargeMultiPageTiffExportAcceptance);
+
+// Exports pages 1..pageCount as images. With a folder picker the folder is an
+// OPFS directory holding one earlier export; without one the pages download.
+async function runBrowserBatchImageExportAcceptance(sourceKind: 'djvu' | 'pdf', pageCount: number, withDirectoryPicker: boolean) {
+    const sourcePath = sourceKind === 'djvu'
+        ? await stageDjvuFixture('/fixtures/browser-boundary-501-pages.djvu')
+        : await stagePdfFixture(pageCount);
+    const prompts = {
+        directory: 0,
+        save: 0,
+    };
+    Reflect.set(window, 'showSaveFilePicker', async () => {
+        prompts.save += 1;
+        throw new DOMException('Batch export must not ask for a file', 'AbortError');
+    });
+    let directory: FileSystemDirectoryHandle | null = null;
+    if (withDirectoryPicker) {
+        const root = await navigator.storage.getDirectory();
+        const folderName = `batch-${sourceKind}-${Date.now()}`;
+        directory = await root.getDirectoryHandle(folderName, {create: true});
+        const earlier = await (await directory.getFileHandle('document-pages-001.jpg', {create: true})).createWritable();
+        await earlier.write(new TextEncoder().encode('earlier export'));
+        await earlier.close();
+        Reflect.set(window, 'showDirectoryPicker', async (options: {mode?: string}) => {
+            prompts.directory += 1;
+            if (options.mode !== 'readwrite') throw new Error('Batch export must ask for a writable folder');
+            return directory;
+        });
+    } else {
+        Reflect.set(window, 'showSaveFilePicker', undefined);
+        Reflect.set(window, 'showDirectoryPicker', undefined);
+    }
+    try {
+        const result = await createBrowserImageExportCapability().exportPdfToImages(
+            sourcePath,
+            Array.from({length: pageCount}, (_, index) => requirePageNumber(index + 1)),
+            requireRequestId(`browser-batch-${sourceKind}-image-export`),
+            sourceKind,
+        );
+        const files: Array<{
+            name: string;
+            head: number[];
+            text: string | null
+        }> = [];
+        if (directory) {
+            // The DOM library here does not declare directory iteration.
+            const listEntries = Reflect.get(directory, 'entries') as () => AsyncIterable<[string, FileSystemHandle]>;
+            for await (const [
+                name,
+                entry,
+            ] of listEntries.call(directory)) {
+                if (entry.kind !== 'file') continue;
+                const bytes = new Uint8Array(await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer());
+                files.push({
+                    name,
+                    head: Array.from(bytes.slice(0, 3)),
+                    text: name === 'document-pages-001.jpg' ? new TextDecoder().decode(bytes) : null,
+                });
+            }
+            files.sort((left, right) => left.name.localeCompare(right.name));
+        }
+        return {
+            success: result.success,
+            outputCount: result.outputPaths?.length ?? null,
+            prompts,
+            files,
+        };
+    } finally {
+        Reflect.deleteProperty(window, 'showDirectoryPicker');
+        await browserDocumentStore.remove(sourcePath);
+    }
+}
+
+Reflect.set(globalThis, '__evbRunBrowserBatchImageExportAcceptance', runBrowserBatchImageExportAcceptance);
