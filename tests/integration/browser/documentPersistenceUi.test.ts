@@ -24,7 +24,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
+    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts, readRecoveries,
 } from './documentLifecycleTestHelpers';
 
 // A six-page portrait PDF whose pages read "<label> page <n>".
@@ -658,6 +658,174 @@ describe('browser document lifecycle UI', () => {
             rmSync(savedPath, {force: true});
         }
     }, 120_000);
+
+    // T2, T3, C4: publication followed by a bookkeeping failure keeps the work
+    // protected and reports what happened to the file, with a usable Save As.
+    it('keeps work protected when Save writes the PDF but open-document synchronization fails', async () => {
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            acceptDownloads: true,
+        });
+        const page = await context.newPage();
+        const note = 'This note was written before the IndexedDB failure';
+        try {
+            await openPdfFromChooser(page, {
+                name: 'save-sync-required.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await settleActiveOpen(page);
+            // Reuse this lane's cloneable picker fixture. Its handle methods
+            // wrap real OPFS files/streams without native-handle rehydration.
+            await page.evaluate(() => {
+                Object.defineProperties(File.prototype, {
+                    kind: {get: () => 'file'},
+                    getFile: {value: async function (this: File) {
+                        const root = await navigator.storage.getDirectory();
+                        const handle = await root.getFileHandle(this.name, {create: true});
+                        const file = await handle.getFile();
+                        return new File([await file.arrayBuffer()], file.name, {
+                            type: file.type,
+                            lastModified: file.lastModified,
+                        });
+                    }},
+                    createWritable: {value: async function (this: File) {
+                        const root = await navigator.storage.getDirectory();
+                        return (await root.getFileHandle(this.name, {create: true})).createWritable();
+                    }},
+                    isSameEntry: {value: async function (this: File, other: FileSystemHandle) {
+                        return this.name === other.name;
+                    }},
+                });
+                let picks = 0;
+                Reflect.set(window, 'showSaveFilePicker', async () => new File([], ++picks === 1
+                    ? 'save-sync-required.pdf' : 'save-sync-rescued.pdf'));
+            });
+            await addNote(page, note, {
+                x: 120,
+                y: 120,
+            });
+            await expect.poll(async () => (await readRecoveries(page, '/Text')).some(record => record.notes.has(note)), {timeout: 30_000}).toBe(true);
+            const recoveryBefore = (await readRecoveries(page, '/Text')).find(record => record.notes.has(note));
+            expect(recoveryBefore?.tab?.isDirty).toBe(true);
+            const sourceRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
+            });
+            expect(sourceRef).toBeTruthy();
+            // K-idb-after-write, narrowed to this opened source record. Working
+            // bytes, staging records and recovery writes remain available.
+            await page.evaluate((ref) => {
+                const put = IDBObjectStore.prototype.put;
+                Reflect.set(window, '__restoreSaveSyncPut', () => {IDBObjectStore.prototype.put = put;});
+                IDBObjectStore.prototype.put = function (value, ...args) {
+                    if (this.name === 'documents' && value?.ref === ref && value.storageMode === 'handle') {
+                        Reflect.set(window, '__saveSyncFaultRecord', value.ref);
+                        throw new DOMException('Injected document bookkeeping failure after publication', 'QuotaExceededError');
+                    }
+                    return put.call(this, value, ...args);
+                };
+            }, sourceRef);
+            const save = page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            });
+            await save.evaluate(button => button.addEventListener('click', event => {
+                Reflect.set(window, '__saveSyncTrustedClick', event.isTrusted);
+            }, {once: true}));
+            await save.click();
+            await expect.poll(() => save.getAttribute('aria-busy'), {timeout: 60_000}).toBe('false');
+            expect(await page.evaluate(() => Reflect.get(window, '__saveSyncTrustedClick'))).toBe(true);
+            expect(await page.evaluate(() => Reflect.get(window, '__saveSyncFaultRecord'))).toBe(sourceRef);
+            const readOutput = (name: string) => page.evaluate(async (fileName) => {
+                const root = await navigator.storage.getDirectory();
+                const handle = await root.getFileHandle(fileName);
+                return Array.from(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+            }, name);
+            const writtenBytes = Uint8Array.from(await readOutput('save-sync-required.pdf'));
+            writeFileSync(resolve(process.cwd(), '.devkit/browser-save-sync-required-written.pdf'), writtenBytes);
+            const written = await PDFDocument.load(writtenBytes);
+            expect(noteTexts(written, '/Text')).toContain(note);
+            const activeTab = page.locator('[data-tab-list] [role="tab"][aria-selected="true"]');
+            expect(await activeTab.getAttribute('aria-description')).toBe('Unsaved changes');
+            expect(await save.isEnabled()).toBe(true);
+            const recoveryAfter = (await readRecoveries(page, '/Text')).find(record => record.ownerId === recoveryBefore?.ownerId);
+            expect(recoveryAfter?.tab).toMatchObject({
+                isDirty: true,
+                workingCopyRef: recoveryBefore?.tab?.workingCopyRef,
+            });
+            expect(recoveryAfter?.notes).toContain(note);
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-save-sync-required.png')});
+            const failures = page.locator('.app-toast-failure');
+            expect(await failures.count()).toBe(1);
+            const text = await failures.innerText();
+            expect(text).toContain('Could not update the open document after Save');
+            expect(text).toContain('Your changes were written to the PDF. Any newer unsaved edits remain open here.');
+            expect(text).toContain('Error ID:');
+            expect(text).not.toContain('The PDF writer could not apply your changes');
+            expect(text).not.toContain('The file could not be written');
+            expect(await failures.getByRole('button', {
+                name: 'Copy details',
+                exact: true,
+            }).isVisible()).toBe(true);
+            expect(await failures.getByRole('button', {name: /^Save As/u}).isVisible()).toBe(true);
+
+            await page.getByRole('button', {
+                name: 'Close Tab',
+                exact: true,
+            }).click();
+            const closeDialog = page.getByRole('dialog', {name: 'Close tab with unsaved changes?'});
+            await closeDialog.waitFor({state: 'visible'});
+            await closeDialog.getByRole('button', {
+                name: 'Cancel',
+                exact: true,
+            }).click();
+            expect(await activeTab.getAttribute('aria-description')).toBe('Unsaved changes');
+            await page.evaluate(() => {
+                const restore = Reflect.get(window, '__restoreSaveSyncPut') as (() => void);
+                restore();
+            });
+            // A trusted Save As through the toolbar stays available after the
+            // failure toast, and must carry the accepted note to another file.
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            await expect.poll(async () => (await readOutput('save-sync-rescued.pdf').catch(() => [])).length, {timeout: 30_000}).toBeGreaterThan(0);
+            const rescuedBytes = Uint8Array.from(await readOutput('save-sync-rescued.pdf'));
+            writeFileSync(resolve(process.cwd(), '.devkit/browser-save-sync-required-rescued.pdf'), rescuedBytes);
+            expect(noteTexts(await PDFDocument.load(rescuedBytes), '/Text')).toContain(note);
+            await expect.poll(async () => [
+                await page.locator('.save-split-primary').first().getAttribute('aria-busy'),
+                await page.locator('.save-split-primary').first().isDisabled(),
+            ], {timeout: 60_000}).toEqual([
+                'false',
+                true,
+            ]);
+            expect(await activeTab.getAttribute('aria-description')).toBeNull();
+            await expect.poll(() => readRecoveries(page), {timeout: 30_000}).toEqual([]);
+            await page.getByRole('button', {
+                name: 'Close Tab',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').filter({hasText: '.pdf'}).count()).toBe(0);
+            expect(await page.getByRole('dialog', {name: 'Close tab with unsaved changes?'}).count()).toBe(0);
+        } finally {
+            try {
+                await page.evaluate(() => {
+                    const restore = Reflect.get(window, '__restoreSaveSyncPut') as (() => void) | undefined;
+                    restore?.();
+                });
+            } finally {
+                await context.close();
+            }
+        }
+    }, 180_000);
 
     // T3: Save publishes a page edit to the original unsigned form; a populated
     // signature requires Save As and leaves the original file untouched.
