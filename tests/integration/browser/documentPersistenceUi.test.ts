@@ -1382,7 +1382,10 @@ describe('browser document lifecycle UI', () => {
     // R4: with "Reopen documents where I left off" on, a Recent PDF reopens at
     // the page, zoom and view rotation it was closed at, also after a Save; a
     // file of the same name and page count with other bytes opens at its start.
-    it('reopens a Recent PDF where the reader left it, and other bytes of that name at their start', async () => {
+    it.each([
+        'download',
+        'file-handle',
+    ] as const)('reopens a Recent PDF where the reader left it, and other bytes of that name at their start (%s)', async (saveMode) => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1_280,
             height: 900,
@@ -1393,12 +1396,38 @@ describe('browser document lifecycle UI', () => {
         const settle = () => settleActiveOpen(page);
         const openFile = (label: string) => openReadingBook(page, label, 'reading-view.pdf');
         try {
-            await page.addInitScript(() => {
+            await page.addInitScript((mode) => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-                // Save downloads, as where the browser has no file access.
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-            });
+                if (mode === 'download') {
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    return;
+                }
+                // A File is a structured-cloneable picker-handle fixture. Its
+                // prototype methods survive an IndexedDB round trip and reload,
+                // and the actual bytes and writes live in a real OPFS file.
+                // Chromium 153 traps when deserializing native OPFS handles.
+                Object.defineProperties(File.prototype, {
+                    kind: {get: () => 'file'},
+                    getFile: {value: async function (this: File) {
+                        const root = await navigator.storage.getDirectory();
+                        const handle = await root.getFileHandle(this.name, {create: true});
+                        const file = await handle.getFile();
+                        return new File([await file.arrayBuffer()], file.name, {
+                            type: file.type,
+                            lastModified: file.lastModified,
+                        });
+                    }},
+                    createWritable: {value: async function (this: File) {
+                        const root = await navigator.storage.getDirectory();
+                        return (await root.getFileHandle(this.name, {create: true})).createWritable();
+                    }},
+                    isSameEntry: {value: async function (this: File, other: FileSystemHandle) {
+                        return this.name === other.name;
+                    }},
+                });
+                Reflect.set(window, 'showSaveFilePicker', async () => new File([], 'reading-view.pdf'));
+            }, saveMode);
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
@@ -1445,9 +1474,11 @@ describe('browser document lifecycle UI', () => {
             }).click();
             // The button's name is its tooltip, which changes once nothing is left to save.
             const save = page.locator('.save-split-primary').first();
-            const download = page.waitForEvent('download');
+            const download = saveMode === 'download' ? page.waitForEvent('download') : null;
             await save.click();
-            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(new Set(['Saved where I left off']));
+            if (download) {
+                expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(new Set(['Saved where I left off']));
+            }
             await expect.poll(async () => [
                 await save.getAttribute('aria-busy'),
                 await save.isDisabled(),
@@ -1455,13 +1486,21 @@ describe('browser document lifecycle UI', () => {
                 'false',
                 true,
             ]);
+            if (saveMode === 'file-handle') {
+                const bytes = await page.evaluate(async () => {
+                    const root = await navigator.storage.getDirectory();
+                    const handle = await root.getFileHandle('reading-view.pdf');
+                    return Array.from(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+                });
+                expect(noteTexts(await PDFDocument.load(Uint8Array.from(bytes)))).toEqual(new Set(['Saved where I left off']));
+            }
             await expect.poll(readView, {timeout: 15_000}).toMatchObject({
                 indicator: '4',
                 visibleText: 'Reading page 4',
                 landscape: true,
             });
             const left = await readView();
-            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-left.png')});
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-recent-reading-view-${saveMode}-left.png`)});
             // A reload leaves nothing of the closed view but what Recent stored.
             // Close remembers the view before its tab goes, so the reload waits for that.
             const closeAndReload = async () => {
@@ -1479,7 +1518,7 @@ describe('browser document lifecycle UI', () => {
 
             await reopenFromRecent('reading-view.pdf');
             await expect.poll(readView, {timeout: 15_000}).toEqual(left);
-            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-restored.png')});
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-recent-reading-view-${saveMode}-restored.png`)});
             await closeAndReload();
 
             await openFile('Changed');
@@ -1487,7 +1526,7 @@ describe('browser document lifecycle UI', () => {
                 ...opened,
                 visibleText: 'Changed page 1',
             });
-            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-recent-reading-view-changed-bytes.png')});
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-recent-reading-view-${saveMode}-changed-bytes.png`)});
             expect(problems).toEqual([]);
         } finally {
             await context.close();
