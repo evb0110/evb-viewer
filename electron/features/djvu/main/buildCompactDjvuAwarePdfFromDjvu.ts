@@ -46,6 +46,7 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
+import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -977,11 +978,11 @@ async function buildPhotoPageSpec(
         throw new Error(result.error ?? `Failed to render compact photo page ${pageNumber}`);
     }
 
-    const photoStats = await readNetpbmStats(photoPath);
+    // Only the rendered size is needed; its header has it, without a native probe per page.
     const pageSize = resolvePageSizePoints(
         options.pageSizes?.[pageNumber - 1] ?? null,
         options.sourceDpi,
-        photoStats,
+        await readPpmDimensions(photoPath),
         renderOptions.subsample ?? DJVU_NATIVE_LAYER_DEFAULT_SUBSAMPLE,
         structure,
     );
