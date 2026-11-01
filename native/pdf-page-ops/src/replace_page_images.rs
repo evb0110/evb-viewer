@@ -22,9 +22,12 @@ const MAX_STREAM_GRAPH_DEPTH: usize = 64;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReplacePageImagesFile {
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) pages: Vec<ReplacePageImagesPage>,
+pub(crate) struct ReplacePageImagesFile<R = PathBuf> {
+    #[serde(
+        deserialize_with = "deserialize_collection",
+        bound(deserialize = "R: Deserialize<'de>")
+    )]
+    pub(crate) pages: Vec<ReplacePageImagesPage<R>>,
     /// A replacement is used only when its bytes are at most this fraction of
     /// the bytes the page's own content and images take.
     pub(crate) max_byte_ratio: f64,
@@ -32,10 +35,12 @@ pub(crate) struct ReplacePageImagesFile {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReplacePageImagesPage {
+pub(crate) struct ReplacePageImagesPage<R> {
     /// One-based page number in the input.
     pub(crate) page_number: u32,
-    pub(crate) replacement: PathBuf,
+    /// The replacement PDF: its path on desktop, its index among the
+    /// request's attached PDFs in the browser.
+    pub(crate) replacement: R,
     /// One-based page number in `replacement`.
     pub(crate) replacement_page_number: u32,
 }
@@ -53,8 +58,12 @@ pub(crate) enum ReplacePageOutcome {
 }
 
 pub(crate) fn read_replace_page_images_file(path: &Path) -> Result<ReplacePageImagesFile> {
-    let instructions: ReplacePageImagesFile =
-        read_json_sidecar(path, "replace-page-images instructions")?;
+    validate_replace_page_images(read_json_sidecar(path, "replace-page-images instructions")?)
+}
+
+fn validate_replace_page_images<R>(
+    instructions: ReplacePageImagesFile<R>,
+) -> Result<ReplacePageImagesFile<R>> {
     if !(instructions.max_byte_ratio > 0.0 && instructions.max_byte_ratio <= 1.0) {
         return Err("replace-page-images maxByteRatio must be in (0, 1]".into());
     }
@@ -70,8 +79,8 @@ pub(crate) fn read_replace_page_images_file(path: &Path) -> Result<ReplacePageIm
     Ok(instructions)
 }
 
-struct LoadedReplacement {
-    path: PathBuf,
+struct LoadedReplacement<R> {
+    key: R,
     document: Document,
     resolver: PageTreeResolver,
     copied: HashMap<ObjectId, ObjectId>,
@@ -85,25 +94,88 @@ pub(crate) fn write_replace_page_images_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let structural = StructuralSource::for_path(input_path, qpdf_path);
+    let report = replace_page_images_in(&mut incremental, structural, instructions, |path| {
+        load_pdf_path(path)
+    })?;
+    if report.changed {
+        let revision_bytes = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+            write_incremental_revision(
+                staged_output_path,
+                &incremental,
+                &revision_bytes,
+                &expected_object_ids,
+            )
+        })?;
+    }
+    serde_json::to_writer(std::io::stdout().lock(), &report.json)?;
+    Ok(())
+}
+
+/// The browser's `replacePageImages`: the revision
+/// `write_replace_page_images_path` appends, empty when no page was replaced,
+/// and the report it prints. Instructions name replacement PDFs by their index
+/// in `replacements`.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn replace_page_images_bytes(
+    data: &[u8],
+    instructions: &[u8],
+    replacements: &[&[u8]],
+) -> Result<ReportedBytes> {
+    let instructions: ReplacePageImagesFile<usize> = validate_replace_page_images(
+        parse_json_sidecar_bytes(instructions, "replace-page-images instructions")?,
+    )?;
+    if instructions
+        .pages
+        .iter()
+        .any(|page| page.replacement >= replacements.len())
+    {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "replace-page-images names a replacement PDF the request does not carry",
+        ));
+    }
+    let mut incremental = incremental_from_bytes(data)?;
+    let report = replace_page_images_in(&mut incremental, None, &instructions, |&index| {
+        load_pdf_bytes(replacements[index])
+    })?;
+    Ok(ReportedBytes {
+        page_count: page_count(&incremental.previous_document),
+        data: if report.changed {
+            appended_revision_bytes(&mut incremental)?
+        } else {
+            Vec::new()
+        },
+        report: serde_json::to_vec(&report.json)?,
+    })
+}
+
+fn replace_page_images_in<R: Clone + PartialEq>(
+    incremental: &mut IncrementalDocument,
+    structural: Option<StructuralSource<'_>>,
+    instructions: &ReplacePageImagesFile<R>,
+    mut load_replacement: impl FnMut(&R) -> Result<Document>,
+) -> Result<PassReport> {
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    let structural = StructuralSource::for_path(input_path, qpdf_path);
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
-    let mut replacement: Option<LoadedReplacement> = None;
+    let mut replacement: Option<LoadedReplacement<R>> = None;
     let mut reports = Vec::with_capacity(instructions.pages.len());
     let mut replaced = false;
     for page in &instructions.pages {
         if replacement
             .as_ref()
-            .is_none_or(|loaded| loaded.path != page.replacement)
+            .is_none_or(|loaded| loaded.key != page.replacement)
         {
-            let document = load_pdf_path(&page.replacement).map_err(|error| {
+            let document = load_replacement(&page.replacement).map_err(|error| {
                 classify_pdf_load_error(error, "Failed to parse replacement PDF")
             })?;
             replacement = Some(LoadedReplacement {
-                path: page.replacement.clone(),
+                key: page.replacement.clone(),
                 resolver: PageTreeResolver::new(&document)?,
                 document,
                 copied: HashMap::new(),
@@ -117,7 +189,7 @@ pub(crate) fn write_replace_page_images_path(
             .resolver
             .page_id(&loaded.document, page.replacement_page_number)?;
         let (outcome, source_bytes, replacement_bytes) = replace_page_images(
-            &mut incremental,
+            incremental,
             structural,
             page_id,
             loaded,
@@ -133,25 +205,14 @@ pub(crate) fn write_replace_page_images_path(
 
     if replaced {
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
-        let revision_bytes = build_incremental_revision(&mut incremental)?;
-        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
-            write_incremental_revision(
-                staged_output_path,
-                &incremental,
-                &revision_bytes,
-                &expected_object_ids,
-            )
-        })?;
     }
-    serde_json::to_writer(
-        std::io::stdout().lock(),
-        &serde_json::json!({
+    Ok(PassReport {
+        json: serde_json::json!({
             "format": "evb-pdf-replace-page-images",
             "pages": reports,
         }),
-    )?;
-    Ok(())
+        changed: replaced,
+    })
 }
 
 /// Encoded bytes of a stream as stored in the file. A structural load keeps
@@ -367,7 +428,7 @@ fn replace_page_images(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,
     page_id: ObjectId,
-    replacement: &mut LoadedReplacement,
+    replacement: &mut LoadedReplacement<impl Sized>,
     replacement_page_id: ObjectId,
     max_byte_ratio: f64,
 ) -> Result<(ReplacePageOutcome, u64, u64)> {

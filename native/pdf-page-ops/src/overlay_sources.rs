@@ -12,7 +12,10 @@ pub(crate) const MAX_SOURCE_PAGE_BATCH_PAGES: usize = 64;
 const QPDF_SOURCE_EXTRACTION_TIMEOUT: Duration = Duration::from_secs(110);
 
 pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
-    let instructions: TextLayerFile = read_json_sidecar(path, "text-layer instructions")?;
+    validate_text_layer(read_json_sidecar(path, "text-layer instructions")?)
+}
+
+fn validate_text_layer(instructions: TextLayerFile) -> Result<TextLayerFile> {
     if instructions.pages.is_empty() {
         return Err("overlay-text requires at least one page instruction".into());
     }
@@ -623,6 +626,57 @@ fn write_overlay_source_batch_with_split(
             ))
         }
     }
+}
+
+/// The browser's `overlayText`: what `write_overlay_text_layers_path` writes
+/// when both documents are below the byte budget. The text layers are copied
+/// in a full rewrite, then retained destinations, the source catalog and the
+/// provenance stamp are appended over it as one revision.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn overlay_text_bytes(
+    data: &[u8],
+    source_data: &[u8],
+    instructions: &[u8],
+) -> Result<ReportedBytes> {
+    let instructions = validate_text_layer(parse_json_sidecar_bytes(
+        instructions,
+        "text-layer instructions",
+    )?)?;
+    let mut target = load_pdf_bytes(data)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    assert_plaintext_base(
+        &target,
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
+    let source = load_pdf_bytes(source_data)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse source PDF structure"))?;
+    assert_plaintext_base(
+        &source,
+        "Encrypted source PDFs are not supported by native page ops",
+    )?;
+    overlay_text_layers(&mut target, &source, &instructions)?;
+    let mut output = save_document_to_bytes(&mut target)?;
+    drop(target);
+    let mut incremental = incremental_from_bytes(&output)?;
+    let rebind = crate::split_navigation::rebind_retained_destinations_in(
+        &mut incremental,
+        source,
+        &instructions,
+    )?;
+    if rebind.appends_revision {
+        let revision = appended_revision_bytes(&mut incremental)?;
+        output
+            .try_reserve_exact(revision.len())
+            .map_err(|_| crate::wasm_abi::page_op_output_limit())?;
+        output.extend_from_slice(&revision);
+    }
+    Ok(ReportedBytes {
+        page_count: page_count(&incremental.previous_document),
+        data: output,
+        report: crate::split_pages::scan_cleanup_page_ops_report(
+            rebind.accessibility_tags_removed,
+        )?,
+    })
 }
 
 pub(crate) fn write_overlay_text_layers_path(

@@ -46,8 +46,10 @@ enum ImageOutcome {
 }
 
 pub(crate) fn read_recompress_images_file(path: &Path) -> Result<RecompressImagesFile> {
-    let instructions: RecompressImagesFile =
-        read_json_sidecar(path, "recompress-images instructions")?;
+    validate_recompress_images(read_json_sidecar(path, "recompress-images instructions")?)
+}
+
+fn validate_recompress_images(instructions: RecompressImagesFile) -> Result<RecompressImagesFile> {
     if !(instructions.max_byte_ratio > 0.0 && instructions.max_byte_ratio <= 1.0) {
         return Err("recompress-images maxByteRatio must be in (0, 1]".into());
     }
@@ -426,15 +428,64 @@ pub(crate) fn write_recompress_images_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let structural = StructuralSource::for_path(input_path, qpdf_path);
+    let report = recompress_images_in(&mut incremental, structural, instructions)?;
+    if report.changed {
+        let revision_bytes = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+            write_incremental_revision(
+                staged_output_path,
+                &incremental,
+                &revision_bytes,
+                &expected_object_ids,
+            )
+        })?;
+    }
+    serde_json::to_writer(std::io::stdout().lock(), &report.json)?;
+    Ok(())
+}
+
+/// The browser's `recompressImages`: the revision `write_recompress_images_path`
+/// appends, empty when no image got smaller, and the report it prints.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn recompress_images_bytes(data: &[u8], instructions: &[u8]) -> Result<ReportedBytes> {
+    let instructions = validate_recompress_images(parse_json_sidecar_bytes(
+        instructions,
+        "recompress-images instructions",
+    )?)?;
+    let mut incremental = incremental_from_bytes(data)?;
+    let report = recompress_images_in(&mut incremental, None, &instructions)?;
+    Ok(ReportedBytes {
+        page_count: page_count(&incremental.previous_document),
+        data: if report.changed {
+            appended_revision_bytes(&mut incremental)?
+        } else {
+            Vec::new()
+        },
+        report: serde_json::to_vec(&report.json)?,
+    })
+}
+
+/// A pass's JSON report and whether it left anything to append.
+pub(crate) struct PassReport {
+    pub(crate) json: serde_json::Value,
+    pub(crate) changed: bool,
+}
+
+fn recompress_images_in(
+    incremental: &mut IncrementalDocument,
+    structural: Option<StructuralSource<'_>>,
+    instructions: &RecompressImagesFile,
+) -> Result<PassReport> {
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    let structural = StructuralSource::for_path(input_path, qpdf_path);
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
     let skipped: HashSet<u32> = instructions.skip_pages.iter().copied().collect();
     let mut walk = ImageWalk {
-        incremental: &incremental,
+        incremental: &*incremental,
         structural,
         target_dpi: instructions.target_dpi,
         uses: HashMap::new(),
@@ -457,7 +508,7 @@ pub(crate) fn write_recompress_images_path(
     let mut pages = BTreeSet::new();
     for (id, usage) in uses {
         let (outcome, source_bytes, new_bytes) =
-            recompress_image(&mut incremental, structural, id, &usage, instructions)?;
+            recompress_image(incremental, structural, id, &usage, instructions)?;
         if outcome == ImageOutcome::Recompressed {
             pages.extend(usage.pages.iter().copied());
         }
@@ -467,28 +518,18 @@ pub(crate) fn write_recompress_images_path(
         }));
     }
 
-    if !pages.is_empty() {
+    let changed = !pages.is_empty();
+    if changed {
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
-        let revision_bytes = build_incremental_revision(&mut incremental)?;
-        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
-            write_incremental_revision(
-                staged_output_path,
-                &incremental,
-                &revision_bytes,
-                &expected_object_ids,
-            )
-        })?;
     }
-    serde_json::to_writer(
-        std::io::stdout().lock(),
-        &serde_json::json!({
+    Ok(PassReport {
+        json: serde_json::json!({
             "format": "evb-pdf-recompress-images",
             "images": reports,
             "pages": pages,
         }),
-    )?;
-    Ok(())
+        changed,
+    })
 }
 
 fn recompress_image(

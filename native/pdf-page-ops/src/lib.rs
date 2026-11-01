@@ -89,6 +89,21 @@ fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -
     })
 }
 
+/// The byte-input twin of `read_json_sidecar`: the browser carries each
+/// sidecar in its request, under the same ceiling and error class.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn parse_json_sidecar_bytes<T: DeserializeOwned>(bytes: &[u8], label: &str) -> Result<T> {
+    if bytes.len() > MAX_SIDECAR_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("{label} exceed the byte admission ceiling"),
+        ));
+    }
+    Ok(evb_native_support::bounded_io::deserialize_json_slice(
+        bytes, label,
+    )?)
+}
+
 pub(crate) use annotation_identity::*;
 pub(crate) use annotation_index::*;
 pub(crate) use annotation_parse::*;

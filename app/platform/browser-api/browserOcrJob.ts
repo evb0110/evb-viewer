@@ -21,7 +21,7 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {OCR_TEXT_LAYER_HEADER} from '@contracts/browserPageOpsWasm.generated';
+import {INSTRUCTED_REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,
@@ -220,7 +220,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     const {size} = await browserDocumentStore.stat(input.sourceRef);
     // Reject an impossible source before OCR. The worker accounts for page PDFs
     // and instructions once recognition has produced their actual bytes.
-    const maxInputBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - OCR_TEXT_LAYER_HEADER.bytes;
+    const maxInputBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - INSTRUCTED_REQUEST_HEADER.bytes;
     if (size > maxInputBytes) {
         throw new BrowserOcrJobError('OCR_DOCUMENT_TOO_LARGE', 'The source PDF exceeds the PDF writer request budget');
     }

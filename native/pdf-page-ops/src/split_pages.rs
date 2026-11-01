@@ -4,7 +4,10 @@ use lopdf::dictionary;
 use std::path::Path;
 
 pub(crate) fn read_split_pages_file(path: &Path) -> Result<SplitPagesFile> {
-    let instructions: SplitPagesFile = read_json_sidecar(path, "split-pages instructions")?;
+    validate_split_pages(read_json_sidecar(path, "split-pages instructions")?)
+}
+
+fn validate_split_pages(instructions: SplitPagesFile) -> Result<SplitPagesFile> {
     if instructions.pages.is_empty() {
         return Err("split-pages requires at least one source-page instruction".into());
     }
@@ -330,11 +333,9 @@ fn collect_content_streams_from_base(
     Ok(())
 }
 
-pub(crate) fn split_pages(
-    mut source: Document,
-    instructions: &SplitPagesFile,
-    output_path: &Path,
-) -> Result<()> {
+/// The full rewrite both the path wrapper below the byte budget and the
+/// browser write: the new page tree, with what it no longer reaches pruned.
+fn split_pages_document(mut source: Document, instructions: &SplitPagesFile) -> Result<Document> {
     let mut document = Document::with_version(source.version.clone());
     document.max_id = source.max_id;
     document.trailer = source.trailer.clone();
@@ -343,10 +344,59 @@ pub(crate) fn split_pages(
         document.objects.entry(id).or_insert(object);
     }
     document.prune_objects();
+    Ok(document)
+}
+
+pub(crate) fn split_pages(
+    source: Document,
+    instructions: &SplitPagesFile,
+    output_path: &Path,
+) -> Result<()> {
+    let mut document = split_pages_document(source, instructions)?;
     let mut output = AtomicOutput::create(output_path)?;
     document.save_to(output.file_mut()?)?;
     output.publish_if_unchanged()?;
     Ok(())
+}
+
+/// The browser's `splitPages`: the rewrite `write_split_pages_path` writes for
+/// a document below the byte budget. The CLI announces dropped structure tags
+/// on stdout; the browser reads the same fact from the report.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn split_pages_bytes(data: &[u8], instructions: &[u8]) -> Result<ReportedBytes> {
+    let instructions = validate_split_pages(parse_json_sidecar_bytes(
+        instructions,
+        "split-pages instructions",
+    )?)?;
+    let source = load_pdf_bytes(data)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    assert_plaintext_base(
+        &source,
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
+    let has_tags = |document: &Document| {
+        document
+            .catalog()
+            .is_ok_and(|catalog| catalog.has(b"StructTreeRoot"))
+    };
+    let source_tagged = matches!(instructions.catalog, SplitCatalog::Source) && has_tags(&source);
+    let mut document = split_pages_document(source, &instructions)?;
+    let accessibility_tags_removed = source_tagged && !has_tags(&document);
+    Ok(ReportedBytes {
+        page_count: page_count(&document),
+        data: save_document_to_bytes(&mut document)?,
+        report: scan_cleanup_page_ops_report(accessibility_tags_removed)?,
+    })
+}
+
+/// What `split-pages` and `overlay-text` print: `{}` or the dropped tags.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn scan_cleanup_page_ops_report(accessibility_tags_removed: bool) -> Result<Vec<u8>> {
+    Ok(serde_json::to_vec(&if accessibility_tags_removed {
+        serde_json::json!({"accessibilityTagsRemoved": true})
+    } else {
+        serde_json::json!({})
+    })?)
 }
 
 /// Split a path-backed PDF by appending a new page tree. Existing page and

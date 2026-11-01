@@ -136,6 +136,24 @@ async function handleMergePagesRequest(
     return mergePdfPages(request.payload.documents);
 }
 
+const WASM_WRITER_REQUEST_TYPES = [
+    'textBoxAppearance',
+    'saveMutations',
+    'decrypt',
+    'printLayout',
+    'ocrTextLayer',
+    'splitPages',
+    'overlayText',
+    'recompressImages',
+    'replacePageImages',
+] as const;
+type TWasmWriterRequestType = typeof WASM_WRITER_REQUEST_TYPES[number];
+
+/** Writers whose result carries bytes or a typed failure from the engine. */
+function isWasmWriterRequest(request: TBrowserPageOpsWorkerRequest): request is Extract<TBrowserPageOpsWorkerRequest, {type: TWasmWriterRequestType}> {
+    return (WASM_WRITER_REQUEST_TYPES as readonly string[]).includes(request.type);
+}
+
 async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
@@ -146,6 +164,10 @@ async function handleRequest(
         case 'printLayout':
         case 'ocrTextLayer':
         case 'ocrTextVisibility':
+        case 'splitPages':
+        case 'overlayText':
+        case 'recompressImages':
+        case 'replacePageImages':
             return tryRunBrowserPageOpsWithWasm(request.type, request.payload);
         case 'deletePages':
             return handleDeleteRequest(request);
@@ -200,7 +222,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             self.postMessage(response);
             return;
         }
-        if (request.type === 'textBoxAppearance' || request.type === 'saveMutations' || request.type === 'decrypt' || request.type === 'printLayout' || request.type === 'ocrTextLayer') {
+        if (isWasmWriterRequest(request)) {
             const response = {
                 id: request.id,
                 type: request.type,
@@ -210,7 +232,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             if (isBrowserPageOpsWasmFailure(data)) {
                 self.postMessage(response);
             } else {
-                const result = data as Exclude<IBrowserPageOpsWorkerResultMap['textBoxAppearance' | 'saveMutations' | 'decrypt' | 'printLayout' | 'ocrTextLayer'], {status: 'failed'}>;
+                const result = data as Exclude<IBrowserPageOpsWorkerResultMap[TWasmWriterRequestType], {status: 'failed'}>;
                 const transferableData = toTransferableUint8Array(result.data);
                 self.postMessage({
                     ...response,

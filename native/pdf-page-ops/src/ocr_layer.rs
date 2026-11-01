@@ -593,22 +593,6 @@ pub(crate) fn ocr_text_visibility_bytes(
     Ok(serde_json::to_vec(&report)?)
 }
 
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-fn incremental_from_bytes(data: &[u8]) -> Result<IncrementalDocument> {
-    if data.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Page-op WASM input exceeds the input admission ceiling",
-        ));
-    }
-    Ok(IncrementalDocument::from_document(
-        load_pdf_bytes(data)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?,
-        u64::try_from(data.len())?,
-        data.last().copied(),
-    ))
-}
-
 fn inspect_ocr_text_visibility(
     incremental: &mut IncrementalDocument,
     structural: Option<StructuralSource<'_>>,
@@ -764,17 +748,8 @@ pub(crate) fn ocr_text_layer_increment_bytes(
     instructions: &[u8],
     page_pdfs: &[&[u8]],
 ) -> Result<OcrTextLayerIncrement> {
-    if instructions.len() > MAX_SIDECAR_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "OCR text-layer instructions exceed the byte admission ceiling",
-        ));
-    }
     let instructions: OcrTextLayerFile<usize> =
-        evb_native_support::bounded_io::deserialize_json_slice(
-            instructions,
-            "OCR text-layer instructions",
-        )?;
+        parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
     validate_ocr_text_layer(&instructions)?;
     let mut incremental = incremental_from_bytes(data)?;
     let page_count = u32::try_from(incremental.previous_document.get_pages().len())
@@ -791,15 +766,8 @@ pub(crate) fn ocr_text_layer_increment_bytes(
         }
         checked_ocr_source(load_pdf_bytes(bytes))
     })?;
-    let revision = build_incremental_revision(&mut incremental)?;
-    validate_incremental_append_bytes(
-        &revision,
-        u64::try_from(data.len())?,
-        incremental.get_prev_documents().xref_start,
-        &collect_incremental_append_object_ids(&incremental),
-    )?;
     Ok(OcrTextLayerIncrement {
-        data: revision,
+        data: appended_revision_bytes(&mut incremental)?,
         page_count,
     })
 }

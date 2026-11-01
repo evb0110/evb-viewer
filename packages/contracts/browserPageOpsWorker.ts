@@ -23,6 +23,15 @@ import {
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
 import {PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA} from '@contracts/pdfOcrTextVisibility';
+import {
+    OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
+    RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA,
+    RECOMPRESS_IMAGES_REPORT_SCHEMA,
+    REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
+    REPLACE_PAGE_IMAGES_REPORT_SCHEMA,
+    SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA,
+    SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
+} from '@contracts/browserPageOpsWriters';
 import * as v from 'valibot';
 
 const workerRequestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -158,6 +167,25 @@ const workerRequestPayloadSchemas = {
         instructions: OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA,
         pagePdfs: v.pipe(v.array(pdfBytesSchema), v.minLength(1)),
     }),
+    splitPages: v.object({
+        data: pdfBytesSchema,
+        instructions: SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
+    }),
+    // `data` is the staged output; `sourceData` the document its text comes from.
+    overlayText: v.object({
+        data: pdfBytesSchema,
+        sourceData: pdfBytesSchema,
+        instructions: OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
+    }),
+    recompressImages: v.object({
+        data: pdfBytesSchema,
+        instructions: RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA,
+    }),
+    replacePageImages: v.object({
+        data: pdfBytesSchema,
+        instructions: REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
+        replacementPdfs: v.array(pdfBytesSchema),
+    }),
 };
 
 const workerRequestSchema = v.union([
@@ -251,6 +279,26 @@ const workerRequestSchema = v.union([
         type: v.literal('ocrTextLayer'),
         payload: workerRequestPayloadSchemas.ocrTextLayer,
     }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('splitPages'),
+        payload: workerRequestPayloadSchemas.splitPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('overlayText'),
+        payload: workerRequestPayloadSchemas.overlayText,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('recompressImages'),
+        payload: workerRequestPayloadSchemas.recompressImages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('replacePageImages'),
+        payload: workerRequestPayloadSchemas.replacePageImages,
+    }),
 ]);
 
 const pageMutationResultSchema = v.object({
@@ -258,6 +306,17 @@ const pageMutationResultSchema = v.object({
     pageCount: v.pipe(v.number(), v.check((value: number) => Number.isInteger(value)), v.minValue(1)),
 });
 const annotationParseResultSchema = v.object({data: pdfBytesSchema});
+// The whole rewritten PDF and the report its CLI command prints.
+const reportedPdfResultSchema = v.object({
+    ...pageMutationResultSchema.entries,
+    report: SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA,
+});
+// `data` is the revision the writer appends to the request's document, empty
+// when the pass changed nothing; `report` is what its CLI command prints.
+const reportedIncrementResultSchema = <TReport extends v.GenericSchema>(report: TReport) => v.object({
+    ...pageMutationResultSchema.entries,
+    report,
+});
 const conformanceFactsSchema = v.object({
     isSigned: v.boolean(),
     isEncrypted: v.boolean(),
@@ -337,6 +396,22 @@ const workerResultSchemas = {
     // `data` is the revision the writer appends to the request's document.
     ocrTextLayer: v.union([
         pageMutationResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    splitPages: v.union([
+        reportedPdfResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    overlayText: v.union([
+        reportedPdfResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    recompressImages: v.union([
+        reportedIncrementResultSchema(RECOMPRESS_IMAGES_REPORT_SCHEMA),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    replacePageImages: v.union([
+        reportedIncrementResultSchema(REPLACE_PAGE_IMAGES_REPORT_SCHEMA),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
 };
@@ -449,6 +524,30 @@ const workerSuccessResponseSchema = v.union([
         type: v.literal('ocrTextLayer'),
         ok: v.literal(true),
         data: workerResultSchemas.ocrTextLayer,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('splitPages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.splitPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('overlayText'),
+        ok: v.literal(true),
+        data: workerResultSchemas.overlayText,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('recompressImages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.recompressImages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('replacePageImages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.replacePageImages,
     }),
 ]);
 

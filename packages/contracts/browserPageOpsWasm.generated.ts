@@ -6,8 +6,8 @@ export const REQUEST_MAGIC = 'EPPO';
 export const REQUEST_VERSION = 2;
 export const REQUEST_VERSION_DOCUMENT_LIST = 3;
 export const REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE = 4;
-export const REQUEST_VERSION_OCR_TEXT_LAYER = 5;
-export const MAX_OCR_PAGE_PDFS = 100000;
+export const REQUEST_VERSION_INSTRUCTED = 5;
+export const MAX_ATTACHED_PDFS = 100000;
 export const U32_BYTES = 4;
 export const F64_BYTES = 8;
 export const MAX_DOCUMENTS = 500;
@@ -18,6 +18,8 @@ export const RESPONSE_NATIVE_MUTATIONS = 4;
 export const RESPONSE_JSON = 5;
 export const RESPONSE_TEXT_BOX_APPEARANCE = 6;
 export const RESPONSE_INCREMENT = 7;
+export const RESPONSE_REPORTED_PDF = 8;
+export const RESPONSE_REPORTED_INCREMENT = 9;
 export const NATIVE_MUTATION_POSTCONDITIONS_VERIFIED = 1;
 export const MAX_U32 = 4294967295;
 
@@ -40,6 +42,10 @@ export const OPERATION_CODES = {
     textBoxAppearance: 16,
     ocrTextVisibility: 17,
     ocrTextLayer: 18,
+    splitPages: 19,
+    overlayText: 20,
+    recompressImages: 21,
+    replacePageImages: 22,
 } as const;
 
 export const REQUEST_HEADER = {
@@ -68,13 +74,13 @@ export const DOCUMENT_LIST_HEADER = {
     bytes: 16,
 } as const;
 
-export const OCR_TEXT_LAYER_HEADER = {
+export const INSTRUCTED_REQUEST_HEADER = {
     magic: 0,
     version: 4,
     operation: 8,
     dataLength: 12,
     instructionsLength: 16,
-    pagePdfCount: 20,
+    attachmentCount: 20,
     bytes: 24,
 } as const;
 
@@ -106,6 +112,14 @@ export const BYTES_HEADER = {
     kind: 0,
     dataLength: 4,
     bytes: 8,
+} as const;
+
+export const REPORTED_HEADER = {
+    kind: 0,
+    pageCount: 4,
+    dataLength: 8,
+    reportLength: 12,
+    bytes: 16,
 } as const;
 
 export const TEXT_BOX_APPEARANCE_HEADER = {

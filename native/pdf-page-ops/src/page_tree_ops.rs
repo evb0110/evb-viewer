@@ -76,6 +76,44 @@ pub(crate) fn load_browser_pdf(data: &[u8]) -> Result<Document> {
     Ok(document)
 }
 
+/// Bytes a writer returns (a whole PDF or an appended revision) with the JSON
+/// report its CLI command prints on success.
+pub(crate) struct ReportedBytes {
+    pub(crate) data: Vec<u8>,
+    pub(crate) page_count: u32,
+    pub(crate) report: Vec<u8>,
+}
+
+/// A browser document as the base of an appended revision. Path wrappers load
+/// the same eager document below the byte-input budget.
+pub(crate) fn incremental_from_bytes(data: &[u8]) -> Result<IncrementalDocument> {
+    if data.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM input exceeds the input admission ceiling",
+        ));
+    }
+    Ok(IncrementalDocument::from_document(
+        load_pdf_bytes(data)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?,
+        u64::try_from(data.len())?,
+        data.last().copied(),
+    ))
+}
+
+/// The revision a path wrapper appends to its staged copy, checked the same
+/// way before the browser publishes the base bytes followed by it.
+pub(crate) fn appended_revision_bytes(incremental: &mut IncrementalDocument) -> Result<Vec<u8>> {
+    let revision = build_incremental_revision(incremental)?;
+    validate_incremental_append_bytes(
+        &revision,
+        incremental.previous_len(),
+        incremental.get_prev_documents().xref_start,
+        &collect_incremental_append_object_ids(incremental),
+    )?;
+    Ok(revision)
+}
+
 /// Decrypts an encrypted browser PDF into plaintext bytes.
 ///
 /// Returns the decrypted rewrite in the mutation frame with its actual page count,
