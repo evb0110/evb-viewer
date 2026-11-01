@@ -24,8 +24,15 @@ export function keepMovedFocus(event: Event) {
 export function keepMenuFocusWhenItemsChange(isOpen: () => boolean, items: () => unknown, panelSelector: string) {
     watch(items, async () => {
         await nextTick();
-        if (isOpen() && document.activeElement === document.body) {
-            document.querySelector<HTMLElement>(panelSelector)?.focus();
+        // A submenu opens its own panel of the same kind, portalled apart from the root.
+        const panels = [...document.querySelectorAll<HTMLElement>(panelSelector)];
+        const focused = document.activeElement;
+        // Focus is still on an entry of this menu that just became disabled, or lost already.
+        const owner = focused instanceof HTMLElement && focused.matches(':disabled')
+            ? panels.find(panel => panel.contains(focused))
+            : undefined;
+        if (isOpen() && (owner || focused === document.body)) {
+            (owner ?? panels.at(-1))?.focus();
         }
     }, {flush: 'post'});
 }
