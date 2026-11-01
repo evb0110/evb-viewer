@@ -155,27 +155,24 @@ export function drawDjvuImageDataScaled(
         }
         for (let y = 0; y < imageData.height; y += DJVU_TILE_EDGE) {
             for (let x = 0; x < imageData.width; x += DJVU_TILE_EDGE) {
-                const sourceX = Math.max(0, x - DJVU_TILE_OVERLAP);
-                const sourceY = Math.max(0, y - DJVU_TILE_OVERLAP);
-                const sourceWidth = Math.min(imageData.width, x + DJVU_TILE_EDGE + DJVU_TILE_OVERLAP) - sourceX;
-                const sourceHeight = Math.min(imageData.height, y + DJVU_TILE_EDGE + DJVU_TILE_OVERLAP) - sourceY;
-                // The tile holds exactly its source pixels, overlap included, so
-                // resampling reads real pixels or the page edge, never an empty
-                // margin. Each tile paints only its interior, on whole target
-                // pixels, so neighbouring tiles neither leave a seam nor stack.
+                // Each tile paints only its interior, on whole target pixels, so
+                // neighbouring tiles neither leave a seam nor stack. Its source
+                // covers that clip plus the overlap, and the tile holds exactly
+                // those pixels, so resampling never reads an empty margin.
+                const left = Math.round(x * scaleX);
+                const top = Math.round(y * scaleY);
+                const right = Math.round(Math.min(imageData.width, x + DJVU_TILE_EDGE) * scaleX);
+                const bottom = Math.round(Math.min(imageData.height, y + DJVU_TILE_EDGE) * scaleY);
+                const sourceX = Math.max(0, Math.floor(left / scaleX) - DJVU_TILE_OVERLAP);
+                const sourceY = Math.max(0, Math.floor(top / scaleY) - DJVU_TILE_OVERLAP);
+                const sourceWidth = Math.min(imageData.width, Math.ceil(right / scaleX) + DJVU_TILE_OVERLAP) - sourceX;
+                const sourceHeight = Math.min(imageData.height, Math.ceil(bottom / scaleY) + DJVU_TILE_OVERLAP) - sourceY;
                 tile.width = sourceWidth;
                 tile.height = sourceHeight;
                 tileContext.putImageData(imageData, -sourceX, -sourceY, sourceX, sourceY, sourceWidth, sourceHeight);
-                const left = Math.round(x * scaleX);
-                const top = Math.round(y * scaleY);
                 context.save();
                 context.beginPath();
-                context.rect(
-                    left,
-                    top,
-                    Math.round(Math.min(imageData.width, x + DJVU_TILE_EDGE) * scaleX) - left,
-                    Math.round(Math.min(imageData.height, y + DJVU_TILE_EDGE) * scaleY) - top,
-                );
+                context.rect(left, top, right - left, bottom - top);
                 context.clip();
                 context.drawImage(tile, sourceX * scaleX, sourceY * scaleY, sourceWidth * scaleX, sourceHeight * scaleY);
                 context.restore();
