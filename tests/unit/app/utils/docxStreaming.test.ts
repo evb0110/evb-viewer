@@ -7,40 +7,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import {createDocxFromTextAsync} from '@app/utils/createDocxFromTextAsync';
 import {
     createDocxFromTextChunks,
     DOCUMENT_XML_PREFIX,
     DOCX_STREAM_CHUNK_BYTES,
     resolveDocxParagraphDirection,
 } from '@app/utils/docxStreaming';
-
-describe('createDocxFromTextAsync', () => {
-    it('builds a DOCX package while checking the caller signal', async () => {
-        const controller = new AbortController();
-        const output = await createDocxFromTextAsync('catalog text', false, controller.signal);
-
-        expect(output.byteLength).toBeGreaterThan(0);
-        expect(new TextDecoder().decode(output.slice(0, 2))).toBe('PK');
-    });
-
-    it('preserves mixed paragraph direction in the async builder', async () => {
-        const output = await createDocxFromTextAsync('אבג 123\nLatin 456\n123');
-        const xml = new TextDecoder().decode(output);
-
-        expect(xml).toContain('<w:p><w:pPr><w:bidi/></w:pPr>');
-        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">Latin 456');
-        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">123');
-    });
-
-    it('rejects before building when its signal is already canceled', async () => {
-        const controller = new AbortController();
-        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
-
-        await expect(createDocxFromTextAsync('catalog text', false, controller.signal))
-            .rejects.toMatchObject({name: 'AbortError'});
-    });
-});
 
 async function collectDocxBytes(pages: Parameters<typeof createDocxFromTextChunks>[0]) {
     const chunks: Uint8Array[] = [];

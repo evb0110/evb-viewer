@@ -1,3 +1,4 @@
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import {
     reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
@@ -233,10 +234,14 @@ export function createBrowserDocumentsCapability(
         writeFile: fileCapability.writeFile,
         replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
         writeDocxFile: fileCapability.writeDocxFile,
+        beginDocxFileStream: fileCapability.beginDocxFileStream,
+        writeDocxFileStreamChunk: fileCapability.writeDocxFileStreamChunk,
+        commitDocxFileStream: fileCapability.commitDocxFileStream,
+        cancelDocxFileStream: fileCapability.cancelDocxFileStream,
         saveFileStructured: fileCapability.saveFileStructured,
         savePdfData: fileCapability.savePdfData,
         ...optionalDocumentFileMethods,
-    } satisfies IDocumentsFileIoCapability;
+    } satisfies IDocumentsFileIoCapability & IDocxExportFileCapability;
     const documentPdf = {
         analyzePdfConformance: fileCapability.analyzePdfConformance,
         validatePdfPath: fileCapability.validatePdfPath,

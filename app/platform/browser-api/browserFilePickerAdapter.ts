@@ -530,6 +530,95 @@ export async function downloadBrowserDocument(ref: TDocumentRef, fileName: strin
     downloadBlob(new Blob(parts, { type: mimeType }), fileName);
 }
 
+export interface IBrowserOutputSink {
+    write(chunk: Uint8Array): Promise<void>;
+    close(): Promise<void>;
+    abort(): Promise<void>;
+}
+
+/**
+ * Opens one output file for streamed bytes. With a handle the bytes go to the
+ * file a chunk at a time. Without one they are staged as chunks of the store
+ * record `stagingRef` and downloaded as one file on close, so neither path
+ * holds the whole output in memory.
+ */
+export async function openBrowserOutputSink(
+    target: {
+        fileName: string;
+        handle: FileSystemFileHandle | null
+    },
+    options: {
+        mimeType: string;
+        stagingRef: TDocumentRef;
+        signal?: AbortSignal
+    },
+): Promise<IBrowserOutputSink> {
+    const {signal} = options;
+    throwIfAborted(signal);
+    const {handle} = target;
+    if (handle) {
+        await ensureFileHandleWritePermission(handle, signal);
+        throwIfAborted(signal);
+        const writable = await runBrowserFileHandlePhase(
+            'opening file for writing',
+            BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
+            () => handle.createWritable(),
+        );
+        let bytesWritten = 0;
+        return {
+            async write(chunk) {
+                try {
+                    await writeBrowserFileChunks(writable, chunk, signal);
+                    bytesWritten += chunk.byteLength;
+                } catch (error) {
+                    await abortAfterBrowserFileWriteError(writable, error);
+                }
+            },
+            close: () => closeBrowserFileWritable(writable, bytesWritten),
+            abort: async () => {
+                await abortBrowserFileWritable(writable);
+            },
+        };
+    }
+
+    const {stagingRef} = options;
+    await browserDocumentStore.prepareChunkedDocument(stagingRef);
+    let buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+    let filled = 0;
+    let chunkCount = 0;
+    let fileSize = 0;
+    const flush = async () => {
+        await browserDocumentStore.writeChunk(stagingRef, chunkCount, buffer.subarray(0, filled));
+        chunkCount += 1;
+        fileSize += filled;
+        filled = 0;
+        buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+    };
+    return {
+        async write(chunk) {
+            for (let offset = 0; offset < chunk.byteLength;) {
+                throwIfAborted(signal);
+                const length = Math.min(chunk.byteLength - offset, buffer.byteLength - filled);
+                buffer.set(chunk.subarray(offset, offset + length), filled);
+                filled += length;
+                offset += length;
+                if (filled === buffer.byteLength) await flush();
+            }
+        },
+        async close() {
+            throwIfAborted(signal);
+            if (filled > 0) await flush();
+            await browserDocumentStore.finalizeChunkedDocument(stagingRef, {
+                fileSize,
+                chunkCount,
+                chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
+            });
+            await downloadBrowserDocument(stagingRef, target.fileName, options.mimeType);
+        },
+        abort: () => browserDocumentStore.clearChunkedDocument(stagingRef),
+    };
+}
+
 async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,

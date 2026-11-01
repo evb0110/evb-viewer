@@ -1,7 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { createDocxFromTextAsync } from '@app/utils/createDocxFromTextAsync';
 import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
@@ -44,7 +43,6 @@ export const useDocxExport = () => {
                 pdfDocument: params.pdfDocument,
                 signal: abortController.signal,
                 hasRtl,
-                buildDocx: createDocxFromTextAsync,
                 buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,

@@ -9,7 +9,12 @@ import {
     type IPdfPageLabelRange,
 } from '@contracts/pdfPageLabels';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import type { IRecentFile } from '@contracts/shared';
+import {
+    createSessionId,
+    type IRecentFile,
+    type TSessionId,
+} from '@contracts/shared';
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
@@ -42,6 +47,7 @@ import {
     validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
+    openBrowserOutputSink,
     type IPickedBrowserFile,
     pickFiles,
     pickFolderFiles,
@@ -49,6 +55,7 @@ import {
     pickSingleFile,
     saveBytesToPickerOrDownload,
     writeBytesToHandle,
+    type IBrowserOutputSink,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import {
     assertBrowserWorkingCopyDecrypted,
@@ -110,7 +117,8 @@ interface ICreateBrowserDocumentsFileCapabilityOptions {
         folderEmpty?: () => string;
     };
 }
-type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
+type TCanonicalDocumentsFileCapability = IDocumentsFileCapability & IDocxExportFileCapability;
+const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
     return {
@@ -122,9 +130,16 @@ function createCanceledSaveValidationResult(validation: IPdfValidationResult): I
 
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
-): IDocumentsFileCapability {
+): TCanonicalDocumentsFileCapability {
     const { clearSearchCaches } = options;
     const browserNativeMutationLeases = new Map<string, IBrowserNativeMutationLease>();
+    const docxStreams = new Map<TSessionId, IBrowserOutputSink>();
+
+    function requireDocxStream(sessionId: TSessionId) {
+        const sink = docxStreams.get(sessionId);
+        if (!sink) throw new Error('Unknown DOCX stream session');
+        return sink;
+    }
     const browserUseNativeAppMessageProvider = options.errorMessageProvider?.useNativeApp
         ?? (() => 'Use the native app for files this large.');
     const folderEmptyMessageProvider = options.errorMessageProvider?.folderEmpty
@@ -579,6 +594,38 @@ export function createBrowserDocumentsFileCapability(
             }
             await clearSearchCaches();
             return validation;
+        },
+        // Streams a DOCX into the file chosen for `path`, or, without a file
+        // handle, into `path`'s own record and then a download.
+        async beginDocxFileStream(path) {
+            const saveTarget = await browserDocumentStore.getSaveTarget(path);
+            const sink = await openBrowserOutputSink({
+                fileName: ensureDocxExtension(saveTarget.saveName),
+                handle: saveTarget.saveHandle,
+            }, {
+                mimeType: DOCX_MIME_TYPE,
+                stagingRef: path,
+            });
+            const sessionId = createSessionId('browser-docx');
+            docxStreams.set(sessionId, sink);
+            return {sessionId};
+        },
+        async writeDocxFileStreamChunk(sessionId, chunk) {
+            await requireDocxStream(sessionId).write(chunk);
+            return true;
+        },
+        async commitDocxFileStream(sessionId) {
+            const sink = requireDocxStream(sessionId);
+            docxStreams.delete(sessionId);
+            await sink.close();
+            return true;
+        },
+        async cancelDocxFileStream(sessionId) {
+            const sink = docxStreams.get(sessionId);
+            if (!sink) return false;
+            docxStreams.delete(sessionId);
+            await sink.abort();
+            return true;
         },
         async writeDocxFile(path, data, signal) {
             try {

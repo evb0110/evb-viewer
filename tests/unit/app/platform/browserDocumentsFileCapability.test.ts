@@ -30,6 +30,8 @@ import {
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
+import type {IDocxExportFileCapability} from '@contracts/docxExport';
+
 // The download fallback refused files above this size before downloads were assembled from chunks.
 const FORMER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -250,7 +252,7 @@ interface ILoadedBrowserDocumentsFileCapability {
     BROWSER_DOCUMENT_CHUNK_SIZE: number;
     BROWSER_MAX_FULL_READ_BYTES: number;
     browserDocumentStore: BrowserDocumentStore;
-    capability: IDocumentsFileCapability;
+    capability: IDocumentsFileCapability & IDocxExportFileCapability;
 }
 
 async function loadCreateCombinedPdfFromPaths() {
@@ -1984,6 +1986,69 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(originalWrittenBytes).toEqual(originalBytes);
         expect(saveAsWrittenBytes).toEqual(originalBytes);
         expect(originalCreateWritable).toHaveBeenCalledOnce();
+    });
+
+    it('streams a DOCX above the former 16 MiB browser limit into one download without a file handle', async () => {
+        const downloads: Blob[] = [];
+        class DownloadURL extends URL {}
+        Object.defineProperties(DownloadURL, {
+            createObjectURL: {value: (blob: Blob) => {
+                downloads.push(blob);
+                return 'blob:docx-download';
+            }},
+            revokeObjectURL: {value: () => {}},
+        });
+        vi.stubGlobal('URL', DownloadURL);
+        const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
+        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
+        if (!outputPath) throw new Error('Expected browser DOCX output path');
+        const hash = createHash('sha256');
+        const {sessionId} = await capability.beginDocxFileStream(outputPath);
+        // Seventeen 1 MiB chunks of distinct bytes, sized like the desktop transport's chunks.
+        for (let index = 0; index < 17; index += 1) {
+            const chunk = new Uint8Array(1024 * 1024).fill(index + 1);
+            hash.update(chunk);
+            await expect(capability.writeDocxFileStreamChunk(sessionId, chunk)).resolves.toBe(true);
+        }
+        await expect(capability.commitDocxFileStream(sessionId)).resolves.toBe(true);
+
+        expect(downloads).toHaveLength(1);
+        expect(downloads[0]!.type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        expect(createHash('sha256').update(new Uint8Array(await downloads[0]!.arrayBuffer())).digest('hex')).toBe(hash.digest('hex'));
+    });
+
+    it('writes a streamed DOCX through its file handle and leaves no download', async () => {
+        const createObjectURL = vi.fn(() => 'blob:unexpected');
+        class TestURL extends URL {}
+        Object.defineProperties(TestURL, {
+            createObjectURL: {value: createObjectURL},
+            revokeObjectURL: {value: () => {}},
+        });
+        vi.stubGlobal('URL', TestURL);
+        const written: Uint8Array[] = [];
+        const handle = createFileSystemFileHandle({
+            name: 'export.docx',
+            createWritable: async () => createFileSystemWritableFileStream({write: async (chunk) => {
+                written.push(new Uint8Array(requireArrayBufferChunk(chunk)));
+            }}),
+        });
+        const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
+        if (!outputPath) throw new Error('Expected browser DOCX output path');
+        const {sessionId} = await capability.beginDocxFileStream(outputPath);
+        await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
+        await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(5, 6));
+        await capability.commitDocxFileStream(sessionId);
+
+        expect(Buffer.concat(written)).toEqual(Buffer.from([
+            80,
+            75,
+            3,
+            4,
+            5,
+            6,
+        ]));
+        expect(createObjectURL).not.toHaveBeenCalled();
     });
 
     it('does not download or retain a DOCX output when its writer is already canceled', async () => {
