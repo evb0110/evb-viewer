@@ -839,6 +839,7 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
     let request: Uint8Array<ArrayBuffer> | null = null;
     let passwordOffset = 0;
     let passwordLength = 0;
+    let trapped = false;
 
     try {
         const builtRequest = buildWasmRequest({
@@ -881,6 +882,15 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
         return parseWasmOutput(type, copyWasmBytes(exports, outputPointer, outputLen))
             ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
     } catch (error) {
+        if (error instanceof Error && error.name === 'RuntimeError') {
+            // Rust panics unwind into an error envelope; a trap is an abort,
+            // which on wasm32 is an allocation the 4 GiB address space could
+            // not satisfy. The aborted request's memory is never freed, so the
+            // next request loads a fresh engine.
+            trapped = true;
+            wasmExportsPromise = null;
+            return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
+        }
         return createWasmFailure(
             'invalid-request',
             error instanceof Error ? getErrorMessage(error) : 'Page operation WASM request failed',
@@ -900,7 +910,7 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
                     ).fill(0, passwordOffset, passwordOffset + passwordLength);
                 }
             } finally {
-                exports.evb_pdf_page_ops_free(pointer, requestByteLength);
+                if (!trapped) exports.evb_pdf_page_ops_free(pointer, requestByteLength);
             }
         }
     }

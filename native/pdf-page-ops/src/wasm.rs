@@ -18,7 +18,7 @@ use crate::{
     ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
     rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
     NativeMutationBytesResult, PageGeometry, PageMutationBytes, PdfRect, Result,
-    PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    PAGE_OP_WASM_MAX_BUFFER_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
@@ -26,7 +26,7 @@ use crate::wasm_abi::*;
 const MAX_DOCUMENT_LIST_PAGES: usize = 500;
 const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
 const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
-const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
+const MAX_REQUEST_BYTES: usize = PAGE_OP_WASM_MAX_BUFFER_BYTES;
 const DEFAULT_WASM_MUTATION_MODIFIED_AT: &str = "D:19700101000000Z";
 
 thread_local! {
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn evb_pdf_page_ops_run(
     }
     let request = slice::from_raw_parts(request_pointer, request_len);
     match std::panic::catch_unwind(|| run_request(request)) {
-        Ok(Ok(output)) if output.len() <= PAGE_OP_WASM_MAX_OUTPUT_BYTES => {
+        Ok(Ok(output)) if output.len() <= PAGE_OP_WASM_MAX_BUFFER_BYTES => {
             LAST_OUTPUT.with(|slot| {
                 *slot.borrow_mut() = output;
             });
@@ -208,7 +208,7 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             let bytes = serialize_annotation_parse(
                 &document,
                 "D:19700101000000Z",
-                PAGE_OP_WASM_MAX_OUTPUT_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
+                PAGE_OP_WASM_MAX_BUFFER_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
             )?;
             encode_bytes(RESPONSE_ANNOTATION_PARSE, bytes)
         }
@@ -280,7 +280,7 @@ fn run_instructed_request(parsed: ParsedInstructedRequest<'_>) -> Result<Vec<u8>
                     data: increment.data,
                     page_count: increment.page_count,
                 },
-                PAGE_OP_WASM_MAX_OUTPUT_BYTES,
+                PAGE_OP_WASM_MAX_BUFFER_BYTES,
             )
         }
         OP_SPLIT_PAGES => encode_reported(
@@ -624,7 +624,7 @@ fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<
     let framed_len = NATIVE_MUTATION_RESPONSE_HEADER_BYTES
         .checked_add(payload_len)
         .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+    if framed_len > PAGE_OP_WASM_MAX_BUFFER_BYTES {
         return Err(page_op_output_limit());
     }
     let mut output = result.data;
@@ -653,7 +653,7 @@ fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<
 }
 
 fn encode_mutation(result: PageMutationBytes) -> Result<Vec<u8>> {
-    encode_mutation_with_limit(result, PAGE_OP_WASM_MAX_OUTPUT_BYTES)
+    encode_mutation_with_limit(result, PAGE_OP_WASM_MAX_BUFFER_BYTES)
 }
 
 fn mutation_frame_len(data_len: usize, max_output_bytes: usize) -> Result<usize> {
@@ -705,7 +705,7 @@ fn encode_reported(kind: u32, result: crate::ReportedBytes) -> Result<Vec<u8>> {
         .bytes
         .checked_add(result.data.len())
         .and_then(|length| length.checked_add(result.report.len()))
-        .filter(|length| *length <= PAGE_OP_WASM_MAX_OUTPUT_BYTES)
+        .filter(|length| *length <= PAGE_OP_WASM_MAX_BUFFER_BYTES)
         .ok_or_else(page_op_output_limit)?;
     let mut output = Vec::new();
     output

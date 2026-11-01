@@ -1,7 +1,7 @@
 //! EPPO binary frame definitions, shared by the Rust codec and generated TS.
 //! The worker-message envelope is a separate contract.
 
-use crate::{CropMargins, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES};
+use crate::{CropMargins, Result};
 use evb_native_support::NativeErrorCode;
 
 pub(crate) const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
@@ -68,6 +68,11 @@ abi! {
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
         MAX_DOCUMENTS: usize = 500;
+        // The largest single wasm32 Rust allocation (isize::MAX there): one
+        // request or one framed response. The 4 GiB address space must also
+        // hold the parsed document and scratch, so a request near this
+        // ceiling fails as an allocation failure rather than at a policy.
+        MAX_BUFFER_BYTES: usize = 0x7fff_ffff;
         RESPONSE_MUTATION: u32 = 1;
         RESPONSE_GEOMETRY: u32 = 2;
         RESPONSE_ANNOTATION_PARSE: u32 = 3;
@@ -458,7 +463,7 @@ pub(crate) fn encode_bytes(kind: u32, bytes: Vec<u8>) -> Result<Vec<u8>> {
         .bytes
         .checked_add(bytes.len())
         .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+    if framed_len > MAX_BUFFER_BYTES {
         return Err(page_op_output_limit());
     }
     let mut output = Vec::with_capacity(framed_len);

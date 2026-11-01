@@ -216,9 +216,18 @@ pub(crate) fn load_pdf_bytes_bounded(bytes: &[u8], password: Option<&str>) -> Re
     load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
 }
 
+/// The browser engine has no structural route for large files: each request
+/// loads its input eagerly from one request buffer. Admit what that buffer can
+/// carry, and the pages desktop admits through its path loads.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+const BROWSER_PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+    max_encoded_bytes: PAGE_OP_WASM_MAX_BUFFER_BYTES,
+    ..PDF_PATH_LOAD_POLICY
+};
+
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
-    load_pdf_bytes_with_policy(bytes, PDF_LOAD_POLICY)
+    load_pdf_bytes_with_policy(bytes, BROWSER_PDF_LOAD_POLICY)
 }
 
 /// Loads raw PDF bytes with an optional decryption password for encrypted inputs.
@@ -303,7 +312,7 @@ pub(crate) fn load_pdf_bytes_with_password(
     bytes: &[u8],
     password: Option<&str>,
 ) -> Result<Document> {
-    load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
+    load_pdf_bytes_with_policy_and_password(bytes, BROWSER_PDF_LOAD_POLICY, password)
 }
 
 pub(crate) fn load_incremental_pdf_path(

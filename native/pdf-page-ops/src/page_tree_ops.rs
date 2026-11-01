@@ -87,7 +87,7 @@ pub(crate) struct ReportedBytes {
 /// A browser document as the base of an appended revision. Path wrappers load
 /// the same eager document below the byte-input budget.
 pub(crate) fn incremental_from_bytes(data: &[u8]) -> Result<IncrementalDocument> {
-    if data.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
+    if data.len() > PAGE_OP_WASM_MAX_BUFFER_BYTES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Page-op WASM input exceeds the input admission ceiling",
@@ -149,7 +149,7 @@ pub(crate) fn decrypt_browser_pdf_bytes(data: &[u8], password: &[u8]) -> Result<
 pub(crate) fn save_document_to_bytes(document: &mut Document) -> Result<Vec<u8>> {
     save_document_to_bytes_with_limit(
         document,
-        PAGE_OP_WASM_MAX_OUTPUT_BYTES - PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+        PAGE_OP_WASM_MAX_BUFFER_BYTES - PAGE_OP_WASM_MUTATION_HEADER_BYTES,
     )
 }
 

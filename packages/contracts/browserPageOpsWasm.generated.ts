@@ -11,6 +11,7 @@ export const MAX_ATTACHED_PDFS = 100000;
 export const U32_BYTES = 4;
 export const F64_BYTES = 8;
 export const MAX_DOCUMENTS = 500;
+export const MAX_BUFFER_BYTES = 2147483647;
 export const RESPONSE_MUTATION = 1;
 export const RESPONSE_GEOMETRY = 2;
 export const RESPONSE_ANNOTATION_PARSE = 3;

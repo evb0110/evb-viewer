@@ -216,9 +216,9 @@ describe('browser document lifecycle UI', () => {
         }, 90_000);
     });
 
-    // C2/C4: opening a valid document has no size gate or console failure;
+    // C2/C4/T6: opening and annotation editing have no unnecessary size gate;
     // a refused open explains its cause on screen and leaves the next open usable.
-    it('opens large PDFs through the chooser and Recent Files and explains invalid input', async () => {
+    it('opens large PDFs through the chooser and Recent Files, keeps annotation editing available and explains invalid input', async () => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1280,
             height: 900,
@@ -348,7 +348,12 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('menuitem', {name: /^Open File/u}).click();
             await (await largeChooser).setFiles(largePath);
             await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' '), {timeout: 30000}).toContain('A billion bytes can be viewed');
-            await page.getByText('Existing annotation editing is unavailable', {exact: true}).waitFor();
+            await settleActiveOpen(page);
+            expect(await page.getByText('Existing annotation editing is unavailable', {exact: true}).count()).toBe(0);
+            expect(await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).isEnabled()).toBe(true);
             expect(problems).toEqual([]);
 
             phase = 'invalid PDF';
