@@ -12,16 +12,18 @@ import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTermin
 import type {
     IOcrDiagnostic, IOcrSearchablePdfOptions,
 } from '@contracts/electronApiOcr';
-import type { INativeScanCleanupOptionsV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
+import {
+    createOcrScanCleanupOptions,
+    readOcrScanCleanupGeometry,
+    type TOcrScanCleanupMode,
+} from '@contracts/scan-cleanup/ocrPreprocessing';
 
 export interface IOcrPreprocessedImage {
     path: string;
     inverseTransform?: IScanCleanupPreviewAffine;
 }
-
-export type TOcrPreprocessingMode = 'clean' | 'polarity-only';
 
 /**
  * Render, cleanup and recognition children run sequentially under one page
@@ -48,56 +50,6 @@ export async function estimateOcrPageResidentBytes(
     return 32 * 1024 * 1024 + Math.max(recognitionBytes, preprocessingBytes);
 }
 
-/**
- * OCR reads the pixels the cleanup engine produces, so anything left unset here
- * would be answered by the engine's own defaults — the same defaults viewer
- * binarization and layout tuning keeps moving. Pinning every pixel-affecting
- * option keeps recognition results reproducible: OCR input can then only change
- * when this object changes, which is an OCR decision rather than a side effect
- * of a viewer-facing one. The values reproduce the defaults the OCR path
- * inherited implicitly, so pinning them changes no pixel today.
- *
- * `ocrMode` restates what the `--ocr-mode` flag already forces on, and
- * `sourceDpi`/`requestedRenderDpi` are supplied per call because the engine
- * otherwise derives both from `dpi`.
- */
-const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
-    INativeScanCleanupOptionsV3,
-    'dpi' | 'sourceDpi' | 'requestedRenderDpi'
-> = {
-    sourceHasBilevelLayer: false,
-    binarization: 'auto',
-    thickness: 0,
-    normalizeIllumination: true,
-    despeckle: true,
-    despeckleLevel: 'normal',
-    outputMode: 'bw',
-    ocrMode: true,
-    layout: 'auto',
-    manualSplit: null,
-    manualContentBoxes: {},
-    manualZones: {
-        picture: [],
-        fill: [],
-    },
-    cropContent: true,
-    matchPageSize: true,
-    pageAlignment: 'top-center',
-    placementOverrides: {},
-    margins: {
-        leftMm: 5,
-        topMm: 5,
-        rightMm: 5,
-        bottomMm: 5,
-    },
-    experimental: {autoDewarp: false},
-    rotationDegrees: 0,
-    excluded: false,
-    skipBlankPages: false,
-    maxPixels: 160_000_000,
-    maxDimensionPx: 40_000,
-};
-
 const OCR_PREPROCESS_TIMEOUT_MS = 30_000;
 function createOptionalPreprocessingLog(log: TWorkerLog): TWorkerLog {
     return (level, message) => {
@@ -113,20 +65,6 @@ async function isNonEmptyFile(path: string) {
     }
 }
 
-function isInvertibleAffine(affine: IScanCleanupPreviewAffine | null | undefined) {
-    if (affine === undefined || affine === null) {
-        return true;
-    }
-    const matrix = affine.matrix;
-    if (matrix.length !== 3 || matrix.some(row => row.length !== 3 || row.some(value => !Number.isFinite(value)))) {
-        return false;
-    }
-    const determinant = matrix[0]![0]! * (matrix[1]![1]! * matrix[2]![2]! - matrix[1]![2]! * matrix[2]![1]!)
-        - matrix[0]![1]! * (matrix[1]![0]! * matrix[2]![2]! - matrix[1]![2]! * matrix[2]![0]!)
-        + matrix[0]![2]! * (matrix[1]![0]! * matrix[2]![1]! - matrix[1]![1]! * matrix[2]![0]!);
-    return Number.isFinite(determinant) && Math.abs(determinant) > Number.EPSILON;
-}
-
 async function readNativePreprocessResult(
     outputPath: string,
     metadataPath: string,
@@ -135,16 +73,9 @@ async function readNativePreprocessResult(
 ): Promise<IOcrPreprocessedImage | null> {
     try {
         const metadata = decodeNativeScanCleanupOutputMetadataJson(await readFile(metadataPath, 'utf8'));
-        const inverseTransform = metadata.inverseTransform ?? undefined;
-        if (metadata.skewApplied && inverseTransform === undefined) {
-            throw new Error('native preprocessing applied deskew without inverse transform metadata');
-        }
-        if (!isInvertibleAffine(inverseTransform)) {
-            throw new Error('native preprocessing inverse transform is singular or non-finite');
-        }
         return {
             path: outputPath,
-            ...(inverseTransform === undefined ? {} : {inverseTransform}),
+            ...readOcrScanCleanupGeometry(metadata),
         };
     } catch (error) {
         const message = `OCR preprocessing metadata is unusable; using raw page render: ${getErrorMessage(error)}`;
@@ -167,28 +98,11 @@ export async function tryPreprocessOcrImage(
     scanCleanupBinary?: string,
     metadataPath = `${outputPath}.json`,
     dpi = 300,
-    mode: TOcrPreprocessingMode = 'clean',
+    mode: TOcrScanCleanupMode = 'clean',
     grantedCpuTokens?: number,
 ): Promise<IOcrPreprocessedImage> {
     if (scanCleanupBinary) {
         try {
-            const options = mode === 'polarity-only'
-                ? {
-                    ...OCR_PREPROCESS_PINNED_OPTIONS,
-                    normalizeIllumination: false,
-                    despeckle: false,
-                    layout: 'force-single' as const,
-                    cropContent: false,
-                    matchPageSize: false,
-                    margins: {
-                        leftMm: 0,
-                        topMm: 0,
-                        rightMm: 0,
-                        bottomMm: 0,
-                    },
-                    ocrPolarityOnly: true,
-                }
-                : OCR_PREPROCESS_PINNED_OPTIONS;
             await runNativeToolCommand(scanCleanupBinary, [
                 '--input',
                 inputPath,
@@ -198,12 +112,7 @@ export async function tryPreprocessOcrImage(
                 metadataPath,
                 '--ocr-mode',
                 '--options',
-                JSON.stringify({
-                    ...options,
-                    dpi,
-                    sourceDpi: dpi,
-                    requestedRenderDpi: dpi,
-                }),
+                JSON.stringify(createOcrScanCleanupOptions(mode, dpi)),
             ], {
                 ...(grantedCpuTokens === undefined ? {} : {env: {
                     ...process.env,

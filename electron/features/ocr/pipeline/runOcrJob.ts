@@ -47,6 +47,7 @@ import {
 import {
     estimateOcrPageResidentBytes, tryPreprocessOcrImage,
 } from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
+import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {writeSearchablePdf} from '@electron/features/ocr/pipeline/writeSearchablePdf';
 import {
     buildPopplerEnv,
@@ -385,7 +386,7 @@ async function processOcrPage(
                 paths.scanCleanupBinary,
                 preprocessMetadataPath,
                 effectiveDpi,
-                context.options.preprocessingMode === 'off' ? 'polarity-only' : 'clean',
+                getOcrScanCleanupMode(context.options.preprocessingMode),
                 lease.resources.cpuTokens,
             );
             if (candidateOcrImage.path !== pageImagePath) {
