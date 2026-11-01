@@ -77,9 +77,9 @@ import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/bro
 import {browserSettingsCapability} from '@app/platform/browser-api/browserSettingsCapability';
 import {
     createBrowserStoreStagedArtifact,
+    readBrowserStoreStagedArtifact,
     sha256Hex,
 } from '@app/platform/browser/browserStagedArtifact';
-import {isBrowserStoreStagedArtifact} from '@contracts/stagedArtifacts';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
@@ -425,13 +425,7 @@ export function createBrowserDocumentsFileCapability(
             return true;
         },
         async cloneStagedPdfNativeMutationToWorkingCopy(stagedOutput, originalPath) {
-            if (!isBrowserStoreStagedArtifact(stagedOutput)) {
-                throw new Error('Expected a browser-store staged artifact');
-            }
-            const bytes = await browserDocumentStore.read(stagedOutput.path);
-            if (bytes.byteLength !== stagedOutput.size || await sha256Hex(bytes) !== stagedOutput.sha256) {
-                throw new Error('Browser staged artifact content does not match its receipt');
-            }
+            const {bytes} = await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput);
             const clonePath = await createBrowserWorkingCopyFromBytes({
                 fileName: getBrowserDocumentFileName(stagedOutput.path),
                 data: bytes,
