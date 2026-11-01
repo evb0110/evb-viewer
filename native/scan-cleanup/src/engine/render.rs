@@ -1,3 +1,4 @@
+use crate::clock::Instant;
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
 use crate::engine::edge_band::{owned_ink_pixels, LEAF_EDGE_BAND_FRACTION};
 use crate::engine::prepare::{build_analysis_level, AnalysisLevel};
@@ -76,7 +77,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Instant,
 };
 
 #[path = "render/document_analysis.rs"]

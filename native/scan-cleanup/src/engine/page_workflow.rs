@@ -1,5 +1,6 @@
 //! Page decoding, analysis, rendering, and output publication.
 use crate::cache::{PageCache, StageCacheKey};
+use crate::clock::Instant;
 use crate::engine::output_geometry::*;
 use crate::engine::page_statistics::trusted_selection_is_incomplete;
 use crate::engine::render::{
@@ -28,7 +29,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Instant,
 };
 
 #[derive(Serialize)]

@@ -1,3 +1,4 @@
+use crate::clock::Instant;
 use crate::{
     background::{normalize_illumination, smooth_for_binarization},
     calibration::{CalibrationConfig, PageCalibration},
@@ -18,7 +19,7 @@ use scan_primitives::{
     BinaryImage, ComponentMap, GrayImage,
 };
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, collections::VecDeque, sync::OnceLock, time::Instant};
+use std::{borrow::Cow, collections::VecDeque, sync::OnceLock};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct BinarizationStageTimings {

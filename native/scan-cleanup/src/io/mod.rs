@@ -32,9 +32,20 @@ pub(crate) fn write_atomic_with(
     path: &Path,
     write: impl FnOnce(&mut File) -> Result<(), String>,
 ) -> Result<(), String> {
-    write_atomic_with_random(path, write, |bytes| {
-        getrandom::fill(bytes).map_err(|error| format!("unable to obtain random bytes: {error}"))
-    })
+    write_atomic_with_random(path, write, fill_publication_random)
+}
+
+/// Unpredictable bytes for publication temporary names. The browser engine
+/// publishes nothing to a filesystem, so its build carries no randomness
+/// source and reports any publication attempt as unavailable.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+fn fill_publication_random(bytes: &mut [u8]) -> Result<(), String> {
+    getrandom::fill(bytes).map_err(|error| format!("unable to obtain random bytes: {error}"))
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+fn fill_publication_random(_bytes: &mut [u8]) -> Result<(), String> {
+    Err("file publication is unavailable in the browser cleanup engine".to_owned())
 }
 
 fn randomized_temporary_path(path: &Path, random: &[u8]) -> PathBuf {
@@ -92,10 +103,8 @@ impl FileSnapshot {
                 original.display()
             ));
         }
-        let (mut backup_file, backup) = open_randomized_temporary(original, &mut |bytes| {
-            getrandom::fill(bytes)
-                .map_err(|error| format!("unable to obtain random bytes: {error}"))
-        })?;
+        let (mut backup_file, backup) =
+            open_randomized_temporary(original, &mut fill_publication_random)?;
         let snapshot_result = std::io::copy(&mut source, &mut backup_file)
             .map(|_| ())
             .and_then(|()| backup_file.sync_all());
