@@ -7,7 +7,9 @@ import {
 import {
     basename, resolve,
 } from 'node:path';
-import {PDFDocument} from 'pdf-lib';
+import {
+    PDFDocument, PDFName,
+} from 'pdf-lib';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {chromium} from 'playwright';
 import type {
@@ -83,6 +85,88 @@ async function openReadingBook(page: Page, label: string, name: string) {
 }
 
 describe('browser document lifecycle UI', () => {
+
+    it('saves a note and rotation in a PDF over 16 MiB', async () => {
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            acceptDownloads: true,
+        });
+        try {
+            const page = await context.newPage();
+            const pdf = await PDFDocument.create();
+            pdf.addPage([
+                400,
+                600,
+            ]).drawText('Large PDF page one', {
+                x: 40,
+                y: 500,
+                size: 24,
+            });
+            // A valid, incompressible stream crosses the old 16 MiB limit
+            // without making the rendered page expensive or the fixture huge.
+            pdf.catalog.set(PDFName.of('EvidencePadding'), pdf.context.register(
+                pdf.context.stream(randomBytes(20 * 1024 * 1024)),
+            ));
+            const bytes = Buffer.from(await pdf.save({useObjectStreams: false}));
+            expect(bytes.byteLength).toBeGreaterThan(20 * 1024 * 1024);
+            await openPdfFromChooser(page, {
+                name: 'large-note-and-rotation.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
+            await settleActiveOpen(page);
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+            await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            await expect.poll(async () => {
+                const box = await page.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
+                return box ? box.width > box.height : false;
+            }, {timeout: 60_000}).toBe(true);
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(
+                    ['isPageOperationInProgress'],
+                ).isPageOperationInProgress === false;
+            }, undefined, {timeout: 60_000});
+            await addNote(page, 'Large PDF note survives Save', {
+                x: 120,
+                y: 120,
+            });
+            const download = page.waitForEvent('download', {timeout: 60_000}).catch(() => null);
+            const save = page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            });
+            await save.click();
+            await expect.poll(() => save.getAttribute('aria-busy'), {timeout: 60_000}).toBe('false');
+            expect(await page.locator('.app-toast-failure').allTextContents()).toEqual([]);
+            const artifact = await download;
+            expect(artifact).not.toBeNull();
+            const savedPath = await artifact!.path();
+            expect(savedPath).not.toBeNull();
+            const saved = await PDFDocument.load(readFileSync(savedPath!));
+            expect(saved.getPage(0).getRotation().angle).toBe(90);
+            expect(Array.from(noteTexts(saved, '/Text'))).toContain('Large PDF note survives Save');
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+        } finally {
+            await context.close();
+        }
+    }, 180_000);
+
     // T3: Save publishes a page edit to the original unsigned form; a populated
     // signature requires Save As and leaves the original file untouched.
     describe.each([
