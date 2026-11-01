@@ -9,8 +9,9 @@ const RUNTIME_ASSET_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/d
 
 const RUNTIME_ARCHIVES = {
     'djvulibre-darwin-arm64': {
-        archiveBytes: 1266990,
-        archiveSha256: 'd1d15fb133cc885fb48bb952b42c7f3488cd340a532c595a99a4c7adea92d4d9',
+        releaseName: 'runtime-binaries-v3',
+        archiveBytes: 1182818,
+        archiveSha256: '2c06bf4c829108c92e735149dcf70990da096f9c13a9aa5f074e82f0b7e524d5',
     },
     'djvulibre-linux-x64': {
         archiveBytes: 1982130,
@@ -35,8 +36,9 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: 'a675b31e4d01a8f25619c4e3f664de049022d4d92c93a9826422ac33209db836',
     },
     'poppler-darwin-arm64': {
-        archiveBytes: 5062527,
-        archiveSha256: '6af16714ed6ff3b81c806c0f225cbb0f27028c4ce9429aecb5985a9d85379304',
+        releaseName: 'runtime-binaries-v3',
+        archiveBytes: 7295641,
+        archiveSha256: '8af87a405cd3bb79ee207637ae619763b37f5f54a1d76d8497d99945e3a95485',
     },
     'poppler-linux-arm64': {
         releaseName: 'runtime-binaries-v2',
@@ -63,8 +65,9 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '4a34454a29526e77d388a3af26dbaaad3c30569f1edf968b2c3e9ddded7a0a05',
     },
     'qpdf-darwin-arm64': {
-        archiveBytes: 5097153,
-        archiveSha256: '8031fb1f62b159179bc38ba80bc3ee478141d2b511357db63f880c5edab60aa0',
+        releaseName: 'runtime-binaries-v3',
+        archiveBytes: 1304376,
+        archiveSha256: '9a8f098d098fdf5f543a6389e9338c9b40e35232e125b229a7704979beed0bf3',
     },
     'qpdf-linux-x64': {
         releaseName: 'runtime-binaries-v2',
@@ -168,5 +171,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'a42ac03e7c34eae5e859e057d40735a8c150a77c4b56e1bd3514c6d3d86a23f7',
+    manifestSha256: '1947494cc0e3862838cfa253428a10114f81c86657531a0837f8fec5748a8c4b',
 };

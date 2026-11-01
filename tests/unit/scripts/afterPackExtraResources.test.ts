@@ -4,6 +4,7 @@ import {
     mkdir,
     mkdtemp,
     rm,
+    readFile,
     stat,
     writeFile,
 } from 'node:fs/promises';
@@ -42,6 +43,7 @@ interface IRequiredExtraResource {
 }
 
 interface IAfterPackModule {
+    moveMacNativeToolResources: (context: IAfterPackContext) => void;
     makeTreeOwnerWritable: (rootPath: string) => void;
     configureWindowsNsisArchiveFilter: (context: IAfterPackContext) => void;
     pruneChromiumLocales: (context: IAfterPackContext) => void;
@@ -61,6 +63,7 @@ const {
     assertRequiredExtraResources,
     configureWindowsNsisArchiveFilter,
     makeTreeOwnerWritable,
+    moveMacNativeToolResources,
     pruneChromiumLocales,
     removeNativeBuildReceipts,
     requiredExtraResourcesForContext,
@@ -112,6 +115,38 @@ function captureErrorMessage(action: () => void) {
 }
 
 describe('afterPack extraResources preflight', () => {
+    it('keeps macOS runtime data in Resources while moving code to MacOS', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-mac-native-data-'));
+        const app = path.join(root, 'EVB Viewer.app');
+        const resources = path.join(app, 'Contents', 'Resources');
+        const source = path.join(resources, 'poppler', 'darwin-arm64');
+        const destination = path.join(app, 'Contents', 'MacOS', 'native-tools', 'poppler', 'darwin-arm64');
+        const context = createContext('darwin', 'arm64', resources);
+        context.appOutDir = root;
+        try {
+            for (const relative of [
+                'bin/pdftoppm',
+                'lib/libpoppler.dylib',
+                'etc/fonts/conf.d/10-hinting.conf',
+                'share/poppler/cMap/example',
+            ]) {
+                await createRequiredPath(path.join(source, relative), 'file');
+            }
+            moveMacNativeToolResources(context);
+            expect(await readFile(path.join(destination, 'bin/pdftoppm'), 'utf8')).toBe('fixture');
+            expect(await readFile(path.join(destination, 'lib/libpoppler.dylib'), 'utf8')).toBe('fixture');
+            expect(await readFile(path.join(source, 'etc/fonts/conf.d/10-hinting.conf'), 'utf8')).toBe('fixture');
+            expect(await readFile(path.join(source, 'share/poppler/cMap/example'), 'utf8')).toBe('fixture');
+            await expect(stat(path.join(destination, 'etc'))).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(stat(path.join(source, 'bin'))).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('forces the Nsis7z-compatible filter for Windows packaging', () => {
         const previousFilter = process.env.ELECTRON_BUILDER_7Z_FILTER;
 

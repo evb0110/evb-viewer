@@ -6,6 +6,7 @@ import {
 import { fileURLToPath } from 'url';
 import type { IPopplerRuntimePaths } from '@electron/native-tools/buildPopplerEnv';
 import { getNativeToolBinaryPath } from '@electron/native-tools/getNativeToolBinaryPath';
+import { resolveNativeResourcesBase } from '@electron/native-tools/resolveNativeResourcesBase';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
@@ -21,6 +22,7 @@ export interface IResolvePdfNativeToolPathsOptions {
     exists?: (path: string) => boolean;
     isPackaged: boolean;
     nativeToolsBase: string;
+    resourcesBase?: string;
     platform?: NodeJS.Platform;
     platformArch: string;
 }
@@ -92,8 +94,9 @@ export function resolvePdfNativeToolPaths(options: IResolvePdfNativeToolPathsOpt
         optional: true,
         platform: options.platform,
     }) || undefined;
-    const popplerDataDirCandidate = join(popplerDir, 'share', 'poppler');
-    const popplerFontConfigDirCandidate = join(popplerDir, 'etc', 'fonts');
+    const popplerDataRoot = join(options.resourcesBase ?? options.nativeToolsBase, 'poppler', options.platformArch);
+    const popplerDataDirCandidate = join(popplerDataRoot, 'share', 'poppler');
+    const popplerFontConfigDirCandidate = join(popplerDataRoot, 'etc', 'fonts');
     const popplerDataDir = pathExists(popplerDataDirCandidate) ? popplerDataDirCandidate : undefined;
     const popplerFontConfigDir = pathExists(popplerFontConfigDirCandidate) ? popplerFontConfigDirCandidate : undefined;
 
@@ -130,6 +133,7 @@ export function getPdfNativeToolPaths(): IPdfNativeToolPaths {
     return resolvePdfNativeToolPaths({
         isPackaged: appIsPackaged,
         nativeToolsBase: resolveNativeToolsBase(__dirname, appIsPackaged),
+        resourcesBase: resolveNativeResourcesBase(__dirname, appIsPackaged),
         platformArch: resolvePlatformArchTag(),
     });
 }

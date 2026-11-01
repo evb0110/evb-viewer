@@ -298,15 +298,19 @@ function moveMacNativeToolResources(context) {
             force: true,
             recursive: true,
         });
-        fs.mkdirSync(path.dirname(dst), {recursive: true});
-        fs.cpSync(src, dst, {
-            recursive: true,
-            verbatimSymlinks: true,
-        });
-        fs.rmSync(src, {
-            force: true,
-            recursive: true,
-        });
+        fs.mkdirSync(dst, {recursive: true});
+        // Only code belongs below Contents/MacOS. Fontconfig and Poppler's
+        // CMaps stay in Resources so codesign seals them as data.
+        for (const directory of [
+            'bin',
+            'lib',
+        ]) {
+            const codePath = path.join(src, directory);
+            if (fs.existsSync(codePath)) {
+                fs.renameSync(codePath, path.join(dst, directory));
+            }
+        }
+        removeEmptyDir(src);
         removeEmptyDir(path.dirname(src));
         console.log('[afterPack] Moved macOS native tool resources:', dst);
     }
@@ -428,3 +432,5 @@ exports.makeTreeOwnerWritable = makeTreeOwnerWritable;
 exports.pruneChromiumLocales = pruneChromiumLocales;
 exports.removeNativeBuildReceipts = removeNativeBuildReceipts;
 exports.requiredExtraResourcesForContext = requiredExtraResourcesForContext;
+
+exports.moveMacNativeToolResources = moveMacNativeToolResources;
