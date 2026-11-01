@@ -9,9 +9,13 @@ import {
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {chromium} from 'playwright';
-import type {Download} from 'playwright';
+import type {
+    Download, Page,
+} from 'playwright';
+import {createPdfConformanceFixture} from '@tests/helpers/createPdfConformanceFixture';
+import type {createFileSystemFileHandle as createFixtureFileHandle} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {
-    describe, expect, it,
+    afterAll, beforeAll, describe, expect, it,
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
@@ -19,6 +23,140 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+    // T3: Save publishes a page edit to the original unsigned form; a populated
+    // signature requires Save As and leaves the original file untouched.
+    describe.each([
+        'signed',
+        'unsigned-signature-field',
+    ] as const)('signature-field Save after a page edit (%s)', kind => {
+        let fixture: {
+            page: Page;
+            bytes: Uint8Array
+        } | undefined;
+
+        beforeAll(async () => {
+            const context = await lifecycle.browser.newContext({viewport: {
+                width: 1280,
+                height: 900,
+            }});
+            const page = await context.newPage();
+            const bytes = await createPdfConformanceFixture(kind);
+            fixture = {
+                page,
+                bytes,
+            };
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            // Reuse the shared picker handle fixture around a real OPFS
+            // file and writable stream. Materialize the open snapshot so
+            // Chromium need not persist an OPFS-backed Blob in IndexedDB.
+            await page.evaluate(`(async () => {
+                const {createFileSystemFileHandle} = await import(${JSON.stringify(`${lifecycle.origin}/_nuxt/@fs${process.cwd()}/tests/unit/app/platform/browserPlatformTestDoubles.ts`)});
+                window.__createSignatureFileHandle = createFileSystemFileHandle;
+            })()`);
+            await page.evaluate(async (bytes) => {
+                const createFileSystemFileHandle = Reflect.get(window, '__createSignatureFileHandle') as typeof createFixtureFileHandle;
+                const directory = await navigator.storage.getDirectory();
+                const original = await directory.getFileHandle('original.pdf', {create: true});
+                const writable = await original.createWritable();
+                await writable.write(Uint8Array.from(bytes));
+                await writable.close();
+                const handle = Object.assign(createFileSystemFileHandle({
+                    name: original.name,
+                    getFile: async () => {
+                        const file = await original.getFile();
+                        return new File([await file.arrayBuffer()], file.name, {
+                            type: file.type,
+                            lastModified: file.lastModified,
+                        });
+                    },
+                    isSameEntry: async (other: FileSystemHandle): Promise<boolean> => other === handle,
+                }), {createWritable: () => original.createWritable()});
+                Reflect.set(window, '__signatureSaveAsPicks', 0);
+                Reflect.set(window, 'showOpenFilePicker', async () => [handle]);
+                Reflect.set(window, 'showSaveFilePicker', async () => {
+                    Reflect.set(window, '__signatureSaveAsPicks', Number(Reflect.get(window, '__signatureSaveAsPicks')) + 1);
+                    throw new DOMException('The user aborted a request.', 'AbortError');
+                });
+            }, Array.from(bytes));
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Signature fixture did not finish opening');
+            });
+        });
+
+        afterAll(async () => {
+            await fixture?.page.context().close();
+        });
+
+        it('saves rotated unsigned signature fields in place and requires Save As for signed PDFs', async () => {
+            if (!fixture) throw new Error(`Missing signature fixture: ${kind}`);
+            const {
+                page, bytes,
+            } = fixture;
+            const readOriginal = () => page.evaluate(async () => {
+                const directory = await navigator.storage.getDirectory();
+                const handle = await directory.getFileHandle('original.pdf');
+                return Array.from(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+            });
+            const saveAsPicks = () => page.evaluate(() => Number(Reflect.get(window, '__signatureSaveAsPicks')));
+            if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+            }
+            await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > rect.height;
+            })).toBe(true);
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
+            });
+            const save = page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            });
+            await save.click();
+            // Observe either publication or the picker before checking the
+            // settled result. This also gives the defect a direct failure.
+            await expect.poll(async () => await saveAsPicks() > 0
+                || (await PDFDocument.load(Uint8Array.from(await readOriginal()))).getPage(0).getRotation().angle === 90).toBe(true);
+            await expect.poll(() => save.getAttribute('aria-busy')).toBe('false');
+            const original = Uint8Array.from(await readOriginal());
+            const rotation = (await PDFDocument.load(original)).getPage(0).getRotation().angle;
+            const pickerRequests = await saveAsPicks();
+            const rewritten = Buffer.compare(Buffer.from(original), Buffer.from(bytes)) !== 0;
+            console.info('Signature Save evidence', JSON.stringify({
+                kind,
+                saveAsPickerRequests: pickerRequests,
+                originalRewritten: rewritten,
+                originalPage1Rotation: rotation,
+            }));
+            expect(pickerRequests, `${kind}: Save As picker requests`).toBe(kind === 'signed' ? 1 : 0);
+            expect(rewritten, `${kind}: original file rewritten`).toBe(kind !== 'signed');
+            expect(rotation, `${kind}: saved page 1 rotation`).toBe(kind === 'signed' ? 0 : 90);
+        });
+    });
+
     // C2/C4: opening a valid document has no size gate or console failure;
     // a refused open explains its cause on screen and leaves the next open usable.
     it('opens large PDFs through the chooser and Recent Files and explains invalid input', async () => {
