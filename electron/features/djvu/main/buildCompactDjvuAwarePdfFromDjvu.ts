@@ -619,9 +619,11 @@ function createDjvuPageStructureParser(onPage: (structure: IDjvuPageStructure) =
                 current.hasMask = true;
                 current.maskBytes = chunkBytes;
             } else if (DJVU_COMPACT_BACKGROUND_CHUNKS.has(chunkId)) {
-                current.background = layer;
+                // Only the first chunk of a progressive IW44 layer states its
+                // size; a later chunk refines that layer, not replaces it.
+                current.background = dimensions || !current.background ? layer : current.background;
             } else if (DJVU_COMPACT_FOREGROUND_CHUNKS.has(chunkId)) {
-                current.foreground = layer;
+                current.foreground = dimensions || !current.foreground ? layer : current.foreground;
             }
         },
         finish() {
