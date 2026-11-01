@@ -861,7 +861,7 @@ pub(crate) struct OutputPlane<'a> {
 
 impl OutputPlane<'_> {
     /// The bytes [`Self::write_atomic`] publishes.
-    #[cfg(test)]
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn encode(&self) -> Result<Vec<u8>, String> {
         match (&self.pixels, self.file) {
             (PlanePixels::Gray(image), PlaneFile::Png) => png::encode_gray(image),

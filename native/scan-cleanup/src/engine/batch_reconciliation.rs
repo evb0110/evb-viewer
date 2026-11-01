@@ -136,6 +136,13 @@ impl PageReconciliation {
             }
         }
     }
+
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    pub(crate) fn prior(&self) -> crate::split::DocumentPrior {
+        match *self {
+            Self::Rerun { prior, .. } | Self::Update { prior, .. } => prior,
+        }
+    }
 }
 
 pub(crate) fn reconcile_classification_batch(

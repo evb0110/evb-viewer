@@ -93,13 +93,17 @@ that needs PNG gets the same pixels encoded by the app at the fastest level. Wha
 down in [what scans work](docs/user/what-scans-work.md).
 
 The browser runs the same engine. `native/scan-cleanup/src/wasm.rs` builds it
-as `public/wasm/evb-scan-cleanup.wasm`, which analyzes or renders one page per
-request from raster bytes. Both it and the CLI call the in-memory page core in
-`engine/page_workflow.rs` (`render_page`, `classify_page`); only the CLI then
-publishes to manifest files, so a page with the same raster and options comes
-out byte-identical on either platform. `app/platform/browser-api/browserScanCleanupWasm.ts`
-loads it inside a worker; manifests, staging, matched canvases and file
-publication stay native.
+as `public/wasm/evb-scan-cleanup.wasm`. Each request is one page of a manifest
+(render it, preview or final, or analyze it) or one document step a manifest
+takes between its pages (reconcile a batch's layouts, finish a page's
+analysis, derive a batch's ink prior). Both it and the CLI call the in-memory
+cores in `engine/page_workflow.rs`: `render_page` cleans a page, `finish_page`
+matches it to the document canvas and decides its planes, and
+`FinishedOutput::publish` hands each plane to a sink. The CLI's sink writes the
+manifest's files and the browser's returns the same bytes, so a page with the
+same rasters and options comes out byte-identical on either platform.
+`app/platform/browser-api/browserScanCleanupWasm.ts` loads it inside a worker;
+manifests, staging and file publication stay native.
 
 ## OCR
 
