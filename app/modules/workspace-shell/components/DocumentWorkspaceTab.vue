@@ -22,7 +22,6 @@
                 @open-in-new-tab="emit('open-in-new-tab', $event)"
                 @request-close-tab="emit('request-close-tab')"
                 @open-settings="emit('open-settings')"
-                @open-combine="emit('open-combine')"
                 @toggle-fullscreen="emit('toggle-fullscreen')"
             />
         </ClientOnly>
@@ -112,7 +111,6 @@ const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
-    'open-combine': [];
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();

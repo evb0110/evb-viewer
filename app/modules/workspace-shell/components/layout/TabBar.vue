@@ -83,6 +83,7 @@
 <script setup lang="ts">
 import type { TTabView } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
+import { hasFocusLeftMenu } from '@app/utils/menuFocus';
 import type { TPaneDirection } from '@contracts/editorPanes';
 import {
     getDocumentRefBaseName,
@@ -459,11 +460,8 @@ function focusTab(tabId: string) {
 // else has it: a control the person moved to keeps focus.
 function returnFocusToTab(event: Event) {
     event.preventDefault();
-    const focused = document.activeElement;
-    const focusMoved = focused !== null && focused !== document.body
-        && !(event.target instanceof Node && event.target.contains(focused));
     const tabId = clickedTab.value?.id ?? activeTabId;
-    if (tabId && !focusMoved) {
+    if (tabId && !hasFocusLeftMenu(event)) {
         focusTab(tabId);
     }
 }

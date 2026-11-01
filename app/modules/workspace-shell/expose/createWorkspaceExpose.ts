@@ -26,6 +26,12 @@ export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     ensurePdfProjectionForEdit: () => Promise<boolean>;
     initialVisualReady: Readonly<Ref<boolean>>;
+    toolbarHasPdf: Readonly<Ref<boolean>>;
+    documentBusy: Readonly<Ref<boolean>>;
+    canToggleSidebar: Readonly<Ref<boolean>>;
+    ocrActionDisabled: Readonly<Ref<boolean>>;
+    ocrTriggerDisabled: Readonly<Ref<boolean>>;
+    scanCleanupDisabled: Readonly<Ref<boolean>>;
     canRepairSave: Readonly<Ref<boolean>>;
     canOptimizePdf: Readonly<Ref<boolean>>;
     canExportDocx: Readonly<Ref<boolean>>;
@@ -116,6 +122,12 @@ export function createWorkspaceExpose(
         const zoom = view.zoom.value;
         return {
             hasPdf: file.hasPdf.value,
+            toolbarHasPdf: owners.toolbarHasPdf.value,
+            documentBusy: owners.documentBusy.value,
+            canToggleSidebar: owners.canToggleSidebar.value,
+            ocrActionDisabled: owners.ocrActionDisabled.value,
+            ocrTriggerDisabled: owners.ocrTriggerDisabled.value,
+            scanCleanupDisabled: owners.scanCleanupDisabled.value,
             initialVisualReady: owners.initialVisualReady.value,
             hasOpenError: hasOpenError(),
             isPreparingPrint: print.isPreparingPrint.value,
@@ -341,6 +353,8 @@ export function createWorkspaceExpose(
             }
             void fileOps.handleOpenFileFromUi();
         },
+        handleOpenOcr: () => { viewContext.djvuProjection.handleDropdownOpen('ocr', true); },
+        handleOpenScanCleanup: () => { viewContext.scanCleanup.openScanCleanup(); },
         getToolbarSnapshot,
         getOpenFailure: () => {
             const message = file.pdfError.value ?? file.djvuError.value;

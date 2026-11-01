@@ -66,8 +66,6 @@ function mountToolbar(documentRef: typeof sourceA) {
         ocrPopupOpen: false,
         zoomDropdownOpen: false,
         pageDropdownOpen: false,
-        overflowMenuOpen: false,
-        appMenuOpen: false,
     })});
     app.component('AppTooltip', defineComponent({
         inheritAttrs: false,

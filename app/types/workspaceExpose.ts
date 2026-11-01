@@ -33,6 +33,15 @@ import type { IFailureToastAction } from '@app/composables/useFailureToast';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
+    /** The presentation's document: a PDF, a DjVu source, or one still opening. */
+    toolbarHasPdf: boolean;
+    /** The presentation's busy state: the document takes no commands yet. */
+    documentBusy: boolean;
+    canToggleSidebar: boolean;
+    ocrActionDisabled: boolean;
+    /** A running OCR can always be opened to see its progress or cancel it. */
+    ocrTriggerDisabled: boolean;
+    scanCleanupDisabled: boolean;
     initialVisualReady: boolean;
     viewerCapabilities: IWorkspaceViewerCapabilities;
     hasOpenError: boolean;
@@ -115,6 +124,12 @@ export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapa
 export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
+        toolbarHasPdf: false,
+        documentBusy: false,
+        canToggleSidebar: false,
+        ocrActionDisabled: true,
+        ocrTriggerDisabled: true,
+        scanCleanupDisabled: true,
         initialVisualReady: false,
         viewerCapabilities: createDefaultWorkspaceViewerCapabilities(),
         hasOpenError: false,
@@ -289,6 +304,8 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
+    handleOpenOcr: () => void;
+    handleOpenScanCleanup: () => void;
     /** Captures the document at `page`, by default the page this view reads. */
     captureSplitPayload: (page?: number, ownership?: () => void) => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload, transactionId?: string, captureOpenedTarget?: () => () => boolean) => Promise<TDocumentOpenOutcome>;

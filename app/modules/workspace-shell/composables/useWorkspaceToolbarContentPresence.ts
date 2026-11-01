@@ -2,11 +2,11 @@ import type { Ref } from 'vue';
 import { useMutationObserver } from '@vueuse/core';
 
 export const useWorkspaceToolbarContentPresence = (toolbarHostRef: Ref<HTMLElement | null>) => {
-    const hasWorkspaceToolbarContent = ref(false);
+    const workspaceToolbar = shallowRef<HTMLElement | null>(null);
+    const hasWorkspaceToolbarContent = computed(() => workspaceToolbar.value !== null);
 
     function syncWorkspaceToolbarContent() {
-        const host = toolbarHostRef.value;
-        hasWorkspaceToolbarContent.value = Boolean(host?.querySelector(':scope > *'));
+        workspaceToolbar.value = toolbarHostRef.value?.querySelector<HTMLElement>(':scope > *') ?? null;
     }
 
     useMutationObserver(toolbarHostRef, syncWorkspaceToolbarContent, { childList: true });
@@ -17,5 +17,8 @@ export const useWorkspaceToolbarContentPresence = (toolbarHostRef: Ref<HTMLEleme
     }, { flush: 'post' });
     onMounted(syncWorkspaceToolbarContent);
 
-    return { hasWorkspaceToolbarContent };
+    return {
+        hasWorkspaceToolbarContent,
+        workspaceToolbar,
+    };
 };

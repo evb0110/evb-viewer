@@ -56,7 +56,6 @@
                     @open-in-new-tab="handleOpenInNewTab"
                     @request-close-tab="handleRequestCloseTab"
                     @open-settings="handleOpenSettings"
-                    @open-combine="handleOpenCombine"
                     @toggle-fullscreen="handleToggleFullscreen"
                 />
         </Teleport>
@@ -208,7 +207,6 @@ const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult, paneId?: string];
     'request-close-tab': [paneId: string, tabId: string];
     'open-settings': [];
-    'open-combine': [];
     'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
     'update-layout-resizing': [value: boolean];
@@ -261,10 +259,6 @@ function handleRequestCloseTab(paneId: string, tabId: string) {
 
 function handleOpenSettings() {
     emit('open-settings');
-}
-
-function handleOpenCombine() {
-    emit('open-combine');
 }
 
 function handleToggleFullscreen() {

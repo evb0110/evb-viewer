@@ -1360,7 +1360,7 @@ it('recognizes a scanned page with browser OCR so search finds its words', async
             {timeout: 30_000},
         ).toMatch(/No results/u);
 
-        const toolbar = page.locator('#editor-global-toolbar-host');
+        const toolbar = page.locator('.editor-global-toolbar-shell');
         const ocrButton = toolbar.getByRole('button', {
             name: 'OCR',
             exact: true,

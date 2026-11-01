@@ -12,7 +12,6 @@ export type TReaderCommandCategory = typeof READER_COMMAND_CATEGORIES[number];
 export type TReaderCommandIconName = `ph:${string}`;
 
 export const READER_COMMANDS = [
-    'app-menu',
     'capture-region',
     'continuous-scroll',
     'crop',
@@ -25,7 +24,6 @@ export const READER_COMMANDS = [
     'ocr',
     'open-file',
     'optimize-pdf-for-interaction',
-    'overflow-menu',
     'page-navigation',
     'print',
     'print-current-page',
@@ -73,12 +71,6 @@ export interface IReaderCommandRequest {
 }
 
 export const READER_COMMAND_DESCRIPTORS = Object.freeze({
-    'app-menu': {
-        id: 'app-menu',
-        category: 'shell',
-        labelKey: 'toolbar.appMenu',
-        icon: 'ph:caret-down',
-    },
     'capture-region': {
         id: 'capture-region',
         category: 'export',
@@ -150,12 +142,6 @@ export const READER_COMMAND_DESCRIPTORS = Object.freeze({
         category: 'document',
         labelKey: 'menu.optimizePdfForInteraction',
         icon: 'ph:gauge',
-    },
-    'overflow-menu': {
-        id: 'overflow-menu',
-        category: 'shell',
-        labelKey: 'toolbar.moreTools',
-        icon: 'ph:dots-three',
     },
     'page-navigation': {
         id: 'page-navigation',

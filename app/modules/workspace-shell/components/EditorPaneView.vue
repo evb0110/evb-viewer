@@ -40,7 +40,6 @@
                     @open-in-new-tab="emit('open-in-new-tab', $event, pane.paneId)"
                     @request-close-tab="emit('request-close-tab', pane.paneId, tab.id)"
                     @open-settings="emit('open-settings')"
-                    @open-combine="emit('open-combine')"
                     @toggle-fullscreen="emit('toggle-fullscreen')"
                 />
             </template>
@@ -105,7 +104,6 @@ const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult, paneId: string];
     'request-close-tab': [paneId: string, tabId: string];
     'open-settings': [];
-    'open-combine': [];
     'toggle-fullscreen': [];
 }>();
 

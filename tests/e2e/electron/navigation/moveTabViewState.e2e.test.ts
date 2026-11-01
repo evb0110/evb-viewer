@@ -294,7 +294,7 @@ describe('Move Tab to New Window view state', () => {
         });
         expect(existsSync(savedAs)).toBe(false);
         if (outcome === 'is refused') {
-            await clickAsUser(target, '#editor-global-toolbar-host button[aria-label="More tools"]');
+            await clickAsUser(target, '.editor-global-toolbar-shell button[aria-label="More tools"]');
             await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
                 .find(item => item.textContent?.trim() === 'Open File'), undefined, {description: 'Replace the incoming document'});
             await waitForFunctionInPage(source, () => document.querySelector('.workspace-transfer-state') === null);
@@ -908,7 +908,7 @@ describe('Move Tab to New Window view state', () => {
                 .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
             {description: `Move Tab to Window: ${targetTitle}`});
             await waitForFunctionInPage(target, () => (window as Window & {__cancelledTransferLoad?: {held: boolean}}).__cancelledTransferLoad?.held === true);
-            await clickAsUser(target, '#editor-global-toolbar-host button[aria-label="More tools"]');
+            await clickAsUser(target, '.editor-global-toolbar-shell button[aria-label="More tools"]');
             await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
                 .find(item => item.textContent?.trim() === 'Open File'), undefined,
             {description: 'Open PDF in the incoming tab'});

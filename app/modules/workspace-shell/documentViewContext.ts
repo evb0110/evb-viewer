@@ -366,7 +366,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         });
     }
     function handleDropdownOpen(
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
+        dropdown: 'zoom' | 'page' | 'ocr',
         isOpen: boolean,
     ) {
         view.handleDropdownOpenChange(dropdown, isOpen);

@@ -158,6 +158,9 @@ export const useWorkspacePresentation = (
             });
     });
     const toolbarControlsDisabled = computed(() => !documentMetadataReady.value || toolbarDocumentBusyForDisplay.value);
+    const ocrActionDisabled = computed(() => (
+        toolbarControlsDisabled.value || save.isAnySaving.value || history.isHistoryBusy.value
+    ));
 
     const showDjvuConversionUi = computed(() => (
         capabilities.value?.conversionBanner === true
@@ -238,6 +241,10 @@ export const useWorkspacePresentation = (
         documentMetadataReady,
         toolbarPageLabels,
         toolbarControlsDisabled,
+        ocrActionDisabled,
+        // A running OCR can always be opened to see its progress or cancel it.
+        ocrTriggerDisabled: computed(() => ocrActionDisabled.value && !document.ocr.progress.value.isRunning),
+        scanCleanupDisabled: computed(() => ocrActionDisabled.value || !file.workingCopyPath.value),
         showDjvuConversionUi,
         showDjvuConversionBanner,
         showWorkspaceViewerDocument,

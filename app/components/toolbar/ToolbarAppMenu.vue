@@ -50,7 +50,7 @@ import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
-import type { TToolbarAppMenuCommand } from '@app/types/toolbarMenuCommands';
+import { keepMovedFocus } from '@app/utils/menuFocus';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     dispatchBrowserMenuEvent,
@@ -94,6 +94,7 @@ interface IMenuEventItemOptions {
     disabled?: boolean;
     shortcut?: string;
     slot?: string;
+    loading?: boolean;
     /** A checkbox or radio entry of desktop's menu: shown with its check. */
     checked?: boolean;
 }
@@ -115,7 +116,6 @@ interface IProps {
     isPreparingPrint: boolean
     isPreparingCurrentPagePrint?: boolean
     isDjvuMode: boolean
-    canUseDjvu: boolean
     documentBusy?: boolean
 }
 
@@ -128,7 +128,6 @@ const {
     canSaveAs = true,
     canPrint = true,
     canUndo,
-    canUseDjvu,
     documentBusy,
     hasPdf,
     isAnySaving,
@@ -140,44 +139,13 @@ const {
     open,
 } = defineProps<IProps>();
 
+// Combine Files and Convert to PDF are the browser's own entries; desktop's
+// menu has no event for them.
 const emit = defineEmits<{
     'update:open': [value: boolean];
-    'open-file': [];
-    save: [];
-    'repair-save': [];
-    'optimize-pdf-for-interaction': [];
-    'save-as': [];
-    print: [];
-    'print-current-page': [];
     'combine-files': [];
-    'export-docx': [];
-    'export-images': [];
-    'export-multi-page-tiff': [];
     'convert-to-pdf': [];
-    undo: [];
-    redo: [];
-    'insert-image-from-file': [];
-    'paste-image-from-clipboard': [];
 }>();
-
-const emitMenuCommand = {
-    'open-file': () => emit('open-file'),
-    save: () => emit('save'),
-    'repair-save': () => emit('repair-save'),
-    'optimize-pdf-for-interaction': () => emit('optimize-pdf-for-interaction'),
-    'save-as': () => emit('save-as'),
-    print: () => emit('print'),
-    'print-current-page': () => emit('print-current-page'),
-    'combine-files': () => emit('combine-files'),
-    'export-docx': () => emit('export-docx'),
-    'export-images': () => emit('export-images'),
-    'export-multi-page-tiff': () => emit('export-multi-page-tiff'),
-    'convert-to-pdf': () => emit('convert-to-pdf'),
-    undo: () => emit('undo'),
-    redo: () => emit('redo'),
-    'insert-image-from-file': () => emit('insert-image-from-file'),
-    'paste-image-from-clipboard': () => emit('paste-image-from-clipboard'),
-} satisfies Record<TToolbarAppMenuCommand, () => void>;
 
 const shortcutLabels = useShortcutLabels();
 // The state the renderer reports for desktop's native menu (useMenuSync); the
@@ -207,10 +175,12 @@ const menuContentOptions = {
     align: 'start' as const,
     sideOffset: 8,
     collisionPadding: 8,
+    onCloseAutoFocus: keepMovedFocus,
 };
 const appMenuUi = {
     content: 'app-menu toolbar-menu-panel',
-    group: 'app-menu-section toolbar-menu-section',
+    viewport: 'divide-y-0 p-1',
+    group: 'app-menu-section toolbar-menu-section p-0',
     label: 'app-menu-section-header toolbar-menu-section-header',
     separator: 'app-menu-divider toolbar-menu-divider',
     item: 'app-menu-item toolbar-menu-item',
@@ -224,26 +194,46 @@ const menuOpen = computed({
     set: (open: boolean) => emit('update:open', open),
 });
 
-const appMenuItems = computed(() => {
+// The dropdown keys its groups and entries by position, so each top-level
+// section is a group of its own: Pages coming or going with the active
+// document never turns an open View or Help submenu into another one.
+const appMenuItems = computed((): TToolbarAppMenuItem[][] => [
+    buildFileItems(),
+    buildEditItems(),
+    menuState.value?.supportsPdfMutation ?? menuState.value?.hasDocument
+        ? [createSubmenu(t('menu.pages'), 'i-ph-files', buildPagesItems())]
+        : [],
+    [createSubmenu(t('menu.view'), 'i-ph-eye', buildViewItems())],
+    [createSubmenu(t('menu.help'), 'i-ph-question', [{
+        label: t('menu.acknowledgements'),
+        icon: 'i-ph-info',
+        onSelect: () => {
+            close();
+            void navigateTo('/about');
+        },
+    }])],
+]);
+
+function buildFileItems(): TToolbarAppMenuItem[] {
     const items: TToolbarAppMenuItem[] = [
         {
             type: 'label',
             label: t('menu.file'),
         },
-        createCommandItem('open-file', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.value.openFile}),
+        createMenuEventItem('onMenuOpenPdf', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.value.openFile}),
         createSubmenu(t('menu.openRecent'), 'i-ph-clock', buildOpenRecentItems()),
-        createCommandItem('save', t('menu.save'), getReaderCommandMenuIcon('save'), {
+        createMenuEventItem('onMenuSave', t('menu.save'), getReaderCommandMenuIcon('save'), {
             disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.value.save,
         }),
-        createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
-        createCommandItem('optimize-pdf-for-interaction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: !hasInteractiveDocument.value || !canOptimizePdf || isAnySaving || isHistoryBusy || isDjvuMode}),
-        createCommandItem('save-as', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
+        createMenuEventItem('onMenuRepairSave', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
+        createMenuEventItem('onMenuOptimizePdfForInteraction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: !hasInteractiveDocument.value || !canOptimizePdf || isAnySaving || isHistoryBusy || isDjvuMode}),
+        createMenuEventItem('onMenuSaveAs', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
             disabled: !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy,
             shortcut: shortcutLabels.value.saveAs,
         }),
-        createCommandItem(
-            'print',
+        createMenuEventItem(
+            'onMenuPrint',
             t('menu.print'),
             isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : getReaderCommandMenuIcon('print'),
             {
@@ -252,17 +242,24 @@ const appMenuItems = computed(() => {
                 shortcut: shortcutLabels.value.print,
             },
         ),
-        createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
+        createMenuEventItem('onMenuPrintCurrentPage', t('menu.printCurrentPage'), undefined, {
             disabled: isPrintCommandDisabled.value,
             slot: 'print-current-page',
         }),
         { type: 'separator' },
-        createCommandItem('combine-files', t('menu.combineFiles'), 'i-ph-stack-plus'),
+        {
+            label: t('menu.combineFiles'),
+            icon: 'i-ph-stack-plus',
+            onSelect: () => {
+                emit('combine-files');
+                close();
+            },
+        },
         { type: 'separator' },
         // Desktop's File > Export submenu.
         createSubmenu(t('menu.export'), 'i-ph-export', [
-            createCommandItem(
-                'export-docx',
+            createMenuEventItem(
+                'onMenuExportDocx',
                 isExportingDocx ? t('ocr.cancel') : t('menu.exportDocx'),
                 isExportingDocx ? 'i-ph-stop' : getReaderCommandMenuIcon('export-docx'),
                 {
@@ -270,57 +267,53 @@ const appMenuItems = computed(() => {
                     shortcut: shortcutLabels.value.exportDocx,
                 },
             ),
-            createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
-            createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
+            createMenuEventItem('onMenuExportImages', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
+            createMenuEventItem('onMenuExportMultiPageTiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
         ]),
     ];
-
-    if (canUseDjvu && isDjvuMode) {
+    if (isDjvuMode) {
         items.push(
             { type: 'separator' },
-            createCommandItem('convert-to-pdf', t('menu.convertToPdf'), 'i-ph-arrows-clockwise', {disabled: documentBusy}),
+            {
+                label: t('menu.convertToPdf'),
+                icon: 'i-ph-arrows-clockwise',
+                disabled: documentBusy === true,
+                onSelect: () => {
+                    emit('convert-to-pdf');
+                    close();
+                },
+            },
         );
     }
-
     items.push(
         { type: 'separator' },
         createMenuEventItem('onMenuNewTab', t('menu.newTab'), 'i-ph-plus'),
         createMenuEventItem('onMenuCloseTab', t('menu.closeTab'), 'i-ph-x', {disabled: menuState.value?.canCloseTab !== true}),
+    );
+    return items;
+}
+
+function buildEditItems(): TToolbarAppMenuItem[] {
+    return [
         { type: 'separator' },
         {
             type: 'label',
             label: t('menu.edit'),
         },
-        createCommandItem('undo', t('menu.undo'), getReaderCommandMenuIcon('undo'), {
+        createMenuEventItem('onMenuUndo', t('menu.undo'), getReaderCommandMenuIcon('undo'), {
             disabled: !hasInteractiveDocument.value || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode,
             shortcut: shortcutLabels.value.undo,
         }),
-        createCommandItem('redo', t('menu.redo'), getReaderCommandMenuIcon('redo'), {
+        createMenuEventItem('onMenuRedo', t('menu.redo'), getReaderCommandMenuIcon('redo'), {
             disabled: !hasInteractiveDocument.value || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode,
             shortcut: shortcutLabels.value.redo,
         }),
         { type: 'separator' },
-        createCommandItem('insert-image-from-file', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
-        createCommandItem('paste-image-from-clipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
+        createMenuEventItem('onMenuInsertImageFromFile', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
+        createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
         { type: 'separator' },
-    );
-    if (menuState.value?.supportsPdfMutation ?? menuState.value?.hasDocument) {
-        items.push(createSubmenu(t('menu.pages'), 'i-ph-files', buildPagesItems()));
-    }
-    items.push(
-        createSubmenu(t('menu.view'), 'i-ph-eye', buildViewItems()),
-        createSubmenu(t('menu.help'), 'i-ph-question', [{
-            label: t('menu.acknowledgements'),
-            icon: 'i-ph-info',
-            onSelect: () => {
-                close();
-                void navigateTo('/about');
-            },
-        }]),
-    );
-
-    return items;
-});
+    ];
+}
 
 function buildOpenRecentItems(): TToolbarAppMenuItem[] {
     if (recentFiles.value.length === 0) {
@@ -437,50 +430,6 @@ function close() {
     emit('update:open', false);
 }
 
-function handleMenuCommand(command: TToolbarAppMenuCommand) {
-    emitMenuCommand[command]();
-    close();
-}
-
-function createCommandItem(
-    command: TToolbarAppMenuCommand,
-    label: string,
-    icon?: string,
-    options: {
-        disabled?: boolean;
-        shortcut?: string;
-        slot?: string;
-        loading?: boolean;
-    } = {},
-): IToolbarAppMenuCommandItem {
-    const item: IToolbarAppMenuCommandItem = {
-        label,
-        onSelect: () => handleMenuCommand(command),
-    };
-
-    if (icon !== undefined) {
-        item.icon = icon;
-    }
-
-    if (options.disabled !== undefined) {
-        item.disabled = options.disabled;
-    }
-
-    if (options.shortcut !== undefined) {
-        item.shortcut = options.shortcut;
-    }
-
-    if (options.slot !== undefined) {
-        item.slot = options.slot;
-    }
-
-    if (options.loading !== undefined) {
-        item.loading = options.loading;
-    }
-
-    return item;
-}
-
 function createSubmenu(label: string, icon: string, children: TToolbarAppMenuItem[]): IToolbarAppMenuSubmenuItem {
     return {
         label,
@@ -515,6 +464,9 @@ function createMenuEventItem<TName extends TBrowserMenuEventName>(
     }
     if (options.slot !== undefined) {
         item.slot = options.slot;
+    }
+    if (options.loading !== undefined) {
+        item.loading = options.loading;
     }
     if (options.checked !== undefined) {
         item.type = 'checkbox';

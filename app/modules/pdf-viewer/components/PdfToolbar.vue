@@ -1,19 +1,13 @@
 <template>
     <header
-        ref="toolbarRef"
         class="toolbar"
-        :data-collapse-tier="collapseTier"
         :data-toolbar-layout="toolbarLayout"
         :data-has-document="hasPdf ? 'true' : 'false'"
         role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
     >
-        <span ref="collapseProbeRef" class="toolbar-collapse-probe" aria-hidden="true" />
+        <span class="toolbar-collapse-probe" aria-hidden="true" />
         <div class="toolbar-section toolbar-left">
-            <slot
-                v-if="isCommandInline('app-menu')"
-                name="app-menu"
-            />
             <span class="toolbar-collapsible" data-collapse-at="5">
                 <ToolbarButton
                     v-if="isCommandInline('open-file')"
@@ -254,12 +248,6 @@
             <div data-collapse-at="1" class="toolbar-separator" />
 
             <div class="toolbar-cluster">
-                <slot
-                    v-if="isCommandInline('overflow-menu')"
-                    name="overflow-menu"
-                    :collapse-tier="collapseTier"
-                    :has-overflow-items="hasOverflowItems"
-                />
                 <span class="toolbar-collapsible" data-collapse-at="5">
                     <ToolbarButton
                         v-if="isCommandInline('fullscreen')"
@@ -288,7 +276,6 @@ import ToolbarButton from '@app/components/ToolbarButton.vue';
 import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButton.vue';
 import { AssistantToolbarToggle } from '@app/modules/agent-panel/public/component-exports/assistantToolbarToggle';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
-import { useResizeObserver } from '@vueuse/core';
 import { useShortcutLabels } from '@app/constants/shortcuts';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useAssistantPanel } from '@app/composables/useAssistantPanel';
@@ -401,11 +388,8 @@ const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     isHistoryBusy,
 }));
 // The toolbar's container queries decide which groups it shows, so the
-// prerendered page already has the final layout. The overflow menu lists what
-// they hid; it reads the tier those queries set on the probe.
-const toolbarRef = useTemplateRef<HTMLElement>('toolbarRef');
-const collapseProbeRef = useTemplateRef<HTMLElement>('collapseProbeRef');
-const collapseTier = ref(0);
+// prerendered page already has the final layout. The window's More tools
+// lists what they hid; it reads the tier those queries set on the probe.
 const { isBrowserRuntime } = useRuntimeEnvironment();
 const { isEnabled: isAssistantToggleShown } = useAssistantPanel();
 const toolbarLayout = computed(() => {
@@ -414,18 +398,6 @@ const toolbarLayout = computed(() => {
     }
     return isAssistantToggleShown.value ? 'desktop-assistant' : 'desktop';
 });
-watch(toolbarLayout, readCollapseTier, {flush: 'post'});
-function readCollapseTier() {
-    const probe = collapseProbeRef.value;
-    collapseTier.value = probe
-        ? Number.parseInt(getComputedStyle(probe).getPropertyValue('--toolbar-collapse-tier'), 10) || 0
-        : 0;
-}
-// The tier changes with the toolbar's width (and its rem-based height when the
-// UI scale changes) or with the layout's threshold set, which can switch
-// without a resize when the assistant setting loads.
-useResizeObserver(toolbarRef, readCollapseTier);
-const hasOverflowItems = computed(() => isCommandInline('overflow-menu') || collapseTier.value > 0);
 
 const toolbarCommandHandlers = {
     'open-file': () => emit('open-file'),
@@ -575,10 +547,10 @@ function handleToolbarCommand(command: TToolbarCommand) {
  * The toolbar's own width decides which groups it shows, so the prerendered
  * page paints the layout the live page keeps. An element marked
  * data-collapse-at="N" is hidden from tier N on; the probe carries the tier
- * for the overflow menu, which lists what is hidden. Each threshold is the
+ * for the window's More tools, which lists what is hidden. Each threshold is the
  * widest content of the tier below it (desktop scan cleanup, the assistant
- * toggle, four-digit page counts, the longest locale's Menu label) and keeps
- * the tiers in rem, so they follow the UI scale.
+ * toggle, four-digit page counts) and keeps the tiers in rem, so they follow
+ * the UI scale.
  */
 .toolbar-collapsible {
     display: contents;
@@ -596,12 +568,14 @@ function handleToolbarCommand(command: TToolbarCommand) {
 
 /* Widest content of the tier below each threshold, plus headroom for longer
    locale labels, measured at UI scale 1 with a four-digit page count:
-   browser 1281/1190/1070/859/577 px; desktop has no Menu button (-85 px) but
-   scan cleanup at tier 0 (+38 px); the assistant toggle adds 38 px to tiers 0-4. */
+   browser 1281/1190/1070/859/577 px with the Menu (85 px) and More tools
+   (36 px) triggers, which now sit beside the toolbar in the window's row;
+   desktop has scan cleanup at tier 0 (+38 px); the assistant toggle adds
+   38 px to tiers 0-4. */
 $toolbar-collapse-thresholds: (
-    'browser': (81.5rem, 75.5rem, 68rem, 54.5rem, 37.5rem),
-    'desktop': (78.5rem, 70.5rem, 63rem, 49.5rem, 32rem),
-    'desktop-assistant': (80.5rem, 73rem, 65rem, 52rem, 34.5rem),
+    'browser': (74rem, 68rem, 60.5rem, 47rem, 30rem),
+    'desktop': (76.25rem, 68.25rem, 60.75rem, 47.25rem, 29.75rem),
+    'desktop-assistant': (78.25rem, 70.75rem, 62.75rem, 49.75rem, 32.25rem),
 );
 
 @each $layout, $widths in $toolbar-collapse-thresholds {

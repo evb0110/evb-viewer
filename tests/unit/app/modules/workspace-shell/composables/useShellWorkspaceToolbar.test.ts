@@ -48,6 +48,10 @@ function createToolbarOptions(overrides: Partial<Omit<Parameters<typeof useShell
     const activeDocumentSession = overrides.activeDocumentSession ?? shallowRef<IWorkspaceDocumentController | null>(null);
     return {
         hasWorkspaceToolbarContent: ref(false),
+        fallbackToolbar: ref(null),
+        workspaceToolbar: ref(null),
+        assistantToggleShown: ref(false),
+        isToolbarHidden: () => false,
         ...overrides,
         activeDocumentSession,
         activeDocumentView: computed(() => activeDocumentSession.value?.getView('tab-1') ?? null),
@@ -58,6 +62,7 @@ describe('useShellWorkspaceToolbar', () => {
     it('reads toolbar state from the active tab controller', () => {
         const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(createSession({
             hasPdf: true,
+            toolbarHasPdf: true,
             canSave: true,
             currentPage: 12,
             totalPages: 80,
@@ -170,6 +175,12 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
     it('returns the documented default shape', () => {
         expect(createDefaultWorkspaceToolbarSnapshot()).toEqual({
             hasPdf: false,
+            toolbarHasPdf: false,
+            documentBusy: false,
+            canToggleSidebar: false,
+            ocrActionDisabled: true,
+            ocrTriggerDisabled: true,
+            scanCleanupDisabled: true,
             initialVisualReady: false,
             hasOpenError: false,
             isPreparingPrint: false,

@@ -63,7 +63,6 @@ import type { TPdfViewMode } from '@contracts/shared';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { ScanCleanupScissorsIcon } from '@app/modules/scan-cleanup/public/runtime';
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
-import type { TToolbarOverflowMenuCommand } from '@app/types/toolbarMenuCommands';
 import {
     isReaderCommandInMenu,
     isReaderCommandInline,
@@ -72,13 +71,40 @@ import {
 } from '@app/utils/readerCommandSurface';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
+import { keepMovedFocus } from '@app/utils/menuFocus';
 
 const { t } = useTypedI18n();
 
+type TToolbarOverflowMenuCommand =
+    | 'open-file'
+    | 'save'
+    | 'save-as'
+    | 'print'
+    | 'undo'
+    | 'redo'
+    | 'open-ocr'
+    | 'open-scan-cleanup'
+    | 'export-docx'
+    | 'toggle-assistant'
+    | 'toggle-sidebar'
+    | 'fit-width'
+    | 'fit-height'
+    | 'enable-drag'
+    | 'disable-drag'
+    | 'toggle-continuous-scroll'
+    | 'capture-region'
+    | 'crop'
+    | 'quick-note'
+    | 'toggle-fullscreen'
+    | 'open-settings'
+    | 'combine-files'
+    | 'print-current-page'
+    | 'convert-to-pdf';
+
 type TToolbarOverflowMenuItem =
     | {
-        type: 'label' | 'separator';
-        label?: string;
+        type: 'label';
+        label: string;
     }
     | IToolbarOverflowMenuCommandItem;
 
@@ -267,10 +293,12 @@ const contentOptions = {
     positionStrategy: 'fixed' as const,
     updatePositionStrategy: 'always' as const,
     hideWhenDetached: true,
+    onCloseAutoFocus: keepMovedFocus,
 };
 const overflowMenuUi = {
     content: 'overflow-menu toolbar-menu-panel',
-    group: 'overflow-menu-section toolbar-menu-section',
+    viewport: 'divide-y-0 p-1',
+    group: 'overflow-menu-section toolbar-menu-section p-0',
     label: 'overflow-menu-section-header toolbar-menu-section-header',
     separator: 'overflow-menu-divider toolbar-menu-divider',
     item: 'overflow-menu-item toolbar-menu-item',
@@ -284,18 +312,17 @@ const hasRelocatedFileItems = computed(() => (
     || shouldShowRelocatedCommand('save-as')
     || shouldShowRelocatedCommand('print')
 ));
-// The browser's app menu holds the File and Edit commands; More tools does
+// The browser window's Menu holds the File and Edit commands; More tools does
 // not repeat them there.
 const { isBrowserRuntime } = useRuntimeEnvironment();
-const fileCommandsInAppMenu = computed(() => isBrowserRuntime.value && isReaderCommandInline(surface, 'app-menu'));
-const hasDocumentItems = computed(() => !fileCommandsInAppMenu.value && (shouldShowMenuCommand('open-file', 5)
+const hasDocumentItems = computed(() => !isBrowserRuntime.value && (shouldShowMenuCommand('open-file', 5)
     || hasRelocatedFileItems.value || (
     showDocumentSection === true
     && (canCombineFiles === true
         || canPrintCurrentPage === true
         || canConvertToPdf === true)
 )));
-const hasEditItems = computed(() => !fileCommandsInAppMenu.value && (
+const hasEditItems = computed(() => !isBrowserRuntime.value && (
     shouldShowRelocatedCommand('undo') || shouldShowRelocatedCommand('redo')
 ));
 
@@ -324,16 +351,17 @@ const hasShellItems = computed(() => (
     || shouldShowMenuCommand('settings', 5)
 ));
 
-const overflowMenuItems = computed(() => {
-    const items: TToolbarOverflowMenuItem[] = [];
-    appendMenuSection(items, t('menu.file'), buildDocumentItems());
-    appendMenuSection(items, t('menu.edit'), buildEditItems());
-    appendMenuSection(items, t('toolbar.annotations'), buildToolItems());
-    appendMenuSection(items, t('menu.view'), buildViewItems());
-    appendMenuSection(items, t('toolbar.moreTools'), buildShellItems());
-    return items;
-});
-const hasOverflowMenuCommands = computed(() => overflowMenuItems.value.some(item => 'onSelect' in item));
+// The dropdown keys its groups and entries by position, so each section is a
+// group of its own: one section's entries coming or going with the toolbar's
+// width or the document never moves another section's.
+const overflowMenuItems = computed(() => [
+    createMenuSection(t('menu.file'), buildDocumentItems()),
+    createMenuSection(t('menu.edit'), buildEditItems()),
+    createMenuSection(t('toolbar.annotations'), buildToolItems()),
+    createMenuSection(t('menu.view'), buildViewItems()),
+    createMenuSection(t('toolbar.moreTools'), buildShellItems()),
+]);
+const hasOverflowMenuCommands = computed(() => overflowMenuItems.value.some(section => section.length > 0));
 
 watch(hasOverflowMenuCommands, (hasCommands) => {
     if (!hasCommands && open) {
@@ -561,26 +589,16 @@ function buildShellItems() {
     return items;
 }
 
-function appendMenuSection(
-    target: TToolbarOverflowMenuItem[],
-    label: string,
-    sectionItems: IToolbarOverflowMenuCommandItem[],
-) {
-    if (sectionItems.length === 0) {
-        return;
-    }
-
-    if (target.length > 0) {
-        target.push({ type: 'separator' });
-    }
-
-    target.push(
-        {
-            type: 'label',
-            label,
-        },
-        ...sectionItems,
-    );
+function createMenuSection(label: string, sectionItems: IToolbarOverflowMenuCommandItem[]): TToolbarOverflowMenuItem[] {
+    return sectionItems.length === 0
+        ? []
+        : [
+            {
+                type: 'label',
+                label,
+            },
+            ...sectionItems,
+        ];
 }
 
 function createCommandItem(
@@ -701,6 +719,14 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
 
 .overflow-menu {
     min-width: min(var(--app-toolbar-overflow-menu-min-width), var(--app-floating-panel-viewport-width));
+}
+
+// A rule, not a separator entry, divides a shown section from the one before
+// it, so no entry's position depends on which sections are shown.
+.overflow-menu-section:not(:empty) ~ .overflow-menu-section:not(:empty) {
+    margin-top: var(--app-space-sm);
+    padding-top: var(--app-space-sm);
+    border-top: var(--app-hairline-height) solid var(--app-toolbar-separator);
 }
 
 .overflow-menu-scan-cleanup-icon {

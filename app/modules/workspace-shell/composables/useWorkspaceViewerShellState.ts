@@ -36,8 +36,6 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const zoomDropdownOpen = ref(false);
     const pageDropdownOpen = ref(false);
     const ocrPopupOpen = ref(false);
-    const overflowMenuOpen = ref(false);
-    const appMenuOpen = ref(false);
 
     const selectedThumbnailPages = ref<number[]>([]);
     const selectedPageSelection = shallowRef<TPageSelection | null>(null);
@@ -90,8 +88,6 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         zoomOpen: zoomDropdownOpen,
         pageOpen: pageDropdownOpen,
         ocrOpen: ocrPopupOpen,
-        overflowOpen: overflowMenuOpen,
-        appMenuOpen,
     });
 
     const zoom = ref(initialState?.zoom ?? 1);
@@ -161,8 +157,6 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         zoomDropdownOpen,
         pageDropdownOpen,
         ocrPopupOpen,
-        overflowMenuOpen,
-        appMenuOpen,
         closeAllDropdowns,
         closeOtherDropdowns,
         handleDropdownOpenChange,

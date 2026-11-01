@@ -11,7 +11,7 @@ interface IDjvuProjectionActionOptions {
     isExportingDocx: Ref<boolean>;
     cancelExportDocx: () => void;
     handleDropdownOpen: (
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
+        dropdown: 'zoom' | 'page' | 'ocr',
         isOpen: boolean,
     ) => void;
     insertImageFromFile: () => unknown;
@@ -43,7 +43,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
     }
 
     async function ensureDropdownProjection(
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
+        dropdown: 'zoom' | 'page' | 'ocr',
         isOpen: boolean,
     ) {
         if (dropdown !== 'ocr' || !isOpen || await ensureProjection('ocr')) {
@@ -62,7 +62,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
             if (await ensureProjection('ocr')) await options.exportDocx(selectedLanguages);
         },
         handleDropdownOpen(
-            dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
+            dropdown: 'zoom' | 'page' | 'ocr',
             isOpen: boolean,
         ) {
             void ensureDropdownProjection(dropdown, isOpen);

@@ -24,6 +24,7 @@ import {
     type IFailureToastTarget,
 } from '@app/composables/useFailureToast';
 import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {dismissScanCleanupFirstRunGuidanceInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
@@ -128,6 +129,33 @@ export const isScanCleanupRunning = computed(() => Boolean(
         ].includes(scanCleanupRun.jobState.status)
     ),
 ));
+
+/**
+ * The scan cleanup trigger of one document's toolbar or menu. The window holds
+ * one run; a document shows it only when it owns it, never another
+ * document's run as its own activity.
+ */
+export function describeScanCleanupTrigger(documentRef: string | null, totalPages: number, t: TTranslateFn) {
+    const running = Boolean(documentRef)
+        && isScanCleanupRunning.value
+        && scanCleanupRun.ownerDocumentRef === documentRef;
+    if (!documentRef) {
+        return {
+            running,
+            label: t('scanCleanup.noDocument'),
+        };
+    }
+    return {
+        running,
+        label: running
+            ? formatScanCleanupProgress(scanCleanupRun.jobState?.progress ?? {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: Math.max(1, totalPages),
+            }, t).text
+            : t('scanCleanup.button'),
+    };
+}
 
 function scanCleanupRunErrorMatches(
     ownerId: string,
