@@ -1136,30 +1136,18 @@ fn filter_show_array(
     Ok(output)
 }
 
-fn normalize_greek_micro_sign_in_text(bytes: &mut [u8]) {
-    for pair in bytes.chunks_exact_mut(2) {
-        if pair == [0x00, 0xB5] {
-            pair[0] = 0x03;
-            pair[1] = 0xBC;
-        }
-    }
-}
-
-fn normalize_greek_micro_sign_in_operations(operations: &mut [ContentOperation]) {
-    for operation in operations {
-        for operand in &mut operation.operands {
-            match operand {
-                Object::String(bytes, _) => normalize_greek_micro_sign_in_text(bytes),
-                Object::Array(values) if operation.operator == "TJ" => {
-                    for value in values {
-                        if let Object::String(bytes, _) = value {
-                            normalize_greek_micro_sign_in_text(bytes);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+// Glyph strings, TJ arrays and the /ActualText of logical-line spans.
+fn greek_mu_for_micro_sign(object: &mut Object) {
+    match object {
+        Object::String(bytes, _) => bytes
+            .chunks_exact_mut(2)
+            .filter(|pair| *pair == [0x00, 0xB5])
+            .for_each(|pair| pair.copy_from_slice(&[0x03, 0xBC])),
+        Object::Array(values) => values.iter_mut().for_each(greek_mu_for_micro_sign),
+        Object::Dictionary(entries) => entries
+            .iter_mut()
+            .for_each(|(_, value)| greek_mu_for_micro_sign(value)),
+        _ => {}
     }
 }
 
@@ -1727,7 +1715,10 @@ pub(crate) fn append_text_layer(
         Err(error) => return Err(error),
     };
     if normalize_greek_micro_sign {
-        normalize_greek_micro_sign_in_operations(&mut operations);
+        operations
+            .iter_mut()
+            .flat_map(|operation| &mut operation.operands)
+            .for_each(greek_mu_for_micro_sign);
     }
     if operations
         .iter()
