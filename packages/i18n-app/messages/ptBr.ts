@@ -1761,6 +1761,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF salvo, mas não foi possível atualizar a recuperação',
             'recoverySettlementDescription': 'Suas alterações foram gravadas no PDF. As alterações posteriores ainda não salvas continuam abertas aqui.',
+            'workingCopySyncRequiredTitle': 'Não foi possível atualizar o documento aberto após salvar',
+            'workingCopySyncRequiredUnknown': 'O arquivo pode ter sido gravado. Suas alterações continuam abertas aqui; verifique o arquivo ou use Salvar como para salvá-las em outro lugar.',
             'validation': 'O documento não passou na verificação de validade, então nada foi gravado.',
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',

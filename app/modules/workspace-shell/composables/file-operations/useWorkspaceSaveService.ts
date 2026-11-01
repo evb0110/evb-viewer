@@ -315,10 +315,8 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
     if (!persisted.success) {
-        return {
-            ...notSavedBeforeWrite(abortReasonForPersistResult(persisted), plan.target.expectedRevisionToken, null),
-            ...(persisted.failure === undefined ? {} : {failure: persisted.failure}),
-        };
+        // As for an ordinary save: persistence ran and may have written the file.
+        return workingCopySaveResult(persisted, null);
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
     const deleteEffects = persisted.annotationDeleteEffects;

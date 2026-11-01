@@ -243,7 +243,7 @@ export function createDocumentPersistence(
         channel: string,
         phase: string,
         reason: IPdfPersistFailure['reason'],
-        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath'>,
+        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath' | 'externalWriteCommitted' | 'workingCopySyncRequired'>,
     ): IPdfPersistFailure {
         return {
             channel,
@@ -251,6 +251,14 @@ export function createDocumentPersistence(
             phase,
             reason,
             ...detail,
+        };
+    }
+
+    /** Whether a refused save still wrote the file, and that the open copy needs syncing. */
+    function saveOutcomeFields(result: Pick<IPdfPersistFailure, 'externalWriteCommitted' | 'workingCopySyncRequired'>) {
+        return {
+            ...(result.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: result.externalWriteCommitted}),
+            ...(result.workingCopySyncRequired ? {workingCopySyncRequired: true} : {}),
         };
     }
 
@@ -391,6 +399,7 @@ export function createDocumentPersistence(
                 ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
                 ...(result.message === undefined ? {} : {message: result.message}),
                 ...(result.validation === undefined ? {} : {validation: result.validation}),
+                ...saveOutcomeFields(result),
             };
             return {
                 ok: false,
@@ -1060,6 +1069,7 @@ export function createDocumentPersistence(
                             } : {}),
                             validation: result.validation,
                             ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
+                            ...saveOutcomeFields(result),
                         },
                     )),
                     ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),

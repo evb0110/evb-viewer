@@ -1750,6 +1750,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF saved, but recovery could not be updated',
             'recoverySettlementDescription': 'Your changes were written to the PDF. Any newer unsaved edits remain open here.',
+            'workingCopySyncRequiredTitle': 'Could not update the open document after Save',
+            'workingCopySyncRequiredUnknown': 'The file may have been written. Your edits remain open here; check the file, or use Save As to save them elsewhere.',
             'validation': 'The document did not pass its validity check, so nothing was written.',
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',

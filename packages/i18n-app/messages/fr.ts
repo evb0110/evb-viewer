@@ -1761,6 +1761,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF enregistré, mais la récupération n’a pas pu être mise à jour',
             'recoverySettlementDescription': 'Vos modifications ont été enregistrées dans le PDF. Les modifications ultérieures non enregistrées restent ouvertes ici.',
+            'workingCopySyncRequiredTitle': 'Impossible de mettre à jour le document ouvert après l’enregistrement',
+            'workingCopySyncRequiredUnknown': 'Le fichier a peut-être été écrit. Vos modifications restent ouvertes ici ; vérifiez le fichier ou utilisez Enregistrer sous pour les enregistrer ailleurs.',
             'validation': 'Le document n’a pas passé le contrôle de validité, rien n’a été écrit.',
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',

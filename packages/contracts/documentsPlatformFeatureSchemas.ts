@@ -454,8 +454,14 @@ const nativeErrorEnvelopeSchema: v.GenericSchema<unknown, INativeErrorEnvelope> 
 const nativeSaveResultSchema = v.object({
     applied: v.boolean(),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
-    reason: v.exactOptional(v.literal('original-changed')),
+    reason: v.exactOptional(v.picklist([
+        'original-changed',
+        'working-copy-sync-required',
+    ])),
     keptFilePath: v.exactOptional(v.string()),
+    // As in a structured save result: whether the file was written, and that the open copy needs syncing.
+    externalWriteCommitted: v.exactOptional(v.nullable(v.boolean())),
+    workingCopySyncRequired: v.exactOptional(v.boolean()),
     nativeMutationPostconditionsVerified: v.exactOptional(v.literal(true, 'invalid native PDF save result')),
     identityBindings: v.exactOptional(v.pipe(
         v.unknown(),

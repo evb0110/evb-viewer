@@ -1750,6 +1750,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF opgeslagen, maar herstel kon niet worden bijgewerkt',
             'recoverySettlementDescription': 'Uw wijzigingen zijn naar de PDF geschreven. Nieuwere, niet-opgeslagen wijzigingen blijven hier open.',
+            'workingCopySyncRequiredTitle': 'Het geopende document kon na het opslaan niet worden bijgewerkt',
+            'workingCopySyncRequiredUnknown': 'Het bestand is mogelijk geschreven. Je wijzigingen blijven hier geopend; controleer het bestand of gebruik Opslaan als om ze elders op te slaan.',
             'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',

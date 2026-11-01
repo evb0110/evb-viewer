@@ -61,6 +61,7 @@ import {
     openDocumentPaths,
 } from '@app/platform/browser-api/browserWorkingCopyService';
 import {
+    BrowserExternalSaveSyncRequiredError,
     savePdfAsFromWorkingCopy,
     saveWorkingBytesToSource,
     saveWorkingBytesToSourceStructured,
@@ -122,6 +123,15 @@ interface ICreateBrowserDocumentsFileCapabilityOptions {
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability & IDocxExportFileCapability;
 const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
+function createValidBrowserOutputResult(): IPdfValidationResult {
+    return {
+        isValid: true,
+        tool: 'browser',
+        errors: [],
+        warnings: [],
+    };
+}
+
 function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
     return {
         ...validation,
@@ -145,14 +155,15 @@ export function createBrowserDocumentsFileCapability(
     const folderEmptyMessageProvider = options.errorMessageProvider?.folderEmpty
         ?? (() => 'No supported documents were found in the selected folder');
 
+    async function discardWorkingCopy(path: TDocumentRef, leaseId?: string) {
+        if (leaseId !== undefined) browserNativeMutationLeases.delete(leaseId);
+        await retireBrowserDocumentWorkingCopy(path);
+        await browserDocumentStore.remove(path).catch(() => undefined);
+    }
+
+    // Cleanup is best effort for failed transient opens.
     async function cleanupTransientOpenRefs(paths: string[]) {
-        await Promise.all(paths.map(async (path) => {
-            try {
-                await browserDocumentStore.remove(path);
-            } catch {
-                // Cleanup is best effort for failed transient opens.
-            }
-        }));
+        await Promise.all(paths.map(path => browserDocumentStore.remove(path).catch(() => undefined)));
     }
 
 
@@ -398,19 +409,13 @@ export function createBrowserDocumentsFileCapability(
                 });
                 return {
                     applied: true,
-                    validation: {
-                        isValid: true,
-                        tool: 'browser',
-                        errors: [],
-                        warnings: [],
-                    },
+                    validation: createValidBrowserOutputResult(),
                     nativeMutationPostconditionsVerified: true,
                     identityBindings: wasmResult.identityBindings,
                     stagedOutput,
                 } satisfies IPdfNativeSaveResult;
             } catch (error) {
-                await retireBrowserDocumentWorkingCopy(stagedPath);
-                await browserDocumentStore.remove(stagedPath).catch(() => undefined);
+                await discardWorkingCopy(stagedPath);
                 throw error;
             }
         },
@@ -419,9 +424,7 @@ export function createBrowserDocumentsFileCapability(
             if (!stagedPath) {
                 return false;
             }
-            browserNativeMutationLeases.delete(leaseId);
-            await retireBrowserDocumentWorkingCopy(stagedPath);
-            await browserDocumentStore.remove(stagedPath).catch(() => undefined);
+            await discardWorkingCopy(stagedPath, leaseId);
             return true;
         },
         async cloneStagedPdfNativeMutationToWorkingCopy(stagedOutput, originalPath) {
@@ -431,9 +434,7 @@ export function createBrowserDocumentsFileCapability(
                 data: bytes,
                 ...(originalPath ? {sourceRef: originalPath} : {}),
             });
-            browserNativeMutationLeases.delete(stagedOutput.leaseId);
-            await retireBrowserDocumentWorkingCopy(stagedOutput.path);
-            await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
+            await discardWorkingCopy(stagedOutput.path, stagedOutput.leaseId);
             return clonePath;
         },
         async commitStagedPdfNativeMutations(
@@ -444,37 +445,37 @@ export function createBrowserDocumentsFileCapability(
             if (!options?.expectedDocumentRevisionToken) {
                 throw new Error('Browser staged PDF save requires the document revision');
             }
+            const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
             let committed: boolean;
             try {
                 committed = await saveWorkingBytesToSource(path, options, stagedOutput);
             } catch (error) {
-                browserNativeMutationLeases.delete(stagedOutput.leaseId);
-                await retireBrowserDocumentWorkingCopy(stagedOutput.path);
-                await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
-                throw error;
+                // Written, but local bookkeeping failed: a save result, not a writer failure.
+                if (!(error instanceof BrowserExternalSaveSyncRequiredError)) throw error;
+                return {
+                    applied: false,
+                    validation: null,
+                    reason: 'working-copy-sync-required',
+                    externalWriteCommitted: error.externalWriteCommitted,
+                    workingCopySyncRequired: true,
+                    error: {
+                        code: 'io',
+                        message: error.message,
+                    },
+                } satisfies IPdfNativeSaveResult;
+            } finally {
+                await discardWorkingCopy(stagedOutput.path, stagedOutput.leaseId);
             }
             if (!committed) {
-                browserNativeMutationLeases.delete(stagedOutput.leaseId);
-                await retireBrowserDocumentWorkingCopy(stagedOutput.path);
-                await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
                 return {
                     applied: false,
                     validation: null,
                 } satisfies IPdfNativeSaveResult;
             }
-            const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
-            browserNativeMutationLeases.delete(stagedOutput.leaseId);
-            await retireBrowserDocumentWorkingCopy(stagedOutput.path);
-            await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
             await clearSearchCaches(path);
             return {
                 applied: true,
-                validation: {
-                    isValid: true,
-                    tool: 'browser',
-                    errors: [],
-                    warnings: [],
-                },
+                validation: createValidBrowserOutputResult(),
                 nativeMutationPostconditionsVerified: true,
                 ...(identityBindings ? {identityBindings} : {}),
             } satisfies IPdfNativeSaveResult;
@@ -663,8 +664,7 @@ export function createBrowserDocumentsFileCapability(
                 browserDocumentStore.unload(sourcePath);
                 return workingPath;
             } catch (error) {
-                await retireBrowserDocumentWorkingCopy(workingPath);
-                await browserDocumentStore.remove(workingPath).catch(() => undefined);
+                await discardWorkingCopy(workingPath);
                 throw error;
             }
         },

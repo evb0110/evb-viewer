@@ -1750,6 +1750,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF guardado, pero no se pudo actualizar la recuperación',
             'recoverySettlementDescription': 'Los cambios se escribieron en el PDF. Los cambios posteriores sin guardar siguen abiertos aquí.',
+            'workingCopySyncRequiredTitle': 'No se pudo actualizar el documento abierto después de guardar',
+            'workingCopySyncRequiredUnknown': 'Es posible que el archivo se haya escrito. Tus cambios siguen abiertos aquí; revisa el archivo o usa Guardar como para guardarlos en otro lugar.',
             'validation': 'El documento no superó la comprobación de validez, así que no se escribió nada.',
             'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
             'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',

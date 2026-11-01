@@ -83,6 +83,12 @@ export const useWorkspaceFailureSurface = () => {
     }
 
     function describeSaveFailure(reason: TWorkspaceSaveFailureReason, persistence?: IPdfPersistFailure) {
+        // The file was, or may have been, written; only the open copy fell behind.
+        if (persistence?.reason === 'working-copy-sync-required') {
+            return t(persistence.externalWriteCommitted === true
+                ? 'errors.save.recoverySettlementDescription'
+                : 'errors.save.workingCopySyncRequiredUnknown');
+        }
         if (persistence?.reason === 'original-changed') {
             return persistence.keptFilePath
                 ? t('errors.file.originalSavedOtherKept', {path: persistence.keptFilePath})
@@ -128,7 +134,10 @@ export const useWorkspaceFailureSurface = () => {
             return false;
         }
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
-        const description = reason === 'recovery-settlement-failed' ? describeSaveFailure(reason) : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
+        const syncRequired = diagnostics?.reason === 'working-copy-sync-required';
+        const description = reason === 'recovery-settlement-failed' || syncRequired
+            ? describeSaveFailure(reason, diagnostics)
+            : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
         const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
             'workspace',
             'Workspace save failed',
@@ -143,9 +152,11 @@ export const useWorkspaceFailureSurface = () => {
         const presentation: FailurePresentation = {
             ...priorPresentation,
             failure: receipt,
-            title: t(reason === 'recovery-settlement-failed' ? 'errors.save.recoverySettlementTitle' : 'errors.file.save'),
+            title: t(reason === 'recovery-settlement-failed'
+                ? 'errors.save.recoverySettlementTitle'
+                : syncRequired ? 'errors.save.workingCopySyncRequiredTitle' : 'errors.file.save'),
             description,
-            ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
+            ...(saveAs && (syncRequired || diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
                 label: t('toolbar.saveAs'),
                 onClick: saveAs,
             }]} : {}),

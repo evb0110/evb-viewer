@@ -1750,6 +1750,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF salvato, ma non è stato possibile aggiornare il recupero',
             'recoverySettlementDescription': 'Le modifiche sono state scritte nel PDF. Le modifiche successive non salvate restano aperte qui.',
+            'workingCopySyncRequiredTitle': 'Impossibile aggiornare il documento aperto dopo il salvataggio',
+            'workingCopySyncRequiredUnknown': 'Il file potrebbe essere stato scritto. Le modifiche restano aperte qui; controlla il file o usa Salva con nome per salvarle altrove.',
             'validation': 'Il documento non ha superato il controllo di validità, quindi non è stato scritto nulla.',
             'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
             'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',

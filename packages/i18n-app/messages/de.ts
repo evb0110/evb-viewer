@@ -1750,6 +1750,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF gespeichert, aber die Wiederherstellung konnte nicht aktualisiert werden',
             'recoverySettlementDescription': 'Ihre Änderungen wurden in die PDF-Datei geschrieben. Neuere, noch nicht gespeicherte Änderungen bleiben hier geöffnet.',
+            'workingCopySyncRequiredTitle': 'Das geöffnete Dokument konnte nach dem Speichern nicht aktualisiert werden',
+            'workingCopySyncRequiredUnknown': 'Die Datei wurde möglicherweise geschrieben. Ihre Änderungen bleiben hier geöffnet; prüfen Sie die Datei oder speichern Sie sie mit „Speichern unter“ an einem anderen Ort.',
             'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
