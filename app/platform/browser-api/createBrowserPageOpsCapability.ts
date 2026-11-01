@@ -103,13 +103,6 @@ interface ICreateBrowserPageOpsOptions {
 // A page operation's input and any insertion source travel in one engine
 // request; the engine refuses the framed remainder exactly.
 const BROWSER_PAGE_OP_INPUT_MAX_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes;
-/**
- * Browser page moves still need a full permutation for pdf-lib. Keep that
- * fallback deliberately small. Desktop uses the qpdf range operation and has
- * no corresponding page-count cap.
- */
-export const BROWSER_PAGE_OP_MOVE_MAX_PAGES = 10_000;
-export const BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES = 10_000;
 
 type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
 
@@ -140,10 +133,8 @@ function materializePageRanges(
         (count, range) => count + range.endPage - range.startPage + 1,
         0,
     );
-    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES) {
-        throw new Error(
-            `${operation} in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} pages; use the desktop app for larger documents`,
-        );
+    if (selectedCount <= 0) {
+        throw new Error(`${operation} received an empty selection`);
     }
     const pages: number[] = [];
     for (const range of ranges) {
@@ -171,12 +162,8 @@ function materializePageSelection(
             (count, range) => count + range.endPage - range.startPage + 1,
             0,
         );
-    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES) {
-        throw new PdfPageOpsCapabilityError(
-            'too-large',
-            `${operation} in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} selected pages; use the desktop app for larger documents`,
-            {operation},
-        );
+    if (selectedCount <= 0) {
+        throw new Error(`${operation} received an empty selection`);
     }
     if (Array.isArray(selection)) {
         return selection;
@@ -487,11 +474,6 @@ export function createBrowserPageOpsCapability(
         },
         async move(workingCopyPath, startPage, endPage, insertAt, totalPages, mutationOptions) {
             assertBrowserPageOpsSource(workingCopyPath, 'Moving pages');
-            if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
-                throw new Error(
-                    `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
-                );
-            }
             const move = createPageMoveRange(totalPages, startPage, endPage, insertAt);
             if (isPageMoveNoOp(move)) {
                 return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, () => Promise.resolve({
@@ -507,11 +489,6 @@ export function createBrowserPageOpsCapability(
         },
         async moveRanges(workingCopyPath, ranges, insertAt, totalPages, mutationOptions) {
             assertBrowserPageOpsSource(workingCopyPath, 'Moving pages');
-            if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
-                throw new Error(
-                    `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
-                );
-            }
             const move = createPageMoveRanges(totalPages, ranges, insertAt);
             if (isPageMoveRangesNoOp(move)) {
                 return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, () => Promise.resolve({
