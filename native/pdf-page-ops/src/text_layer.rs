@@ -366,6 +366,13 @@ fn dictionary_number(document: &Document, dictionary: &Dictionary, key: &[u8]) -
         .and_then(|value| resolved_number(document, value))
 }
 
+pub(crate) const COURIER_FONTS: [&[u8]; 4] = [
+    b"Courier",
+    b"Courier-Bold",
+    b"Courier-Oblique",
+    b"Courier-BoldOblique",
+];
+
 fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics> {
     let dictionary = resolved_dictionary(document, font)
         .ok_or("overlay-text source font is not a dictionary")?;
@@ -458,6 +465,19 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
         });
     }
 
+    let base = dictionary
+        .get(b"BaseFont")
+        .ok()
+        .and_then(|value| resolved_name(document, value));
+    if dictionary.get(b"Widths").is_err() && base.is_some_and(|base| COURIER_FONTS.contains(&base))
+    {
+        // Standard Courier, the usual scanner OCR font, is monospaced at 600 units.
+        return Ok(FontMetrics::Simple {
+            first_char: 0,
+            widths: vec![600.0; 256],
+            missing_width: None,
+        });
+    }
     let first = dictionary
         .get(b"FirstChar")
         .ok()
@@ -762,11 +782,18 @@ fn repaired_show_operations(
     Ok(Some(operations))
 }
 
+/// Longer shows are not OCR words and are copied unmeasured, bounding memory.
+const MAX_REPAIRED_SHOW_BYTES: usize = 64 * 1024;
+
 fn repair_show_string(
     bytes: &[u8],
     format: lopdf::StringFormat,
     text: &mut TextFilterState,
 ) -> Result<Option<Vec<ContentOperation>>> {
+    if bytes.len() > MAX_REPAIRED_SHOW_BYTES {
+        text.text_matrix = None;
+        return Ok(None);
+    }
     let original = text.clone();
     let result = match text.font.as_ref().cloned() {
         Some(font) => {
@@ -774,6 +801,7 @@ fn repair_show_string(
                 Ok(glyphs) => glyphs,
                 Err(_) => {
                     *text = original;
+                    text.text_matrix = None;
                     return Ok(None);
                 }
             };
@@ -806,7 +834,10 @@ fn repair_show_string(
                 |_| Ok(true),
             )?
         }
-        None => None,
+        None => {
+            text.text_matrix = None;
+            None
+        }
     };
     Ok(result)
 }
@@ -1309,7 +1340,9 @@ pub(crate) fn text_operations(
                 text.end_text();
                 operations.push(operation);
             }
-            "Tr" if in_text => {
+            // Text state (Tr, Tf, TL, Tc, Tw, Tz, Ts) is graphics state, valid
+            // outside BT/ET. Scanner OCR layers often select the font there.
+            "Tr" => {
                 if strict
                     && (operation.operands.len() != 1
                         || object_to_f64(&operation.operands[0]).is_err())
@@ -1319,7 +1352,7 @@ pub(crate) fn text_operations(
                 // The overlay is search data, never visible page ink.
                 operations.push(ContentOperation::new("Tr", vec![3.into()]));
             }
-            "Tf" if in_text => {
+            "Tf" => {
                 let parsed = operation
                     .operands
                     .first()
@@ -1335,6 +1368,8 @@ pub(crate) fn text_operations(
                 }
                 if let Some((name, size)) = parsed {
                     text.font_name = Some(name.to_vec());
+                    // An unresolvable font must not inherit the previous one's metrics.
+                    text.font = None;
                     fonts.insert(name.to_vec());
                     if strict {
                         let source_fonts = source_fonts
@@ -1359,7 +1394,7 @@ pub(crate) fn text_operations(
                 }
                 operations.push(operation);
             }
-            "TL" if in_text => {
+            "TL" => {
                 let value = operation
                     .operands
                     .first()
@@ -1508,6 +1543,13 @@ pub(crate) fn text_operations(
                     } else {
                         None
                     };
+                    if operation.operator == "TJ"
+                        && !matches!(operation.operands.as_slice(),
+                            [Object::Array(values)] if matches!(values.as_slice(), [Object::String(..)]))
+                    {
+                        // An unmeasured TJ leaves the position unknown.
+                        text.text_matrix = None;
+                    }
                     if let Some(repaired) = repaired {
                         operations.extend(repaired);
                     } else {
@@ -1539,6 +1581,7 @@ pub(crate) fn text_operations(
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
                 } else {
+                    text.text_matrix = None;
                     operations.push(operation);
                 }
             }
@@ -1578,10 +1621,11 @@ pub(crate) fn text_operations(
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
                 } else {
+                    text.text_matrix = None;
                     operations.push(operation);
                 }
             }
-            "Tc" | "Tw" | "Tz" | "Ts" if in_text => {
+            "Tc" | "Tw" | "Tz" | "Ts" => {
                 let value = operation
                     .operands
                     .first()
@@ -1611,10 +1655,7 @@ pub(crate) fn text_operations(
                 )
                 .into());
             }
-            "Tj" | "TJ" | "'" | "\"" | "Tf" | "TL" | "Tm" | "Td" | "TD" | "T*" | "Tc" | "Tw"
-            | "Tz" | "Ts" | "Tr"
-                if strict =>
-            {
+            "Tj" | "TJ" | "'" | "\"" | "Tm" | "Td" | "TD" | "T*" if strict => {
                 return Err(format!(
                     "overlay-text source uses {} outside a text object",
                     operation.operator
