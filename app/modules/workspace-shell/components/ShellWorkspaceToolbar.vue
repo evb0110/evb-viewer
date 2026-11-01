@@ -6,7 +6,6 @@
         :ocr-document-revision="ocrDocumentRevision"
         :ocr-working-copy-path="ocrWorkingCopyPath"
         :can-use-ocr="canUseOcr"
-        :is-desktop-runtime="isDesktopRuntime"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
         :ocr-popup-open="ocrPopupOpen"
@@ -49,7 +48,6 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
 import { useCanUseOcr } from '@app/composables/useCanUseOcr';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 
 const {
     hasPdf,
@@ -70,7 +68,6 @@ const {
     fullscreenSupported: boolean;
 }>();
 
-const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = useCanUseOcr();
 
 const emit = defineEmits<{

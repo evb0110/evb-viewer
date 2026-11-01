@@ -137,6 +137,7 @@
 </template>
 
 <script setup lang="ts">
+import { useCanUseScanCleanup } from '@app/composables/useCanUseScanCleanup';
 
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
@@ -176,7 +177,6 @@ const {
     documentBusy = undefined,
     fullscreenSupported,
     hasPdf = undefined,
-    isDesktopRuntime,
     isOpeningDocument,
     isFullscreen,
     ocrExternalError = null,
@@ -196,7 +196,6 @@ const {
     hasPdf?: boolean | undefined;
     canToggleSidebar?: boolean | undefined;
     canUseOcr: boolean;
-    isDesktopRuntime: boolean;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
     documentBusy?: boolean | undefined;
@@ -254,9 +253,10 @@ const emit = defineEmits<{
 }>();
 
 const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
+const canUseScanCleanup = useCanUseScanCleanup();
 const toolbarSurface = computed(() => createReaderToolbarSurface({
     ocr: canUseOcr,
-    scanCleanup: canUseOcr && isDesktopRuntime,
+    scanCleanup: canUseScanCleanup.value,
 }));
 const toolbarDocumentBusy = computed(() => documentBusy ?? isOpeningDocument);
 const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);

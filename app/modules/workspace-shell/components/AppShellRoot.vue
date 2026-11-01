@@ -236,6 +236,7 @@
     </div>
 </template>
 <script setup lang="ts">
+import { useCanUseScanCleanup } from '@app/composables/useCanUseScanCleanup';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
@@ -668,9 +669,10 @@ const {
     isToolbarHidden: () => !isShellActive.value || activeToolPage.value !== null || isFullscreen.value,
 });
 const canUseOcr = useCanUseOcr();
+const canUseScanCleanup = useCanUseScanCleanup();
 const readerToolbarSurface = computed(() => createReaderToolbarSurface({
     ocr: canUseOcr.value,
-    scanCleanup: canUseOcr.value && isDesktopRuntime.value,
+    scanCleanup: canUseScanCleanup.value,
 }));
 const shellScanCleanupTrigger = computed(() => describeScanCleanupTrigger(
     shellToolbarOcrWorkingCopyPath.value,

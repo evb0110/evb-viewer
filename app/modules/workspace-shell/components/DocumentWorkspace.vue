@@ -10,7 +10,6 @@
                 :has-pdf="presentation.toolbarHasPdf.value"
                 :can-toggle-sidebar="presentation.canToggleSidebar.value"
                 :can-use-ocr="canUseOcr"
-                :is-desktop-runtime="isDesktopRuntime"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 :is-opening-document="presentation.isOpeningDocumentForDisplay.value"
@@ -226,7 +225,6 @@ const {
     toolbarHostId: 'editor-global-toolbar-host',
     statusHostId: 'editor-global-status-host',
 });
-const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = useCanUseOcr();
 // This mount is one view of the document its DocumentSessionHost holds.
 const context = createDocumentViewContext({
