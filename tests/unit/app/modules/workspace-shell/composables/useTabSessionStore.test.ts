@@ -29,6 +29,7 @@ function pane(id: string, activeTabId: string, tabIds: string[]): IEditorPaneSta
 describe('tab session memory policy', () => {
     it('persists document page position in tab view state', () => {
         const state = createTabViewSessionState({
+            ...createDefaultWorkspaceToolbarSnapshot(),
             hasPdf: true,
             initialVisualReady: true,
             viewerCapabilities: {

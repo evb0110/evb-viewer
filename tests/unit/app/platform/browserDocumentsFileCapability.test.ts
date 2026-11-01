@@ -1437,7 +1437,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'saved.pdf',
             getFile: async () => physical,
             createWritable: async () => {
-                const chunks: Uint8Array[] = [];
+                const chunks: Array<Uint8Array<ArrayBuffer>> = [];
                 return createFileSystemWritableFileStream({
                     write: async (chunk) => {
                         chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));

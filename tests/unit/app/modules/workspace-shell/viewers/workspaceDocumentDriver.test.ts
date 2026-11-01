@@ -635,7 +635,7 @@ describe('DjVu print layout cancellation storage', () => {
         vi.stubGlobal('localStorage', new MemoryStorage());
         const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
         const layoutStarted = Promise.withResolvers<undefined>();
-        const layout = Promise.withResolvers<{data: Uint8Array}>();
+        const layout = Promise.withResolvers<{data: Uint8Array<ArrayBuffer>}>();
         let convertedPath: TDocumentRef | null = null;
         let printablePath: TDocumentRef | null = null;
         driverMocks.runBrowserDjvuConversion.mockImplementationOnce(async (_source, output) => {
@@ -652,7 +652,9 @@ describe('DjVu print layout cancellation storage', () => {
             printablePath = result.printablePdfPath ?? null;
             return result as never;
         });
-        driverMocks.cleanupTemp.mockImplementationOnce(path => browserDocumentStore.remove(path));
+        driverMocks.cleanupTemp.mockImplementationOnce(async (path) => {
+            await browserDocumentStore.remove(path);
+        });
         const driver = useWorkspaceDocumentDriver({
             djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/layout-cancel.djvu')),
             isDjvuMode: ref(true),
