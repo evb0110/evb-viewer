@@ -102,8 +102,11 @@ export async function saveWorkingBytesToSource(
                     stagedOutput,
                 ) : null;
                 if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
+                if (pickedTarget.handle) await mutation.assertPhysicalSourceBaseCurrent();
+                // The open copy keeps the base its unsaved edits describe until
+                // their bytes go in last, even once the source becomes the saved file.
+                if (staged) await mutation.materializeWorkingCopy();
                 if (pickedTarget.handle) {
-                    await mutation.assertPhysicalSourceBaseCurrent();
                     if (staged) await writeBytesToHandleInSaveLock(pickedTarget.handle, staged.bytes);
                     else await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
                     externalWriteCommitted = true;
@@ -146,9 +149,11 @@ export async function saveWorkingBytesToSource(
                 // record points at. Skipping it on the picker branch left the
                 // working copy describing the file it no longer saves to, so the
                 // next ordinary Save reported our own write as an external edit.
-                if (staged) await mutation.write(staged.bytes);
                 await mutation.acknowledgePhysicalSourceCommit();
                 await browserDocumentStore.touchRecentFile(sourceRef);
+                // The authored bytes go in last, so any earlier failure leaves
+                // the working copy at the base its unsaved annotations describe.
+                if (staged) await mutation.write(staged.bytes);
                 return true;
             },
         );
