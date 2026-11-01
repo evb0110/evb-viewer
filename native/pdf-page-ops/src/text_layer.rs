@@ -1726,6 +1726,7 @@ pub(crate) fn append_text_layer(
     {
         return Ok(None);
     }
+    let placement = placement_cm(matrix)?;
     let source_fonts = match page_fonts(source, source_page_id) {
         Ok(fonts) => fonts,
         Err(error) if filter_to_output_page => return Ok(Some(error.to_string())),
@@ -1784,10 +1785,7 @@ pub(crate) fn append_text_layer(
         .set("Resources", resources);
 
     let mut wrapped = vec![ContentOperation::new("q", Vec::new())];
-    wrapped.push(ContentOperation::new(
-        "cm",
-        matrix.into_iter().map(number_object).collect::<Vec<_>>(),
-    ));
+    wrapped.push(placement);
     wrapped.extend(operations);
     wrapped.push(ContentOperation::new("Q", Vec::new()));
     target.add_to_page_content(

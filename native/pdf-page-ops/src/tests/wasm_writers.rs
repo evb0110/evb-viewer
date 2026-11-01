@@ -590,6 +590,17 @@ fn instructed_writers_validate_instructions_as_the_desktop_commands_do() {
 const WORDS: &str = "BT /F1 9 Tf 10 10 Td (Words) Tj ET\n";
 const OCR_PAGE_ONE: &str = r#"{"pages":[{"pageNumber":1,"source":0}]}"#;
 
+/// `image_pdf`'s single page with another MediaBox.
+fn with_media_box(bytes: &[u8], media_box: [f64; 4]) -> Vec<u8> {
+    let mut document = Document::load_mem(bytes).unwrap();
+    let page = *document.get_pages().get(&1).unwrap();
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("MediaBox", media_box.map(Object::from).to_vec());
+    save(&mut document)
+}
+
 /// The error a writer request ends with, which it must end with.
 fn refused(operation: u32, data: &[u8], instructions: &str, attachments: &[&[u8]]) -> String {
     match run_request(&instructed_request(
@@ -675,4 +686,51 @@ fn writers_refuse_inline_images_whose_size_no_parser_can_hold() {
             );
         }
     }
+}
+
+#[test]
+fn writers_refuse_placements_their_written_numbers_make_singular() {
+    let words = image_pdf(&[(1, 1, 50, WORDS)]);
+    let target = with_media_box(&image_pdf(&[(1, 1, 50, "")]), [0.0, 0.0, 100.0, 100.0]);
+    let tiny = with_media_box(&words, [0.0, 0.0, 1e-38, 1e-38]);
+    let catalog = catalog_source();
+    for (operation, data, instructions, attachments) in [
+        // Saturated to f32: [M, -M, -M, M].
+        (
+            OP_OCR_TEXT_LAYER,
+            &target,
+            r#"{"pages":[{"pageNumber":1,"source":0,"preprocessInverse":{"rasterWidthPx":1,"rasterHeightPx":1,"matrix":[[1,1,0],[1,2,0],[0,0,1]]}}]}"#,
+            vec![tiny.as_slice()],
+        ),
+        // Rounded to integers: 1 1 1 1.
+        (
+            OP_OVERLAY_TEXT,
+            &target,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,1,1,1.00000001,0,0]}]}"#,
+            vec![words.as_slice()],
+        ),
+        // A scale no f32 holds above zero.
+        (
+            OP_SPLIT_PAGES,
+            &catalog,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1e-300,"translateX":0,"translateY":0}}]}]}"#,
+            vec![],
+        ),
+    ] {
+        let error = refused(operation, data, instructions, &attachments);
+        assert!(error.contains("placement"), "{operation}: {error}");
+    }
+}
+
+#[test]
+fn replace_page_images_refuses_a_replacement_box_no_pdf_real_can_scale_to() {
+    let input = image_pdf(&[(800, 480, 95, SCAN)]);
+    let replacement = with_media_box(&image_pdf(&[(1, 1, 50, SCAN)]), [0.0, 0.0, 1e-38, 1e-38]);
+    let error = refused(
+        OP_REPLACE_PAGE_IMAGES,
+        &input,
+        r#"{"maxByteRatio":0.9,"pages":[{"pageNumber":1,"replacement":0,"replacementPageNumber":1}]}"#,
+        &[&replacement],
+    );
+    assert!(error.contains("placement"), "{error}");
 }

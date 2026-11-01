@@ -476,7 +476,7 @@ fn replace_page_images(
 
     let mut operations = vec![
         ContentOperation::new("q", vec![]),
-        ContentOperation::new("cm", matrix.iter().map(|&value| value.into()).collect()),
+        placement_cm(matrix)?,
         ContentOperation::new("Do", vec![Object::Name(REPLACEMENT_XOBJECT_NAME.into())]),
         ContentOperation::new("Q", vec![]),
     ];

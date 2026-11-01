@@ -12,13 +12,19 @@ fn apply_content_transform_incremental(
 ) -> Result<()> {
     let transform = transform.map(validate_content_transform).transpose()?;
     if let Some(transform) = transform {
+        let (scale, x, y) = (
+            transform.scale,
+            transform.translate_x,
+            transform.translate_y,
+        );
+        let placement = placement_cm([scale, 0.0, 0.0, scale, x, y])?;
+        let cm = lopdf::content::Content {
+            operations: vec![placement],
+        }
+        .encode()?;
         let mut streams = vec![target.add_object(Object::Stream(Stream::new(
             Dictionary::new(),
-            format!(
-                "q {} 0 0 {} {} {} cm\n",
-                transform.scale, transform.scale, transform.translate_x, transform.translate_y
-            )
-            .into_bytes(),
+            [b"q ", cm.as_slice(), b"\n"].concat(),
         )))];
         streams.extend(content_stream_ids_from_base(base, target, page)?);
         streams.push(target.add_object(Object::Stream(Stream::new(
