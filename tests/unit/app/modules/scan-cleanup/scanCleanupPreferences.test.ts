@@ -13,6 +13,7 @@ import {
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     adoptScanCleanupDocumentKey,
+    copyScanCleanupDocumentPreferences,
     DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     dismissScanCleanupFirstRunGuidance,
     loadScanCleanupDocumentMargins,
@@ -40,6 +41,103 @@ function memoryStorage(): IScanCleanupPreferenceStorage {
 }
 
 describe('scan cleanup preferences', () => {
+    it('copies the first available whole document entry for Save As, keeps both entries recent and existing settings intact, and reports refused storage', () => {
+        const storage = memoryStorage();
+        const storageKey = 'evb.scanCleanup.documentOverrides.v1';
+        const now = 1_800_000_000_000;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+        onTestFinished(() => clock.mockRestore());
+        const source = {
+            updatedAt: 1,
+            outputMode: 'grayscale',
+            overrides: {'1': createScanCleanupPageOverride({outputModeOverride: 'color'})},
+            pageOverrideDefaults: createScanCleanupPageOverride({rotationDegrees: 90}),
+            marginsMm: {
+                leftMm: 1,
+                topMm: 2,
+                rightMm: 3,
+                bottomMm: 4,
+            },
+            rasterDimensionsByPage: {'1': {
+                width: 1800,
+                height: 1200,
+            }},
+            documentRevision: 'source-revision',
+        };
+        const working = {
+            updatedAt: 2,
+            outputMode: 'bw',
+            overrides: {'2': createScanCleanupPageOverride({rotationDegrees: 180})},
+        };
+        const existing = {
+            updatedAt: 3,
+            outputMode: 'color',
+        };
+        storage.set(storageKey, JSON.stringify({
+            source,
+            working,
+            existing,
+            reset: {},
+        }));
+        const entries = () => JSON.parse(storage.get(storageKey) ?? '{}');
+
+        copyScanCleanupDocumentPreferences([
+            'source',
+            'working',
+        ], 'saved', storage);
+        // The source stays as it was apart from its time, which the size bound reads.
+        expect(entries()).toEqual({
+            source: {
+                ...source,
+                updatedAt: now,
+            },
+            working,
+            existing,
+            reset: {},
+            saved: {
+                ...source,
+                updatedAt: now,
+            },
+        });
+
+        copyScanCleanupDocumentPreferences([
+            'missing',
+            'working',
+        ], 'legacy-saved', storage);
+        expect(entries()['legacy-saved']).toEqual({
+            ...working,
+            updatedAt: now,
+        });
+        // An intentionally reset first entry still wins over the fallback.
+        copyScanCleanupDocumentPreferences([
+            'reset',
+            'working',
+        ], 'reset-saved', storage);
+        expect(entries()['reset-saved']).toEqual({updatedAt: now});
+
+        const before = storage.get(storageKey);
+        copyScanCleanupDocumentPreferences([
+            'source',
+            'working',
+        ], 'existing', storage);
+        copyScanCleanupDocumentPreferences(['missing'], 'absent-saved', storage);
+        expect(storage.get(storageKey)).toBe(before);
+        expect(() => copyScanCleanupDocumentPreferences(['source'], 'refused-saved', {
+            get: storage.get,
+            set: () => false,
+        })).toThrow('Failed to persist scan-cleanup document preferences');
+        expect(storage.get(storageKey)).toBe(before);
+        expect(entries().source).toEqual({
+            ...source,
+            updatedAt: now,
+        });
+        expect(entries().working).toEqual({
+            ...working,
+            updatedAt: now,
+        });
+        expect(entries().existing).toEqual(existing);
+    });
+
     it('moves a document saved under its reference to its source hash once the hash is known', () => {
         const storage = memoryStorage();
         const sourceSha256 = 'a'.repeat(64);
