@@ -22,6 +22,8 @@ import type {TTranslateFn} from '@i18n-app';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {hasElectronAPI} from '@app/utils/platform';
 
 export const useCombinePdfOperation = <T extends {
     id: string;
@@ -48,11 +50,15 @@ export const useCombinePdfOperation = <T extends {
     ));
     let abortController: AbortController | null = null;
 
-    // The browser engine's request ceiling, named with its size.
-    function describeBrowserByteLimit(cause: unknown) {
+    // The browser engine's request ceiling, named with its size, or the
+    // memory its engine ran out of.
+    function describeBrowserEngineLimit(cause: unknown) {
         const envelope = findSerializableErrorEnvelope(cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
-        return envelope?.code === 'browser-byte-limit' && envelope.maxBytes !== undefined
-            ? options.translate('errors.browser.documentTooLarge', {limitMiB: Math.floor(envelope.maxBytes / (1024 * 1024))})
+        if (envelope?.code === 'browser-byte-limit' && envelope.maxBytes !== undefined) {
+            return options.translate('errors.browser.documentTooLarge', {limitMiB: Math.floor(envelope.maxBytes / (1024 * 1024))});
+        }
+        return !hasElectronAPI() && findSerializableErrorEnvelope(cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
+            ? options.translate('errors.browser.notEnoughMemory')
             : null;
     }
 
@@ -126,7 +132,7 @@ export const useCombinePdfOperation = <T extends {
                     'limit',
                     'unsupported',
                 ].includes(error.code)
-                    ? describeBrowserByteLimit(error.cause) ?? options.translate('errors.file.invalid')
+                    ? describeBrowserEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
                     : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             abortController = null;

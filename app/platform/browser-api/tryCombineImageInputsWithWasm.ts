@@ -645,6 +645,7 @@ export async function tryCombineImageInputsWithWasm(
     }
 
     let pointer: number | null = null;
+    let trapped = false;
     let requestLength = 0;
     try {
         throwIfAborted(signal);
@@ -694,15 +695,23 @@ export async function tryCombineImageInputsWithWasm(
         };
     } catch (error) {
         wasmExportsPromise = null;
+        // As in the page tool, a trap is an allocation wasm32 could not
+        // satisfy; the aborted instance is dropped, not freed into.
+        trapped = error instanceof Error && error.name === 'RuntimeError';
         return {
             status: 'fatal',
-            error: {
-                code: 'native-failure',
-                message: getErrorMessage(error),
-            },
+            error: trapped
+                ? {
+                    code: 'too-large',
+                    message: `The browser image combine ran out of memory: ${getErrorMessage(error)}`,
+                }
+                : {
+                    code: 'native-failure',
+                    message: getErrorMessage(error),
+                },
         };
     } finally {
-        if (pointer !== null) {
+        if (pointer !== null && !trapped) {
             exports.evb_pdf_image_combine_free(pointer, requestLength);
         }
     }
