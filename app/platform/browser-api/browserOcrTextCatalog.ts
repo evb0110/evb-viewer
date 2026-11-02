@@ -82,8 +82,9 @@ export function createEvbLayerTextReader(path: string, pageCount: number) {
     let current: {
         firstPage: number;
         layers: ReturnType<typeof readEvbLayerLines>;
+        signal: AbortSignal | undefined;
     } | undefined;
-    return async (pageNumber: number, signal?: AbortSignal) => {
+    const readText = async (pageNumber: number, signal?: AbortSignal): Promise<string | undefined> => {
         if (ref === null) return undefined;
         const firstPage = pageNumber - (pageNumber - 1) % EVB_LAYER_WINDOW_PAGES;
         if (current?.firstPage !== firstPage) {
@@ -91,10 +92,21 @@ export function createEvbLayerTextReader(path: string, pageCount: number) {
             current = {
                 firstPage,
                 layers: readEvbLayerLines(ref, range(firstPage, lastPage + 1), signal).catch(() => new Map()),
+                signal,
             };
         }
-        return (await current.layers).get(pageNumber)?.text;
+        const window = current;
+        const layers = await window.layers;
+        // A canceled read leaves its window unread: the canceled search stops,
+        // and another search reads the window again.
+        if (window.signal?.aborted) {
+            if (current === window) current = undefined;
+            signal?.throwIfAborted();
+            return readText(pageNumber, signal);
+        }
+        return layers.get(pageNumber)?.text;
     };
+    return readText;
 }
 
 async function readTextPages(
