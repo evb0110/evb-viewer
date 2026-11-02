@@ -43,6 +43,7 @@ import {
 import {isDesktopPlatformActive} from '@app/utils/platform';
 import {scanCleanupSourceIdentityKey} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
@@ -128,6 +129,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         ?? computed(() => null);
     const documentRevision = options.documentRevision ?? options.documentLifecycleKey;
     const sourceIdentity = inject(scanCleanupSourceIdentityKey, null);
+    const commandSink = inject(workspaceCommandSinkKey, undefined);
     const preferences = getScanCleanupPreferencesStore({
         sourceSha256: sourceSha256.value,
         legacyDocumentKey: legacyDocumentKey.value,
@@ -302,6 +304,8 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     }
 
     function resetPageOverrides() {
+        // Resetting every page is not undoable, and earlier page edits no longer replay onto it.
+        commandSink?.reset('scan-cleanup');
         overridesReset = true;
         overrideIntents.clear();
         defaultsIntent = {};

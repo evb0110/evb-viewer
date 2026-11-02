@@ -154,13 +154,20 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         pages: Iterable<number>,
         update: Parameters<typeof updateScanCleanupPageOverrides>[2],
     ) {
-        const before = cloneScanCleanupPreferenceValue(options.settings.pageOverrides);
-        updateScanCleanupPageOverrides(options.settings.pageOverrides, pages, update, options.settings.marginsMm);
-        const after = cloneScanCleanupPreferenceValue(options.settings.pageOverrides);
+        // Undo and redo replay only the pages this edit changed, so a reset or a
+        // later edit of other pages stays as it is.
+        const pageNumbers = [...new Set(pages)];
+        const readPages = () => pageNumbers.map(page => cloneScanCleanupPreferenceValue(options.settings.pageOverrides[String(page)]));
+        const before = readPages();
+        updateScanCleanupPageOverrides(options.settings.pageOverrides, pageNumbers, update, options.settings.marginsMm);
+        const after = readPages();
         if (isEqual(before, after)) return;
-        const apply = (snapshot: typeof before) => {
-            options.settings.pageOverrides = cloneScanCleanupPreferenceValue(snapshot);
-            attachScanCleanupPageOverrideDefaults(options.settings.pageOverrides, options.settings.pageOverrideDefaults, options.settings.marginsMm);
+        const apply = (values: typeof before) => {
+            pageNumbers.forEach((page, index) => {
+                const value = values[index];
+                if (value === undefined) Reflect.deleteProperty(options.settings.pageOverrides, String(page));
+                else options.settings.pageOverrides[String(page)] = cloneScanCleanupPreferenceValue(value);
+            });
             return true;
         };
         commandSink?.register({
