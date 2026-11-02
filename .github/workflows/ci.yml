@@ -163,6 +163,10 @@ jobs:
 
       - name: Lint the whole tree
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        # Typed linting holds the whole program, past Node's default heap on a
+        # 16 GB runner, as the typecheck and strict build do.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm run lint
 
       # The dependency audit is deliberately absent. It fails on advisory
