@@ -22,7 +22,7 @@ pub(crate) fn placement_cm(matrix: [f64; 6]) -> Result<ContentOperation> {
     let writable = operands.as_deref().is_some_and(|operands| {
         let [a, b, c, d] = [0, 1, 2, 3].map(|index| operands[index].1);
         let determinant = a * d - b * c;
-        determinant.is_finite() && determinant.abs() > f64::EPSILON
+        determinant.is_finite() && determinant != 0.0
     });
     match operands.filter(|_| writable) {
         Some(operands) => Ok(ContentOperation::new(
