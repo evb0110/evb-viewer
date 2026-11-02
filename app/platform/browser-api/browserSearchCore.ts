@@ -7,7 +7,7 @@ import {
     type IBrowserSearchPageData,
 } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
-import { readEvbLayerLines } from '@app/platform/browser-api/browserOcrTextCatalog';
+import { createEvbLayerTextReader } from '@app/platform/browser-api/browserOcrTextCatalog';
 
 interface IExtractBrowserSearchDocumentTextOptions {
     shouldContinue?: () => Promise<boolean> | boolean;
@@ -28,15 +28,8 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
 export async function loadBrowserSearchDocument(pdfPath: string) {
     const pdfDocument = await loadBrowserPdfjsDocument(pdfPath);
     // PDF.js gives right-to-left OCR words one glyph per item, so search reads
-    // those pages' EVB OCR lines, as desktop and the text catalog do. They are
-    // read once, and only for a document that has such a page.
-    let evbLayers: ReturnType<typeof readEvbLayerLines> | undefined;
-    const readEvbLayerText = async (pageNumber: number, signal?: AbortSignal) => {
-        // A layer that cannot be read leaves search on the PDF.js text.
-        evbLayers ??= readEvbLayerLines(pdfPath, Array.from({length: pdfDocument.numPages}, (_, index) => index + 1), signal)
-            .catch(() => new Map());
-        return (await evbLayers).get(pageNumber)?.text;
-    };
+    // those pages' EVB OCR lines, as desktop and the text catalog do.
+    const readEvbLayerText = createEvbLayerTextReader(pdfPath, pdfDocument.numPages);
     return {
         pageCount: pdfDocument.numPages,
         extractPage: (pageNumber: number, options: IExtractBrowserSearchDocumentTextOptions = {}) =>
