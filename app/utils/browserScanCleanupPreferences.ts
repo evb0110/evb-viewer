@@ -168,12 +168,19 @@ export function copyScanCleanupDocumentPreferences(
     const entries = loadDocumentEntries(storage);
     if (Object.hasOwn(entries, savedKey)) return;
     const sourceKey = sourceKeys.find(key => Object.hasOwn(entries, key));
-    const entry = sourceKey === undefined ? null : scanCleanupPreferenceRecord(entries[sourceKey]);
+    if (sourceKey === undefined) return;
+    const entry = scanCleanupPreferenceRecord(entries[sourceKey]);
     if (!entry) return;
-    // A fresh time keeps the copy from being the entry the size bound drops.
+    // Both documents were just in use: fresh times keep the size bound from
+    // dropping either the copy or the source it came from.
+    const updatedAt = Date.now();
+    entries[sourceKey] = {
+        ...entry,
+        updatedAt,
+    };
     entries[savedKey] = {
         ...entry,
-        updatedAt: Date.now(),
+        updatedAt,
     };
     saveDocumentEntries(entries, storage);
 }

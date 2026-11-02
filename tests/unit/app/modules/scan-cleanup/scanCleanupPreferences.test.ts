@@ -41,7 +41,7 @@ function memoryStorage(): IScanCleanupPreferenceStorage {
 }
 
 describe('scan cleanup preferences', () => {
-    it('copies the first available whole document entry for Save As without changing existing entries and reports refused storage', () => {
+    it('copies the first available whole document entry for Save As, keeps both entries recent and existing settings intact, and reports refused storage', () => {
         const storage = memoryStorage();
         const storageKey = 'evb.scanCleanup.documentOverrides.v1';
         const now = 1_800_000_000_000;
@@ -85,8 +85,12 @@ describe('scan cleanup preferences', () => {
             'source',
             'working',
         ], 'saved', storage);
+        // The source stays as it was apart from its time, which the size bound reads.
         expect(entries()).toEqual({
-            source,
+            source: {
+                ...source,
+                updatedAt: now,
+            },
             working,
             existing,
             reset: {},
@@ -123,8 +127,14 @@ describe('scan cleanup preferences', () => {
             set: () => false,
         })).toThrow('Failed to persist scan-cleanup document preferences');
         expect(storage.get(storageKey)).toBe(before);
-        expect(entries().source).toEqual(source);
-        expect(entries().working).toEqual(working);
+        expect(entries().source).toEqual({
+            ...source,
+            updatedAt: now,
+        });
+        expect(entries().working).toEqual({
+            ...working,
+            updatedAt: now,
+        });
         expect(entries().existing).toEqual(existing);
     });
 
