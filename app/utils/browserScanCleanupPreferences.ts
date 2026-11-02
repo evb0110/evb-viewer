@@ -125,7 +125,8 @@ function saveDocumentEntries(entries: Record<string, unknown>, storage: IScanCle
  * The key a document's preferences live under: its source SHA-256 once that
  * is known, which survives the document being reopened under another
  * reference. An entry saved under the document's reference before its hash
- * was known moves to the hash on the first such read.
+ * was known moves to the hash on the first such read; while storage refuses
+ * that move, the reference stays the key.
  */
 export function adoptScanCleanupDocumentKey(
     sourceSha256: string | null | undefined,

@@ -52,10 +52,10 @@ export const useCombinePdfOperation = <T extends {
 
     // The browser engine's request ceiling, named with its size, or the
     // memory its engine ran out of.
-    function describeBrowserEngineLimit(cause: unknown) {
+    function describeCombineEngineLimit(cause: unknown) {
         const envelope = findSerializableErrorEnvelope(cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
         if (envelope?.code === 'browser-byte-limit' && envelope.maxBytes !== undefined) {
-            return options.translate('errors.browser.documentTooLarge', {limitMiB: Math.floor(envelope.maxBytes / (1024 * 1024))});
+            return options.translate('errors.browser.documentTooLarge', {limitMiB: Math.round(envelope.maxBytes / (1024 * 1024))});
         }
         return !hasElectronAPI() && findSerializableErrorEnvelope(cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
             ? options.translate('errors.browser.notEnoughMemory')
@@ -132,7 +132,7 @@ export const useCombinePdfOperation = <T extends {
                     'limit',
                     'unsupported',
                 ].includes(error.code)
-                    ? describeBrowserEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
+                    ? describeCombineEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
                     : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             abortController = null;
