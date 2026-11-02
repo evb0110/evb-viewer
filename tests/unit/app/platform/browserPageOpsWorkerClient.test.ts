@@ -1,3 +1,4 @@
+import {Window} from 'happy-dom';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import {normalizePdfNativeTextBoxAppearanceRequest} from '@contracts/nativePdfMutations';
 import {
@@ -864,6 +865,63 @@ describe('browserPageOpsWorkerClient', () => {
             ]));
         },
     );
+
+    it('removes the hidden print document when rendering a page fails before printing', async () => {
+        vi.useRealTimers();
+        const browserWindow = new Window({settings: {disableIframePageLoading: true}});
+        vi.stubGlobal('window', browserWindow);
+        vi.stubGlobal('document', browserWindow.document);
+        Reflect.set(browserWindow, 'print', () => undefined);
+        const notices: unknown[] = [];
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            remove: () => undefined,
+        }));
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const append = browserWindow.document.body.append.bind(browserWindow.document.body);
+        vi.spyOn(browserWindow.document.body, 'append').mockImplementation((...nodes) => {
+            append(...nodes);
+            // Supply the frame-load browser event; the real DOM owns its contents.
+            queueMicrotask(() => browserWindow.document.querySelector('iframe')
+                ?.dispatchEvent(new browserWindow.Event('load')));
+        });
+        let rendered = false;
+        const scope = effectScope();
+        try {
+            const print = scope.run(() => useWorkspacePrint({
+                totalPages: ref(1),
+                currentPage: ref(1),
+                selectedPages: ref([]),
+                sourcePdf: ref(null),
+                workingCopyPath: ref(null),
+                fileName: ref('failed-print.pdf'),
+                hasPendingUnsavedChanges: ref(false),
+                getQuickPrintPageMetrics: async () => null,
+                getPrintableSourceData: async () => null,
+                renderLoadedPdfPagesForBrowserPrint: async (targetDocument) => {
+                    rendered = true;
+                    expect(browserWindow.document.querySelectorAll('iframe[aria-hidden="true"]')).toHaveLength(1);
+                    targetDocument.querySelector('[data-browser-print-root]')?.append(targetDocument.createElement('section'));
+                    throw new Error('The PDF page could not be rendered for print');
+                },
+            }));
+            if (!print) throw new Error('Missing print owner');
+            await print.handlePrintDialogSubmit({
+                pageNumbers: [1],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            expect(rendered).toBe(true);
+            expect(print.isPreparingPrint.value).toBe(false);
+            expect(notices).not.toEqual([]);
+            expect(browserWindow.document.querySelectorAll('iframe')).toHaveLength(0);
+        } finally {
+            scope.stop();
+            await browserWindow.happyDOM.close();
+            vi.restoreAllMocks();
+            vi.useFakeTimers();
+        }
+    });
 
     it('stops the isolated layout worker when the workspace print dialog closes', async () => {
         FakeWorker.autoRespond = false;

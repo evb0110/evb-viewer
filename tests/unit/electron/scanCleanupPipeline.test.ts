@@ -6178,31 +6178,12 @@ async function readParityRaster(path: string, dpi: number): Promise<IParityRaste
  * default test time. Both routes read these same bytes.
  */
 async function readHalfSizeSpread(): Promise<IParityRaster> {
-    const source = decodePng(await readFile(join(process.cwd(), PARITY_SPREAD_FIXTURE)));
-    const width = Math.floor(source.width / 2);
-    const height = Math.floor(source.height / 2);
-    const channels = source.channels;
-    const data = new Uint8Array(width * height * channels);
-    for (let y = 0; y < height; y += 1) {
-        for (let x = 0; x < width; x += 1) {
-            for (let channel = 0; channel < channels; channel += 1) {
-                const sample = (dx: number, dy: number) => Number(source.data[((2 * y + dy) * source.width + 2 * x + dx) * channels + channel]);
-                data[(y * width + x) * channels + channel] = Math.round((sample(0, 0) + sample(1, 0) + sample(0, 1) + sample(1, 1)) / 4);
-            }
-        }
-    }
+    const bytes = await readHalfSizeSpreadPage(1);
     return {
         label: `${PARITY_SPREAD_FIXTURE} at half size`,
-        bytes: encodePng({
-            width,
-            height,
-            data,
-            channels,
-            depth: 8,
-        }),
-        width,
-        height,
+        bytes,
         dpi: 75,
+        ...readRasterSize(bytes),
     };
 }
 

@@ -105,7 +105,8 @@ describe('browser OCR progress', () => {
             await reopened?.context().close();
             await page.context().close();
         }
-    }, 90_000);
+        // OCR may take its full 90 s; opening, saving, reopening and searching take about 10 s more.
+    }, 120_000);
 
     it('preserves recognized words and boxes across tiled pixels, warm engines and changed recipes', async () => {
         const page = await lifecycle.browser.newPage();

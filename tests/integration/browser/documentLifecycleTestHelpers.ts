@@ -128,6 +128,30 @@ export function keepFileChooserInterceptionEnabled(page: Page) {
     page.on('filechooser', () => {});
 }
 
+// A structured-cloneable picker handle whose bytes and writes use real OPFS.
+// Keep this installer closure-free for page.evaluate and page.addInitScript.
+export function installPickerHandleFixture() {
+    Object.defineProperties(File.prototype, {
+        kind: {get: () => 'file'},
+        getFile: {value: async function (this: File) {
+            const root = await navigator.storage.getDirectory();
+            const handle = await root.getFileHandle(this.name, {create: true});
+            const file = await handle.getFile();
+            return new File([await file.arrayBuffer()], file.name, {
+                type: file.type,
+                lastModified: file.lastModified,
+            });
+        }},
+        createWritable: {value: async function (this: File) {
+            const root = await navigator.storage.getDirectory();
+            return (await root.getFileHandle(this.name, {create: true})).createWritable();
+        }},
+        isSameEntry: {value: async function (this: File, other: FileSystemHandle) {
+            return this.name === other.name;
+        }},
+    });
+}
+
 export async function openPdfFromChooser(page: Page, fixture: Parameters<FileChooser['setFiles']>[0]) {
     await page.addInitScript(() => {
         Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);

@@ -37,7 +37,58 @@ async function readAppendAdmission(bytes: Uint8Array) {
     ][verdict] ?? `failed (${verdict})`;
 }
 
-describe('browser damaged PDF repair', () => {
+const browserPdfRecoveryTimeoutMs = 120_000;
+
+describe('browser PDF open recovery', () => {
+    it('opens and renders the PDF when append admission cannot instantiate', async () => {
+        const page = await lifecycle.browser.newPage();
+        let injected = false;
+        const evidence = process.env.EVB_QPDF_REPAIR_EVIDENCE_DIR;
+        const messages: string[] = [];
+        page.on('console', message => messages.push(`${message.type()}: ${message.text()}`));
+        page.on('pageerror', error => messages.push(error.message));
+        try {
+            // Fail inside the real qpdf worker after compilation succeeds.
+            // Other workers, including PDF.js, keep their native WebAssembly.
+            await page.route('**/browserQpdfEngine.worker.ts*', async route => {
+                const response = await route.fetch();
+                injected = true;
+                await route.fulfill({
+                    response,
+                    body: `
+                        const instantiate = WebAssembly.instantiate.bind(WebAssembly);
+                        WebAssembly.instantiate = (module, imports) => {
+                            if (module instanceof WebAssembly.Module && WebAssembly.Module.exports(module)
+                                .some(entry => entry.name === 'evb_pdf_page_ops_append_admission')) {
+                                return Promise.reject(new WebAssembly.LinkError('append admission unavailable'));
+                            }
+                            return instantiate(module, imports);
+                        };
+                        ${await response.text()}`,
+                });
+            });
+            await openPdfFromChooser(page, {
+                name: 'admission-unavailable.pdf',
+                mimeType: 'application/pdf',
+                buffer: await readFile(join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+            });
+            await expect.poll(() => page.locator('.page_container--rendered .textLayer').first().innerText())
+                .toContain('Hello Arabic world');
+            expect(injected).toBe(true);
+            expect(await page.getByRole('alertdialog').count()).toBe(0);
+        } finally {
+            if (evidence) {
+                await mkdir(evidence, {recursive: true});
+                await writeFile(join(evidence, 'admission-unavailable.txt'), await page.locator('body').innerText());
+                await writeFile(join(evidence, 'admission-unavailable-console.json'), JSON.stringify({
+                    injected,
+                    messages,
+                }, null, 2));
+            }
+            await page.context().close();
+        }
+    }, browserPdfRecoveryTimeoutMs);
+
     // Behavior contract: a PDF desktop opens and edits after qpdf rebuilds its
     // cross-reference table opens and takes edits in the browser too.
     it('rewrites a PDF with a broken startxref on open, so a note saves into it', async () => {
@@ -83,5 +134,5 @@ describe('browser damaged PDF repair', () => {
             if (evidence) await writeFile(join(evidence, 'terminal.txt'), await page.locator('body').innerText());
             await page.context().close();
         }
-    }, 120_000);
+    }, browserPdfRecoveryTimeoutMs);
 });

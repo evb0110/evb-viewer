@@ -24,7 +24,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts, readRecoveries,
+    installPickerHandleFixture, openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts, readRecoveries,
 } from './documentLifecycleTestHelpers';
 
 // A six-page portrait PDF whose pages read "<label> page <n>".
@@ -681,26 +681,8 @@ describe('browser document lifecycle UI', () => {
             await settleActiveOpen(page);
             // Reuse this lane's cloneable picker fixture. Its handle methods
             // wrap real OPFS files/streams without native-handle rehydration.
+            await page.evaluate(installPickerHandleFixture);
             await page.evaluate(() => {
-                Object.defineProperties(File.prototype, {
-                    kind: {get: () => 'file'},
-                    getFile: {value: async function (this: File) {
-                        const root = await navigator.storage.getDirectory();
-                        const handle = await root.getFileHandle(this.name, {create: true});
-                        const file = await handle.getFile();
-                        return new File([await file.arrayBuffer()], file.name, {
-                            type: file.type,
-                            lastModified: file.lastModified,
-                        });
-                    }},
-                    createWritable: {value: async function (this: File) {
-                        const root = await navigator.storage.getDirectory();
-                        return (await root.getFileHandle(this.name, {create: true})).createWritable();
-                    }},
-                    isSameEntry: {value: async function (this: File, other: FileSystemHandle) {
-                        return this.name === other.name;
-                    }},
-                });
                 let picks = 0;
                 Reflect.set(window, 'showSaveFilePicker', async () => new File([], ++picks === 1
                     ? 'save-sync-required.pdf' : 'save-sync-rescued.pdf'));
@@ -2336,6 +2318,7 @@ describe('browser document lifecycle UI', () => {
         const settle = () => settleActiveOpen(page);
         const openFile = (label: string) => openReadingBook(page, label, 'reading-view.pdf');
         try {
+            if (saveMode !== 'download') await page.addInitScript(installPickerHandleFixture);
             await page.addInitScript((mode) => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
@@ -2347,25 +2330,6 @@ describe('browser document lifecycle UI', () => {
                 // prototype methods survive an IndexedDB round trip and reload,
                 // and the actual bytes and writes live in a real OPFS file.
                 // Chromium 153 traps when deserializing native OPFS handles.
-                Object.defineProperties(File.prototype, {
-                    kind: {get: () => 'file'},
-                    getFile: {value: async function (this: File) {
-                        const root = await navigator.storage.getDirectory();
-                        const handle = await root.getFileHandle(this.name, {create: true});
-                        const file = await handle.getFile();
-                        return new File([await file.arrayBuffer()], file.name, {
-                            type: file.type,
-                            lastModified: file.lastModified,
-                        });
-                    }},
-                    createWritable: {value: async function (this: File) {
-                        const root = await navigator.storage.getDirectory();
-                        return (await root.getFileHandle(this.name, {create: true})).createWritable();
-                    }},
-                    isSameEntry: {value: async function (this: File, other: FileSystemHandle) {
-                        return this.name === other.name;
-                    }},
-                });
                 Reflect.set(window, 'showSaveFilePicker', async () => new File([], 'reading-view.pdf'));
             }, saveMode);
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});

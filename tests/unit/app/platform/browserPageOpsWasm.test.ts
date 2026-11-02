@@ -355,6 +355,29 @@ describe('browser page-ops WASM fast path', () => {
         vi.unstubAllGlobals();
     });
 
+    it('judges only the live append-admission allocation with its matching pointer and length', async () => {
+        const bytes = await createPdf({pageWidths: [200]});
+        const module = await NativeWebAssembly.compile(await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm')));
+        const {exports} = await NativeWebAssembly.instantiate(module, {});
+        const memory = exports.memory;
+        const alloc = exports.evb_pdf_page_ops_alloc;
+        const free = exports.evb_pdf_page_ops_free;
+        const admit = exports.evb_pdf_page_ops_append_admission;
+        if (!(memory instanceof NativeWebAssembly.Memory) || typeof alloc !== 'function'
+            || typeof free !== 'function' || typeof admit !== 'function') {
+            throw new Error('Missing append-admission WASM exports');
+        }
+        const pointer = Number(alloc(bytes.byteLength));
+        try {
+            new Uint8Array(memory.buffer, pointer, bytes.byteLength).set(bytes);
+            expect(admit(pointer, bytes.byteLength - 1)).toBe(-1);
+            expect(admit(pointer + 1, bytes.byteLength)).toBe(-1);
+            expect(admit(pointer, bytes.byteLength)).toBe(0);
+        } finally {
+            free(pointer, bytes.byteLength);
+        }
+    });
+
     it('returns a reopenable source-free text appearance and its native fit', async () => {
         const {run} = await loadWasmRunner();
         const result = await run('textBoxAppearance', {
