@@ -248,17 +248,20 @@ async function waitForStrokeMetrics(
     readMetrics: () => Promise<IStrokePaintMetrics>,
     timeoutMs = 30_000,
 ) {
+    // Until the page's current raster leaves out the managed annotations, the
+    // original appearance owns them and the EVB visuals stay hidden.
+    const isReady = (value: IStrokePaintMetrics) => value.managedShapeCount === 2
+        && value.renderedStrokeWidth !== null
+        && value.pageRaster === 'current'
+        && value.visibleShapeCount === 2;
     const startedAt = Date.now();
     let metrics = await readMetrics();
-    while (
-        Date.now() - startedAt < timeoutMs
-        // Until the page's current raster leaves out the managed annotations,
-        // the original appearance owns them and the EVB visuals stay hidden.
-        && (metrics.managedShapeCount !== 2 || metrics.renderedStrokeWidth === null
-            || metrics.pageRaster !== 'current' || metrics.visibleShapeCount !== 2)
-    ) {
+    while (!isReady(metrics) && Date.now() - startedAt < timeoutMs) {
         await delay(250);
         metrics = await readMetrics();
+    }
+    if (!isReady(metrics)) {
+        throw new Error(`Stroke metrics did not settle within ${timeoutMs} ms: ${JSON.stringify(metrics)}`);
     }
     return metrics;
 }
@@ -400,9 +403,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
             width: 1_440,
         });
         await session.page.waitForFunction(viewerLayoutSettledInPage);
-        const settledElectronMetrics = await waitForStrokeMetrics(() => session.page.evaluate(readStrokePaintMetrics));
-        expect(settledElectronMetrics.pageRaster, 'Electron page raster after the resizes').toBe('current');
-        expect(settledElectronMetrics.visibleShapeCount, 'Electron EVB visuals after the resizes').toBe(2);
+        await waitForStrokeMetrics(() => session.page.evaluate(readStrokePaintMetrics));
         const electronPageOrigin = await session.page.evaluate(readPageSurfaceOrigin);
         console.info(`STROKE_PARITY_STEP electron-metrics:complete ${JSON.stringify(electronMetrics)}`);
         await session.page.screenshot({
@@ -474,9 +475,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
                 width: 1_440,
             });
             await webPage.waitForFunction(viewerLayoutSettledInPage);
-            const settledWebMetrics = await waitForStrokeMetrics(() => webPage.evaluate(readStrokePaintMetrics));
-            expect(settledWebMetrics.pageRaster, 'browser page raster after the resizes').toBe('current');
-            expect(settledWebMetrics.visibleShapeCount, 'browser EVB visuals after the resizes').toBe(2);
+            await waitForStrokeMetrics(() => webPage.evaluate(readStrokePaintMetrics));
             const playwrightPageOrigin = await webPage.evaluate(readPageSurfaceOrigin);
             await webPage.screenshot({path: PLAYWRIGHT_SCREENSHOT_PATH});
             const webScreenshotMetrics = await webPage.evaluate(readStrokePaintMetrics);
