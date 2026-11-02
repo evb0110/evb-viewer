@@ -36,6 +36,8 @@ import {
     analyzeBrowserPdfConformanceData, validateBrowserPdfData, validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
 import { getErrorMessage } from '@app/utils/error';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import {copyScanCleanupDocumentPreferences} from '@app/utils/browserScanCleanupPreferences';
 
 export class BrowserExternalSaveSyncRequiredError extends Error {
     public readonly externalWriteCommitted: boolean | null;
@@ -370,6 +372,17 @@ export async function savePdfAsFromWorkingCopy(
                             saveHandle: savedHandle,
                             saveName: normalizedFileName,
                         });
+                    }
+                    // The browser keys Scan Cleanup settings by document, so the saved
+                    // file takes them before the workspace adopts it. A refused copy
+                    // leaves the saved file at the defaults; the save still stands.
+                    try {
+                        copyScanCleanupDocumentPreferences([
+                            previousSourceRef,
+                            workingCopyPath,
+                        ], sourceRef);
+                    } catch (error) {
+                        BrowserLogger.warn('browser-save', 'Scan Cleanup settings were not copied to the saved file', error);
                     }
                     handoffBrowserDocumentWorkingCopy(sourceRef, workingCopyPath, () => browserDocumentStore.touchRecentFile(sourceRef));
                     return sourceRef;
