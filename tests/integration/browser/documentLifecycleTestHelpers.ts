@@ -99,6 +99,13 @@ export async function waitForOpenFileReady(page: Page) {
     }, undefined, {timeout: 30_000});
 }
 
+export async function settleActiveOpen(page: Page) {
+    await page.evaluate(async () => {
+        const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+        if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
+    });
+}
+
 // Behavior contract C2: ordinary use of a well-formed document logs no console
 // error or warning and throws no page error. Only these named dev-build
 // messages are expected; every other problem fails the test.
