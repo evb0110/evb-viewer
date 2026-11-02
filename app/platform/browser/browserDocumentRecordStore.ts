@@ -97,6 +97,7 @@ export class BrowserDocumentRecordStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private readonly mutationQueue = new BrowserDocumentMutationQueue();
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
+    private readonly removalListeners = new Set<(ref: string) => void>();
     private readonly recentFilesStore = new BrowserRecentFilesStore({
         requireEntry: (ref) => this.requireEntry(ref),
         getAllPersistedRecords: () => loadBrowserPersistedDocumentRecordsResult(),
@@ -408,7 +409,19 @@ export class BrowserDocumentRecordStore {
         await this.removeRecentFile(ref);
     }
 
-    protected onDocumentRemoved(_ref: string) {}
+    protected onDocumentRemoved(ref: string) {
+        for (const listener of this.removalListeners) {
+            listener(ref);
+        }
+    }
+
+    /** Calls `listener` with each document whose record leaves the store. */
+    public onDocumentRecordRemoved(listener: (ref: string) => void) {
+        this.removalListeners.add(listener);
+        return () => {
+            this.removalListeners.delete(listener);
+        };
+    }
 
     /** Removes a document record while its caller owns the mutation queue. */
     protected async removeDocumentRecordUnlocked(ref: string) {

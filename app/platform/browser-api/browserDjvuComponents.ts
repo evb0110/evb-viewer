@@ -4,6 +4,9 @@ import {
     isIndirectDjvuHeader,
     type IDjvuComponentFiles,
 } from '@app/platform/browser-api/browserDjvuSource';
+import { getExtension } from '@app/platform/browser-api/browserFileName';
+import { isSupportedOpenExtension } from '@pdf-core/documentOpenFileTypes';
+import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 
 /**
  * The sibling files of indirect DjVu documents opened in this session.
@@ -13,7 +16,9 @@ import {
  * only the files the person selected, so the index is opened together with
  * them and each name resolves to the selected file of that name.
  */
-const componentFilesByIndex = new Map<TDocumentRef, IDjvuComponentFiles>();
+const componentFilesByIndex = new Map<string, IDjvuComponentFiles>();
+// An index whose record leaves the store cannot reopen; its files go with it.
+browserDocumentStore.onDocumentRecordRemoved(ref => componentFilesByIndex.delete(ref));
 
 const DJVU_FILE_NAME_PATTERN = /\.djvu?$/iu;
 const DJVU_HEADER_BYTES = 25;
@@ -58,13 +63,19 @@ async function isIndirectDjvuIndexFile(file: File) {
         && isIndirectDjvuHeader(new Uint8Array(await file.slice(0, DJVU_HEADER_BYTES).arrayBuffer()));
 }
 
+/** A selected PDF or image is a document of its own, never a DjVu component. */
+function isOtherOpenDocument(file: File) {
+    const extension = getExtension(file.name);
+    return isSupportedOpenExtension(extension) && !DJVU_FILE_NAME_PATTERN.test(file.name);
+}
+
 /**
  * Recognizes a selection of one indirect DjVu index and the files beside it:
  * the index is the document, every other selected file is a component it may
- * name. Any other selection is not a DjVu document with its components.
+ * name. A selection that also holds a PDF or image is a batch of documents.
  */
 export async function findIndirectDjvuSelection<T extends {file: File}>(picked: readonly T[]) {
-    if (picked.length < 2) {
+    if (picked.length < 2 || picked.some(entry => isOtherOpenDocument(entry.file))) {
         return null;
     }
     const indexes: T[] = [];

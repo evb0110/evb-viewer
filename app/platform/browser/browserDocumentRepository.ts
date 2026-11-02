@@ -165,6 +165,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
     protected override onDocumentRemoved(ref: string) {
         this.fileHandleRefs.forget(ref);
+        super.onDocumentRemoved(ref);
     }
 
     /**
