@@ -1,3 +1,4 @@
+import {getOptimizedPdfName} from '@app/platform/browser-api/browserFileName';
 import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
@@ -1080,7 +1081,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const read = vi.spyOn(browserDocumentStore, 'read');
         try {
-            await expect(createCombinedPdfFromPaths(refs)).rejects.toThrow('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+            await expect(createCombinedPdfFromPaths(refs)).rejects.toMatchObject({errorEnvelope: {
+                code: 'browser-byte-limit',
+                maxBytes: budget,
+            }});
             expect(read).not.toHaveBeenCalled();
             expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
         } finally {
@@ -1457,6 +1461,47 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             originalPath: sourceRef,
             fileName: 'denied.pdf',
         })]);
+    });
+
+    it('names an optimized dot-file without dropping its name', () => {
+        expect(getOptimizedPdfName('.hidden')).toBe('.hidden-optimized.pdf');
+        expect(getOptimizedPdfName('book.pdf')).toBe('book-optimized.pdf');
+    });
+
+    it('remembers a DjVu source reading view only while its content witness matches', async () => {
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        await browserSettingsCapability.save({rememberDocumentView: true});
+        let physical = new File([Uint8Array.of(65, 84, 38, 84)], 'book.djvu', {lastModified: 1_000});
+        const source = await browserDocumentStore.registerFile(physical, {
+            kind: 'source',
+            saveKind: 'generic',
+            saveHandle: createFileSystemFileHandle({
+                name: physical.name,
+                getFile: async () => physical,
+            }),
+        });
+        await browserDocumentStore.touchRecentFile(source);
+        const view = {
+            currentPage: 2,
+            pageCount: 3,
+            zoom: 1.5,
+            zoomMode: 'custom',
+            viewMode: 'facing',
+            continuousScroll: true,
+            viewRotation: 90,
+        } as const;
+        await capability.recentFiles.rememberReadingView(source, view);
+        await expect(capability.recentFiles.readingView(source)).resolves.toEqual(view);
+        const {BrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        const restored = new BrowserDocumentStore();
+        await expect(restored.readRecentReadingView(source)).resolves.toEqual(view);
+
+        physical = new File([Uint8Array.of(65, 84, 38, 85)], 'book.djvu', {lastModified: 1_000});
+        const changedSource = await browserDocumentStore.refreshSourceVersionIfChanged(source);
+        await expect(capability.recentFiles.readingView(changedSource)).resolves.toBeNull();
     });
 
     it('reopens a Recent PDF where the reader left it, only on the bytes it was left on', async () => {

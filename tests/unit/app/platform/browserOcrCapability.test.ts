@@ -33,6 +33,36 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
         }
     });
 
+    it('closes every raster tile when allocating the assembled PPM fails', async () => {
+        const {assembleBrowserPdfRasterPpm} = await import('@app/platform/browser-api/assembleBrowserPdfRasterPpm');
+        const states = [
+            {closed: false},
+            {closed: false},
+        ];
+        const tiles = states.map(state => cast<ImageBitmap>({
+            width: 1,
+            height: 1,
+            close() { state.closed = true; },
+        }));
+        vi.stubGlobal('OffscreenCanvas', class {
+            public width = 1;
+            public height = 1;
+        });
+        try {
+            expect(() => assembleBrowserPdfRasterPpm({
+                width: Number.MAX_SAFE_INTEGER,
+                height: 2,
+                tiles,
+            })).toThrow(RangeError);
+            expect(states.map(state => state.closed)).toEqual([
+                true,
+                true,
+            ]);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('refuses OCR with its reason when the browser cannot run the engine', async () => {
         vi.stubGlobal('Worker', undefined);
         try {

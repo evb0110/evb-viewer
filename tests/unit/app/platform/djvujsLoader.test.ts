@@ -6,6 +6,9 @@ import {
 import {readFileSync} from 'node:fs';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    FakeIndexedDbFactory, MemoryStorage,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {
@@ -18,6 +21,7 @@ import {
 import { DJVU_COMPONENT_BASE_URL } from '@app/platform/browser-api/djvujsLoader';
 import {
     findIndirectDjvuSelection,
+    getBrowserDjvuComponentFiles,
     setBrowserDjvuComponentFiles,
 } from '@app/platform/browser-api/browserDjvuComponents';
 import {
@@ -367,6 +371,37 @@ describe('DjVu document components', () => {
             ...siblings.map(file => ({file})),
         ])).resolves.toMatchObject({components: siblings});
         await expect(findIndirectDjvuSelection(siblings.map(file => ({file})))).resolves.toBeNull();
+    });
+
+    it.each([
+        'report.pdf',
+        'photo.png',
+    ])('keeps %s out of an indirect DjVu component selection', async name => {
+        await expect(findIndirectDjvuSelection([
+            {file: new File([index], 'index.djvu')},
+            {file: new File([bundled], 'low-dpi.djvu')},
+            {file: new File([Uint8Array.of(1)], name)},
+        ])).resolves.toBeNull();
+    });
+
+    it('releases selected component files when their index record is removed', async () => {
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        const storage = new MemoryStorage();
+        vi.stubGlobal('localStorage', storage);
+        vi.stubGlobal('window', {localStorage: storage});
+        const ref = await browserDocumentStore.createStoredDocument('index.djvu', index, {
+            kind: 'source',
+            mimeType: 'image/vnd.djvu',
+            saveKind: 'generic',
+        });
+        const component = new File([bundled], 'low-dpi.djvu');
+        setBrowserDjvuComponentFiles(ref, [component]);
+        await expect(getBrowserDjvuComponentFiles(ref)?.readComponent(component.name)).resolves.toEqual(bundled);
+
+        await browserDocumentStore.remove(ref);
+
+        await expect(browserDocumentStore.stat(ref)).rejects.toThrow();
+        expect(getBrowserDjvuComponentFiles(ref)).toBeNull();
     });
 
     it('opens a bundled browser DjVu as an index whose pages load by component', async () => {

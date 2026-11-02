@@ -16,6 +16,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import {
+    assembleTextLayerSearchText,
     clearTextLayerTextMapping,
     createTextLayerRangeForSearchMatch,
     createTextLayerRangeForSearchOccurrence,
@@ -51,6 +52,48 @@ async function reconcileVisualMatchesWithCurrent(
 }
 
 describe('usePdfSearchHighlight', () => {
+    it('highlights pointed RTL text when the backend omits generated word separators', async () => {
+        const raw = 'ַהְק';
+        const layer = document.createElement('div');
+        const items = [
+            'ַה',
+            'ְק',
+        ];
+        const spans = items.map(text => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            span.dir = 'rtl';
+            span.style.setProperty('--scale-x', '-1');
+            layer.append(span);
+            return span;
+        });
+        registerTextLayerTextMapping(layer, {
+            textDivs: spans,
+            textContentItemsStr: items,
+        });
+        const assembled = assembleTextLayerSearchText(getCachedTextLayerIndex(layer));
+        expect(assembled.text).toBe('הַ קְ');
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: 'הַקְ',
+            searchQuery: 'הַקְ',
+            matches: [{
+                matchIndex: 0,
+                start: 0,
+                end: 4,
+            }],
+        };
+
+        const ranges = await reconcileVisualMatchesWithCurrent(pageMatches, null, raw, assembled);
+
+        expect(ranges).toEqual([{
+            start: 0,
+            end: 4,
+            isCurrent: false,
+        }]);
+        expect(raw.slice(ranges[0]!.start, ranges[0]!.end)).toBe(raw);
+    });
+
     it('bounds drifted visual matches to the supplied window and preserves a later page ordinal', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),

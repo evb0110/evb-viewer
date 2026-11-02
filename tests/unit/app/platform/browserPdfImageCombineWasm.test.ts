@@ -266,7 +266,7 @@ function createWasmExportsMock(options: {
 
     const alloc = vi.fn((len: number) => {
         if (options.allocThrows) {
-            throw new Error('alloc failed');
+            throw new NativeWebAssembly.RuntimeError('alloc failed');
         }
         if (options.allocReturnsZero || liveAllocation !== null) {
             return 0;
@@ -952,10 +952,8 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(result).toMatchObject({
             status: 'fatal',
-            error: {code: 'native-failure'},
+            error: {code: 'too-large'},
         });
-        if (phase === 'allocation') expect(wasmMock.free).not.toHaveBeenCalled();
-        else expect(wasmMock.free).toHaveBeenCalledOnce();
         await expect(tryCombineImageInputsWithWasm([{
             fileName: 'next-scan.png',
             data: new Uint8Array([1]),

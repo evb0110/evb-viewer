@@ -61,6 +61,9 @@ mod tests {
             operands([5e-7, 0.0, 0.0, 5e-7, 0.0, 0.0]).unwrap()[0],
             Object::Real(5e-7)
         );
+        let tiny_split = operands([1e-8, 0.0, 0.0, 1e-8, 0.0, 0.0]).unwrap();
+        assert_eq!(tiny_split[0], Object::Real(1e-8));
+        assert_eq!(tiny_split[3], Object::Real(1e-8));
         for singular in [
             [1.0, 1.0, 1.0, 1.0, 0.0, 0.0],
             // Invertible in f64, singular once written as f32.

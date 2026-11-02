@@ -28,6 +28,9 @@ import {
     createDefaultScanCleanupSettingsFile,
     type IScanCleanupSettingsChange,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
+import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {
     scanCleanupSourceIdentityKey,
@@ -884,6 +887,74 @@ describe('scan cleanup renderer preference store', () => {
         expect((await createScanCleanupSettingsStore({filePath}).get()).documentOverrides[firstHash]?.outputMode).toBe('grayscale');
         expect(capability.value.updateSettings).toHaveBeenCalledTimes(action === 'discard' ? 1 : 0);
         if (action !== 'dispose') app.unmount();
+    });
+
+    it.each([
+        'reset',
+        'another view',
+    ] as const)('undo preserves page overrides after %s', async action => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'a'.repeat(64);
+        const ledger = useWorkspaceCommandLedger();
+        const active = ref(false);
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        let selection!: ReturnType<typeof useScanCleanupSelection>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+                active: () => active.value,
+            });
+            selection = useScanCleanupSelection({
+                initialPage: 1,
+                previewResult: () => null,
+                previewTotalPages: () => 3,
+                marginsLinked: ref(true),
+                settings: settings.values,
+            });
+            return () => h('output', JSON.stringify(settings.values.pageOverrides));
+        }}));
+        app.provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        app.mount(host);
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            if (action === 'reset') selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+            selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+            await nextTick();
+            await flushScanCleanupDocumentPreferencesStore();
+            if (action === 'reset') {
+                settings.resetPageOverrides();
+            } else {
+                await store.update({document: {
+                    sourceSha256,
+                    patch: {overrideEdits: {'3': createScanCleanupPageOverride({rotationDegrees: 270})}},
+                }});
+                active.value = true;
+                await vi.waitFor(() => expect(settings.values.pageOverrides['3']?.rotationDegrees).toBe(270));
+            }
+
+            await ledger.undoTimeline();
+            await nextTick();
+
+            const displayed = JSON.parse(host.textContent ?? '{}');
+            if (action === 'reset') {
+                expect(displayed).toEqual({});
+                expect(ledger.canUndoTimeline.value).toBe(false);
+            } else {
+                expect(displayed['1']).toBeUndefined();
+                expect(displayed['3']?.rotationDegrees).toBe(270);
+            }
+        } finally {
+            app.unmount();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
     });
 
     it('keeps cleanup settings unavailable when document hydration fails', async () => {

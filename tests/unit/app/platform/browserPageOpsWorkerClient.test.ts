@@ -17,6 +17,9 @@ import {
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
 import {cast} from '@tests/helpers/cast';
+import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
+import {setBrowserPlatformApi} from '@app/utils/platform';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {useWorkspacePrint} from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 
 const failureReceipt = vi.hoisted(() => ({
@@ -920,6 +923,71 @@ describe('browserPageOpsWorkerClient', () => {
             await browserWindow.happyDOM.close();
             vi.restoreAllMocks();
             vi.useFakeTimers();
+        }
+    });
+
+    it('stops reading and releases a prepared print PDF when the dialog closes', async () => {
+        const notices: unknown[] = [];
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            remove: () => undefined,
+        }));
+        const firstRead = Promise.withResolvers<undefined>();
+        const continueRead = Promise.withResolvers<undefined>();
+        const chunkBytes = 4 * 1024 * 1024;
+        const size = chunkBytes * 2 + 1;
+        let bytesRead = 0;
+        let released = false;
+        setBrowserPlatformApi(createPlatformApiFixture({
+            backend: 'browser',
+            overrides: {documentFiles: {
+                statFile: async () => ({size}),
+                readFileRange: async (_path, offset, length) => {
+                    if (offset === 0) {
+                        firstRead.resolve(undefined);
+                        await continueRead.promise;
+                    }
+                    bytesRead += length;
+                    return new Uint8Array(length);
+                },
+            }},
+        }));
+        const scope = effectScope();
+        const print = scope.run(() => useWorkspacePrint({
+            totalPages: ref(2),
+            currentPage: ref(1),
+            selectedPages: ref([]),
+            sourcePdf: ref(null),
+            workingCopyPath: ref(null),
+            fileName: ref('cancel-prepared.djvu'),
+            hasPendingUnsavedChanges: ref(false),
+            getQuickPrintPageMetrics: async () => null,
+            getPrintableSourceData: async () => null,
+            preparePrintSource: async () => ({
+                status: 'printable-pdf',
+                documentRef: requireDocumentRef('browser://documents/prepared-print.pdf'),
+                release: async () => { released = true; },
+            }),
+        }));
+        if (!print) throw new Error('Missing print owner');
+        print.handlePrintDialogOpenChange(true);
+        const preparation = print.handlePrintDialogSubmit({
+            viewMode: 'single',
+            orientation: 'auto',
+        });
+        try {
+            await firstRead.promise;
+            print.handlePrintDialogOpenChange(false);
+            continueRead.resolve(undefined);
+            await preparation;
+            expect(bytesRead).toBe(chunkBytes);
+            expect(released).toBe(true);
+            expect(print.isPreparingPrint.value).toBe(false);
+            expect(notices).toEqual([]);
+        } finally {
+            continueRead.resolve(undefined);
+            await preparation;
+            scope.stop();
         }
     });
 

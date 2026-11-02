@@ -1,3 +1,6 @@
+import {
+    DB_NAME, DOCUMENTS_STORE,
+} from '@app/platform/browser/browserDocumentConstants';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
     FakeIndexedDbFactory, MemoryStorage,
@@ -631,13 +634,15 @@ describe('WorkspaceDocumentDriver', () => {
 describe('DjVu print layout cancellation storage', () => {
     afterEach(() => vi.unstubAllGlobals());
     it('leaves no stored PDF when canceled during layout', async () => {
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        const indexedDb = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', indexedDb);
         vi.stubGlobal('localStorage', new MemoryStorage());
         const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
+        const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
         const layoutStarted = Promise.withResolvers<undefined>();
         const layout = Promise.withResolvers<{data: Uint8Array<ArrayBuffer>}>();
         let convertedPath: TDocumentRef | null = null;
-        let printablePath: TDocumentRef | null = null;
+        let printResult: Awaited<ReturnType<typeof prepareBrowserDjvuPrint>> | null = null;
         driverMocks.runBrowserDjvuConversion.mockImplementationOnce(async (_source, output) => {
             convertedPath = output;
             await browserDocumentStore.write(output, new TextEncoder().encode('%PDF-converted'));
@@ -649,12 +654,10 @@ describe('DjVu print layout cancellation storage', () => {
         });
         driverMocks.printDjvuPath.mockImplementationOnce(async (source, options) => {
             const result = await prepareBrowserDjvuPrint(source, options, requireJobId(`djvu-print-${options.requestId}`));
-            printablePath = result.printablePdfPath ?? null;
+            printResult = result;
             return result as never;
         });
-        driverMocks.cleanupTemp.mockImplementationOnce(async (path) => {
-            await browserDocumentStore.remove(path);
-        });
+        driverMocks.cancel.mockImplementationOnce(async jobId => (await browserDjvuCapability.cancel(jobId)).canceled);
         const driver = useWorkspaceDocumentDriver({
             djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/layout-cancel.djvu')),
             isDjvuMode: ref(true),
@@ -682,9 +685,13 @@ describe('DjVu print layout cancellation storage', () => {
         layout.resolve({data: new TextEncoder().encode('%PDF-laid-out')});
         expect(await outcome).toMatchObject({name: 'AbortError'});
         expect(convertedPath).not.toBeNull();
-        expect(printablePath).not.toBeNull();
+        expect(printResult).toMatchObject({
+            success: false,
+            canceled: true,
+        });
+        expect(printResult).not.toHaveProperty('printablePdfPath');
         expect(await browserDocumentStore.exists(convertedPath!)).toBe(false);
-        expect(await browserDocumentStore.exists(printablePath!)).toBe(false);
+        expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size).toBe(0);
         expect(onNativePrintHandoffStart).not.toHaveBeenCalled();
     });
 });

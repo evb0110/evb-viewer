@@ -63,6 +63,27 @@ describe('scan cleanup preferences', () => {
         expect(() => saveScanCleanupDocumentPreferences('/docs/book.pdf', {outputMode: 'bw'}, storage)).toThrow('Failed to persist');
     });
 
+    it('reads the legacy document settings when storage refuses their adoption', () => {
+        const storage = memoryStorage();
+        const legacyKey = '/docs/book.pdf';
+        const sourceSha256 = 'a'.repeat(64);
+        saveScanCleanupDocumentOutputMode(legacyKey, 'grayscale', storage);
+        saveScanCleanupDocumentOverrides(legacyKey, {'2': createScanCleanupPageOverride({rotationDegrees: 90})}, storage);
+        const refusedStorage: IScanCleanupPreferenceStorage = {
+            get: storage.get,
+            set: () => false,
+        };
+
+        const key = adoptScanCleanupDocumentKey(sourceSha256, legacyKey, refusedStorage);
+
+        expect(key).toBe(legacyKey);
+        expect(loadScanCleanupDocumentOutputMode(key, refusedStorage)).toBe('grayscale');
+        expect(loadScanCleanupDocumentOverrides(key, refusedStorage)['2']?.rotationDegrees).toBe(90);
+        expect(loadScanCleanupDocumentOverrides(sourceSha256, refusedStorage)).toEqual({});
+        expect(adoptScanCleanupDocumentKey(sourceSha256, legacyKey, storage)).toBe(sourceSha256);
+        expect(loadScanCleanupDocumentOutputMode(sourceSha256, storage)).toBe('grayscale');
+    });
+
     it('defaults the document output mode to automatic recommendation', () => {
         expect(DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE).toBe('auto');
     });

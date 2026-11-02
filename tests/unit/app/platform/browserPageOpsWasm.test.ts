@@ -28,6 +28,12 @@ import type { IPageGeometry } from '@contracts/shared';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {
+    SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
+    OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
+    RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA,
+    REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
+} from '@contracts/browserPageOpsWriters';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {
     PDF_ANNOTATION_PARSE_MAX_ENTRIES,
@@ -1322,6 +1328,121 @@ describe('browser page-ops WASM fast path', () => {
             orientation: 'auto',
         });
         expect(facing.pageCount).toBe(2);
+    });
+
+    it('rejects unknown writer instruction fields instead of silently stripping them', () => {
+        const cropRect = {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 120,
+        };
+        const output = {cropRect};
+        const page = {
+            sourcePageIndex: 0,
+            rotationQuarterTurns: 0,
+            outputs: [output],
+        };
+        const split = {pages: [page]};
+        expect(v.parse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, split)).toEqual(split);
+        for (const instructions of [
+            {
+                ...split,
+                unexpected: true,
+            },
+            {pages: [{
+                ...page,
+                unexpected: true,
+            }]},
+            {pages: [{
+                ...page,
+                outputs: [{
+                    ...output,
+                    unexpected: true,
+                }],
+            }]},
+            {pages: [{
+                ...page,
+                outputs: [{cropRect: {
+                    ...cropRect,
+                    unexpected: true,
+                }}],
+            }]},
+            {pages: [{
+                ...page,
+                outputs: [{
+                    ...output,
+                    contentTransform: {
+                        scale: 1,
+                        translateX: 0,
+                        translateY: 0,
+                        unexpected: true,
+                    },
+                }],
+            }]},
+        ]) expect(v.safeParse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        const overlayPage = {
+            sourcePageIndex: 0,
+            outputPageIndex: 0,
+            matrix: [
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ],
+        };
+        for (const instructions of [
+            {
+                pages: [overlayPage],
+                unexpected: true,
+            },
+            {pages: [{
+                ...overlayPage,
+                unexpected: true,
+            }]},
+            {pages: [{
+                ...overlayPage,
+                sourceRegion: {
+                    rect: cropRect,
+                    matrix: overlayPage.matrix,
+                    unexpected: true,
+                },
+            }]},
+            {pages: [{
+                ...overlayPage,
+                sourceRegion: {
+                    rect: {
+                        ...cropRect,
+                        unexpected: true,
+                    },
+                    matrix: overlayPage.matrix,
+                },
+            }]},
+        ]) expect(v.safeParse(OVERLAY_TEXT_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        expect(v.safeParse(RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA, {
+            targetDpi: 150,
+            quality: 80,
+            maxByteRatio: 0.9,
+            unexpected: true,
+        }).success).toBe(false);
+        for (const instructions of [
+            {
+                maxByteRatio: 0.9,
+                pages: [],
+                unexpected: true,
+            },
+            {
+                maxByteRatio: 0.9,
+                pages: [{
+                    pageNumber: 1,
+                    replacement: 0,
+                    replacementPageNumber: 1,
+                    unexpected: true,
+                }],
+            },
+        ]) expect(v.safeParse(REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
     });
 
     it('splits a scan and overlays its source text through the scan-cleanup writers', async () => {

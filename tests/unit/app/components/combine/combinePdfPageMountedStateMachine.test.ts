@@ -16,6 +16,10 @@ import {
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TTranslateFn} from '@i18n-app';
+import EN_MESSAGES from '@i18n-app/messages/en';
+import {SerializableError} from '@contracts/serializableError';
+import {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {requireDocumentRef} from '@contracts/documentRef';
 import { CombinePdfPage } from '@app/modules/combine/public';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
@@ -41,8 +45,11 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
     CombinePdfError: class CombinePdfError extends Error {
         public readonly failure: FailureReceipt | undefined;
 
-        public constructor(public readonly code: string, options?: {failure?: FailureReceipt}) {
-            super(`PDF combine failed (${code})`);
+        public constructor(public readonly code: string, options?: {
+            failure?: FailureReceipt;
+            cause?: unknown
+        }) {
+            super(`PDF combine failed (${code})`, {cause: options?.cause});
             this.failure = options?.failure;
         }
     },
@@ -57,7 +64,10 @@ const platformApi = createElectronPlatformApiFixture({
     },
     documentWorkingCopy: {cleanupFile: mocks.cleanupFile},
 });
-vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    hasElectronAPI: () => false,
+}));
 vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
@@ -79,6 +89,17 @@ interface IQueueFile {
     file: File;
     name: string;
 }
+
+const translate: TTranslateFn = (key, ...args) => {
+    if (key === 'errors.browser.documentTooLarge') {
+        const params = args[0];
+        if (typeof params === 'object' && params !== null && 'limitMiB' in params) {
+            return EN_MESSAGES.errors.browser.documentTooLarge.replace('{limitMiB}', String(params.limitMiB));
+        }
+    }
+    if (key === 'errors.browser.notEnoughMemory') return EN_MESSAGES.errors.browser.notEnoughMemory;
+    return key;
+};
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -119,7 +140,7 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
             files,
             openResult,
             emitOpenResult: () => undefined,
-            translate: key => key,
+            translate,
         });
         const queue = useCombinePdfQueue({
             files,
@@ -351,6 +372,37 @@ describe('mounted Combine PDF page state machine', () => {
         expect(failedOpen.host.querySelector('.error')?.textContent).toBe('errors.file.open');
         expect(failedOpen.host.querySelector('.combine')?.textContent).toBe('Retry');
         failedOpen.unmount();
+    });
+
+    it.each([
+        {
+            envelope: {
+                code: 'browser-byte-limit',
+                message: 'Request too large',
+                maxBytes: 512 * 1024 * 1024,
+            },
+            message: EN_MESSAGES.errors.browser.documentTooLarge.replace('{limitMiB}', '512'),
+        },
+        {
+            envelope: {
+                code: 'too-large',
+                message: 'Image combine WASM ran out of memory',
+            },
+            message: EN_MESSAGES.errors.browser.notEnoughMemory,
+        },
+    ])('shows the browser engine refusal as "$message"', async ({
+        envelope, message,
+    }) => {
+        mocks.combinePdfFiles.mockRejectedValueOnce(new CombinePdfError('limit', {cause: new SerializableError(envelope)}));
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
+        try {
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            expect(page.host.querySelector('.error')?.textContent).toBe(message);
+            expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
+        } finally {
+            page.unmount();
+        }
     });
 
     it('discards a failed-open result without changing the queued files', async () => {
