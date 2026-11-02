@@ -489,9 +489,17 @@ export class BrowserDocumentRecordStore {
     }
 
     // A working copy records the witness of the source bytes it was cloned
-    // from, or last saved to: the identity a reading view belongs to.
+    // from, or last saved to: the identity a reading view belongs to. A
+    // document read from its source, as a DjVu is, is its own source.
     private async readAdmittedSource(workingCopy: string) {
         const entry = await this.ensureEntry(workingCopy);
+        if (entry?.kind === 'source') {
+            const sourceWitness = entry.sourceBaseWitness ?? entry.contentToken;
+            return sourceWitness ? {
+                sourceRef: workingCopy,
+                sourceWitness,
+            } : null;
+        }
         return entry?.kind === 'working' && entry.sourceRef && entry.sourceBaseWitness
             ? {
                 sourceRef: entry.sourceRef,
