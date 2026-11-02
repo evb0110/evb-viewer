@@ -185,7 +185,9 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array): Promise
 /** Desktop's append-admission verdict, from the page tool's own Rust function. */
 async function readAppendAdmission(bytes: Uint8Array) {
     const module = await loadAppendAdmission();
-    const {exports} = await WebAssembly.instantiate(module, {});
+    const {exports} = await WebAssembly.instantiate(module, {}).catch((error: unknown) => {
+        throw new EngineUnavailableError(getErrorMessage(error));
+    });
     if (!hasAppendAdmissionExports(exports)) {
         throw new EngineUnavailableError('The page tool has no append admission');
     }

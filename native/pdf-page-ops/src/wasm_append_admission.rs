@@ -4,7 +4,7 @@
 //! The input arrives in the request allocation `evb_pdf_page_ops_alloc` hands
 //! out; the caller frees it.
 
-use crate::{append_admission_of_bytes, AppendAdmission};
+use crate::{append_admission_of_bytes, wasm::REQUEST_ALLOCATION, AppendAdmission};
 
 pub const APPEND_ADMISSION_APPENDABLE: i32 = 0;
 pub const APPEND_ADMISSION_REPAIRABLE: i32 = 1;
@@ -15,10 +15,10 @@ pub const APPEND_ADMISSION_FAILED: i32 = -1;
 
 /// # Safety
 ///
-/// `pointer` must address `len` readable bytes of this module's memory.
+/// `pointer` and `len` must be the live request allocation.
 #[no_mangle]
 pub unsafe extern "C" fn evb_pdf_page_ops_append_admission(pointer: *const u8, len: usize) -> i32 {
-    if pointer.is_null() || len == 0 {
+    if len == 0 || !REQUEST_ALLOCATION.with(|allocation| allocation.matches(pointer, len)) {
         return APPEND_ADMISSION_FAILED;
     }
     let bytes = unsafe { std::slice::from_raw_parts(pointer, len) };

@@ -29,7 +29,7 @@ const MAX_REQUEST_BYTES: usize = PAGE_OP_WASM_MAX_BUFFER_BYTES;
 const DEFAULT_WASM_MUTATION_MODIFIED_AT: &str = "D:19700101000000Z";
 
 thread_local! {
-    static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
+    pub(crate) static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
