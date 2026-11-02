@@ -413,6 +413,9 @@ describe('Electron and Playwright annotation opacity parity', () => {
             });
             const webPage = await context.newPage();
             await webPage.goto(`${webApp.origin}/`, { waitUntil: 'domcontentloaded' });
+            // The prerendered Open File button takes clicks before hydration
+            // attaches its handler; the app says when it is ready for input.
+            await webPage.waitForFunction(() => Reflect.get(window, '__appReady') === true);
             await webPage.evaluate(() => {
                 window.sessionStorage.setItem(
                     'evb-viewer:browser:open-picker-mode',
