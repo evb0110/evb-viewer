@@ -998,9 +998,6 @@ impl PageAdmission<'_> {
     }
 }
 
-/// Producer-created files can legitimately be absent during shape
-/// validation, so only an existing path is checked here; execution admission
-/// applies the stricter primary-input contract below.
 /// The admission every page's options pass, from a manifest or a browser
 /// engine request: native raster guardrails, the options' own invariants, and
 /// a render crop only where a preview render can honor it.
@@ -1034,6 +1031,9 @@ pub(crate) fn validate_page_options(
     Ok(())
 }
 
+/// Producer-created files can legitimately be absent during shape
+/// validation, so only an existing path is checked here; execution admission
+/// applies the stricter primary-input contract below.
 fn validate_existing_regular_path(
     path: &Path,
     page_number: usize,

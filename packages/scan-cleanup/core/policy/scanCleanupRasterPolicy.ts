@@ -5,7 +5,7 @@ import {
     type IPdfPageSize,
     type IScanCleanupRasterRenderLimits,
 } from '@evb/scan-cleanup/core/types';
-import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
 
 /*
  * Page geometry and raster resolution, decided from a page's geometry record

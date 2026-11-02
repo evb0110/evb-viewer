@@ -6,6 +6,9 @@ import type {TPageNumber} from '@contracts/pageNumbers';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
 import type {INativeScanCleanupOptionsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TNativeScanCleanupOutputArtifactMetadataV3} from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {
+    SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX,
+} from '@contracts/scan-cleanup/inputLimits';
 
 /**
  * How the cleanup engine prepares an OCR page: full cleanup, or only the
@@ -68,8 +71,8 @@ const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
     rotationDegrees: 0,
     excluded: false,
     skipBlankPages: false,
-    maxPixels: 160_000_000,
-    maxDimensionPx: 40_000,
+    maxPixels: SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
+    maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
 };
 
 /** The complete cleanup options for one OCR page rendered at `dpi`. */
