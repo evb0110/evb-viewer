@@ -16,6 +16,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import {
+    assembleTextLayerSearchText,
     clearTextLayerTextMapping,
     createTextLayerRangeForSearchMatch,
     createTextLayerRangeForSearchOccurrence,
@@ -30,6 +31,7 @@ import {
     assembleSearchablePageText, findPdfSearchMatches,
 } from '@pdf-core';
 import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
+import { restorePdfjsRtlItemTexts } from '@pdf-core/pdfjsTextItems';
 import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
 
 vi.mock('@app/platform/browser-api/public', () => ({matchBrowserSearchPageWindowInWorker: vi.fn(async (...[
@@ -50,6 +52,48 @@ async function reconcileVisualMatchesWithCurrent(
 }
 
 describe('usePdfSearchHighlight', () => {
+    it('highlights pointed RTL text when the backend omits generated word separators', async () => {
+        const raw = 'ַהְק';
+        const layer = document.createElement('div');
+        const items = [
+            'ַה',
+            'ְק',
+        ];
+        const spans = items.map(text => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            span.dir = 'rtl';
+            span.style.setProperty('--scale-x', '-1');
+            layer.append(span);
+            return span;
+        });
+        registerTextLayerTextMapping(layer, {
+            textDivs: spans,
+            textContentItemsStr: items,
+        });
+        const assembled = assembleTextLayerSearchText(getCachedTextLayerIndex(layer));
+        expect(assembled.text).toBe('הַ קְ');
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: 'הַקְ',
+            searchQuery: 'הַקְ',
+            matches: [{
+                matchIndex: 0,
+                start: 0,
+                end: 4,
+            }],
+        };
+
+        const ranges = await reconcileVisualMatchesWithCurrent(pageMatches, null, raw, assembled);
+
+        expect(ranges).toEqual([{
+            start: 0,
+            end: 4,
+            isCurrent: false,
+        }]);
+        expect(raw.slice(ranges[0]!.start, ranges[0]!.end)).toBe(raw);
+    });
+
     it('bounds drifted visual matches to the supplied window and preserves a later page ordinal', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
@@ -1333,6 +1377,116 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             pageMatchIndex: 1,
             expectedPageMatchCount: 2,
         })?.toString()).toBe('foo');
+    });
+
+    it('keeps real spaces between unmirrored glyphs and line breaks after mirrored ones', () => {
+        // Unmirrored glyphs with geometry: a genuine word space stays, in any script.
+        const upright = (text: string, x: number, dir: string) => ({
+            text,
+            dir,
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                x,
+                0,
+            ],
+            width: 6,
+        });
+        expect(restorePdfjsRtlItemTexts([
+            upright('َل', 0, 'rtl'),
+            upright(' ', 6, 'ltr'),
+            upright('َس', 9, 'rtl'),
+        ]).join('')).toBe('لَ سَ');
+        expect(restorePdfjsRtlItemTexts([
+            upright('á', 0, 'ltr'),
+            upright(' ', 6, 'ltr'),
+            upright('b́', 9, 'ltr'),
+        ]).join('')).toBe('á b́');
+        // A line break after a mirrored pointed glyph is a line break, not a mark's advance.
+        expect(restorePdfjsRtlItemTexts([
+            {
+                text: 'ַה',
+                dir: 'rtl',
+                mirrored: true,
+            },
+            {
+                text: '\n',
+                dir: 'ltr',
+            },
+            {
+                text: 'ק',
+                dir: 'rtl',
+                mirrored: true,
+            },
+        ]).join('')).toBe('הַ\nק');
+    });
+
+    it('highlights right-to-left OCR words whose glyphs PDF.js reverses and splits', async () => {
+        // PDF.js items of tests/fixtures/browser/rtl-ocr/saved-rtl-ocr.pdf: EVB
+        // OCR draws logical-order glyphs mirrored, one per item.
+        const renderLayer = (items: readonly string[], scaleX: string) => {
+            const textLayer = document.createElement('div');
+            const spans = items.map((text) => {
+                const span = document.createElement('span');
+                span.textContent = text;
+                span.dir = text === ' ' ? 'ltr' : 'rtl';
+                span.style.setProperty('--scale-x', text === ' ' ? '-1' : scaleX);
+                textLayer.append(span);
+                return span;
+            });
+            registerTextLayerTextMapping(textLayer, {
+                textDivs: spans,
+                textContentItemsStr: [...items],
+            });
+            return textLayer;
+        };
+        const paintedText = async (textLayer: HTMLElement, searchQuery: string, expected: string) => {
+            usePdfSearchHighlight().highlightPage(textLayer, {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery,
+                matches: [{
+                    matchIndex: 0,
+                    start: 13,
+                    end: 18,
+                }],
+            }, null);
+            await expect.poll(() => [...textLayer.querySelectorAll('.pdf-search-highlight')]
+                .map(element => element.textContent).join('')).toBe(expected);
+            expect(createTextLayerRangeForSearchOccurrence(textLayer, {
+                text: searchQuery,
+                pageMatchIndex: 0,
+            })?.toString()).toBe(expected);
+        };
+        const arabic = [
+            ...'السلام',
+            ' ',
+            ...'عليكم',
+            'ا ',
+            ...'للغة',
+        ];
+        const hebrew = [
+            '\u05B7\u05D4',
+            ' ',
+            '\u05B0\u05E7',
+            ' ',
+            '\u05B0\u05D3',
+            ' ',
+            '\u05B8\u05E9',
+            ' ',
+            '\u05D4',
+        ];
+
+        await paintedText(renderLayer(arabic, '-0.38'), 'اللغة', 'ا للغة');
+        await paintedText(renderLayer(hebrew, '-0.4'), 'הַקְדְשָה', hebrew.join(''));
+        // A visual-order writer draws unmirrored glyphs, and PDF.js's reversal
+        // is right for them: their text is read as PDF.js gives it.
+        expect(createTextLayerRangeForSearchOccurrence(renderLayer(arabic, '0.38'), {
+            text: 'اللغة',
+            pageMatchIndex: 0,
+        })).toBeNull();
     });
 
     it('marks multi-div highlights with pdf.js begin and end segment classes', () => {

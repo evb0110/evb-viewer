@@ -27,14 +27,6 @@
                     </div>
                 </div>
 
-                <UAlert
-                    v-if="conversionBlockedMessage"
-                    color="warning"
-                    variant="soft"
-                    icon="i-ph-warning-circle"
-                    :description="conversionBlockedMessage"
-                />
-
                 <div class="convert-presets flex flex-col gap-2">
                     <URadioGroup
                         v-model="selectedPresetValue"
@@ -163,7 +155,7 @@
                 :label="t('common.convert')"
                 color="primary"
                 :loading="infoLoading"
-                :disabled="infoLoading || Boolean(conversionBlockedMessage)"
+                :disabled="infoLoading"
                 @click="handleConvert"
             />
         </template>
@@ -181,7 +173,6 @@ import {
     DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
     estimateDjvuPdfConversionSource,
     evaluateDjvuPdfConversionPolicy,
-    resolveBrowserDjvuConversionPreflight,
 } from '@contracts/djvuConversionPolicy';
 import {
     DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE,
@@ -197,7 +188,6 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import { isBrowserPlatformActive } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
 
@@ -333,27 +323,6 @@ const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
 const selectedConversionPolicy = computed(() => {
     const source = selectedConversion.value.pdfStrategy === 'direct' ? conversionSource.value : null;
     return source && evaluateDjvuPdfConversionPolicy(source, selectedConversion.value.subsample);
-});
-
-const browserConversionPreflight = computed(() => {
-    if (!isBrowserPlatformActive() || !info.value) {
-        return null;
-    }
-
-    return resolveBrowserDjvuConversionPreflight(info.value.pageSizes ?? [], info.value.pageCount);
-});
-const conversionBlockedMessage = computed(() => {
-    const preflight = browserConversionPreflight.value;
-    if (!preflight || preflight.allowed) {
-        return null;
-    }
-
-    return preflight.reason === 'page-count'
-        ? t('djvu.convertDialog.browserPageLimit', {
-            pages: preflight.pageCount.toLocaleString(),
-            maxPages: preflight.maxPages.toLocaleString(),
-        })
-        : t('djvu.convertDialog.browserPixelLimit');
 });
 
 const fileName = computed(() => getDocumentRefBaseName(djvuPath) ?? '');
@@ -510,7 +479,7 @@ watch(advancedRasterOpen, async (isAdvancedOpen) => {
 });
 
 function handleConvert() {
-    if (infoLoading.value || conversionBlockedMessage.value) {
+    if (infoLoading.value) {
         return;
     }
     const policy = selectedConversionPolicy.value;

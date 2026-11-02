@@ -13,7 +13,6 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {BrowserLogger} from '@app/utils/browserLogger';
 import {
     cloneScanCleanupPreferenceValue,
     scanCleanupPreferenceRecord,
@@ -34,7 +33,6 @@ const OUTPUT_HALVES: readonly TScanCleanupOutputHalf[] = [
     'right',
 ];
 
-let legacyOverrideWarningShown = false;
 
 interface ILegacyRasterDimensions {
     width: number;
@@ -341,15 +339,4 @@ export function migrateScanCleanupDocumentOverridesV1(
         migratedLegacyGeometry: legacyGeometryFound,
         overrides: cloneScanCleanupPreferenceValue(migrated),
     };
-}
-
-export function warnScanCleanupOverrideMigrationV1() {
-    if (legacyOverrideWarningShown) {
-        return;
-    }
-    legacyOverrideWarningShown = true;
-    BrowserLogger.warn(
-        'scan-cleanup',
-        'Migrated legacy pixel-based overrides; geometry without known 150-DPI raster dimensions was dropped.',
-    );
 }

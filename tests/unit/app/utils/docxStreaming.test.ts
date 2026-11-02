@@ -7,40 +7,17 @@ import {
     expect,
     it,
 } from 'vitest';
-import {createDocxFromTextAsync} from '@app/utils/createDocxFromTextAsync';
 import {
     createDocxFromTextChunks,
     DOCUMENT_XML_PREFIX,
     DOCX_STREAM_CHUNK_BYTES,
     resolveDocxParagraphDirection,
+    crc32,
+    encodeUtf8,
+    makeLocalHeader,
+    makeCentralHeader,
+    makeEndOfCentralDirectory,
 } from '@app/utils/docxStreaming';
-
-describe('createDocxFromTextAsync', () => {
-    it('builds a DOCX package while checking the caller signal', async () => {
-        const controller = new AbortController();
-        const output = await createDocxFromTextAsync('catalog text', false, controller.signal);
-
-        expect(output.byteLength).toBeGreaterThan(0);
-        expect(new TextDecoder().decode(output.slice(0, 2))).toBe('PK');
-    });
-
-    it('preserves mixed paragraph direction in the async builder', async () => {
-        const output = await createDocxFromTextAsync('אבג 123\nLatin 456\n123');
-        const xml = new TextDecoder().decode(output);
-
-        expect(xml).toContain('<w:p><w:pPr><w:bidi/></w:pPr>');
-        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">Latin 456');
-        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">123');
-    });
-
-    it('rejects before building when its signal is already canceled', async () => {
-        const controller = new AbortController();
-        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
-
-        await expect(createDocxFromTextAsync('catalog text', false, controller.signal))
-            .rejects.toMatchObject({name: 'AbortError'});
-    });
-});
 
 async function collectDocxBytes(pages: Parameters<typeof createDocxFromTextChunks>[0]) {
     const chunks: Uint8Array[] = [];
@@ -74,8 +51,21 @@ function readZipEntries(zip: Buffer) {
         0x05,
         0x06,
     ]));
-    const entryCount = zip.readUInt16LE(endOfCentralDirectory + 10);
-    let central = zip.readUInt32LE(endOfCentralDirectory + 16);
+    const locator = endOfCentralDirectory - 20;
+    const zip64End = zip.readUInt32LE(locator) === 0x07064B50
+        ? Number(zip.readBigUInt64LE(locator + 8))
+        : null;
+    if (zip64End !== null) {
+        expect(zip.readUInt32LE(zip64End)).toBe(0x06064B50);
+        const recordSize = Number(zip.readBigUInt64LE(zip64End + 4));
+        expect(zip64End + 12 + recordSize).toBe(locator);
+    }
+    const entryCount = zip64End === null
+        ? zip.readUInt16LE(endOfCentralDirectory + 10)
+        : Number(zip.readBigUInt64LE(zip64End + 32));
+    let central = zip64End === null
+        ? zip.readUInt32LE(endOfCentralDirectory + 16)
+        : Number(zip.readBigUInt64LE(zip64End + 48));
     for (let index = 0; index < entryCount; index += 1) {
         expect(zip.readUInt32LE(central)).toBe(0x02014B50);
         const nameLength = zip.readUInt16LE(central + 28);
@@ -296,5 +286,39 @@ describe('createDocxFromTextChunks', () => {
         controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
 
         await expect(stream.next()).rejects.toMatchObject({name: 'AbortError'});
+    });
+});
+
+describe('stored image ZIP', () => {
+    it('reads every entry and its bytes when the entry count needs ZIP64', () => {
+        const count = 65_536;
+        const locals: Uint8Array[] = [];
+        const centralHeaders: Uint8Array[] = [];
+        let offset = 0;
+        for (let index = 0; index < count; index += 1) {
+            const name = encodeUtf8(`page-${index}.txt`);
+            const data = encodeUtf8(`page ${index}\n`);
+            const crc = crc32(data);
+            const local = makeLocalHeader(name, crc, data.byteLength);
+            locals.push(local, data);
+            centralHeaders.push(makeCentralHeader(name, crc, data.byteLength, offset));
+            offset += local.byteLength + data.byteLength;
+        }
+        const centralSize = centralHeaders.reduce((size, header) => size + header.byteLength, 0);
+        const zip = Buffer.concat([
+            ...locals,
+            ...centralHeaders,
+            makeEndOfCentralDirectory(count, centralSize, offset),
+        ]);
+        const entries = readZipEntries(zip);
+
+        expect(entries.size).toBe(count);
+        for (let index = 0; index < count; index += 1) {
+            const entry = entries.get(`page-${index}.txt`);
+            expect(entry?.method).toBe(0);
+            expect(entry?.compressed.toString('utf8')).toBe(`page ${index}\n`);
+            expect(entry?.size).toBe(entry?.compressed.byteLength);
+            expect(entry?.crc).toBe(zlibCrc32(entry!.compressed));
+        }
     });
 });

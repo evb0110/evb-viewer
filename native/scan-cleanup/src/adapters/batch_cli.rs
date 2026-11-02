@@ -4,7 +4,7 @@ use crate::adapters::manifest_publication::{
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::batch_reconciliation::{
     apply_reconciliation_actions, reconcile_classification_batch, reconciliation_candidates,
-    ReconciliationPolicy,
+    MANIFEST_RECONCILIATION_POLICY,
 };
 use crate::engine::lossless_placement::{plan_lossless_page, record_source_preservation};
 use crate::engine::output_geometry::{match_page_sizes, write_json_atomic};
@@ -26,7 +26,7 @@ use crate::{
     protocol::{
         manifest_v3::{
             AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
-            MAX_MANIFEST_PAGES_PER_BATCH,
+            MAX_MANIFEST_BYTES,
         },
         progress::{Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
@@ -45,11 +45,6 @@ use std::{
     sync::{atomic::AtomicBool, Mutex},
 };
 
-// Keep the materialized compatibility sanitizer bounded by the same page
-// admission contract as the wire page vector. Eight KiB per page leaves room
-// for normal authored options while preventing a byte-sized manifest from
-// turning the additive unknown-field pass into an unbounded allocation.
-const MAX_MANIFEST_BYTES: usize = MAX_MANIFEST_PAGES_PER_BATCH * 8 * 1024;
 const CANCELLATION_EXIT_CODE: i32 = 130;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -490,13 +485,7 @@ fn run_manifest_inner(
     // has already published its pages by the time it returns.
     if analyzing {
         let candidates = reconciliation_candidates(&page_results);
-        let actions = reconcile_classification_batch(
-            &candidates,
-            ReconciliationPolicy {
-                minimum_confidence: 0.60,
-                minimum_support: 2,
-            },
-        );
+        let actions = reconcile_classification_batch(&candidates, MANIFEST_RECONCILIATION_POLICY);
         let rerun = |index, prior| {
             let page = &manifest.pages[index];
             let lease = staged_lease(manifest, index, page);

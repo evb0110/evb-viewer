@@ -41,7 +41,6 @@ interface IPendingWorkerRequest {
 interface IBrowserSearchWorkerRequestOptions {matchTimeoutMs?: number;}
 
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
-const BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS = 60_000;
 export const BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS = SEARCH_REGEX_MAX_EXECUTION_MS + 1_000;
 
 export class BrowserSearchWorkerUnavailableError extends Error {
@@ -196,7 +195,6 @@ export function canUseBrowserSearchWorker() {
 function createBrowserSearchWorkerClient() {
     const client = new BrowserWorkerClient<IPendingWorkerRequest>({
         idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
-        requestTimeoutMs: BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS,
         createWorker: () => {
             try {
                 return new Worker(
@@ -248,9 +246,9 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
                     return true;
                 },
                 reject: error => reject(reportWorkerFailure(error)),
-            }, () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
-                `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
-            )));
+                // As on desktop a search runs until it finishes or is canceled; only
+                // a regular expression's match has a time bound (matchTimeoutMs).
+            }, () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError('Browser search worker request timed out')));
 
             try {
                 worker.postMessage(request);

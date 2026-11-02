@@ -94,6 +94,7 @@ pub(crate) struct NearPaperEdgeRuns {
     pub(crate) right: usize,
 }
 
+#[derive(Clone)]
 pub(crate) struct GeometryOutput {
     pub(crate) options: CleanupOptions,
     pub(crate) source_page_index: usize,
@@ -143,6 +144,8 @@ impl GeometryOutput {
     }
 }
 
+/// One output a manifest render published, and the facts its document-canvas
+/// placement reads.
 pub(crate) struct WrittenOutput {
     pub(crate) output_path: PathBuf,
     pub(crate) metadata_path: PathBuf,
@@ -152,18 +155,7 @@ pub(crate) struct WrittenOutput {
     pub(crate) foreground_alpha_output_path: Option<PathBuf>,
     pub(crate) picture_mask_output_path: Option<PathBuf>,
     pub(crate) tone_preservation_alpha_output_path: Option<PathBuf>,
-    pub(crate) options: CleanupOptions,
-    pub(crate) source_page_index: usize,
-    pub(crate) half: PageHalf,
-    pub(crate) width: usize,
-    pub(crate) height: usize,
-    pub(crate) paper_width: f64,
-    pub(crate) paper_height: f64,
-    pub(crate) content_detected: bool,
-    pub(crate) spread_content_top: Option<f64>,
-    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
-    pub(crate) fold_side_near_paper_run: usize,
-    pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
+    pub(crate) geometry: GeometryOutput,
     pub(crate) matched_in_memory: bool,
 }
 
@@ -1888,23 +1880,6 @@ pub(crate) fn place_rgb_on_white_canvas_with_source_window(
     canvas
 }
 
-pub(crate) fn geometry_output(output: &WrittenOutput) -> GeometryOutput {
-    GeometryOutput::from_parts(GeometryOutputParts {
-        options: output.options.clone(),
-        source_page_index: output.source_page_index,
-        half: output.half,
-        width: output.width,
-        height: output.height,
-        paper_width: output.paper_width,
-        paper_height: output.paper_height,
-        content_detected: output.content_detected,
-        spread_content_top: output.spread_content_top,
-        optical_content_bounds_x: output.optical_content_bounds_x,
-        fold_side_near_paper_run: output.fold_side_near_paper_run,
-        outer_near_paper_edge_runs: output.outer_near_paper_edge_runs,
-    })
-}
-
 pub(crate) fn geometry_output_from_cleanup_result(
     output: &CleanupResult,
     options: &CleanupOptions,
@@ -2237,19 +2212,26 @@ fn remove_written_output_files(output: &WrittenOutput) {
     }
 }
 
-pub(crate) fn match_page_sizes(
-    outputs: &[&WrittenOutput],
-    document_canvas: Option<crate::protocol::manifest_v3::DocumentCanvas>,
-) -> Result<(), Box<dyn Error>> {
+/// One output's document-canvas placement: its index, placement and canvas.
+pub(crate) type DocumentCanvasPlacement = (usize, CanvasPlacement, DocumentCanvas);
+
+/// Where each output that a render did not match in memory lands on the
+/// document canvas, as `(output index, placement, canvas)` in the order they
+/// are applied. Outputs at one DPI share one canvas and are planned together.
+pub(crate) fn plan_document_canvas_placements(
+    outputs: &[(&GeometryOutput, bool)],
+    document_canvas: Option<DocumentCanvas>,
+) -> Result<Vec<DocumentCanvasPlacement>, Box<dyn Error>> {
     let eligible = outputs
         .iter()
-        .copied()
-        .filter(|output| {
-            output.options.match_page_size && !output.options.ocr_mode && !output.matched_in_memory
+        .enumerate()
+        .filter(|(_, (output, matched_in_memory))| {
+            output.options.match_page_size && !output.options.ocr_mode && !matched_in_memory
         })
+        .map(|(index, (output, _))| (index, *output))
         .collect::<Vec<_>>();
     if eligible.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let Some(document_canvas) = document_canvas else {
         return Err(NativeError::new(
@@ -2258,38 +2240,69 @@ pub(crate) fn match_page_sizes(
         )
         .into());
     };
-    let mut by_dpi = BTreeMap::<u64, Vec<&WrittenOutput>>::new();
-    for output in eligible {
+    let mut by_dpi = BTreeMap::<u64, Vec<(usize, &GeometryOutput)>>::new();
+    for (index, output) in eligible {
         by_dpi
             .entry(output.options.dpi.to_bits())
             .or_default()
-            .push(output);
+            .push((index, output));
     }
+    let mut planned = Vec::new();
     for outputs in by_dpi.into_values() {
-        let canvas = matched_canvas_for_options(document_canvas, &outputs[0].options)?;
+        let canvas = matched_canvas_for_options(document_canvas, &outputs[0].1.options)?;
         let geometry_outputs = outputs
             .iter()
-            .map(|output| geometry_output(output))
+            .map(|(_, output)| (*output).clone())
             .collect::<Vec<_>>();
         let placements = plan_canvas_placements(&geometry_outputs, &canvas);
+        planned.extend(
+            outputs
+                .into_iter()
+                .zip(placements)
+                .map(|((index, _), placement)| (index, placement, canvas)),
+        );
+    }
+    Ok(planned)
+}
 
-        for (output, placement) in outputs.into_iter().zip(placements) {
-            let repad_result = (|| -> Result<(), Box<dyn Error>> {
-                validate_canvas_for_options(canvas.width_px, canvas.height_px, &output.options)?;
-                let mut metadata: CleanupMetadata =
-                    serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
-                metadata.intrinsic_raster_width.get_or_insert(output.width);
-                metadata
-                    .intrinsic_raster_height
-                    .get_or_insert(output.height);
-                apply_canvas_metadata(&mut metadata, placement, &canvas);
-                write_json_atomic(&output.metadata_path, &metadata)?;
-                Ok(())
-            })();
-            if let Err(error) = repad_result {
-                remove_written_output_files(output);
-                return Err(error);
-            }
+/// Rewrites one published output's metadata JSON for its document-canvas
+/// placement. The CLI reads the bytes back from the metadata file it wrote;
+/// the browser engine holds the same bytes in memory.
+pub(crate) fn place_metadata_on_document_canvas(
+    metadata_json: &[u8],
+    output: &GeometryOutput,
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    validate_canvas_for_options(canvas.width_px, canvas.height_px, &output.options)?;
+    let mut metadata: CleanupMetadata = serde_json::from_slice(metadata_json)?;
+    metadata.intrinsic_raster_width.get_or_insert(output.width);
+    metadata
+        .intrinsic_raster_height
+        .get_or_insert(output.height);
+    apply_canvas_metadata(&mut metadata, placement, canvas);
+    Ok(serde_json::to_vec(&metadata)?)
+}
+
+pub(crate) fn match_page_sizes(
+    outputs: &[&WrittenOutput],
+    document_canvas: Option<crate::protocol::manifest_v3::DocumentCanvas>,
+) -> Result<(), Box<dyn Error>> {
+    let geometry = outputs
+        .iter()
+        .map(|output| (&output.geometry, output.matched_in_memory))
+        .collect::<Vec<_>>();
+    for (index, placement, canvas) in plan_document_canvas_placements(&geometry, document_canvas)? {
+        let output = outputs[index];
+        let repad_result = (|| -> Result<(), Box<dyn Error>> {
+            let metadata = fs::read(&output.metadata_path)?;
+            let metadata =
+                place_metadata_on_document_canvas(&metadata, &output.geometry, placement, &canvas)?;
+            write_bytes_atomic(&output.metadata_path, &metadata)
+        })();
+        if let Err(error) = repad_result {
+            remove_written_output_files(output);
+            return Err(error);
         }
     }
     Ok(())
@@ -2315,7 +2328,14 @@ pub(crate) fn write_json_atomic(
     path: &std::path::Path,
     value: &impl serde::Serialize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let bytes = serde_json::to_vec(value)?;
+    write_bytes_atomic(path, &serde_json::to_vec(value)?)
+}
+
+/// Publishes metadata bytes the way [`write_json_atomic`] publishes JSON.
+pub(crate) fn write_bytes_atomic(
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
     let temporary = path.with_extension(format!(
         "{}.tmp-{}",
         path.extension()

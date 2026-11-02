@@ -13,7 +13,7 @@ pub(crate) use xref_admission::{check_xref_chain, path_has_encryption_entry, pat
 pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const MAX_PDF_OBJECTS: usize = 1_000_000;
-// Eager byte-array and WASM loads keep their existing page admission budget.
+// Compatibility byte-array loads keep this page budget; browser loads use the path budget.
 const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
 // Path-backed loads need to admit the xlarge acceptance document, but they
 // still need a finite page-count guard before lopdf builds its object graph.
@@ -52,6 +52,11 @@ static ACTIVE_STREAM_LIMIT: AtomicUsize = AtomicUsize::new(MAX_DECOMPRESSED_PDF_
 static OBJECT_STREAM_LIMIT_HIT: AtomicBool = AtomicBool::new(false);
 
 impl PdfLoadPolicy {
+    /// The largest encoded file this policy's reader loads eagerly.
+    pub(crate) fn max_encoded_bytes(self) -> usize {
+        self.max_encoded_bytes
+    }
+
     fn lopdf_options(self) -> LoadOptions {
         let mut options =
             LoadOptions::with_max_decompressed_size(self.max_decompressed_stream_bytes);
@@ -210,15 +215,23 @@ pub(crate) fn load_pdf_path_with_password(path: &Path, password: Option<&str>) -
 }
 
 /// Loads a compatibility-sized raw PDF input through the standard byte-input
-/// policy with an optional password. The decrypt operation and the wasm
-/// decrypt op share this entry point.
+/// policy with an optional password, for the decrypt operation.
 pub(crate) fn load_pdf_bytes_bounded(bytes: &[u8], password: Option<&str>) -> Result<Document> {
     load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
 }
 
+/// The browser engine has no structural route for large files: each request
+/// loads its input eagerly from one request buffer. Admit what that buffer can
+/// carry, and the pages desktop admits through its path loads.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) const BROWSER_PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+    max_encoded_bytes: PAGE_OP_WASM_MAX_BUFFER_BYTES,
+    ..PDF_PATH_LOAD_POLICY
+};
+
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
-    load_pdf_bytes_with_policy(bytes, PDF_LOAD_POLICY)
+    load_pdf_bytes_with_policy(bytes, BROWSER_PDF_LOAD_POLICY)
 }
 
 /// Loads raw PDF bytes with an optional decryption password for encrypted inputs.
@@ -303,7 +316,7 @@ pub(crate) fn load_pdf_bytes_with_password(
     bytes: &[u8],
     password: Option<&str>,
 ) -> Result<Document> {
-    load_pdf_bytes_with_policy_and_password(bytes, PDF_LOAD_POLICY, password)
+    load_pdf_bytes_with_policy_and_password(bytes, BROWSER_PDF_LOAD_POLICY, password)
 }
 
 pub(crate) fn load_incremental_pdf_path(

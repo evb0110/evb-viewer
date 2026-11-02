@@ -6089,10 +6089,7 @@ mod tests {
         let cropped_source = crop_gray(&detail_source, source_crop);
         let render_region = Rect::new(60.0, 40.0, 100.0, 70.0);
         let sampled_region = Rect::new(46.0, 24.0, 148.0, 120.0);
-        let detail_plan = DetailRenderPlan {
-            base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
-            base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
-            base_cleaned_raster_path: None,
+        let detail_plan = DetailRenderGeometry {
             source_crop: crate::protocol::manifest_v3::DetailPixelRect {
                 x_px: source_crop.x,
                 y_px: source_crop.y,
@@ -6281,10 +6278,7 @@ mod tests {
             ..base_options.clone()
         };
         let full_rect = Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64);
-        let detail_plan = DetailRenderPlan {
-            base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
-            base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
-            base_cleaned_raster_path: None,
+        let detail_plan = DetailRenderGeometry {
             source_crop: crate::protocol::manifest_v3::DetailPixelRect {
                 x_px: full_rect.x,
                 y_px: full_rect.y,
@@ -6391,10 +6385,7 @@ mod tests {
                 source_crop.set(x, y, source.get(80 + x / 2, 680 + y / 2));
             }
         }
-        let plan = DetailRenderPlan {
-            base_metadata_path: "unused-in-engine-test.json".into(),
-            base_raster_path: "unused-in-engine-test.png".into(),
-            base_cleaned_raster_path: None,
+        let plan = DetailRenderGeometry {
             source_crop: region.clone(),
             full_source_width_px: 1600,
             full_source_height_px: 2000,
@@ -6550,10 +6541,7 @@ mod tests {
                 source_crop.set(x, y, source.get(800 + x / 2, 850 + y / 2));
             }
         }
-        let plan = DetailRenderPlan {
-            base_metadata_path: "unused-in-engine-test.json".into(),
-            base_raster_path: "unused-in-engine-test.png".into(),
-            base_cleaned_raster_path: None,
+        let plan = DetailRenderGeometry {
             source_crop: region.clone(),
             full_source_width_px: 3400,
             full_source_height_px: 4800,
@@ -6727,10 +6715,7 @@ mod tests {
         // The apron the preview service samples around the visible viewport.
         let sampled_region = Rect::new(24.0, 40.0, 220.0, 200.0);
         let render_region = Rect::new(80.0, 96.0, 108.0, 88.0);
-        let detail_plan = DetailRenderPlan {
-            base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
-            base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
-            base_cleaned_raster_path: None,
+        let detail_plan = DetailRenderGeometry {
             source_crop: crate::protocol::manifest_v3::DetailPixelRect {
                 x_px: sampled_region.x,
                 y_px: sampled_region.y,

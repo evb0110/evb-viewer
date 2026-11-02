@@ -2350,7 +2350,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             await clickAnnotationTool(page, 'Note');
         } else {
             const overflowPoint = await page.waitForFunction(() => {
-                for (const button of document.querySelectorAll<HTMLElement>('header.toolbar .toolbar-icon-button')) {
+                for (const button of document.querySelectorAll<HTMLElement>('.editor-global-toolbar-shell .toolbar-icon-button')) {
                     const rect = button.getBoundingClientRect();
                     const x = rect.left + rect.width / 2;
                     const y = rect.top + rect.height / 2;

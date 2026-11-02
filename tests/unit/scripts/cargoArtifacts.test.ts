@@ -582,6 +582,7 @@ describe('Cargo artifact staging', () => {
         for (const toolId of [
             'pdf-image-combine',
             'pdf-page-ops',
+            'scan-cleanup',
         ]) {
             const tool = getGeneratedNativeToolResource(toolId);
             const artifact = getWasmArtifactByCrateName(tool.crateName);

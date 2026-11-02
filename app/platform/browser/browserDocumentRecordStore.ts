@@ -49,6 +49,7 @@ import {
     createStaleRevisionError,
 } from '@contracts/documentMutationErrors';
 import { parseDocumentRef } from '@contracts/documentRef';
+import type {IRecentReadingView} from '@contracts/recentReadingView';
 
 async function assertFileHandleReadPermission(handle: FileSystemFileHandle) {
     interface IFileSystemHandlePermissionDescriptor {mode: 'read';}
@@ -96,6 +97,7 @@ export class BrowserDocumentRecordStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private readonly mutationQueue = new BrowserDocumentMutationQueue();
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
+    private readonly removalListeners = new Set<(ref: string) => void>();
     private readonly recentFilesStore = new BrowserRecentFilesStore({
         requireEntry: (ref) => this.requireEntry(ref),
         getAllPersistedRecords: () => loadBrowserPersistedDocumentRecordsResult(),
@@ -407,7 +409,19 @@ export class BrowserDocumentRecordStore {
         await this.removeRecentFile(ref);
     }
 
-    protected onDocumentRemoved(_ref: string) {}
+    protected onDocumentRemoved(ref: string) {
+        for (const listener of this.removalListeners) {
+            listener(ref);
+        }
+    }
+
+    /** Calls `listener` with each document whose record leaves the store. */
+    public onDocumentRecordRemoved(listener: (ref: string) => void) {
+        this.removalListeners.add(listener);
+        return () => {
+            this.removalListeners.delete(listener);
+        };
+    }
 
     /** Removes a document record while its caller owns the mutation queue. */
     protected async removeDocumentRecordUnlocked(ref: string) {
@@ -472,6 +486,40 @@ export class BrowserDocumentRecordStore {
 
     public async clearRecentFiles() {
         await this.recentFilesStore.clearRecentFiles();
+    }
+
+    // A working copy records the witness of the source bytes it was cloned
+    // from, or last saved to: the identity a reading view belongs to. A
+    // document read from its source, as a DjVu is, is its own source.
+    private async readAdmittedSource(workingCopy: string) {
+        const entry = await this.ensureEntry(workingCopy);
+        if (entry?.kind === 'source') {
+            const sourceWitness = entry.sourceBaseWitness ?? entry.contentToken;
+            return sourceWitness ? {
+                sourceRef: workingCopy,
+                sourceWitness,
+            } : null;
+        }
+        return entry?.kind === 'working' && entry.sourceRef && entry.sourceBaseWitness
+            ? {
+                sourceRef: entry.sourceRef,
+                sourceWitness: entry.sourceBaseWitness,
+            }
+            : null;
+    }
+
+    /** Remembers the view with the Recent entry of the source `workingCopy` was admitted from. */
+    public async rememberRecentReadingView(workingCopy: string, view: IRecentReadingView) {
+        const source = await this.readAdmittedSource(workingCopy);
+        if (source) {
+            await this.recentFilesStore.rememberReadingView(source.sourceRef, source.sourceWitness, view);
+        }
+    }
+
+    /** The view a reader left the source of `workingCopy` at, if that source is the bytes it was left on. */
+    public async readRecentReadingView(workingCopy: string) {
+        const source = await this.readAdmittedSource(workingCopy);
+        return source ? this.recentFilesStore.readReadingView(source.sourceRef, source.sourceWitness) : null;
     }
 
     private async collectUnretainedDocuments() {

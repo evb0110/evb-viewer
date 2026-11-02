@@ -6,6 +6,12 @@ use std::{
 
 pub const WASM_REQUEST_ALLOCATION_ABI_VERSION: u32 = 1;
 
+/// The largest single wasm32 Rust allocation (`isize::MAX` there): one engine
+/// request or one framed response. The 4 GiB address space must also hold the
+/// engine's working memory, so a buffer near this ceiling fails as an
+/// allocation failure rather than at a policy.
+pub const WASM_MAX_BUFFER_BYTES: usize = 0x7fff_ffff;
+
 #[derive(Clone, Copy)]
 struct LiveAllocation {
     pointer: NonNull<u8>,

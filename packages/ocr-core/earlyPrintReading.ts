@@ -1,9 +1,13 @@
-import { isLatinScriptOcrLanguage } from '@contracts/ocrLanguages';
+import {
+    isLatinScriptOcrLanguage,
+    type TOcrModelCode,
+} from '@contracts/ocrLanguages';
 import type {
     IHocrChar,
     IHocrLine,
 } from '@ocr-core/hocrReading';
 import { hocrWordText } from '@ocr-core/hocrReading';
+import { readTraineddataWordList } from '@ocr-core/readTraineddataWordList';
 import type { IOcrWordEdit } from '@ocr-core/types';
 
 /*
@@ -103,6 +107,23 @@ export function createEarlyPrintDictionary(words: Iterable<string>, latin: boole
         if (key && !(latin && LATIN_IMPOSSIBLE_F.test(key))) keys.add(key);
     }
     return keys;
+}
+
+/**
+ * The early-print dictionary of the selected languages: the union of their
+ * models' word lists. Latin reads its language model (`lat_dictionary`):
+ * script/Latin's multilingual DAWG exceeds the bounded reader and includes
+ * words from languages the user did not select.
+ */
+export async function readEarlyPrintDictionary(
+    languages: readonly string[],
+    readModel: (code: TOcrModelCode) => Promise<Uint8Array>,
+): Promise<ReadonlySet<string>> {
+    const codes = [...new Set(languages)];
+    const lists = await Promise.all(codes.map(async code => readTraineddataWordList(
+        await readModel((code === 'lat' ? 'lat_dictionary' : code) as TOcrModelCode),
+    )));
+    return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), codes.includes('lat'));
 }
 
 function countInWordLetters(words: readonly string[], letters: readonly string[]) {

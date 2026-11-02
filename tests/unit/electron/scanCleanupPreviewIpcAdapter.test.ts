@@ -19,7 +19,7 @@ import {requireRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     defaultDependencies, scanCleanupPreviewLifecycle,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';

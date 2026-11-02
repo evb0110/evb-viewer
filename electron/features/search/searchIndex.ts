@@ -60,7 +60,7 @@ export interface ISearchQueryOptions extends IResolvedSearchMatchOptions {
  * indexes built the old way no longer match their document and are rebuilt.
  */
 function indexRevision(document: ISearchIndexedDocument) {
-    return `text-5:${document.documentRevision}`;
+    return `text-6:${document.documentRevision}`;
 }
 
 export function getSearchIndexPath(documentPath: string) {

@@ -5,8 +5,8 @@ import type {
     IBrowserPdfCombineWorkerResultMap,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
+import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@contracts/browserPdfCombineWorker';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
@@ -23,7 +23,26 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
-const BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS = 120_000;
+// Desktop's native image combiner gets five minutes. The browser build runs
+// it on one wasm32 thread without progress reports, so a combine nobody can
+// cancel waits that long plus a second per MiB of input; one with an abort
+// signal has no deadline, since canceling it ends the worker.
+const DESKTOP_NATIVE_IMAGE_COMBINE_TIMEOUT_MS = 5 * 60 * 1000;
+const ENGINE_DEADLINE_MS_PER_MIB = 1000;
+
+function getCombineDeadlineMs(payload: IBrowserPdfCombineWorkerRequestMap[TBrowserPdfCombineWorkerRequestType], signal: AbortSignal | undefined) {
+    if (signal) return undefined;
+    const specInputs = payload.wasmImagePreprocessing?.pageSpecs?.flatMap(spec => [
+        spec.image,
+        spec.background,
+        spec.mask,
+    ]) ?? [];
+    const inputBytes = [
+        ...payload.inputs,
+        ...specInputs,
+    ].reduce((total, input) => total + (input?.data.byteLength ?? 0), 0);
+    return DESKTOP_NATIVE_IMAGE_COMBINE_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
+}
 
 export class BrowserPdfCombineWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -124,7 +143,6 @@ export function canUseBrowserPdfCombineWorker() {
 function createBrowserPdfCombineWorkerClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS,
-        requestTimeoutMs: BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS,
         createWorker: () => {
             try {
                 return new Worker(
@@ -155,6 +173,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     type: K,
     payload: IBrowserPdfCombineWorkerRequestMap[K],
     signal?: AbortSignal,
+    options: {timeoutMs?: number} = {},
 ): Promise<IBrowserPdfCombineWorkerResultMap[K]> {
     if (signal?.aborted) {
         throw signal.reason instanceof Error
@@ -174,6 +193,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             : new DOMException('PDF combine was canceled.', 'AbortError'),
     );
     signal?.addEventListener('abort', abort, {once: true});
+    const deadlineMs = options.timeoutMs ?? getCombineDeadlineMs(payload, signal);
     try {
         return await browserPdfCombineWorkerOwner.run(request.id, client => {
             const worker = client.getWorker();
@@ -188,8 +208,8 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
                     },
                     reject: error => reject(reportWorkerFailure(error)),
                 }, () => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
-                    `Browser PDF combine worker request timed out after ${BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS}ms`,
-                )));
+                    `Browser PDF combine worker request timed out after ${String(deadlineMs)}ms`,
+                )), deadlineMs);
                 try {
                     const workerRequest = buildWorkerRequestWithTransfers(request);
                     worker.postMessage(workerRequest.request, workerRequest.transfer);

@@ -477,6 +477,7 @@ it('scrolls phone Start as one page through every recent file', async () => {
             }).first().tap();
             await expect.poll(() => page.locator('.recent-row--data:not(.recent-row--skeleton)').count()).toBe(index);
         }
+        await page.locator('.empty-state').waitFor({state: 'visible'});
         const startPane = (await page.locator('.empty-state').boundingBox())!;
         const startCdp = await phone.newCDPSession(page);
         const swipeX = Math.round(startPane.x + startPane.width / 2);

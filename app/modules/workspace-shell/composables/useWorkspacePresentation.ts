@@ -126,13 +126,19 @@ export const useWorkspacePresentation = (
     ));
     const isOpeningDocumentForDisplay = computed(() => isOpeningForToolbar.value || initialVisualPending.value);
     const toolbarDocumentBusyForDisplay = computed(() => toolbarDocumentBusy.value || initialVisualPending.value);
-    const canRepairSave = computed(() => (
+    // Repairing and optimizing both need a settled, idle PDF.
+    const isPdfIdle = computed(() => (
         file.hasPdf.value
         && !toolbarDocumentBusy.value
         && !save.isAnySaving.value
         && !history.isHistoryBusy.value
-        && capabilities.value?.repairSave === true
         && !initialVisualPending.value
+    ));
+    const canRepairSave = computed(() => isPdfIdle.value && capabilities.value?.repairSave === true);
+    const canOptimizePdf = computed(() => (
+        isPdfIdle.value
+        && capabilities.value?.optimizePdf === true
+        && typeof file.optimizeWorkingCopyAsCopy === 'function'
     ));
     const statusZoomLabel = computed(() => (
         initialVisualPending.value ? t('status.zoomUnknown') : viewContext.statusBar.statusZoomLabel.value
@@ -158,6 +164,9 @@ export const useWorkspacePresentation = (
             });
     });
     const toolbarControlsDisabled = computed(() => !documentMetadataReady.value || toolbarDocumentBusyForDisplay.value);
+    const ocrActionDisabled = computed(() => (
+        toolbarControlsDisabled.value || save.isAnySaving.value || history.isHistoryBusy.value
+    ));
 
     const showDjvuConversionUi = computed(() => (
         capabilities.value?.conversionBanner === true
@@ -232,12 +241,15 @@ export const useWorkspacePresentation = (
         isOpeningDocumentForDisplay,
         toolbarDocumentBusyForDisplay,
         canRepairSave,
-        // Optimizing needs exactly what repair needs: a settled, idle PDF.
-        canOptimizePdf: canRepairSave,
+        canOptimizePdf,
         statusZoomLabel,
         documentMetadataReady,
         toolbarPageLabels,
         toolbarControlsDisabled,
+        ocrActionDisabled,
+        // A running OCR can always be opened to see its progress or cancel it.
+        ocrTriggerDisabled: computed(() => ocrActionDisabled.value && !document.ocr.progress.value.isRunning),
+        scanCleanupDisabled: computed(() => ocrActionDisabled.value || !file.workingCopyPath.value),
         showDjvuConversionUi,
         showDjvuConversionBanner,
         showWorkspaceViewerDocument,

@@ -1,5 +1,5 @@
 import type {
-    ICreateCombinedPdfFromFilesOptions,IPdfSerializedSaveOptions,
+    ICreateCombinedPdfFromFilesOptions,IPdfSerializedSaveOptions, TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
 import {
     PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA,
@@ -71,7 +71,6 @@ import {
     savePdfDialogArgs,
     statFileArgs,
     validationResult,
-    writeDocxArgs,
     writeFileArgs,
 } from '@contracts/documentsPlatformFeatureSchemas';
 import {PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA} from '@contracts/pdfPathPrintOptions';
@@ -372,6 +371,11 @@ const savePdfDataLocalArgs = v.pipe(
     ]),
 );
 
+const prepareOptimizeAsCopyArgs = v.strictTuple([documentRefResult]);
+const preparedOptimizeAsCopyResult = v.custom<TPreparedPdfOptimizeCopy | null>(
+    value => value === null || typeof value === 'function',
+);
+
 export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
     path: ['documentFiles'],
     required: requiredEverywhere,
@@ -478,9 +482,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'replaceWorkingCopyFromPath', 'file:replaceWorkingCopyFromPath', replaceWorkingCopyArgs,
             booleanResult, 'replaceWorkingCopyFromPath', 'sender',
         ),
-        writeDocxFile: defineIpcMethod(
-            'writeDocxFile', 'file:writeDocx', writeDocxArgs, booleanResult, 'writeDocxFile', 'sender',
-        ),
         saveFileStructured: defineIpcMethod(
             'saveFileStructured', 'file:saveStructured', saveFileStructuredArgs,
             documentSaveResult, 'saveFileStructured', 'sender',
@@ -538,6 +539,15 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'optimizePdfAsCopy'},
+        },
+        // Its picker must open inside the submit gesture, so it is called directly.
+        prepareOptimizePdfAsCopy: {
+            ...defineLocalMethod(
+                'prepareOptimizePdfAsCopy', 'async', prepareOptimizeAsCopyArgs, preparedOptimizeAsCopyResult,
+            ),
+            ...browserImplementedOptional,
+            lazy: 'direct',
         },
         applyPdfNativeMutationsToWorkingCopy: {
             ...defineIpcMethod(

@@ -45,8 +45,9 @@ import {
     formatScanCleanupErrorByCode,
     formatScanCleanupErrorMessage,
 } from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {resolveScanCleanupSupport} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
@@ -318,7 +319,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && placementAnchorCalibrationError.value === ''
         && !inkPlacementCapacityExceeded.value
         && missingInkPlacementAnchorPage.value === null
-        && getScanCleanupCapability() !== null);
+        && resolveScanCleanupSupport(getScanCleanupCapability()).conversion);
     // Only ever read on the run affordance, which an engaged run replaces with
     // the cancel affordance, so the transition explains itself in the meter
     // rather than here.
@@ -349,6 +350,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         if (getScanCleanupCapability() === null) {
             return t('scanCleanup.runDisabled.unavailable');
+        }
+        // Temporary: removed once the browser converts documents.
+        if (!resolveScanCleanupSupport(getScanCleanupCapability()).conversion) {
+            return t('scanCleanup.runDisabled.browserPreviewOnly');
         }
         if (otherDocumentRunning.value) {
             return t('scanCleanup.runDisabled.otherDocumentRunning');

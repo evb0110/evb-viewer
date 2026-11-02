@@ -2,6 +2,65 @@
     position: relative;
 }
 
+/*
+ * The window's toolbar row: Menu and More tools keep their place at its ends
+ * while the reader toolbar between them is replaced for each document. The
+ * row is the container the Menu trigger's compact form queries.
+ */
+.editor-global-toolbar-shell {
+    display: flex;
+
+    /* The critical style stacks the host's toolbar; this row lays its cells side by side. */
+    flex-direction: row;
+    align-items: stretch;
+    min-width: 0;
+    container-type: inline-size;
+
+    --toolbar-control-height: var(--app-toolbar-control-size, 2.25rem);
+
+    /* An edge of the reader toolbar that meets a menu cell keeps only the gap
+       the menu had inside the toolbar, so the cell's padding is not added to
+       the toolbar's and the collapse thresholds keep their measured widths.
+       Only the reader toolbar reads these; Scan Cleanup, which hides the
+       cells, has its own toolbar. */
+    --toolbar-padding-inline-end: 0;
+    --toolbar-menu-gap-end: var(--app-toolbar-group-gap);
+}
+
+/* The reader toolbar's start edge meets the browser's Menu cell. */
+.editor-global-toolbar-shell:has(> .shell-toolbar-menu--start:not(:empty)) {
+    --toolbar-padding-inline-start: 0;
+    --toolbar-menu-gap-start: var(--app-toolbar-section-gap);
+}
+
+.editor-global-toolbar-shell > .toolbar,
+.editor-global-toolbar-host {
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+.shell-toolbar-menu {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    padding-block: var(--app-space-3xl);
+    border-block: 1px solid var(--app-toolbar-border);
+    background: var(--app-toolbar-bg);
+}
+
+/* Desktop's application menu is native; its cell stays out of the row. */
+.shell-toolbar-menu:empty {
+    display: none;
+}
+
+.shell-toolbar-menu--start {
+    padding-inline-start: var(--app-space-7xl);
+}
+
+.shell-toolbar-menu--end {
+    padding-inline-end: var(--app-space-7xl);
+}
+
 .workspace-main-shell {
     position: relative;
     display: flex;

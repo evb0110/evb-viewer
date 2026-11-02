@@ -97,6 +97,13 @@ type TPlatformApiFixtureEventFunction = (
 ) => () => void;
 
 const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
+    // An inert fixture runs every Scan Cleanup operation, as desktop does.
+    'scanCleanup.getSupport': {
+        preview: true,
+        detection: true,
+        calibration: true,
+        conversion: true,
+    },
     'agent.getMcpIntegrationStatus': createBrowserAgentMcpStatus(),
     'agent.setMcpIntegrationEnabled': {
         ok: true,
@@ -308,6 +315,10 @@ function createAsyncDefault(path: string) {
     }
     if (path.includes('getPathsForFiles')) {
         return vi.fn(() => []);
+    }
+    // Like desktop, which picks inside optimizePdfAsCopy, prepare no Optimize target.
+    if (path.endsWith('.prepareOptimizePdfAsCopy')) {
+        return vi.fn(() => undefined);
     }
     return vi.fn(async () => {
         throw new Error(`Unsupported platform API fixture call: ${path}`);

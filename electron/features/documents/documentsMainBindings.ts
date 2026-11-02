@@ -125,7 +125,6 @@ import {
 import {parsePdfAnnotations} from '@electron/features/documents/main/pdfAnnotationParse';
 import {
     handleFileWrite,
-    handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
 } from '@electron/features/documents/main/documentFileWriteHandlers';
 import {
@@ -506,8 +505,6 @@ export const documentsMainBindings = {
         handleFileWrite(context, filePath, data, revisionOptions),
     replaceWorkingCopyFromPath: (context, workingPath, sourcePath, revisionOptions) =>
         handleReplaceWorkingCopyFromPath(context, workingPath, sourcePath, revisionOptions),
-    writeDocxFile: (context, filePath, data) =>
-        handleFileWriteDocx(context, filePath, data),
     saveFileStructured: (context, workingPath, revisionOptions) =>
         handleFileSaveStructured(context, workingPath, revisionOptions),
     repairPdf: (context, workingPath, revisionOptions) =>

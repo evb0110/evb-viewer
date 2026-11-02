@@ -24,7 +24,9 @@ import {
     type IScanCleanupInkSheet,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {
+    isScanCleanupSourceSha256,toPlainScanCleanupOptions,
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
 import { createDisposalFlag } from '@app/utils/createDisposalFlag';
@@ -41,8 +43,8 @@ import {
     retireSupersededScanCleanupDetectionState,
     type IScanCleanupDetectionSessionCacheEntry as IDetectionSessionCacheEntry,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {resolveScanCleanupSupport} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {
     formatScanCleanupErrorByCode,
@@ -195,6 +197,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const capability = getScanCleanupCapability();
         return placementAnchorCalibrationInFlight.value || Boolean(
             capability?.resolvePlacementAnchorCalibration
+            && resolveScanCleanupSupport(getScanCleanupCapability()).calibration
             && jobState.value?.status === 'completed'
             && detectionResultStoreId.value !== null
             && usesScanCleanupInkAlignment(options.settings)
@@ -382,7 +385,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const canStartDetection = computed(() => Boolean(options.sourcePath.value)
         && !isDetecting.value
         && !starting.value
-        && getScanCleanupCapability() !== null);
+        // Automatic detection starts through this gate too, so a platform
+        // that cannot detect never starts it.
+        && resolveScanCleanupSupport(getScanCleanupCapability()).detection);
     const canStart = computed(() => canStartDetection.value && !options.isRunning.value);
     const canDetectAll = computed(() => canStart.value && !autoPending.value);
     const progress = computed(() => jobState.value?.progress ?? {

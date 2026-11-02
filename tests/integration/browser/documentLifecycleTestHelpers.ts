@@ -99,6 +99,13 @@ export async function waitForOpenFileReady(page: Page) {
     }, undefined, {timeout: 30_000});
 }
 
+export async function settleActiveOpen(page: Page) {
+    await page.evaluate(async () => {
+        const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+        if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
+    });
+}
+
 // Behavior contract C2: ordinary use of a well-formed document logs no console
 // error or warning and throws no page error. Only these named dev-build
 // messages are expected; every other problem fails the test.
@@ -126,6 +133,30 @@ export function collectConsoleProblems(page: Page) {
 // interception off and on between opens, and a quick second open can race it.
 export function keepFileChooserInterceptionEnabled(page: Page) {
     page.on('filechooser', () => {});
+}
+
+// A structured-cloneable picker handle whose bytes and writes use real OPFS.
+// Keep this installer closure-free for page.evaluate and page.addInitScript.
+export function installPickerHandleFixture() {
+    Object.defineProperties(File.prototype, {
+        kind: {get: () => 'file'},
+        getFile: {value: async function (this: File) {
+            const root = await navigator.storage.getDirectory();
+            const handle = await root.getFileHandle(this.name, {create: true});
+            const file = await handle.getFile();
+            return new File([await file.arrayBuffer()], file.name, {
+                type: file.type,
+                lastModified: file.lastModified,
+            });
+        }},
+        createWritable: {value: async function (this: File) {
+            const root = await navigator.storage.getDirectory();
+            return (await root.getFileHandle(this.name, {create: true})).createWritable();
+        }},
+        isSameEntry: {value: async function (this: File, other: FileSystemHandle) {
+            return this.name === other.name;
+        }},
+    });
 }
 
 export async function openPdfFromChooser(page: Page, fixture: Parameters<FileChooser['setFiles']>[0]) {

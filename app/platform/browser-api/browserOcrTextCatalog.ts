@@ -4,7 +4,9 @@ import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdf
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
-import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    parseDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
@@ -18,6 +20,7 @@ import {
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {normalizeExtractedPageText} from '@pdf-core/pdfSearchAlgorithms';
 import {readOcrLayerLayout} from '@ocr-core/readOcrLayerLayout';
+import {range} from 'es-toolkit/math';
 
 // The PDF text layer is the document's only text; OCR writes into it. These
 // pages follow desktop's catalog (electron/features/ocr/main/documentText.ts):
@@ -37,8 +40,12 @@ async function readPdfjsPageText(page: IPdfPage) {
         .join(''));
 }
 
-/** The EVB layer lines of the pages that have one, when the document can be read whole. */
-async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signal?: AbortSignal) {
+/**
+ * The EVB layer lines of the pages that have one, when the document can be
+ * read whole: the logical text desktop reads from an EVB OCR layer, for the
+ * text catalog and search alike.
+ */
+export async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signal?: AbortSignal) {
     const layers = new Map<number, {
         text: string;
         layout: IDocumentTextPageLayout
@@ -60,6 +67,46 @@ async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signa
         });
     }
     return layers;
+}
+
+// One EVB layer read inspects this many pages, as desktop's visibility load does.
+const EVB_LAYER_WINDOW_PAGES = 2048;
+
+/**
+ * Search's reader of EVB layer text: a window of pages at a time, read only
+ * for a window that asks, and only the current window kept. A layer that
+ * cannot be read leaves search on the PDF.js text.
+ */
+export function createEvbLayerTextReader(path: string, pageCount: number) {
+    const ref = parseDocumentRef(path);
+    let current: {
+        firstPage: number;
+        layers: ReturnType<typeof readEvbLayerLines>;
+        signal: AbortSignal | undefined;
+    } | undefined;
+    const readText = async (pageNumber: number, signal?: AbortSignal): Promise<string | undefined> => {
+        if (ref === null) return undefined;
+        const firstPage = pageNumber - (pageNumber - 1) % EVB_LAYER_WINDOW_PAGES;
+        if (current?.firstPage !== firstPage) {
+            const lastPage = Math.min(firstPage + EVB_LAYER_WINDOW_PAGES - 1, pageCount);
+            current = {
+                firstPage,
+                layers: readEvbLayerLines(ref, range(firstPage, lastPage + 1), signal).catch(() => new Map()),
+                signal,
+            };
+        }
+        const window = current;
+        const layers = await window.layers;
+        // A canceled read leaves its window unread: the canceled search stops,
+        // and another search reads the window again.
+        if (window.signal?.aborted) {
+            if (current === window) current = undefined;
+            signal?.throwIfAborted();
+            return readText(pageNumber, signal);
+        }
+        return layers.get(pageNumber)?.text;
+    };
+    return readText;
 }
 
 async function readTextPages(

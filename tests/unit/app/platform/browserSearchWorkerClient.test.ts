@@ -752,21 +752,22 @@ describe('browserSearchWorkerClient', () => {
             });
         }
 
-        function createDjvuTextWorkerForTest(pages: readonly string[]) {
-            return {
-                doc: {
-                    getPagesQuantity: () => ({run: async () => pages.length}),
-                    getPagesSizes: () => ({run: async () => pages.map(() => ({
-                        width: 612,
-                        height: 792,
-                    }))}),
-                    getPage: (pageNumber: number) => ({
-                        getText: () => ({run: async () => pages[pageNumber - 1] ?? ''}),
-                        getNormalizedTextZones: () => ({run: async () => null}),
-                    }),
-                },
+        // A worker opened by createDjvuWorkerFromPath carries the page table it read.
+        async function createDjvuTextWorkerForTest(pages: readonly string[]) {
+            const worker = {
+                doc: {getPage: (pageNumber: number) => ({
+                    getText: () => ({run: async () => pages[pageNumber - 1] ?? ''}),
+                    getNormalizedTextZones: () => ({run: async () => null}),
+                })},
                 terminate: vi.fn(),
             };
+            const {setDjvuWorkerPageSizes} = await import('@app/platform/browser-api/browserDjvuSource');
+            setDjvuWorkerPageSizes(worker as never, pages.map(() => ({
+                width: 612,
+                height: 792,
+                dpi: 72,
+            })));
+            return worker;
         }
 
         function regexSearchOptions(requestId: string) {
@@ -783,7 +784,7 @@ describe('browserSearchWorkerClient', () => {
 
         it('stops a catastrophic DjVu regex with the search budget error', async () => {
             FakeWorker.responder = respondStarted;
-            createDjvuWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));
+            createDjvuWorker.mockImplementation(() => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));
             const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
             const startedAt = performance.now();
 
@@ -804,7 +805,7 @@ describe('browserSearchWorkerClient', () => {
             'last',
         ] as const)('returns the DjVu regex window at %s from the search worker', async (resultOffset) => {
             FakeWorker.responder = respondWithMatches;
-            createDjvuWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['valve '.repeat(561)]));
+            createDjvuWorker.mockImplementation(() => createDjvuTextWorkerForTest(['valve '.repeat(561)]));
             const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
 
             const response = await browserDjvuTextSearchCapability.searchText(
@@ -858,7 +859,7 @@ describe('browserSearchWorkerClient', () => {
         it('cancels a stalled DjVu regex worker when its search is canceled', async () => {
             FakeWorker.responder = respondStarted;
             const terminate = vi.spyOn(FakeWorker.prototype, 'terminate');
-            createDjvuWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));
+            createDjvuWorker.mockImplementation(() => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));
             const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
             const requestId = requireRequestId('canceled-djvu-regex');
             const search = browserDjvuTextSearchCapability.searchText(

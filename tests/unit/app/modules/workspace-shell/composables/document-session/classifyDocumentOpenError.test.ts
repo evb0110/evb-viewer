@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type {TTranslateFn} from '@i18n-app';
+import {BrowserQpdfEngineUnavailableError} from '@app/platform/browser-api/browserQpdfEngineClient';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     classifyDocumentOpenError,
@@ -36,6 +37,12 @@ describe('classifyDocumentOpenError', () => {
         const error = Object.assign(new Error('technical detail'), {name});
         const t = ((translationKey: string) => translationKey) as TTranslateFn;
         expect(classifyDocumentOpenError(error, null, t)).toBe(key);
+    });
+
+    it('explains unavailable qpdf document tools without calling the file invalid', () => {
+        const t: TTranslateFn = (key, ..._args) => String(key);
+        expect(classifyDocumentOpenError(new BrowserQpdfEngineUnavailableError('Worker unavailable'), null, t))
+            .toBe('errors.browser.documentToolsUnavailable');
     });
 
     it('names the actual browser operation limit instead of the desktop encrypted-file limit', () => {

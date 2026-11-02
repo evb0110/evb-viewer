@@ -1,18 +1,17 @@
-import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    assertBrowserDjvuDecodableDimensions,
+    assertBrowserDjvuRasterDimensions,
+    toBrowserDjvuDecodeError,
+} from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import type { IDjvuWorker } from '@app/platform/browser-api/djvujsLoader';
-import { getDjvuWorkerPageSizes } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import { getDjvuWorkerPageSizes } from '@app/platform/browser-api/browserDjvuSource';
 import {
     createDjvuCanvas as createCanvas,
+    drawDjvuImageDataScaled,
     encodeDjvuCanvas as canvasToImageBytes,
-    fetchDjvuObjectUrlBytes as fetchObjectUrlBytes,
     getDjvuCanvas2dContext as getCanvas2dContext,
-    loadDjvuBitmap as loadBitmapFromBytes,
     releaseDjvuCanvas as releaseCanvas,
-    type TDjvuCanvas,
 } from '@app/platform/browser-api/browserDjvuCanvas';
-
-export const DJVU_COMPACT_PHOTO_PPI_CAP = 300;
 
 export class DjvuCanceledError extends Error {
     constructor() {
@@ -51,7 +50,7 @@ export interface IRenderedDjvuPpmPage {
     };
 }
 
-export function positiveInteger(value: unknown) {
+function positiveInteger(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
         ? Math.trunc(value)
         : null;
@@ -61,11 +60,9 @@ function pointsFromPixels(pixels: number, dpi: number) {
     return Math.max(1, pixels / Math.max(1, dpi) * 72);
 }
 
-function compactPhotoTargetSize(pageSize: IDjvuPageMetrics) {
-    const width = positiveInteger(pageSize.width) ?? 1;
-    const height = positiveInteger(pageSize.height) ?? 1;
-    const dpi = positiveInteger(pageSize.dpi) ?? DJVU_COMPACT_PHOTO_PPI_CAP;
-    const scale = Math.max(1, dpi / DJVU_COMPACT_PHOTO_PPI_CAP);
+// The decoded raster is already rotated, so its own size sets the output.
+function compactPhotoTargetSize(width: number, height: number, dpi: number, ppiCap: number) {
+    const scale = Math.max(1, dpi / ppiCap);
     return {
         height: Math.max(1, Math.round(height / scale)),
         width: Math.max(1, Math.round(width / scale)),
@@ -87,154 +84,53 @@ function rgbaToPpmBytes(width: number, height: number, rgba: Uint8ClampedArray |
     return output;
 }
 
-function canvasImageDataToPpm(canvas: TDjvuCanvas, width: number, height: number) {
-    const context = getCanvas2dContext(canvas);
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-    return rgbaToPpmBytes(width, height, context.getImageData(0, 0, width, height).data);
-}
-
-async function assertWorkerDjvuRasterBudget(worker: IDjvuWorker, pageNumber: number) {
+/**
+ * Decodes one page at full resolution, rotated as DjVu.js presents it. A page
+ * the decoder cannot represent is refused before decoding; one that does not
+ * fit in memory fails its allocation and is reported as the page's limit.
+ */
+export async function decodeDjvuPageImageData(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    signal?: AbortSignal,
+) {
+    throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
     if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
-    assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
-}
-
-async function openDjvuPagePngObject(
-    worker: IDjvuWorker,
-    pageNumber: number,
-    signal?: AbortSignal,
-) {
-    throwIfDjvuCanceled(signal);
-    await assertWorkerDjvuRasterBudget(worker, pageNumber);
-    const pngObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-    throwIfDjvuCanceled(signal);
-    return pngObject;
-}
-
-async function drawDjvuPngObjectOntoCanvas(
-    canvas: TDjvuCanvas,
-    pngObjectUrl: string,
-    targetWidth: number,
-    targetHeight: number,
-    signal?: AbortSignal,
-) {
-    const context = getCanvas2dContext(canvas);
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    const pngBytes = await fetchObjectUrlBytes(pngObjectUrl);
-    throwIfDjvuCanceled(signal);
-    const bitmap = await loadBitmapFromBytes(pngBytes);
-    throwIfDjvuCanceled(signal);
+    const context = `DjVu page ${pageNumber}`;
+    assertBrowserDjvuDecodableDimensions(pageSize.width, pageSize.height, context);
+    let imageData: ImageData;
     try {
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, targetWidth, targetHeight);
-        context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
-    } finally {
-        if ('close' in bitmap && typeof bitmap.close === 'function') {
-            bitmap.close();
-        }
+        imageData = await worker.doc.getPage(pageNumber).getImageData().run();
+    } catch (error) {
+        throw toBrowserDjvuDecodeError(error, pageSize.width, pageSize.height, context);
     }
+    throwIfDjvuCanceled(signal);
+    return imageData;
 }
 
-async function renderDjvuPageFromImageData(
-    worker: IDjvuWorker,
-    pageNumber: number,
-    pageDpi: number,
-    subsample: number,
-    jpegQuality: number,
-    signal?: AbortSignal,
-): Promise<IRenderedDjvuPage> {
-    throwIfDjvuCanceled(signal);
-    const imageData = await worker.doc.getPage(pageNumber).getImageData().run();
-    throwIfDjvuCanceled(signal);
-    const targetWidth = Math.max(1, Math.round(imageData.width / Math.max(1, subsample)));
-    const targetHeight = Math.max(1, Math.round(imageData.height / Math.max(1, subsample)));
-    const sourceCanvas = createCanvas(imageData.width, imageData.height);
-    const targetCanvas = targetWidth === imageData.width && targetHeight === imageData.height
-        ? sourceCanvas
-        : createCanvas(targetWidth, targetHeight);
-
-    try {
-        const sourceContext = getCanvas2dContext(sourceCanvas);
-        if (!sourceContext) {
-            throw new Error('Canvas 2D context is unavailable');
-        }
-
-        sourceContext.putImageData(imageData, 0, 0);
-
-        const targetContext = getCanvas2dContext(targetCanvas);
-        if (!targetContext) {
-            throw new Error('Canvas 2D context is unavailable');
-        }
-
-        if (targetCanvas !== sourceCanvas) {
-            targetContext.fillStyle = '#ffffff';
-            targetContext.fillRect(0, 0, targetWidth, targetHeight);
-            targetContext.drawImage(
-                sourceCanvas,
-                0,
-                0,
-                targetWidth,
-                targetHeight,
-            );
-        }
-
-        const bytes = await canvasToImageBytes(
-            targetCanvas,
-            'image/jpeg',
-            jpegQuality,
-        );
-        throwIfDjvuCanceled(signal);
-
-        return {
-            bytes,
-            width: targetWidth,
-            height: targetHeight,
-            dpi: Math.max(1, Math.round(pageDpi / subsample)),
-        };
-    } finally {
-        releaseCanvas(targetCanvas);
-        if (targetCanvas !== sourceCanvas) {
-            releaseCanvas(sourceCanvas);
-        }
-    }
-}
-
-async function renderDjvuPageFromPngObject(
-    worker: IDjvuWorker,
-    pageNumber: number,
-    pageDpi: number,
-    subsample: number,
-    jpegQuality: number,
-    signal?: AbortSignal,
-): Promise<IRenderedDjvuPage> {
-    const pngObject = await openDjvuPagePngObject(worker, pageNumber, signal);
-    const targetWidth = Math.max(1, Math.round(pngObject.width / Math.max(1, subsample)));
-    const targetHeight = Math.max(1, Math.round(pngObject.height / Math.max(1, subsample)));
+/**
+ * Draws a decoded page onto a new canvas of the output size. Only the output
+ * must fit one browser canvas; the source is drawn in tiles when it does not.
+ */
+function drawDjvuPageCanvas(imageData: ImageData, targetWidth: number, targetHeight: number, context: string) {
+    assertBrowserDjvuRasterDimensions(targetWidth, targetHeight, context);
     const canvas = createCanvas(targetWidth, targetHeight);
-
     try {
-        await drawDjvuPngObjectOntoCanvas(canvas, pngObject.url, targetWidth, targetHeight, signal);
-        const bytes = await canvasToImageBytes(
-            canvas,
-            'image/jpeg',
-            jpegQuality,
-        );
-        throwIfDjvuCanceled(signal);
-
+        const canvasContext = getCanvas2dContext(canvas);
+        if (!canvasContext) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+        canvasContext.fillStyle = '#ffffff';
+        canvasContext.fillRect(0, 0, targetWidth, targetHeight);
+        drawDjvuImageDataScaled(canvasContext, imageData, targetWidth, targetHeight);
         return {
-            bytes,
-            width: targetWidth,
-            height: targetHeight,
-            dpi: Math.max(1, Math.round(pageDpi / subsample)),
+            canvas,
+            canvasContext,
         };
-    } finally {
-        worker.revokeObjectURL(pngObject.url);
+    } catch (error) {
         releaseCanvas(canvas);
+        throw error;
     }
 }
 
@@ -246,144 +142,93 @@ export async function renderDjvuPage(
     jpegQuality: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
-    await assertWorkerDjvuRasterBudget(worker, pageNumber);
+    const imageData = await decodeDjvuPageImageData(worker, pageNumber, signal);
+    const targetWidth = Math.max(1, Math.round(imageData.width / Math.max(1, subsample)));
+    const targetHeight = Math.max(1, Math.round(imageData.height / Math.max(1, subsample)));
+    const {canvas} = drawDjvuPageCanvas(imageData, targetWidth, targetHeight, `DjVu page ${pageNumber} output`);
     try {
-        return await renderDjvuPageFromImageData(
-            worker,
-            pageNumber,
-            pageDpi,
-            subsample,
-            jpegQuality,
-            signal,
-        );
-    } catch (error) {
-        if (error instanceof DjvuCanceledError) {
-            throw error;
-        }
-
-        BrowserLogger.debug('djvu-browser', 'Falling back to PNG DjVu page rendering', {
-            pageNumber,
-            error,
-        });
-        return renderDjvuPageFromPngObject(
-            worker,
-            pageNumber,
-            pageDpi,
-            subsample,
-            jpegQuality,
-            signal,
-        );
-    }
-}
-
-async function renderDjvuPageAsPpmFromImageData(
-    worker: IDjvuWorker,
-    pageNumber: number,
-    targetWidth: number,
-    targetHeight: number,
-    signal?: AbortSignal,
-) {
-    throwIfDjvuCanceled(signal);
-    const imageData = await worker.doc.getPage(pageNumber).getImageData().run();
-    throwIfDjvuCanceled(signal);
-    if (imageData.width === targetWidth && imageData.height === targetHeight) {
-        return rgbaToPpmBytes(
-            imageData.width,
-            imageData.height,
-            imageData.data,
-        );
-    }
-
-    const sourceCanvas = createCanvas(imageData.width, imageData.height);
-    const targetCanvas = createCanvas(targetWidth, targetHeight);
-    try {
-        const sourceContext = getCanvas2dContext(sourceCanvas);
-        const targetContext = getCanvas2dContext(targetCanvas);
-        if (!sourceContext || !targetContext) {
-            throw new Error('Canvas 2D context is unavailable');
-        }
-        sourceContext.putImageData(imageData, 0, 0);
-        targetContext.fillStyle = '#ffffff';
-        targetContext.fillRect(0, 0, targetWidth, targetHeight);
-        targetContext.drawImage(
-            sourceCanvas,
-            0,
-            0,
-            targetWidth,
-            targetHeight,
-        );
+        const bytes = await canvasToImageBytes(canvas, 'image/jpeg', jpegQuality);
         throwIfDjvuCanceled(signal);
-        return canvasImageDataToPpm(targetCanvas, targetWidth, targetHeight);
+        return {
+            bytes,
+            width: targetWidth,
+            height: targetHeight,
+            dpi: Math.max(1, Math.round(pageDpi / subsample)),
+        };
     } finally {
-        releaseCanvas(targetCanvas);
-        releaseCanvas(sourceCanvas);
-    }
-}
-
-async function renderDjvuPageAsPpmFromPngObject(
-    worker: IDjvuWorker,
-    pageNumber: number,
-    targetWidth: number,
-    targetHeight: number,
-    signal?: AbortSignal,
-) {
-    const pngObject = await openDjvuPagePngObject(worker, pageNumber, signal);
-    const canvas = createCanvas(targetWidth, targetHeight);
-
-    try {
-        await drawDjvuPngObjectOntoCanvas(canvas, pngObject.url, targetWidth, targetHeight, signal);
-        return canvasImageDataToPpm(canvas, targetWidth, targetHeight);
-    } finally {
-        worker.revokeObjectURL(pngObject.url);
         releaseCanvas(canvas);
     }
 }
 
+/**
+ * Renders a page for display at `targetWidth`, never larger than the decoded
+ * page. The PNG is what an image element shows, so its pixels are exact.
+ */
+export async function renderDjvuPagePreviewPng(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    targetWidth: number,
+    signal?: AbortSignal,
+) {
+    const imageData = await decodeDjvuPageImageData(worker, pageNumber, signal);
+    const width = Math.max(1, Math.min(imageData.width, Math.round(targetWidth)));
+    const height = Math.max(1, Math.round(width * imageData.height / imageData.width));
+    const {canvas} = drawDjvuPageCanvas(imageData, width, height, `DjVu page ${pageNumber} preview`);
+    try {
+        const bytes = await canvasToImageBytes(canvas, 'image/png');
+        throwIfDjvuCanceled(signal);
+        return {
+            bytes,
+            width,
+            height,
+        };
+    } finally {
+        releaseCanvas(canvas);
+    }
+}
+
+/**
+ * Renders a page as the PPM of a compact photo page: upright, and reduced to
+ * at most `ppiCap` pixels per inch.
+ */
 export async function renderDjvuPageAsPpm(
     worker: IDjvuWorker,
     pageNumber: number,
     pageSize: IDjvuPageMetrics,
+    ppiCap: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPpmPage> {
-    await assertWorkerDjvuRasterBudget(worker, pageNumber);
-    const targetSize = compactPhotoTargetSize(pageSize);
+    const imageData = await decodeDjvuPageImageData(worker, pageNumber, signal);
+    const dpi = positiveInteger(pageSize.dpi) ?? ppiCap;
+    const targetSize = compactPhotoTargetSize(imageData.width, imageData.height, dpi, ppiCap);
     let data: Uint8Array;
-    try {
-        data = await renderDjvuPageAsPpmFromImageData(
-            worker,
-            pageNumber,
-            targetSize.width,
-            targetSize.height,
-            signal,
-        );
-    } catch (error) {
-        if (error instanceof DjvuCanceledError) {
-            throw error;
+    if (imageData.width === targetSize.width && imageData.height === targetSize.height) {
+        data = rgbaToPpmBytes(imageData.width, imageData.height, imageData.data);
+    } else {
+        const {
+            canvas,
+            canvasContext,
+        } = drawDjvuPageCanvas(imageData, targetSize.width, targetSize.height, `DjVu page ${pageNumber} compact image`);
+        try {
+            throwIfDjvuCanceled(signal);
+            data = rgbaToPpmBytes(
+                targetSize.width,
+                targetSize.height,
+                canvasContext.getImageData(0, 0, targetSize.width, targetSize.height).data,
+            );
+        } finally {
+            releaseCanvas(canvas);
         }
-        BrowserLogger.debug('djvu-browser', 'Falling back to PNG DjVu page rendering for compact WASM path', {
-            pageNumber,
-            error,
-        });
-        data = await renderDjvuPageAsPpmFromPngObject(
-            worker,
-            pageNumber,
-            targetSize.width,
-            targetSize.height,
-            signal,
-        );
     }
 
-    const dpi = positiveInteger(pageSize.dpi) ?? DJVU_COMPACT_PHOTO_PPI_CAP;
-    const sourceWidth = positiveInteger(pageSize.width) ?? targetSize.width;
-    const sourceHeight = positiveInteger(pageSize.height) ?? targetSize.height;
     return {
         input: {
             data,
             fileName: `page-${String(pageNumber).padStart(5, '0')}.ppm`,
         },
         pageSize: {
-            widthPoints: pointsFromPixels(sourceWidth, dpi),
-            heightPoints: pointsFromPixels(sourceHeight, dpi),
+            widthPoints: pointsFromPixels(imageData.width, dpi),
+            heightPoints: pointsFromPixels(imageData.height, dpi),
         },
     };
 }

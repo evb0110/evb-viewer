@@ -74,6 +74,7 @@ export interface IPageOpsHandlersDeps {
     pageLabels: Ref<string[] | null>;
     pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
     pageLabelsResolved?: Ref<boolean>;
+    whenPageLabelsSettled?: () => Promise<void>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
     /** The document's views: operations run in the one in use and keep every view on its pages. */
@@ -117,6 +118,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageLabels,
         pageLabelRanges,
         pageLabelsResolved,
+        whenPageLabelsSettled,
         bookmarkItems,
         bookmarksResolved,
         views,
@@ -182,6 +184,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageLabels,
         ...(pageLabelRanges !== undefined ? {pageLabelRanges} : {}),
         ...(pageLabelsResolved !== undefined ? {pageLabelsResolved} : {}),
+        ...(whenPageLabelsSettled !== undefined ? {whenPageLabelsSettled} : {}),
         bookmarkItems,
         ...(bookmarksResolved !== undefined ? {bookmarksResolved} : {}),
         ensureHistoryBaselineForMutation,

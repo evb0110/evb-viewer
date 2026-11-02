@@ -38,6 +38,7 @@ import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import { waitForPreferredDesktopPlatformBridge } from '@app/utils/platform';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import { hasElectronPlatformBridge } from '@app/utils/electronPlatformBridge';
 
 // Every failure and notice is a toast, stacked upward from the bottom-right
 // corner, at most three at a time.
@@ -434,7 +435,9 @@ onMounted(async () => {
                 title: t('settings.title'),
                 description: settingsRecoveryNotice.quarantinePath
                     ? t('errors.settings.recoveredWithPath', {path: settingsRecoveryNotice.quarantinePath})
-                    : t('errors.settings.recovered'),
+                    : settingsRecoveryNotice.reason === 'unsupported' && !hasElectronPlatformBridge()
+                        ? t('errors.settings.newerVersion')
+                        : t('errors.settings.recovered'),
             });
         }
         setPreferenceFromSettings(settings.value);

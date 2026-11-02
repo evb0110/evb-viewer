@@ -1,3 +1,4 @@
+import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import {
     afterEach,
     beforeEach,
@@ -13,6 +14,16 @@ import {
     createFileSystemFileHandle, FakeLockManager, FakeIndexedDbFactory, MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type * as TDocumentIdb from '@app/platform/browser/browserDocumentIdb';
+
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserQpdfEngineClient>(),
+    runBrowserQpdfCommand: async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        output: null,
+    }),
+}));
 
 const recoveryMocks = vi.hoisted(() => ({
     clearBrowserWorkspaceRecovery: vi.fn(),
@@ -139,7 +150,10 @@ function stubBrowserGlobals(href = 'http://localhost:3235/', locks?: FakeLockMan
     };
 
     vi.stubGlobal('window', windowStub);
-    vi.stubGlobal('document', { title: 'EVB Viewer Web' });
+    vi.stubGlobal('document', {
+        title: 'EVB Viewer Web',
+        cookie: '',
+    });
     vi.stubGlobal('navigator', locks ? {locks} : {});
     vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
     return {
@@ -228,7 +242,7 @@ describe('browserWindowTabsCapability', () => {
             });
             let savedRef: string | null = null;
             const revision = await store.getDocumentRevision(working);
-            const save = savePdfAsFromWorkingCopy(working, {expectedDocumentRevisionToken: revision.token}).then(ref => { savedRef = ref; });
+            const save = savePdfAsFromWorkingCopy(working, undefined, {expectedDocumentRevisionToken: revision.token}).then(ref => { savedRef = ref; });
             let next: ReturnType<typeof requireDocumentRef> | null = null;
             try {
                 await vi.waitFor(() => expect(savedRef).not.toBeNull());
@@ -293,12 +307,16 @@ describe('browserWindowTabsCapability', () => {
         }
         const reading = Promise.withResolvers<undefined>();
         const resume = Promise.withResolvers<undefined>();
-        const readRange = store.readRange.bind(store);
-        vi.spyOn(store, 'readRange').mockImplementation(async (...args) => {
+        // Pause the analysis's read; the test's own reads below pass through.
+        const read = store.read.bind(store);
+        let paused = false;
+        vi.spyOn(store, 'read').mockImplementation(async (...args) => {
+            if (paused) return read(...args);
+            paused = true;
             reading.resolve(undefined);
             await resume.promise;
             if (outcome === 'failed-read') throw new Error('Conformance storage unavailable');
-            return readRange(...args);
+            return read(...args);
         });
         const analysis = capability.analyzePdfConformance(working);
         // Observe the result after releasing the paused read, including on failure.

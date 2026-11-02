@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import {isBrowserLegacyDocumentRef} from '@contracts/documentRef';
 import type { Ref } from 'vue';
 import {
     getFailureReceipt,
@@ -38,6 +39,7 @@ import {
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { readDocumentBytes } from '@app/utils/documentBytes';
 import {
     useFailureToast,
     type FailurePresentation,
@@ -685,28 +687,26 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printRunOwner?: IPrintRunOwner,
     ) {
         const frame = createHiddenPrintFrame(owner);
-        const frameLoad = waitForPrintFrameLoad(frame, signal);
-
-        frame.srcdoc = buildBrowserPrintFrameMarkup(printTitle);
-        await frameLoad;
-        throwIfPrintAborted(signal);
-
-        const frameWindow = frame.contentWindow;
-        if (!frameWindow) {
-            cleanupPrintFrame(owner);
-            throw new Error('Missing print frame window');
-        }
-
-        await renderContent(frameWindow.document, signal);
-        if (printRunOwner) {
-            assertPrintRunCurrent(printRunOwner);
-        } else {
-            throwIfPrintAborted(signal);
-        }
-
-        installAfterPrintCleanup(frameWindow, owner);
-
+        // A frame that fails before printing goes with the page images it holds.
         try {
+            const frameLoad = waitForPrintFrameLoad(frame, signal);
+            frame.srcdoc = buildBrowserPrintFrameMarkup(printTitle);
+            await frameLoad;
+            throwIfPrintAborted(signal);
+
+            const frameWindow = frame.contentWindow;
+            if (!frameWindow) {
+                throw new Error('Missing print frame window');
+            }
+
+            await renderContent(frameWindow.document, signal);
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            } else {
+                throwIfPrintAborted(signal);
+            }
+
+            installAfterPrintCleanup(frameWindow, owner);
             await waitForPrintFrameReady(frameWindow, signal);
             if (printRunOwner) {
                 assertPrintRunCurrent(printRunOwner);
@@ -899,7 +899,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             || payload.orientation !== 'auto';
         const managedPrintPath = deps.printPath?.value
             ?? (isPathSource ? sourcePdf.path : requiresLayoutComposition ? deps.workingCopyPath.value : null);
-        if (!managedPrintPath) {
+        // A browser document of any size prints through the browser's own
+        // print path; only a native file goes to the platform dialog.
+        if (!managedPrintPath || isBrowserLegacyDocumentRef(managedPrintPath)) {
             return false;
         }
 
@@ -1068,6 +1070,25 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     },
                 });
                 assertPrintRunCurrent(printOwner);
+                if (driverResult.status === 'printable-pdf') {
+                    let printablePdf: Uint8Array;
+                    try {
+                        printablePdf = await readDocumentBytes(driverResult.documentRef, {signal});
+                    } finally {
+                        await driverResult.release().catch((error: unknown) => {
+                            BrowserLogger.warn('workspace-print', 'Failed to release the prepared print PDF', {error: getErrorMessage(error)});
+                        });
+                    }
+                    assertPrintRunCurrent(printOwner);
+                    await printPdfDataWithNativeHandoff(
+                        printablePdf,
+                        resolveBrowserPrintTitle(payload, printOwner.fileName),
+                        signal,
+                        printRunId,
+                        printOwner,
+                    );
+                    return;
+                }
                 if (driverResult.status === 'completed') {
                     if (nativePrintHandoff.started !== true) {
                         closePrintDialogForSystemDialog();

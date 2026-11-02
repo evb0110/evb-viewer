@@ -313,11 +313,15 @@ export const djvuPrintResultSchema = v.pipe(v.object({
     canceled: v.optional(v.boolean(error)),
     jobId: v.optional(jobIdSchema),
     error: v.optional(v.string(error)),
+    // A platform without a print dialog of its own (the browser) returns the
+    // prepared PDF for the workspace to print; desktop prints it itself.
+    printablePdfPath: v.optional(documentRefSchema),
 }, error), v.transform(value => ({
     success: value.success,
     ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
     ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
     ...(value.error === undefined ? {} : {error: value.error}),
+    ...(value.printablePdfPath === undefined ? {} : {printablePdfPath: value.printablePdfPath}),
 })));
 export type IDjvuPrintResult = v.InferOutput<typeof djvuPrintResultSchema>;
 export const djvuJobStartHandleSchema = v.object({

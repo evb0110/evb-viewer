@@ -20,6 +20,10 @@ pub const MAX_STAGED_INPUT_PEAK_PIXELS: u64 = 1_000_000_000;
 /// documents, so this is never a document page-count limit.
 pub const MAX_MANIFEST_PAGES_PER_BATCH: usize = 20_000;
 pub const MAX_MANIFEST_PATH_BYTES: usize = 4_096;
+/// Bytes one manifest may take. Eight KiB per page leaves room for normal
+/// authored options while preventing a byte-sized manifest from turning the
+/// additive unknown-field pass into an unbounded allocation.
+pub const MAX_MANIFEST_BYTES: usize = MAX_MANIFEST_PAGES_PER_BATCH * 8 * 1024;
 
 fn deserialize_manifest_pages<'de, D>(deserializer: D) -> Result<Vec<Page>, D::Error>
 where
@@ -238,6 +242,17 @@ pub struct DetailRenderPlan {
     #[serde(default)]
     #[cfg_attr(test, ts(optional = nullable))]
     pub base_cleaned_raster_path: Option<PathBuf>,
+    #[serde(flatten)]
+    pub geometry: DetailRenderGeometry,
+}
+
+/// Where a detail render's crop sits in the page it refines. The manifest
+/// carries it beside the base files' paths; the browser engine's request
+/// carries it beside the base rasters themselves.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct DetailRenderGeometry {
     pub source_crop: DetailPixelRect,
     pub full_source_width_px: usize,
     pub full_source_height_px: usize,
@@ -654,18 +669,7 @@ impl ManifestV3 {
                 ),
             ));
         }
-        if self.document_canvas.is_some_and(|canvas| {
-            !canvas.width_points.is_finite()
-                || canvas.width_points <= 0.0
-                || !canvas.height_points.is_finite()
-                || canvas.height_points <= 0.0
-                || canvas.width_px == 0
-                || canvas.height_px == 0
-        }) {
-            return Err(invalid(
-                "Document canvas dimensions must be positive finite points and pixels",
-            ));
-        }
+        validate_document_canvas(self.document_canvas)?;
         if self.host_memory_bytes == Some(0) {
             return Err(invalid("Host memory must be a positive byte count"));
         }
@@ -695,17 +699,11 @@ impl ManifestV3 {
                 )));
             }
         }
-        if self.operation == Operation::Render
-            && self.document_canvas.is_none()
-            && self
-                .pages
-                .iter()
-                .any(|page| page.options.match_page_size && !page.options.ocr_mode)
-        {
-            return Err(invalid(
-                "A matched page-size render requires a documentCanvas plan",
-            ));
-        }
+        validate_matched_canvas_plan(
+            self.operation,
+            self.document_canvas,
+            self.pages.iter().map(|page| &page.options),
+        )?;
         if self.operation != Operation::Analyze
             && self.analysis_purpose != AnalysisPurpose::PagePlan
         {
@@ -733,91 +731,18 @@ impl ManifestV3 {
                     validate_existing_regular_path(path, page_number, field)?;
                 }
             }
-            match (page.analysis_input_path.as_ref(), page.analysis_dpi) {
-                (Some(_), Some(dpi)) if dpi.is_finite() && dpi > 0.0 => {}
-                (None, None) => {}
-                _ => {
-                    return Err(invalid(
-                        "analysisInputPath and a positive finite analysisDpi must be provided together",
-                    ));
-                }
+            PageAdmission {
+                operation: self.operation,
+                render_mode: self.render_mode,
+                source_page_index: page.source_page_index,
+                options: &page.options,
+                has_analysis_input: page.analysis_input_path.is_some(),
+                analysis_dpi: page.analysis_dpi,
+                detail: page.detail_render_plan.as_ref().map(|plan| &plan.geometry),
+                document_prior: page.document_prior,
+                output_destinations: page.outputs.len(),
             }
-            if page.options.max_pixels > crate::DEFAULT_MAX_PIXELS
-                || page.options.max_dimension > crate::DEFAULT_MAX_DIMENSION
-            {
-                return Err(NativeError::new(
-                    NativeErrorCode::TooLarge,
-                    format!(
-                        "Page {} raster guardrails exceed the native admission limits",
-                        page.source_page_index.saturating_add(1),
-                    ),
-                ));
-            }
-            page.options.validate().map_err(|error| {
-                invalid(format!(
-                    "Page {}: {error}",
-                    page.source_page_index.saturating_add(1),
-                ))
-            })?;
-            if page.options.render_crop.is_some()
-                && (self.operation != Operation::Render || self.render_mode != RenderMode::Preview)
-            {
-                return Err(invalid(
-                    "Render crop is supported only by preview render manifests",
-                ));
-            }
-            if page.options.render_crop.is_some() && page.options.match_page_size {
-                return Err(invalid(
-                    "Render crop cannot be combined with matched page-size output",
-                ));
-            }
-            if let Some(detail) = &page.detail_render_plan {
-                if self.operation != Operation::Render || self.render_mode != RenderMode::Preview {
-                    return Err(invalid(
-                        "Detail source rendering is supported only by preview render manifests",
-                    ));
-                }
-                if page.options.render_crop.is_some() || page.options.match_page_size {
-                    return Err(invalid(
-                        "Detail source rendering cannot combine with render crop or matched page size",
-                    ));
-                }
-                if !detail.scale.is_finite()
-                    || detail.scale <= 0.0
-                    || detail.full_source_width_px == 0
-                    || detail.full_source_height_px == 0
-                    || !valid_detail_rect(&detail.source_crop)
-                    || !valid_detail_rect(&detail.render_region)
-                    || !valid_detail_rect(&detail.sampled_region)
-                {
-                    return Err(invalid("Detail render plan dimensions are invalid"));
-                }
-                let source = detail.source_crop.as_rect();
-                if source.right() > detail.full_source_width_px as f64
-                    || source.bottom() > detail.full_source_height_px as f64
-                {
-                    return Err(invalid("Detail source crop exceeds the full source raster"));
-                }
-                let render = detail.render_region.as_rect();
-                let sampled = detail.sampled_region.as_rect();
-                if render.x < sampled.x
-                    || render.y < sampled.y
-                    || render.right() > sampled.right()
-                    || render.bottom() > sampled.bottom()
-                {
-                    return Err(invalid(
-                        "Detail render region must be contained by the sampled region",
-                    ));
-                }
-            }
-            if let Some(prior) = page.document_prior {
-                prior.validate().map_err(invalid)?;
-            }
-            if self.operation == Operation::Render && page.outputs.is_empty() {
-                return Err(invalid(
-                    "Render page requires at least one output destination",
-                ));
-            }
+            .validate()?;
         }
         // This projection is intentionally separate from the lexical alias
         // pass below: the admission ceiling applies to every declared path,
@@ -959,6 +884,151 @@ impl ManifestV3 {
         }
         Ok(())
     }
+}
+
+pub(crate) fn validate_document_canvas(canvas: Option<DocumentCanvas>) -> Result<(), NativeError> {
+    if canvas.is_some_and(|canvas| {
+        !canvas.width_points.is_finite()
+            || canvas.width_points <= 0.0
+            || !canvas.height_points.is_finite()
+            || canvas.height_points <= 0.0
+            || canvas.width_px == 0
+            || canvas.height_px == 0
+    }) {
+        return Err(invalid(
+            "Document canvas dimensions must be positive finite points and pixels",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_matched_canvas_plan<'a>(
+    operation: Operation,
+    canvas: Option<DocumentCanvas>,
+    mut options: impl Iterator<Item = &'a CleanupOptions>,
+) -> Result<(), NativeError> {
+    if operation == Operation::Render
+        && canvas.is_none()
+        && options.any(|options| options.match_page_size && !options.ocr_mode)
+    {
+        return Err(invalid(
+            "A matched page-size render requires a documentCanvas plan",
+        ));
+    }
+    Ok(())
+}
+
+/// What one page asks of the engine, judged the same way whether it came in a
+/// manifest or in a browser engine request. Paths are the manifest's own
+/// concern and are checked there.
+pub(crate) struct PageAdmission<'a> {
+    pub(crate) operation: Operation,
+    pub(crate) render_mode: RenderMode,
+    pub(crate) source_page_index: usize,
+    pub(crate) options: &'a CleanupOptions,
+    pub(crate) has_analysis_input: bool,
+    pub(crate) analysis_dpi: Option<f64>,
+    pub(crate) detail: Option<&'a DetailRenderGeometry>,
+    pub(crate) document_prior: Option<DocumentPrior>,
+    pub(crate) output_destinations: usize,
+}
+
+impl PageAdmission<'_> {
+    pub(crate) fn validate(&self) -> Result<(), NativeError> {
+        match (self.has_analysis_input, self.analysis_dpi) {
+            (true, Some(dpi)) if dpi.is_finite() && dpi > 0.0 => {}
+            (false, None) => {}
+            _ => {
+                return Err(invalid(
+                    "analysisInputPath and a positive finite analysisDpi must be provided together",
+                ));
+            }
+        }
+        let preview_render =
+            self.operation == Operation::Render && self.render_mode == RenderMode::Preview;
+        validate_page_options(self.options, self.source_page_index, preview_render)?;
+        if let Some(detail) = self.detail {
+            if !preview_render {
+                return Err(invalid(
+                    "Detail source rendering is supported only by preview render manifests",
+                ));
+            }
+            if self.options.render_crop.is_some() || self.options.match_page_size {
+                return Err(invalid(
+                    "Detail source rendering cannot combine with render crop or matched page size",
+                ));
+            }
+            if !detail.scale.is_finite()
+                || detail.scale <= 0.0
+                || detail.full_source_width_px == 0
+                || detail.full_source_height_px == 0
+                || !valid_detail_rect(&detail.source_crop)
+                || !valid_detail_rect(&detail.render_region)
+                || !valid_detail_rect(&detail.sampled_region)
+            {
+                return Err(invalid("Detail render plan dimensions are invalid"));
+            }
+            let source = detail.source_crop.as_rect();
+            if source.right() > detail.full_source_width_px as f64
+                || source.bottom() > detail.full_source_height_px as f64
+            {
+                return Err(invalid("Detail source crop exceeds the full source raster"));
+            }
+            let render = detail.render_region.as_rect();
+            let sampled = detail.sampled_region.as_rect();
+            if render.x < sampled.x
+                || render.y < sampled.y
+                || render.right() > sampled.right()
+                || render.bottom() > sampled.bottom()
+            {
+                return Err(invalid(
+                    "Detail render region must be contained by the sampled region",
+                ));
+            }
+        }
+        if let Some(prior) = self.document_prior {
+            prior.validate().map_err(invalid)?;
+        }
+        if self.operation == Operation::Render && self.output_destinations == 0 {
+            return Err(invalid(
+                "Render page requires at least one output destination",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The admission every page's options pass, from a manifest or a browser
+/// engine request: native raster guardrails, the options' own invariants, and
+/// a render crop only where a preview render can honor it.
+pub(crate) fn validate_page_options(
+    options: &CleanupOptions,
+    source_page_index: usize,
+    preview_render: bool,
+) -> Result<(), NativeError> {
+    let page_number = source_page_index.saturating_add(1);
+    if options.max_pixels > crate::DEFAULT_MAX_PIXELS
+        || options.max_dimension > crate::DEFAULT_MAX_DIMENSION
+    {
+        return Err(NativeError::new(
+            NativeErrorCode::TooLarge,
+            format!("Page {page_number} raster guardrails exceed the native admission limits"),
+        ));
+    }
+    options
+        .validate()
+        .map_err(|error| invalid(format!("Page {page_number}: {error}")))?;
+    if options.render_crop.is_some() && !preview_render {
+        return Err(invalid(
+            "Render crop is supported only by preview render manifests",
+        ));
+    }
+    if options.render_crop.is_some() && options.match_page_size {
+        return Err(invalid(
+            "Render crop cannot be combined with matched page-size output",
+        ));
+    }
+    Ok(())
 }
 
 /// Producer-created files can legitimately be absent during shape
@@ -1698,26 +1768,28 @@ mod tests {
             base_metadata_path: PathBuf::from("base.json"),
             base_raster_path: PathBuf::from("base.png"),
             base_cleaned_raster_path: None,
-            source_crop: DetailPixelRect {
-                x_px: 10.0,
-                y_px: 20.0,
-                width_px: 100.0,
-                height_px: 120.0,
-            },
-            full_source_width_px: 400,
-            full_source_height_px: 600,
-            scale: 4.0,
-            render_region: DetailPixelRect {
-                x_px: 80.0,
-                y_px: 100.0,
-                width_px: 120.0,
-                height_px: 160.0,
-            },
-            sampled_region: DetailPixelRect {
-                x_px: 64.0,
-                y_px: 84.0,
-                width_px: 152.0,
-                height_px: 192.0,
+            geometry: DetailRenderGeometry {
+                source_crop: DetailPixelRect {
+                    x_px: 10.0,
+                    y_px: 20.0,
+                    width_px: 100.0,
+                    height_px: 120.0,
+                },
+                full_source_width_px: 400,
+                full_source_height_px: 600,
+                scale: 4.0,
+                render_region: DetailPixelRect {
+                    x_px: 80.0,
+                    y_px: 100.0,
+                    width_px: 120.0,
+                    height_px: 160.0,
+                },
+                sampled_region: DetailPixelRect {
+                    x_px: 64.0,
+                    y_px: 84.0,
+                    width_px: 152.0,
+                    height_px: 192.0,
+                },
             },
         });
         manifest.validate().unwrap();
@@ -1726,6 +1798,7 @@ mod tests {
             .detail_render_plan
             .as_mut()
             .unwrap()
+            .geometry
             .source_crop
             .width_px = 1_000.0;
         assert!(manifest
@@ -1737,6 +1810,7 @@ mod tests {
             .detail_render_plan
             .as_mut()
             .unwrap()
+            .geometry
             .source_crop
             .width_px = 100.0;
         manifest.render_mode = RenderMode::Final;

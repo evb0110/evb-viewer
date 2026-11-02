@@ -1,7 +1,6 @@
 import {
     basename,
     extname,
-    resolve,
 } from 'path';
 import { createHash } from 'node:crypto';
 import {createReadStream} from 'node:fs';
@@ -20,7 +19,6 @@ import {
     assertQueuedWorkingCopyMutationPreconditions,
     normalizeExpectedDocumentRevisionToken,
 } from '@electron/file-access/documentMutationGuards';
-import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
 import {
     copyFileAtomic,
     normalizeIpcWritePayload,
@@ -196,18 +194,3 @@ export async function handleReplaceWorkingCopyFromPath(
     });
 }
 
-export async function handleFileWriteDocx(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-    data: unknown,
-) {
-    const senderId = requireSenderId(context);
-    const normalizedPath = normalizeNonEmptyPath(filePath);
-    const payload = normalizeIpcWritePayload(data);
-    if (!consumeAllowedDocxWritePath(normalizedPath, senderId)) {
-        throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');
-    }
-
-    await writeFileAtomic(resolve(normalizedPath), payload);
-    return true;
-}

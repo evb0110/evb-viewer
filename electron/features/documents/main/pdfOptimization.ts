@@ -25,7 +25,6 @@ import {
     getPdfPageCount,
 } from '@electron/features/page-ops/public';
 import { writePdfWithNativeImageCombineManifest } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { optimizePdfForSave } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import {
     atomicReplace,
@@ -39,34 +38,23 @@ import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import {
     recompressImages,
     replacePageImages,
-    type IPdfImageRecompression,
     type IReplacementPage,
 } from '@electron/features/documents/main/pdfOptimizationPasses';
+import {
+    analyzePdfConformanceFile,
+    validatePdfFile,
+} from '@electron/features/documents/main/pdfConformance';
+import {
+    PDF_OPTIMIZE_RENDER_TIMEOUT_MS,
+    RASTER_PRESETS,
+    resolvePdfOptimizePercent,
+    type IPdfOptimizePageWork,
+    type IPdfRasterOptimizePreset,
+} from '@pdf-core/pdfOptimization';
+import {getPdfLosslessOptimizationSkipReason} from '@pdf-core/pdfConformanceHelpers';
 
 const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = 10;
-const PDF_OPTIMIZE_RENDER_TIMEOUT_MS = 15 * 60 * 1000;
 const NETPBM_HEADER_BYTES = 512;
-
-/**
- * How a raster preset re-encodes a page. Pages are rendered as Netpbm so the
- * image combiner, not the renderer, chooses the stored encoding: JPEG pages
- * are written as one gray channel when the render is gray, and black-and-white
- * pages are binarized with scan cleanup's illumination normalization and
- * Sauvola threshold and stored as lossless 1-bit.
- */
-type TRasterPageEncoding =
-    | {
-        kind: 'jpeg';
-        quality: number;
-        grayscale: boolean;
-    }
-    | {kind: 'black-and-white';};
-
-interface IPdfRasterOptimizePreset {
-    dpi: number;
-    encoding: TRasterPageEncoding;
-    images: IPdfImageRecompression;
-}
 
 interface IPdfOptimizePageRange {
     firstPage: number;
@@ -79,30 +67,9 @@ interface IOptimizeProgressContext {
     preset: TPdfOptimizePreset;
     signal?: AbortSignal;
     emit?: (progress: IPdfOptimizeProgress) => void;
-    /** Pages rendered and assembled so far; they only grow, so the bar only moves forward. */
-    pages?: {
-        total: number;
-        rendered: number;
-        assembled: number;
-    };
+    pages?: IPdfOptimizePageWork;
 }
 
-/**
- * The bar's share for each stage. Rendering and assembling pages is most of
- * the work and advances per page; placing the pages, the structure pass and
- * the validity check that follow have no count, so the dialog shows their
- * elapsed time instead.
- */
-const OPTIMIZE_PAGE_WORK_PERCENT = 80;
-const OPTIMIZE_RENDER_WEIGHT = 3;
-const OPTIMIZE_ASSEMBLE_WEIGHT = 1;
-const OPTIMIZE_STAGE_PERCENT = {
-    preparing: 0,
-    compressingImages: OPTIMIZE_PAGE_WORK_PERCENT,
-    optimizing: 85,
-    validating: 90,
-    complete: 100,
-} as const;
 const RENDERED_PAGE_POLL_MS = 300;
 
 interface IOptimizePdfToFileOptions {
@@ -111,41 +78,6 @@ interface IOptimizePdfToFileOptions {
     signal?: AbortSignal;
     onProgress?: (progress: IPdfOptimizeProgress) => void;
 }
-
-const RASTER_PRESETS: Record<Exclude<TPdfOptimizePreset, 'lossless'>, IPdfRasterOptimizePreset> = {
-    balancedScanned: {
-        dpi: 200,
-        encoding: {
-            kind: 'jpeg',
-            quality: 82,
-            grayscale: false,
-        },
-        images: {
-            dpi: 200,
-            quality: 82,
-        },
-    },
-    smallScanned: {
-        dpi: 150,
-        encoding: {
-            kind: 'jpeg',
-            quality: 60,
-            grayscale: true,
-        },
-        images: {
-            dpi: 150,
-            quality: 60,
-        },
-    },
-    blackAndWhite: {
-        dpi: 300,
-        encoding: {kind: 'black-and-white'},
-        images: {
-            dpi: 150,
-            quality: 60,
-        },
-    },
-};
 
 interface IOptimizedCandidate {
     validation: Awaited<ReturnType<typeof validatePdfFile>>;
@@ -203,23 +135,6 @@ function clampProgress(processed: number, total: number) {
     };
 }
 
-/** Percent of the whole optimization, not of the current stage. */
-function resolveOverallPercent(
-    context: IOptimizeProgressContext,
-    phase: IPdfOptimizeProgress['phase'],
-) {
-    if (phase !== 'rendering' && phase !== 'assembling') {
-        return OPTIMIZE_STAGE_PERCENT[phase];
-    }
-    const pages = context.pages;
-    if (pages === undefined || pages.total <= 0) {
-        return OPTIMIZE_STAGE_PERCENT.preparing;
-    }
-    const work = OPTIMIZE_RENDER_WEIGHT * pages.rendered + OPTIMIZE_ASSEMBLE_WEIGHT * pages.assembled;
-    const totalWork = (OPTIMIZE_RENDER_WEIGHT + OPTIMIZE_ASSEMBLE_WEIGHT) * pages.total;
-    return Math.min(OPTIMIZE_PAGE_WORK_PERCENT, Math.floor(OPTIMIZE_PAGE_WORK_PERCENT * work / totalWork));
-}
-
 function emitProgress(
     context: IOptimizeProgressContext,
     phase: IPdfOptimizeProgress['phase'],
@@ -239,7 +154,7 @@ function emitProgress(
         preset: context.preset,
         phase,
         ...progress,
-        percent: resolveOverallPercent(context, phase),
+        percent: resolvePdfOptimizePercent(phase, context.pages),
     });
 }
 
@@ -550,6 +465,18 @@ async function optimizeRasterCopy(
 }
 
 /**
+ * Rewriting a signed, encrypted, PDF/A or XFA document breaks what makes it
+ * one, so Optimize refuses it before any work, as Save As skips it. A failed
+ * analysis proves nothing and refuses too.
+ */
+async function assertPdfOptimizationEligible(inputPath: string, signal: AbortSignal | undefined) {
+    const skipReason = getPdfLosslessOptimizationSkipReason(await analyzePdfConformanceFile(inputPath, signal ? {signal} : {}));
+    if (skipReason) {
+        throw new Error(`Optimize PDF does not rewrite a ${skipReason}: it would no longer be one.`);
+    }
+}
+
+/**
  * Writes an optimized copy of `inputPath` to `outputPath` only when the copy
  * is smaller. Otherwise nothing is written and the result says so with the
  * size the best attempt reached.
@@ -569,6 +496,7 @@ export async function optimizePdfToFile(
         ...(optimizeOptions.onProgress ? {emit: optimizeOptions.onProgress} : {}),
     };
     const originalBytes = (await stat(inputPath)).size;
+    await assertPdfOptimizationEligible(inputPath, optimizeOptions.signal);
     const pageCount = normalizedOptions.preset === 'lossless'
         ? null
         : await getPdfPageCount(inputPath, signalOptions(context));

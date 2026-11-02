@@ -19,6 +19,7 @@ import {
 } from 'vitest';
 import { createServer } from 'node:http';
 import {BROWSER_OCR_ENGINE_REVISION} from '@contracts/browserOcrEngine';
+import {BROWSER_QPDF_ENGINE_REVISION} from '@contracts/browserQpdfEngine';
 import {PREBUILT_WASM_FILES} from '@scripts/wasm-artifacts.mjs';
 
 interface IWebDeployAssetsModule {
@@ -287,6 +288,8 @@ describe('web deploy assets check', () => {
     it('checks local Nuxt build output assets', async () => {
         const engine = PREBUILT_WASM_FILES.find(file => file.publicRelativePath === 'public/wasm/evb-tesseract.wasm');
         expect(engine?.url.endsWith(`/evb-tesseract-${BROWSER_OCR_ENGINE_REVISION}.wasm`)).toBe(true);
+        const qpdf = PREBUILT_WASM_FILES.find(file => file.publicRelativePath === 'public/wasm/evb-qpdf.wasm');
+        expect(qpdf?.url.endsWith(`/evb-qpdf-${BROWSER_QPDF_ENGINE_REVISION}.wasm`)).toBe(true);
         const tempRoot = await createTempProject();
         try {
             await expect(validateWebDeployAssets({

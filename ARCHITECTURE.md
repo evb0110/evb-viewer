@@ -56,7 +56,7 @@ without a desktop install.
 
 | Crate | Owns | Scale |
 | --- | --- | --- |
-| `scan-cleanup` | The cleanup engine and its CLI: analysis, routing, binarization, dewarp, mixed raster content, manifest protocol | ~78k lines |
+| `scan-cleanup` | The cleanup engine, its CLI and its browser WASM build: analysis, routing, binarization, dewarp, mixed raster content, manifest protocol | ~78k lines |
 | `pdf-page-ops` | Incremental edits, catalogs, and print layout; annotation read and write, decryption, geometry, text shaping | ~49k lines |
 | `pdf-image-combine` | Image pages to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths | ~10k lines |
 | `jbig2-codec` | Lossless JBIG2 generic-region encode and decode, in the layout PDF readers expect | ~4.6k lines |
@@ -91,6 +91,19 @@ Poppler renders every page raster as PPM. Its PNG writer is fixed at maximum
 compression, which costs a smooth scanned page tens of seconds, so a caller
 that needs PNG gets the same pixels encoded by the app at the fastest level. What the engine is built for, and what it refuses, is written
 down in [what scans work](docs/user/what-scans-work.md).
+
+The browser runs the same engine. `native/scan-cleanup/src/wasm.rs` builds it
+as `public/wasm/evb-scan-cleanup.wasm`. Each request is one page of a manifest
+(render it, preview or final, or analyze it) or one document step a manifest
+takes between its pages (reconcile a batch's layouts, finish a page's
+analysis, derive a batch's ink prior). Both it and the CLI call the in-memory
+cores in `engine/page_workflow.rs`: `render_page` cleans a page, `finish_page`
+matches it to the document canvas and decides its planes, and
+`FinishedOutput::publish` hands each plane to a sink. The CLI's sink writes the
+manifest's files and the browser's returns the same bytes, so a page with the
+same rasters and options comes out byte-identical on either platform.
+`app/platform/browser-api/browserScanCleanupWasm.ts` loads it inside a worker;
+manifests, staging and file publication stay native.
 
 ## OCR
 

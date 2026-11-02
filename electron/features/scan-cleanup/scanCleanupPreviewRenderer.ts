@@ -25,7 +25,7 @@ import {
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
     resolveScanCleanupAnalysisDpi,
-} from '@evb/scan-cleanup/core/detection';
+} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -36,9 +36,12 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {
-    formatScanCleanupWarningEvent,
-    describeScanCleanupNativeWarnings,
-} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
+    DEFAULT_SOURCE_DPI,
+    projectScanCleanupLosslessPreview,
+    projectScanCleanupPreviewOutputMetadata,
+    projectScanCleanupPreviewPageMetadata,
+    resolveFallbackDetailDpi,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
 import { resolveReusablePagePlan } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {
@@ -65,7 +68,6 @@ import type {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     previewIdentityKey,
-    DEFAULT_SOURCE_DPI,
     hasBoundedMatchedRasterResample,
     isScanCleanupSignalAborted,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
@@ -74,7 +76,6 @@ import {
     persistBaseAnalysisArtifacts,
     pruneBaseAnalysisCache,
     removeBaseAnalysisArtifacts,
-    resolveFallbackDetailDpi,
     runDetailPreview,
     logScanCleanupMessage,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
@@ -320,7 +321,6 @@ export async function scanCleanupPreviewRenderer(
                 rawHeightPx: baseRaw.height,
             });
         }
-        const rawImage = {};
         let inputPath = baseRaw.path;
         let renderDpi = basePreviewDpi;
         let requestedRenderDpi = basePreviewDpi;
@@ -622,98 +622,21 @@ export async function scanCleanupPreviewRenderer(
             String(await dependencies.readFile(pageMetadataPath, 'utf8')),
         );
         if (lossless) {
-            const analyzedOutputs = pageMetadata.outputs ?? [];
-            return {
+            return projectScanCleanupLosslessPreview({
                 pageNumber: request.pageNumber,
                 totalPages: baseRaw.totalPages,
-                ...rawImage,
-                rawWidthPx: baseRaw.width,
-                rawHeightPx: baseRaw.height,
-                pageMetadata: {
-                    ...pageMetadata,
-                    outputDiagnostics: analyzedOutputs.map(output => ({
-                        half: output.half,
-                        ...(output.contentDiagnostics === undefined
-                            ? {}
-                            : {contentDiagnostics: output.contentDiagnostics}),
-                        ...(output.textToneDiagnostics === undefined
-                            ? {}
-                            : {textToneDiagnostics: {
-                                ...output.textToneDiagnostics,
-                                inkAnchor: output.textToneDiagnostics.inkAnchor ?? null,
-                                blackPoint: output.textToneDiagnostics.blackPoint ?? null,
-                                slope: output.textToneDiagnostics.slope ?? null,
-                            }}),
-                    })),
+                raw: {
+                    width: baseRaw.width,
+                    height: baseRaw.height,
+                    bytes: baseRaw.bytes,
                 },
-                outputs: analyzedOutputs.map(output => {
-                    const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
-                    const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
-                    // Without page geometry there is no canvas to place on: the
-                    // output is its own crop, exactly as the assembler writes it.
-                    const placement = output.pdfPlacement?.preview ?? {
-                        canvasWidthPx: outputWidthPx,
-                        canvasHeightPx: outputHeightPx,
-                        contentWidthPx: outputWidthPx,
-                        contentHeightPx: outputHeightPx,
-                        offsetXPx: 0,
-                        offsetYPx: 0,
-                        margins: {
-                            leftPx: 0,
-                            topPx: 0,
-                            rightPx: 0,
-                            bottomPx: 0,
-                        },
-                        canvasOverflow: false,
-                    };
-                    return {
-                        imageData: baseRaw.bytes,
-                        metadata: {
-                            half: output.half,
-                            layoutClassification: pageMetadata.layoutClassification,
-                            layoutConfidence: pageMetadata.layoutConfidence,
-                            sourceRegion: output.sourceRegion,
-                            contentBox: output.contentBox,
-                            cropRect: output.cropRect,
-                            ...(output.contentDiagnostics === undefined
-                                ? {}
-                                : {contentDiagnostics: output.contentDiagnostics}),
-                            appliedMargins: placement.margins,
-                            outputWidthPx,
-                            outputHeightPx,
-                            canvasWidthPx: placement.canvasWidthPx,
-                            canvasHeightPx: placement.canvasHeightPx,
-                            placementOffsetXPx: placement.offsetXPx,
-                            placementOffsetYPx: placement.offsetYPx,
-                            forwardTransform: null,
-                            cutterXPx: pageMetadata.cutterXPx,
-                            inputWidthPx: output.inputWidthPx,
-                            inputHeightPx: output.inputHeightPx,
-                            rotationDegrees: pageMetadata.rotationDegrees,
-                            canvasScope: 'page',
-                            resamplePasses: 0,
-                            sourceDpi,
-                            renderDpi,
-                            requestedRenderDpi,
-                            rasterScaleLimited: false,
-                            canvasPolicy: matchedCanvas === undefined ? 'intrinsic' : 'strict-maximum',
-                            canvasOverflow: placement.canvasOverflow,
-                            matchedCanvasTargetWidthPx: matchedCanvas === undefined ? null : placement.canvasWidthPx,
-                            matchedCanvasTargetHeightPx: matchedCanvas === undefined ? null : placement.canvasHeightPx,
-                            matchedCanvasTargetWidthPoints: matchedCanvas?.widthPoints ?? null,
-                            matchedCanvasTargetHeightPoints: matchedCanvas?.heightPoints ?? null,
-                            matchedCanvasContentWidthPx: placement.contentWidthPx,
-                            matchedCanvasContentHeightPx: placement.contentHeightPx,
-                            matchedCanvasOpticalContentLeftPx: null,
-                            matchedCanvasOpticalContentRightPx: null,
-                            warnings: [
-                                ...previewWarningEvents,
-                                ...output.pdfPlacement?.warningEvents ?? [],
-                            ].map(event => formatScanCleanupWarningEvent(event)),
-                        },
-                    };
-                }),
-            };
+                pageMetadata,
+                previewWarningEvents,
+                matchedCanvas,
+                sourceDpi,
+                renderDpi,
+                requestedRenderDpi,
+            });
         }
         const cleaned = [] as IScanCleanupPreviewResult['outputs'];
         const nativeOutputs: IBasePreviewAnalysis['outputs'] = {};
@@ -730,81 +653,18 @@ export async function scanCleanupPreviewRenderer(
                 canonicalRasterBytes += imageData.byteLength;
                 cleaned.push({
                     imageData,
-                    metadata: {
-                        ...nativeMetadata,
-                        matchedCanvasOpticalContentLeftPx: nativeMetadata.matchedCanvasOpticalContentLeftPx ?? null,
-                        matchedCanvasOpticalContentRightPx: nativeMetadata.matchedCanvasOpticalContentRightPx ?? null,
-                        ...(nativeMetadata.dewarpModel === undefined
-                            ? {}
-                            : {dewarpApplied: nativeMetadata.dewarpModel !== null}),
-                        ...(nativeMetadata.textToneDiagnostics === undefined
-                            ? {}
-                            : {textToneDiagnostics: {
-                                ...nativeMetadata.textToneDiagnostics,
-                                inkAnchor: nativeMetadata.textToneDiagnostics.inkAnchor ?? null,
-                                blackPoint: nativeMetadata.textToneDiagnostics.blackPoint ?? null,
-                                slope: nativeMetadata.textToneDiagnostics.slope ?? null,
-                            }}),
-                        warnings: [
-                            ...[
-                                ...previewWarningEvents,
-                                ...nativeMetadata.warningEvents ?? [],
-                            ].map(event => formatScanCleanupWarningEvent(event)),
-                            ...describeScanCleanupNativeWarnings({warnings: nativeMetadata.warnings}),
-                        ],
-                    },
+                    metadata: projectScanCleanupPreviewOutputMetadata(nativeMetadata, previewWarningEvents),
                 });
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
             }
         }
-        const diagnosticMetadata = cleaned[0]?.metadata;
         const result: TScanCleanupPreviewWireResult = {
             pageNumber: request.pageNumber,
             totalPages: baseRaw.totalPages,
-            ...rawImage,
             rawWidthPx: baseRaw.width,
             rawHeightPx: baseRaw.height,
-            pageMetadata: {
-                ...pageMetadata,
-                ...(diagnosticMetadata?.detectedSkewDegrees === undefined
-                    ? {}
-                    : {detectedSkewDegrees: diagnosticMetadata.detectedSkewDegrees}),
-                ...(diagnosticMetadata?.skewConfidence === undefined
-                    ? {}
-                    : {skewConfidence: diagnosticMetadata.skewConfidence}),
-                ...(diagnosticMetadata?.manualSkew === undefined
-                    ? {}
-                    : {manualSkew: diagnosticMetadata.manualSkew}),
-                ...(diagnosticMetadata?.binarizationMode === undefined
-                    ? {}
-                    : {binarizationMode: diagnosticMetadata.binarizationMode}),
-                ...(diagnosticMetadata?.binarizationDiagnostics === undefined
-                    ? {}
-                    : {binarizationDiagnostics: diagnosticMetadata.binarizationDiagnostics}),
-                ...(diagnosticMetadata?.textToneDiagnostics === undefined
-                    ? {}
-                    : {textToneDiagnostics: diagnosticMetadata.textToneDiagnostics}),
-                ...(diagnosticMetadata?.despeckleFallback === undefined
-                    ? {}
-                    : {despeckleFallback: diagnosticMetadata.despeckleFallback}),
-                ...(diagnosticMetadata?.dewarpConfidence === undefined
-                    ? {}
-                    : {dewarpConfidence: diagnosticMetadata.dewarpConfidence}),
-                ...(diagnosticMetadata?.dewarpApplied === undefined
-                    ? {}
-                    : {dewarpApplied: diagnosticMetadata.dewarpApplied}),
-                outputDiagnostics: cleaned.map(output => ({
-                    half: output.metadata.half,
-                    ...(output.metadata.contentDiagnostics === undefined
-                        ? {}
-                        : {contentDiagnostics: output.metadata.contentDiagnostics}),
-                    ...(output.metadata.textToneDiagnostics === undefined
-                        ? {}
-                        : {textToneDiagnostics: output.metadata.textToneDiagnostics}),
-                })),
-                autoDewarpAttempted: request.options.autoDewarp === true,
-            },
+            pageMetadata: projectScanCleanupPreviewPageMetadata(pageMetadata, cleaned, request.options.autoDewarp === true),
             outputs: cleaned,
         };
         if (!fallbackDetail) {

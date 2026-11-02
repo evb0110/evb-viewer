@@ -7,14 +7,14 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString, StandardFonts,
+    PDFDocument, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, PDFStream, PDFString, PDFHexString, StandardFonts, rgb,
 } from 'pdf-lib';
 import {
     describe, expect, it,
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser, readPersistedDocumentBytes,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -219,8 +219,10 @@ describe('browser document lifecycle UI', () => {
             await box.dblclick();
             const editor = box.locator('[contenteditable="true"]');
             await editor.waitFor({state: 'visible'});
-            await editor.press('Control+A');
+            // Control+A selects all only off macOS; on a Mac it moves to the line start.
+            await editor.press('ControlOrMeta+A');
             await page.keyboard.type(draft);
+            expect(await editor.textContent()).toBe(draft);
             await page.evaluate(async () => {
                 await document.fonts.ready;
                 await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
@@ -274,7 +276,7 @@ describe('browser document lifecycle UI', () => {
             expect(problems.filter(problem => problem.includes('[pdf-renderer] Failed to render canvas for page 1'))).toHaveLength(1);
 
             await editor.click();
-            await editor.press('End');
+            await editor.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End');
             await page.keyboard.type('!');
             expect(await editor.textContent()).toBe(`${draft}!`);
             const download = page.waitForEvent('download');
@@ -1053,8 +1055,12 @@ describe('browser document lifecycle UI', () => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
                 window.print = () => {
-                    const canvas = document.querySelector<HTMLCanvasElement>('.browser-print-page canvas');
-                    if (!canvas) throw new Error('No printed page');
+                    const image = document.querySelector<HTMLImageElement>('.browser-print-page img');
+                    if (!image) throw new Error('No printed page');
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.naturalWidth;
+                    canvas.height = image.naturalHeight;
+                    canvas.getContext('2d')!.drawImage(image, 0, 0);
                     const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
                     const red: number[][] = [];
                     const cyan: number[][] = [];
@@ -1170,6 +1176,314 @@ describe('browser document lifecycle UI', () => {
             writeFileSync(resolve(evidence, 'console.json'), JSON.stringify(problems));
             await page.screenshot({path: resolve(evidence, 'final.png')});
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 90_000);
+
+    // T3: printing hands the system dialog every page. The print document
+    // once refused rasters above 256 MiB across pages and 64 Mi pixels on
+    // one page. Here 41 sheets at 300 DPI need about 1.4 GB of RGBA, and the
+    // 28-inch first page alone printed at its size needs 282 MB.
+    it('prints every page of a document whose page rasters exceed the former print budgets', async () => {
+        const evidence = resolve(process.cwd(), `.devkit/print-every-page/browser-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 800,
+        }});
+        const problems = collectConsoleProblems(page);
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                window.print = () => {
+                    // Each source page carries a black bar whose height on the page encodes its number.
+                    const printed = Array.from(document.querySelectorAll<HTMLElement>('.browser-print-page'), (section) => {
+                        const image = section.querySelector('img');
+                        if (!image?.complete || image.naturalWidth === 0) return null;
+                        const sample = document.createElement('canvas');
+                        sample.width = 50;
+                        sample.height = 400;
+                        const context = sample.getContext('2d')!;
+                        context.drawImage(image, 0, 0, sample.width, sample.height);
+                        const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+                        const darkRows: number[] = [];
+                        for (let row = 0; row < sample.height; row += 1) {
+                            if (pixels[(row * sample.width + 25) * 4]! < 80) darkRows.push(row);
+                        }
+                        return {
+                            width: image.naturalWidth,
+                            height: image.naturalHeight,
+                            barCenter: darkRows.length ? (darkRows[0]! + darkRows.at(-1)!) / 2 / sample.height : null,
+                        };
+                    });
+                    Reflect.set(window.top!, '__printedPages', printed);
+                };
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const pdf = await PDFDocument.create();
+            const pageCount = 41;
+            for (let index = 0; index < pageCount; index += 1) {
+                const pdfPage = pdf.addPage(index === 0 ? [
+                    28 * 72,
+                    28 * 72,
+                ] : [
+                    612,
+                    792,
+                ]);
+                const {
+                    width, height,
+                } = pdfPage.getSize();
+                pdfPage.drawRectangle({
+                    x: 0,
+                    y: height * (1 - (index + 0.5) / pageCount) - height / 400,
+                    width,
+                    height: height / 200,
+                    color: rgb(0, 0, 0),
+                });
+            }
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'print-every-page.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            const readPrinted = async () => {
+                await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__printedPages'))), {timeout: 120_000}).toBe(true);
+                return page.evaluate(() => {
+                    const printed = Reflect.get(window, '__printedPages') as Array<{
+                        width: number;
+                        height: number;
+                        barCenter: number | null;
+                    } | null>;
+                    Reflect.deleteProperty(window, '__printedPages');
+                    return printed;
+                });
+            };
+
+            const sheetsStartedAt = Date.now();
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            const sheets = await readPrinted();
+            const sheetsElapsedMs = Date.now() - sheetsStartedAt;
+            expect(sheets).toHaveLength(pageCount);
+            const sheetBars = sheets.map(sheet => sheet?.barCenter ?? null);
+            expect(sheetBars.every(bar => bar !== null)).toBe(true);
+            // Every source page reached its own sheet, in order.
+            expect(sheetBars.every((bar, index) => index < 2 || bar! > sheetBars[index - 1]!)).toBe(true);
+
+            const currentPageStartedAt = Date.now();
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Print Current Page/u}).click();
+            const currentPage = await readPrinted();
+            const currentPageElapsedMs = Date.now() - currentPageStartedAt;
+            expect(currentPage).toHaveLength(1);
+            expect(currentPage[0]).toMatchObject({
+                width: Math.ceil(28 * 72 * (300 / 72)),
+                height: Math.ceil(28 * 72 * (300 / 72)),
+            });
+            expect(currentPage[0]!.barCenter).toBeCloseTo(0.5 / pageCount, 2);
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify({
+                sheetsElapsedMs,
+                currentPageElapsedMs,
+                sheets,
+                currentPage,
+                problems,
+            }, null, 2));
+            expect(problems).toEqual([]);
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 240_000);
+
+    // T6/T3: storage-backed browser PDFs print every sheet, including unsaved notes.
+    it('prints a browser PDF above the in-memory limit, its current page and an unsaved note', async () => {
+        const evidence = resolve(process.cwd(), `.devkit/browser-print-large-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 800,
+        }});
+        const problems = collectConsoleProblems(page);
+        const observations: unknown[] = [];
+        try {
+            await page.addInitScript(() => {
+                window.print = () => {
+                    const sheets = Array.from(document.querySelectorAll<HTMLImageElement>('.browser-print-page img'), image => {
+                        if (!image.complete || image.naturalWidth === 0) throw new Error('An unloaded sheet reached window.print');
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.naturalWidth;
+                        canvas.height = image.naturalHeight;
+                        const context = canvas.getContext('2d')!;
+                        context.drawImage(image, 0, 0);
+                        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let inkPixels = 0;
+                        let yellowPixels = 0;
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            if (pixels[index + 3]! > 8 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 245) inkPixels += 1;
+                            if (pixels[index]! > 150 && pixels[index + 1]! > 100 && pixels[index + 2]! < 100) yellowPixels += 1;
+                        }
+                        return {
+                            inkPixels,
+                            yellowPixels,
+                            image: canvas.toDataURL('image/png'),
+                        };
+                    });
+                    Reflect.set(window.top!, '__largePdfPrintSheets', sheets);
+                };
+            });
+            const pdf = await PDFDocument.create();
+            const font = await pdf.embedFont(StandardFonts.Helvetica);
+            for (let index = 0; index < 2; index += 1) {
+                const sheet = pdf.addPage([
+                    612,
+                    792,
+                ]);
+                sheet.drawText(`Browser large PDF print page ${String(index + 1)}`, {
+                    x: 48,
+                    y: 710,
+                    size: 24,
+                    font,
+                });
+                sheet.drawRectangle({
+                    x: 48,
+                    y: 560,
+                    width: 420,
+                    height: 64,
+                    color: rgb(0, 0, 0),
+                });
+            }
+            // A referenced, uncompressed stream makes a valid 20 MB PDF rather
+            // than trailing padding after EOF, above the 16 MiB in-memory limit.
+            pdf.catalog.set(PDFName.of('PrintFixturePadding'), pdf.context.register(pdf.context.stream(Buffer.alloc(20_000_000, 0x20))));
+            const bytes = Buffer.from(await pdf.save({useObjectStreams: false}));
+            await openPdfFromChooser(page, {
+                name: 'browser-print-20mb.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            const source = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.([
+                    'pdfSourceState',
+                    'totalPages',
+                ]);
+            });
+            expect(source).toMatchObject({
+                totalPages: 2,
+                pdfSourceState: {
+                    hasInMemoryData: false,
+                    reloadKind: 'path',
+                    reloadPath: expect.stringMatching(/^browser:\/\//u),
+                },
+            });
+            observations.push({
+                bytes: bytes.length,
+                source,
+            });
+            const readSheets = async (action: string) => {
+                await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__largePdfPrintSheets'))), {timeout: 15_000}).toBe(true);
+                const sheets = await page.evaluate(() => {
+                    const sheets = Reflect.get(window, '__largePdfPrintSheets') as Array<{
+                        inkPixels: number;
+                        yellowPixels: number;
+                        image: string;
+                    }>;
+                    Reflect.deleteProperty(window, '__largePdfPrintSheets');
+                    return sheets;
+                });
+                observations.push({
+                    action,
+                    sheets: sheets.map(({
+                        inkPixels, yellowPixels,
+                    }) => ({
+                        inkPixels,
+                        yellowPixels,
+                    })),
+                });
+                for (const [
+                    index,
+                    sheet,
+                ] of sheets.entries()) {
+                    writeFileSync(resolve(evidence, `${action}-${String(index + 1)}.png`), Buffer.from(sheet.image.split(',')[1]!, 'base64'));
+                    expect(sheet.inkPixels).toBeGreaterThan(1_000);
+                }
+                return sheets;
+            };
+            const printAll = async () => {
+                await page.getByRole('button', {
+                    name: 'Print',
+                    exact: true,
+                }).click();
+                await page.getByRole('button', {
+                    name: 'Print...',
+                    exact: true,
+                }).click();
+            };
+            await printAll();
+            const clean = await readSheets('clean-all');
+            expect(clean).toHaveLength(2);
+            expect(clean[0]!.yellowPixels).toBe(0);
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Print Current Page/u}).click();
+            expect(await readSheets('clean-current')).toHaveLength(1);
+
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 200,
+                y: 200,
+            }});
+            const note = page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            });
+            await note.fill('Unsaved large PDF print note');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
+            await printAll();
+            const dirty = await readSheets('dirty-all');
+            expect(dirty).toHaveLength(2);
+            expect(dirty[0]!.yellowPixels).toBeGreaterThan(50);
+            expect(dirty[1]!.yellowPixels).toBe(0);
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
+        } finally {
+            await page.screenshot({path: resolve(evidence, 'workspace.png')});
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+            await page.context().close();
         }
     }, 90_000);
 
@@ -1403,6 +1717,80 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('imports every note when the annotation parse output exceeds 16 MiB', async () => {
+        // Desktop reads its parse output without a total byte limit, so the
+        // browser lists all 2,500 notes whose parse output is about 21 MB.
+        const noteCount = 2_500;
+        const pdf = await PDFDocument.create();
+        const text = 'Long imported note text. '.repeat(320);
+        for (let pageIndex = 0; pageIndex < 10; pageIndex += 1) {
+            const pdfPage = pdf.addPage([
+                612,
+                792,
+            ]);
+            pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj(Array.from({length: noteCount / 10}, (_, index) => {
+                const x = 20 + (index % 25) * 22;
+                const y = 20 + Math.floor(index / 25) * 70;
+                return pdf.context.register(pdf.context.obj({
+                    Type: 'Annot',
+                    Subtype: 'Text',
+                    Rect: [
+                        x,
+                        y,
+                        x + 18,
+                        y + 18,
+                    ],
+                    Contents: PDFHexString.fromText(`Note ${pageIndex * (noteCount / 10) + index + 1}. ${text}`),
+                    T: PDFString.of('Importer'),
+                    NM: PDFString.of(`imported-note-${pageIndex}-${index}`),
+                    M: PDFString.of('D:20260101000000Z'),
+                    Open: false,
+                }));
+            })));
+        }
+        try {
+            const page = await lifecycle.browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles({
+                name: 'many-long-notes.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save({useObjectStreams: true})),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.notes-list-header .notes-count:visible').first().textContent(), {timeout: 120_000})
+                .toBe(`(${noteCount})`);
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 240_000);
+
     it('shows a literal percent sequence in a browser file name exactly on its tab', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {
@@ -1450,7 +1838,7 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
-    it('explains the missing components when an indirect DjVu index is picked alone', async () => {
+    it('explains the missing components of an indirect DjVu index, then opens it with them', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-index-only-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         const context = await lifecycle.browser.newContext({viewport: {
@@ -1469,14 +1857,16 @@ describe('browser document lifecycle UI', () => {
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
+            const indirectDir = resolve(process.cwd(), 'tests/fixtures/djvu/sources/indirect');
+            const indexFile = {
+                name: 'café-index.djvu',
+                mimeType: 'image/vnd.djvu',
+                buffer: readFileSync(resolve(indirectDir, 'index.djvu')),
+            };
 
             const chooserPromise = page.waitForEvent('filechooser');
             await page.locator('.start-open-panel .open-panel-cta').click();
-            await (await chooserPromise).setFiles({
-                name: 'café-index.djvu',
-                mimeType: 'image/vnd.djvu',
-                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/djvu/sources/indirect/index.djvu')),
-            });
+            await (await chooserPromise).setFiles(indexFile);
             const toast = page.locator('.app-toast-failure');
             await toast.waitFor({
                 state: 'visible',
@@ -1489,16 +1879,359 @@ describe('browser document lifecycle UI', () => {
             }, null, 2));
             await page.screenshot({path: resolve(evidenceDir, 'toast.png')});
 
-            // C4: the failure itself explains why and gives the usable alternatives.
-            expect(text).toContain('This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.');
+            // C4: the failure itself explains why and how to open the document.
+            expect(text).toContain('This DjVu index keeps its pages in separate files. Open it again and select the index together with the files next to it.');
             expect(text).not.toContain('The file could not be opened.');
             expect(await toast.count()).toBe(1);
+
+            // Selecting the index with the files beside it opens its pages from them.
+            const componentChooser = page.waitForEvent('filechooser');
+            await page.locator('.start-open-panel .open-panel-cta').click();
+            await (await componentChooser).setFiles([
+                indexFile,
+                ...[
+                    'low-dpi.djvu',
+                    'high-dpi.djvu',
+                ].map(name => ({
+                    name,
+                    mimeType: 'image/vnd.djvu',
+                    buffer: readFileSync(resolve(indirectDir, name)),
+                })),
+            ]);
+            const sourceImage = page.locator('[data-testid="document-page-source-image"]').first();
+            await sourceImage.waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await expect.poll(() => sourceImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+            await expect.poll(() => page.locator('.page-controls').first().innerText()).toMatch(/\b2\b/u);
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+                .toContain('café-index.djvu');
+            await page.screenshot({path: resolve(evidenceDir, 'opened-with-components.png')});
             expect(pageErrors).toEqual([]);
         } finally {
             await context.close();
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 120_000);
+
+    it('opens and converts DjVu documents above the former browser limits', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-former-limits-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const openFixture = async (name: string) => {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources', name));
+            return {
+                page,
+                problems,
+            };
+        };
+        try {
+            // A 10000x8001 page: 80 million pixels, above the former 45-megapixel open limit.
+            const huge = await openFixture('huge-page.djvu');
+            const sourceImage = huge.page.locator('[data-testid="document-page-source-image"]').first();
+            await sourceImage.waitFor({
+                state: 'visible',
+                timeout: 90_000,
+            });
+            await expect.poll(() => sourceImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+            await huge.page.screenshot({path: resolve(evidenceDir, 'huge-page.png')});
+            expect(huge.problems).toEqual([]);
+
+            // 501 pages, above the former 500-page conversion limit.
+            const many = await openFixture('browser-boundary-501-pages.djvu');
+            const pageControls = many.page.locator('.page-controls').first();
+            await expect.poll(() => pageControls.innerText(), {timeout: 90_000}).toMatch(/\b501\b/u);
+            await many.page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            const dialog = many.page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const convertButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await expect.poll(() => convertButton.isEnabled(), {timeout: 90_000}).toBe(true);
+            await convertButton.click();
+            await many.page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            await expect.poll(() => many.page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+                .toContain('browser-boundary-501-pages.pdf');
+            await expect.poll(() => pageControls.innerText()).toMatch(/\b501\b/u);
+            await many.page.screenshot({path: resolve(evidenceDir, 'converted-501.png')});
+            expect(many.problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 300_000);
+
+    it('keeps the DjVu outline in a compact PDF at source detail', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-compact-outline-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        try {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            // Three 96x96 pages; the outline names pages by component id and by number.
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bookmark-component-ids.djvu'));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            const dialog = page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const convertButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await expect.poll(() => convertButton.isEnabled(), {timeout: 60_000}).toBe(true);
+            // The recommended method is the compact one; bookmarks are kept by default.
+            expect(await dialog.getByRole('checkbox', {name: 'Preserve bookmarks'}).isChecked()).toBe(true);
+            await convertButton.click();
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            const pdfRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                return api?.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath ?? null;
+            });
+            expect(pdfRef).toMatch(/\.pdf$/u);
+            const bytes = Uint8Array.from(await readPersistedDocumentBytes(page, pdfRef!));
+            writeFileSync(resolve(evidenceDir, 'compact.pdf'), bytes);
+            const pdf = await PDFDocument.load(bytes, {updateMetadata: false});
+            const pageRefs = pdf.getPages().map(pdfPage => pdfPage.ref.toString());
+            const outline: string[] = [];
+            let node = pdf.context.lookup(pdf.context.lookup(pdf.catalog.get(PDFName.of('Outlines')), PDFDict).get(PDFName.of('First')));
+            while (node instanceof PDFDict) {
+                const title = node.get(PDFName.of('Title'));
+                const destination = node.get(PDFName.of('Dest'));
+                const target = destination instanceof PDFArray ? destination.get(0) : null;
+                outline.push(`${title instanceof PDFHexString || title instanceof PDFString ? title.decodeText() : ''} -> ${target instanceof PDFRef ? pageRefs.indexOf(target.toString()) + 1 : 0}`);
+                node = pdf.context.lookup(node.get(PDFName.of('Next')));
+            }
+            expect(outline).toEqual([
+                'Page one -> 1',
+                'Page two component target -> 2',
+                'Page three numeric control -> 3',
+            ]);
+            // Source detail: each page keeps its 96 pixels across.
+            const imageWidths = [...pdf.context.enumerateIndirectObjects()]
+                .map(([
+                    , object,
+                ]) => object)
+                .filter((object): object is PDFRawStream => object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype'))?.toString() === '/Image')
+                .map(image => image.dict.get(PDFName.of('Width'))?.toString());
+            expect(imageWidths).toEqual([
+                '96',
+                '96',
+                '96',
+            ]);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 240_000);
+
+    it('keeps a bitonal DjVu as bilevel masks in a compact PDF', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-compact-masks-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        try {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            // Page 1 is a JB2 mask; page 2 is an IW44 background only.
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            const dialog = page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const convertButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await expect.poll(() => convertButton.isEnabled(), {timeout: 60_000}).toBe(true);
+            await convertButton.click();
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            const pdfRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                return api?.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath ?? null;
+            });
+            expect(pdfRef).toMatch(/\.pdf$/u);
+            const bytes = Uint8Array.from(await readPersistedDocumentBytes(page, pdfRef!));
+            writeFileSync(resolve(evidenceDir, 'compact.pdf'), bytes);
+            const pdf = await PDFDocument.load(bytes, {updateMetadata: false});
+            // As desktop writes it: page 1, a JB2 mask, stays a bilevel image
+            // mask at the source resolution; page 2, background only, is a photo.
+            const pageImages = pdf.getPages().map((pdfPage) => {
+                const xObjects = pdfPage.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
+                const image = xObjects?.values().map(value => pdf.context.lookup(value)).find(value => value instanceof PDFRawStream);
+                return image instanceof PDFRawStream
+                    ? {
+                        width: image.dict.get(PDFName.of('Width'))?.toString(),
+                        mask: image.dict.get(PDFName.of('ImageMask'))?.toString() ?? null,
+                        filter: image.dict.get(PDFName.of('Filter'))?.toString() ?? null,
+                    }
+                    : null;
+            });
+            expect(pageImages).toEqual([
+                expect.objectContaining({
+                    width: '512',
+                    mask: 'true',
+                }),
+                {
+                    width: '512',
+                    mask: null,
+                    filter: '/DCTDecode',
+                },
+            ]);
+            expect(pageImages[0]?.filter).not.toBe('/DCTDecode');
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 240_000);
+
+    it('prints a DjVu document through the browser print dialog', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-print-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        try {
+            const page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                // The print dialog's sheets, as the browser would print them.
+                window.print = () => {
+                    const sheets = Array.from(document.querySelectorAll<HTMLImageElement>('.browser-print-page img')).map((image) => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = image.naturalWidth;
+                        canvas.height = image.naturalHeight;
+                        canvas.getContext('2d')!.drawImage(image, 0, 0);
+                        const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let ink = 0;
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) ink += 1;
+                        }
+                        return {
+                            ink,
+                            image: canvas.toDataURL(),
+                        };
+                    });
+                    Reflect.set(window.top!, '__djvuPrint', sheets);
+                };
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            // Page 1 is a JB2 mask of four black lines; page 2 is faint pencil.
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__djvuPrint'))), {timeout: 60_000}).toBe(true);
+            const sheets = await page.evaluate(() => Reflect.get(window, '__djvuPrint') as Array<{
+                ink: number;
+                image: string;
+            }>);
+            for (const [
+                index,
+                sheet,
+            ] of sheets.entries()) {
+                writeFileSync(resolve(evidenceDir, `printed-${index + 1}.png`), Buffer.from(sheet.image.split(',')[1]!, 'base64'));
+            }
+            expect(sheets).toHaveLength(2);
+            expect(sheets[0]!.ink).toBeGreaterThan(1_000);
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 180_000);
 
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         try {
@@ -1613,4 +2346,596 @@ describe('browser document lifecycle UI', () => {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 240_000);
+
+    // New Pane keeps the existing document and adds an independent tab area
+    // on the requested side (T4 distinguishes it from a split document view).
+    it('opens an independent pane to the right with the New Pane Right shortcut', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-pane-shortcut-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const problems = collectConsoleProblems(page);
+        const readLayout = () => page.locator('.editor-pane:visible').evaluateAll(panes => panes.map(pane => ({
+            pane: pane.getBoundingClientRect().toJSON(),
+            tabAreas: [...pane.querySelectorAll('[data-tab-list]')].map(tabs => tabs.getBoundingClientRect().toJSON()),
+            selectedTabs: [...pane.querySelectorAll('[data-tab-list] [role="tab"][aria-selected="true"]')].map(tab => tab.textContent?.trim()),
+        })));
+        try {
+            await openPdfFromChooser(page, resolve(process.cwd(), 'tests/fixtures/electron/semtext/unfilled-black-c.pdf'));
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            expect(await page.locator('.editor-pane:visible').count()).toBe(1);
+            await page.keyboard.press('ControlOrMeta+Backslash');
+            await expect.poll(() => page.locator('.editor-pane:visible').count()).toBe(2);
+            await page.locator('.editor-pane:visible').nth(1).getByRole('tab', {
+                name: 'New Tab',
+                exact: true,
+            }).waitFor();
+            const [
+                left,
+                right,
+            ] = await readLayout();
+            expect(left!.selectedTabs).toEqual(['unfilled-black-c.pdf']);
+            expect(right!.selectedTabs).toEqual(['New Tab']);
+            expect(right!.pane.x).toBeGreaterThanOrEqual(left!.pane.x + left!.pane.width);
+            expect(right!.pane.y).toBe(left!.pane.y);
+            expect(right!.pane.height).toBe(left!.pane.height);
+            for (const view of [
+                left!,
+                right!,
+            ]) {
+                expect(view.pane.width).toBeGreaterThan(0);
+                expect(view.pane.height).toBeGreaterThan(0);
+                expect(view.tabAreas).toHaveLength(1);
+                const tabs = view.tabAreas[0]!;
+                expect(tabs.width).toBeGreaterThan(0);
+                expect(tabs.height).toBeGreaterThan(0);
+                expect(tabs.x).toBeGreaterThanOrEqual(view.pane.x);
+                expect(tabs.x + tabs.width).toBeLessThanOrEqual(view.pane.x + view.pane.width);
+                expect(tabs.y).toBeGreaterThanOrEqual(view.pane.y);
+                expect(tabs.y + tabs.height).toBeLessThanOrEqual(view.pane.y + view.pane.height);
+            }
+            expect(problems).toEqual([]);
+        } finally {
+            try {
+                writeFileSync(resolve(evidenceDir, 'layout.json'), JSON.stringify(await readLayout(), null, 2));
+                writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+                await page.screenshot({path: resolve(evidenceDir, 'pane-shortcut.png')});
+            } finally {
+                await page.context().close();
+            }
+        }
+    }, 90_000);
+
+    // I1: the desktop Edit menu's image accelerators act in the browser, and a
+    // paste carries its image where the browser refuses clipboard reads.
+    it('inserts images by the Edit menu shortcuts and by a paste with clipboard reading denied', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-image-paste-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+            permissions: ['clipboard-write'],
+        });
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const pngOf = (width: number, height: number, color: string) => {
+            const canvas = createCanvas(width, height);
+            const context2d = canvas.getContext('2d');
+            context2d.fillStyle = color;
+            context2d.fillRect(0, 0, width, height);
+            return canvas.toBuffer('image/png');
+        };
+        try {
+            const fixture = await PDFDocument.create();
+            fixture.addPage([
+                612,
+                792,
+            ]).drawText('Images arrive on this page', {
+                x: 40,
+                y: 740,
+            });
+            await openPdfFromChooser(page, {
+                name: 'image-shortcuts.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
+            const pdfPage = page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered').first();
+            await pdfPage.locator('canvas').first().waitFor({timeout: 30_000});
+            const placement = page.locator('.workspace-host[data-workspace-active="true"] .pdf-image-placement');
+            const placeImage = async () => {
+                await placement.waitFor({
+                    state: 'visible',
+                    timeout: 10_000,
+                });
+                await placement.locator('.pdf-image-placement__action--primary').click();
+                await placement.waitFor({
+                    state: 'hidden',
+                    timeout: 30_000,
+                });
+            };
+
+            const chooser = page.waitForEvent('filechooser', {timeout: 5_000});
+            await page.keyboard.press('ControlOrMeta+Shift+I');
+            await (await chooser).setFiles({
+                name: 'inserted.png',
+                mimeType: 'image/png',
+                buffer: pngOf(40, 24, '#1f6feb'),
+            });
+            await placeImage();
+
+            // Setup: the page writes a PNG to the clipboard in the next click's
+            // activation. Reading the clipboard stays denied.
+            const pngBase64 = pngOf(48, 32, '#d22f48').toString('base64');
+            await page.evaluate((base64) => {
+                Reflect.set(window, '__clipboardWritten', new Promise((resolveWrite) => {
+                    document.addEventListener('click', () => {
+                        const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+                        void navigator.clipboard.write([new ClipboardItem({'image/png': new Blob([bytes], {type: 'image/png'})})])
+                            .then(() => resolveWrite('written'), (error: unknown) => resolveWrite(String(error)));
+                    }, {
+                        capture: true,
+                        once: true,
+                    });
+                }));
+            }, pngBase64);
+            const box = await pdfPage.boundingBox();
+            expect(box).not.toBeNull();
+            await page.mouse.click(box!.x + box!.width / 2, box!.y + 60);
+            expect(await page.evaluate(() => Reflect.get(window, '__clipboardWritten'))).toBe('written');
+            const clipboardReadPermission = await page.evaluate(async () => (
+                await navigator.permissions.query({name: 'clipboard-read' as PermissionName})
+            ).state);
+            expect(clipboardReadPermission).toBe('denied');
+            // C4: a denied Paste Image command explains the usable alternative.
+            await page.keyboard.press('ControlOrMeta+Shift+V');
+            const blockedRead = page.getByRole('region').getByText('The browser blocked reading the clipboard. Press Ctrl+V (⌘V on a Mac) to paste the image.', {exact: true});
+            await expect.poll(() => blockedRead.isVisible()).toBe(true);
+            writeFileSync(resolve(evidenceDir, 'blocked-read.json'), JSON.stringify({
+                permission: clipboardReadPermission,
+                text: await blockedRead.innerText(),
+            }, null, 2));
+            await page.screenshot({path: resolve(evidenceDir, 'clipboard-warning.png')});
+            await page.keyboard.press('ControlOrMeta+V');
+            await placeImage();
+
+            const download = page.waitForEvent('download', {timeout: 30_000});
+            await page.keyboard.press('ControlOrMeta+Shift+S');
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+            const imageSizes = Array.from({length: annots?.size() ?? 0}, (_, index) => annots!.lookup(index, PDFDict))
+                .flatMap((annot) => {
+                    const xObjects = annot.lookupMaybe(PDFName.of('AP'), PDFDict)
+                        ?.lookupMaybe(PDFName.of('N'), PDFStream)
+                        ?.dict.lookupMaybe(PDFName.of('Resources'), PDFDict)
+                        ?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+                    return (xObjects?.keys() ?? []).map((key) => {
+                        const image = xObjects!.lookup(key, PDFStream).dict;
+                        return `${String(image.get(PDFName.of('Width')))}x${String(image.get(PDFName.of('Height')))}`;
+                    });
+                });
+            expect(imageSizes.toSorted()).toEqual([
+                '40x24',
+                '48x32',
+            ]);
+            writeFileSync(resolve(evidenceDir, 'saved-image-sizes.json'), JSON.stringify(imageSizes.toSorted()));
+            expect(problems).toEqual([]);
+        } finally {
+            try {
+                writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+                await page.screenshot({path: resolve(evidenceDir, 'image-paste.png')});
+            } finally {
+                await context.close();
+            }
+        }
+    }, 120_000);
+
+    it('keeps window menus open through startup and active-document changes', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_024,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        let releaseWorkspace = () => {};
+        const workspaceGate = new Promise<void>((resolveGate) => {
+            releaseWorkspace = resolveGate;
+        });
+        let workspaceHeld = false;
+        const appMenuTrigger = page.getByRole('button', {
+            name: 'Menu',
+            exact: true,
+        });
+        const moreToolsTrigger = page.getByRole('button', {
+            name: 'More tools',
+            exact: true,
+        });
+        const menuItem = (name: string) => page.locator('[role="menuitem"], [role="menuitemcheckbox"]').filter({hasText: new RegExp(`^${name}`, 'u')});
+        const visibleMenuCount = () => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
+            .filter(menu => menu.getBoundingClientRect().width > 0).length);
+        const selectedTabId = () => page.locator('[role="tab"][aria-selected="true"]').first().getAttribute('data-tab-id');
+        // The trigger, or the wrapper the menu library made its trigger, holds focus.
+        const hasFocus = (trigger: typeof appMenuTrigger) => trigger.evaluate((button) => {
+            const focused = document.activeElement;
+            return focused !== null && focused !== document.body && (focused === button || focused.contains(button));
+        });
+        // Records, on every frame until stopped, what a person sees of the open
+        // menus and their trigger: the same trigger node must stay connected and
+        // expanded, and the View submenu must keep showing View's entries.
+        const startFrameRecorder = (triggerLabel: string) => page.evaluate((label) => {
+            const trigger = document.querySelector<HTMLElement>(`button[aria-label="${label}"]`);
+            const frames: Array<{
+                menus: number;
+                expanded: boolean;
+                connected: boolean;
+                viewEntries: boolean;
+                pagesEntries: boolean;
+                workspaceToolbar: boolean;
+            }> = [];
+            let recording = true;
+            const record = () => {
+                if (!recording) {
+                    return;
+                }
+                const menus = Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
+                    .filter(menu => menu.getBoundingClientRect().width > 0);
+                const texts = menus.map(menu => menu.textContent ?? '');
+                frames.push({
+                    menus: menus.length,
+                    expanded: trigger?.getAttribute('aria-expanded') === 'true',
+                    connected: trigger?.isConnected === true,
+                    viewEntries: texts.some(text => text.includes('Zoom In') && text.includes('Fit Height')),
+                    pagesEntries: texts.some(text => text.includes('Delete Selected Pages')),
+                    workspaceToolbar: document.querySelector('#editor-global-toolbar-host > [role="toolbar"]') !== null,
+                });
+                requestAnimationFrame(record);
+            };
+            requestAnimationFrame(record);
+            Reflect.set(window, '__menuFrames', {
+                frames,
+                stop: () => {
+                    recording = false;
+                },
+            });
+        }, triggerLabel);
+        const readFrames = () => page.evaluate(() => (Reflect.get(window, '__menuFrames') as {frames: Array<Record<string, boolean | number>>;}).frames);
+        const stopFrameRecorder = () => page.evaluate(() => (Reflect.get(window, '__menuFrames') as {stop: () => void}).stop());
+        const waitForRecordedFrames = (count: number) => page.waitForFunction(
+            minimum => (Reflect.get(window, '__menuFrames') as {frames: unknown[]}).frames.length >= minimum,
+            count,
+            {timeout: 10_000},
+        );
+        const activeFitHeight = () => page.evaluate(() => {
+            const host = document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]');
+            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const firstPage = host?.querySelector<HTMLElement>('.page_container--rendered[data-page="1"], [data-testid="document-page-source-image"]');
+            if (!viewport || !firstPage) {
+                return null;
+            }
+            return firstPage.getBoundingClientRect().height <= viewport.clientHeight + 1;
+        });
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            // Hold only the real workspace module, so the window is ready and
+            // its startup toolbar is shown while the workspace still loads.
+            await page.route(/\/components\/DocumentWorkspace\.vue(?:\?|$)/u, async (route) => {
+                workspaceHeld = true;
+                await workspaceGate;
+                await route.continue();
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'commit'});
+            await page.waitForFunction(() => Reflect.get(window, '__appReady') === true, undefined, {timeout: 30_000});
+            expect(workspaceHeld, 'the workspace module is held while the window is ready').toBe(true);
+
+            // Startup: Menu and View stay open while the workspace toolbar
+            // replaces the startup toolbar.
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await menuItem('Zoom In').waitFor();
+            await startFrameRecorder('Menu');
+            releaseWorkspace();
+            await page.locator('#editor-global-toolbar-host > [role="toolbar"]').waitFor({timeout: 30_000});
+            await page.waitForFunction(() => {
+                const frames = (Reflect.get(window, '__menuFrames') as {frames: Array<{workspaceToolbar: boolean}>}).frames;
+                return frames.filter(frame => frame.workspaceToolbar).length >= 10;
+            }, undefined, {timeout: 10_000});
+            await stopFrameRecorder();
+            const startupFrames = await readFrames();
+            expect(startupFrames.some(frame => !frame.workspaceToolbar), 'frames before the handoff were recorded').toBe(true);
+            expect(startupFrames.filter(frame => frame.menus !== 2 || !frame.expanded || !frame.connected || !frame.viewEntries)).toEqual([]);
+
+            // Escape in the View submenu closes the whole menu, as the menu library
+            // does, and Menu's trigger takes focus back.
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(() => hasFocus(appMenuTrigger)).toBe(true);
+
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const fixture = await PDFDocument.create();
+            for (const label of [
+                'First page',
+                'Second page',
+            ]) {
+                fixture.addPage([
+                    400,
+                    600,
+                ]).drawText(label, {
+                    x: 40,
+                    y: 540,
+                });
+            }
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'menu-lifetime.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30_000});
+            expect(await activeFitHeight()).toBe(false);
+            const pdfTabId = await selectedTabId();
+            await page.getByRole('button', {
+                name: 'New Tab',
+                exact: true,
+            }).click();
+            await expect.poll(selectedTabId).not.toBe(pdfTabId);
+            const emptyTabId = await selectedTabId();
+
+            // Ctrl+Tab to the PDF: the open View submenu stays View and its
+            // entries become available; Fit Height acts on the PDF.
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled')).toBe('true');
+            await startFrameRecorder('Menu');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(pdfTabId);
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled'), {timeout: 15_000}).toBeNull();
+            await expect.poll(() => menuItem('Pages').count()).toBe(1);
+            await waitForRecordedFrames(10);
+            await stopFrameRecorder();
+            expect((await readFrames()).filter(frame => frame.menus !== 2 || !frame.connected || !frame.viewEntries || frame.pagesEntries)).toEqual([]);
+            await menuItem('Fit Height').click();
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(activeFitHeight, {timeout: 15_000}).toBe(true);
+
+            // Back to the empty tab: View stays open and its entries turn off.
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled')).toBeNull();
+            await startFrameRecorder('Menu');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(emptyTabId);
+            await expect.poll(() => menuItem('Zoom In').getAttribute('aria-disabled'), {timeout: 15_000}).toBe('true');
+            await expect.poll(() => menuItem('Pages').count()).toBe(0);
+            await waitForRecordedFrames(10);
+            await stopFrameRecorder();
+            expect((await readFrames()).filter(frame => frame.menus !== 2 || !frame.connected || !frame.viewEntries || frame.pagesEntries)).toEqual([]);
+            await page.keyboard.press('Escape');
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(0);
+
+            // More tools stays open across Ctrl+Tab, Escape hands focus back to
+            // its trigger, and an outside click dismisses it for good.
+            await moreToolsTrigger.click();
+            await expect.poll(visibleMenuCount).toBe(1);
+            await startFrameRecorder('More tools');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(pdfTabId);
+            await waitForRecordedFrames(10);
+            await stopFrameRecorder();
+            expect((await readFrames()).filter(frame => frame.menus !== 1 || !frame.expanded || !frame.connected)).toEqual([]);
+            await page.keyboard.press('Escape');
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(() => hasFocus(moreToolsTrigger)).toBe(true);
+
+            await moreToolsTrigger.click();
+            await expect.poll(visibleMenuCount).toBe(1);
+            const outside = await page.locator('.workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]').first().boundingBox();
+            expect(outside).not.toBeNull();
+            await startFrameRecorder('More tools');
+            await page.mouse.click(outside!.x + 40, outside!.y + outside!.height - 40);
+            await expect.poll(visibleMenuCount).toBe(0);
+            await waitForRecordedFrames(30);
+            await stopFrameRecorder();
+            const outsideFrames = await readFrames();
+            const firstClosedFrame = outsideFrames.findIndex(frame => frame.menus === 0);
+            expect(firstClosedFrame).toBeGreaterThanOrEqual(0);
+            expect(outsideFrames.slice(firstClosedFrame).filter(frame => frame.menus !== 0 || frame.expanded)).toEqual([]);
+
+            // A focused PDF-only entry becomes disabled on a DjVu. The open
+            // menu must keep keyboard navigation and run the DjVu command.
+            await page.locator(`[role="tab"][data-tab-id="${emptyTabId}"]`).click();
+            const djvuChooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await djvuChooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+            await page.locator('.workspace-host[data-workspace-active="true"] [data-testid="document-page-source-image"]').first().waitFor({timeout: 60_000});
+            await appMenuTrigger.click();
+            await menuItem('View').click();
+            await menuItem('Fit Height').click();
+            await expect.poll(activeFitHeight).toBe(true);
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(pdfTabId);
+            await moreToolsTrigger.click();
+            await page.keyboard.type('single');
+            const focusedMenuText = () => page.evaluate(() => document.activeElement?.textContent?.trim());
+            await expect.poll(focusedMenuText).toBe('Single Page');
+            await page.keyboard.press('Control+Tab');
+            await expect.poll(selectedTabId).toBe(emptyTabId);
+            await expect.poll(() => menuItem('Single Page').getAttribute('aria-disabled')).toBe('true');
+            await expect.poll(() => page.evaluate(() => {
+                const focused = document.activeElement;
+                return focused !== null && focused.closest('.overflow-menu.toolbar-menu-panel') !== null
+                    && !focused.matches(':disabled');
+            })).toBe(true);
+            await page.keyboard.press('ArrowDown');
+            await expect.poll(focusedMenuText).toBe('Fit Height');
+            // Expire the menu library's one-second typeahead buffer from "single".
+            await page.waitForTimeout(1_100);
+            await page.keyboard.press('f');
+            await expect.poll(focusedMenuText).toBe('Fit Width');
+            await page.keyboard.press('Enter');
+            await expect.poll(visibleMenuCount).toBe(0);
+            await expect.poll(activeFitHeight).toBe(false);
+            expect(problems).toEqual([]);
+        } finally {
+            releaseWorkspace();
+            await context.close();
+        }
+    }, 120_000);
+
+    it('runs desktop\'s File, Pages and View menu commands from the page menu', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const menuItem = (name: string) => page.locator('[role="menuitem"], [role="menuitemcheckbox"]').filter({hasText: new RegExp(`^${name}`, 'u')});
+        const openMenu = async (submenu?: string) => {
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            if (submenu) {
+                await menuItem(submenu).click();
+            }
+        };
+        const closeMenu = async () => {
+            await page.keyboard.press('Escape');
+            await page.keyboard.press('Escape');
+            await page.getByRole('menu').first().waitFor({state: 'hidden'});
+        };
+        const choose = async (submenu: string | undefined, name: string) => {
+            await openMenu(submenu);
+            await menuItem(name).click();
+            await page.getByRole('menu').first().waitFor({state: 'hidden'});
+        };
+        const isLandscape = (pageNumber: number) => page.locator(`.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="${String(pageNumber)}"]`).first().evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > rect.height;
+        });
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            // Without a document desktop's View menu is disabled, and it shows
+            // neither view rotation nor a Pages menu.
+            await openMenu('View');
+            expect(await menuItem('Zoom In').getAttribute('aria-disabled')).toBe('true');
+            expect(await menuItem('Rotate View Clockwise').count()).toBe(0);
+            await closeMenu();
+            await openMenu();
+            expect(await menuItem('Pages').count()).toBe(0);
+            await closeMenu();
+
+            const fixture = await PDFDocument.create();
+            for (const label of [
+                'First portrait page',
+                'Second portrait page',
+            ]) {
+                fixture.addPage([
+                    400,
+                    600,
+                ]).drawText(label, {
+                    x: 40,
+                    y: 540,
+                });
+            }
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'menu-parity.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="2"] canvas').first().waitFor({timeout: 30_000});
+            expect(await isLandscape(1)).toBe(false);
+            expect(await isLandscape(2)).toBe(false);
+
+            // Pages: the selection commands wait for a selected page.
+            await openMenu('Pages');
+            expect(await menuItem('Delete Selected Pages').getAttribute('aria-disabled')).toBe('true');
+            expect(await menuItem('Insert Pages').getAttribute('aria-disabled')).toBeNull();
+            await closeMenu();
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            const selectFirst = page.locator('.workspace-host[data-workspace-active="true"] [data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle');
+            await selectFirst.click();
+            await expect.poll(() => selectFirst.getAttribute('aria-pressed')).toBe('true');
+            await openMenu('Pages');
+            expect(await menuItem('Delete Selected Pages').getAttribute('aria-disabled')).toBeNull();
+            await menuItem('Rotate Clockwise').click();
+            await expect.poll(() => isLandscape(1)).toBe(true);
+            expect(await isLandscape(2)).toBe(false);
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
+            });
+
+            // View: the shortcut the browser honors is shown; view rotation
+            // turns every page, and the chosen layout is checked.
+            await openMenu('View');
+            expect(await menuItem('Zoom In').innerText()).toMatch(/(?:⌘|Ctrl\+)=/u);
+            expect(await menuItem('Rotate View Clockwise').getAttribute('aria-disabled')).toBeNull();
+            await menuItem('Rotate View Clockwise').click();
+            await expect.poll(() => isLandscape(2)).toBe(true);
+            expect(await isLandscape(1)).toBe(false);
+            await choose('View', 'Facing Pages');
+            await expect.poll(() => page.evaluate(() => {
+                const [
+                    first,
+                    second,
+                ] = [
+                    1,
+                    2,
+                ].map(pageNumber => document.querySelector(`.workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="${String(pageNumber)}"]`)!.getBoundingClientRect());
+                return Math.abs(first!.top - second!.top) < 2 && second!.left >= first!.right - 1;
+            })).toBe(true);
+            await openMenu('View');
+            expect(await menuItem('Facing Pages').getAttribute('aria-checked')).toBe('true');
+            expect(await menuItem('Single Page').getAttribute('aria-checked')).toBe('false');
+            await closeMenu();
+
+            // File and View: tabs and panes.
+            const tabs = page.locator('[data-tab-list] [role="tab"]');
+            const tabCount = await tabs.count();
+            await openMenu();
+            expect(await menuItem('New Tab').innerText()).not.toMatch(/⌘|Ctrl\+/u);
+            await menuItem('New Tab').click();
+            await expect.poll(() => tabs.count()).toBe(tabCount + 1);
+            // Each tab's workspace brings its own toolbar, and with it the menu.
+            await page.locator('.workspace-host[data-workspace-active="true"] .workspace-transfer-content').waitFor();
+            await choose(undefined, 'Close Tab');
+            await expect.poll(() => tabs.count()).toBe(tabCount);
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor();
+            await choose('View', 'New Pane Right');
+            await expect.poll(() => page.locator('.editor-pane[data-editor-pane-id]').count()).toBe(2);
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
 });

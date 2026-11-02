@@ -116,6 +116,116 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
+    it('finds mixed RTL page text with painted ranges and excludes reversed FreeText appearances', async () => {
+        const {page} = sessionFixture.getSession();
+        const evidence = resolve('.devkit/test/desktop-rtl-search');
+        mkdirSync(evidence, {recursive: true});
+        const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
+        // search.pdf contains the browser RTL lane's two-page mixed-phrase control.
+        // The other three checked-in PDFs contain only FreeText appearances.
+        const cases = [
+            {
+                file: 'search.pdf',
+                query: '123 עולם abc',
+                count: 2,
+            },
+            {
+                file: 'short-hebrew.pdf',
+                query: 'הָרֳהָּטַהְו',
+                count: 0,
+            },
+            {
+                file: 'short-arabic.pdf',
+                query: 'ِمْسِــب',
+                count: 0,
+            },
+            {
+                file: 'short-syriac.pdf',
+                query: 'ܐܹ̈ܒܵܛ',
+                count: 0,
+            },
+        ];
+        for (const {
+            file, query, count,
+        } of cases) {
+            await openPdfInApp(page, resolve('tests/fixtures/electron/semtext', file));
+            await waitForPdfLoaded(page);
+            await ensureSidebarOpen(page);
+            await openDocumentSidebarTab(page, 'search');
+            await clickAsUser(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-bar input');
+            await page.keyboard.down(selectAll);
+            await page.keyboard.press('KeyA');
+            await page.keyboard.up(selectAll);
+            await page.keyboard.press('Backspace');
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')?.textContent?.includes('Enter a search term'));
+            await page.keyboard.type(query);
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(() => {
+                const summary = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')?.textContent ?? '';
+                const searching = [...document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results-header-spinner')]
+                    .some(element => element.getBoundingClientRect().width > 0);
+                return !searching && (/\d+ results? for|No results found/u.test(summary));
+            });
+            const result = await page.evaluate(() => ({
+                summary: document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')?.textContent ?? '',
+                count: [...document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-result')]
+                    .filter(element => element.getBoundingClientRect().width > 0).length,
+            }));
+            console.log(`RTL_SEARCH ${JSON.stringify({
+                file,
+                query,
+                ...result,
+            })}`);
+            expect.soft(result.count, `${file}: ${query}`).toBe(count);
+            expect.soft(result.summary, file).toContain(count ? '2 results for' : 'No results found');
+            await page.screenshot({path: resolve(evidence, `${file}-results.png`)});
+            if (count === 0 || result.count !== count) continue;
+            for (const index of [
+                0,
+                1,
+            ]) {
+                await clickAsUser(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-result[data-result-index="${index}"]`);
+                const readCurrent = () => {
+                    const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
+                        .filter((range): range is Range => range instanceof Range);
+                    const elements = [...document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-search-highlight--current')];
+                    const rects = [
+                        ...ranges.flatMap(range => [...range.getClientRects()]),
+                        ...elements.map(element => element.getBoundingClientRect()),
+                    ].filter(rect => rect.width > 0 && rect.height > 0);
+                    return {
+                        text: ranges.map(range => range.toString()).join('') || elements.map(element => element.textContent).join(''),
+                        pages: [...new Set([
+                            ...ranges.map(range => range.startContainer.parentElement?.closest<HTMLElement>('.page_container')?.dataset.page),
+                            ...elements.map(element => element.closest<HTMLElement>('.page_container')?.dataset.page),
+                        ])],
+                        rects: rects.map(rect => rect.toJSON()),
+                        viewport: {
+                            width: innerWidth,
+                            height: innerHeight,
+                        },
+                    };
+                };
+                await page.waitForFunction(`(${readCurrent.toString()})().pages.includes('${index + 1}') && (${readCurrent.toString()})().rects.length > 0`);
+                const current = await page.evaluate(readCurrent);
+                expect.soft(current.text, `${file}: result ${index}`).toBe(query);
+                expect.soft(current.pages).toEqual([String(index + 1)]);
+                const screenshot = await page.screenshot({path: resolve(evidence, `${file}-match-${index}.png`)});
+                const pixels = await Promise.all(current.rects.map(rect => countWarmHighlightPixels(screenshot, rect, current.viewport)));
+                expect.soft(pixels.every(value => value > 0), `Painted ranges: ${JSON.stringify({
+                    current,
+                    pixels,
+                })}`).toBe(true);
+                console.log(`RTL_SEARCH_PAINT ${JSON.stringify({
+                    index,
+                    ...current,
+                    pixels,
+                })}`);
+            }
+        }
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+
     it('shows three complete snippet lines inside each search match card', async () => {
         const {page} = sessionFixture.getSession();
         const evidence = resolve('.devkit/match-card', process.env.EVB_MATCH_CARD_EVIDENCE ?? 'regression');

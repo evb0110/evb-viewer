@@ -20,6 +20,13 @@ import * as workingCopyService from '@app/platform/browser-api/browserWorkingCop
 
 const serviceState = vi.hoisted(() => ({store: null as BrowserDocumentStore | null}));
 
+// The real ceiling is a 2 GiB wasm32 allocation; the decrypt read budget is
+// derived from whatever it is, so a small one exercises the same refusal.
+vi.mock('@contracts/browserPageOpsLimits', () => ({
+    BROWSER_PAGE_OPS_MAX_REQUEST_BYTES: 4 * 1024 * 1024,
+    BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES: 4 * 1024 * 1024,
+}));
+
 vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
     ...await importOriginal<typeof TBrowserWindowTabs>(),
     reserveBrowserDocumentWorkingCopy: async (fileName: string) => {

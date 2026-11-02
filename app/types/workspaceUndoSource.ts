@@ -1,1 +1,1 @@
-export type TWorkspaceUndoSource = 'file' | 'metadata' | 'annotation';
+export type TWorkspaceUndoSource = 'file' | 'metadata' | 'annotation' | 'scan-cleanup';

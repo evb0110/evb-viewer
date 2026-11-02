@@ -19,6 +19,10 @@ import type {
 } from 'pdfjs-dist/types/src/display/api';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { assembleSearchablePageTextItems } from '@pdf-core/pdfSearchCore';
+import {
+    mergePositionedPdfjsGlyphItems,
+    type IPdfjsTextItem,
+} from '@pdf-core/pdfjsTextItems';
 import type { IPageText } from '@electron/features/search/pageText';
 
 (globalThis as typeof globalThis & {pdfjsWorker?: unknown}).pdfjsWorker = pdfjsWorker;
@@ -78,109 +82,6 @@ export function createPdfjsNodeDocumentOptions() {
     } satisfies Partial<DocumentInitParameters>;
 }
 
-interface IPdfjsTextItemForAssembly {
-    text: string;
-    separatorAfter: 'line' | 'none';
-    transform: readonly number[];
-    width: number;
-    fontName: string;
-    isGlyphRun: boolean;
-}
-
-function restorePdfjsCombiningMarkOrder(text: string, direction: string) {
-    if (direction !== 'rtl') {
-        return text;
-    }
-    return text.replace(/^(\p{M}+)([^\p{M}])/u, '$2$1');
-}
-
-function isSingleScalar(text: string) {
-    return text.length > 0 && Array.from(text).length === 1 && !/\s/u.test(text);
-}
-
-function areAdjacentPdfjsGlyphs(
-    previous: IPdfjsTextItemForAssembly,
-    current: IPdfjsTextItemForAssembly,
-) {
-    if (
-        previous.separatorAfter === 'line'
-        || previous.fontName !== current.fontName
-        || !previous.isGlyphRun
-        || !current.isGlyphRun
-        || !Number.isFinite(previous.width)
-        || !Number.isFinite(current.width)
-    ) {
-        return false;
-    }
-    const [
-        a,
-        b,
-        , previousVerticalScale,
-        previousX,
-        previousY,
-    ] = previous.transform;
-    const currentX = current.transform[4];
-    const currentY = current.transform[5];
-    if (
-        a === undefined
-        || b === undefined
-        || previousX === undefined
-        || previousY === undefined
-        || currentX === undefined
-        || currentY === undefined
-        || previousVerticalScale === undefined
-    ) {
-        return false;
-    }
-    const scale = Math.hypot(a, b);
-    if (!Number.isFinite(scale) || scale <= Number.EPSILON) {
-        return false;
-    }
-    const expectedX = previousX + a / scale * previous.width;
-    const expectedY = previousY + b / scale * previous.width;
-    const tolerance = /\p{M}$/u.test(previous.text)
-        ? Math.max(0.75, Math.abs(previousVerticalScale) * 0.75)
-        : Math.max(0.75, previous.width * 0.2);
-    return Math.hypot(currentX - expectedX, currentY - expectedY) <= tolerance;
-}
-
-function mergePositionedPdfjsGlyphItems(items: readonly IPdfjsTextItemForAssembly[]) {
-    // The repaired RTL layer deliberately creates one PDF.js item per glyph.
-    // Rejoin only items whose reported origins prove adjacency, so the search
-    // assembler's word separators do not become spaces between glyphs.
-    const merged: IPdfjsTextItemForAssembly[] = [];
-    for (let index = 0; index < items.length; index += 1) {
-        const item = items[index];
-        if (item === undefined) {
-            continue;
-        }
-        const previous = merged.at(-1);
-        const next = items[index + 1];
-        if (
-            // PDF.js synthesizes this separator after a zero-width combining
-            // mark when it closes a bidi item. The mark stays in the output;
-            // only the consumer-generated separator is ignored.
-            item.text === ' '
-            && previous !== undefined
-            && /\p{M}$/u.test(previous.text)
-            && next !== undefined
-            && isSingleScalar(next.text)
-            && item.width <= Math.max(0.75, previous.width * 1.25)
-        ) {
-            continue;
-        }
-        if (previous !== undefined && areAdjacentPdfjsGlyphs(previous, item)) {
-            previous.text += item.text;
-            previous.separatorAfter = item.separatorAfter;
-            previous.transform = item.transform;
-            previous.width = item.width;
-            continue;
-        }
-        merged.push({...item});
-    }
-    return merged;
-}
-
 export interface IPdfPageRange {
     firstPage?: number;
     lastPage?: number;
@@ -222,17 +123,16 @@ export async function extractPdfjsPageTexts(
                     includeMarkedContent: true,
                     disableNormalization: true,
                 });
-                const items: IPdfjsTextItemForAssembly[] = [];
+                const items: IPdfjsTextItem[] = [];
                 for (const item of content.items) {
                     if ('str' in item) {
                         items.push({
+                            text: item.str,
+                            dir: item.dir,
                             separatorAfter: item.hasEOL ? 'line' : 'none',
                             transform: item.transform,
                             width: item.width,
                             fontName: item.fontName,
-                            text: restorePdfjsCombiningMarkOrder(item.str, item.dir),
-                            isGlyphRun: isSingleScalar(item.str)
-                                || (item.dir === 'rtl' && /^\p{M}+[^\p{M}]$/u.test(item.str)),
                         });
                     }
                 }

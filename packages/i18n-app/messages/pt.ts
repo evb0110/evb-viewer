@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'As margens devem estar entre 0 e 25 mm.',
             'unavailable': 'A limpeza de digitalizações não está disponível neste sistema.',
             'otherDocumentRunning': 'Outro documento está a ser limpo. Inicie este quando terminar.',
+            'browserPreviewOnly': 'No navegador, a limpeza de digitalizações mostra a pré-visualização das páginas, mas ainda não consegue limpar o documento. Utilize a aplicação de computador para o limpar.',
         },
         'completedTitle': 'Limpeza de digitalizações concluída',
         'completedPartialTitle': 'Páginas selecionadas limpas',
@@ -737,6 +738,7 @@ export default {
         'resize': 'Redimensionar painel lateral',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'O navegador bloqueou a leitura da área de transferência. Prima Ctrl+V (⌘V num Mac) para colar a imagem.',
         'toolDefaults': 'Predefinições da ferramenta',
         'selectedProperties': 'Propriedades das anotações selecionadas',
         'mixedValues': 'Misto',
@@ -898,7 +900,6 @@ export default {
                 'off': 'Usa a digitalização tal como está.',
                 'clean': 'Endireita e limpa primeiro a imagem da página.',
             },
-            'browserUnavailable': 'A limpeza de imagem requer a aplicação desktop; o navegador lê as páginas tal como foram digitalizadas.',
         },
         'pageSegmentation': {
             'label': 'Disposição do texto',
@@ -1036,8 +1037,6 @@ export default {
             'advancedRaster': 'Opções raster (avançadas)',
             'advancedRasterHint': 'Rasteriza cada página numa resolução fixa. Ficheiros maiores; escolha apenas se precisar de saída pixel a pixel.',
             'directDisabledReason': 'Excede o limite de tamanho da conversão direta nesta resolução.',
-            'browserPageLimit': 'Este documento tem {pages} páginas, mas a conversão no navegador suporta no máximo {maxPages}. Use a aplicação de desktop para documentos maiores.',
-            'browserPixelLimit': 'Algumas páginas são demasiado grandes para converter no navegador. Use a aplicação de desktop para este documento.',
         },
     },
     'common': {
@@ -1747,7 +1746,7 @@ export default {
             'unsupportedEncryption': 'Este PDF usa uma encriptação que o EVB Viewer não consegue abrir.',
             'encryptedTooLarge': 'Este PDF encriptado excede o limite de 512 MiB e não pode ser aberto.',
             'djvuRasterLimit': 'Esta página DjVu é demasiado grande para ser apresentada em resolução total.',
-            'djvuComponentsRequired': 'Este índice DjVu precisa de ficheiros de componentes separados. Abra um ficheiro DjVu agregado ou use a aplicação para computador.',
+            'djvuComponentsRequired': 'Este índice DjVu guarda as páginas em ficheiros separados. Abra-o novamente e selecione o índice juntamente com os ficheiros ao lado.',
             'changedWhileOpening': 'O ficheiro foi alterado enquanto estava a ser aberto. Abra-o novamente.',
             'invalid': 'O ficheiro está danificado ou não é um documento suportado.',
             'emptyPdf': 'O ficheiro PDF está vazio (0 bytes)',
@@ -1763,6 +1762,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF guardado, mas não foi possível atualizar a recuperação',
             'recoverySettlementDescription': 'As suas alterações foram gravadas no PDF. As alterações posteriores por guardar continuam abertas aqui.',
+            'workingCopySyncRequiredTitle': 'Não foi possível atualizar o documento aberto após guardar',
+            'workingCopySyncRequiredUnknown': 'O ficheiro pode ter sido escrito. As suas alterações continuam abertas aqui; verifique o ficheiro ou utilize Guardar como para as guardar noutro local.',
             'validation': 'O documento não passou na verificação de validade, por isso nada foi escrito.',
             'openNotes': 'Não foi possível guardar as notas abertas, por isso o documento não foi escrito.',
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',
@@ -1799,12 +1800,12 @@ export default {
             'storageFull': 'O armazenamento do navegador está cheio. Liberte espaço para este site e tente novamente.',
             'notEnoughMemory': 'O navegador ficou sem memória. Feche outros separadores e tente novamente ou utilize a aplicação de ambiente de trabalho.',
             'documentToolsUnavailable': 'Não foi possível iniciar a ferramenta de documentos. Recarregue a página e tente novamente.',
+            'validationLimitedTitle': 'Validação limitada do PDF',
+            'validationLimited': 'Este PDF excede o limite de validação de {limitMiB} MiB do navegador. Apenas o carregamento no navegador foi verificado e a otimização ao guardar como não está disponível. Utilize a aplicação para computador para uma validação completa.',
             'annotationsUnavailable': 'A edição de anotações existentes está indisponível',
             'annotationsTooLarge': 'O documento está aberto para leitura. A importação das anotações existentes excede o limite de memória da ferramenta do navegador. Utilize a aplicação de ambiente de trabalho para as editar.',
             'filePickerSetupDenied': 'O acesso do navegador aos ficheiros foi negado. Escolha Abrir novamente para usar o seletor compatível.',
-            'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de ficheiros local ativado para guardar documentos grandes.',
             'imageExtensionMismatch': 'A exportação não foi guardada. Escolha um nome de ficheiro que termine em {extensions}.',
-            'useNativeApp': 'Utilize a aplicação nativa para ficheiros deste tamanho.',
         },
         'search': {
             'browserTooLarge': 'A pesquisa não está disponível no navegador para documentos muito grandes.',
@@ -1880,6 +1881,7 @@ export default {
             'load': 'Não foi possível carregar as definições',
             'recovered': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi guardado como cópia de recuperação quando possível.',
             'recoveredWithPath': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi colocado em quarentena em {path}.',
+            'newerVersion': 'Estas definições foram guardadas por uma versão mais recente do EVB Viewer. Mantêm-se inalteradas; esta versão usa os valores predefinidos e não consegue guardar definições. Abra a versão mais recente para as alterar.',
         },
         'runtime': {
             'title': 'Algo correu mal',

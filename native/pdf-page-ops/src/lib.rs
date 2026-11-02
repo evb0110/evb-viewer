@@ -8,6 +8,8 @@ use evb_native_support::{
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use page_geometry::write_page_geometry;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+use page_sizes::inspect_scan_cleanup_pdf_bytes;
 use page_sizes::write_page_sizes_path;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -29,6 +31,7 @@ mod annotation_threads;
 mod annotations;
 mod catalog;
 mod conformance;
+mod content_parse;
 mod decrypt;
 mod dispatcher;
 mod incremental;
@@ -52,9 +55,9 @@ mod page_locator;
 mod page_tree_ops;
 mod placed_image_raster;
 mod placed_images;
+mod placement;
 mod postconditions;
 mod print_layout;
-#[cfg(not(target_family = "wasm"))]
 mod recompress_images;
 mod replace_page_images;
 mod shape_index;
@@ -76,9 +79,7 @@ const MAX_AGGREGATE_TEXT_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 const PAGE_OP_WASM_MUTATION_HEADER_BYTES: usize = wasm_abi::MUTATION_HEADER.bytes;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-const PAGE_OP_WASM_MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-const PAGE_OP_WASM_MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
+use wasm_abi::MAX_BUFFER_BYTES as PAGE_OP_WASM_MAX_BUFFER_BYTES;
 
 fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -> Result<T> {
     deserialize_json_file_bounded(path, MAX_SIDECAR_BYTES, label).map_err(|error| {
@@ -90,6 +91,21 @@ fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -
     })
 }
 
+/// The byte-input twin of `read_json_sidecar`: the browser carries each
+/// sidecar in its request, under the same ceiling and error class.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+fn parse_json_sidecar_bytes<T: DeserializeOwned>(bytes: &[u8], label: &str) -> Result<T> {
+    if bytes.len() > MAX_SIDECAR_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("{label} exceed the byte admission ceiling"),
+        ));
+    }
+    Ok(evb_native_support::bounded_io::deserialize_json_slice(
+        bytes, label,
+    )?)
+}
+
 pub(crate) use annotation_identity::*;
 pub(crate) use annotation_index::*;
 pub(crate) use annotation_parse::*;
@@ -98,6 +114,7 @@ pub(crate) use annotation_streams::*;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use conformance::*;
+pub(crate) use content_parse::*;
 pub(crate) use decrypt::*;
 pub(crate) use dispatcher::*;
 pub(crate) use incremental::*;
@@ -119,9 +136,9 @@ pub(crate) use page_locator::*;
 pub(crate) use page_tree_ops::*;
 pub(crate) use placed_image_raster::*;
 pub(crate) use placed_images::*;
+pub(crate) use placement::*;
 pub(crate) use postconditions::*;
 pub(crate) use print_layout::*;
-#[cfg(not(target_family = "wasm"))]
 pub(crate) use recompress_images::*;
 pub(crate) use replace_page_images::*;
 pub(crate) use shape_index::*;
@@ -190,6 +207,8 @@ mod tests {
 mod wasm;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod wasm_abi;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod wasm_append_admission;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 #[no_mangle]

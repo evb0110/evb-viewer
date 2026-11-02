@@ -5,6 +5,7 @@ pub mod bw;
 mod cache;
 #[doc(hidden)]
 pub mod calibration;
+mod clock;
 mod coherent_edges;
 pub mod content;
 pub mod deskew;
@@ -22,5 +23,14 @@ pub mod protocol;
 pub mod split;
 pub mod text_tone;
 mod thin_strokes;
+#[cfg(any(
+    test,
+    all(
+        target_family = "wasm",
+        target_os = "unknown",
+        feature = "wasm-exports"
+    )
+))]
+mod wasm;
 
 pub use domain::options::*;

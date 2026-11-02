@@ -25,7 +25,7 @@ import {
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
+import { redactLogText } from '@contracts/redactLogText';
 import { isExpectedUpdateNetworkError } from '@electron/utils/isExpectedUpdateNetworkError';
 import {
     compareVersions,
@@ -160,7 +160,7 @@ function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationReq
     const message = next.message === undefined
         ? status.message
         : typeof next.message === 'string'
-            ? redactElectronLogText(next.message)
+            ? redactLogText(next.message)
             : next.message;
     status = {
         ...status,

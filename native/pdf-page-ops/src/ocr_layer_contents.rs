@@ -186,7 +186,7 @@ pub(crate) fn strip_previous_ocr_text(
             changed = true;
             continue;
         }
-        let Ok(content) = Content::decode(&bytes) else {
+        let Ok(content) = parse_content(&bytes)? else {
             kept.push(content_id);
             continue;
         };
@@ -248,6 +248,7 @@ pub(crate) fn replace_page_ocr_text(
     normalize_greek_micro_sign: bool,
 ) -> Result<()> {
     strip_previous_ocr_text(incremental, structural, page_id)?;
+    let streams = incremental.new_document.get_page_contents(page_id).len();
     append_text_layer(
         &mut incremental.new_document,
         source,
@@ -260,6 +261,10 @@ pub(crate) fn replace_page_ocr_text(
         &mut HashMap::new(),
     )?;
     let mut contents = incremental.new_document.get_page_contents(page_id);
+    // A source without text adds no layer, and the page keeps its order.
+    if contents.len() == streams {
+        return Ok(());
+    }
     contents.rotate_right(1);
     incremental.new_document.get_dictionary_mut(page_id)?.set(
         "Contents",

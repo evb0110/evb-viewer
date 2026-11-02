@@ -5,7 +5,9 @@ import {
     isDjvuFileName,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
-import {BROWSER_COMBINE_IMAGE_EXTENSIONS} from '@app/platform/browser-api/browserPlatformHelpers';
+import {
+    BROWSER_COMBINE_IMAGE_EXTENSIONS, buildBrowserByteLimitError,
+} from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserPdfCombineWorkerUnavailableError,
     canUseBrowserPdfCombineWorker,
@@ -31,7 +33,7 @@ import {
 } from '@contracts/shared';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
-import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {
     DOCUMENT_LIST_HEADER, U32_BYTES,
@@ -71,32 +73,6 @@ function assertBrowserCombineSources(paths: string[]) {
         `Browser PDF combine cannot process a native document path: ${nativePath}`,
         {operation: 'pdf-combine'},
     );
-}
-
-const BROWSER_COMBINED_PDF_MAX_PAGES = 500;
-
-interface IBrowserDecodedWorkingSetBudget {
-    usedBytes: number;
-    maxBytes: number;
-}
-
-export function consumeBrowserDecodedWorkingSet(
-    budget: IBrowserDecodedWorkingSetBudget,
-    width: number,
-    height: number,
-    fileName: string,
-) {
-    const decodedBytes = width * height * 4;
-    if (!Number.isSafeInteger(decodedBytes) || decodedBytes < 0 || budget.usedBytes > budget.maxBytes - decodedBytes) {
-        throw new Error(`ERR_BROWSER_PDF_COMBINE_DECODED_WORKING_SET_TOO_LARGE:${fileName}`);
-    }
-    budget.usedBytes += decodedBytes;
-}
-
-export function assertBrowserCombinedPdfPageCount(pageCount: number) {
-    if (pageCount > BROWSER_COMBINED_PDF_MAX_PAGES) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
-    }
 }
 
 export function assertBrowserCombinedPdfOutputBytes(bytes: Uint8Array) {
@@ -287,7 +263,7 @@ async function createCombinedPdfFromPreparedPaths(
         : BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
     const metadata = await Promise.all(paths.map(path => browserDocumentStore.stat(path)));
     if (metadata.reduce((total, {size}) => total + size, 0) > remainingBytes) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+        throw buildBrowserByteLimitError('Combining these files', remainingBytes, 'inputs');
     }
     const inputs = [];
 

@@ -62,12 +62,16 @@ export function createPageShortcutDeps() {
         handleSave: vi.fn(),
         handlePrint: vi.fn(),
         handleToggleSidebar: vi.fn(),
+        handleInsertImageFromFile: vi.fn(),
+        handlePasteImageFromClipboard: vi.fn(),
+        handlePasteImageFile: vi.fn(),
     };
 }
 
 let capturedOnEventFired: ((event: unknown) => void) | undefined;
 let capturedPointerDown: ((event: PointerEvent) => void) | undefined;
 let capturedKeyDown: ((event: KeyboardEvent) => void) | undefined;
+let capturedPaste: ((event: ClipboardEvent) => void) | undefined;
 
 export function resetPageShortcutsTest() {
     vi.resetModules();
@@ -76,6 +80,7 @@ export function resetPageShortcutsTest() {
         addEventListener: vi.fn((event: string, listener: EventListener) => {
             if (event === 'pointerdown') capturedPointerDown = listener;
             if (event === 'keydown') capturedKeyDown = listener;
+            if (event === 'paste') capturedPaste = listener;
         }),
         removeEventListener: vi.fn(),
     };
@@ -83,6 +88,7 @@ export function resetPageShortcutsTest() {
     capturedOnEventFired = undefined;
     capturedPointerDown = undefined;
     capturedKeyDown = undefined;
+    capturedPaste = undefined;
     pageShortcutsMocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
     pageShortcutsMocks.useEventListener.mockImplementation((
         target: {addEventListener?: (...args: unknown[]) => void} | null,
@@ -104,6 +110,7 @@ export function restorePageShortcutsTest() {
     capturedOnEventFired = undefined;
     capturedPointerDown = undefined;
     capturedKeyDown = undefined;
+    capturedPaste = undefined;
 }
 
 export function getCapturedOnEventFired() {
@@ -116,6 +123,10 @@ export function getCapturedPointerDown() {
 
 export function getCapturedKeyDown() {
     return capturedKeyDown;
+}
+
+export function getCapturedPaste() {
+    return capturedPaste;
 }
 
 export function pressPagingKey(key: string, overrides: Partial<IKeyboardEventFixtureOptions> = {}) {

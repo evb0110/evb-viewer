@@ -98,6 +98,8 @@ describe('browser document lifecycle UI', () => {
         try {
             const page = await lifecycle.browser.newPage();
             await page.addInitScript(() => {
+                // Both held requests must be admitted by the two-slot worker pool.
+                Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             });
             await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
@@ -488,6 +490,84 @@ describe('browser document lifecycle UI', () => {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 120_000);
+
+    it('finds a query of the full permitted length on the last page of a long document', async () => {
+        // Desktop admits any query up to the shared length limit on any
+        // document. The browser once refused query length × pages > 8,000,000.
+        const pageCount = 4_001;
+        const query = Array.from({length: 400}, (_, index) => `word${index}`).join(' ').slice(0, 2_000).trim();
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let pageNumber = 1; pageNumber < pageCount; pageNumber += 1) {
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText(`Filler page ${pageNumber}`, {
+                font,
+                size: 12,
+                x: 72,
+                y: 720,
+            });
+        }
+        pdf.addPage([
+            9_000,
+            792,
+        ]).drawText(query, {
+            font,
+            size: 8,
+            x: 36,
+            y: 720,
+        });
+        try {
+            const page = await lifecycle.browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles({
+                name: 'long-query.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+
+            const searchInput = page.locator('.document-search-bar input:visible').first();
+            if (await searchInput.count() === 0) {
+                if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                    await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+                }
+                await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            }
+            await searchInput.fill(query);
+            await searchInput.press('Enter');
+
+            const resultsText = () => page.locator('.document-search-results:visible').first().textContent();
+            await expect.poll(resultsText, {timeout: 180_000}).toMatch(/\b1 result\b|unavailable|failed|error|exceeds/iu);
+            expect(await resultsText()).toMatch(/\b1 result\b/u);
+            expect(await page.locator('.document-search-result:visible .document-search-result-highlight').first().textContent())
+                .toMatch(/^word0 word1 word2/u);
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 300_000);
 });
 
 describe('optional search-cache mutation completion proof', () => {
@@ -1280,7 +1360,7 @@ it('recognizes a scanned page with browser OCR so search finds its words', async
             {timeout: 30_000},
         ).toMatch(/No results/u);
 
-        const toolbar = page.locator('#editor-global-toolbar-host');
+        const toolbar = page.locator('.editor-global-toolbar-shell');
         const ocrButton = toolbar.getByRole('button', {
             name: 'OCR',
             exact: true,

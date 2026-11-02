@@ -16,6 +16,7 @@ import {
     parsePrintPageRangeSelectionInput,
     type IBrowserPrintDocument,
 } from '@app/utils/pdfPrintShared';
+import {cast} from '@tests/helpers/cast';
 
 const pdfjsModule = vi.hoisted((): {
     version: string;
@@ -84,363 +85,223 @@ describe('pdfPrint', () => {
         })).toBe(false);
     });
 
-    it('renders one browser-print page per PDF page into the print document', async () => {
+    // A fake print frame: canvases hold pixels up to `maxCanvasPixels`, as a
+    // browser past its canvas limit hands out a context that draws nothing.
+    function createPrintEnvironment({maxCanvasPixels = Number.POSITIVE_INFINITY} = {}) {
         const root = {
             append: vi.fn(),
             replaceChildren: vi.fn(),
         };
-        const firstCanvas = {
-            height: 0,
-            width: 0,
-            style: {},
-            getContext: vi.fn(),
-        };
-        const secondCanvas = {
-            height: 0,
-            width: 0,
-            style: {},
-            getContext: vi.fn(),
-        };
-        firstCanvas.getContext.mockReturnValue({ canvas: firstCanvas });
-        secondCanvas.getContext.mockReturnValue({ canvas: secondCanvas });
-        const createdSections: Array<{
-            append: ReturnType<typeof vi.fn>;
-            className: string;
-            style: Record<string, string>;
-        }> = [];
         const head = {appendChild: vi.fn()};
-        const createdCanvases = [
-            firstCanvas,
-            secondCanvas,
-        ];
-        function createElement(tag: 'canvas' | 'section' | 'style') {
-            if (tag === 'style') {
-                return { textContent: '' };
-            }
-
-            if (tag === 'section') {
-                const section = {
-                    append: vi.fn(),
-                    className: '',
-                    style: {},
-                };
-                createdSections.push(section);
-                return section;
-            }
-
-            const canvas = createdCanvases.shift();
-            if (!canvas) {
-                throw new Error('Unexpected extra canvas');
-            }
+        const sections: Array<{
+            children: unknown[];
+            className: string
+        }> = [];
+        const images: Array<{
+            src: string;
+            style: Record<string, string>;
+            loaded: boolean
+        }> = [];
+        const canvases: Array<{
+            width: number;
+            height: number
+        }> = [];
+        let peakCanvasesHoldingPixels = 0;
+        const renderedCanvasSizes: Array<{
+            width: number;
+            height: number
+        }> = [];
+        function createCanvas() {
+            let corner: number[] = [
+                0,
+                0,
+                0,
+                255,
+            ];
+            const canvas = {
+                width: 0,
+                height: 0,
+                style: {},
+                toBlob: (callback: (blob: Blob | null) => void) => queueMicrotask(() => callback(new Blob([`${canvas.width}x${canvas.height}`], {type: 'image/png'}))),
+                getContext: () => ({
+                    canvas,
+                    fillRect: () => {
+                        if (canvas.width * canvas.height <= maxCanvasPixels) corner = [
+                            255,
+                            0,
+                            0,
+                            255,
+                        ];
+                    },
+                    getImageData: () => ({data: Uint8ClampedArray.from(corner)}),
+                }),
+            };
+            canvases.push(canvas);
             return canvas;
         }
-
-        const targetDocument = {
-            createElement,
+        const targetDocument = cast<IBrowserPrintDocument & {head: typeof head}>({
+            defaultView: {URL: {createObjectURL: (blob: Blob) => `blob:print-page-${images.length}-${blob.size}`}},
             head,
             querySelector: () => root,
-        } as IBrowserPrintDocument & { head: typeof head };
-        const firstPage = {
-            cleanup: vi.fn(),
-            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
-                ? {
-                    width: 100,
-                    height: 200,
+            createElement: (tag: 'canvas' | 'section' | 'img' | 'style') => {
+                if (tag === 'style') return {textContent: ''};
+                if (tag === 'canvas') return createCanvas();
+                if (tag === 'img') {
+                    const image = {
+                        loaded: false,
+                        style: {} as Record<string, string>,
+                        onload: null as null | (() => void),
+                        onerror: null as null | (() => void),
+                        get src() { return this._src; },
+                        set src(value: string) {
+                            this._src = value;
+                            queueMicrotask(() => {
+                                this.loaded = true;
+                                this.onload?.();
+                            });
+                        },
+                        _src: '',
+                    };
+                    images.push(image);
+                    return image;
                 }
-                : {
-                    width: 416.6666666666667,
-                    height: 833.3333333333334,
-                }),
-            render: vi.fn(() => ({ promise: Promise.resolve() })),
-        };
-        const secondPage = {
-            cleanup: vi.fn(),
-            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
-                ? {
-                    width: 100,
-                    height: 200,
-                }
-                : {
-                    width: 416.6666666666667,
-                    height: 833.3333333333334,
-                }),
-            render: vi.fn(() => ({ promise: Promise.resolve() })),
-        };
-        const loadingTaskDestroy = vi.fn(async () => {});
-        const getPage = vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage);
-        pdfjsModule.getDocument.mockReturnValue({
-            destroy: loadingTaskDestroy,
-            promise: Promise.resolve({
-                getPage,
-                numPages: 2,
-            }),
-        });
-
-        await renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3));
-
-        const { getViewerAssetResolver } = await import('@app/utils/viewerAssets');
-        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getViewerAssetResolver().pdfWorkerUrl());
-        expect(root.replaceChildren).toHaveBeenCalledTimes(1);
-        expect(root.append).toHaveBeenCalledTimes(2);
-        expect(head.appendChild).toHaveBeenCalledTimes(2);
-        expect(head.appendChild).toHaveBeenNthCalledWith(1, expect.objectContaining({textContent: expect.stringContaining('@page browser-print-page-1')}));
-        expect(head.appendChild).toHaveBeenNthCalledWith(2, expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
-        expect(createdSections[0]?.className).toBe('browser-print-page browser-print-page-1');
-        expect(createdSections[1]?.className).toBe('browser-print-page browser-print-page-2');
-        expect(firstPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            canvas: firstCanvas,
-            canvasContext: expect.any(Object),
-            viewport: {
-                width: 416.6666666666667,
-                height: 833.3333333333334,
-            },
-        }));
-        expect(secondPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            canvas: secondCanvas,
-            canvasContext: expect.any(Object),
-            viewport: {
-                width: 416.6666666666667,
-                height: 833.3333333333334,
-            },
-        }));
-        expect(firstCanvas.style).toEqual({
-            height: '2.7778in',
-            width: '1.3889in',
-        });
-        expect(secondCanvas.style).toEqual({
-            height: '2.7778in',
-            width: '1.3889in',
-        });
-        expect(createdSections[0]?.style).toEqual({});
-        expect(createdSections[1]?.style).toEqual({});
-        expect(firstPage.cleanup).toHaveBeenCalledTimes(1);
-        expect(secondPage.cleanup).toHaveBeenCalledTimes(1);
-        expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
-    });
-
-    it('passes freshly materialized Blob bytes to pdf.js without an extra clone', async () => {
-        const root = {
-            append: vi.fn(),
-            replaceChildren: vi.fn(),
-        };
-        const targetDocument: IBrowserPrintDocument = {
-            createElement: () => {
-                throw new Error('Unexpected print element creation');
-            },
-            querySelector: () => root,
-        };
-        const loadingTaskDestroy = vi.fn(async () => {});
-        pdfjsModule.getDocument.mockReturnValue({
-            destroy: loadingTaskDestroy,
-            promise: Promise.resolve({
-                getPage: vi.fn(),
-                numPages: 0,
-            }),
-        });
-
-        await renderPdfPagesForBrowserPrint(targetDocument, new Blob([Uint8Array.of(1, 2, 3)]));
-
-        const pdfData = pdfjsModule.getDocument.mock.calls[0]?.[0]?.data;
-        expect(pdfData).toBeInstanceOf(Uint8Array);
-        expect(pdfData).toEqual(Uint8Array.of(1, 2, 3));
-        expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
-    });
-
-    it('renders selected pages from an already loaded PDF.js document', async () => {
-        const root = {
-            append: vi.fn(),
-            replaceChildren: vi.fn(),
-        };
-        const canvas = {
-            height: 0,
-            width: 0,
-            style: {
-                height: '',
-                width: '',
-            },
-            getContext: vi.fn(),
-        };
-        canvas.getContext.mockReturnValue({ canvas });
-        const printSection = {
-            append: vi.fn(),
-            className: '',
-            style: {},
-        };
-        const targetDocument: IBrowserPrintDocument = {
-            createElement: vi.fn((tag: 'canvas' | 'section' | 'style') => {
-                if (tag === 'style') {
-                    return { textContent: '' };
-                }
-
-                if (tag === 'section') {
-                    return printSection;
-                }
-
-                return canvas;
-            }),
-            querySelector: () => root,
-        };
-        const page = {
-            cleanup: vi.fn(),
-            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
-                ? {
-                    width: 100,
-                    height: 200,
-                }
-                : {
-                    width: 416.6666666666667,
-                    height: 833.3333333333334,
-                }),
-            render: vi.fn(() => ({
-                promise: Promise.resolve(),
-                cancel: vi.fn(),
-            })),
-        };
-        const getPage = vi.fn(async () => page);
-        const pdfDocument = {
-            getPage,
-            numPages: 9,
-        };
-
-        await renderPdfDocumentPagesForBrowserPrint(
-            targetDocument,
-            pdfDocument as never,
-            [4],
-        );
-
-        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
-        expect(getPage).toHaveBeenCalledWith(4);
-        expect(root.replaceChildren).toHaveBeenCalledTimes(1);
-        expect(root.append).toHaveBeenCalledWith(printSection);
-        expect(page.render).toHaveBeenCalledTimes(1);
-        expect(page.cleanup).toHaveBeenCalledTimes(1);
-    });
-
-    it('prints mixed page sizes and orientations with per-page rules', async () => {
-        const root = {
-            append: vi.fn(),
-            replaceChildren: vi.fn(),
-        };
-        const targetDocument: IBrowserPrintDocument & { head: { appendChild: ReturnType<typeof vi.fn> } } = {
-            createElement: vi.fn((tag: 'canvas' | 'section' | 'style') => {
-                if (tag === 'style') {
-                    return { textContent: '' };
-                }
-                return {
-                    append: vi.fn(),
+                const section = {
+                    children: [] as unknown[],
                     className: '',
-                    getContext: vi.fn(() => ({ canvas: {} })),
-                    height: 0,
-                    style: {},
-                    width: 0,
+                    append: (...nodes: unknown[]) => section.children.push(...nodes),
+                };
+                sections.push(section);
+                return section;
+            },
+        });
+        const createPage = (width: number, height: number) => ({
+            cleanup: vi.fn(),
+            getViewport: ({scale}: {scale: number}) => ({
+                width: width * scale,
+                height: height * scale,
+                scale,
+            }),
+            render: vi.fn(({canvas}: {canvas: {
+                width: number;
+                height: number
+            }}) => {
+                renderedCanvasSizes.push({
+                    width: canvas.width,
+                    height: canvas.height,
+                });
+                peakCanvasesHoldingPixels = Math.max(
+                    peakCanvasesHoldingPixels,
+                    canvases.filter(candidate => candidate.width > 0 && candidate.height > 0).length,
+                );
+                return {
+                    promise: Promise.resolve(),
+                    cancel: vi.fn(),
                 };
             }),
-            head: { appendChild: vi.fn() },
-            querySelector: () => root,
+        });
+        return {
+            root,
+            head,
+            sections,
+            images,
+            targetDocument,
+            createPage,
+            renderedCanvasSizes,
+            peakCanvasesHoldingPixels: () => peakCanvasesHoldingPixels,
         };
-        const firstPage = {
-            cleanup: vi.fn(),
-            getViewport: vi.fn(() => ({
-                width: 100,
-                height: 200,
-            })),
-            render: vi.fn(() => ({ promise: Promise.resolve() })),
-        };
-        const secondPage = {
-            cleanup: vi.fn(),
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-            })),
-            render: vi.fn(() => ({ promise: Promise.resolve() })),
-        };
+    }
+
+    it('puts every page into the print document as a loaded image while one canvas at a time holds pixels', async () => {
+        vi.stubGlobal('document', undefined);
+        const environment = createPrintEnvironment();
+        // Forty letter pages at 300 DPI: 1.3 GB of RGBA if every canvas stayed resident.
+        const pages = Array.from({length: 40}, () => environment.createPage(612, 792));
         pdfjsModule.getDocument.mockReturnValue({
             destroy: vi.fn(async () => {}),
             promise: Promise.resolve({
-                getPage: vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage),
+                getPage: async (pageNumber: number) => pages[pageNumber - 1],
+                numPages: pages.length,
+            }),
+        });
+
+        await renderPdfPagesForBrowserPrint(environment.targetDocument, Uint8Array.of(1, 2, 3));
+
+        expect(environment.sections).toHaveLength(40);
+        expect(environment.sections.map(section => section.className)).toEqual(
+            pages.map((_page, index) => `browser-print-page browser-print-page-${index + 1}`),
+        );
+        expect(environment.sections.every((section, index) => section.children[0] === environment.images[index])).toBe(true);
+        expect(environment.images.every(image => image.loaded && image.src.startsWith('blob:print-page-'))).toBe(true);
+        expect(environment.images[0]?.style).toEqual({
+            width: '8.5in',
+            height: '11in',
+        });
+        expect(environment.renderedCanvasSizes[0]).toEqual({
+            width: Math.ceil(612 * (300 / 72)),
+            height: Math.ceil(792 * (300 / 72)),
+        });
+        expect(environment.peakCanvasesHoldingPixels()).toBe(1);
+        vi.unstubAllGlobals();
+    });
+
+    it('prints a page larger than the browser can back at the largest scale it holds', async () => {
+        vi.stubGlobal('document', undefined);
+        const maxCanvasPixels = 64 * 1024 * 1024;
+        const environment = createPrintEnvironment({maxCanvasPixels});
+        // A 100-inch square page needs 30,000 px per edge at 300 DPI.
+        const page = environment.createPage(7200, 7200);
+
+        await renderPdfDocumentPagesForBrowserPrint(
+            environment.targetDocument,
+            {
+                getPage: async () => page,
+                numPages: 1,
+            } as never,
+            [1],
+        );
+
+        expect(environment.images).toHaveLength(1);
+        expect(environment.images[0]?.style).toEqual({
+            width: '100in',
+            height: '100in',
+        });
+        const [rendered] = environment.renderedCanvasSizes;
+        expect(rendered!.width * rendered!.height).toBeLessThanOrEqual(maxCanvasPixels);
+        expect(rendered!.width * rendered!.height).toBeGreaterThan(maxCanvasPixels * 0.75 * 0.75);
+        vi.unstubAllGlobals();
+    });
+
+    it('prints mixed page sizes and orientations with per-page rules', async () => {
+        vi.stubGlobal('document', undefined);
+        const environment = createPrintEnvironment();
+        const pages = [
+            environment.createPage(100, 200),
+            environment.createPage(200, 100),
+        ];
+        pdfjsModule.getDocument.mockReturnValue({
+            destroy: vi.fn(async () => {}),
+            promise: Promise.resolve({
+                getPage: async (pageNumber: number) => pages[pageNumber - 1],
                 numPages: 2,
             }),
         });
 
-        await expect(renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3)))
-            .resolves.toBeUndefined();
-        expect(secondPage.render).toHaveBeenCalledTimes(1);
-        expect(root.append).toHaveBeenCalledTimes(2);
-        expect(targetDocument.head.appendChild).toHaveBeenNthCalledWith(1, expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
-        expect(targetDocument.head.appendChild).toHaveBeenNthCalledWith(2, expect.objectContaining({textContent: expect.stringContaining('size: 200pt 100pt')}));
-    });
+        await renderPdfPagesForBrowserPrint(environment.targetDocument, new Blob([Uint8Array.of(1, 2, 3)]));
 
-    it('renders print bitmaps on host-document canvases before appending them to the print frame', async () => {
-        const root = {
-            append: vi.fn(),
-            replaceChildren: vi.fn(),
-        };
-        const hostCanvas = {
-            height: 0,
-            width: 0,
-            style: {},
-            getContext: vi.fn(),
-        };
-        hostCanvas.getContext.mockReturnValue({ canvas: hostCanvas });
-        const printSection = {
-            append: vi.fn(),
-            className: '',
-            style: {},
-        };
-        const targetDocument: IBrowserPrintDocument = {
-            createElement: vi.fn((tag: 'canvas' | 'section' | 'style') => {
-                if (tag === 'style') {
-                    return { textContent: '' };
-                }
-
-                if (tag === 'section') {
-                    return printSection;
-                }
-
-                throw new Error('Print-frame canvases should not be used for PDF.js rendering');
-            }),
-            querySelector: () => root,
-        };
-        vi.stubGlobal('document', { createElement: vi.fn((tag: string) => {
-            if (tag !== 'canvas') {
-                throw new Error(`Unexpected host element: ${tag}`);
-            }
-
-            return hostCanvas;
-        })});
-        const page = {
-            cleanup: vi.fn(),
-            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
-                ? {
-                    width: 100,
-                    height: 200,
-                }
-                : {
-                    width: 416.6666666666667,
-                    height: 833.3333333333334,
-                }),
-            render: vi.fn(() => ({ promise: Promise.resolve() })),
-        };
-        const loadingTaskDestroy = vi.fn(async () => {});
-        pdfjsModule.getDocument.mockReturnValue({
-            destroy: loadingTaskDestroy,
-            promise: Promise.resolve({
-                getPage: vi.fn(async () => page),
-                numPages: 1,
-            }),
-        });
-
-        await renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3));
-
-        expect(document.createElement).toHaveBeenCalledWith('canvas');
-        expect(targetDocument.createElement).toHaveBeenCalledWith('section');
-        expect(targetDocument.createElement).not.toHaveBeenCalledWith('canvas');
-        expect(page.render).toHaveBeenCalledWith(expect.objectContaining({
-            canvas: hostCanvas,
-            canvasContext: expect.any(Object),
-        }));
-        expect(printSection.append).toHaveBeenCalledWith(hostCanvas);
-        expect(root.append).toHaveBeenCalledWith(printSection);
+        expect(pdfjsModule.getDocument.mock.calls[0]?.[0]?.data).toEqual(Uint8Array.of(1, 2, 3));
+        expect(environment.head.appendChild).toHaveBeenNthCalledWith(1, expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
+        expect(environment.head.appendChild).toHaveBeenNthCalledWith(2, expect.objectContaining({textContent: expect.stringContaining('size: 200pt 100pt')}));
+        expect(environment.images.map(image => image.style)).toEqual([
+            {
+                width: '1.3889in',
+                height: '2.7778in',
+            },
+            {
+                width: '2.7778in',
+                height: '1.3889in',
+            },
+        ]);
+        vi.unstubAllGlobals();
     });
 
     it('builds a browser-print frame shell with a dedicated print root', () => {

@@ -11,7 +11,6 @@
 
 use super::*;
 use crate::split_pages::PdfMatrix;
-use lopdf::content::Content;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
@@ -46,8 +45,10 @@ enum ImageOutcome {
 }
 
 pub(crate) fn read_recompress_images_file(path: &Path) -> Result<RecompressImagesFile> {
-    let instructions: RecompressImagesFile =
-        read_json_sidecar(path, "recompress-images instructions")?;
+    validate_recompress_images(read_json_sidecar(path, "recompress-images instructions")?)
+}
+
+fn validate_recompress_images(instructions: RecompressImagesFile) -> Result<RecompressImagesFile> {
     if !(instructions.max_byte_ratio > 0.0 && instructions.max_byte_ratio <= 1.0) {
         return Err("recompress-images maxByteRatio must be in (0, 1]".into());
     }
@@ -202,8 +203,7 @@ impl ImageWalk<'_> {
             xobjects.as_ref(),
             PdfMatrix::IDENTITY,
             &mut forms,
-        );
-        Ok(())
+        )
     }
 
     fn walk_content(
@@ -213,10 +213,10 @@ impl ImageWalk<'_> {
         xobjects: Option<&Dictionary>,
         start: PdfMatrix,
         forms: &mut Vec<ObjectId>,
-    ) {
-        let Ok(content) = Content::decode(bytes) else {
+    ) -> Result<()> {
+        let Ok(content) = parse_content(bytes)? else {
             self.pin_all(xobjects);
-            return;
+            return Ok(());
         };
         let mut placement = start;
         let mut saved = Vec::new();
@@ -226,7 +226,10 @@ impl ImageWalk<'_> {
                 "Q" => placement = saved.pop().unwrap_or(start),
                 "cm" => match PdfMatrix::from_operation(operation) {
                     Some(matrix) => placement = placement.concat(matrix),
-                    None => return self.pin_all(xobjects),
+                    None => {
+                        self.pin_all(xobjects);
+                        return Ok(());
+                    }
                 },
                 "Do" => {
                     let id = operation
@@ -236,12 +239,13 @@ impl ImageWalk<'_> {
                         .and_then(|name| xobjects?.get(name).ok())
                         .and_then(|entry| entry.as_reference().ok());
                     if let Some(id) = id {
-                        self.draw(page_number, id, placement, xobjects, forms);
+                        self.draw(page_number, id, placement, xobjects, forms)?;
                     }
                 }
                 _ => {}
             }
         }
+        Ok(())
     }
 
     fn draw(
@@ -251,9 +255,9 @@ impl ImageWalk<'_> {
         placement: PdfMatrix,
         parent_xobjects: Option<&Dictionary>,
         forms: &mut Vec<ObjectId>,
-    ) {
+    ) -> Result<()> {
         let Ok(stream) = self.document().get_object(id).and_then(Object::as_stream) else {
-            return;
+            return Ok(());
         };
         let subtype = stream.dict.get(b"Subtype").and_then(Object::as_name).ok();
         if subtype == Some(b"Image") {
@@ -267,7 +271,7 @@ impl ImageWalk<'_> {
             };
             let (Some(width), Some(height)) = (size(b"Width"), size(b"Height")) else {
                 self.pinned.insert(id);
-                return;
+                return Ok(());
             };
             // The unit square maps to the two sides of the drawn image.
             let drawn_width = placement.a.hypot(placement.b) / 72.0 * self.target_dpi;
@@ -275,15 +279,15 @@ impl ImageWalk<'_> {
             let needed = (drawn_width / width as f64).max(drawn_height / height as f64);
             if !needed.is_finite() {
                 self.pinned.insert(id);
-                return;
+                return Ok(());
             }
             let usage = self.uses.entry(id).or_default();
             usage.needed_scale = usage.needed_scale.max(needed);
             usage.pages.insert(page_number);
-            return;
+            return Ok(());
         }
         if subtype != Some(b"Form") || forms.contains(&id) {
-            return;
+            return Ok(());
         }
         let resources = stream
             .dict
@@ -312,10 +316,10 @@ impl ImageWalk<'_> {
         self.pin_patterns_and_fonts(resources.as_ref());
         let (Some(matrix), Some(content)) = (matrix, self.decoded_stream(id)) else {
             self.pin_all(xobjects.as_ref());
-            return;
+            return Ok(());
         };
         forms.push(id);
-        self.walk_content(
+        let result = self.walk_content(
             page_number,
             &content,
             xobjects.as_ref(),
@@ -323,6 +327,7 @@ impl ImageWalk<'_> {
             forms,
         );
         forms.pop();
+        result
     }
 }
 
@@ -426,15 +431,64 @@ pub(crate) fn write_recompress_images_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let structural = StructuralSource::for_path(input_path, qpdf_path);
+    let report = recompress_images_in(&mut incremental, structural, instructions)?;
+    if report.changed {
+        let revision_bytes = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+            write_incremental_revision(
+                staged_output_path,
+                &incremental,
+                &revision_bytes,
+                &expected_object_ids,
+            )
+        })?;
+    }
+    serde_json::to_writer(std::io::stdout().lock(), &report.json)?;
+    Ok(())
+}
+
+/// The browser's `recompressImages`: the revision `write_recompress_images_path`
+/// appends, empty when no image got smaller, and the report it prints.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn recompress_images_bytes(data: &[u8], instructions: &[u8]) -> Result<ReportedBytes> {
+    let instructions = validate_recompress_images(parse_json_sidecar_bytes(
+        instructions,
+        "recompress-images instructions",
+    )?)?;
+    let mut incremental = incremental_from_bytes(data)?;
+    let report = recompress_images_in(&mut incremental, None, &instructions)?;
+    Ok(ReportedBytes {
+        page_count: page_count(&incremental.previous_document),
+        data: if report.changed {
+            appended_revision_bytes(&mut incremental)?
+        } else {
+            Vec::new()
+        },
+        report: serde_json::to_vec(&report.json)?,
+    })
+}
+
+/// A pass's JSON report and whether it left anything to append.
+pub(crate) struct PassReport {
+    pub(crate) json: serde_json::Value,
+    pub(crate) changed: bool,
+}
+
+fn recompress_images_in(
+    incremental: &mut IncrementalDocument,
+    structural: Option<StructuralSource<'_>>,
+    instructions: &RecompressImagesFile,
+) -> Result<PassReport> {
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    let structural = StructuralSource::for_path(input_path, qpdf_path);
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
     let skipped: HashSet<u32> = instructions.skip_pages.iter().copied().collect();
     let mut walk = ImageWalk {
-        incremental: &incremental,
+        incremental: &*incremental,
         structural,
         target_dpi: instructions.target_dpi,
         uses: HashMap::new(),
@@ -457,7 +511,7 @@ pub(crate) fn write_recompress_images_path(
     let mut pages = BTreeSet::new();
     for (id, usage) in uses {
         let (outcome, source_bytes, new_bytes) =
-            recompress_image(&mut incremental, structural, id, &usage, instructions)?;
+            recompress_image(incremental, structural, id, &usage, instructions)?;
         if outcome == ImageOutcome::Recompressed {
             pages.extend(usage.pages.iter().copied());
         }
@@ -467,28 +521,18 @@ pub(crate) fn write_recompress_images_path(
         }));
     }
 
-    if !pages.is_empty() {
+    let changed = !pages.is_empty();
+    if changed {
         incremental.new_document.version = incremental.get_prev_documents().version.clone();
-        let revision_bytes = build_incremental_revision(&mut incremental)?;
-        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-        with_staged_incremental_output(input_path, output_path, |staged_output_path| {
-            write_incremental_revision(
-                staged_output_path,
-                &incremental,
-                &revision_bytes,
-                &expected_object_ids,
-            )
-        })?;
     }
-    serde_json::to_writer(
-        std::io::stdout().lock(),
-        &serde_json::json!({
+    Ok(PassReport {
+        json: serde_json::json!({
             "format": "evb-pdf-recompress-images",
             "images": reports,
             "pages": pages,
         }),
-    )?;
-    Ok(())
+        changed,
+    })
 }
 
 fn recompress_image(
@@ -503,8 +547,14 @@ fn recompress_image(
     };
     let source_bytes = source.bytes.len() as u64;
     let stream = incremental.previous_document.get_object(id)?.as_stream()?;
-    let stored = |key: &[u8]| stream.dict.get(key).and_then(Object::as_i64).unwrap_or(0) as u32;
-    let (width, height) = (stored(b"Width"), stored(b"Height"));
+    // A dimension that is absent or no positive u32 cannot be resampled.
+    let stored = |key: &[u8]| {
+        let value = stream.dict.get(key).and_then(Object::as_i64).ok()?;
+        u32::try_from(value).ok().filter(|value| *value > 0)
+    };
+    let (Some(width), Some(height)) = (stored(b"Width"), stored(b"Height")) else {
+        return Ok((ImageOutcome::Unsupported, source_bytes, 0));
+    };
     let scale = if usage.needed_scale * DOWNSAMPLE_ABOVE_TARGET < 1.0 {
         usage.needed_scale
     } else {

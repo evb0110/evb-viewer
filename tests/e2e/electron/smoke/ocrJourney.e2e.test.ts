@@ -151,7 +151,7 @@ async function acceptBookmarkAndPageLabel(page: Page) {
 }
 
 async function completeOcrFromMenu(page: Page) {
-    await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+    await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
     const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
         item.textContent?.trim() === 'OCR'
         && !item.hasAttribute('data-disabled')
@@ -831,7 +831,7 @@ if (process.versions.electron && process.type === 'browser') {
             'Launch',
             'Named',
         ]) await waitForBookmarkRow(page, title);
-        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+        await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
         const item = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === 'OCR' && item.checkVisibility()));
         await clickAsUser(page, item.asElement() as ElementHandle<HTMLElement>);
         await page.waitForSelector('[role="dialog"]', {visible: true});
@@ -1420,7 +1420,7 @@ if (process.versions.electron && process.type === 'browser') {
 
             // The left view shows the run under way.
             if (viaOverflow) {
-                await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+                await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
                 const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
                     item.textContent?.trim() === 'OCR'
                     && !item.hasAttribute('data-disabled')

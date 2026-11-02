@@ -6,7 +6,9 @@ import {
     type TScanCleanupPlacementAnchorsByPage,
     resolveScanCleanupDocumentInkAnchors,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {
+    isScanCleanupSourceSha256,toPlainScanCleanupOptions,
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
@@ -17,7 +19,6 @@ import {useScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composab
 import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import type {TScanCleanupPreviewFrameRevealOutcome} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
-import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 
 const SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS = 10_000;
 

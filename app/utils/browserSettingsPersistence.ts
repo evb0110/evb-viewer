@@ -14,10 +14,7 @@ import type {
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { LOCALE_CODES } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
-import {
-    safeGetLocalStorageItem,
-    safeSetLocalStorageItem,
-} from '@app/utils/localStorage';
+import { readLocalStorageItem } from '@app/utils/localStorage';
 import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 import * as v from 'valibot';
 
@@ -200,7 +197,7 @@ export function expireLegacyBrowserSettingsCookie() {
     document.cookie = `${BROWSER_SETTINGS_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
 }
 
-function readBrowserSettingsCookies() {
+export function readBrowserSettingsCookies() {
     if (typeof document === 'undefined') {
         return null;
     }
@@ -238,61 +235,29 @@ function readBrowserSettingsCookies() {
     };
 }
 
+/**
+ * The performance mode to start with, read before the settings capability
+ * loads. It only reads: the capability migrates and writes settings, so this
+ * early read never writes over settings another tab is installing.
+ */
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
-    const storageSnapshot = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
-    if (storageSnapshot !== null && isFutureBrowserSettingsPayload(storageSnapshot)) {
-        assertSupportedBrowserSettingsPayload(storageSnapshot);
-    }
-    const existingStorageSettings = parseStoredBrowserSettingsSnapshot(storageSnapshot);
+    const storageRead = readLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    const storageSnapshot = storageRead.status === 'present' ? storageRead.value : null;
     const cookieSnapshot = readBrowserSettingsCookies();
     const legacyCookie = cookieSnapshot?.rawSettings ?? null;
-    if (legacyCookie !== null) {
-        const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(legacyCookie);
-        if (isValidLegacyCookie) {
-            const cookieSettings = parseBrowserSettingsPayload(
-                legacyCookie,
-                cookieSnapshot?.fallbackSettings,
-            );
-            const migratedSettings = existingStorageSettings
-                ? migrateSettings({
-                    ...cookieSettings,
-                    ...existingStorageSettings,
-                    ...cookieSnapshot?.fallbackSettings,
-                })
-                : cookieSettings;
-            const committed = safeSetLocalStorageItem(
-                BROWSER_SETTINGS_STORAGE_KEY,
-                JSON.stringify(migratedSettings),
-            );
-            if (committed) {
-                expireLegacyBrowserSettingsCookie();
-            }
-            return migratedSettings.performanceMode;
-        }
-        if (!isFutureBrowserSettingsPayload(legacyCookie)) {
-            expireLegacyBrowserSettingsCookie();
-        }
-    } else if (cookieSnapshot) {
-        // Locale and theme cookies are only a partial migration. Start with
-        // the committed settings snapshot so an early performance-mode read
-        // cannot erase settings saved by the main settings capability.
-        const migratedSettings = migrateSettings({
-            ...existingStorageSettings,
-            ...cookieSnapshot.fallbackSettings,
-        });
-        const committed = safeSetLocalStorageItem(
-            BROWSER_SETTINGS_STORAGE_KEY,
-            JSON.stringify(migratedSettings),
-        );
-        if (committed) {
-            expireLegacyBrowserSettingsCookie();
-        }
-        return migratedSettings.performanceMode;
+    // Settings a newer version wrote are not this version's to read.
+    if (isFutureBrowserSettingsPayload(storageSnapshot) || isFutureBrowserSettingsPayload(legacyCookie)) {
+        return DEFAULT_SETTINGS.performanceMode;
     }
+    const stored = parseStoredBrowserSettingsSnapshot(storageSnapshot);
+    if (stored) return stored.performanceMode;
+    if (legacyCookie !== null && isValidLegacyBrowserSettingsPayload(legacyCookie)) {
+        return parseBrowserSettingsPayload(legacyCookie, cookieSnapshot?.fallbackSettings).performanceMode;
+    }
+    return DEFAULT_SETTINGS.performanceMode;
+}
 
-    assertSupportedBrowserSettingsPayload(storageSnapshot);
-    if (isValidBrowserSettingsStoragePayload(storageSnapshot)) {
-        return parseBrowserSettingsPayload(storageSnapshot).performanceMode;
-    }
-    return 'auto';
+/** Whether the legacy settings cookie belongs to a newer schema. */
+export function hasFutureLegacyBrowserSettingsCookie() {
+    return isFutureBrowserSettingsPayload(readBrowserSettingsCookies()?.rawSettings ?? null);
 }

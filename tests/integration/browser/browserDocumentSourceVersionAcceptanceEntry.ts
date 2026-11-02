@@ -275,7 +275,7 @@ async function runBrowserMaterializedSaveConflictAcceptance() {
     });
 
     try {
-        const result = await saveWorkingBytesToSourceStructured(workingRef, () => 'handle required');
+        const result = await saveWorkingBytesToSourceStructured(workingRef);
         return {
             result,
             sourceBytes: Array.from(await browserDocumentStore.read(sourceRef)),

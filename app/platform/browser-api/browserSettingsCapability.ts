@@ -1,6 +1,8 @@
 import type {
     IDebugLogEntry,
     IRendererLogEntry,
+    TDebugLogLevel,
+    TRendererLogLevel,
 } from '@contracts/electronApiCommon';
 import type {
     ISettingsCapability,
@@ -10,10 +12,16 @@ import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     DEFAULT_SETTINGS,
     migrateSettings,
-    normalizeLocale,
-    normalizeTheme,
     sanitizeSettings,
+    type ISettingsRecoveryNotice,
+    type TSettingsRecoveryReason,
+    UnsupportedSettingsSchemaError,
 } from '@contracts/settings';
+import {
+    formatLogData,
+    toLogData,
+} from '@contracts/logRecord';
+import { redactLogText } from '@contracts/redactLogText';
 import {
     parseClientDiagnosticsPreference,
     type TClientDiagnosticsPreference,
@@ -25,31 +33,53 @@ import {
 } from '@app/utils/localStorage';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
-    BROWSER_SETTINGS_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
+    hasFutureLegacyBrowserSettingsCookie,
+    readBrowserSettingsCookies,
     assertSupportedBrowserSettingsPayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
     parseBrowserSettingsStoragePayload,
 } from '@app/utils/browserSettingsPersistence';
-import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
-import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { DOCUMENTS_STORE } from '@app/platform/browser/browserDocumentConstants';
 import { runObjectStoreTransaction } from '@app/platform/browser/browserDocumentIdb';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
+import {
+    BrowserLogger,
+    setBrowserLogSink,
+} from '@app/utils/browserLogger';
 
 let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
 let diagnosticsPreferenceOverride: TClientDiagnosticsPreference | null = null;
 let diagnosticsPreferenceRevision = 0;
 const settingsListeners = new Set<(settings: ISettingsData) => void>();
+let settingsRecoveryNotice: ISettingsRecoveryNotice | null = null;
+
+// The same bound and entry shape as desktop's preload buffer (electron/preload/debugLogBuffer.ts).
+const MAX_DEBUG_LOG_ENTRIES = 2000;
+const MAX_DEBUG_LOG_DATA_CHARS = 2_000;
+const DEBUG_LOG_LEVELS = {
+    debug: 'DEBUG',
+    info: 'INFO',
+    warn: 'WARN',
+    error: 'ERROR',
+} as const satisfies Record<TRendererLogLevel, TDebugLogLevel>;
+const debugLogEntries: IDebugLogEntry[] = [];
+const debugLogListeners = new Set<(entry: IDebugLogEntry) => void>();
 
 interface IBrowserSettingsReadResult {
     settings: ISettingsData;
     persisted: boolean;
+}
+
+interface IBrowserSettingsReadOptions {
+    allowUnavailable?: boolean;
+    /** Record a reset for the startup notice, as desktop does when it loads settings. */
+    recordRecovery?: boolean;
 }
 
 const BROWSER_SETTINGS_STORAGE_LOCK_KEY = '__evb_browser_settings_storage_lock__';
@@ -60,56 +90,56 @@ function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
     }
 }
 
-function readBrowserSettingsCookies() {
-    if (typeof document === 'undefined') {
-        return null;
-    }
-
-    const getCookieValue = (key: string) => document.cookie.match(
-        new RegExp(`(?:^|; )${key}=([^;]*)`, 'u'),
-    )?.[1] ?? null;
-    const rawSettingsCookie = getCookieValue(BROWSER_SETTINGS_COOKIE_KEY);
-    const localeCookie = getCookieValue(BROWSER_LOCALE_COOKIE_KEY);
-    const themeCookie = getCookieValue(BROWSER_THEME_COOKIE_KEY);
-    if (rawSettingsCookie === null && localeCookie === null && themeCookie === null) {
-        return null;
-    }
-
-    const fallbackSettings: Partial<ISettingsData> = {};
-    if (localeCookie) {
-        fallbackSettings.locale = normalizeLocale(safeDecodeURIComponent(localeCookie));
-    }
-    if (themeCookie) {
-        fallbackSettings.theme = normalizeTheme(safeDecodeURIComponent(themeCookie));
-    }
-
-    return {
-        fallbackSettings,
-        rawSettings: rawSettingsCookie === null
-            ? null
-            : safeDecodeURIComponent(rawSettingsCookie),
-    };
+function recordSettingsRecovery(reason: TSettingsRecoveryReason) {
+    BrowserLogger.warn('settings', 'Stored settings could not be used; defaults were restored', {reason});
+    settingsRecoveryNotice ??= {reason};
 }
 
-function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } = {}) {
+/** The stored settings, and whether storage could be read at all. */
+function readBrowserSettingsFromStorage(options: IBrowserSettingsReadOptions = {}): {
+    settings: ISettingsData | null;
+    available: boolean;
+} {
     const result = readLocalStorageItem(SETTINGS_STORAGE_KEY);
     if (result.status === 'unavailable') {
         if (options.allowUnavailable) {
-            return null;
+            if (options.recordRecovery) {
+                // Storage may come back on the next load, so nothing is overwritten.
+                recordSettingsRecovery('unreadable');
+            }
+            return {
+                settings: null,
+                available: false,
+            };
         }
         throw result.error;
     }
     if (result.status === 'absent') {
-        return null;
+        return {
+            settings: null,
+            available: true,
+        };
     }
 
     const rawSettings = result.value;
     assertSupportedBrowserSettingsPayload(rawSettings);
-    return parseBrowserSettingsStoragePayload(rawSettings);
+    const settings = parseBrowserSettingsStoragePayload(rawSettings);
+    if (settings === null && options.recordRecovery) {
+        // Replace the unusable value so the reset is reported once, as desktop
+        // replaces a corrupt settings file with defaults.
+        safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
+        recordSettingsRecovery('corrupt');
+    }
+    return {
+        settings,
+        available: true,
+    };
 }
 
 function readLatestBrowserSettingsForSave() {
-    const persistedSettings = readBrowserSettingsFromStorage();
+    // Either source written by a newer version refuses the save.
+    assertSupportedBrowserSettingsPayload(readBrowserSettingsCookies()?.rawSettings ?? null);
+    const persistedSettings = readBrowserSettingsFromStorage().settings;
     if (persistedSettings) {
         return applyDiagnosticsPreferenceOverride(persistedSettings);
     }
@@ -201,11 +231,15 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
     browserSettingsLoaded = true;
 }
 
-function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } = {}): IBrowserSettingsReadResult | null {
-    const persistedSettings = readBrowserSettingsFromStorage(options);
+function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}): IBrowserSettingsReadResult | null {
+    // Either source written by a newer version throws before anything is written.
     const cookieSnapshot = readBrowserSettingsCookies();
+    assertSupportedBrowserSettingsPayload(cookieSnapshot?.rawSettings ?? null);
+    const {
+        settings: persistedSettings,
+        available: storageAvailable,
+    } = readBrowserSettingsFromStorage(options);
     if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
-        assertSupportedBrowserSettingsPayload(cookieSnapshot.rawSettings);
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(cookieSnapshot.rawSettings);
         if (isValidLegacyCookie) {
             if (persistedSettings) {
@@ -221,9 +255,12 @@ function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } =
             );
             let persisted = false;
             try {
-                writeBrowserSettingsToStorage(legacySettings);
-                expireLegacyBrowserSettingsCookie();
-                persisted = true;
+                // Storage that could not be read is not overwritten.
+                if (storageAvailable) {
+                    writeBrowserSettingsToStorage(legacySettings);
+                    expireLegacyBrowserSettingsCookie();
+                    persisted = true;
+                }
             } catch (error) {
                 if (!options.allowUnavailable) {
                     throw error;
@@ -251,8 +288,10 @@ function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } =
         );
         let persisted = false;
         try {
-            writeBrowserSettingsToStorage(bootstrapSettings);
-            persisted = true;
+            if (storageAvailable) {
+                writeBrowserSettingsToStorage(bootstrapSettings);
+                persisted = true;
+            }
         } catch (error) {
             if (!options.allowUnavailable) {
                 throw error;
@@ -269,9 +308,10 @@ function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } =
 function refreshSharedSettings() {
     const previousPreference = settingsState.clientDiagnosticsPreference;
     try {
-        settingsState = applyDiagnosticsPreferenceOverride(
-            readBrowserSettingsFromStorage({allowUnavailable: true}) ?? { ...DEFAULT_SETTINGS },
-        );
+        const shared = hasFutureLegacyBrowserSettingsCookie()
+            ? null
+            : readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
+        settingsState = applyDiagnosticsPreferenceOverride(shared ?? { ...DEFAULT_SETTINGS });
     } catch {
         // A cleared, unreadable or unsupported shared preference grants nothing.
         settingsState = applyDiagnosticsPreferenceOverride({ ...DEFAULT_SETTINGS });
@@ -317,6 +357,39 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     });
 }
 
+// The browser has no main process, so its renderer records are the log. They get
+// desktop's broadcast text and redaction; they stay in this page until the user copies them.
+function toDebugLogEntry(entry: IRendererLogEntry): IDebugLogEntry {
+    const level = DEBUG_LOG_LEVELS[entry.level];
+    const dataText = formatLogData(toLogData(entry.data), MAX_DEBUG_LOG_DATA_CHARS);
+    const base = {
+        source: entry.section,
+        message: redactLogText(`[${level}] ${entry.message}${dataText ? ` ${dataText}` : ''}`),
+        timestamp: entry.timestamp,
+    };
+    if (level !== 'ERROR') {
+        return {
+            ...base,
+            level,
+        };
+    }
+    // BrowserLogger.error always carries a receipt; an error without one cannot be an ERROR entry.
+    return entry.failureRef
+        ? {
+            ...base,
+            level,
+            failureRef: {
+                eventId: entry.failureRef.eventId,
+                code: entry.failureRef.code,
+                severity: entry.failureRef.severity,
+            },
+        }
+        : {
+            ...base,
+            level: 'WARN',
+        };
+}
+
 export const browserSettingsCapability: ISettingsCapability = {
     onChanged(callback) {
         settingsListeners.add(callback);
@@ -325,17 +398,33 @@ export const browserSettingsCapability: ISettingsCapability = {
     get() {
         return Promise.resolve().then(() => {
             if (!browserSettingsLoaded) {
-                const migration = readAndMigrateBrowserSettings({allowUnavailable: true});
-                settingsState = migration?.settings ?? { ...DEFAULT_SETTINGS };
-                settingsState = applyDiagnosticsPreferenceOverride(settingsState);
-                writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
+                let migration: IBrowserSettingsReadResult | null = null;
+                let unsupported = false;
+                try {
+                    migration = readAndMigrateBrowserSettings({
+                        allowUnavailable: true,
+                        recordRecovery: true,
+                    });
+                } catch (error) {
+                    if (!(error instanceof UnsupportedSettingsSchemaError)) throw error;
+                    // A newer version's settings stay as they are, and saves are
+                    // refused; desktop instead quarantines its file and writes defaults.
+                    recordSettingsRecovery('unsupported');
+                    unsupported = true;
+                }
+                settingsState = applyDiagnosticsPreferenceOverride(migration?.settings ?? { ...DEFAULT_SETTINGS });
+                if (!unsupported) {
+                    writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
+                }
                 browserSettingsLoaded = true;
             }
             return sanitizeSettings(settingsState);
         });
     },
     getRecoveryNotice() {
-        return Promise.resolve(null);
+        const notice = settingsRecoveryNotice;
+        settingsRecoveryNotice = null;
+        return Promise.resolve(notice);
     },
     save(settings) {
         const hasDiagnosticsPreference = Object.hasOwn(settings, 'clientDiagnosticsPreference');
@@ -387,10 +476,23 @@ export const browserSettingsCapability: ISettingsCapability = {
         });
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {
-        return Promise.resolve([]);
+        return Promise.resolve([...debugLogEntries]);
     },
-    onDebugLog: noopUnsubscribe,
-    rendererLog(_entry: IRendererLogEntry) {},
+    onDebugLog(callback) {
+        debugLogListeners.add(callback);
+        return () => debugLogListeners.delete(callback);
+    },
+    rendererLog(entry: IRendererLogEntry) {
+        const debugLogEntry = toDebugLogEntry(entry);
+        if (debugLogEntries.push(debugLogEntry) > MAX_DEBUG_LOG_ENTRIES) {
+            debugLogEntries.shift();
+        }
+        for (const listener of debugLogListeners) {
+            listener(debugLogEntry);
+        }
+    },
 };
 
 browserSettingsCapability satisfies TFeatureBrowserBindings<typeof SETTINGS_PLATFORM_FEATURE>;
+
+setBrowserLogSink(entry => browserSettingsCapability.rendererLog(entry));

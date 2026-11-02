@@ -406,8 +406,8 @@ export const useWorkspaceFileLifecycleController = (
 
     const hasPdf = computed(() => !!pdfSrc.value);
     const documentKey = computed(() => (
-        documentRevisionInfo.value?.documentRef
-        ?? originalPath.value
+        originalPath.value
+        ?? documentRevisionInfo.value?.documentRef
         ?? workingCopyPath.value
     ));
 

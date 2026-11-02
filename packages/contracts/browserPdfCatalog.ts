@@ -5,6 +5,7 @@ import {
     type TPdfBookmarkOriginalDestination,
 } from '@contracts/pdfBookmarkEntry';
 import {isRecord} from '@contracts/runtimeGuards';
+import {MAX_CATALOG_ENTRIES} from '@contracts/browserPageOpsWasm.generated';
 
 export interface IBrowserPdfCatalogBookmark {
     title: string;
@@ -56,16 +57,11 @@ function isCatalogPart(part: unknown, error: unknown, maxItems: number) {
         : part === undefined && typeof error === 'string';
 }
 
-export interface IBrowserPdfCatalogDecodeOptions {
-    maxPageLabels: number;
-    maxBookmarkItems?: number;
-    maxBookmarkDepth?: number;
-}
-
-export const BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS = 100_000;
+// The native catalog reader returns at most this many bookmarks or label
+// ranges (catalog.rs), on desktop and in the browser alike.
+export const BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS = MAX_CATALOG_ENTRIES;
+export const BROWSER_PDF_CATALOG_MAX_PAGE_LABELS = MAX_CATALOG_ENTRIES;
 export const BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH = 256;
-export const BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS = 2_048;
-export const BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS = 100_000;
 
 function isNonNegativeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -75,12 +71,11 @@ function decodeBookmark(
     value: unknown,
     depth: number,
     state: {count: number},
-    options: Required<IBrowserPdfCatalogDecodeOptions>,
 ): IBrowserPdfCatalogBookmark | null {
     if (
         !isRecord(value)
-        || depth >= options.maxBookmarkDepth
-        || state.count >= options.maxBookmarkItems
+        || depth >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH
+        || state.count >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS
         || typeof value.title !== 'string'
         || (value.pageIndex !== null && !isNonNegativeInteger(value.pageIndex))
         || (value.namedDest !== null && typeof value.namedDest !== 'string')
@@ -100,7 +95,7 @@ function decodeBookmark(
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
     for (const item of value.items) {
-        const decoded = decodeBookmark(item, depth + 1, state, options);
+        const decoded = decodeBookmark(item, depth + 1, state);
         if (decoded === null) {
             return null;
         }
@@ -119,26 +114,18 @@ function decodeBookmark(
     };
 }
 
-export function decodeBrowserPdfCatalog(
-    value: unknown,
-    options: IBrowserPdfCatalogDecodeOptions,
-): IBrowserPdfCatalog | null {
-    const limits: Required<IBrowserPdfCatalogDecodeOptions> = {
-        maxBookmarkDepth: options.maxBookmarkDepth ?? BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
-        maxBookmarkItems: options.maxBookmarkItems ?? BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS,
-        maxPageLabels: options.maxPageLabels,
-    };
+export function decodeBrowserPdfCatalog(value: unknown): IBrowserPdfCatalog | null {
     if (
         !isRecord(value)
-        || !isCatalogPart(value.bookmarks, value.bookmarksError, limits.maxBookmarkItems)
-        || !isCatalogPart(value.pageLabels, value.pageLabelsError, limits.maxPageLabels)
+        || !isCatalogPart(value.bookmarks, value.bookmarksError, BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS)
+        || !isCatalogPart(value.pageLabels, value.pageLabelsError, BROWSER_PDF_CATALOG_MAX_PAGE_LABELS)
     ) {
         return null;
     }
     const state = {count: 0};
     const bookmarks: IBrowserPdfCatalogBookmark[] = [];
     for (const bookmark of Array.isArray(value.bookmarks) ? value.bookmarks : []) {
-        const decoded = decodeBookmark(bookmark, 0, state, limits);
+        const decoded = decodeBookmark(bookmark, 0, state);
         if (decoded === null) {
             return null;
         }

@@ -217,6 +217,7 @@ export default {
         'resize': 'Resize sidebar',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'The browser blocked reading the clipboard. Press Ctrl+V (⌘V on a Mac) to paste the image.',
         'toolDefaults': 'Tool defaults',
         'selectedProperties': 'Selected annotation properties',
         'mixedValues': 'Mixed',
@@ -377,7 +378,6 @@ export default {
                 'off': 'Use the scan as-is.',
                 'clean': 'Straighten and clean up the page image first.',
             },
-            'browserUnavailable': 'Image cleanup needs the desktop app; the browser reads pages as scanned.',
         },
         'pageSegmentation': {
             'label': 'Text layout',
@@ -905,6 +905,7 @@ export default {
             'invalidMargins': 'Margins must be between 0 and 25 mm.',
             'unavailable': 'Scan cleanup is unavailable on this system.',
             'otherDocumentRunning': 'Another document is being cleaned up. Start this one when it finishes.',
+            'browserPreviewOnly': 'In the browser, scan cleanup previews pages but cannot clean up the document yet. Use the desktop app to clean it up.',
         },
         'completedTitle': 'Scan cleanup complete',
         'completedPartialTitle': 'Selected pages cleaned',
@@ -1035,8 +1036,6 @@ export default {
             'advancedRaster': 'Raster options (advanced)',
             'advancedRasterHint': 'Rasterize every page at a fixed resolution. Larger files; choose only if you need exact pixel output.',
             'directDisabledReason': 'Exceeds the direct-conversion size limit at this resolution.',
-            'browserPageLimit': 'This document has {pages} pages, but converting in the browser supports up to {maxPages}. Use the desktop app for larger documents.',
-            'browserPixelLimit': 'Some pages are too large to convert in the browser. Use the desktop app for this document.',
         },
     },
     'common': {
@@ -1736,7 +1735,7 @@ export default {
             'unsupportedEncryption': 'This PDF uses an encryption method that EVB Viewer cannot open.',
             'encryptedTooLarge': 'This encrypted PDF exceeds the 512 MiB limit and cannot be opened.',
             'djvuRasterLimit': 'This DjVu page is too large to display at full resolution.',
-            'djvuComponentsRequired': 'This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.',
+            'djvuComponentsRequired': 'This DjVu index keeps its pages in separate files. Open it again and select the index together with the files next to it.',
             'changedWhileOpening': 'The file changed while it was being opened. Open it again.',
             'invalid': 'The file is damaged or is not a supported document.',
             'emptyPdf': 'The PDF file is empty (0 bytes)',
@@ -1752,6 +1751,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF saved, but recovery could not be updated',
             'recoverySettlementDescription': 'Your changes were written to the PDF. Any newer unsaved edits remain open here.',
+            'workingCopySyncRequiredTitle': 'Could not update the open document after Save',
+            'workingCopySyncRequiredUnknown': 'The file may have been written. Your edits remain open here; check the file, or use Save As to save them elsewhere.',
             'validation': 'The document did not pass its validity check, so nothing was written.',
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',
@@ -1788,12 +1789,12 @@ export default {
             'storageFull': 'Browser storage is full. Free space for this site and try again.',
             'notEnoughMemory': 'The browser ran out of memory. Close other tabs and try again, or use the desktop app.',
             'documentToolsUnavailable': 'The browser document tool could not start. Reload the page and try again.',
+            'validationLimitedTitle': 'Limited PDF validation',
+            'validationLimited': 'This PDF exceeds the {limitMiB} MiB browser validation limit. Only browser loadability was checked, and Save As optimization is unavailable. Use the desktop app for full validation.',
             'annotationsUnavailable': 'Existing annotation editing is unavailable',
             'annotationsTooLarge': 'The document is open for reading. Importing existing annotations exceeds the browser tool’s memory limit. Use the desktop app to edit them.',
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
-            'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.',
             'imageExtensionMismatch': 'Export was not saved. Choose a file name ending in {extensions}.',
-            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'Search is unavailable in the browser for very large documents.',
@@ -1869,6 +1870,7 @@ export default {
             'load': 'Failed to load settings',
             'recovered': 'Saved settings could not be used, so defaults were restored. The previous file was kept as a recovery copy when possible.',
             'recoveredWithPath': 'Saved settings could not be used, so defaults were restored. The previous file was quarantined at {path}.',
+            'newerVersion': 'These settings were saved by a newer version of EVB Viewer. They are kept unchanged, and this version uses its defaults and cannot save settings. Open the newer version to change them.',
         },
         'runtime': {
             'title': 'Something went wrong',

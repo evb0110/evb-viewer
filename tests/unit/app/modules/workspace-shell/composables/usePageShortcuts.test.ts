@@ -14,6 +14,7 @@ import {
     createPageShortcutDeps as createDeps,
     getCapturedKeyDown,
     getCapturedOnEventFired,
+    getCapturedPaste,
     getCapturedPointerDown,
     getPageShortcutsMocks,
     resetPageShortcutsTest,
@@ -682,6 +683,91 @@ describe('usePageShortcuts', () => {
 
         expect(pressPagingKey('PageDown')).not.toHaveBeenCalled();
         expect(deps.handleGoToPage).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [
+            'i',
+            'handleInsertImageFromFile',
+        ],
+        [
+            'v',
+            'handlePasteImageFromClipboard',
+        ],
+    ] as const)('routes web Shift+Cmd/Ctrl+%s to the Edit menu image command', async (key, command) => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
+            key: key.toUpperCase(),
+            ctrlKey: true,
+            shiftKey: true,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(deps[command]).toHaveBeenCalledOnce();
+    });
+
+    it('leaves Shift+Cmd/Ctrl+V to the Electron menu and to editable fields', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+        const pastePlainText = {
+            key: 'V',
+            ctrlKey: true,
+            shiftKey: true,
+        } as const;
+
+        getCapturedOnEventFired()?.(createKeyboardEventFixture(pastePlainText));
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const fakeInput = {
+            isContentEditable: false,
+            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
+            ...pastePlainText,
+            target: fakeInput,
+        }));
+
+        expect(deps.handlePasteImageFromClipboard).not.toHaveBeenCalled();
+    });
+
+    it('places the image a paste event carries, except into an editable field', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+        const image = new File([Uint8Array.of(1)], 'image.png', {type: 'image/png'});
+        const paste = (target: unknown, files: File[]) => {
+            const event = new Event('paste', {cancelable: true});
+            Object.defineProperties(event, {
+                target: {value: target},
+                clipboardData: {value: {files}},
+            });
+            getCapturedPaste()?.(event as ClipboardEvent);
+            return event.defaultPrevented;
+        };
+
+        expect(paste(null, [new File(['text'], 'note.txt', {type: 'text/plain'})])).toBe(false);
+        expect(deps.handlePasteImageFile).not.toHaveBeenCalled();
+        const fakeEditor = {
+            isContentEditable: true,
+            closest: () => fakeEditor,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeEditor, HTMLElement.prototype);
+        expect(paste(fakeEditor, [image])).toBe(false);
+        expect(deps.handlePasteImageFile).not.toHaveBeenCalled();
+
+        expect(paste(null, [image])).toBe(true);
+        expect(deps.handlePasteImageFile).toHaveBeenCalledWith(image);
     });
 
     it('closes visible shortcut menus on outside pointerdown', async () => {

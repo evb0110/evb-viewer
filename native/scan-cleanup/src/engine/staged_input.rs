@@ -684,7 +684,7 @@ mod moved_tests {
     use std::{fs, path::PathBuf};
 
     #[cfg(unix)]
-    use crate::protocol::manifest_v3::{DetailPixelRect, DetailRenderPlan};
+    use crate::protocol::manifest_v3::{DetailPixelRect, DetailRenderGeometry, DetailRenderPlan};
     #[cfg(unix)]
     use std::path::Path;
 
@@ -828,12 +828,14 @@ mod moved_tests {
                 base_metadata_path: base_metadata,
                 base_raster_path: base_raster,
                 base_cleaned_raster_path: Some(base_cleaned),
-                source_crop: region.clone(),
-                full_source_width_px: 32,
-                full_source_height_px: 32,
-                scale: 1.0,
-                render_region: region.clone(),
-                sampled_region: region,
+                geometry: DetailRenderGeometry {
+                    source_crop: region.clone(),
+                    full_source_width_px: 32,
+                    full_source_height_px: 32,
+                    scale: 1.0,
+                    render_region: region.clone(),
+                    sampled_region: region,
+                },
             }
         };
         let detail_slot = |select: fn(PathBuf, PathBuf) -> (PathBuf, PathBuf, PathBuf)| {

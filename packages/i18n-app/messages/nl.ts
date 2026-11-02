@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'De marges moeten tussen 0 en 25 mm liggen.',
             'unavailable': 'Scanopschoning is niet beschikbaar op dit systeem.',
             'otherDocumentRunning': 'Er wordt een ander document opgeschoond. Start dit document wanneer dat klaar is.',
+            'browserPreviewOnly': 'In de browser toont Scanopschoning een voorbeeld van de pagina’s, maar kan het document nog niet opschonen. Gebruik de desktop-app om het op te schonen.',
         },
         'completedTitle': 'Scanopschoning voltooid',
         'completedPartialTitle': 'Geselecteerde pagina\'s opgeschoond',
@@ -737,6 +738,7 @@ export default {
         'resize': 'Zijbalk vergroten/verkleinen',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'De browser heeft het lezen van het klembord geblokkeerd. Druk op Ctrl+V (⌘V op een Mac) om de afbeelding te plakken.',
         'toolDefaults': 'Gereedschapsinstellingen',
         'selectedProperties': 'Eigenschappen van geselecteerde annotaties',
         'mixedValues': 'Gemengd',
@@ -897,7 +899,6 @@ export default {
                 'off': 'Gebruik de scan ongewijzigd.',
                 'clean': 'Maak de pagina-afbeelding eerst recht en schoon.',
             },
-            'browserUnavailable': 'Beeldopschoning vereist de desktop-app; de browser leest de pagina’s zoals ze gescand zijn.',
         },
         'pageSegmentation': {
             'label': 'Tekstindeling',
@@ -1035,8 +1036,6 @@ export default {
             'advancedRaster': 'Rasteropties (geavanceerd)',
             'advancedRasterHint': 'Rastert elke pagina op een vaste resolutie. Grotere bestanden; kies dit alleen als exacte pixeluitvoer nodig is.',
             'directDisabledReason': 'Overschrijdt de limiet voor directe conversie bij deze resolutie.',
-            'browserPageLimit': 'Dit document heeft {pages} pagina\'s, maar converteren in de browser ondersteunt er maximaal {maxPages}. Gebruik de desktop-app voor grotere documenten.',
-            'browserPixelLimit': 'Sommige pagina\'s zijn te groot om in de browser te converteren. Gebruik de desktop-app voor dit document.',
         },
     },
     'common': {
@@ -1736,7 +1735,7 @@ export default {
             'unsupportedEncryption': 'Deze PDF gebruikt versleuteling die EVB Viewer niet kan openen.',
             'encryptedTooLarge': 'Deze versleutelde pdf overschrijdt de limiet van 512 MiB en kan niet worden geopend.',
             'djvuRasterLimit': 'Deze DjVu-pagina is te groot om op volledige resolutie weer te geven.',
-            'djvuComponentsRequired': 'Deze DjVu-index heeft afzonderlijke componentbestanden nodig. Open een gebundeld DjVu-bestand of gebruik de desktopapp.',
+            'djvuComponentsRequired': 'Deze DjVu-index bewaart zijn pagina\'s in aparte bestanden. Open hem opnieuw en selecteer de index samen met de bestanden ernaast.',
             'changedWhileOpening': 'Het bestand is gewijzigd terwijl het werd geopend. Open het opnieuw.',
             'invalid': 'Het bestand is beschadigd of geen ondersteund document.',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
@@ -1752,6 +1751,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF opgeslagen, maar herstel kon niet worden bijgewerkt',
             'recoverySettlementDescription': 'Uw wijzigingen zijn naar de PDF geschreven. Nieuwere, niet-opgeslagen wijzigingen blijven hier open.',
+            'workingCopySyncRequiredTitle': 'Het geopende document kon na het opslaan niet worden bijgewerkt',
+            'workingCopySyncRequiredUnknown': 'Het bestand is mogelijk geschreven. Je wijzigingen blijven hier geopend; controleer het bestand of gebruik Opslaan als om ze elders op te slaan.',
             'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
@@ -1788,12 +1789,12 @@ export default {
             'storageFull': 'De browseropslag is vol. Maak ruimte vrij voor deze site en probeer het opnieuw.',
             'notEnoughMemory': 'De browser heeft onvoldoende geheugen. Sluit andere tabbladen en probeer het opnieuw of gebruik de desktopapp.',
             'documentToolsUnavailable': 'Het documentgereedschap kon niet starten. Laad de pagina opnieuw en probeer het opnieuw.',
+            'validationLimitedTitle': 'Beperkte PDF-validatie',
+            'validationLimited': 'Deze PDF overschrijdt de browserlimiet voor validatie van {limitMiB} MiB. Alleen het laden in de browser is gecontroleerd. Optimalisatie bij Opslaan als is niet beschikbaar. Gebruik de desktopapp voor volledige validatie.',
             'annotationsUnavailable': 'Bestaande annotaties kunnen niet worden bewerkt',
             'annotationsTooLarge': 'Het document is geopend om te lezen. Het importeren van bestaande annotaties overschrijdt de geheugenlimiet van het browsergereedschap. Gebruik de desktopapp om ze te bewerken.',
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
-            'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
             'imageExtensionMismatch': 'De export is niet opgeslagen. Kies een bestandsnaam die eindigt op {extensions}.',
-            'useNativeApp': 'Gebruik de native app voor bestanden van deze omvang.',
         },
         'search': {
             'browserTooLarge': 'Zoeken is in de browser niet beschikbaar voor zeer grote documenten.',
@@ -1869,6 +1870,7 @@ export default {
             'load': 'Instellingen konden niet worden geladen',
             'recovered': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is indien mogelijk als herstelkopie bewaard.',
             'recoveredWithPath': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is in quarantaine geplaatst op {path}.',
+            'newerVersion': 'Deze instellingen zijn opgeslagen door een nieuwere versie van EVB Viewer. Ze blijven ongewijzigd; deze versie gebruikt haar standaardinstellingen en kan geen instellingen opslaan. Open de nieuwere versie om ze te wijzigen.',
         },
         'runtime': {
             'title': 'Er is iets misgegaan',

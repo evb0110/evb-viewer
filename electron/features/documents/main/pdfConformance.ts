@@ -1,13 +1,22 @@
 import {stat} from 'fs/promises';
 import {dirname} from 'path';
 import { fileURLToPath } from 'url';
-import { compact } from 'es-toolkit/array';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import { isRecord } from '@contracts/runtimeGuards';
 import { createDefaultPdfConformanceProfile } from '@pdf-core';
+import {
+    extractQpdfWarnings,
+    getQpdfCheckArgs,
+    getQpdfPageCountArgs,
+    parseQpdfPageCount,
+    QPDF_SUCCESS_EXIT_CODES,
+    resolveQpdfValidationTimeoutMs,
+    QPDF_VALIDATE_MAX_TIMEOUT_MS,
+    QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS,
+} from '@pdf-core/qpdfCommands';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
@@ -28,18 +37,10 @@ import {
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const logger = createLogger('documents-pdfConformance');
-const QPDF_VALIDATE_BASE_TIMEOUT_MS = 30_000;
-const QPDF_VALIDATE_MAX_TIMEOUT_MS = 10 * 60_000;
-const QPDF_VALIDATE_TIMEOUT_SCALE_START_BYTES = 64 * 1024 * 1024;
-const QPDF_VALIDATE_TIMEOUT_BYTES_PER_STEP = 16 * 1024 * 1024;
-const QPDF_VALIDATE_TIMEOUT_STEP_MS = 1_000;
 const QPDF_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf)';
 const QPDF_VALIDATE_TIMEOUT_PATTERN = /^qpdf\(validate-pdf\) timed out after \d+ms$/u;
-const QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS = 10_000;
 const QPDF_OPENING_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-opening)';
 const QPDF_SAVE_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-structure)';
-const QPDF_EXIT_CODE_OK = 0;
-const QPDF_EXIT_CODE_WARNINGS = 3;
 const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,35 +48,12 @@ export type {IPdfConformancePathAnalysisOptions};
 
 type TPdfFileStat = Awaited<ReturnType<typeof stat>>;
 
-function resolveQpdfValidationTimeoutMs(fileSize: number | bigint | undefined) {
-    const normalizedFileSize = typeof fileSize === 'bigint'
-        ? Number(fileSize > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : fileSize)
-        : fileSize;
-    if (typeof normalizedFileSize !== 'number' || !Number.isFinite(normalizedFileSize)) {
-        return QPDF_VALIDATE_BASE_TIMEOUT_MS;
-    }
-    const extraBytes = Math.max(0, normalizedFileSize - QPDF_VALIDATE_TIMEOUT_SCALE_START_BYTES);
-    const extraSteps = Math.ceil(extraBytes / QPDF_VALIDATE_TIMEOUT_BYTES_PER_STEP);
-    return Math.min(
-        QPDF_VALIDATE_MAX_TIMEOUT_MS,
-        QPDF_VALIDATE_BASE_TIMEOUT_MS + extraSteps * QPDF_VALIDATE_TIMEOUT_STEP_MS,
-    );
-}
-
 async function tryStatPdfFile(filePath: string): Promise<TPdfFileStat | null> {
     try {
         return await stat(filePath);
     } catch {
         return null;
     }
-}
-
-
-function extractQpdfWarnings(text: string) {
-    return compact(text
-        .split(/\r?\n/u)
-        .map(line => line.trim()))
-        .filter(line => !/^checking /iu.test(line));
 }
 
 class PdfConformanceWorkerStartupError extends Error {
@@ -183,7 +161,6 @@ export async function analyzePdfConformanceFile(
     }
 }
 
-
 function throwIfValidationMustRefuse(error: unknown, signal?: AbortSignal) {
     if (getUnprovenNativeTerminationDetail(error) !== undefined || isAbortError(error)) {
         throw error;
@@ -236,15 +213,9 @@ export async function validatePdfFile(
     const validationTimeoutMs = resolveQpdfValidationTimeoutMs(fileStat?.size);
     try {
         const qpdf = getPdfNativeToolPaths().qpdf;
-        const result = await runNativeToolCommand(qpdf, [
-            '--check',
-            filePath,
-        ], {
+        const result = await runNativeToolCommand(qpdf, getQpdfCheckArgs(filePath), {
             timeoutMs: validationTimeoutMs,
-            allowedExitCodes: [
-                QPDF_EXIT_CODE_OK,
-                QPDF_EXIT_CODE_WARNINGS,
-            ],
+            allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
             commandLabel: QPDF_VALIDATE_COMMAND_LABEL,
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
@@ -285,22 +256,14 @@ async function validatePdfFileWithPageCount(
 ): Promise<IPdfValidationResult> {
     try {
         const qpdf = getPdfNativeToolPaths().qpdf;
-        const result = await runNativeToolCommand(qpdf, [
-            '--show-npages',
-            filePath,
-        ], {
+        const result = await runNativeToolCommand(qpdf, getQpdfPageCountArgs(filePath), {
             timeoutMs: QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS,
-            allowedExitCodes: [
-                QPDF_EXIT_CODE_OK,
-                QPDF_EXIT_CODE_WARNINGS,
-            ],
+            allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
             commandLabel,
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
-        const pageCountText = result.stdout.trim();
-        const pageCount = Number(pageCountText);
-        if (!/^[1-9]\d*$/u.test(pageCountText) || !Number.isSafeInteger(pageCount)) {
+        if (parseQpdfPageCount(result.stdout) === null) {
             return {
                 isValid: false,
                 tool: 'qpdf',

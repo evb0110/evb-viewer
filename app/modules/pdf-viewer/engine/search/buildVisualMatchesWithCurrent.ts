@@ -13,7 +13,10 @@ import {
 } from '@contracts/search';
 import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
 import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
-import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import {
+    withoutGeneratedSeparators,
+    type IHighlightMatchRange,
+} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
 export interface IVisualSearchMatch {
     start: number;
@@ -134,9 +137,10 @@ export async function reconcileVisualMatches(
     signal = new AbortController().signal,
 ): Promise<IVisualSearchMatch[]> {
     if (pageMatches.matches.length === 0) return [];
-    const contiguous = assembleSearchablePageText([{text: layerText}]);
+    const contiguous = withoutGeneratedSeparators(assembledLayerText);
     if (!pageMatches.searchQuery || pageMatches.pageText === contiguous.text || pageMatches.pageText === assembledLayerText.text) {
-        return buildVisualMatches(pageMatches, layerText, assembledLayerText);
+        // Backend text without the generated separators maps through that assembly.
+        return buildVisualMatches(pageMatches, layerText, pageMatches.pageText === contiguous.text ? contiguous : assembledLayerText);
     }
     const ordinals = pageMatches.matches.map((match, index) => match.pageMatchIndex ?? index);
     const firstOrdinal = Math.min(...ordinals);

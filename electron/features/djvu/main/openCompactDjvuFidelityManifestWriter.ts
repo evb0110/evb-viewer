@@ -7,28 +7,6 @@ import {
 import { join } from 'node:path';
 import type { TDjvuCompactFidelityPreset } from '@contracts/djvuConversionPolicy';
 
-const COMPACT_FIDELITY = {
-    small: {
-        backgroundQuality: 70,
-        photoQuality: 75,
-        ppiCap: 180,
-    },
-    balanced: {
-        backgroundQuality: 80,
-        photoQuality: 85,
-        ppiCap: 300,
-    },
-    archival: {
-        backgroundQuality: 95,
-        photoQuality: 95,
-        ppiCap: 1200,
-    },
-} as const;
-
-export function getCompactDjvuFidelity(preset: TDjvuCompactFidelityPreset | undefined) {
-    return COMPACT_FIDELITY[preset ?? 'balanced'];
-}
-
 interface ICompactDjvuFidelityPage {
     pageNumber: number;
     kind: string;

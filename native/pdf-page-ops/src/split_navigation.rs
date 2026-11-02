@@ -147,6 +147,39 @@ pub(crate) fn rebind_retained_destinations(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
+    let source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
+    let rebind = rebind_retained_destinations_in(&mut incremental, source, instructions)?;
+    if rebind.accessibility_tags_removed {
+        println!("{}", serde_json::json!({"accessibilityTagsRemoved": true}));
+    }
+    if !rebind.appends_revision {
+        return Ok(());
+    }
+    let revision_bytes = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    write_incremental_revision(
+        output_path,
+        &incremental,
+        &revision_bytes,
+        &expected_object_ids,
+    )
+}
+
+/// What the final overlay pass changed on top of the copied text layers.
+pub(crate) struct RetainedDestinationRebind {
+    /// Whether the revision holds anything; an empty one is not appended.
+    pub(crate) appends_revision: bool,
+    /// The source's structure tree does not survive assembly.
+    pub(crate) accessibility_tags_removed: bool,
+}
+
+/// Prepares the revision that rebinds retained destinations, restores the
+/// source catalog and stamps provenance over the staged output.
+pub(crate) fn rebind_retained_destinations_in(
+    incremental: &mut IncrementalDocument,
+    source: Document,
+    instructions: &TextLayerFile,
+) -> Result<RetainedDestinationRebind> {
     let output = incremental.get_prev_documents();
     let pages = output_plan_pages(output, instructions)?;
     let remap = split_destination_mapper(output, &pages);
@@ -181,10 +214,14 @@ pub(crate) fn rebind_retained_destinations(
         }
     }
     drop(remap);
-    let restored = restore_source_catalog(&mut incremental, source_path, instructions, qpdf_path)?;
+    let accessibility_tags_removed = source.catalog()?.has(b"StructTreeRoot");
+    let restored = restore_source_catalog(incremental, source, instructions)?;
     let stamp = instructions.provenance_stamp_hex.as_deref();
     if rebound.is_empty() && !restored && stamp.is_none() {
-        return Ok(());
+        return Ok(RetainedDestinationRebind {
+            appends_revision: false,
+            accessibility_tags_removed,
+        });
     }
     for (annotation_id, annotation) in rebound {
         if let Ok(current) = incremental.new_document.get_dictionary_mut(annotation_id) {
@@ -200,17 +237,13 @@ pub(crate) fn rebind_retained_destinations(
         }
     }
     if let Some(stamp) = stamp {
-        stamp_document_provenance(&mut incremental, stamp);
+        stamp_document_provenance(incremental, stamp);
     }
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
-    let revision_bytes = build_incremental_revision(&mut incremental)?;
-    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-    write_incremental_revision(
-        output_path,
-        &incremental,
-        &revision_bytes,
-        &expected_object_ids,
-    )
+    Ok(RetainedDestinationRebind {
+        appends_revision: true,
+        accessibility_tags_removed,
+    })
 }
 
 /// Records the run's stamp in this revision's Info, keeping the other Info
@@ -244,20 +277,15 @@ fn stamp_document_provenance(incremental: &mut IncrementalDocument, stamp: &str)
 }
 
 /// Rebuild navigation once against the final page tree, after qpdf interleaves
-/// preserved pages and raster replacements. Structural loading bounds both
-/// large sources and outputs without reading their image stream bodies.
+/// preserved pages and raster replacements. The caller supplies the loaded
+/// source and output documents.
 fn restore_source_catalog(
     output: &mut IncrementalDocument,
-    source_path: &Path,
+    mut source: Document,
     instructions: &TextLayerFile,
-    qpdf_path: Option<&Path>,
 ) -> Result<bool> {
     let previous = &output.previous_document;
-    let mut source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
     let output_pages = output_plan_pages(previous, instructions)?;
-    if source.catalog()?.has(b"StructTreeRoot") {
-        println!("{}", serde_json::json!({"accessibilityTagsRemoved": true}));
-    }
     let annotations =
         rebind_output_threads(&source, previous, &mut output.new_document, &output_pages)?;
     let resolver = PageTreeResolver::new(&source)?;

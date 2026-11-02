@@ -10,14 +10,18 @@ import { deleteAnnotationById } from '@app/modules/workspace-shell/annotations/d
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    debug: vi.fn(),
-    diagnostic: vi.fn(),
-    diagnosticThrottled: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        debug: vi.fn(),
+        diagnostic: vi.fn(),
+        diagnosticThrottled: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    },
+    // The browser settings capability installs its log sink when it loads.
+    setBrowserLogSink: vi.fn(),
+}));
 
 function createComment(overrides?: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {

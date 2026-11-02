@@ -2,30 +2,27 @@ import type {
     INativeScanCleanupManifestV3,
     INativeScanCleanupOutputV3,
     IScanCleanupDocumentCanvasPlan,
-    IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     TNativeScanCleanupOperation,
     TNativeScanCleanupRenderMode,
     TScanCleanupCanvasScope,
-    TScanCleanupLayoutClassification,
-    TScanCleanupOutputMode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
     SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
 } from '@contracts/scan-cleanup/stagedInputWindow';
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import {
-    resolveEffectiveScanCleanupOptions,
-    resolveScanCleanupPipelineMaxPixels,
-    SCAN_CLEANUP_MAX_DIMENSION_PX,
-    type IEffectiveNativeScanCleanupOptionsV3,
-    type IScanCleanupExperimentalOptions,
-    type TScanCleanupQualityPath,
+import type {
+    IScanCleanupExperimentalOptions,
+    TScanCleanupQualityPath,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {
+    clampNativeLimit,
+    resolveScanCleanupManifestPageOptions,
+    serializeScanCleanupManifestDocumentPrior,
+    type IScanCleanupManifestPageFacts,
+} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     assertScanCleanupPathWithinCanonicalRoot,
@@ -35,34 +32,17 @@ import {
     type IScanCleanupPathResolutionCache,
 } from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 
-export interface IScanCleanupManifestPageInput {
+export {serializeNativeScanCleanupOptions} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
+
+export interface IScanCleanupManifestPageInput extends IScanCleanupManifestPageFacts {
     inputPath: string;
     analysisInputPath?: string;
     analysisDpi?: number;
     trustedForegroundMaskPath?: string;
     trustedMrcBackgroundPath?: string;
-    pageNumber: number;
-    dpi: number;
-    sourceDpi?: number;
-    sourceHasBilevelLayer?: boolean;
-    sourceBackgroundDpi?: number;
-    requestedRenderDpi?: number;
-    renderCrop?: INativeScanCleanupManifestV3['pages'][number]['options']['renderCrop'];
-    resolvedOutputMode?: TScanCleanupOutputMode;
-    preferSoftAlphaForeground?: boolean;
-    resolvedTextToneDiagnostics?: INativeScanCleanupManifestV3['pages'][number]['options']['resolvedTextToneDiagnostics'];
-    observedLayout?: TScanCleanupLayoutClassification;
-    automaticSplit?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSplit'];
-    automaticContentBoxes?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticContentBoxes'];
-    automaticSkewDegrees?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSkewDegrees'];
-    placementAnchors?: INativeScanCleanupManifestV3['pages'][number]['options']['placementAnchors'];
-    /** Trusted replay values supplied by a core consumer such as the corpus harness. */
-    resolvedOptions?: Partial<IEffectiveNativeScanCleanupOptionsV3>;
     pageMetadataPath: string;
     outputs?: INativeScanCleanupOutputV3[];
-    documentPrior?: IScanCleanupDocumentPrior;
     detailRenderPlan?: INativeScanCleanupManifestV3['pages'][number]['detailRenderPlan'];
-    pdfPage?: INativeScanCleanupManifestV3['pages'][number]['pdfPage'];
 }
 
 export interface IBuildNativeScanCleanupManifestInput {
@@ -97,13 +77,6 @@ export interface IBuildNativeScanCleanupManifestInput {
  * so the root is required rather than optional.
  */
 export interface IBuildRunnableNativeScanCleanupManifestInput extends IBuildNativeScanCleanupManifestInput {allowedPathRoot: string;}
-
-function clampNativeLimit(value: unknown, maximum: number, label: string) {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-        throw new ScanCleanupContractError(`${label} must be a number`);
-    }
-    return Math.min(maximum, Math.max(1, Math.floor(value)));
-}
 
 type TManifestPage = INativeScanCleanupManifestV3['pages'][number];
 
@@ -325,23 +298,6 @@ function assertManifestOutputContract(
     }
 }
 
-export function serializeNativeScanCleanupOptions(
-    options: IEffectiveNativeScanCleanupOptionsV3,
-): INativeScanCleanupManifestV3['pages'][number]['options'] {
-    const {
-        despeckleLevel,
-        manualZones,
-        ...baselineOptions
-    } = options;
-    const derivedDespeckleLevel = options.despeckle ? 'normal' : 'off';
-    const hasManualZones = manualZones.picture.length > 0 || manualZones.fill.length > 0;
-    return {
-        ...baselineOptions,
-        ...(despeckleLevel === derivedDespeckleLevel ? {} : {despeckleLevel}),
-        ...(hasManualZones ? {manualZones} : {}),
-    };
-}
-
 function assembleNativeScanCleanupManifest({
     operation,
     analysisPurpose,
@@ -405,81 +361,14 @@ function assembleNativeScanCleanupManifest({
             if (allowedRoot !== null && pathResolutionCache !== null) {
                 assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache);
             }
-            const pageOverride = getScanCleanupPageOverride(
-                options.pageOverrides,
-                requirePageNumber(page.pageNumber),
-                options.pageOverrideDefaults,
-                options.marginsMm,
-            );
-            // A page plan describes the page, not one output mode: it is
-            // analyzed as for automatic mode, so switching the output mode never
-            // leaves a run with plans measured under another.
-            const pagePlan = analysisPurpose === 'page-plan';
-            const {
-                outputModeOverride: _outputModeOverride,
-                ...automaticPageOverride
-            } = pageOverride;
-            const resolvedOutputMode = pagePlan ? undefined : page.resolvedOutputMode;
-            const resolvedOptions = {
-                ...resolveEffectiveScanCleanupOptions({
-                    options: pagePlan ? {
-                        ...options,
-                        outputMode: 'auto',
-                    } : options,
-                    pageOverride: pagePlan ? automaticPageOverride : pageOverride,
-                    dpi: page.dpi,
-                    ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
-                    ...(page.sourceHasBilevelLayer === undefined
-                        ? {}
-                        : {sourceHasBilevelLayer: page.sourceHasBilevelLayer}),
-                    ...(page.sourceBackgroundDpi === undefined
-                        ? {}
-                        : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
-                    ...(page.requestedRenderDpi === undefined
-                        ? {}
-                        : {requestedRenderDpi: page.requestedRenderDpi}),
-                    ...(page.renderCrop === undefined ? {} : {renderCrop: page.renderCrop}),
-                    ...(resolvedOutputMode === undefined ? {} : {resolvedOutputMode}),
-                    ...(page.preferSoftAlphaForeground === undefined
-                        ? {}
-                        : {preferSoftAlphaForeground: page.preferSoftAlphaForeground}),
-                    ...(page.resolvedTextToneDiagnostics === undefined
-                        ? {}
-                        : {resolvedTextToneDiagnostics: page.resolvedTextToneDiagnostics}),
-                    ...(page.observedLayout === undefined
-                        ? {}
-                        : {observedLayout: page.observedLayout}),
-                    ...(page.automaticSplit === undefined
-                        ? {}
-                        : {automaticSplit: page.automaticSplit}),
-                    ...(page.automaticContentBoxes === undefined
-                        ? {}
-                        : {automaticContentBoxes: page.automaticContentBoxes}),
-                    ...(page.automaticSkewDegrees === undefined
-                        ? {}
-                        : {automaticSkewDegrees: page.automaticSkewDegrees}),
-                    ...(page.placementAnchors === undefined
-                        ? {}
-                        : {placementAnchors: page.placementAnchors}),
-                    qualityPath,
-                    ...(experimental === undefined ? {} : {experimental}),
-                }),
-                ...(page.resolvedOptions ?? {}),
-                // Page-plan analysis owns automatic evidence. A manual crop is
-                // a render override and must neither trigger detection again nor
-                // be echoed back as the newly detected automatic content box. An
-                // exclusion only decides whether the page reaches the output, so
-                // an excluded page is still analyzed: its evidence stays current
-                // when it is included again.
-                ...(analysisPurpose === 'page-plan' ? {
-                    manualContentBoxes: {},
-                    excluded: false,
-                } : {}),
-            };
-            const maxPixels = resolveScanCleanupPipelineMaxPixels(
-                resolvedOptions.outputMode === 'auto' ? undefined : resolvedOptions.outputMode,
-                rasterMaxPixels,
-            );
+            const pageOptions = resolveScanCleanupManifestPageOptions({
+                options,
+                ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
+                qualityPath,
+                ...(experimental === undefined ? {} : {experimental}),
+                ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
+                page,
+            });
             return {
                 inputPath: page.inputPath,
                 ...(page.analysisInputPath === undefined
@@ -496,32 +385,11 @@ function assembleNativeScanCleanupManifest({
                     : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
                 sourcePageIndex: page.pageNumber - 1,
                 pageMetadataPath: page.pageMetadataPath,
-                options: serializeNativeScanCleanupOptions({
-                    ...resolvedOptions,
-                    maxPixels: clampNativeLimit(resolvedOptions.maxPixels, maxPixels, 'maxPixels'),
-                    maxDimensionPx: clampNativeLimit(
-                        resolvedOptions.maxDimensionPx,
-                        SCAN_CLEANUP_MAX_DIMENSION_PX,
-                        'maxDimensionPx',
-                    ),
-                }),
+                options: pageOptions,
                 outputs: page.outputs ?? [],
                 ...(page.documentPrior == null
                     ? {}
-                    : {documentPrior: {
-                        dominantLayout: page.documentPrior.dominantLayout,
-                        ...(page.documentPrior.cutterRatioMedian === undefined
-                            ? {}
-                            : {cutterRatioMedian: page.documentPrior.cutterRatioMedian}),
-                        clusterDims: page.documentPrior.clusterDims,
-                        agreementStrength: page.documentPrior.agreementStrength,
-                        ...(page.documentPrior.strokeWidthMedianPx === undefined
-                            ? {}
-                            : {strokeWidthMedianPx: page.documentPrior.strokeWidthMedianPx}),
-                        ...(page.documentPrior.xHeightMedianPx === undefined
-                            ? {}
-                            : {xHeightMedianPx: page.documentPrior.xHeightMedianPx}),
-                    }}),
+                    : {documentPrior: serializeScanCleanupManifestDocumentPrior(page.documentPrior)}),
                 ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
                 ...(page.pdfPage === undefined ? {} : {pdfPage: page.pdfPage}),
             };

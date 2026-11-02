@@ -12,6 +12,17 @@ export const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const pdfBinaryDecoder = new TextDecoder('latin1');
 
 type TPdfConformanceFallbackOverrides = Partial<Omit<TPdfConformanceProfileBase, 'canIncrementalSave'>>;
+type TPdfStructuralConformanceFacts = Pick<
+    TPdfConformanceProfileBase,
+    'isSigned' | 'isEncrypted' | 'isTagged' | 'hasAcroForm' | 'hasXfa'
+>;
+type TPdfConformanceMarkerEvidence = Pick<TPdfConformanceProfileBase, 'isSigned' | 'isEncrypted' | 'pdfaLevel'>;
+
+const NO_PDF_CONFORMANCE_MARKER_EVIDENCE: TPdfConformanceMarkerEvidence = {
+    isSigned: false,
+    isEncrypted: false,
+    pdfaLevel: null,
+};
 
 export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     const partMatch = text.match(PDFA_PART_PATTERN);
@@ -46,6 +57,33 @@ export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
         hasXfa: false,
         canIncrementalSave: true,
         saveRestrictions: [],
+    };
+}
+
+/**
+ * The conformance policy for a document whose structure pdf-page-ops read.
+ * The structure decides tagging, forms and XFA. Byte markers can only add a
+ * signature or encryption the structure did not show, and only they carry the
+ * PDF/A claim; a caller that wants the structural answer alone omits them.
+ */
+export function createPdfConformanceProfile(
+    structuralFacts: TPdfStructuralConformanceFacts,
+    markerEvidence: TPdfConformanceMarkerEvidence = NO_PDF_CONFORMANCE_MARKER_EVIDENCE,
+): IPdfConformanceProfile {
+    const isEncrypted = structuralFacts.isEncrypted || markerEvidence.isEncrypted;
+    const profileBase = {
+        isSigned: structuralFacts.isSigned || markerEvidence.isSigned,
+        isEncrypted,
+        isTagged: structuralFacts.isTagged,
+        pdfaLevel: markerEvidence.pdfaLevel,
+        hasAcroForm: structuralFacts.hasAcroForm,
+        hasXfa: structuralFacts.hasXfa,
+        canIncrementalSave: !(isEncrypted || structuralFacts.hasXfa),
+    };
+
+    return {
+        ...profileBase,
+        saveRestrictions: buildPdfSaveRestrictions(profileBase),
     };
 }
 
@@ -87,4 +125,37 @@ export function buildPdfSaveRestrictions(profile: TPdfConformanceProfileBase) {
     }
 
     return restrictions;
+}
+
+export const PDF_LOSSLESS_OPTIMIZE_MIN_BYTES = 64 * 1024 * 1024;
+export const PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
+export const PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES = 4 * 1024;
+
+export function getPdfLosslessOptimizationSkipReason(profile: IPdfConformanceProfile): string | null {
+    if (profile.isSigned) return 'signed PDF';
+    if (profile.isEncrypted) return 'encrypted PDF';
+    if (profile.pdfaLevel) return `${profile.pdfaLevel} PDF`;
+    if (profile.hasXfa) return 'XFA PDF';
+    return null;
+}
+
+/** Bounded text windows, including markers crossing a window boundary. */
+export function scanPdfMarkerEvidence(data: Uint8Array): TPdfConformanceMarkerEvidence {
+    let isSigned = false;
+    let isEncrypted = false;
+    let pdfaLevel: TPdfaLevel | null = null;
+    for (let offset = 0; offset < data.byteLength;) {
+        const end = Math.min(data.byteLength, offset + PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES);
+        const text = pdfBinaryDecoder.decode(data.subarray(offset, end));
+        isSigned ||= hasPdfSignatureMarkersInPdfText(text);
+        isEncrypted ||= hasPdfEncryptMarkersInPdfText(text);
+        pdfaLevel ??= detectPdfaLevelFromPdfText(text);
+        if (end === data.byteLength) break;
+        offset = Math.max(offset + 1, end - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
+    }
+    return {
+        isSigned,
+        isEncrypted,
+        pdfaLevel,
+    };
 }

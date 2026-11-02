@@ -2,11 +2,18 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
-import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
-import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
+import {
+    extractBrowserSearchPageData,
+    type IBrowserSearchPageData,
+} from '@app/platform/browser-api/extractBrowserSearchPageText';
+import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
+import { createEvbLayerTextReader } from '@app/platform/browser-api/browserOcrTextCatalog';
 
-interface IExtractBrowserSearchDocumentTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
+interface IExtractBrowserSearchDocumentTextOptions {
+    shouldContinue?: () => Promise<boolean> | boolean;
+    /** Aborts work the extraction started outside its own steps. */
+    signal?: AbortSignal;
+}
 
 export interface IExtractedBrowserSearchPage extends IBrowserSearchPageData {pageNumber: number;}
 
@@ -20,16 +27,13 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
 
 export async function loadBrowserSearchDocument(pdfPath: string) {
     const pdfDocument = await loadBrowserPdfjsDocument(pdfPath);
-    try {
-        validateBrowserSearchPageCount(pdfDocument.numPages);
-    } catch (error) {
-        await pdfDocument.loadingTask.destroy();
-        throw error;
-    }
+    // PDF.js gives right-to-left OCR words one glyph per item, so search reads
+    // those pages' EVB OCR lines, as desktop and the text catalog do.
+    const readEvbLayerText = createEvbLayerTextReader(pdfPath, pdfDocument.numPages);
     return {
         pageCount: pdfDocument.numPages,
         extractPage: (pageNumber: number, options: IExtractBrowserSearchDocumentTextOptions = {}) =>
-            extractBrowserSearchDocumentPage(pdfDocument, pageNumber, options),
+            extractBrowserSearchDocumentPage(pdfDocument, pageNumber, readEvbLayerText, options),
         destroy: () => pdfDocument.loadingTask.destroy(),
     };
 }
@@ -37,6 +41,7 @@ export async function loadBrowserSearchDocument(pdfPath: string) {
 async function extractBrowserSearchDocumentPage(
     pdfDocument: IPdfDocument,
     pageNumber: number,
+    readEvbLayerText: (pageNumber: number, signal?: AbortSignal) => Promise<string | undefined>,
     options: IExtractBrowserSearchDocumentTextOptions = {},
 ): Promise<IExtractedBrowserSearchPage> {
     await throwIfBrowserSearchCanceled(options.shouldContinue);
@@ -48,9 +53,14 @@ async function extractBrowserSearchDocumentPage(
         options.shouldContinue ? {shouldContinue: options.shouldContinue} : {},
     );
     await throwIfBrowserSearchCanceled(options.shouldContinue);
+    const evbText = hasRightToLeftSearchText(pageData.text)
+        ? await readEvbLayerText(pageNumber, options.signal)
+        : undefined;
+    await throwIfBrowserSearchCanceled(options.shouldContinue);
     return {
         pageNumber,
         ...pageData,
+        ...(evbText === undefined ? {} : {text: evbText}),
     };
 }
 

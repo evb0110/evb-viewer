@@ -4,10 +4,8 @@ import {
     it,
 } from 'vitest';
 import {
-    BROWSER_DJVU_CONVERSION_MAX_PAGES,
     estimateDjvuPdfConversionSource,
     evaluateDjvuPdfConversionPolicy,
-    resolveBrowserDjvuConversionPreflight,
     resolveDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 
@@ -44,50 +42,6 @@ describe('djvuConversionPolicy', () => {
         const source = estimateDjvuPdfConversionSource(metrics);
         expect(source.recommendedSubsample).toBe(1);
         expect(evaluateDjvuPdfConversionPolicy(source, 1).isAllowed).toBe(true);
-    });
-
-    it('allows browser conversion at the page-count limit and blocks above it', () => {
-        const pageSize = {
-            width: 2550,
-            height: 3300,
-        };
-
-        expect(resolveBrowserDjvuConversionPreflight(
-            Array.from({length: BROWSER_DJVU_CONVERSION_MAX_PAGES}, () => pageSize),
-        )).toMatchObject({
-            allowed: true,
-            pageCount: 500,
-        });
-        expect(resolveBrowserDjvuConversionPreflight(
-            Array.from({length: BROWSER_DJVU_CONVERSION_MAX_PAGES + 1}, () => pageSize),
-        )).toMatchObject({
-            allowed: false,
-            reason: 'page-count',
-            pageCount: 501,
-        });
-    });
-
-    it('blocks browser conversion for oversized pages', () => {
-        expect(resolveBrowserDjvuConversionPreflight([{
-            width: 10_000,
-            height: 9_000,
-        }])).toMatchObject({
-            allowed: false,
-            reason: 'page-pixels',
-            observedMaxPagePixels: 90_000_000,
-        });
-    });
-
-    it('checks the page-count limit from pageCount alone when page sizes are unavailable', () => {
-        expect(resolveBrowserDjvuConversionPreflight([], 564)).toMatchObject({
-            allowed: false,
-            reason: 'page-count',
-            pageCount: 564,
-        });
-        expect(resolveBrowserDjvuConversionPreflight([], 120)).toMatchObject({
-            allowed: true,
-            pageCount: 120,
-        });
     });
 
     it('resolves Stage A PDF export strategies without changing default direct conversion', () => {

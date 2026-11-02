@@ -5,7 +5,7 @@ pub(crate) use evb_native_support::pdf_catalog::{
 use serde::Serialize;
 
 pub(super) const CATALOG_WALK_DEPTH_LIMIT: usize = 256;
-const CATALOG_WALK_NODE_LIMIT: usize = 100_000;
+pub(crate) const CATALOG_WALK_NODE_LIMIT: usize = 100_000;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

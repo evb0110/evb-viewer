@@ -637,6 +637,45 @@ fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
 }
 
 #[test]
+fn overlay_text_normalizes_the_greek_micro_sign_in_extracted_text() {
+    let source = path("greek-micro-source", "pdf");
+    let input = path("greek-micro-input", "pdf");
+    let output = path("greek-micro-output", "pdf");
+    let instructions = path("greek-micro-instructions", "json");
+    save_identity_text_source(
+        &source,
+        "\u{00b5}\u{03ad}\u{03c4}\u{03c1}\u{03bf}",
+        Some(Stream::new(dictionary! {}, FULL_RANGE_CMAP.to_vec())),
+    );
+    save_identity_overlay_target(&input, &instructions);
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"normalizeGreekMicroSign":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // Poppler reads the logical line's /ActualText, so it must carry Greek mu too.
+    let extracted = pdftotext_page(&output, 1, &[]);
+    assert!(extracted.status.success());
+    let extracted = String::from_utf8_lossy(&extracted.stdout);
+    assert!(
+        extracted.contains("\u{03bc}\u{03ad}\u{03c4}\u{03c1}\u{03bf}")
+            && !extracted.contains('\u{00b5}'),
+        "extracted text: {extracted}"
+    );
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
 fn overlay_text_treats_a_tounicode_cmap_past_the_stream_ceiling_as_unreadable() {
     let input = path("oversized-cmap-input", "pdf");
     let instructions = path("oversized-cmap-instructions", "json");

@@ -4,6 +4,7 @@ import {
     buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
+import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import {
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
@@ -124,8 +125,7 @@ export async function extractBrowserSearchPageData(
             // Operator-list glyphs are in paint order. For bidi text, use the
             // same PDF.js logical items as the rendered text layer and let its
             // existing range mapping supply geometry, including mixed runs.
-            if (hasUsableGeometry(pageData)
-                && !/[\u0590-\u08AC\uFB1D-\uFDFF\uFE70-\uFEFF]/u.test(pageData.text)) {
+            if (hasUsableGeometry(pageData) && !hasRightToLeftSearchText(pageData.text)) {
                 return pageData;
             }
         }

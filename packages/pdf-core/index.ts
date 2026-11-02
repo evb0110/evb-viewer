@@ -3,6 +3,7 @@ export {
     containsPdfEncryptMarker,
     createConservativePdfConformanceFallbackProfile,
     createDefaultPdfConformanceProfile,
+    createPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,

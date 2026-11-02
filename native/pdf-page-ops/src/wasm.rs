@@ -18,19 +18,18 @@ use crate::{
     ocr_text_visibility_bytes, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
     rotate_browser_pdf_bytes, serialize_annotation_parse, validate_native_mutations,
     NativeMutationBytesResult, PageGeometry, PageMutationBytes, PdfRect, Result,
-    PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    PAGE_OP_WASM_MAX_BUFFER_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
 
-const MAX_DOCUMENT_LIST_PAGES: usize = 500;
 const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
 const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
-const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
+const MAX_REQUEST_BYTES: usize = PAGE_OP_WASM_MAX_BUFFER_BYTES;
 const DEFAULT_WASM_MUTATION_MODIFIED_AT: &str = "D:19700101000000Z";
 
 thread_local! {
-    static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
+    pub(crate) static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
@@ -72,7 +71,7 @@ pub unsafe extern "C" fn evb_pdf_page_ops_run(
     }
     let request = slice::from_raw_parts(request_pointer, request_len);
     match std::panic::catch_unwind(|| run_request(request)) {
-        Ok(Ok(output)) if output.len() <= PAGE_OP_WASM_MAX_OUTPUT_BYTES => {
+        Ok(Ok(output)) if output.len() <= PAGE_OP_WASM_MAX_BUFFER_BYTES => {
             LAST_OUTPUT.with(|slot| {
                 *slot.borrow_mut() = output;
             });
@@ -135,21 +134,8 @@ fn clear_last_result() {
 }
 
 fn run_request(request: &[u8]) -> Result<Vec<u8>> {
-    if request.len() >= OCR_TEXT_LAYER_HEADER.version + U32_BYTES
-        && &request[OCR_TEXT_LAYER_HEADER.magic..OCR_TEXT_LAYER_HEADER.version] == REQUEST_MAGIC
-        && read_u32_at(request, OCR_TEXT_LAYER_HEADER.version)? == REQUEST_VERSION_OCR_TEXT_LAYER
-    {
-        let parsed = parse_ocr_text_layer_request(request)?;
-        let increment =
-            ocr_text_layer_increment_bytes(parsed.data, parsed.instructions, &parsed.page_pdfs)?;
-        return encode_mutation_kind(
-            RESPONSE_INCREMENT,
-            PageMutationBytes {
-                data: increment.data,
-                page_count: increment.page_count,
-            },
-            PAGE_OP_WASM_MAX_OUTPUT_BYTES,
-        );
+    if is_instructed_request(request) {
+        return run_instructed_request(parse_instructed_request(request)?);
     }
     if request.len() >= DOCUMENT_LIST_HEADER.version + U32_BYTES
         && &request[DOCUMENT_LIST_HEADER.magic..DOCUMENT_LIST_HEADER.version] == REQUEST_MAGIC
@@ -221,7 +207,7 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             let bytes = serialize_annotation_parse(
                 &document,
                 "D:19700101000000Z",
-                PAGE_OP_WASM_MAX_OUTPUT_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
+                PAGE_OP_WASM_MAX_BUFFER_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
             )?;
             encode_bytes(RESPONSE_ANNOTATION_PARSE, bytes)
         }
@@ -254,6 +240,10 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 ocr_text_visibility_bytes(parsed.data, &parsed.pages, with_evb_ocr_text)?,
             )
         }
+        OP_INSPECT_SCAN_CLEANUP_PDF => encode_bytes(
+            RESPONSE_JSON,
+            crate::inspect_scan_cleanup_pdf_bytes(parsed.data, &parsed.pages)?,
+        ),
         OP_SAVE_MUTATIONS => {
             let (mut mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
             if !parsed.original_appearance_source.is_empty() {
@@ -268,6 +258,51 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             parsed.operation
         )
         .into()),
+    }
+}
+
+/// The writers whose desktop commands take a JSON instructions file. Each
+/// reuses its path wrapper's core on the in-memory document, as the path
+/// wrapper does for an input below the 512 MiB byte budget. Above that budget
+/// desktop reads the input structurally through qpdf and appends a revision;
+/// the browser has no qpdf, and its request ceiling keeps every input on the
+/// eager path, so that branch has no browser counterpart.
+fn run_instructed_request(parsed: ParsedInstructedRequest<'_>) -> Result<Vec<u8>> {
+    let ParsedInstructedRequest {
+        operation,
+        data,
+        instructions,
+        attachments,
+    } = parsed;
+    match operation {
+        OP_OCR_TEXT_LAYER => {
+            let increment = ocr_text_layer_increment_bytes(data, instructions, &attachments)?;
+            encode_mutation_kind(
+                RESPONSE_INCREMENT,
+                PageMutationBytes {
+                    data: increment.data,
+                    page_count: increment.page_count,
+                },
+                PAGE_OP_WASM_MAX_BUFFER_BYTES,
+            )
+        }
+        OP_SPLIT_PAGES => encode_reported(
+            RESPONSE_REPORTED_PDF,
+            crate::split_pages_bytes(data, instructions)?,
+        ),
+        OP_OVERLAY_TEXT => encode_reported(
+            RESPONSE_REPORTED_PDF,
+            crate::overlay_text_bytes(data, attachments[0], instructions)?,
+        ),
+        OP_RECOMPRESS_IMAGES => encode_reported(
+            RESPONSE_REPORTED_INCREMENT,
+            crate::recompress_images_bytes(data, instructions)?,
+        ),
+        OP_REPLACE_PAGE_IMAGES => encode_reported(
+            RESPONSE_REPORTED_INCREMENT,
+            crate::replace_page_images_bytes(data, instructions, &attachments)?,
+        ),
+        _ => Err(format!("Unsupported page-op WASM instructed operation {operation}").into()),
     }
 }
 
@@ -286,7 +321,9 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         DOCUMENT_LIST_HEADER.document_count,
         "document count",
     )?;
-    if count == 0 || count > MAX_DOCUMENTS {
+    // Each document carries at least its length word, so the frame bounds the
+    // count before anything is reserved for it.
+    if count == 0 || count > request.len().saturating_sub(DOCUMENT_LIST_HEADER.bytes) / U32_BYTES {
         return Err("Invalid page-op WASM document count".into());
     }
     let mut offset = DOCUMENT_LIST_HEADER.bytes;
@@ -294,14 +331,6 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
     for _ in 0..count {
         let len = read_usize_le(request, &mut offset, "document length")?;
         documents.push(load_browser_pdf(take_bytes(request, &mut offset, len)?)?);
-    }
-    let total_pages = documents.iter().try_fold(0usize, |total, document| {
-        total
-            .checked_add(document.get_pages().len())
-            .ok_or("Browser page-op document page count overflow")
-    })?;
-    if total_pages > MAX_DOCUMENT_LIST_PAGES {
-        return Err("Browser page-op document list exceeds the 500-page limit".into());
     }
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM document-list request".into());
@@ -592,7 +621,7 @@ fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<
     let framed_len = NATIVE_MUTATION_RESPONSE_HEADER_BYTES
         .checked_add(payload_len)
         .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+    if framed_len > PAGE_OP_WASM_MAX_BUFFER_BYTES {
         return Err(page_op_output_limit());
     }
     let mut output = result.data;
@@ -621,7 +650,7 @@ fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<
 }
 
 fn encode_mutation(result: PageMutationBytes) -> Result<Vec<u8>> {
-    encode_mutation_with_limit(result, PAGE_OP_WASM_MAX_OUTPUT_BYTES)
+    encode_mutation_with_limit(result, PAGE_OP_WASM_MAX_BUFFER_BYTES)
 }
 
 fn mutation_frame_len(data_len: usize, max_output_bytes: usize) -> Result<usize> {
@@ -666,6 +695,33 @@ fn encode_mutation_kind(
     Ok(result.data)
 }
 
+fn encode_reported(kind: u32, result: crate::ReportedBytes) -> Result<Vec<u8>> {
+    let data_len = u32::try_from(result.data.len()).map_err(|_| page_op_output_limit())?;
+    let report_len = u32::try_from(result.report.len()).map_err(|_| page_op_output_limit())?;
+    let framed_len = REPORTED_HEADER
+        .bytes
+        .checked_add(result.data.len())
+        .and_then(|length| length.checked_add(result.report.len()))
+        .filter(|length| *length <= PAGE_OP_WASM_MAX_BUFFER_BYTES)
+        .ok_or_else(page_op_output_limit)?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(framed_len)
+        .map_err(|_| page_op_output_limit())?;
+    output.resize(REPORTED_HEADER.bytes, 0);
+    for (offset, value) in [
+        (REPORTED_HEADER.kind, kind),
+        (REPORTED_HEADER.page_count, result.page_count),
+        (REPORTED_HEADER.data_length, data_len),
+        (REPORTED_HEADER.report_length, report_len),
+    ] {
+        output[offset..offset + U32_BYTES].copy_from_slice(&value.to_le_bytes());
+    }
+    output.extend_from_slice(&result.data);
+    output.extend_from_slice(&result.report);
+    Ok(output)
+}
+
 fn encode_geometry(geometry: PageGeometry) -> Result<Vec<u8>> {
     let mut output = vec![0; GEOMETRY_HEADER.bytes];
     output[GEOMETRY_HEADER.kind..GEOMETRY_HEADER.kind + U32_BYTES]
@@ -695,6 +751,36 @@ fn write_rect(output: &mut [u8], offset: usize, rect: PdfRect) {
 fn write_u32_le(output: &mut Vec<u8>, value: u32) {
     output.extend_from_slice(&value.to_le_bytes());
 }
+
+#[cfg(test)]
+fn instructed_request(
+    operation: u32,
+    data: &[u8],
+    instructions: &str,
+    attachments: &[&[u8]],
+) -> Vec<u8> {
+    let mut request = REQUEST_MAGIC.to_vec();
+    for value in [
+        REQUEST_VERSION_INSTRUCTED,
+        operation,
+        data.len() as u32,
+        instructions.len() as u32,
+        attachments.len() as u32,
+    ] {
+        write_u32_le(&mut request, value);
+    }
+    request.extend_from_slice(data);
+    request.extend_from_slice(instructions.as_bytes());
+    for attachment in attachments {
+        write_u32_le(&mut request, attachment.len() as u32);
+        request.extend_from_slice(attachment);
+    }
+    request
+}
+
+#[cfg(test)]
+#[path = "tests/wasm_writers.rs"]
+mod writer_parity;
 
 #[cfg(test)]
 fn write_f64_le(output: &mut Vec<u8>, value: f64) {
@@ -868,23 +954,7 @@ mod tests {
     }
 
     fn ocr_text_layer_request(data: &[u8], instructions: &str, page_pdfs: &[&[u8]]) -> Vec<u8> {
-        let mut request = REQUEST_MAGIC.to_vec();
-        for value in [
-            REQUEST_VERSION_OCR_TEXT_LAYER,
-            OP_OCR_TEXT_LAYER,
-            data.len() as u32,
-            instructions.len() as u32,
-            page_pdfs.len() as u32,
-        ] {
-            write_u32_le(&mut request, value);
-        }
-        request.extend_from_slice(data);
-        request.extend_from_slice(instructions.as_bytes());
-        for page in page_pdfs {
-            write_u32_le(&mut request, page.len() as u32);
-            request.extend_from_slice(page);
-        }
-        request
+        instructed_request(OP_OCR_TEXT_LAYER, data, instructions, page_pdfs)
     }
 
     /// Page 1's EVB OCR text, as the visibility report reads it back.
@@ -986,7 +1056,7 @@ mod tests {
             .contains("Trailing bytes"));
         let instructions = r#"{"pages":[{"pageNumber":1,"source":0}]}"#;
         let mut truncated = ocr_text_layer_request(&base, instructions, &[&page]);
-        truncated.truncate(OCR_TEXT_LAYER_HEADER.bytes + base.len() + instructions.len() + 2);
+        truncated.truncate(INSTRUCTED_REQUEST_HEADER.bytes + base.len() + instructions.len() + 2);
         assert!(run_request(&truncated)
             .unwrap_err()
             .to_string()
@@ -995,7 +1065,7 @@ mod tests {
         assert!(run_request(&no_pages)
             .unwrap_err()
             .to_string()
-            .contains("page PDF count"));
+            .contains("attachment count"));
     }
 
     #[test]

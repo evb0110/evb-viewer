@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {parseBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {parseBrowserPdfCombineWorkerRequest} from '@contracts/browserPdfCombineWorker';
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
@@ -468,6 +468,33 @@ describe('browserPdfCombineWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalled();
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
+    it('ends a signaled combine at its explicit deadline and ignores a late result', async () => {
+        vi.useFakeTimers();
+        const workers: FakeWorker[] = [];
+        FakeWorker.responder = worker => workers.push(worker);
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        const pending = runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.pdf',
+            data: new Uint8Array([1]),
+        }]}, new AbortController().signal, {timeoutMs: 300_000});
+        const outcome = pending.then(() => 'resolved', (error: unknown) => error);
+
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(terminateSpy).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(await outcome).toMatchObject({message: expect.stringContaining('timed out after 300000ms')});
+        expect(terminateSpy).toHaveBeenCalled();
+        workers[0]?.dispatchMessage({
+            id: 1,
+            type: 'combinePdfs',
+            ok: true,
+            data: new TextEncoder().encode('%PDF-1.7'),
+        });
+        expect(await outcome).not.toBe('resolved');
+    });
+
     it('bounds combines and cancels waiting input without transferring its bytes', async () => {
         const posted: Array<{
             worker: FakeWorker;

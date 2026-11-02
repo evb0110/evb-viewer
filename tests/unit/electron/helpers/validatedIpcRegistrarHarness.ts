@@ -214,10 +214,6 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         new Uint8Array([1]),
     ],
-    'file:writeDocx': [
-        '/tmp/fixture.docx',
-        new Uint8Array([1]),
-    ],
     'file:replaceWorkingCopyFromPath': [
         '/tmp/source.pdf',
         '/tmp/target.pdf',

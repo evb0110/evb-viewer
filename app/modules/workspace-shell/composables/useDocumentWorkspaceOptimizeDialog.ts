@@ -78,37 +78,43 @@ export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IU
             percent: 0,
         };
 
-        const reported: {result: IPdfOptimizeResult | null;} = {result: null};
-        const success = await handleOptimizePdfAsCopy(options, requestId, (result) => {
-            reported.result = result;
-        });
-        const result = reported.result;
-        const sizes = result === null ? undefined : describeSizes(result);
-        if (success) {
-            optimizeDialogOpen.value = false;
-            toast.add({
-                color: 'success',
-                title: t('optimizePdf.successTitle'),
-                ...(sizes ? {description: t('optimizePdf.savedDescription', sizes)} : {}),
+        // A picker or preflight that fails still ends the request.
+        try {
+            const reported: {result: IPdfOptimizeResult | null;} = {result: null};
+            const success = await handleOptimizePdfAsCopy(options, requestId, (result) => {
+                reported.result = result;
             });
-        } else {
-            // A copy that would not be smaller is not written; the dialog says
-            // so and stays open for another preset. Other refusals were already
-            // reported by the save surface.
-            optimizeProgress.value = null;
-            if (result?.outcome === 'not-smaller') {
-                // With no page re-encoded, the candidate is a structural
-                // rewrite of the same content; its size says nothing useful.
-                optimizeNotice.value = {
-                    preset: options.preset,
-                    message: result.optimizedPages && sizes
-                        ? t('optimizePdf.notSmaller', sizes)
-                        : t('optimizePdf.alreadyCompact'),
-                };
+            const result = reported.result;
+            const sizes = result === null ? undefined : describeSizes(result);
+            if (success) {
+                optimizeDialogOpen.value = false;
+                toast.add({
+                    color: 'success',
+                    title: t('optimizePdf.successTitle'),
+                    ...(sizes ? {description: t('optimizePdf.savedDescription', sizes)} : {}),
+                });
+            } else {
+                // A copy that would not be smaller is not written; the dialog says
+                // so and stays open for another preset. Other refusals were already
+                // reported by the save surface.
+                optimizeProgress.value = null;
+                if (result?.outcome === 'not-smaller') {
+                    // With no page re-encoded, the candidate is a structural
+                    // rewrite of the same content; its size says nothing useful.
+                    optimizeNotice.value = {
+                        preset: options.preset,
+                        message: result.optimizedPages && sizes
+                            ? t('optimizePdf.notSmaller', sizes)
+                            : t('optimizePdf.alreadyCompact'),
+                    };
+                }
             }
+        } catch (error) {
+            optimizeProgress.value = null;
+            throw error;
+        } finally {
+            optimizeRequestId.value = null;
         }
-
-        optimizeRequestId.value = null;
     }
 
     let unsubscribeProgress: (() => void) | null = null;

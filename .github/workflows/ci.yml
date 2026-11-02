@@ -163,6 +163,10 @@ jobs:
 
       - name: Lint the whole tree
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        # Typed linting holds the whole program, past Node's default heap on a
+        # 16 GB runner, as the typecheck and strict build do.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm run lint
 
       # The dependency audit is deliberately absent. It fails on advisory
@@ -366,19 +370,21 @@ jobs:
         run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
 
   browser_integration:
-    name: Browser Integration (${{ matrix.shard }}/3)
+    name: Browser Integration (${{ matrix.shard }}/5)
     if: ${{ needs.changed_areas.outputs.browser_integration == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
     # A WASM source change rebuilds the browser tools (about 2 minutes) inside
-    # the test step. Two shards grew to fill the step's 9 minutes on slow
-    # runners, so three shards keep each well inside it. The test step keeps
-    # its own limit so a hang still fails well before the job one.
+    # the test step. Shards grew to fill the step's 9 minutes on slow runners
+    # as the suite grew, so five shards keep each well inside it. Vitest
+    # shards by file, so no file may approach the step limit by itself. The
+    # test step keeps its own limit so a hang still fails well before the job
+    # one.
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5]
 
     steps:
       - name: Checkout
@@ -401,7 +407,7 @@ jobs:
 
       - name: Browser integration tests
         timeout-minutes: 9
-        run: pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/3
+        run: pnpm run test:integration:browser -- --shard=${{ matrix.shard }}/5
 
   scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles

@@ -53,7 +53,7 @@ export default {
         },
         installers: {
             heading: 'Transferências desktop',
-            description: 'As builds desktop acrescentam limpeza de digitalizações, OCR em cerca de 30 idiomas, integração nativa com o sistema operativo e fluxos de trabalho mais pesados, como grandes junções. O instalador recomendado baseia-se no seu dispositivo atual, mas todas as builds continuam selecionáveis.',
+            description: 'As builds desktop acrescentam limpeza de digitalizações, integração nativa com o sistema operativo e fluxos de trabalho mais pesados, como grandes junções. O instalador recomendado baseia-se no seu dispositivo atual, mas todas as builds continuam selecionáveis.',
             loading: 'A carregar links da versão mais recente...',
             error: 'Não foi possível carregar os artefactos da versão neste momento.',
             retry: 'Tentar novamente',
@@ -157,7 +157,7 @@ export default {
                 },
                 languages: {
                     question: 'Que idiomas o OCR reconhece?',
-                    answer: 'Cerca de 30, incluindo inglês, alemão, francês, russo, grego, hebraico, árabe e siríaco. O inglês e o russo vêm com a aplicação; os outros modelos são transferidos uma vez, na primeira escolha. A aplicação web lê inglês, russo, francês, alemão, português, espanhol, neerlandês e italiano.',
+                    answer: 'Cerca de 30, incluindo inglês, alemão, francês, russo, grego, hebraico, árabe e siríaco. O inglês e o russo vêm com a aplicação; os outros modelos são transferidos uma vez, na primeira escolha. A aplicação web lê os mesmos idiomas.',
                 },
                 formats: {
                     question: 'Que ficheiros abre?',
@@ -165,7 +165,7 @@ export default {
                 },
                 browser: {
                     question: 'Posso usá-lo sem instalar nada?',
-                    answer: 'Sim, em {webAppUrl}. A aplicação web abre PDFs, ficheiros DjVu e imagens locais e faz OCR em oito idiomas europeus; a limpeza de digitalizações, os outros idiomas de OCR, ficheiros com mais de 16 MB e as combinações grandes precisam da aplicação para computador.',
+                    answer: 'Sim, em {webAppUrl}. A aplicação web abre PDFs, ficheiros DjVu e imagens locais, faz OCR nos mesmos idiomas da aplicação para computador e edita, guarda, combina e otimiza documentos grandes; produzir uma digitalização limpa ainda precisa da aplicação para computador.',
                 },
                 assistant: {
                     question: 'Usa IA?',
@@ -175,7 +175,7 @@ export default {
         },
         entryPoints: {
             heading: 'Escolha o ponto de entrada certo',
-            description: 'Comece no navegador para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR, ou escolha a aplicação desktop para limpeza de digitalizações, OCR em cerca de 30 idiomas, integração nativa com o sistema operativo e junções maiores.',
+            description: 'Comece no navegador para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR em cerca de 30 idiomas, ou escolha a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo e junções maiores.',
             web: {
                 title: 'Aplicação web',
                 description: 'Ideal para abrir PDFs, ficheiros DjVu e imagens comuns imediatamente, depois rever, marcar e exportar sem instalar nada.',
@@ -186,8 +186,8 @@ export default {
             },
             desktop: {
                 title: 'Aplicação desktop',
-                description: 'Ideal para limpeza de digitalizações, OCR em cerca de 30 idiomas, integração nativa com o sistema operativo, trabalhos maiores de junção e fluxos que precisam de mais do que os limites de memória do navegador.',
-                point1: 'Limpeza de digitalizações e OCR em cerca de 30 idiomas',
+                description: 'Ideal para limpeza de digitalizações, integração nativa com o sistema operativo, trabalhos maiores de junção e fluxos que precisam de mais do que os limites de memória do navegador.',
+                point1: 'Limpeza de digitalizações antes do OCR',
                 point2: 'Trabalhos maiores de junção e exportação',
                 point3: 'Diálogos desktop nativos e integração com o sistema operativo',
                 action: 'Ver builds desktop',
@@ -204,7 +204,7 @@ export default {
         seo: {
             title: 'Funcionalidades do EVB Viewer para navegador e desktop',
             ogTitle: 'Visão geral das funcionalidades do EVB Viewer',
-            ogDescription: 'Veja o que o EVB Viewer cobre hoje no navegador e o que a aplicação desktop adiciona para limpeza de digitalizações, mais idiomas de OCR, integração nativa com o sistema operativo e trabalhos maiores.',
+            ogDescription: 'Veja o que o EVB Viewer cobre hoje no navegador e o que a aplicação desktop adiciona para limpeza de digitalizações, integração nativa com o sistema operativo e trabalhos maiores.',
         },
         hero: {
             badge: 'Limpeza nativa de digitalizações e OCR',
@@ -218,11 +218,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, imagens e DjVu onde fizer sentido',
-                description: 'Fluxos de trabalho no navegador abrem PDFs locais, ficheiros DjVu e imagens comuns. A aplicação desktop adiciona limpeza de digitalizações e mais idiomas de OCR e evita limites de memória do navegador em trabalhos mais pesados.',
+                description: 'Fluxos de trabalho no navegador abrem PDFs locais, ficheiros DjVu e imagens comuns. A aplicação desktop adiciona limpeza de digitalizações e evita limites de memória do navegador em trabalhos mais pesados.',
             },
             ocr: {
                 title: 'OCR com saída pesquisável',
-                description: 'O OCR é executado localmente no navegador e nas builds desktop e mantém o resultado pesquisável dentro do documento editado. O navegador lê oito idiomas europeus; as builds desktop, cerca de 30.',
+                description: 'O OCR é executado localmente no navegador e nas builds desktop e mantém o resultado pesquisável dentro do documento editado. Ambos leem os mesmos idiomas, cerca de 30.',
             },
             annotations: {
                 title: 'Ferramentas de anotação avançadas',
@@ -243,7 +243,7 @@ export default {
         },
         workflow: {
             heading: 'Como o produto se encaixa no trabalho real',
-            description: 'Uma sessão típica do EVB Viewer começa com trabalho rápido no navegador e passa para desktop quando a limpeza de digitalizações, mais idiomas de OCR ou a escala o exigem.',
+            description: 'Uma sessão típica do EVB Viewer começa com trabalho rápido no navegador e passa para desktop quando a limpeza de digitalizações ou a escala o exigem.',
             load: {
                 title: 'Comece no navegador',
                 body: 'Abra imediatamente um PDF local, ficheiro DjVu ou imagem quando uma instalação atrasaria a tarefa.',
@@ -254,7 +254,7 @@ export default {
             },
             edit: {
                 title: 'Passe para desktop para limpeza ou escala',
-                body: 'Instale a aplicação desktop para limpeza de digitalizações, OCR em cerca de 30 idiomas, integração nativa com o sistema operativo e trabalhos maiores de junção/exportação.',
+                body: 'Instale a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo e trabalhos maiores de junção/exportação.',
             },
             export: {
                 title: 'Exporte o resultado',
@@ -285,11 +285,11 @@ export default {
         seo: {
             title: 'Documentação do EVB Viewer para fluxos no navegador e no desktop',
             ogTitle: 'Guia do utilizador do EVB Viewer',
-            ogDescription: 'Comece com a aplicação no navegador para ficheiros locais e OCR, depois instale a aplicação desktop quando precisar de limpeza de digitalizações, mais idiomas de OCR, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
+            ogDescription: 'Comece com a aplicação no navegador para ficheiros locais e OCR, depois instale a aplicação desktop quando precisar de limpeza de digitalizações, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
         },
         hero: {
             title: 'Guias para a aplicação no navegador e a aplicação desktop',
-            subtitle: 'Comece com a aplicação web para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR, depois passe para a aplicação desktop para limpeza de digitalizações, mais idiomas de OCR, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
+            subtitle: 'Comece com a aplicação web para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR, depois passe para a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
         },
         guideCardAction: 'Ir para a secção',
         browserQuickstart: {
@@ -298,7 +298,7 @@ export default {
             li1: 'Abra um PDF, ficheiro DjVu ou imagem suportada diretamente no espaço de trabalho do navegador.',
             li2: 'Use pesquisa, notas, realces, reordenação de páginas, recorte, OCR e exportação sem instalar a aplicação desktop. Deixe lotes de junção muito grandes para o desktop.',
             li3: 'Fluxos de trabalho no navegador são melhores para ficheiros leves, ciclos rápidos de revisão e lotes de junção limitados.',
-            li4: 'O OCR no navegador lê inglês, russo, francês, alemão, português, espanhol, neerlandês e italiano; passe para a aplicação desktop para limpeza de digitalizações ou outros idiomas.',
+            li4: 'O OCR no navegador lê os mesmos idiomas da aplicação desktop; passe para a aplicação desktop para limpeza de digitalizações.',
         },
         bookmarks: {
             title: 'Nesta página',
@@ -319,7 +319,7 @@ export default {
         },
         workspace: {
             heading: 'Visão geral do espaço de trabalho',
-            intro: 'O EVB Viewer é um espaço de trabalho de documentos que abrange navegador e desktop. O navegador abre PDFs, ficheiros DjVu e imagens locais e faz OCR; o desktop adiciona limpeza de digitalizações, mais idiomas de OCR, integração nativa com o sistema operativo e mais capacidade para trabalhos grandes.',
+            intro: 'O EVB Viewer é um espaço de trabalho de documentos que abrange navegador e desktop. O navegador abre PDFs, ficheiros DjVu e imagens locais e faz OCR; o desktop adiciona limpeza de digitalizações, integração nativa com o sistema operativo e mais capacidade para trabalhos grandes.',
             li1: 'Topo: barra de separadores para abrir, reordenar, dividir e mover separadores.',
             li2: 'Abaixo dos separadores: barra de ferramentas para guardar, exportar, OCR, zoom, modo seleção/mão e definições.',
             li3: 'Centro: visualizador de documentos com layouts de página única ou páginas lado a lado.',
@@ -328,7 +328,7 @@ export default {
         },
         unsigned: {
             heading: 'Instalar builds desktop',
-            intro: 'Use builds desktop para limpeza de digitalizações, OCR em cerca de 30 idiomas, integração nativa com o sistema operativo e fluxos de trabalho mais pesados, como grandes junções. Transfira instaladores da secção de transferências do EVB Viewer ou dos lançamentos oficiais.',
+            intro: 'Use builds desktop para limpeza de digitalizações, integração nativa com o sistema operativo e fluxos de trabalho mais pesados, como grandes junções. Transfira instaladores da secção de transferências do EVB Viewer ou dos lançamentos oficiais.',
             li1: 'Instale sempre ficheiros publicados nos lançamentos de {repo}.',
             li2: 'Se o seu sistema operativo mostrar um aviso, use os passos de substituição por plataforma abaixo.',
             macosHeading: 'macOS (DMG):',
@@ -408,7 +408,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR e exportações',
-            intro: 'As exportações estão disponíveis em todo o produto. O OCR é executado localmente no navegador para oito idiomas europeus e nas builds desktop para cerca de 30, onde a limpeza de digitalizações também está disponível.',
+            intro: 'As exportações estão disponíveis em todo o produto. O OCR é executado localmente no navegador e nas builds desktop nos mesmos idiomas; a limpeza de digitalizações está disponível apenas no desktop.',
             li1: 'O pop-up de OCR suporta modos de todas as páginas, página atual ou intervalo personalizado.',
             li2: 'A seleção de idioma é agrupada por famílias de escrita para configuração mais rápida.',
             li3: 'Pode cancelar OCR em execução e monitorizar o progresso página a página.',

@@ -17,7 +17,6 @@ import type {
 import { DEFAULT_OCR_RECOGNITION_OPTIONS } from '@contracts/electronApiOcr';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
-import { createDocxFromTextAsync } from '@app/utils/createDocxFromTextAsync';
 import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -716,7 +715,6 @@ export const useOcr = () => {
                 pdfDocument,
                 signal: abortController.signal,
                 hasRtl: hasRtlOcrLanguage(selectedLanguages),
-                buildDocx: createDocxFromTextAsync,
                 buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,

@@ -11,7 +11,16 @@ workspace = true
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+# The browser artifact's own `extern "C"` entry points. A crate that links the
+# codecs into its own WASM module (page ops) turns this off, so the module
+# exports only its own ABI.
+[features]
+default = ["wasm-exports"]
+wasm-exports = []
+
 [dependencies]
+evb-scan-cleanup = { version = "0.1.0", path = "../scan-cleanup", default-features = false }
+scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }
 fax = "0.3.0"
@@ -25,9 +34,7 @@ tiff = "0.11.3"
 zune-jpeg = "0.5.15"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-evb-scan-cleanup = { version = "0.1.0", path = "../scan-cleanup" }
 rayon = { workspace = true }
-scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 
 [dev-dependencies]
 crc32fast = "1.5.2"

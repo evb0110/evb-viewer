@@ -8,16 +8,16 @@ import type {
     IBrowserPdfCombineWasmPageSpec,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
 import {
-    BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
+    BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS,
     BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
     getBrowserPdfCombineWorkerRequestId,
     parseBrowserPdfCombineWorkerRequest,
-} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+} from '@contracts/browserPdfCombineWorker';
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
-    getBrowserFileExtension,
+    getBrowserFileExtension, buildBrowserByteLimitError, 
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import {
@@ -35,37 +35,15 @@ import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import { createBrowserPdfCombineOutputError } from '@app/platform/browser-api/browserPdfCombineLimits';
 import {createPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 
-const MAX_IMAGE_PIXELS = 80_000_000;
 const MAX_INPUT_BYTES = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
-const MAX_DECODED_WORKING_BYTES = 256 * 1024 * 1024;
-
-interface IDecodedWorkingSetBudget { usedBytes: number; }
-
-function consumeDecodedWorkingSet(
-    budget: IDecodedWorkingSetBudget,
-    width: number,
-    height: number,
-    fileName: string,
-) {
-    const decodedBytes = width * height * 4;
-    if (
-        !Number.isSafeInteger(decodedBytes)
-        || decodedBytes < 0
-        || budget.usedBytes > MAX_DECODED_WORKING_BYTES - decodedBytes
-    ) {
-        throw new Error(`ERR_BROWSER_PDF_COMBINE_DECODED_WORKING_SET_TOO_LARGE:${fileName}`);
-    }
-    budget.usedBytes += decodedBytes;
-}
-
 function assertImageDimensions(width: number, height: number, fileName: string) {
-    if (width < 1 || height < 1 || width > MAX_IMAGE_PIXELS / height) {
+    if (width < 1 || height < 1 || width > BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS / height) {
         throw new Error(`ERR_BROWSER_PDF_COMBINE_IMAGE_TOO_LARGE:${fileName}`);
     }
 }
 
 function isNetpbmExtension(extension: string) {
-    return extension === '.pgm' || extension === '.ppm';
+    return extension === '.pbm' || extension === '.pgm' || extension === '.ppm';
 }
 
 async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array) {
@@ -99,10 +77,7 @@ async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array)
     }
 }
 
-function validateWorkerInput(
-    input: IBrowserPdfCombineInput,
-    budget: IDecodedWorkingSetBudget,
-) {
+function validateWorkerInput(input: IBrowserPdfCombineInput) {
     const extension = getBrowserFileExtension(input.fileName);
     if (extension === '.pdf') {
         return;
@@ -121,7 +96,6 @@ function validateWorkerInput(
             height,
         } of frames) {
             assertImageDimensions(width, height, input.fileName);
-            consumeDecodedWorkingSet(budget, width, height, input.fileName);
         }
         if (frames.length === 0) {
             throw new Error(`ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:${input.fileName}`);
@@ -137,7 +111,6 @@ function validateWorkerInput(
         throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${input.fileName}`);
     }
     assertImageDimensions(metadata.width, metadata.height, input.fileName);
-    consumeDecodedWorkingSet(budget, metadata.width, metadata.height, input.fileName);
 }
 
 function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 270 | 360 | 450 | 540 | 630 {
@@ -181,11 +154,8 @@ function buildExifRotationPreprocessing(inputs: IBrowserPdfCombineInput[]): IBro
     };
 }
 
-async function prepareWorkerInput(
-    input: IBrowserPdfCombineInput,
-    budget: IDecodedWorkingSetBudget,
-): Promise<IBrowserPdfCombineInput> {
-    validateWorkerInput(input, budget);
+async function prepareWorkerInput(input: IBrowserPdfCombineInput): Promise<IBrowserPdfCombineInput> {
+    validateWorkerInput(input);
     const extension = getBrowserFileExtension(input.fileName);
     if (
         extension !== '.bmp'
@@ -201,48 +171,47 @@ async function prepareWorkerInput(
     };
 }
 
-async function preparePageSpec(
-    spec: IBrowserPdfCombineWasmPageSpec,
-    budget: IDecodedWorkingSetBudget,
-): Promise<IBrowserPdfCombineWasmPageSpec> {
+async function preparePageSpec(spec: IBrowserPdfCombineWasmPageSpec): Promise<IBrowserPdfCombineWasmPageSpec> {
     const prepared: IBrowserPdfCombineWasmPageSpec = {...spec};
     if (spec.image) {
-        prepared.image = await prepareWorkerInput(spec.image, budget);
+        prepared.image = await prepareWorkerInput(spec.image);
     }
     if (spec.background) {
-        prepared.background = await prepareWorkerInput(spec.background, budget);
+        prepared.background = await prepareWorkerInput(spec.background);
     }
     if (spec.mask) {
-        prepared.mask = await prepareWorkerInput(spec.mask, budget);
+        prepared.mask = await prepareWorkerInput(spec.mask);
     }
     return prepared;
 }
 
-function addInputBytes(total: number, input: IBrowserPdfCombineInput, maxBytes = MAX_INPUT_BYTES) {
-    if (input.data.byteLength > maxBytes || total > maxBytes - input.data.byteLength) {
-        if (maxBytes === BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES) {
+// A request is admitted up to the WASM32 allocation boundary. Page specs are
+// a generated plan, so exceeding it is an output too large to build in one
+// request rather than an oversized user input.
+function addInputBytes(total: number, input: IBrowserPdfCombineInput, isPageSpecPlan = false) {
+    if (input.data.byteLength > MAX_INPUT_BYTES || total > MAX_INPUT_BYTES - input.data.byteLength) {
+        if (isPageSpecPlan) {
             throw createPdfCombineOutputTooLargeError('Image combine WASM request exceeds the admission ceiling');
         }
-        throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+        throw buildBrowserByteLimitError('Combining these files', MAX_INPUT_BYTES, 'inputs');
     }
     return total + input.data.byteLength;
 }
 
 async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest) {
-    const decodedBudget: IDecodedWorkingSetBudget = {usedBytes: 0};
     let totalInputBytes = 0;
     for (const input of request.payload.inputs) {
         totalInputBytes = addInputBytes(totalInputBytes, input);
     }
 
     const inputs = await Promise.all(
-        request.payload.inputs.map(input => prepareWorkerInput(input, decodedBudget)),
+        request.payload.inputs.map(input => prepareWorkerInput(input)),
     );
     let wasmImagePreprocessing = request.payload.wasmImagePreprocessing;
     if (wasmImagePreprocessing?.pageSpecs) {
         const pageSpecs = [];
         for (const pageSpec of wasmImagePreprocessing.pageSpecs) {
-            pageSpecs.push(await preparePageSpec(pageSpec, decodedBudget));
+            pageSpecs.push(await preparePageSpec(pageSpec));
         }
         wasmImagePreprocessing = {
             ...wasmImagePreprocessing,
@@ -255,9 +224,7 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
                 pageSpec.mask,
             ]) {
                 if (input) {
-                    totalInputBytes = addInputBytes(totalInputBytes, input, request.payload.inputs.length === 0
-                        ? BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES
-                        : MAX_INPUT_BYTES);
+                    totalInputBytes = addInputBytes(totalInputBytes, input, request.payload.inputs.length === 0);
                 }
             }
         }

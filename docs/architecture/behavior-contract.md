@@ -64,9 +64,10 @@ permits.
 
 **R4. The reader chooses whether closed documents remember their place.**
 “Reopen documents where I left off” is off by default. Opening a document that
-is no longer open starts at page 1 with the configured default zoom and view
-mode, through every opening entry point. When the reader enables the setting,
-an unchanged document reopens at its remembered page, zoom mode and view mode.
+is no longer open starts at page 1, unrotated, with the configured default zoom
+and view mode, through every opening entry point. When the reader enables the
+setting, an unchanged document reopens at its remembered page, view rotation,
+zoom mode and view mode.
 Reading state is recorded on close in either setting, so enabling it also works
 for documents closed earlier. Restoring an open workspace after a relaunch or
 crash, moving a tab between windows, and reopening the same tab's document after
@@ -264,6 +265,16 @@ at the size and place that page will have, then the page in that place. No
 placeholder of another shape, no Start page and no other tab's surface appears in between,
 and the sequence never goes back a step. Added 2026-10-01 on the owner's
 request (#920).
+
+**T6. The browser does what desktop does.** Applies to every operation the
+desktop app performs on a document: opening, OCR, search, page operations,
+annotation saves, combining, conversion and export. The browser workspace does
+not refuse it, drop an input or stop it early because of a size, count or time
+limit that desktop does not apply. A limit the browser engine itself cannot
+pass, such as the wasm32 address space, ends the operation with a clear error
+that names it, and the next operation still works. Desktop's cancellation is
+offered for the same operations. Added 2026-11-01 on the owner's request to
+remove the browser's artificial caps.
 
 ## Lifecycle
 

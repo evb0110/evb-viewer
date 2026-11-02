@@ -9,10 +9,7 @@ import {isPdfDateString} from '@contracts/pdfDateString';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
-import {
-    BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
-    decodeBrowserPdfCatalog,
-} from '@contracts/browserPdfCatalog';
+import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import type {
     IBrowserPdfCatalog,
     IBrowserPdfCatalogBookmark,
@@ -23,6 +20,15 @@ import {
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
 import {PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA} from '@contracts/pdfOcrTextVisibility';
+import {
+    OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
+    RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA,
+    RECOMPRESS_IMAGES_REPORT_SCHEMA,
+    REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
+    REPLACE_PAGE_IMAGES_REPORT_SCHEMA,
+    SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA,
+    SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
+} from '@contracts/browserPageOpsWriters';
 import * as v from 'valibot';
 
 const workerRequestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -64,12 +70,18 @@ const cropMarginsSchema = v.object({
 
 /**
  * What the Rust OCR writer appends for each recognized page: the target page,
- * the index of its Tesseract page PDF in `pagePdfs`, and the edits early-print
- * reading made to Tesseract's words.
+ * the index of its Tesseract page PDF in `pagePdfs`, the edits early-print
+ * reading made to Tesseract's words, and, when preprocessing moved the pixels
+ * Tesseract read, the matrix mapping them back to the rendered raster.
  */
 const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({pages: v.pipe(v.array(v.object({
     pageNumber: positiveIntegerSchema,
     source: nonNegativeIntegerSchema,
+    preprocessInverse: v.optional(v.object({
+        rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+        rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+        matrix: v.pipe(v.array(v.pipe(v.array(v.pipe(v.number(), v.finite())), v.length(3))), v.length(3)),
+    })),
     normalizeGreekMicroSign: v.optional(v.boolean()),
     wordEdits: v.optional(v.array(v.object({
         word: nonNegativeIntegerSchema,
@@ -147,16 +159,40 @@ const workerRequestPayloadSchemas = {
             'landscape',
         ]),
     }),
-    mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1), v.maxLength(500))}),
+    mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1))}),
     ocrTextVisibility: v.object({
         data: pdfBytesSchema,
         pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
         withEvbOcrText: v.boolean(),
     }),
+    /** No pages lists every page. */
+    inspectScanCleanupPdf: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+    }),
     ocrTextLayer: v.object({
         data: pdfBytesSchema,
         instructions: OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA,
         pagePdfs: v.pipe(v.array(pdfBytesSchema), v.minLength(1)),
+    }),
+    splitPages: v.object({
+        data: pdfBytesSchema,
+        instructions: SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
+    }),
+    // `data` is the staged output; `sourceData` the document its text comes from.
+    overlayText: v.object({
+        data: pdfBytesSchema,
+        sourceData: pdfBytesSchema,
+        instructions: OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
+    }),
+    recompressImages: v.object({
+        data: pdfBytesSchema,
+        instructions: RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA,
+    }),
+    replacePageImages: v.object({
+        data: pdfBytesSchema,
+        instructions: REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
+        replacementPdfs: v.array(pdfBytesSchema),
     }),
 };
 
@@ -248,8 +284,33 @@ const workerRequestSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
+        type: v.literal('inspectScanCleanupPdf'),
+        payload: workerRequestPayloadSchemas.inspectScanCleanupPdf,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
         type: v.literal('ocrTextLayer'),
         payload: workerRequestPayloadSchemas.ocrTextLayer,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('splitPages'),
+        payload: workerRequestPayloadSchemas.splitPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('overlayText'),
+        payload: workerRequestPayloadSchemas.overlayText,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('recompressImages'),
+        payload: workerRequestPayloadSchemas.recompressImages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('replacePageImages'),
+        payload: workerRequestPayloadSchemas.replacePageImages,
     }),
 ]);
 
@@ -258,6 +319,17 @@ const pageMutationResultSchema = v.object({
     pageCount: v.pipe(v.number(), v.check((value: number) => Number.isInteger(value)), v.minValue(1)),
 });
 const annotationParseResultSchema = v.object({data: pdfBytesSchema});
+// The whole rewritten PDF and the report its CLI command prints.
+const reportedPdfResultSchema = v.object({
+    ...pageMutationResultSchema.entries,
+    report: SCAN_CLEANUP_PAGE_OPS_REPORT_SCHEMA,
+});
+// `data` is the revision the writer appends to the request's document, empty
+// when the pass changed nothing; `report` is what its CLI command prints.
+const reportedIncrementResultSchema = <TReport extends v.GenericSchema>(report: TReport) => v.object({
+    ...pageMutationResultSchema.entries,
+    report,
+});
 const conformanceFactsSchema = v.object({
     isSigned: v.boolean(),
     isEncrypted: v.boolean(),
@@ -268,7 +340,7 @@ const conformanceFactsSchema = v.object({
 // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
 const catalogResultSchema = v.pipe(
     v.unknown(),
-    v.transform(value => decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})),
+    v.transform(value => decodeBrowserPdfCatalog(value)),
     v.check(value => value !== null),
     v.transform(value => value as IBrowserPdfCatalog),
 );
@@ -334,9 +406,33 @@ const workerResultSchemas = {
         PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
+    // Each record is the desktop page-size sidecar's; its reader decodes it.
+    inspectScanCleanupPdf: v.union([
+        v.object({
+            pageCount: nonNegativeIntegerSchema,
+            pages: v.array(v.custom<Record<string, unknown>>(isRecord)),
+        }),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
     // `data` is the revision the writer appends to the request's document.
     ocrTextLayer: v.union([
         pageMutationResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    splitPages: v.union([
+        reportedPdfResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    overlayText: v.union([
+        reportedPdfResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    recompressImages: v.union([
+        reportedIncrementResultSchema(RECOMPRESS_IMAGES_REPORT_SCHEMA),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ]),
+    replacePageImages: v.union([
+        reportedIncrementResultSchema(REPLACE_PAGE_IMAGES_REPORT_SCHEMA),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
 };
@@ -446,9 +542,39 @@ const workerSuccessResponseSchema = v.union([
     }),
     v.object({
         id: workerRequestIdSchema,
+        type: v.literal('inspectScanCleanupPdf'),
+        ok: v.literal(true),
+        data: workerResultSchemas.inspectScanCleanupPdf,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
         type: v.literal('ocrTextLayer'),
         ok: v.literal(true),
         data: workerResultSchemas.ocrTextLayer,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('splitPages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.splitPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('overlayText'),
+        ok: v.literal(true),
+        data: workerResultSchemas.overlayText,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('recompressImages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.recompressImages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('replacePageImages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.replacePageImages,
     }),
 ]);
 

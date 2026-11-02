@@ -1,32 +1,65 @@
 const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s]+/giu;
 const DATA_URL_PATTERN = /\bdata:[^\s]+/giu;
 const SECRET_ASSIGNMENT_PATTERN = /(?<![\w-])["']?(?:x[-_])?(?:authorization|auth[-_]?token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key|password|passwd|pwd|secret|token)\b["']?\s*[:=]\s*/giu;
-const HOME_PATH_REDACTION_PATTERNS: ReadonlyArray<{
+interface IRedaction {
     pattern: RegExp;
-    replacement: string;
-}> = [
-    {
-        pattern: /\/Users\/[^/\s"',)]+(?:\/[^\s"',)]+)*/gu,
-        replacement: '/Users/[redacted]',
-    },
-    {
-        pattern: /[A-Za-z]:\\Users\\[^\\\s"',)]+(?:\\[^\s"',)]+)*/gu,
-        replacement: 'C:\\Users\\[redacted]',
-    },
+    replacement: (match: string) => string;
+}
+
+// A quoted path (JSON log data, quoted messages) runs to its closing quote,
+// spaces and JSON-escaped backslashes included; an unquoted one runs to the
+// next whitespace. A path already redacted is left alone, so redacting again
+// changes nothing.
+const QUOTED_PATH_START = String.raw`(?<=(["']))`;
+// JSON escapes a quote as \" and a backslash as \\; in raw text a backslash
+// is only a Windows separator, so a quote after it closes the value.
+const QUOTED_PATH_TAIL = String.raw`(?:\\.|(?!\1)[^\\\n])*`;
+const RAW_QUOTED_PATH_TAIL = String.raw`(?:(?!\1)[^\n])*`;
+
+function pathRedactions(
+    prefix: string,
+    plainTail: string,
+    replacement: IRedaction['replacement'],
+    quotedTail = QUOTED_PATH_TAIL,
+): IRedaction[] {
+    const start = `${prefix}(?!\\[redacted\\])`;
+    return [
+        `${QUOTED_PATH_START}${start}${quotedTail}`,
+        `${start}${plainTail}`,
+    ].map(source => ({
+        pattern: new RegExp(source, 'giu'),
+        replacement,
+    }));
+}
+
+const HOME_PATH_REDACTION_PATTERNS: readonly IRedaction[] = [
+    ...pathRedactions(String.raw`\/Users\/`, String.raw`[^/\s"',)]+(?:\/[^\s"',)]+)*`, () => '/Users/[redacted]'),
+    // JSON-escaped Windows paths (doubled separators), then raw ones.
+    ...pathRedactions(
+        String.raw`[A-Za-z]:\\\\Users\\\\`,
+        String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
+        () => 'C:\\\\Users\\\\[redacted]',
+    ),
+    ...pathRedactions(
+        String.raw`[A-Za-z]:\\Users\\`,
+        String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
+        () => 'C:\\Users\\[redacted]',
+        RAW_QUOTED_PATH_TAIL,
+    ),
 ];
 
-const NON_URL_REDACTION_PATTERNS: ReadonlyArray<{
-    pattern: RegExp;
-    replacement: string;
-}> = [
+const NON_URL_REDACTION_PATTERNS: readonly IRedaction[] = [
     {
         pattern: /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gu,
-        replacement: 'Bearer [redacted]',
+        replacement: () => 'Bearer [redacted]',
     },
-    {
-        pattern: /file:\/\/[^\s"',)]+/giu,
-        replacement: 'file://[redacted]',
-    },
+    ...pathRedactions(String.raw`file:\/\/`, String.raw`[^\s"',)]+`, () => 'file://[redacted]'),
+    // Browser workspace documents: keep the opaque id, hide the file name.
+    ...pathRedactions(
+        String.raw`browser:\/\/documents\/[^/\s"',)]+\/`,
+        String.raw`[^\s"',)]+`,
+        match => `${match.slice(0, match.indexOf('/', 'browser://documents/'.length) + 1)}[redacted]`,
+    ),
 ];
 
 function findQuotedValueEnd(value: string, start: number) {
@@ -266,7 +299,7 @@ function redactHttpUrl(value: string) {
  * HTTP URL spans are handled separately so the generic token redaction does
  * not erase query keys. Reapplying the function produces the same text.
  */
-export function redactElectronLogText(value: string) {
+export function redactLogText(value: string) {
     let result = '';
     let cursor = 0;
 

@@ -13,6 +13,7 @@ import {
     windowTabTransferAckSchema,
 } from '@contracts/windowTabsValidation';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { subscribeBrowserMenuEvent } from '@app/platform/browserMenuBar';
 import {
     abortBrowserTransferAuthority,
     loadBrowserTransferAuthority,
@@ -1255,7 +1256,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     acknowledgePendingExternalOpenPaths() {
         return Promise.resolve();
     },
-    onMenuNewTab: () => functionUtils.noop,
-    onMenuCloseTab: () => functionUtils.noop,
-    onMenuSplitEditor: () => functionUtils.noop,
+    onMenuNewTab: subscribeBrowserMenuEvent('onMenuNewTab'),
+    onMenuCloseTab: subscribeBrowserMenuEvent('onMenuCloseTab'),
+    onMenuSplitEditor: subscribeBrowserMenuEvent('onMenuSplitEditor'),
 };

@@ -78,7 +78,16 @@ export interface IBrowserDocumentMutation {
     assertPhysicalSourceBaseCurrent(): Promise<void>;
     acknowledgePhysicalSourceCommit(): Promise<void>;
 }
-export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation { writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>; }
+export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation {
+    /**
+     * Gives a working copy that reads through its source its own copy of the
+     * same bytes, so it keeps them when the save replaces the source.
+     */
+    materializeWorkingCopy(): Promise<void>;
+    writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>;
+    /** Replaces the source's bytes with the document's, read a chunk at a time. */
+    writeSourceFromDocument(): Promise<boolean>;
+}
 
 function createBrowserFileDocumentEntry(
     ref: TDocumentRef,
@@ -156,6 +165,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
     protected override onDocumentRemoved(ref: string) {
         this.fileHandleRefs.forget(ref);
+        super.onDocumentRemoved(ref);
     }
 
     /**
@@ -208,10 +218,19 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         data: Uint8Array | ArrayBuffer,
         options: ICreateStoredDocumentOptions & {ref?: TDocumentRef | undefined},
     ) {
-        const sourceBytes = toUint8Array(data);
-        const storageMode = resolveStoredDocumentStorageMode(sourceBytes.byteLength, options.storageMode);
+        // Content taken from another document is staged chunk by chunk below and
+        // read whole only when it is small enough to live inline.
+        const contentEntry = options.contentFrom ? await this.requireEntry(options.contentFrom) : null;
+        const size = options.contentFrom ? (await this.stat(options.contentFrom)).size : toUint8Array(data).byteLength;
+        const storageMode = resolveStoredDocumentStorageMode(size, options.storageMode);
+        const sourceBytes = !contentEntry
+            ? toUint8Array(data)
+            : storageMode === 'chunked' ? new Uint8Array() : await this.readEntryBytes(contentEntry, size);
         const bytes = storageMode === 'inline' ? cloneBytes(sourceBytes) : new Uint8Array();
         const kind = options.kind ?? 'source';
+        if (contentEntry && storageMode === 'chunked' && kind === 'source' && options.saveHandle && !options.sourceBaseWitness) {
+            throw new Error('A handle-backed source copied from another document needs its base witness');
+        }
         const sourceBaseWitness = options.sourceBaseWitness
             ?? (kind === 'source' && options.saveHandle && (storageMode === 'inline' || storageMode === 'chunked')
                 ? createBrowserStoredBytesWitness(sourceBytes)
@@ -224,7 +243,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             retention: options.retention ?? defaultRetentionForKind(kind),
             ...(options.sourceRef ? {sourceRef: options.sourceRef} : {}),
             data: bytes,
-            fileSize: storageMode === 'chunked' ? sourceBytes.byteLength : bytes.byteLength,
+            fileSize: storageMode === 'chunked' ? size : bytes.byteLength,
             contentToken: createBrowserDocumentContentToken(),
             saveKind: options.saveKind ?? 'generic',
             saveHandle: options.saveHandle ?? null,
@@ -234,12 +253,13 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             chunkSize: options.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
         });
 
+        const readChunk = contentEntry
+            ? (offset: number, length: number) => this.readEntryRange(contentEntry, offset, length)
+            : (offset: number, length: number) => Promise.resolve(sourceBytes.slice(offset, offset + length));
         return this.persistNewEntry(
             entry,
-            storageMode === 'chunked' && sourceBytes.byteLength > 0
-                ? (offset, length) => Promise.resolve(sourceBytes.slice(offset, offset + length))
-                : null,
-            sourceBytes.byteLength,
+            storageMode === 'chunked' && size > 0 ? readChunk : null,
+            size,
         );
     }
 
@@ -783,37 +803,69 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         sourceRef: string,
         expectedRevision: TDocumentRevisionToken | null | undefined,
         operation: (mutation: IBrowserDocumentSourceMutation) => Promise<T>,
+        options: {signal?: AbortSignal} = {},
     ) {
+        const {signal} = options;
         const mutation = () => this.runRefMutationMany([
             ref,
             sourceRef,
         ], async () => {
+            // A lock that cannot abort its wait still runs nothing after an abort.
+            signal?.throwIfAborted();
             if (await this.getSourceRef(ref) !== sourceRef) {
                 throw new Error('Browser document source changed while the save target was being selected.');
             }
             await this.assertDocumentRevisionCurrent(ref, expectedRevision);
             return operation({
+                materializeWorkingCopy: async () => {
+                    const entry = await this.requireEntry(ref);
+                    if (entry.storageMode !== 'source-proxy' && entry.storageMode !== 'handle') return;
+                    // A proxy's revision is its source's; the copy keeps that identity,
+                    // so the same bytes change no revision.
+                    const base = entry.storageMode === 'source-proxy' && entry.sourceRef
+                        ? await this.requireEntry(entry.sourceRef)
+                        : entry;
+                    const size = (await this.stat(ref)).size;
+                    await this.replaceContentUnlocked(
+                        ref,
+                        size,
+                        (offset, length) => this.readEntryRange(entry, offset, length),
+                        () => this.readEntryBytes(entry, size),
+                        {
+                            contentToken: base.contentToken,
+                            contentRevision: base.contentRevision,
+                            updatedAt: base.updatedAt,
+                        },
+                    );
+                },
                 write: (data, options = {}) => this.writeUnlocked(ref, data, options, true),
                 assertPhysicalSourceBaseCurrent: () => this.assertPhysicalSourceBaseCurrent(ref, sourceRef),
                 writeSource: data => this.writeUnlocked(sourceRef, data, {}, true),
+                writeSourceFromDocument: () => this.writeFromDocumentUnlocked(sourceRef, ref),
                 acknowledgePhysicalSourceCommit: () => this.acknowledgePhysicalSourceCommitUnlocked(ref, sourceRef),
             });
         });
-        return this.runPhysicalSourceLock(mutation);
+        return this.runPhysicalSourceLock(mutation, signal);
     }
 
     // Source refs are per open File, so two windows that opened one physical
     // file hold different refs and different names. A context cannot name the
     // file itself, so every physical save takes this origin-wide lock. The base
     // check inside it then sees the bytes an earlier save committed.
-    private runPhysicalSourceLock<T>(operation: () => Promise<T>) {
+    private runPhysicalSourceLock<T>(operation: () => Promise<T>, signal?: AbortSignal) {
         const locks = typeof navigator !== 'undefined'
-            ? (navigator as Navigator & {locks?: {request<T>(name: string, options: {mode: 'exclusive'}, callback: () => Promise<T>): Promise<T>}}).locks
+            ? (navigator as Navigator & {locks?: {request<T>(name: string, options: {
+                mode: 'exclusive';
+                signal?: AbortSignal
+            }, callback: () => Promise<T>): Promise<T>}}).locks
             : undefined;
         if (!locks) {
             return operation();
         }
-        return locks.request('evb-viewer:browser-physical-save', {mode: 'exclusive'}, operation);
+        return locks.request('evb-viewer:browser-physical-save', {
+            mode: 'exclusive',
+            ...(signal ? {signal} : {}),
+        }, operation);
     }
 
     private async assertPhysicalSourceBaseCurrent(workingRef: string, sourceRef: string) {
@@ -832,15 +884,43 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         throw new Error(`Browser physical source changed since this working copy opened: ${sourceRef}`);
     }
 
+    // A committed save makes the written bytes this source version. Its
+    // opening witness and file metadata advance with the working copy's base,
+    // so neither the next Save nor a Recent reopen takes our own write for an
+    // external edit. Without a file the identity is the stored bytes'.
     private async acknowledgePhysicalSourceCommitUnlocked(workingRef: string, sourceRef: string) {
         const workingEntry = await this.requireEntry(workingRef);
         const sourceEntry = await this.requireEntry(sourceRef);
-        if (!sourceEntry.saveHandle) {
-            return;
+        let witness: string | undefined;
+        if (sourceEntry.saveHandle) {
+            const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
+            witness = await createBrowserFileContentWitness(metadata.file);
+            if (sourceEntry.storageMode === 'handle') sourceEntry.fileSize = metadata.size;
+            sourceEntry.fileLastModified = metadata.lastModified;
+            sourceEntry.fileSnapshot = metadata.file;
+        } else if (sourceEntry.fileSize <= BROWSER_MAX_FULL_READ_BYTES) {
+            witness = createBrowserStoredBytesWitness(await this.readEntryBytes(sourceEntry));
         }
-        const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
-        workingEntry.sourceBaseWitness = await createBrowserFileContentWitness(metadata.file);
-        await this.persistEntry(workingEntry);
+        for (const entry of [
+            sourceEntry,
+            workingEntry,
+        ]) {
+            if (witness) entry.sourceBaseWitness = witness;
+            else delete entry.sourceBaseWitness;
+            await this.persistEntry(entry);
+        }
+    }
+
+    private async writeFromDocumentUnlocked(ref: string, sourceRef: string) {
+        const source = await this.requireEntry(sourceRef);
+        const {size} = await this.stat(sourceRef);
+        await this.replaceContentUnlocked(
+            ref,
+            size,
+            (offset, length) => this.readEntryRange(source, offset, length),
+            () => this.readEntryBytes(source, size),
+        );
+        return true;
     }
 
     private async writeUnlocked(
@@ -852,11 +932,33 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         if (!revisionAlreadyChecked && options.skipDocumentRevisionCheckForBootstrap !== true) {
             await this.assertDocumentRevisionCurrent(ref, options.expectedDocumentRevisionToken);
         }
-        const entry = await this.requireEntry(ref);
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)
             : normalizePersistedWriteBytes(data);
-        const nextStorageMode = resolveByteBackedStorageMode(bytes.byteLength);
+        await this.replaceContentUnlocked(
+            ref,
+            bytes.byteLength,
+            (offset, length) => Promise.resolve(bytes.slice(offset, offset + length)),
+            () => Promise.resolve(bytes),
+        );
+
+        if (options.unloadAfterPersist) {
+            this.dropLoadedEntry(ref);
+            return true;
+        }
+        return true;
+    }
+
+    // A chunked result is staged from `readChunk`; only an inline one is read whole.
+    private async replaceContentUnlocked(
+        ref: string,
+        size: number,
+        readChunk: (offset: number, length: number) => Promise<Uint8Array>,
+        readAll: () => Promise<Uint8Array>,
+        retainedIdentity?: Pick<IBrowserDocumentEntry, 'contentToken' | 'contentRevision' | 'updatedAt'>,
+    ) {
+        const entry = await this.requireEntry(ref);
+        const nextStorageMode = resolveByteBackedStorageMode(size);
         const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
         const previousChunkGeneration = entry.chunkGeneration;
         const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
@@ -867,9 +969,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             if (nextStorageMode === 'chunked') {
                 const stagedLayout = await persistBrowserDocumentChunkGeneration(
                     entry.ref,
-                    bytes.byteLength,
+                    size,
                     BROWSER_DOCUMENT_CHUNK_SIZE,
-                    (offset, length) => Promise.resolve(bytes.slice(offset, offset + length)),
+                    readChunk,
                 );
                 stagedGeneration = stagedLayout.generation;
                 stagedChunkCount = stagedLayout.chunkCount;
@@ -878,24 +980,25 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.chunkCount = stagedLayout.chunkCount;
                 entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
                 entry.chunkGeneration = stagedLayout.generation;
-                entry.fileSize = bytes.byteLength;
-                entry.updatedAt = Date.now();
-                const previousToken = updateBrowserDocumentEntryContentToken(entry);
+                entry.fileSize = size;
+                const previousToken = retainedIdentity ? null : updateBrowserDocumentEntryContentToken(entry);
+                Object.assign(entry, retainedIdentity ?? {updatedAt: Date.now()});
                 await this.persistEntry(entry);
-                this.emitRevisionChangeForEntry(entry, previousToken, 'write');
+                if (previousToken) this.emitRevisionChangeForEntry(entry, previousToken, 'write');
                 stagedGeneration = undefined;
                 stagedChunkCount = 0;
             } else {
+                const bytes = await readAll();
                 entry.storageMode = nextStorageMode;
                 entry.chunkCount = 0;
                 entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
                 entry.fileSize = bytes.byteLength;
-                entry.updatedAt = Date.now();
-                const previousToken = updateBrowserDocumentEntryContentToken(entry);
+                const previousToken = retainedIdentity ? null : updateBrowserDocumentEntryContentToken(entry);
+                Object.assign(entry, retainedIdentity ?? {updatedAt: Date.now()});
                 delete entry.chunkGeneration;
                 await this.persistEntry(entry, bytes);
                 entry.data = bytes;
-                this.emitRevisionChangeForEntry(entry, previousToken, 'write');
+                if (previousToken) this.emitRevisionChangeForEntry(entry, previousToken, 'write');
             }
             await deleteBrowserDocumentChunks(entry.ref, previousChunkCount, previousChunkGeneration)
                 .catch(() => undefined);
@@ -907,12 +1010,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             }
             throw error;
         }
-
-        if (options.unloadAfterPersist) {
-            this.dropLoadedEntry(ref);
-            return true;
-        }
-        return true;
     }
 
     public async assignSaveTarget(
@@ -996,30 +1093,40 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         },
     ) {
         const entry = await this.requireEntry(ref);
-        await clearBrowserDocumentExternalChunkStorage(entry);
-        entry.data = new Uint8Array();
-        entry.storageMode = 'handle';
-        delete entry.fileSnapshot;
-        entry.chunkCount = 0;
-        entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
-        entry.fileSize = options.fileSize;
-        entry.fileLastModified = undefined;
-        entry.updatedAt = Date.now();
-        const previousToken = updateBrowserDocumentEntryContentToken(entry);
+        // The handle-backed record is built aside and adopted only once it is
+        // stored: a failed store leaves the entry, its content and everything
+        // reading through it, such as a working copy's proxy, as they were.
+        const next: IBrowserDocumentEntry = {
+            ...entry,
+            data: new Uint8Array(),
+            storageMode: 'handle',
+            chunkCount: 0,
+            chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
+            fileSize: options.fileSize,
+            fileLastModified: undefined,
+            updatedAt: Date.now(),
+        };
+        delete next.fileSnapshot;
+        const previousToken = updateBrowserDocumentEntryContentToken(next);
         if (options.saveHandle !== undefined) {
-            entry.saveHandle = options.saveHandle;
-            this.fileHandleRefs.update(ref, entry.saveHandle);
+            next.saveHandle = options.saveHandle;
         }
-        entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
-        if (entry.kind === 'source' && entry.saveHandle) {
-            const metadata = await readFileHandleMetadata(entry.saveHandle);
-            entry.contentToken = await createBrowserFileContentWitness(metadata.file);
+        next.sourceWitness = next.kind === 'source' && Boolean(next.saveHandle);
+        if (next.kind === 'source' && next.saveHandle) {
+            const metadata = await readFileHandleMetadata(next.saveHandle);
+            next.contentToken = await createBrowserFileContentWitness(metadata.file);
         }
         if (options.saveName) {
-            entry.saveName = options.saveName;
-            entry.fileName = options.saveName;
+            next.saveName = options.saveName;
+            next.fileName = options.saveName;
         }
-        await this.persistEntry(entry);
+        await this.persistEntry(next);
+        await clearBrowserDocumentExternalChunkStorage(entry);
+        delete entry.fileSnapshot;
+        Object.assign(entry, next);
+        if (options.saveHandle !== undefined) {
+            this.fileHandleRefs.update(ref, options.saveHandle);
+        }
         this.emitRevisionChangeForEntry(entry, previousToken, 'replace-working-copy');
     }
 

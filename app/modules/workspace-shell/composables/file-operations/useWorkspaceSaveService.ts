@@ -22,7 +22,10 @@ import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentO
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
-import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {committedAffectedPageIndices} from '@app/modules/pdf-viewer/public';
 import type {
@@ -56,7 +59,7 @@ import {
     buildSaveTransactionRequest,
     completeSuccessfulSaveState,
     createPageMutationWriterSave,
-    createRecoverySnapshotBytes as createRecoverySnapshotBytesForService,
+    createRecoverySnapshot as createRecoverySnapshotForService,
     createReloadWaiter,
     createWorkspaceSavePlan,
     getNativeSaveTransactionOptions,
@@ -124,7 +127,11 @@ async function validateWorkingCopy(
         });
         return 'validation-rejected';
     }
-    return isTargetCurrent(plan, deps) ? null : 'document-changed';
+    if (!isTargetCurrent(plan, deps)) {
+        return 'document-changed';
+    }
+    deps.failureSurface?.reportSaveValidationLimitation(validation);
+    return null;
 }
 
 async function executeWorkingCopySave(
@@ -315,10 +322,8 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
     if (!persisted.success) {
-        return {
-            ...notSavedBeforeWrite(abortReasonForPersistResult(persisted), plan.target.expectedRevisionToken, null),
-            ...(persisted.failure === undefined ? {} : {failure: persisted.failure}),
-        };
+        // As for an ordinary save: persistence ran and may have written the file.
+        return workingCopySaveResult(persisted, null);
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
     const deleteEffects = persisted.annotationDeleteEffects;
@@ -485,6 +490,8 @@ async function executeOptimizationSave(
                     expectedWorkingPath: plan.target.expectedWorkingPath,
                     expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
                     ...(plan.request.onResult ? {onResult: plan.request.onResult} : {}),
+                    ...(plan.request.preparedOptimize ? {preparedOptimize: plan.request.preparedOptimize} : {}),
+                    ...(plan.request.signal ? {signal: plan.request.signal} : {}),
                 },
             ),
         );
@@ -518,11 +525,19 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         ?? runWithoutDocumentOperationLease;
     let saveOperations = 0;
     let saveQueueTail: Promise<void> = Promise.resolve();
+    // Each optimization owns a signal from its submit on: the workspace going
+    // away ends it at any point; once its dirty save is done it is bound to
+    // that working copy, and another working copy replacing it ends it too.
+    const optimizeRequests = new Map<AbortController, TDocumentRef | null>();
+    onScopeDispose(() => optimizeRequests.forEach((_bound, controller) => controller.abort()), true);
+    watch(deps.document.workingCopyPath, path => optimizeRequests.forEach((bound, controller) => {
+        if (bound !== null && bound !== path) controller.abort();
+    }));
     // Set once the lease admits a save; the reading watch reads this, not the indicator.
     const isAnySaveAdmitted = ref(false);
     const acknowledgedUnencryptedSaveSessions = new Set<string>();
     const nativeSaveTransactionOptions = () => getNativeSaveTransactionOptions(deps);
-    const createRecoverySnapshotBytes = createRecoverySnapshotBytesForService(
+    const createRecoverySnapshot = createRecoverySnapshotForService(
         deps,
         runWithDocumentOperationLease,
     );
@@ -708,7 +723,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             lastPlan,
                             acknowledgedUnencryptedSaveSessions,
                         );
-                        result = unencryptedSaveAbort ?? await executeSavePlan(lastPlan, deps);
+                        result = unencryptedSaveAbort ?? await executeSavePlan(lastPlan, {
+                            ...deps,
+                            failureSurface,
+                        });
                         if (result.status !== 'saved') {
                             result.reloadWaiter?.cancel();
                             if (result.status === 'failed') throw result.error;
@@ -740,6 +758,15 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         reportSaveFailureIfCurrent('unexpected-error', {
                             detail,
                             failure,
+                            // Its cause lets an engine limit be told as one.
+                            diagnostics: {
+                                channel: 'save',
+                                operation: 'persist',
+                                phase: 'preflight',
+                                reason: 'unknown',
+                                message: detail,
+                                cause: error,
+                            },
                         });
                         return false;
                     }
@@ -826,7 +853,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleSave: saveIfDirty,
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
-        createRecoverySnapshotBytes,
+        createRecoverySnapshot,
         createPageMutationWriterSave: (options: {
             currentPage: Readonly<Ref<number>>;
             waitForPdfReload: (page: number) => Promise<unknown>;
@@ -852,15 +879,43 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             requestId?: TRequestId,
             onResult?: (result: IPdfOptimizeResult) => void,
         ) => {
-            const request = {
-                kind: 'optimize-copy' as const,
-                options,
-                ...(requestId === undefined ? {} : {requestId}),
-                ...(onResult === undefined ? {} : {onResult}),
-            };
-            return canSave.value
-                ? saveIfDirty().then(saved => saved ? save(request) : false)
-                : save(request);
+            // A platform that picks the copy's target itself opens its picker now,
+            // before any await, so the click that submitted the dialog reaches it.
+            const sessionPath = deps.document.workingCopyPath.value;
+            const nameFrom = deps.document.originalPath.value ?? sessionPath;
+            const selection = nameFrom ? getDocumentFilesCapability().prepareOptimizePdfAsCopy?.(nameFrom) : undefined;
+            const controller = new AbortController();
+            optimizeRequests.set(controller, null);
+            return (async () => {
+                try {
+                    const preparedOptimize = selection ? await selection : undefined;
+                    // A canceled picker, a workspace that went away or another
+                    // document that took over saves nothing.
+                    if ((selection && !preparedOptimize) || controller.signal.aborted
+                        || deps.document.workingCopyPath.value !== sessionPath) {
+                        return false;
+                    }
+                    if (canSave.value && !await saveIfDirty()) {
+                        return false;
+                    }
+                    if (controller.signal.aborted) {
+                        return false;
+                    }
+                    optimizeRequests.set(controller, deps.document.workingCopyPath.value);
+                    return await save({
+                        kind: 'optimize-copy',
+                        options,
+                        ...(requestId === undefined ? {} : {requestId}),
+                        ...(onResult === undefined ? {} : {onResult}),
+                        ...(preparedOptimize ? {
+                            preparedOptimize,
+                            signal: controller.signal,
+                        } : {}),
+                    });
+                } finally {
+                    optimizeRequests.delete(controller);
+                }
+            })();
         },
     };
 };

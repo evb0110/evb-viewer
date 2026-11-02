@@ -1,3 +1,4 @@
+import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
@@ -91,6 +92,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
 
         let jobStateListener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             preview: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),

@@ -22,7 +22,6 @@
                 @open-in-new-tab="emit('open-in-new-tab', $event)"
                 @request-close-tab="emit('request-close-tab')"
                 @open-settings="emit('open-settings')"
-                @open-combine="emit('open-combine')"
                 @toggle-fullscreen="emit('toggle-fullscreen')"
             />
         </ClientOnly>
@@ -49,7 +48,6 @@
                 :open-combine-result="result => withWorkspace(workspace => workspace.handleOpenFileWithResult(result))"
                 @update:start-section="emit('update:start-section', $event)"
                 @open-file="openPicked(() => platformDocuments.getDocumentPickerCapability().openDocumentDialog())"
-                @open-folder="openPicked(() => platformDocuments.getDocumentPickerCapability().openFolderDialog())"
                 @press-recent="pressRecentFile"
                 @open-recent="openRecentFile"
                 @remove-recent="removeRecentFile"
@@ -113,7 +111,6 @@ const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
-    'open-combine': [];
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();

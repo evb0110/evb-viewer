@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'I margini devono essere compresi tra 0 e 25 mm.',
             'unavailable': 'La pulizia delle scansioni non è disponibile su questo sistema.',
             'otherDocumentRunning': 'È in corso la pulizia di un altro documento. Avvia questo al termine.',
+            'browserPreviewOnly': 'Nel browser, la pulizia delle scansioni mostra l’anteprima delle pagine ma non può ancora pulire il documento. Usa l’app desktop per pulirlo.',
         },
         'completedTitle': 'Pulizia delle scansioni completata',
         'completedPartialTitle': 'Pagine selezionate pulite',
@@ -737,6 +738,7 @@ export default {
         'resize': 'Ridimensiona barra laterale',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Il browser ha bloccato la lettura degli appunti. Premi Ctrl+V (⌘V su Mac) per incollare l’immagine.',
         'toolDefaults': 'Impostazioni dello strumento',
         'selectedProperties': 'Proprietà delle annotazioni selezionate',
         'mixedValues': 'Misto',
@@ -897,7 +899,6 @@ export default {
                 'off': 'Usa la scansione così com’è.',
                 'clean': 'Raddrizza e ripulisce prima l’immagine della pagina.',
             },
-            'browserUnavailable': 'La pulizia dell’immagine richiede l’app desktop; il browser legge le pagine così come sono state scansionate.',
         },
         'pageSegmentation': {
             'label': 'Layout del testo',
@@ -1035,8 +1036,6 @@ export default {
             'advancedRaster': 'Opzioni raster (avanzate)',
             'advancedRasterHint': 'Rasterizza ogni pagina a una risoluzione fissa. File più grandi; scegli solo se serve un output pixel-esatto.',
             'directDisabledReason': 'Supera il limite di dimensione della conversione diretta a questa risoluzione.',
-            'browserPageLimit': 'Questo documento ha {pages} pagine, ma la conversione nel browser ne supporta al massimo {maxPages}. Usa l\'app desktop per i documenti più grandi.',
-            'browserPixelLimit': 'Alcune pagine sono troppo grandi per la conversione nel browser. Usa l\'app desktop per questo documento.',
         },
     },
     'common': {
@@ -1736,7 +1735,7 @@ export default {
             'unsupportedEncryption': 'Questo PDF usa una crittografia che EVB Viewer non può aprire.',
             'encryptedTooLarge': 'Questo PDF crittografato supera il limite di 512 MiB e non può essere aperto.',
             'djvuRasterLimit': 'Questa pagina DjVu è troppo grande per essere visualizzata a piena risoluzione.',
-            'djvuComponentsRequired': 'Questo indice DjVu richiede file di componenti separati. Apri un file DjVu riunito oppure usa l’app desktop.',
+            'djvuComponentsRequired': 'Questo indice DjVu conserva le pagine in file separati. Aprilo di nuovo e seleziona l\'indice insieme ai file che si trovano accanto.',
             'changedWhileOpening': 'Il file è cambiato durante l’apertura. Aprilo di nuovo.',
             'invalid': 'Il file è danneggiato o non è un documento supportato.',
             'emptyPdf': 'Il file PDF è vuoto (0 byte)',
@@ -1752,6 +1751,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF salvato, ma non è stato possibile aggiornare il recupero',
             'recoverySettlementDescription': 'Le modifiche sono state scritte nel PDF. Le modifiche successive non salvate restano aperte qui.',
+            'workingCopySyncRequiredTitle': 'Impossibile aggiornare il documento aperto dopo il salvataggio',
+            'workingCopySyncRequiredUnknown': 'Il file potrebbe essere stato scritto. Le modifiche restano aperte qui; controlla il file o usa Salva con nome per salvarle altrove.',
             'validation': 'Il documento non ha superato il controllo di validità, quindi non è stato scritto nulla.',
             'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
             'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',
@@ -1788,12 +1789,12 @@ export default {
             'storageFull': 'Lo spazio di archiviazione del browser è esaurito. Libera spazio per questo sito e riprova.',
             'notEnoughMemory': 'Il browser ha esaurito la memoria. Chiudi altre schede e riprova oppure usa l’app desktop.',
             'documentToolsUnavailable': 'Impossibile avviare lo strumento per i documenti. Ricarica la pagina e riprova.',
+            'validationLimitedTitle': 'Verifica PDF limitata',
+            'validationLimited': 'Questo PDF supera il limite di verifica di {limitMiB} MiB del browser. È stato verificato solo il caricamento nel browser e l’ottimizzazione con Salva con nome non è disponibile. Usa l’app desktop per una verifica completa.',
             'annotationsUnavailable': 'La modifica delle annotazioni esistenti non è disponibile',
             'annotationsTooLarge': 'Il documento è aperto in lettura. L’importazione delle annotazioni esistenti supera il limite di memoria dello strumento del browser. Usa l’app desktop per modificarle.',
             'filePickerSetupDenied': 'L’accesso del browser ai file è stato negato. Scegli di nuovo Apri per usare il selettore compatibile.',
-            'largeSaveHandleHint': 'Usa un browser con accesso al file system locale abilitato per salvare documenti di grandi dimensioni.',
             'imageExtensionMismatch': 'L’esportazione non è stata salvata. Scegli un nome file che termini con {extensions}.',
-            'useNativeApp': 'Usa l’app nativa per file di queste dimensioni.',
         },
         'search': {
             'browserTooLarge': 'La ricerca non è disponibile nel browser per documenti molto grandi.',
@@ -1869,6 +1870,7 @@ export default {
             'load': 'Impossibile caricare le impostazioni',
             'recovered': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato conservato come copia di recupero quando possibile.',
             'recoveredWithPath': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato messo in quarantena in {path}.',
+            'newerVersion': 'Queste impostazioni sono state salvate da una versione più recente di EVB Viewer. Restano invariate; questa versione usa i valori predefiniti e non può salvare impostazioni. Apri la versione più recente per modificarle.',
         },
         'runtime': {
             'title': 'Qualcosa è andato storto',

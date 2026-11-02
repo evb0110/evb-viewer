@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'Die Ränder müssen zwischen 0 und 25 mm liegen.',
             'unavailable': 'Die Scanbereinigung ist auf diesem System nicht verfügbar.',
             'otherDocumentRunning': 'Ein anderes Dokument wird gerade bereinigt. Starten Sie dieses, wenn es fertig ist.',
+            'browserPreviewOnly': 'Im Browser zeigt die Scanbereinigung eine Vorschau der Seiten, kann das Dokument aber noch nicht bereinigen. Verwenden Sie dafür die Desktop-App.',
         },
         'completedTitle': 'Scanbereinigung abgeschlossen',
         'completedPartialTitle': 'Ausgewählte Seiten bereinigt',
@@ -737,6 +738,7 @@ export default {
         'resize': 'Seitenleiste anpassen',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Der Browser hat das Lesen der Zwischenablage blockiert. Drücken Sie Strg+V (⌘V auf dem Mac), um das Bild einzufügen.',
         'toolDefaults': 'Werkzeugvorgaben',
         'selectedProperties': 'Eigenschaften ausgewählter Anmerkungen',
         'mixedValues': 'Gemischt',
@@ -897,7 +899,6 @@ export default {
                 'off': 'Scan unverändert verwenden.',
                 'clean': 'Seitenbild zuerst begradigen und bereinigen.',
             },
-            'browserUnavailable': 'Die Bildbereinigung erfordert die Desktop-App; der Browser liest die Seiten wie gescannt.',
         },
         'pageSegmentation': {
             'label': 'Textlayout',
@@ -1035,8 +1036,6 @@ export default {
             'advancedRaster': 'Rasteroptionen (erweitert)',
             'advancedRasterHint': 'Rastert jede Seite mit fester Auflösung. Größere Dateien; nur wählen, wenn exakte Pixelausgabe benötigt wird.',
             'directDisabledReason': 'Überschreitet bei dieser Auflösung das Limit für die Direktkonvertierung.',
-            'browserPageLimit': 'Dieses Dokument hat {pages} Seiten, im Browser sind aber höchstens {maxPages} möglich. Nutzen Sie für größere Dokumente die Desktop-App.',
-            'browserPixelLimit': 'Einige Seiten sind zu groß für die Konvertierung im Browser. Nutzen Sie für dieses Dokument die Desktop-App.',
         },
     },
     'common': {
@@ -1736,7 +1735,7 @@ export default {
             'unsupportedEncryption': 'Dieses PDF verwendet eine Verschlüsselung, die EVB Viewer nicht öffnen kann.',
             'encryptedTooLarge': 'Diese verschlüsselte PDF überschreitet das Limit von 512 MiB und kann nicht geöffnet werden.',
             'djvuRasterLimit': 'Diese DjVu-Seite ist zu groß für die Anzeige in voller Auflösung.',
-            'djvuComponentsRequired': 'Dieser DjVu-Index benötigt separate Komponentendateien. Öffnen Sie eine gebündelte DjVu-Datei oder verwenden Sie die Desktop-App.',
+            'djvuComponentsRequired': 'Dieser DjVu-Index speichert seine Seiten in separaten Dateien. Öffnen Sie ihn erneut und wählen Sie den Index zusammen mit den Dateien daneben aus.',
             'changedWhileOpening': 'Die Datei wurde während des Öffnens geändert. Öffnen Sie sie erneut.',
             'invalid': 'Die Datei ist beschädigt oder kein unterstütztes Dokument.',
             'emptyPdf': 'Die PDF-Datei ist leer (0 Byte)',
@@ -1752,6 +1751,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF gespeichert, aber die Wiederherstellung konnte nicht aktualisiert werden',
             'recoverySettlementDescription': 'Ihre Änderungen wurden in die PDF-Datei geschrieben. Neuere, noch nicht gespeicherte Änderungen bleiben hier geöffnet.',
+            'workingCopySyncRequiredTitle': 'Das geöffnete Dokument konnte nach dem Speichern nicht aktualisiert werden',
+            'workingCopySyncRequiredUnknown': 'Die Datei wurde möglicherweise geschrieben. Ihre Änderungen bleiben hier geöffnet; prüfen Sie die Datei oder speichern Sie sie mit „Speichern unter“ an einem anderen Ort.',
             'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
@@ -1788,12 +1789,12 @@ export default {
             'storageFull': 'Der Browserspeicher ist voll. Geben Sie Speicher für diese Website frei und versuchen Sie es erneut.',
             'notEnoughMemory': 'Der Browser hat nicht genügend Arbeitsspeicher. Schließen Sie andere Tabs und versuchen Sie es erneut oder verwenden Sie die Desktop-App.',
             'documentToolsUnavailable': 'Das Dokumentwerkzeug konnte nicht gestartet werden. Laden Sie die Seite neu und versuchen Sie es erneut.',
+            'validationLimitedTitle': 'Eingeschränkte PDF-Prüfung',
+            'validationLimited': 'Diese PDF überschreitet die Prüfgrenze von {limitMiB} MiB im Browser. Nur das Laden im Browser wurde geprüft. Die Optimierung beim Speichern unter ist nicht verfügbar. Verwenden Sie für eine vollständige Prüfung die Desktop-App.',
             'annotationsUnavailable': 'Vorhandene Anmerkungen können nicht bearbeitet werden',
             'annotationsTooLarge': 'Das Dokument ist zum Lesen geöffnet. Der Import vorhandener Anmerkungen überschreitet das Speicherlimit des Browserwerkzeugs. Bearbeiten Sie sie in der Desktop-App.',
             'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',
-            'largeSaveHandleHint': 'Verwenden Sie einen Browser mit aktiviertem lokalem Dateisystemzugriff, um große Dokumente zu speichern.',
             'imageExtensionMismatch': 'Der Export wurde nicht gespeichert. Wählen Sie einen Dateinamen mit der Endung {extensions}.',
-            'useNativeApp': 'Verwenden Sie für Dateien dieser Größe die native App.',
         },
         'search': {
             'browserTooLarge': 'Die Suche ist im Browser für sehr große Dokumente nicht verfügbar.',
@@ -1869,6 +1870,7 @@ export default {
             'load': 'Einstellungen konnten nicht geladen werden',
             'recovered': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde, wenn möglich, als Wiederherstellungskopie behalten.',
             'recoveredWithPath': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde unter {path} unter Quarantäne gestellt.',
+            'newerVersion': 'Diese Einstellungen wurden von einer neueren Version von EVB Viewer gespeichert. Sie bleiben unverändert; diese Version verwendet ihre Standardeinstellungen und kann keine Einstellungen speichern. Öffnen Sie die neuere Version, um sie zu ändern.',
         },
         'runtime': {
             'title': 'Etwas ist schiefgelaufen',

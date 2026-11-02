@@ -96,9 +96,14 @@ describe('platform API contract parity', () => {
             diagnostics,
             ...platformApi
         } = api;
-        // Electron has no in-process PDF combiner; DOCX export streams outside the descriptors.
+        // Electron has no in-process PDF combiner and picks its Optimize target
+        // in the main process; DOCX export streams outside the descriptors.
+        const browserOnlyPaths = new Set([
+            'documentPicker.createCombinedPdfFromFiles',
+            'documentFiles.prepareOptimizePdfAsCopy',
+        ]);
         expectCallablePathParity(platformApi, [
-            ...descriptorPaths.filter(path => path.join('.') !== 'documentPicker.createCombinedPdfFromFiles'),
+            ...descriptorPaths.filter(path => !browserOnlyPaths.has(path.join('.'))),
             ...[
                 'beginDocxFileStream',
                 'writeDocxFileStreamChunk',

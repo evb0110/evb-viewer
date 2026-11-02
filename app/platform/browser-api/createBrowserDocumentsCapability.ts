@@ -1,3 +1,4 @@
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import {
     reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
@@ -125,9 +126,8 @@ export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
 ): IBrowserDocumentCapabilities {
     const errorMessageProvider = {
-        largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint'),
-        useNativeApp: () => translateBrowserMessage('errors.browser.useNativeApp'),
         imageExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.imageExtensionMismatch', {extensions}),
+        folderEmpty: () => translateBrowserMessage('errors.file.folderEmpty'),
     };
     configureBrowserFilePickerMessages(errorMessageProvider);
     configureBrowserFilePickerDescriptions((key) =>
@@ -171,11 +171,12 @@ export function createBrowserDocumentsCapability(
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
         recovery: {
-            async createSnapshot(fileName, data, sourceRef) {
+            async createSnapshot(fileName, from, sourceRef) {
                 const ref = await reserveBrowserDocumentWorkingCopy(fileName, sourceRef);
                 try {
-                    await browserDocumentStore.createStoredDocument(fileName, data, {
+                    await browserDocumentStore.createStoredDocument(fileName, new Uint8Array(), {
                         ref,
+                        contentFrom: from,
                         mimeType: 'application/pdf',
                         kind: 'working',
                         retention: 'durable',
@@ -211,6 +212,9 @@ export function createBrowserDocumentsCapability(
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
+        ...(fileCapability.prepareOptimizePdfAsCopy
+            ? {prepareOptimizePdfAsCopy: fileCapability.prepareOptimizePdfAsCopy}
+            : {}),
         ...(fileCapability.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: fileCapability.applyPdfNativeMutationsToWorkingCopy}
             : {}),
@@ -232,11 +236,14 @@ export function createBrowserDocumentsCapability(
         saveDocxAs: fileCapability.saveDocxAs,
         writeFile: fileCapability.writeFile,
         replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
-        writeDocxFile: fileCapability.writeDocxFile,
+        beginDocxFileStream: fileCapability.beginDocxFileStream,
+        writeDocxFileStreamChunk: fileCapability.writeDocxFileStreamChunk,
+        commitDocxFileStream: fileCapability.commitDocxFileStream,
+        cancelDocxFileStream: fileCapability.cancelDocxFileStream,
         saveFileStructured: fileCapability.saveFileStructured,
         savePdfData: fileCapability.savePdfData,
         ...optionalDocumentFileMethods,
-    } satisfies IDocumentsFileIoCapability;
+    } satisfies IDocumentsFileIoCapability & IDocxExportFileCapability;
     const documentPdf = {
         analyzePdfConformance: fileCapability.analyzePdfConformance,
         validatePdfPath: fileCapability.validatePdfPath,

@@ -1,7 +1,10 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ICropMargins } from '@app/types/crop';
 import type { TPageMoveOperation } from '@contracts/pageNumbers';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
@@ -33,6 +36,15 @@ import type { IFailureToastAction } from '@app/composables/useFailureToast';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
+    /** The presentation's document: a PDF, a DjVu source, or one still opening. */
+    toolbarHasPdf: boolean;
+    /** The presentation's busy state: the document takes no commands yet. */
+    documentBusy: boolean;
+    canToggleSidebar: boolean;
+    ocrActionDisabled: boolean;
+    /** A running OCR can always be opened to see its progress or cancel it. */
+    ocrTriggerDisabled: boolean;
+    scanCleanupDisabled: boolean;
     initialVisualReady: boolean;
     viewerCapabilities: IWorkspaceViewerCapabilities;
     hasOpenError: boolean;
@@ -115,6 +127,12 @@ export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapa
 export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
+        toolbarHasPdf: false,
+        documentBusy: false,
+        canToggleSidebar: false,
+        ocrActionDisabled: true,
+        ocrTriggerDisabled: true,
+        scanCleanupDisabled: true,
         initialVisualReady: false,
         viewerCapabilities: createDefaultWorkspaceViewerCapabilities(),
         hasOpenError: false,
@@ -289,6 +307,8 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
+    handleOpenOcr: () => void;
+    handleOpenScanCleanup: () => void;
     /** Captures the document at `page`, by default the page this view reads. */
     captureSplitPayload: (page?: number, ownership?: () => void) => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload, transactionId?: string, captureOpenedTarget?: () => () => boolean) => Promise<TDocumentOpenOutcome>;
@@ -306,7 +326,17 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         uri: string,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    createRecoverySnapshotBytes: (recovery?: IWorkspaceCheckpointTab['annotationRecovery']) => Promise<Uint8Array | null>;
+    /** A durable recovery copy of the document's current state, or null when none applies or the state changed meanwhile. */
+    createRecoverySnapshot: (
+        target: {
+            fileName: string;
+            sourceRef?: TDocumentRef | null
+        },
+        recovery?: IWorkspaceCheckpointTab['annotationRecovery'],
+    ) => Promise<{
+        ref: TDocumentRef;
+        revisionToken: TDocumentRevisionToken
+    } | null>;
     commentAtPoint?: (
         pageNumber: number,
         pageX: number,

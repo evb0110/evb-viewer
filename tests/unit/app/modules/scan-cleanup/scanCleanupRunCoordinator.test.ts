@@ -1,3 +1,4 @@
+import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     beforeEach,
     describe,
@@ -120,6 +121,7 @@ function stubCapability(
     nextJobId: () => string,
 ): IScanCleanupCapability {
     return {
+        getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
         preview: vi.fn(),
         cancelPreview: vi.fn(),
         detectAll: vi.fn(),

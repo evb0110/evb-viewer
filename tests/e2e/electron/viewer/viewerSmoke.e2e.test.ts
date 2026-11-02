@@ -2350,7 +2350,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             height: 900,
             width: 520,
         });
-        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.toolbar[data-collapse-tier]'))
+        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.editor-global-toolbar-shell[data-collapse-tier]'))
             .some(toolbar => toolbar.getBoundingClientRect().width > 0
                 && Number(toolbar.dataset.collapseTier ?? 0) >= 1), {timeout: 10_000});
         await clickVisibleToolbarButton(session.page, 'More tools');

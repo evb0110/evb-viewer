@@ -197,19 +197,7 @@
 
                         <!-- OCR tuning -->
                         <div class="section-row">
-                            <div
-                                v-if="!isDesktopRuntime"
-                                class="section"
-                            >
-                                <span class="label ocr-setting-legend">{{ t('ocr.preprocessing.label') }}</span>
-                                <p class="preprocessing-desktop-note">
-                                    {{ t('ocr.preprocessing.browserUnavailable') }}
-                                </p>
-                            </div>
-                            <div
-                                v-else
-                                class="section"
-                            >
+                            <div class="section">
                                 <URadioGroup
                                     v-model="settings.preprocessingMode"
                                     name="ocrPreprocessingMode"
@@ -466,7 +454,6 @@ import type {
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 import type {
@@ -478,7 +465,6 @@ import type { TOcrPageRange } from '@app/utils/ocr/ocrTypes';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const { t } = useTypedI18n();
-const { isDesktopRuntime } = useRuntimeEnvironment();
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
 type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
 type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentation.options.${string}`>;
@@ -1083,11 +1069,6 @@ function getLanguageModelStateIcon(state: string) {
 
 .error-retry-hint {
     color: var(--ui-text-muted);
-}
-
-.preprocessing-desktop-note {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-micro);
 }
 
 .copy-logs {

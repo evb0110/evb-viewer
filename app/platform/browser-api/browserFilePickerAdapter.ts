@@ -1,14 +1,10 @@
-import { withTimeout } from 'es-toolkit/promise';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
-import {
-    buildBrowserByteLimitError,
-    toBrowserOwnedArrayBuffer,
-} from '@app/platform/browser-api/browserPlatformHelpers';
+import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 import {
@@ -21,11 +17,8 @@ export interface IPickedBrowserFile {
     handle?: FileSystemFileHandle | null;
 }
 
-export const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
-const BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS = 120_000;
-const BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS = 180_000;
 const BROWSER_INPUT_PICKER_FOCUS_CANCEL_INITIAL_DELAY_MS = 2_000;
 const BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRY_DELAY_MS = 1_000;
 const BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRIES = 3;
@@ -36,10 +29,7 @@ type TPermissionCapableFileHandle = FileSystemFileHandle & {
     queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
     requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
 };
-let browserFilePickerMessages = {
-    largeSaveHandleHint: () => 'Use a browser with local file system access enabled to save large documents.',
-    imageExtensionMismatch: (extensions: string) => `Export was not saved. Choose a file name ending in ${extensions}.`,
-};
+let browserFilePickerMessages = {imageExtensionMismatch: (extensions: string) => `Export was not saved. Choose a file name ending in ${extensions}.`};
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
@@ -67,15 +57,6 @@ function assertImageExportHandleName(handle: FileSystemFileHandle, pickerTypes: 
 export function isFileSystemAccessDeniedError(error: unknown) {
     return error instanceof DOMException
         && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
-}
-
-function createBrowserFileWriteTimeoutError(phase: string) {
-    const error = new Error(
-        `Browser file save did not finish while waiting for ${phase}. `
-        + 'If Chrome is showing a file permission prompt, choose Save changes or Cancel and try again.',
-    );
-    error.name = 'BrowserFileWriteTimeoutError';
-    return error;
 }
 
 export class BrowserFileWriteOutcomeError extends Error {
@@ -108,33 +89,11 @@ function normalizeBrowserFileHandleError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
 }
 
-async function runBrowserFileHandlePhase<T>(
-    phase: string,
-    timeoutMs: number,
-    operation: () => Promise<T>,
-) {
-    try {
-        return await withTimeout(operation, timeoutMs);
-    } catch (error) {
-        if (
-            error instanceof Error
-            && (error.name === 'TimeoutError' || error.constructor.name === 'TimeoutError')
-        ) {
-            throw createBrowserFileWriteTimeoutError(phase);
-        }
-        throw error;
-    }
-}
-
 async function abortBrowserFileWritable(
     writable: FileSystemWritableFileStream,
 ) {
     try {
-        await runBrowserFileHandlePhase(
-            'aborting file writer',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-            () => writable.abort(),
-        );
+        await writable.abort();
         return true;
     } catch {
         return false;
@@ -151,24 +110,50 @@ async function abortAfterBrowserFileWriteError(
     throw new BrowserFileWriteOutcomeError(error, null);
 }
 
-async function closeBrowserFileWritable(
-    writable: FileSystemWritableFileStream,
-) {
+async function closeBrowserFileWritable(writable: FileSystemWritableFileStream) {
     try {
-        await runBrowserFileHandlePhase(
-            'closing file writer',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-            () => writable.close(),
-        );
+        await writable.close();
     } catch (error) {
         if (await abortBrowserFileWritable(writable)) {
             throw normalizeBrowserFileHandleError(error);
         }
-        // close() may still resolve after its deadline. The caller must not
-        // report "no write" unless abort() completed, because that late close
-        // can publish the file after the save request has returned.
+        // A close that failed may still have published the file. The caller
+        // must not report "no write" unless abort() completed.
         throw new BrowserFileWriteOutcomeError(error, null);
     }
+}
+
+// Writes in bounded chunks, so a cancel takes effect between them.
+async function writeBrowserFileChunks(
+    writable: FileSystemWritableFileStream,
+    data: Blob | Uint8Array,
+    signal?: AbortSignal,
+) {
+    const size = data instanceof Blob ? data.size : data.byteLength;
+    for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+        throwIfAborted(signal);
+        const end = Math.min(size, offset + BROWSER_DOCUMENT_CHUNK_SIZE);
+        const chunk = data instanceof Blob
+            ? data.slice(offset, end)
+            : toBrowserOwnedArrayBuffer(data.subarray(offset, end));
+        await writable.write(chunk);
+    }
+    throwIfAborted(signal);
+}
+
+// A permission prompt waits for the person, however long they take. Only
+// cancelling the operation ends the wait early.
+function waitForPermissionAnswer<T>(answer: Promise<T>, signal?: AbortSignal) {
+    if (!signal) return answer;
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        if (signal.aborted) {
+            onAbort();
+            return;
+        }
+        signal.addEventListener('abort', onAbort, {once: true});
+        answer.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+    });
 }
 
 async function queryFileHandleWritePermission(handle: FileSystemFileHandle) {
@@ -177,15 +162,11 @@ async function queryFileHandleWritePermission(handle: FileSystemFileHandle) {
     const queryPermission = permissionHandle.queryPermission?.bind(permissionHandle);
 
     return queryPermission
-        ? runBrowserFileHandlePhase(
-            'file write permission check',
-            BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
-            () => queryPermission(descriptor),
-        )
+        ? queryPermission(descriptor)
         : 'granted';
 }
 
-export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
+export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle, signal?: AbortSignal) {
     const permissionHandle = handle as TPermissionCapableFileHandle;
     const descriptor = { mode: 'readwrite' as const };
     const requestPermission = permissionHandle.requestPermission?.bind(permissionHandle);
@@ -196,11 +177,7 @@ export async function ensureFileHandleWritePermission(handle: FileSystemFileHand
     }
 
     const nextPermission = requestPermission
-        ? await runBrowserFileHandlePhase(
-            'file write permission',
-            BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
-            () => requestPermission(descriptor),
-        )
+        ? await waitForPermissionAnswer(requestPermission(descriptor), signal)
         : currentPermission;
     if (nextPermission !== 'granted') {
         throw createBrowserFileWritePermissionError();
@@ -250,26 +227,6 @@ function createBrowserFilePickerSetupDeniedError() {
     return new BrowserFilePickerSetupDeniedError();
 }
 
-function buildBrowserLargeJobError(
-    label: string,
-    maxBytes: number,
-    hint?: string,
-) {
-    return buildBrowserByteLimitError(
-        label,
-        maxBytes,
-        'inputs',
-        hint,
-    );
-}
-
-function buildBrowserLargeDownloadFallbackError(
-    label: string,
-    maxBytes: number,
-) {
-    return buildBrowserLargeJobError(label, maxBytes, browserFilePickerMessages.largeSaveHandleHint());
-}
-
 export async function pickFiles(options: {
     accept: string;
     multiple?: boolean;
@@ -307,8 +264,20 @@ export async function pickFiles(options: {
         }
     }
 
+    return ((await pickInputFiles(options)) ?? []).map(file => ({
+        file,
+        handle: null,
+    }));
+}
+
+/** Files chosen through a file input, or null when the choice was cancelled. */
+function pickInputFiles(options: {
+    accept: string;
+    multiple?: boolean;
+    directory?: boolean;
+}) {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
-        return [];
+        return Promise.resolve(null);
     }
 
     // A browser opens a file chooser only within a user activation and reports
@@ -316,10 +285,10 @@ export async function pickFiles(options: {
     // forever. The pick ends as cancelled instead.
     const userActivation: UserActivation | undefined = navigator.userActivation;
     if (userActivation?.isActive === false) {
-        return [];
+        return Promise.resolve(null);
     }
 
-    return new Promise<IPickedBrowserFile[]>((resolve) => {
+    return new Promise<File[] | null>((resolve) => {
         const input = document.createElement('input');
         let settled = false;
         let focusFallbackTimer: number | null = null;
@@ -333,19 +302,14 @@ export async function pickFiles(options: {
             window.removeEventListener('focus', handleFocus);
         };
 
-        const finish = (files: File[]) => {
+        const finish = (files: File[] | null) => {
             if (settled) {
                 return;
             }
 
             settled = true;
             cleanup();
-            resolve(
-                files.map((file) => ({
-                    file,
-                    handle: null,
-                })),
-            );
+            resolve(files);
         };
 
         const finishSelectedInputFiles = () => {
@@ -373,7 +337,7 @@ export async function pickFiles(options: {
                     return;
                 }
 
-                finish([]);
+                finish(null);
             }, delayMs);
         };
 
@@ -387,13 +351,14 @@ export async function pickFiles(options: {
         input.type = 'file';
         input.accept = options.accept;
         input.multiple = options.multiple ?? false;
+        input.webkitdirectory = options.directory ?? false;
         input.style.display = 'none';
         const supportsCancelEvent = 'oncancel' in input;
         if (supportsCancelEvent) {
             input.addEventListener(
                 'cancel',
                 () => {
-                    finish([]);
+                    finish(null);
                 },
                 { once: true },
             );
@@ -414,6 +379,57 @@ export async function pickFiles(options: {
     });
 }
 
+type TBrowserDirectoryPicker = (options?: {mode?: 'read'}) => Promise<FileSystemDirectoryHandle>;
+
+function isFileHandle(handle: FileSystemHandle): handle is FileSystemFileHandle {
+    return handle.kind === 'file';
+}
+
+/**
+ * The files directly inside a folder the reader chooses, unsorted, or null
+ * when the choice was cancelled. A directory input stands in where the browser
+ * has no directory picker; it lists subfolders' files too, which are dropped.
+ */
+export async function pickFolderFiles(): Promise<IPickedBrowserFile[] | null> {
+    const showDirectoryPicker = typeof window === 'undefined'
+        ? undefined
+        : (window as Window & {showDirectoryPicker?: TBrowserDirectoryPicker}).showDirectoryPicker;
+    if (typeof showDirectoryPicker === 'function' && shouldUseFileSystemAccessOpenPicker(true)) {
+        try {
+            const directory = await showDirectoryPicker.call(window, {mode: 'read'});
+            const picked: IPickedBrowserFile[] = [];
+            for await (const handle of directory.values()) {
+                if (isFileHandle(handle)) {
+                    picked.push({
+                        file: await handle.getFile(),
+                        handle,
+                    });
+                }
+            }
+            return picked;
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return null;
+            }
+            if (isFileSystemAccessDeniedError(error)) {
+                rememberInputOpenPickerMode();
+                throw createBrowserFilePickerSetupDeniedError();
+            }
+            throw error;
+        }
+    }
+    const files = await pickInputFiles({
+        accept: '',
+        multiple: true,
+        directory: true,
+    });
+    return files?.filter(file => !file.webkitRelativePath || file.webkitRelativePath.split('/').length === 2)
+        .map(file => ({
+            file,
+            handle: null,
+        })) ?? null;
+}
+
 export async function pickSingleFile(options: {
     accept: string;
     pickerTypes?: IFilePickerAcceptType[];
@@ -422,16 +438,190 @@ export async function pickSingleFile(options: {
     return files[0] ?? null;
 }
 
+// Dispatching the anchor publishes the download, so a cancel is checked
+// immediately before it; nothing can take a dispatched download back.
+function downloadBlob(blob: Blob, fileName: string, signal?: AbortSignal) {
+    throwIfAborted(signal);
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = fileName;
+    anchor.rel = 'noopener';
+    anchor.style.display = 'none';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+}
+
+/**
+ * Downloads a stored document. Its bytes are read a chunk at a time into a
+ * Blob, which the browser may keep on disk, so no single buffer bounds the
+ * size of the download.
+ */
+export async function downloadBrowserDocument(
+    ref: TDocumentRef,
+    fileName: string,
+    mimeType: string,
+    signal?: AbortSignal,
+) {
+    const { size } = await browserDocumentStore.stat(ref);
+    const parts: Blob[] = [];
+    for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+        throwIfAborted(signal);
+        const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset);
+        const chunk = await browserDocumentStore.readRange(ref, offset, length);
+        if (chunk.byteLength !== length) {
+            throw new Error(`Browser download read ${chunk.byteLength} of ${length} bytes at ${offset}`);
+        }
+        parts.push(new Blob([toBrowserOwnedArrayBuffer(chunk)]));
+        if (offset > 0) {
+            await yieldToBrowser();
+        }
+    }
+    downloadBlob(new Blob(parts, { type: mimeType }), fileName, signal);
+}
+
+/** Downloads bytes already in hand. It never opens a picker. */
+export function downloadBrowserBytes(bytes: Uint8Array, fileName: string, mimeType: string, signal?: AbortSignal) {
+    downloadBlob(new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: mimeType }), fileName, signal);
+}
+
+export type TBrowserOutputTarget =
+    | {
+        fileName: string;
+        handle: FileSystemFileHandle
+    }
+    | {
+        fileName: string;
+        stagingRef: TDocumentRef
+    };
+
+export interface IBrowserOutputSink {
+    write(chunk: Uint8Array): Promise<void>;
+    /** Publishes the output; after an abort() that came first it discards it and rejects. */
+    close(): Promise<void>;
+    /** Discards the output; false when it was published first. */
+    abort(): Promise<boolean>;
+}
+
+interface IBrowserOutput {
+    write(chunk: Uint8Array): Promise<void>;
+    close(): Promise<void>;
+    abort(): Promise<void>;
+}
+
+/**
+ * Opens one output file for streamed bytes. As on desktop, a cancel wins until
+ * the output is published, also while it closes.
+ */
+export async function openBrowserOutputSink(
+    target: TBrowserOutputTarget,
+    options: {
+        mimeType: string;
+        signal?: AbortSignal
+    },
+): Promise<IBrowserOutputSink> {
+    const controller = new AbortController();
+    const signal = options.signal ? AbortSignal.any([
+        options.signal,
+        controller.signal,
+    ]) : controller.signal;
+    const output = await openBrowserOutput(target, options.mimeType, signal);
+    let closing: Promise<void> | undefined;
+    return {
+        write: chunk => output.write(chunk),
+        close: () => closing ??= output.close().catch(async (error: unknown) => {
+            if (signal.aborted) await output.abort();
+            throw error;
+        }),
+        async abort() {
+            controller.abort();
+            // A close whose outcome is unknown may still publish, so it is not a discard.
+            if (closing) return closing.then(() => false, error => !(error instanceof BrowserFileWriteOutcomeError));
+            await output.abort();
+            return true;
+        },
+    };
+}
+
+/**
+ * With a handle the bytes go to the file a chunk at a time. Without one they
+ * are staged as chunks of the store record `stagingRef` and downloaded as one
+ * file on close, so neither path holds the whole output in memory.
+ */
+async function openBrowserOutput(
+    target: TBrowserOutputTarget,
+    mimeType: string,
+    signal: AbortSignal,
+): Promise<IBrowserOutput> {
+    throwIfAborted(signal);
+    if ('handle' in target) {
+        const {handle} = target;
+        await ensureFileHandleWritePermission(handle, signal);
+        throwIfAborted(signal);
+        const writable = await handle.createWritable();
+        return {
+            async write(chunk) {
+                try {
+                    await writeBrowserFileChunks(writable, chunk, signal);
+                } catch (error) {
+                    await abortAfterBrowserFileWriteError(writable, error);
+                }
+            },
+            async close() {
+                throwIfAborted(signal);
+                await closeBrowserFileWritable(writable);
+            },
+            abort: async () => {
+                await abortBrowserFileWritable(writable);
+            },
+        };
+    }
+
+    const {stagingRef} = target;
+    await browserDocumentStore.prepareChunkedDocument(stagingRef);
+    let buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+    let filled = 0;
+    let chunkCount = 0;
+    let fileSize = 0;
+    const flush = async () => {
+        await browserDocumentStore.writeChunk(stagingRef, chunkCount, buffer.subarray(0, filled));
+        chunkCount += 1;
+        fileSize += filled;
+        filled = 0;
+        buffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+    };
+    return {
+        async write(chunk) {
+            for (let offset = 0; offset < chunk.byteLength;) {
+                throwIfAborted(signal);
+                const length = Math.min(chunk.byteLength - offset, buffer.byteLength - filled);
+                buffer.set(chunk.subarray(offset, offset + length), filled);
+                filled += length;
+                offset += length;
+                if (filled === buffer.byteLength) await flush();
+            }
+        },
+        async close() {
+            throwIfAborted(signal);
+            if (filled > 0) await flush();
+            await browserDocumentStore.finalizeChunkedDocument(stagingRef, {
+                fileSize,
+                chunkCount,
+                chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
+            });
+            await downloadBrowserDocument(stagingRef, target.fileName, mimeType, signal);
+        },
+        abort: () => browserDocumentStore.clearChunkedDocument(stagingRef),
+    };
+}
+
 async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],
-    options: {
-        signal?: AbortSignal;
-        downloadFallbackLabel?: string;
-        downloadFallbackMaxBytes?: number;
-        canDownloadWithoutHandle?: boolean;
-    } = {},
+    options: {signal?: AbortSignal} = {},
 ) {
     throwIfAborted(options.signal);
     const { saveFilePicker } = resolveBrowserCapabilityTier();
@@ -446,21 +636,11 @@ async function saveBlobToPickerOrDownload(
 
             assertImageExportHandleName(handle, pickerTypes);
             throwIfAborted(options.signal);
-            await ensureFileHandleWritePermission(handle);
+            await ensureFileHandleWritePermission(handle, options.signal);
             throwIfAborted(options.signal);
-            const writable = await runBrowserFileHandlePhase(
-                'opening file for writing',
-                BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
-                () => handle.createWritable(),
-            );
+            const writable = await handle.createWritable();
             try {
-                throwIfAborted(options.signal);
-                await runBrowserFileHandlePhase(
-                    'writing file bytes',
-                    BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-                    () => writable.write(blob),
-                );
-                throwIfAborted(options.signal);
+                await writeBrowserFileChunks(writable, blob, options.signal);
             } catch (error) {
                 await abortAfterBrowserFileWriteError(writable, error);
             }
@@ -492,34 +672,7 @@ async function saveBlobToPickerOrDownload(
         };
     }
 
-    const maxDownloadBytes = options.downloadFallbackMaxBytes ?? BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES;
-    if (
-        options.canDownloadWithoutHandle === false
-        || blob.size > maxDownloadBytes
-    ) {
-        throw buildBrowserLargeDownloadFallbackError(
-            options.downloadFallbackLabel ?? 'Saving documents',
-            maxDownloadBytes,
-        );
-    }
-
-    throwIfAborted(options.signal);
-    const href = URL.createObjectURL(blob);
-    try {
-        throwIfAborted(options.signal);
-    } catch (error) {
-        URL.revokeObjectURL(href);
-        throw error;
-    }
-    const anchor = document.createElement('a');
-    anchor.href = href;
-    anchor.download = suggestedName;
-    anchor.rel = 'noopener';
-    anchor.style.display = 'none';
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+    downloadBlob(blob, suggestedName, options.signal);
 
     return {
         canceled: false,
@@ -574,27 +727,13 @@ export async function saveBytesToPickerOrDownload(
         mimeType: string;
         pickerTypes: IFilePickerAcceptType[];
         signal?: AbortSignal;
-        downloadFallbackLabel?: string;
-        downloadFallbackMaxBytes?: number;
-        canDownloadWithoutHandle?: boolean;
     },
 ) {
-    const fallbackOptions = {
-        ...(options.downloadFallbackLabel ? { downloadFallbackLabel: options.downloadFallbackLabel } : {}),
-        ...(options.signal === undefined ? {} : {signal: options.signal}),
-        ...(options.downloadFallbackMaxBytes !== undefined
-            ? { downloadFallbackMaxBytes: options.downloadFallbackMaxBytes }
-            : {}),
-        ...(options.canDownloadWithoutHandle !== undefined
-            ? { canDownloadWithoutHandle: options.canDownloadWithoutHandle }
-            : {}),
-    };
-
     return saveBlobToPickerOrDownload(
         new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
-        fallbackOptions,
+        options.signal === undefined ? {} : {signal: options.signal},
     );
 }
 
@@ -604,7 +743,7 @@ export async function writeBytesToHandle(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    await ensureFileHandleWritePermission(handle);
+    await ensureFileHandleWritePermission(handle, signal);
     await writeBytesAfterPermission(handle, data, signal);
 }
 
@@ -627,19 +766,9 @@ async function writeBytesAfterPermission(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    const writable = await runBrowserFileHandlePhase(
-        'opening file for writing',
-        BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
-        () => handle.createWritable(),
-    );
+    const writable = await handle.createWritable();
     try {
-        throwIfAborted(signal);
-        await runBrowserFileHandlePhase(
-            'writing file bytes',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-            () => writable.write(toBrowserOwnedArrayBuffer(data)),
-        );
-        throwIfAborted(signal);
+        await writeBrowserFileChunks(writable, data, signal);
     } catch (error) {
         await abortAfterBrowserFileWriteError(writable, error);
     }
@@ -653,24 +782,17 @@ export async function writeDocumentRefToHandle(
     ref: TDocumentRef,
 ) {
     await assertFileHandleWriteGranted(handle);
-    const writable = await runBrowserFileHandlePhase(
-        'opening file for writing',
-        BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
-        () => handle.createWritable(),
-    );
+    const writable = await handle.createWritable();
+    let size = 0;
     try {
-        const { size } = await browserDocumentStore.stat(ref);
+        ({ size } = await browserDocumentStore.stat(ref));
         for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
             const chunk = await browserDocumentStore.readRange(
                 ref,
                 offset,
                 Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset),
             );
-            await runBrowserFileHandlePhase(
-                'writing file chunk',
-                BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-                () => writable.write(toBrowserOwnedArrayBuffer(chunk)),
-            );
+            await writable.write(toBrowserOwnedArrayBuffer(chunk));
             if (offset > 0) {
                 await yieldToBrowser();
             }

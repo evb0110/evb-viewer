@@ -422,6 +422,7 @@ export default {
             'invalidMargins': 'Les marges doivent être comprises entre 0 et 25 mm.',
             'unavailable': 'Le nettoyage des scans n’est pas disponible sur ce système.',
             'otherDocumentRunning': 'Un autre document est en cours de nettoyage. Lancez celui-ci une fois terminé.',
+            'browserPreviewOnly': 'Dans le navigateur, le nettoyage des scans affiche un aperçu des pages mais ne peut pas encore nettoyer le document. Utilisez l’application de bureau pour le nettoyer.',
         },
         'completedTitle': 'Nettoyage des scans terminé',
         'completedPartialTitle': 'Pages sélectionnées nettoyées',
@@ -737,6 +738,7 @@ export default {
         'resize': 'Redimensionner le panneau latéral',
     },
     'annotations': {
+        'clipboardImageReadBlocked': 'Le navigateur a bloqué la lecture du presse-papiers. Appuyez sur Ctrl+V (⌘V sur Mac) pour coller l’image.',
         'toolDefaults': 'Paramètres de l’outil',
         'selectedProperties': 'Propriétés des annotations sélectionnées',
         'mixedValues': 'Mixte',
@@ -898,7 +900,6 @@ export default {
                 'off': 'Utilise le scan tel quel.',
                 'clean': 'Redresse et nettoie d’abord l’image de la page.',
             },
-            'browserUnavailable': 'Le nettoyage d’image nécessite l’application de bureau ; le navigateur lit les pages telles qu’elles ont été numérisées.',
         },
         'pageSegmentation': {
             'label': 'Mise en page du texte',
@@ -1036,8 +1037,6 @@ export default {
             'advancedRaster': 'Options raster (avancées)',
             'advancedRasterHint': 'Rastérise chaque page à une résolution fixe. Fichiers plus grands ; à choisir seulement si vous avez besoin de pixels exacts.',
             'directDisabledReason': 'Dépasse la limite de taille de conversion directe à cette résolution.',
-            'browserPageLimit': 'Ce document compte {pages} pages, mais la conversion dans le navigateur en prend en charge {maxPages} au maximum. Utilisez l\'application de bureau pour les documents plus volumineux.',
-            'browserPixelLimit': 'Certaines pages sont trop grandes pour être converties dans le navigateur. Utilisez l\'application de bureau pour ce document.',
         },
     },
     'common': {
@@ -1747,7 +1746,7 @@ export default {
             'unsupportedEncryption': 'Ce PDF utilise un chiffrement qu’EVB Viewer ne peut pas ouvrir.',
             'encryptedTooLarge': 'Ce PDF chiffré dépasse la limite de 512 Mio et ne peut pas être ouvert.',
             'djvuRasterLimit': 'Cette page DjVu est trop grande pour être affichée en pleine résolution.',
-            'djvuComponentsRequired': 'Cet index DjVu nécessite des fichiers de composants séparés. Ouvrez un fichier DjVu regroupé ou utilisez l’application de bureau.',
+            'djvuComponentsRequired': 'Cet index DjVu conserve ses pages dans des fichiers séparés. Ouvrez-le à nouveau et sélectionnez l\'index avec les fichiers situés à côté.',
             'changedWhileOpening': 'Le fichier a été modifié pendant son ouverture. Ouvrez-le à nouveau.',
             'invalid': 'Le fichier est endommagé ou n’est pas un document pris en charge.',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
@@ -1763,6 +1762,8 @@ export default {
         'save': {
             'recoverySettlementTitle': 'PDF enregistré, mais la récupération n’a pas pu être mise à jour',
             'recoverySettlementDescription': 'Vos modifications ont été enregistrées dans le PDF. Les modifications ultérieures non enregistrées restent ouvertes ici.',
+            'workingCopySyncRequiredTitle': 'Impossible de mettre à jour le document ouvert après l’enregistrement',
+            'workingCopySyncRequiredUnknown': 'Le fichier a peut-être été écrit. Vos modifications restent ouvertes ici ; vérifiez le fichier ou utilisez Enregistrer sous pour les enregistrer ailleurs.',
             'validation': 'Le document n’a pas passé le contrôle de validité, rien n’a été écrit.',
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
@@ -1799,12 +1800,12 @@ export default {
             'storageFull': 'Le stockage du navigateur est plein. Libérez de l’espace pour ce site et réessayez.',
             'notEnoughMemory': 'Le navigateur manque de mémoire. Fermez d’autres onglets et réessayez, ou utilisez l’application de bureau.',
             'documentToolsUnavailable': 'L’outil de traitement des documents n’a pas pu démarrer. Rechargez la page et réessayez.',
+            'validationLimitedTitle': 'Vérification PDF limitée',
+            'validationLimited': 'Ce PDF dépasse la limite de vérification de {limitMiB} Mio du navigateur. Seul le chargement dans le navigateur a été vérifié, et l’optimisation lors de l’enregistrement sous est indisponible. Utilisez l’application de bureau pour une vérification complète.',
             'annotationsUnavailable': 'La modification des annotations existantes est indisponible',
             'annotationsTooLarge': 'Le document est ouvert en lecture. L’importation des annotations existantes dépasse la limite mémoire de l’outil du navigateur. Utilisez l’application de bureau pour les modifier.',
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',
-            'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.',
             'imageExtensionMismatch': 'L’exportation n’a pas été enregistrée. Choisissez un nom de fichier se terminant par {extensions}.',
-            'useNativeApp': 'Utilisez l’application native pour les fichiers de cette taille.',
         },
         'search': {
             'browserTooLarge': 'La recherche n’est pas disponible dans le navigateur pour les très gros documents.',
@@ -1880,6 +1881,7 @@ export default {
             'load': 'Impossible de charger les paramètres',
             'recovered': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. Le fichier précédent a été conservé comme copie de récupération lorsque cela était possible.',
             'recoveredWithPath': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. L\'ancien fichier a été placé en quarantaine à l\'emplacement {path}.',
+            'newerVersion': 'Ces paramètres ont été enregistrés par une version plus récente d’EVB Viewer. Ils sont conservés tels quels ; cette version utilise ses valeurs par défaut et ne peut pas enregistrer de paramètres. Ouvrez la version plus récente pour les modifier.',
         },
         'runtime': {
             'title': 'Une erreur est survenue',

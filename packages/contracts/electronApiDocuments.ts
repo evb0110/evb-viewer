@@ -700,7 +700,6 @@ export interface IDocumentsFileCapability {
         sourcePath: TDocumentRef,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
-    writeDocxFile: (path: TDocumentRef, data: Uint8Array, signal?: AbortSignal) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TPlatformDocumentSaveResult>;
@@ -718,6 +717,13 @@ export interface IDocumentsFileCapability {
         requestId?: TRequestId,
         revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<TPlatformPdfOptimizeResult>;
+    /**
+     * Browser only. Opens the Save As picker synchronously, inside the
+     * caller's user gesture, then resolves to an Optimize bound to the chosen
+     * target, or null when the picker was canceled. Electron picks its target
+     * in `optimizePdfAsCopy` itself and omits this.
+     */
+    prepareOptimizePdfAsCopy?: (nameFrom: TDocumentRef) => Promise<TPreparedPdfOptimizeCopy | null>;
     applyPdfNativeMutationsToWorkingCopy?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
@@ -814,7 +820,8 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'parsePdfAnnotations'
     | 'cleanupFile'
 > {recovery?: {
-    createSnapshot(fileName: string, data: Uint8Array, sourceRef?: TDocumentRef): Promise<{
+    /** Copies `from` into a durable recovery document, chunk by chunk. */
+    createSnapshot(fileName: string, from: TDocumentRef, sourceRef?: TDocumentRef): Promise<{
         ref: TDocumentRef;
         revisionToken: TDocumentRevisionToken;
     }>;
@@ -848,6 +855,15 @@ export interface IDocumentsPdfValidationCapability extends Pick<
     | 'analyzePdfConformance'
     | 'validatePdfPath'
 > {}
+/**
+ * A renderer-local Optimize bound to the target its preparation picked: the
+ * four `optimizePdfAsCopy` arguments and the request's cancel signal. Never
+ * a worker or IPC wire shape.
+ */
+export type TPreparedPdfOptimizeCopy = (
+    ...args: [...Parameters<NonNullable<IDocumentsFileCapability['optimizePdfAsCopy']>>, signal?: AbortSignal]
+) => Promise<TPlatformPdfOptimizeResult>;
+
 export interface IDocumentsPdfExternalCapability extends Pick<
     IDocumentsFileCapability,
     | 'printPdfData'
@@ -862,12 +878,12 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'saveDocxAs'
     | 'writeFile'
     | 'replaceWorkingCopyFromPath'
-    | 'writeDocxFile'
     | 'saveFileStructured'
     | 'savePdfData'
     | 'repairPdf'
     | 'optimizePdfForInteraction'
     | 'optimizePdfAsCopy'
+    | 'prepareOptimizePdfAsCopy'
     | 'applyPdfNativeMutationsToWorkingCopy'
     | 'commitStagedPdfNativeMutations'
     | 'cloneStagedPdfNativeMutationToWorkingCopy'

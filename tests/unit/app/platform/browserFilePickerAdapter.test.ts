@@ -60,7 +60,25 @@ describe('browser file picker adapter', () => {
         expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
     });
 
-    it('aborts a writer when close times out before reporting the save as failed', async () => {
+    it('dispatches a bytes download only while its request is still live', async () => {
+        const clicks: string[] = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+            clicks.push(this.download);
+        });
+        const {downloadBrowserBytes} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const canceled = new AbortController();
+        canceled.abort(new DOMException('Optimize canceled', 'AbortError'));
+
+        expect(() => downloadBrowserBytes(Uint8Array.of(1), 'canceled.pdf', 'application/pdf', canceled.signal))
+            .toThrow('Optimize canceled');
+        downloadBrowserBytes(Uint8Array.of(1), 'kept.pdf', 'application/pdf', new AbortController().signal);
+
+        expect(clicks).toEqual(['kept.pdf']);
+        expect(document.querySelectorAll('a')).toHaveLength(0);
+        click.mockRestore();
+    });
+
+    it('waits for a slow close instead of failing the save at a deadline', async () => {
         vi.useFakeTimers();
         let aborted = false;
         let committed = false;
@@ -96,22 +114,65 @@ describe('browser file picker adapter', () => {
         const {writeBytesToHandle} = await import('@app/platform/browser-api/browserFilePickerAdapter');
 
         const save = writeBytesToHandle(handle, Uint8Array.of(37, 80, 68, 70));
-        const saveError = save.catch(error => error);
         await vi.advanceTimersByTimeAsync(0);
         for (let index = 0; index < 12; index += 1) {
             await Promise.resolve();
         }
         expect(close).toHaveBeenCalledOnce();
 
-        await vi.advanceTimersByTimeAsync(180_000);
-        const error = await saveError;
-        expect(error).toBeInstanceOf(Error);
-        expect(error.message).toContain('Browser file save did not finish while waiting for closing file writer');
-        expect(abort).toHaveBeenCalledOnce();
-
+        // As on desktop, a save has no deadline: ten minutes later it still waits.
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(abort).not.toHaveBeenCalled();
         releaseClose();
-        await Promise.resolve();
-        expect(committed).toBe(false);
+        await save;
+        expect(committed).toBe(true);
+    });
+
+    it('saves a large file whose disk writes progress slowly, however long the whole write takes', async () => {
+        vi.useFakeTimers();
+        const saved: number[] = [];
+        // A slow disk: 30 seconds per MiB, six minutes for the whole file.
+        const write = vi.fn((data: FileSystemWriteChunkType) => new Promise<void>((resolve) => {
+            const byteLength = data instanceof Blob ? data.size : ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? data.byteLength : 0;
+            setTimeout(() => {
+                saved.push(byteLength);
+                resolve();
+            }, byteLength / (1024 * 1024) * 30_000);
+        }));
+        const writable = Object.assign(new WritableStream(), {
+            abort: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+            seek: vi.fn(async (_position: number) => {}),
+            truncate: vi.fn(async (_size: number) => {}),
+            write,
+        }) satisfies FileSystemWritableFileStream;
+        const handle = Object.assign(createFileSystemFileHandle({name: 'large.pdf'}), {createWritable: async () => writable});
+        const {writeBytesToHandle} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+
+        const save = writeBytesToHandle(handle, new Uint8Array(12 * 1024 * 1024)).then(() => 'saved', (error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(400_000);
+
+        await expect(save).resolves.toBe('saved');
+        expect(saved.reduce((total, byteLength) => total + byteLength, 0)).toBe(12 * 1024 * 1024);
+    });
+
+    it('waits for a write permission answer given after minutes, and stops waiting when the save is cancelled', async () => {
+        vi.useFakeTimers();
+        const createHandle = (answerAfterMs: number) => Object.assign(createFileSystemFileHandle({name: 'prompted.pdf'}), {
+            queryPermission: async () => 'prompt' as const,
+            requestPermission: () => new Promise<'granted'>(resolve => setTimeout(() => resolve('granted'), answerAfterMs)),
+        });
+        const {ensureFileHandleWritePermission} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+
+        const answered = ensureFileHandleWritePermission(createHandle(10 * 60_000)).then(() => 'granted', (error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(10 * 60_000);
+        await expect(answered).resolves.toBe('granted');
+
+        const controller = new AbortController();
+        const cancelled = ensureFileHandleWritePermission(createHandle(60 * 60_000), controller.signal).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        controller.abort();
+        await expect(cancelled).resolves.toMatchObject({name: 'AbortError'});
     });
 
     it('checks a revoked write grant inside the save lock without prompting or opening a writer', async () => {
@@ -182,4 +243,93 @@ describe('browser file picker adapter', () => {
             .toEqual([IMAGE_EXPORT_FORMATS[format].mimeType]);
     });
 
+});
+
+
+function createSinkProbeHandle(
+    name: string,
+    operations: Pick<FileSystemWritableFileStream, 'write' | 'close' | 'abort'>,
+) {
+    const handle = createFileSystemFileHandle({name});
+    const writable = Object.assign(new WritableStream(), {
+        seek: async (_position: number) => {},
+        truncate: async (_size: number) => {},
+        ...operations,
+    }) satisfies FileSystemWritableFileStream;
+    vi.spyOn(handle, 'createWritable').mockResolvedValue(writable);
+    return handle;
+}
+
+describe('CAP-EXPORT sink outcome probes', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('preserves a non-abort close error without publishing and lets abort confirm discard', async () => {
+        const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const failure = new DOMException('disk full', 'QuotaExceededError');
+        let published = false;
+        const sink = await openBrowserOutputSink({
+            fileName: 'output.tiff',
+            handle: createSinkProbeHandle('output.tiff', {
+                write: async () => {},
+                close: async () => {throw failure;},
+                abort: async () => {published = false;},
+            }),
+        }, {mimeType: 'image/tiff'});
+        await sink.write(Uint8Array.of(1));
+        await expect(sink.close()).rejects.toBe(failure);
+        await expect(sink.abort()).resolves.toBe(true);
+        expect(published).toBe(false);
+    });
+
+    it('reports publication when cancellation arrives after writable.close starts', async () => {
+        const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        let published = false;
+        const sink = await openBrowserOutputSink({
+            fileName: 'output.docx',
+            handle: createSinkProbeHandle('output.docx', {
+                write: async () => {},
+                close: async () => {entered.resolve(undefined); await release.promise; published = true;},
+                abort: async () => {throw new Error('already closing');},
+            }),
+        }, {mimeType: 'application/octet-stream'});
+        const close = sink.close();
+        await entered.promise;
+        const canceled = sink.abort();
+        release.resolve(undefined);
+        await expect(close).resolves.toBeUndefined();
+        await expect(canceled).resolves.toBe(false);
+        expect(published).toBe(true);
+    });
+
+    it('does not confirm cancellation when a failed close may still have published', async () => {
+        const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const sink = await openBrowserOutputSink({
+            fileName: 'late.docx',
+            handle: createSinkProbeHandle('late.docx', {
+                write: async () => {},
+                close: async () => {
+                    entered.resolve(undefined);
+                    await release.promise;
+                    throw new DOMException('close failed', 'InvalidStateError');
+                },
+                abort: async () => {
+                    throw new DOMException('still closing', 'InvalidStateError');
+                },
+            }),
+        }, {mimeType: 'application/octet-stream'});
+        await sink.write(Uint8Array.of(1));
+        const closeResult = sink.close().catch((error: unknown) => error);
+        await entered.promise;
+        const canceled = sink.abort().catch((error: unknown) => error);
+        release.resolve(undefined);
+        expect(await closeResult).toMatchObject({
+            name: 'BrowserFileWriteOutcomeError',
+            externalWriteCommitted: null,
+        });
+        expect(await canceled).not.toBe(true);
+    });
 });

@@ -5,7 +5,10 @@ import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
-import { normalizeExtractedPageText } from '@pdf-core/pdfSearchAlgorithms';
+import {
+    hasRightToLeftSearchText,
+    normalizeExtractedPageText,
+} from '@pdf-core/pdfSearchAlgorithms';
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import {
@@ -15,6 +18,7 @@ import {
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
+import { getErrorMessage } from '@electron/utils/error';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -320,26 +324,58 @@ function readDecodedOcrLayers(
  * EVB's on a cropped page, with `-raw` in recognition order. Painted text keeps
  * the layout order: some producers omit word spaces and leave them to the gaps
  * the analysis measures.
+ *
+ * For search, other right-to-left pages are read as the viewer reads them:
+ * Poppler moves the space inside a mixed run (`123 עולם abc`) and reads
+ * annotation appearances the text layer has no range for.
  */
-async function readOcrLayersInRecognitionOrder(
+async function readPdfPageTextsInReadingOrder(
     pdfPath: string,
     pages: IPageText[],
     inspection: TOcrPdfTextVisibilityAnalysis,
     areas: ReadonlyMap<number, IPopplerTextArea>,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    viewerPageText: boolean,
 ) {
     const foreignLayerPages = pages.filter((page) => {
         const visibility = inspection.visibility.get(page.pageNumber);
         return page.text.length > 0 && visibility !== undefined && !visibility.paintedText
             && (visibility.evbOcrLayer || visibility.hiddenText);
     }).map(page => page.pageNumber);
-    const ocrLayerTexts = new Map<number, IPageText>();
+    const orderedTexts = new Map<number, IPageText>();
     for (const range of groupContiguousPages(foreignLayerPages)) {
         for (const page of await readVisiblePopplerPageTexts(pdfPath, range, areas, signal, true) ?? []) {
-            ocrLayerTexts.set(page.pageNumber, page);
+            orderedTexts.set(page.pageNumber, page);
         }
     }
-    return pages.map(page => ocrLayerTexts.get(page.pageNumber) ?? page);
+    const viewerOrderPages = viewerPageText
+        ? pages.filter((page) => {
+            const visibility = inspection.visibility.get(page.pageNumber);
+            return visibility !== undefined && (!visibility.hiddenText || visibility.paintedText)
+                && hasRightToLeftSearchText(page.text);
+        }).map(page => page.pageNumber)
+        : [];
+    // One PDF.js pass spans the window's right-to-left pages; a pass that
+    // fails leaves them Poppler's text, so search still works.
+    const [firstPage] = viewerOrderPages;
+    const lastPage = viewerOrderPages.at(-1);
+    if (firstPage !== undefined && lastPage !== undefined) {
+        const reread = new Set(viewerOrderPages);
+        const rereadTexts: IPageText[] = [];
+        try {
+            for await (const page of streamPdfjsPageTexts(pdfPath, {
+                firstPage,
+                lastPage,
+            }, signal)) {
+                if (reread.has(page.pageNumber)) rereadTexts.push(page);
+            }
+            for (const page of rereadTexts) orderedTexts.set(page.pageNumber, page);
+        } catch (error) {
+            signal?.throwIfAborted();
+            log.warn(`Right-to-left pages ${firstPage}-${lastPage} keep Poppler's text: ${getErrorMessage(error)}`);
+        }
+    }
+    return pages.map(page => orderedTexts.get(page.pageNumber) ?? page);
 }
 
 /**
@@ -479,7 +515,14 @@ async function* streamPdfPageTextRanges(
             yield* streamPdfjsPageTexts(pdfPath, window, signal);
             continue;
         }
-        const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, poppler.pages, inspection, areas, signal);
+        const orderedPages = await readPdfPageTextsInReadingOrder(
+            pdfPath,
+            poppler.pages,
+            inspection,
+            areas,
+            signal,
+            visiblePageOnly,
+        );
         const pages = [
             ...orderedPages,
             ...decoded.values(),

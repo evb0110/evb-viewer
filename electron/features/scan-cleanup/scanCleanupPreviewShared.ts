@@ -22,16 +22,11 @@ import type {
     IScanCleanupErrorEnvelope,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
-import {requirePageNumber} from '@contracts/pageNumbers';
 import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 
 import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
 
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {
-    resolveScanCleanupPageLayout,
-    scanCleanupLayoutSignature,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {scanCleanupLayoutSignature} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,
@@ -40,13 +35,11 @@ import type {
 } from '@electron/pdf/pdfPageSizes';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
-import {
-    CANVAS_CONTENT_SCALE_EPSILON,
-    resolveScanCleanupCanvasFitScale,
-    resolveScanCleanupOutputPageRect,
-    type IScanCleanupDocumentCanvasAccumulator,
-    type resolveScanCleanupDocumentCanvasFromAccumulator,
+import type {
+    IScanCleanupDocumentCanvasAccumulator,
+    resolveScanCleanupDocumentCanvasFromAccumulator,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
+import {scanCleanupPageNeedsMatchedResample} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
 
 import type { atomicReplace } from '@electron/utils/atomicReplace';
 import type {
@@ -80,8 +73,6 @@ import type { ensureWorkingCopyMaterialized } from '@electron/file-access/workin
 
 
 export const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
-export const DETAIL_TILE_MAX_PIXELS = 4_000_000;
-export const DEFAULT_SOURCE_DPI = 300;
 export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
 // Canonical cleaned previews are retained only so detail tiles can replay the
@@ -343,30 +334,6 @@ export interface IBoundedPreviewGeometry {
     previewDpi: number;
     pageSourceDpi: number | undefined;
 }
-function resolvePreviewPageShares(
-    options: IScanCleanupPreviewRequest['options'],
-    pageNumber: number,
-    layoutByPage: IScanCleanupPreviewRequest['layoutByPage'],
-) {
-    const pageOverride = getScanCleanupPageOverride(
-        options.pageOverrides,
-        requirePageNumber(pageNumber),
-        options.pageOverrideDefaults,
-        options.marginsMm,
-    );
-    const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
-    if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
-        return 2;
-    }
-    if (layout === 'force-single') {
-        return 1;
-    }
-    if (pageOverride.manualSplit !== null) {
-        return 2;
-    }
-    return layoutByPage?.[String(pageNumber)] === 'two-page-spread' ? 2 : 1;
-}
-
 export function isScanCleanupSignalAborted(signal: AbortSignal) {
     return signal.aborted;
 }
@@ -399,22 +366,13 @@ export async function hasBoundedMatchedRasterResample(input: {
                 index,
                 page,
             ] of pages.entries()) {
-                if (getScanCleanupPageOverride(
-                    input.options.pageOverrides,
-                    requirePageNumber(page.pageNumber),
-                    input.options.pageOverrideDefaults,
-                    input.options.marginsMm,
-                ).excluded) {
-                    continue;
-                }
-                const carriesRaster = !input.rasterSource.detected || rasters[index] !== undefined;
-                if (!carriesRaster) continue;
-                const paper = resolveScanCleanupOutputPageRect(
+                if (scanCleanupPageNeedsMatchedResample({
                     page,
-                    resolvePreviewPageShares(input.options, page.pageNumber, input.layoutByPage),
-                );
-                const scale = resolveScanCleanupCanvasFitScale(input.canvas, paper);
-                if (Math.abs(scale - 1) > CANVAS_CONTENT_SCALE_EPSILON) {
+                    carriesRaster: !input.rasterSource.detected || rasters[index] !== undefined,
+                    canvas: input.canvas,
+                    options: input.options,
+                    layoutByPage: input.layoutByPage,
+                })) {
                     resampleRequired = true;
                     return;
                 }

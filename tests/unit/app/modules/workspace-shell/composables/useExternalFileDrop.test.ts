@@ -23,7 +23,10 @@ interface ICapturedListeners {
 
 let capturedListeners: ICapturedListeners = {};
 const toastAddMock = vi.fn();
-const browserDocumentStoreMock = vi.hoisted(() => ({registerFileWithOwnership: vi.fn()}));
+const browserDocumentStoreMock = vi.hoisted(() => ({
+    registerFileWithOwnership: vi.fn(),
+    onDocumentRecordRemoved: vi.fn(() => () => {}),
+}));
 const cleanupFileMock = vi.hoisted(() => vi.fn(async (_path: string) => {}));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: browserDocumentStoreMock}));

@@ -1,4 +1,6 @@
 import type { Ref } from 'vue';
+import type { TPaneDirection } from '@contracts/editorPanes';
+import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
@@ -49,12 +51,14 @@ import {
 import { isAutomationSession } from '@app/utils/isAutomationSession';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
-type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
+type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab' | 'new-pane-right';
 type TRendererDocumentShortcutAction = 'open-file' | 'save-as' | 'export-docx' | 'undo' | 'redo';
 type TRendererDocumentCommandShortcutAction = Exclude<TRendererDocumentShortcutAction, 'open-file'>;
 const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcutAction>> = {
-    t: 'new-tab',
-    w: 'close-tab',
+    't': 'new-tab',
+    'w': 'close-tab',
+    // Desktop's Window menu binds CmdOrCtrl+\ to a new pane on the right.
+    '\\': 'new-pane-right',
 };
 const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortcutAction, keyof IWorkspaceExpose> = {
     'save-as': 'handleSaveAs',
@@ -72,6 +76,8 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
     documentSessions: TWorkspaceDocumentSessions;
     transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
+    /** Whether the active pane can split in this direction now, as desktop's menu item is enabled. */
+    canOpenNewPane: (direction: TPaneDirection) => boolean;
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -292,11 +298,19 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     function resolveRendererMenuShortcutAction(event: KeyboardEvent) {
-        const mod = event.metaKey || event.ctrlKey;
-        const key = event.key.toLowerCase();
-        return mod && !event.shiftKey
-            ? RENDERER_MENU_SHORTCUT_ACTIONS[key] ?? null
+        // Alt-modified keys type characters (AltGr is Ctrl+Alt on Windows), as
+        // desktop's accelerators do not match them either.
+        const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
+        const action = mod && !event.shiftKey
+            ? RENDERER_MENU_SHORTCUT_ACTIONS[event.key.toLowerCase()] ?? null
             : null;
+        if (action !== 'new-pane-right') {
+            return action;
+        }
+        // Desktop's CmdOrCtrl+\ is Command on macOS, and like its disabled New Pane
+        // Right, nothing happens when the pane cannot split.
+        const commandKey = isMacClientPlatform() ? event.metaKey : event.ctrlKey;
+        return commandKey && options.canOpenNewPane('right') ? action : null;
     }
 
     function isEditableShortcutTarget(target: EventTarget | null) {
@@ -380,6 +394,12 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             if (activeTabId.value) {
                 void handleCloseTab(activeTabId.value);
             }
+        } else if (action === 'new-pane-right') {
+            guardAsync(Promise.resolve(openNewPane('right')), {
+                category: 'user-visible-operation',
+                scope: 'tabs-shell',
+                message: 'Renderer pane shortcut failed: new-pane-right',
+            });
         } else {
             cycleTab(action === 'next-tab' ? 1 : -1);
         }

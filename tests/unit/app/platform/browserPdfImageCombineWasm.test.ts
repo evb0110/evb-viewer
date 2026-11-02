@@ -51,6 +51,25 @@ function createPgmBytes(value: number) {
     return bytes;
 }
 
+function createNetpbmBytes(channels: 1 | 3, width: number, height: number, pixel: (x: number, y: number, channel: number) => number) {
+    const header = new TextEncoder().encode(`${channels === 1 ? 'P5' : 'P6'}\n${width} ${height}\n255\n`);
+    const bytes = new Uint8Array(header.byteLength + (width * height * channels));
+    bytes.set(header);
+    let offset = header.byteLength;
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            for (let channel = 0; channel < channels; channel += 1) bytes[offset++] = pixel(x, y, channel);
+        }
+    }
+    return bytes;
+}
+
+// A smooth, lightly textured photograph: JPEG keeps it smaller than Flate.
+function photo(x: number, y: number, channel: number) {
+    const grain = ((x * 7_919) ^ (y * 104_729) ^ (channel * 1_299_709)) & 15;
+    return Math.round(128 + (70 * Math.sin(x / 9) * Math.cos(y / 13)) + (channel * 12) + grain - 8);
+}
+
 function createTwoFrameTiffBytes() {
     const pages = [
         {
@@ -247,7 +266,7 @@ function createWasmExportsMock(options: {
 
     const alloc = vi.fn((len: number) => {
         if (options.allocThrows) {
-            throw new Error('alloc failed');
+            throw new NativeWebAssembly.RuntimeError('alloc failed');
         }
         if (options.allocReturnsZero || liveAllocation !== null) {
             return 0;
@@ -327,9 +346,9 @@ describe('tryCombineImageInputsWithWasm', () => {
         }
     });
 
-    it('admits 500 one-page inputs through the browser combine worker', async () => {
+    it('combines more than 500 one-page inputs, as desktop does', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
-        const inputs = Array.from({length: 500}, (_value, index) => ({
+        const inputs = Array.from({length: 600}, (_value, index) => ({
             fileName: `page-${index + 1}.pgm`,
             data: createPgmBytes(index % 256),
         }));
@@ -345,32 +364,132 @@ describe('tryCombineImageInputsWithWasm', () => {
             throw new Error('Expected the browser combine worker to return PDF bytes');
         }
         const combined = await PDFDocument.load(response.data);
-        expect(combined.getPageCount()).toBe(500);
+        expect(combined.getPageCount()).toBe(600);
         expect(fetchMock).toHaveBeenCalledOnce();
     });
 
-    it('rejects 501 image pages before loading combine WASM', async () => {
-        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+    it.each([
+        [
+            'RGB',
+            3,
+            'page.ppm',
+        ],
+        [
+            'gray',
+            1,
+            'page.pgm',
+        ],
+    ] as const)('writes Optimize %s pages as JPEG or Flate, whichever desktop would keep', async (_label, channels, fileName) => {
+        await stubSuccessfulImageCombineWasmFetch();
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
-        const inputs = Array.from({length: 501}, (_value, index) => ({
-            fileName: `page-${index + 1}.pgm`,
-            data: createPgmBytes(index % 256),
-        }));
-        const sourceSnapshot = inputs.map(input => input.data.slice());
+        const pageSize = {
+            widthPoints: 48,
+            heightPoints: 48,
+        };
+        const combine = (data: Uint8Array) => tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-jpeg-with-flate-fallback',
+            pageSize,
+            jpegQuality: 82,
+            image: {
+                fileName,
+                data,
+            },
+        }]});
 
-        await expect(tryCombineImageInputsWithWasm(inputs)).resolves.toMatchObject({
+        const photograph = await combine(createNetpbmBytes(channels, 128, 128, photo));
+        const flat = await combine(createNetpbmBytes(channels, 128, 128, () => 200));
+
+        for (const [
+            outcome,
+            isJpeg,
+        ] of [
+                [
+                    photograph,
+                    true,
+                ],
+                [
+                    flat,
+                    false,
+                ],
+            ] as const) {
+            if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+            expect(Buffer.from(outcome.data).toString('latin1').includes('/DCTDecode')).toBe(isJpeg);
+            expect((await PDFDocument.load(outcome.data)).getPage(0).getSize()).toEqual({
+                width: 48,
+                height: 48,
+            });
+        }
+    });
+
+    it('writes an Optimize black-and-white page as one bilevel image', async () => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const square = createNetpbmBytes(1, 96, 96, (x, y) => (x >= 24 && x < 72 && y >= 24 && y < 72 ? 20 : 235));
+
+        const outcome = await tryCombineImageInputsWithWasm([], {
+            jpegQuality: 82,
+            ppiCap: 300,
+            pageSpecs: [{
+                kind: 'image-bw',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: 'page.pgm',
+                    data: square,
+                },
+            }],
+        });
+
+        if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        const text = Buffer.from(outcome.data).toString('latin1');
+        expect(text).toContain('/BitsPerComponent 1');
+        expect(text).toContain('/Width 96');
+        expect((await PDFDocument.load(outcome.data)).getPage(0).getSize()).toEqual({
+            width: 72,
+            height: 72,
+        });
+    });
+
+    it('keeps the Optimize kinds to the renders desktop gives them', async () => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const pageSize = {
+            widthPoints: 72,
+            heightPoints: 72,
+        };
+        const rgb = {
+            fileName: 'page.ppm',
+            data: createNetpbmBytes(3, 8, 8, () => 128),
+        };
+
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-bw',
+            pageSize,
+            image: rgb,
+        }]})).resolves.toEqual({status: 'unsupported'});
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-jpeg-with-flate-fallback',
+            pageSize,
+            jpegQuality: 60,
+            image: {
+                fileName: 'page.png',
+                data: new Uint8Array(8),
+            },
+        }]})).resolves.toEqual({status: 'unsupported'});
+        // A misnamed render still reaches the engine, which checks its bytes.
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image-bw',
+            pageSize,
+            image: {
+                ...rgb,
+                fileName: 'page.pgm',
+            },
+        }]})).resolves.toMatchObject({
             status: 'fatal',
-            error: {code: 'too-large'},
+            error: {message: expect.stringContaining('binary Netpbm render')},
         });
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(inputs.map(input => input.data)).toEqual(sourceSnapshot);
-
-        await expect(runBrowserPdfCombineWorker(inputs)).resolves.toEqual({
-            id: 1,
-            ok: false,
-            error: 'Invalid browser PDF combine worker request',
-        });
-        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('turns a valid two-frame TIFF into ordered worker PDF pages', async () => {
@@ -462,7 +581,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('counts TIFF frames toward the 500-page worker budget', async () => {
+    it('writes every TIFF frame as a page beyond 500 pages', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
         const inputs = [
             {
@@ -479,10 +598,12 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(response).toMatchObject({
             id: 1,
-            ok: false,
-            errorEnvelope: {code: 'too-large'},
+            ok: true,
         });
-        expect(response).not.toHaveProperty('data');
+        if (!response || typeof response !== 'object' || !('data' in response) || !(response.data instanceof Uint8Array)) {
+            throw new Error('Expected the browser combine worker to return PDF bytes');
+        }
+        expect((await PDFDocument.load(response.data)).getPageCount()).toBe(501);
         expect(fetchMock).toHaveBeenCalledOnce();
     });
 
@@ -831,10 +952,8 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(result).toMatchObject({
             status: 'fatal',
-            error: {code: 'native-failure'},
+            error: {code: 'too-large'},
         });
-        if (phase === 'allocation') expect(wasmMock.free).not.toHaveBeenCalled();
-        else expect(wasmMock.free).toHaveBeenCalledOnce();
         await expect(tryCombineImageInputsWithWasm([{
             fileName: 'next-scan.png',
             data: new Uint8Array([1]),

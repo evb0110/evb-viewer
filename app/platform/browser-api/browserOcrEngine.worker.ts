@@ -5,16 +5,18 @@ import {
     BROWSER_OCR_ENGINE_REVISION,
     BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS,
     BROWSER_OCR_ENGINE_TESSDATA_PATH,
-    BROWSER_OCR_RENDER_TILE_PX,
     parseBrowserOcrEngineRequest,
     type IBrowserOcrEnginePass,
     type IBrowserOcrEngineResult,
+    type IBrowserOcrPreprocessResult,
     type TBrowserOcrEngineRequest,
+    type TBrowserOcrPreprocessRequest,
+    type TBrowserOcrRecognizeRequest,
 } from '@contracts/browserOcrEngine';
-import {
-    createPpmRaster, writePpmTile,
-} from '@ocr-core/ppmRaster';
+import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBrowserPdfRasterPpm';
 import {readCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
+import {preprocessBrowserOcrPage} from '@app/platform/browser-api/browserScanCleanupWasm';
+import type {IScanCleanupWasmPlane} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import {getErrorMessage} from '@app/utils/error';
@@ -156,25 +158,89 @@ async function runPass(
 }
 
 function readRaster(image: TBrowserOcrEngineRequest['payload']['image']) {
-    if (image instanceof Uint8Array) return image;
-    const ppm = createPpmRaster(image.width, image.height);
-    const canvas = new OffscreenCanvas(1, 1);
-    const columns = Math.ceil(image.width / BROWSER_OCR_RENDER_TILE_PX);
-    try {
-        image.tiles.forEach((tile, index) => {
-            canvas.width = tile.width;
-            canvas.height = tile.height;
-            const context = canvas.getContext('2d', {willReadFrequently: true});
-            if (!context) throw new Error('OCR canvas context is unavailable');
-            context.drawImage(tile, 0, 0);
-            writePpmTile(ppm, image.width, context.getImageData(0, 0, tile.width, tile.height).data,
-                index % columns * BROWSER_OCR_RENDER_TILE_PX, Math.floor(index / columns) * BROWSER_OCR_RENDER_TILE_PX, tile.width, tile.height);
-            tile.close();
-        });
-        return ppm.image;
-    } finally {
-        canvas.width = canvas.height = 0;
+    return image instanceof Uint8Array ? image : assembleBrowserPdfRasterPpm(image);
+}
+
+/** The size `createPpmRaster` wrote into a page assembled on the UI thread. */
+function readPpmSize(image: Uint8Array) {
+    const match = /^P6\n(\d+) (\d+)\n255\n/u.exec(new TextDecoder().decode(image.subarray(0, 32)));
+    if (!match) throw new Error('OCR page raster is not a binary PPM');
+    return {
+        width: Number(match[1]),
+        height: Number(match[2]),
+    };
+}
+
+/**
+ * The cleaned page as PNM, which the engine reads without image codecs.
+ * Desktop hands Tesseract the same pixels as an 8-bit gray or RGB PNG,
+ * which Leptonica decodes to the same image as PGM or PPM.
+ */
+function encodePnm(plane: IScanCleanupWasmPlane) {
+    if (plane.encoding !== 'raw') throw new Error('OCR preprocessing returned an encoded plane');
+    const header = new TextEncoder().encode(`${plane.kind === 'gray8' ? 'P5' : 'P6'}\n${plane.width} ${plane.height}\n255\n`);
+    const image = new Uint8Array(header.byteLength + plane.data.byteLength);
+    image.set(header);
+    image.set(plane.data, header.byteLength);
+    return image;
+}
+
+/**
+ * Runs desktop's OCR preprocessing on the rendered page: the shared pinned
+ * options, an output of the input's size and a usable inverse transform, or
+ * the rendered page itself with the reason it was not cleaned or the cleaned
+ * page's other size.
+ */
+async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Promise<IBrowserOcrPreprocessResult> {
+    const raster = readRaster(payload.image);
+    const size = payload.image instanceof Uint8Array ? readPpmSize(raster) : payload.image;
+    const outcome = await preprocessBrowserOcrPage(raster, payload.mode, payload.dpi);
+    if (outcome.status === 'failed') {
+        return {
+            image: raster,
+            width: size.width,
+            height: size.height,
+            failure: outcome.error.message,
+        };
     }
+    const {plane} = outcome.result;
+    if (plane.width !== size.width || plane.height !== size.height) {
+        return {
+            image: raster,
+            width: size.width,
+            height: size.height,
+            preprocessedSize: {
+                width: plane.width,
+                height: plane.height,
+            },
+        };
+    }
+    return {
+        image: encodePnm(plane),
+        width: size.width,
+        height: size.height,
+        ...(outcome.result.inverseTransform ? {inverseMatrix: outcome.result.inverseTransform.matrix} : {}),
+    };
+}
+
+async function recognize(payload: TBrowserOcrRecognizeRequest['payload']): Promise<IBrowserOcrEngineResult> {
+    const [
+        engine,
+        ...loaded
+    ] = await Promise.all([
+        loadEngine(),
+        ...payload.models.map(loadModel),
+    ]);
+    const modelBytes = new Map(payload.models.map((code, index) => [
+        code,
+        loaded[index]!,
+    ]));
+    const image = readRaster(payload.image);
+    const passes: IBrowserOcrEngineResult['passes'] = [];
+    for (const pass of payload.passes) {
+        passes.push(await runPass(engine, image, modelBytes, pass));
+    }
+    return {passes};
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
@@ -191,30 +257,25 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
         return;
     }
     try {
-        const [
-            engine,
-            ...loaded
-        ] = await Promise.all([
-            loadEngine(),
-            ...request.payload.models.map(loadModel),
-        ]);
-        const modelBytes = new Map(request.payload.models.map((code, index) => [
-            code,
-            loaded[index]!,
-        ]));
-        const image = readRaster(request.payload.image);
-        const passes: IBrowserOcrEngineResult['passes'] = [];
-        for (const pass of request.payload.passes) {
-            passes.push(await runPass(engine, image, modelBytes, pass));
+        if (request.type === 'preprocess') {
+            const data = await preprocess(request.payload);
+            self.postMessage({
+                id: request.id,
+                ok: true,
+                type: request.type,
+                data,
+            }, [data.image.buffer]);
+            return;
         }
+        const data = await recognize(request.payload);
         self.postMessage({
             id: request.id,
             ok: true,
-            type: 'recognize',
-            data: {passes},
-        }, passes.flatMap(pass => pass.outputs.map(output => output.buffer)));
+            type: request.type,
+            data,
+        }, data.passes.flatMap(pass => pass.outputs.map(output => output.buffer)));
     } catch (error) {
-        activeInstance = null;
+        if (request.type === 'recognize') activeInstance = null;
         self.postMessage({
             id: request.id,
             ok: false,

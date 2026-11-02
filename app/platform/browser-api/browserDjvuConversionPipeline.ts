@@ -8,14 +8,17 @@ import {
 import type {
     IDjvuConvertOptions,
     IDjvuInfo,
+    IDjvuPageSize,
     IDjvuProgress,
     IDjvuSizeEstimate,
 } from '@contracts/electronApiDjvu';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
+    getDjvuCompactFidelity,
     normalizeDjvuPdfSubsample,
-    resolveBrowserDjvuConversionPreflight,
+    resolveDjvuCompactFidelityPreset,
     resolveDjvuPdfExportStrategy,
+    type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
@@ -27,8 +30,8 @@ import {
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
-import type { IBrowserPdfCombineWasmPageSpec } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import {BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import type { IBrowserPdfCombineWasmPageSpec } from '@contracts/browserPdfCombineWorker';
+import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
 import type {
     IDjvuContentsItem,
     IDjvuWorker,
@@ -42,6 +45,7 @@ import {
     type IStreamingPdfSink,
 } from '@app/platform/browser-api/streamingImagePdfWriter';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { buildBrowserDjvuCompactPage } from '@app/platform/browser-api/buildBrowserDjvuCompactPage';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     decodeFailureReceipt,
@@ -50,26 +54,22 @@ import {
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import { toPdfDateString } from '@app/utils/pdfDate';
 import { toOwnedArrayBuffer } from '@app/platform/browser-api/browserDjvuCanvas';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {
     DjvuCanceledError,
-    DJVU_COMPACT_PHOTO_PPI_CAP,
-    positiveInteger,
     renderDjvuPage,
-    renderDjvuPageAsPpm,
     throwIfDjvuCanceled as throwIfCanceled,
     type IDjvuPageMetrics,
     type IRenderedDjvuPage,
 } from '@app/platform/browser-api/browserDjvuRasterizer';
 
-const DJVU_PAGE_SPEC_OVERHEAD_BYTES = 256;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 0.92;
-const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
-const DJVU_BROWSER_WORKER_SOURCE_MAX_BYTES = 192 * 1024 * 1024;
-const DJVU_WORKER_COPY_BUDGET_BYTES = 192 * 1024 * 1024;
 const DJVU_PDF_RENDER_WORKER_LIMIT = 3;
 const DJVU_PDF_MEDIUM_PAGE_PIXEL_COUNT = 16_000_000;
 const DJVU_PDF_LARGE_PAGE_PIXEL_COUNT = 32_000_000;
@@ -78,8 +78,9 @@ const DJVU_ESTIMATE_PRESETS = [
     2,
     4,
 ] as const;
-const DJVU_INFO_TEXT_SAMPLE_PAGES = 3;
 const DJVU_ESTIMATE_SAMPLE_PAGES = 3;
+const DJVU_TEXT_SCAN_YIELD_PAGES = 16;
+const DJVU_TEXT_SCAN_CACHE_ENTRIES = 16;
 
 type TBrowserDjvuBoundaryOperation =
     | 'bookmarks'
@@ -204,7 +205,7 @@ export function resolveBrowserDjvuPdfRenderSettings(
         strategy,
         subsample: requestedSubsample,
         jpegQuality: strategy === 'compact-djvu-aware'
-            ? DJVU_COMPACT_PHOTO_JPEG_QUALITY
+            ? getDjvuCompactFidelity(resolveDjvuCompactFidelityPreset(requestedSubsample)).photoQuality
             : DJVU_DIRECT_PDF_JPEG_QUALITY,
     };
 }
@@ -212,7 +213,6 @@ export function resolveBrowserDjvuPdfRenderSettings(
 export function resolveBrowserDjvuPdfRenderConcurrency(
     pageSizes: ReadonlyArray<Pick<IDjvuPageMetrics, 'width' | 'height'>>,
     hardwareConcurrency = typeof navigator === 'undefined' ? undefined : navigator.hardwareConcurrency,
-    sourceBytes = 0,
     tier: THostResourceTier = 'medium',
 ) {
     const pageCount = Math.max(1, pageSizes.length);
@@ -235,56 +235,25 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
         : maxPagePixels >= DJVU_PDF_MEDIUM_PAGE_PIXEL_COUNT
             ? 2
             : DJVU_PDF_RENDER_WORKER_LIMIT;
-    const sourceCopyLimit = sourceBytes > 0
-        ? Math.max(1, Math.floor(DJVU_WORKER_COPY_BUDGET_BYTES / sourceBytes))
-        : DJVU_PDF_RENDER_WORKER_LIMIT;
     const tierWorkerLimit = tier === 'low' ? 1 : DJVU_PDF_RENDER_WORKER_LIMIT;
     return Math.min(
         pageCount,
         tierWorkerLimit,
         pixelWorkerLimit,
-        sourceCopyLimit,
         hardwareWorkerCount,
     );
 }
 
-export { resolveBrowserDjvuConversionPreflight } from '@contracts/djvuConversionPolicy';
-
-export interface IBrowserDjvuCompactExportPlan {
-    strategy: 'compact-djvu-aware' | 'direct-fallback';
-    estimatedPageSpecBytes: number;
-    maxPageSpecBytes: number;
-    fallbackReason?: 'bookmarks' | 'memory-budget';
-}
-
-function estimatePageSpecBytes(pageSizes: readonly IDjvuPageMetrics[]) {
-    return pageSizes.reduce((totalBytes, page) => {
-        const width = positiveInteger(page.width) ?? 1;
-        const height = positiveInteger(page.height) ?? 1;
-        const dpi = positiveInteger(page.dpi) ?? DJVU_COMPACT_PHOTO_PPI_CAP;
-        const scale = Math.max(1, dpi / DJVU_COMPACT_PHOTO_PPI_CAP);
-        return totalBytes + DJVU_PAGE_SPEC_OVERHEAD_BYTES
-            + Math.max(1, Math.round(width / scale)) * Math.max(1, Math.round(height / scale)) * 3;
-    }, 0);
-}
-
-export function resolveBrowserDjvuCompactExportPlan(
-    pageSizes: readonly IDjvuPageMetrics[],
-    maxPageSpecBytes = BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
-    preserveBookmarks = false,
-): IBrowserDjvuCompactExportPlan {
-    const estimatedPageSpecBytes = estimatePageSpecBytes(pageSizes);
-    const fallbackReason = preserveBookmarks
-        ? 'bookmarks'
-        : estimatedPageSpecBytes > maxPageSpecBytes
-            ? 'memory-budget'
-            : undefined;
-    return {
-        strategy: fallbackReason ? 'direct-fallback' : 'compact-djvu-aware',
-        estimatedPageSpecBytes,
-        maxPageSpecBytes,
-        ...(fallbackReason ? {fallbackReason} : {}),
-    };
+/**
+ * A compact plan larger than one WASM request can hold. The request is built
+ * in one WASM32 allocation, so past this boundary the export streams the
+ * direct PDF instead.
+ */
+class BrowserDjvuCompactPlanTooLargeError extends Error {
+    public constructor(public readonly plannedBytes: number) {
+        super(`Browser compact DjVu export exceeds the WASM request boundary (${plannedBytes} bytes planned)`);
+        this.name = 'BrowserDjvuCompactPlanTooLargeError';
+    }
 }
 
 interface IFinalizablePdfSink extends IStreamingPdfSink {
@@ -425,6 +394,12 @@ async function createBrowserDjvuPdfOutputSink(
     }
 }
 
+/** A source page written to the output PDF, in output order. */
+interface IDjvuOutputPage {
+    pageNumber: number;
+    metrics: IDjvuPageSize;
+}
+
 interface IDjvuJobRecord {
     workers: Set<IDjvuWorker>;
     abortController: AbortController;
@@ -518,6 +493,7 @@ export async function withBrowserDjvuWorker<T>(
 async function mapDjvuContentsToPdfBookmarks(
     worker: IDjvuWorker,
     items: IDjvuContentsItem[] | null | undefined,
+    pages: readonly IDjvuOutputPage[],
     signal?: AbortSignal,
 ): Promise<IPdfBookmarkEntry[]> {
     throwIfCanceled(signal);
@@ -535,15 +511,20 @@ async function mapDjvuContentsToPdfBookmarks(
         const children = await mapDjvuContentsToPdfBookmarks(
             worker,
             item.children,
+            pages,
             signal,
         );
+        // A destination is the target page's position in the output; a page
+        // left out of the output leaves its bookmark without a destination.
+        const outputIndex = typeof pageNumber === 'number' && pageNumber > 0
+            ? pages.findIndex(page => page.pageNumber === pageNumber)
+            : -1;
 
         bookmarks.push({
             title: item.description,
-            pageIndex:
-                typeof pageNumber === 'number' && pageNumber > 0
-                    ? pageNumberToPageIndex(requirePageNumber(pageNumber))
-                    : null,
+            pageIndex: outputIndex >= 0
+                ? pageNumberToPageIndex(requirePageNumber(outputIndex + 1))
+                : null,
             namedDest: null,
             bold: false,
             italic: false,
@@ -553,6 +534,34 @@ async function mapDjvuContentsToPdfBookmarks(
     }
 
     return bookmarks;
+}
+
+/**
+ * Adds the outline to a PDF written without one, through the page-ops
+ * catalog writer desktop uses for the same job (save-mutations, appended).
+ */
+async function embedBrowserPdfBookmarks(
+    data: Uint8Array,
+    pageCount: number,
+    bookmarks: IPdfBookmarkEntry[],
+    signal?: AbortSignal,
+) {
+    if (bookmarks.length === 0) {
+        return data;
+    }
+    const result = await runBrowserPageOpsWorkerRequest('saveMutations', {
+        data,
+        mutations: {bookmarks: {
+            totalPages: pageCount,
+            untitledLabel: 'Untitled',
+            items: bookmarks,
+        }},
+        modifiedAt: toPdfDateString(),
+    }, signal ? {signal} : {});
+    if (isBrowserPageOpsWasmFailure(result)) {
+        throw new Error(`Browser DjVu bookmark embedding failed: ${result.error.message}`);
+    }
+    return result.data;
 }
 
 async function createPdfRenderWorkers(options: {
@@ -581,18 +590,20 @@ async function createPdfRenderWorkers(options: {
 async function renderDjvuPagesIntoWriter(options: {
     writer: StreamingImagePdfWriter;
     workers: IDjvuWorker[];
-    pageSizes: IDjvuPageMetrics[];
+    pages: readonly IDjvuOutputPage[];
     subsample: number;
     jpegQuality: number;
     signal?: AbortSignal | undefined;
     onPageProcessed?: ((processed: number, total: number) => void) | undefined;
 }) {
-    const total = options.pageSizes.length;
+    const total = options.pages.length;
     const activeTasks = new Map<number, IBrowserDjvuRenderTask>();
+    // Tasks are keyed by output position; each renders its source page.
     let nextPageNumber = 1;
 
     const startTask = (worker: IDjvuWorker): IBrowserDjvuRenderTask | null => {
-        if (nextPageNumber > total) {
+        const outputPage = options.pages[nextPageNumber - 1];
+        if (!outputPage) {
             return null;
         }
 
@@ -600,8 +611,8 @@ async function renderDjvuPagesIntoWriter(options: {
         nextPageNumber += 1;
         const promise = renderDjvuPage(
             worker,
-            pageNumber,
-            options.pageSizes[pageNumber - 1]?.dpi ?? 300,
+            outputPage.pageNumber,
+            outputPage.metrics.dpi,
             options.subsample,
             options.jpegQuality,
             options.signal,
@@ -657,7 +668,7 @@ async function renderDjvuPagesIntoWriter(options: {
 
 async function buildPdfWithOptionalBookmarks(options: {
     worker: IDjvuWorker;
-    pageSizes: IDjvuPageMetrics[];
+    pages: readonly IDjvuOutputPage[];
     subsample: number;
     jpegQuality: number;
     renderConcurrency: number;
@@ -679,6 +690,7 @@ async function buildPdfWithOptionalBookmarks(options: {
             bookmarks = await mapDjvuContentsToPdfBookmarks(
                 options.worker,
                 contents,
+                options.pages,
                 options.signal,
             );
         }
@@ -686,7 +698,7 @@ async function buildPdfWithOptionalBookmarks(options: {
         throwIfCanceled(options.signal);
         const writer = new StreamingImagePdfWriter({
             sink,
-            pageCount: options.pageSizes.length,
+            pageCount: options.pages.length,
             bookmarks,
         });
         await writer.start();
@@ -701,7 +713,7 @@ async function buildPdfWithOptionalBookmarks(options: {
         await renderDjvuPagesIntoWriter({
             writer,
             workers: renderWorkers,
-            pageSizes: options.pageSizes,
+            pages: options.pages,
             subsample: options.subsample,
             jpegQuality: options.jpegQuality,
             signal: options.signal,
@@ -742,41 +754,58 @@ async function writePdfBytesToOutput(
     }
 }
 
-async function buildCompactPhotoPdfWithWasm(options: {
+async function buildCompactDjvuPdfWithWasm(options: {
     worker: IDjvuWorker;
-    pageSizes: IDjvuPageMetrics[];
+    pages: readonly IDjvuOutputPage[];
+    preset: TDjvuCompactFidelityPreset;
+    preserveBookmarks: boolean;
     outputPath: TDocumentRef;
     signal?: AbortSignal;
     onPageProcessed?: (processed: number, total: number) => void;
+    onBookmarksStart?: () => void;
 }) {
-    // The bundled djvu.js wrapper does not expose stable raw Sjbz/BG44/FG44 layer buffers.
-    // Keep web compact export bounded by rendering capped photo-style PPM pages and letting
-    // the Rust WASM encoder own JPEG quality, grayscale detection, and PDF image embedding.
+    // Each page keeps the DjVu layers desktop's compact export keeps: a JB2
+    // mask the WASM writer encodes as a bilevel image, over the background at
+    // its own resolution when the background is not flat, or the rendered
+    // page as a photo where layers would lose its colors.
     const pageSpecs: IBrowserPdfCombineWasmPageSpec[] = [];
-    const pageCount = options.pageSizes.length;
+    const routes = new Map<string, number>();
+    const pageCount = options.pages.length;
+    let plannedBytes = 0;
 
     for (const [
         index,
-        pageSize,
-    ] of options.pageSizes.entries()) {
+        outputPage,
+    ] of options.pages.entries()) {
         throwIfCanceled(options.signal);
         const pageNumber = index + 1;
-        const renderedPage = await renderDjvuPageAsPpm(
+        const page = await buildBrowserDjvuCompactPage(
             options.worker,
-            pageNumber,
-            pageSize,
+            outputPage.pageNumber,
+            outputPage.metrics,
+            options.preset,
             options.signal,
         );
-        pageSpecs.push({
-            kind: 'image',
-            pageSize: renderedPage.pageSize,
-            jpegQuality: DJVU_COMPACT_PHOTO_JPEG_QUALITY,
-            ppiCap: DJVU_COMPACT_PHOTO_PPI_CAP,
-            image: renderedPage.input,
-        });
+        for (const input of [
+            page.spec.image,
+            page.spec.background,
+            page.spec.mask,
+        ]) {
+            plannedBytes += input?.data.byteLength ?? 0;
+        }
+        if (plannedBytes > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES) {
+            throw new BrowserDjvuCompactPlanTooLargeError(plannedBytes);
+        }
+        pageSpecs.push(page.spec);
+        routes.set(page.route, (routes.get(page.route) ?? 0) + 1);
         options.onPageProcessed?.(pageNumber, pageCount);
         await yieldToBrowser();
     }
+    BrowserLogger.info('djvu-browser', 'Browser compact DjVu pages planned', {
+        pageCount,
+        plannedBytes,
+        routes: Object.fromEntries(routes),
+    });
 
     throwIfCanceled(options.signal);
     try {
@@ -785,7 +814,17 @@ async function buildCompactPhotoPdfWithWasm(options: {
             wasmImagePreprocessing: {pageSpecs},
         }, options.signal);
         throwIfCanceled(options.signal);
-        return await writePdfBytesToOutput(options.outputPath, data, options.signal);
+        let output = data;
+        if (options.preserveBookmarks) {
+            const contents = await options.worker.doc.getContents().run().catch(() => null);
+            const bookmarks = await mapDjvuContentsToPdfBookmarks(options.worker, contents, options.pages, options.signal);
+            if (bookmarks.length > 0) {
+                options.onBookmarksStart?.();
+                output = await embedBrowserPdfBookmarks(data, pageCount, bookmarks, options.signal);
+                throwIfCanceled(options.signal);
+            }
+        }
+        return await writePdfBytesToOutput(options.outputPath, output, options.signal);
     } catch (error) {
         const message = getErrorMessage(error);
         const isUnsupported = message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT';
@@ -817,30 +856,53 @@ function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
     return uniq(candidates).slice(0, maxSamples);
 }
 
+const textScanResults = new Map<string, boolean>();
+
+/**
+ * Whether any page carries a text layer. Pages are read in order until one
+ * has text, as the desktop scan does, so a document whose only text is on an
+ * unsampled page is still reported correctly. The answer is kept per file
+ * version.
+ */
+async function detectBrowserDjvuHasText(djvuPath: TDocumentRef, worker: IDjvuWorker, pageCount: number) {
+    const {
+        size, modifiedAt,
+    } = isBrowserDocumentRef(djvuPath)
+        ? await browserDocumentStore.stat(djvuPath)
+        : {
+            size: -1,
+            modifiedAt: -1,
+        };
+    const versionKey = `${djvuPath}\u0000${size}\u0000${modifiedAt}`;
+    const cached = textScanResults.get(versionKey);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let hasText = false;
+    for (let pageNumber = 1; pageNumber <= pageCount && !hasText; pageNumber += 1) {
+        const text = await worker.doc.getPage(pageNumber).getText().run().catch(() => '');
+        hasText = text.trim().length > 0;
+        if (pageNumber % DJVU_TEXT_SCAN_YIELD_PAGES === 0) {
+            await yieldToBrowser();
+        }
+    }
+    textScanResults.set(versionKey, hasText);
+    for (const key of textScanResults.keys()) {
+        if (textScanResults.size <= DJVU_TEXT_SCAN_CACHE_ENTRIES) break;
+        textScanResults.delete(key);
+    }
+    return hasText;
+}
+
 export async function getBrowserDjvuInfo(djvuPath: TDocumentRef): Promise<IDjvuInfo> {
     return withBrowserDjvuWorker(djvuPath, async (worker) => {
         const pageSizes = await getDjvuWorkerPageSizes(worker);
         const contents = await worker.doc.getContents().run().catch(() => null);
-        const samplePages = pickSamplePageNumbers(
-            pageSizes.length,
-            DJVU_INFO_TEXT_SAMPLE_PAGES,
-        );
-
-        let hasText = false;
-        for (const pageNumber of samplePages) {
-            const text = await worker.doc.getPage(pageNumber).getText().run().catch(() => '');
-            if (text.trim().length > 0) {
-                hasText = true;
-                break;
-            }
-            await yieldToBrowser();
-        }
-
         return {
             pageCount: pageSizes.length,
             sourceDpi: pageSizes[0]?.dpi ?? 300,
             hasBookmarks: Boolean(contents && contents.length > 0),
-            hasText,
+            hasText: await detectBrowserDjvuHasText(djvuPath, worker, pageSizes.length),
             metadata: {},
         };
     }, 'info');
@@ -898,10 +960,15 @@ export async function estimateBrowserDjvuSizes(
     }, 'estimate');
 }
 
+/**
+ * Converts a DjVu to PDF. `pageNumbers` writes only those source pages, in
+ * that order, as printing a selection does; without it every page is written.
+ */
 export async function runBrowserDjvuConversion(
     djvuPath: TDocumentRef,
     outputPath: TDocumentRef,
     options: IDjvuConvertOptions,
+    pageNumbers?: readonly number[],
 ) {
     const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
     const abortController = createDjvuJob(jobId);
@@ -917,17 +984,6 @@ export async function runBrowserDjvuConversion(
             };
         }
 
-        const sourceBytes = isBrowserDocumentRef(djvuPath)
-            ? (await browserDocumentStore.stat(djvuPath)).size
-            : 0;
-        if (sourceBytes > DJVU_BROWSER_WORKER_SOURCE_MAX_BYTES) {
-            return {
-                success: false as const,
-                jobId,
-                error: 'Browser DjVu processing is limited to 192MB source files. Use the Electron app for this archival job.',
-                expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
-            };
-        }
         emitProgress({
             jobId,
             phase: 'loading',
@@ -948,18 +1004,21 @@ export async function runBrowserDjvuConversion(
                 expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
             };
         }
-        const preflight = resolveBrowserDjvuConversionPreflight(pageSizes);
-        if (!preflight.allowed) {
-            const limitDescription = preflight.reason === 'page-count'
-                ? `has ${preflight.pageCount} pages, but converting in the browser supports up to ${preflight.maxPages}`
-                : 'has pages too large to convert in the browser';
+        const selectedPageNumbers = pageNumbers === undefined
+            ? pageSizes.map((_, index) => index + 1)
+            : uniq(pageNumbers.filter(pageNumber => Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pageCount));
+        if (selectedPageNumbers.length === 0) {
             return {
                 success: false as const,
                 jobId,
-                error: `This document ${limitDescription}. Use the desktop app to convert it.`,
+                error: 'No DjVu pages are selected',
                 expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
             };
         }
+        const pages: IDjvuOutputPage[] = selectedPageNumbers.map(pageNumber => ({
+            pageNumber,
+            metrics: pageSizes[pageNumber - 1]!,
+        }));
 
         emitProgress({
             jobId,
@@ -979,7 +1038,7 @@ export async function runBrowserDjvuConversion(
                 expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
             };
         }
-        const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes, options.hostTier ?? 'medium');
+        const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pages.map(page => page.metrics), undefined, options.hostTier ?? 'medium');
         BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
             jobId,
             pageCount,
@@ -988,75 +1047,64 @@ export async function runBrowserDjvuConversion(
             jpegQuality: renderSettings.jpegQuality,
             renderConcurrency,
         });
-        const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
-            ? resolveBrowserDjvuCompactExportPlan(
-                pageSizes,
-                BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
-                options.preserveBookmarks !== false,
-            )
-            : null;
-        if (compactExportPlan?.strategy === 'direct-fallback') {
-            BrowserLogger.info('djvu-browser', compactExportPlan.fallbackReason === 'bookmarks'
-                ? 'Browser compact DjVu export cannot preserve bookmarks; using streaming direct export'
-                : 'Browser compact DjVu export exceeds in-memory WASM budget; using streaming direct export', {
+        const preserveBookmarks = options.preserveBookmarks !== false;
+        const reportPageProcessed = (processed: number, total: number) => {
+            emitProgress({
                 jobId,
-                fallbackReason: compactExportPlan.fallbackReason,
-                estimatedPageSpecBytes: compactExportPlan.estimatedPageSpecBytes,
-                maxPageSpecBytes: compactExportPlan.maxPageSpecBytes,
+                phase: 'converting',
+                percent: Math.round((processed / total) * 90),
             });
+        };
+        const reportBookmarksStart = () => {
+            emitProgress({
+                jobId,
+                phase: 'bookmarks',
+                percent: 95,
+            });
+        };
+        const buildDirectPdf = () => buildPdfWithOptionalBookmarks({
+            worker,
+            pages,
+            subsample: renderSettings.subsample,
+            jpegQuality: DJVU_DIRECT_PDF_JPEG_QUALITY,
+            renderConcurrency,
+            createRenderWorker: async () => {
+                const renderWorker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
+                attachDjvuJobWorker(jobId, renderWorker);
+                return renderWorker;
+            },
+            preserveBookmarks,
+            outputPath,
+            signal: abortController.signal,
+            onPageProcessed: reportPageProcessed,
+            onBookmarksStart: reportBookmarksStart,
+        });
+        let pdfPath: TDocumentRef;
+        if (renderSettings.strategy === 'compact-djvu-aware') {
+            try {
+                pdfPath = await buildCompactDjvuPdfWithWasm({
+                    worker,
+                    pages,
+                    preset: resolveDjvuCompactFidelityPreset(renderSettings.subsample),
+                    preserveBookmarks,
+                    outputPath,
+                    signal: abortController.signal,
+                    onPageProcessed: reportPageProcessed,
+                    onBookmarksStart: reportBookmarksStart,
+                });
+            } catch (error) {
+                if (!(error instanceof BrowserDjvuCompactPlanTooLargeError) && !isPdfCombineOutputTooLargeError(error)) {
+                    throw error;
+                }
+                BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds the WASM boundary; using streaming direct export', {
+                    jobId,
+                    error: getErrorMessage(error),
+                });
+                pdfPath = await buildDirectPdf();
+            }
+        } else {
+            pdfPath = await buildDirectPdf();
         }
-        const useCompactWasm = compactExportPlan?.strategy === 'compact-djvu-aware';
-        const streamingRenderSettings = useCompactWasm
-            ? renderSettings
-            : {
-                strategy: 'direct' as const,
-                subsample: renderSettings.subsample,
-                jpegQuality: DJVU_DIRECT_PDF_JPEG_QUALITY,
-            };
-
-        const pdfPath = useCompactWasm
-            ? await buildCompactPhotoPdfWithWasm({
-                worker,
-                pageSizes,
-                outputPath,
-                signal: abortController.signal,
-                onPageProcessed: (processed, total) => {
-                    emitProgress({
-                        jobId,
-                        phase: 'converting',
-                        percent: Math.round((processed / total) * 90),
-                    });
-                },
-            })
-            : await buildPdfWithOptionalBookmarks({
-                worker,
-                pageSizes,
-                subsample: streamingRenderSettings.subsample,
-                jpegQuality: streamingRenderSettings.jpegQuality,
-                renderConcurrency,
-                createRenderWorker: async () => {
-                    const renderWorker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
-                    attachDjvuJobWorker(jobId, renderWorker);
-                    return renderWorker;
-                },
-                preserveBookmarks: options.preserveBookmarks !== false,
-                outputPath,
-                signal: abortController.signal,
-                onPageProcessed: (processed, total) => {
-                    emitProgress({
-                        jobId,
-                        phase: 'converting',
-                        percent: Math.round((processed / total) * 90),
-                    });
-                },
-                onBookmarksStart: () => {
-                    emitProgress({
-                        jobId,
-                        phase: 'bookmarks',
-                        percent: 95,
-                    });
-                },
-            });
 
         emitProgress({
             jobId,
@@ -1068,7 +1116,7 @@ export async function runBrowserDjvuConversion(
             success: true as const,
             pdfPath,
             jobId,
-            pageSizes,
+            pageSizes: pages.map(page => page.metrics),
         };
     } catch (error) {
         const expected = classifyBrowserDjvuExpectedOutcome(error);

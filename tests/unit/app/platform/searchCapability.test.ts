@@ -1,3 +1,4 @@
+import type * as TSearchContractsModule from '@contracts/search';
 import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
 
 import {
@@ -126,7 +127,7 @@ vi.mock('pdfjs-dist', () => pdfjsModule);
 describe('createBrowserSearchCapability', () => {
     beforeEach(() => {
         vi.resetModules();
-        vi.doUnmock('@app/platform/browser-api/browserSearchLimits');
+        vi.doUnmock('@contracts/search');
         vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         yieldToBrowserMock.mockClear();
         browserDocumentStoreMock.stat.mockReset();
@@ -336,7 +337,7 @@ describe('createBrowserSearchCapability', () => {
         );
     });
 
-    it('spends the regex budget on the matching time the worker reports', async () => {
+    it('gives every page its own regex budget, as the shared search core does', async () => {
         const getPage = vi.fn(async () => ({
             getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
             cleanup: vi.fn(async () => {}),
@@ -353,9 +354,11 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        // Each page spends most of a page budget; together they exceed it.
         const reportedMatchingMs = [
             200,
-            60,
+            200,
+            200,
         ];
         browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => ({
             requestId: 41,
@@ -374,15 +377,13 @@ describe('createBrowserSearchCapability', () => {
             matchCase: true,
             useRegex: true,
             requestId: requireRequestId('regex-budget'),
-        })).rejects.toMatchObject({
-            name: 'SearchRegexLimitError',
-            code: 'SEARCH_REGEX_LIMIT',
-        });
+        })).resolves.toMatchObject({results: []});
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mock.calls.map(
             call => (call[1] as {budgetMs: number}).budgetMs,
         )).toEqual([
             250,
-            50,
+            250,
+            250,
         ]);
     });
 
@@ -532,7 +533,7 @@ describe('createBrowserSearchCapability', () => {
         browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, _offset: number, length: number) => new Uint8Array(length));
         browserDocumentStoreMock.getContentSignature.mockResolvedValue(`content-token-${fixture.id}`);
 
-        const { SEARCH_EXCERPT_CONTEXT_CHARS } = await import('@app/platform/browser-api/browserSearchLimits');
+        const { SEARCH_EXCERPT_CONTEXT_CHARS } = await import('@contracts/search');
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
         const result = await capability.run(pdfPath, fixture.query, fixture.options);
@@ -995,7 +996,7 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
-        expect(record.version).toBe(8);
+        expect(record.version).toBe(9);
         expect(record.pageCount).toBe(3);
         expect(record.pages).toEqual([{
             pageNumber: 2,
@@ -1004,8 +1005,17 @@ describe('createBrowserSearchCapability', () => {
         expect('pageTexts' in record).toBe(false);
     });
 
-    it('migrates a legacy page-text array without padding a million-page record', async () => {
-        const path = '/tmp/legacy-million.pdf';
+    it('discards cache records an older extractor wrote and reads the page again', async () => {
+        const path = '/tmp/older-extractor.pdf';
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'fresh'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            loadingTask: {destroy: vi.fn(async () => {})},
+        }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
             1,
@@ -1017,42 +1027,24 @@ describe('createBrowserSearchCapability', () => {
         await capability.resetCache();
         const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
+        // Version 8 cached right-to-left OCR pages as PDF.js glyph items.
         database?.getStoreRecords('document-text').set(path, {
-            version: 7,
+            version: 8,
             pdfPath: path,
             fileSize: 3,
             contentSignature: 'content-token-1',
             documentRevision: 'drt1:browser:content-token-1',
-            pageCount: 1_000_000,
-            pageTexts: ['needle'],
-            textBytes: 12,
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: 'stale',
+            }],
+            textBytes: 10,
         });
 
-        const arrayFrom = vi.spyOn(Array, 'from');
-        capability.onProgress(progress => {
-            if (progress.processed === 1) {
-                void capability.cancel(requireRequestId('legacy-million'));
-            }
-        });
-        await expect(capability.warmIndex(path, {requestId: requireRequestId('legacy-million')})).resolves.toBe(false);
-        await vi.waitFor(() => {
-            const migrated = requirePersistedRecord(
-                database?.getStoreRecords('document-text').get(path),
-            );
-            expect(migrated.version).toBe(8);
-            expect(migrated.pages).toEqual([{
-                pageNumber: 1,
-                text: 'needle',
-            }]);
-            expect('pageTexts' in migrated).toBe(false);
-        });
-        expect(arrayFrom.mock.calls.some(([value]) => (
-            typeof value === 'object'
-            && value !== null
-            && 'length' in value
-            && Number(value.length) >= 1_000_000
-        ))).toBe(false);
-        arrayFrom.mockRestore();
+        await expect(capability.run(path, 'stale', {requestId: requireRequestId('older-extractor')}))
+            .resolves.toMatchObject({results: []});
+        expect(getPage).toHaveBeenCalledWith(1);
     });
 
     it('cancels a million-page direct scan after one delivered page', async () => {
@@ -1167,12 +1159,10 @@ describe('createBrowserSearchCapability', () => {
     });
 
     it('stops direct extraction after truncated streaming search without persisting a full index', async () => {
-        vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
+        vi.doMock('@contracts/search', async importOriginal => ({
+            ...await importOriginal<typeof TSearchContractsModule>(),
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
-            BROWSER_SEARCH_MAX_PAGE_COUNT: 1_000_000,
-            validateBrowserSearchPageCount: () => undefined,
-            validateBrowserSearchQueryCost: () => undefined,
         }));
         const pageTexts = [
             'alpha foo',
@@ -1295,12 +1285,10 @@ describe('createBrowserSearchCapability', () => {
     });
 
     it('keeps an exact-limit result set complete and scans every remaining page', async () => {
-        vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
+        vi.doMock('@contracts/search', async importOriginal => ({
+            ...await importOriginal<typeof TSearchContractsModule>(),
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
-            BROWSER_SEARCH_MAX_PAGE_COUNT: 1_000_000,
-            validateBrowserSearchPageCount: () => undefined,
-            validateBrowserSearchQueryCost: () => undefined,
         }));
         const pageTexts = [
             'alpha foo',
@@ -1340,12 +1328,10 @@ describe('createBrowserSearchCapability', () => {
     });
 
     it('truncates only after discovering the first match beyond the limit', async () => {
-        vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
+        vi.doMock('@contracts/search', async importOriginal => ({
+            ...await importOriginal<typeof TSearchContractsModule>(),
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
-            BROWSER_SEARCH_MAX_PAGE_COUNT: 1_000_000,
-            validateBrowserSearchPageCount: () => undefined,
-            validateBrowserSearchQueryCost: () => undefined,
         }));
         const pageTexts = [
             'alpha foo',

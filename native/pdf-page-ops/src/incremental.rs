@@ -367,7 +367,7 @@ pub(crate) fn append_native_mutations_to_bytes(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<NativeMutationBytesResult> {
-    if input.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
+    if input.len() > PAGE_OP_WASM_MAX_BUFFER_BYTES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Page-op WASM input exceeds the input admission ceiling",
@@ -409,7 +409,7 @@ pub(crate) fn append_native_mutations_to_bytes(
             "Page-op WASM output exceeds the admission ceiling",
         )
     })?;
-    if output_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+    if output_len > PAGE_OP_WASM_MAX_BUFFER_BYTES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Page-op WASM output exceeds the admission ceiling",

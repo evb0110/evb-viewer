@@ -1,3 +1,4 @@
+import {Window} from 'happy-dom';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import {normalizePdfNativeTextBoxAppearanceRequest} from '@contracts/nativePdfMutations';
 import {
@@ -16,6 +17,9 @@ import {
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
 import {cast} from '@tests/helpers/cast';
+import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
+import {setBrowserPlatformApi} from '@app/utils/platform';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {useWorkspacePrint} from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 
 const failureReceipt = vi.hoisted(() => ({
@@ -186,6 +190,22 @@ describe('browserPageOpsWorkerClient', () => {
         vi.unstubAllGlobals();
     });
 
+    it('lets strict conformance use its ten-minute bound and terminates it at that bound', async () => {
+        FakeWorker.autoRespond = false;
+        let failure: unknown;
+        const pending = runBrowserPageOpsWorkerRequest('conformance', {data: Uint8Array.of(1)}, {
+            dedicated: true,
+            timeoutMs: 600_000,
+        })
+            .catch(error => {failure = error;});
+        await vi.advanceTimersByTimeAsync(121_001);
+        expect(failure).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(478_999);
+        await pending;
+        expect(failure).toMatchObject({message: expect.stringContaining('600000ms')});
+        expect(FakeWorker.lastInstance?.terminated).toBe(true);
+    });
+
     it('rejects malformed catalog bookmark fields through the shared codec', async () => {
         const {decodeBrowserPdfCatalog} = await import('@contracts/browserPdfCatalog');
         const baseBookmark = {
@@ -238,7 +258,7 @@ describe('browserPageOpsWorkerClient', () => {
             },
         ];
         for (const malformed of malformedCatalogs) {
-            expect(decodeBrowserPdfCatalog(malformed, {maxPageLabels: 2_048})).toBeNull();
+            expect(decodeBrowserPdfCatalog(malformed)).toBeNull();
         }
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
@@ -246,14 +266,14 @@ describe('browserPageOpsWorkerClient', () => {
                 pageIndex: undefined,
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
                 pageYRatio: 'bad',
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
@@ -263,7 +283,7 @@ describe('browserPageOpsWorkerClient', () => {
                 pageIndex: 0,
                 prefix: 'Page ',
             }],
-        }, {maxPageLabels: 2_048})).toEqual({
+        })).toEqual({
             bookmarks: [{
                 ...baseBookmark,
                 pageYRatio: 0.25,
@@ -283,7 +303,7 @@ describe('browserPageOpsWorkerClient', () => {
                 pageIndex: 0,
                 prefix: '頁',
             }],
-        }, {maxPageLabels: 2_048})).toMatchObject({
+        })).toMatchObject({
             bookmarks: [{
                 title: '章节 α',
                 pageIndex: null,
@@ -299,14 +319,14 @@ describe('browserPageOpsWorkerClient', () => {
                 pageYRatio: Number.NaN,
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
                 pageYRatio: Number.POSITIVE_INFINITY,
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
@@ -316,14 +336,13 @@ describe('browserPageOpsWorkerClient', () => {
                 }],
             }],
             pageLabels: [],
-        }, {maxPageLabels: 2_048})).toBeNull();
+        })).toBeNull();
     });
 
     it('enforces the named reader budgets at the exact boundary and one over', async () => {
         const {
             decodeBrowserPdfCatalog, BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
-            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS, BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
-            BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
+            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS, BROWSER_PDF_CATALOG_MAX_PAGE_LABELS,
         } = await import('@contracts/browserPdfCatalog');
         const bookmark = (items: unknown[] = []) => ({
             title: 'Chapter α',
@@ -345,28 +364,24 @@ describe('browserPageOpsWorkerClient', () => {
 
         expect(decodeBrowserPdfCatalog({
             bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS}, () => bookmark()),
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS),
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).not.toBeNull();
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS),
+        })).not.toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS + 1}, () => bookmark()),
             pageLabels: [],
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH)],
             pageLabels: [],
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).not.toBeNull();
+        })).not.toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH + 1)],
             pageLabels: [],
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).toBeNull();
+        })).toBeNull();
         expect(decodeBrowserPdfCatalog({
             bookmarks: [],
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS),
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})).not.toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [],
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS + 1),
-        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})).toBeNull();
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS + 1),
+        })).toBeNull();
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
@@ -415,6 +430,123 @@ describe('browserPageOpsWorkerClient', () => {
         vi.stubGlobal('Worker', function () { throw new Error('Worker startup is unavailable'); });
         const result = runBrowserPageOpsWorkerRequest('textBoxAppearance', appearanceRequest());
         await expect(result).rejects.toThrow('Text appearance generation requires a worker');
+    });
+
+    it('ends an uncancellable request only after a deadline that grows with its input, and never a cancellable one', async () => {
+        FakeWorker.autoRespond = false;
+        const settle = (request: Promise<unknown>) => {
+            const state = {outcome: 'pending'};
+            void request.then(() => {
+                state.outcome = 'resolved';
+            }, (error: unknown) => {
+                state.outcome = error instanceof Error ? error.message : String(error);
+            });
+            return state;
+        };
+        // Desktop's two minutes plus a second per MiB: 130 s for 10 MiB.
+        const uncancellable = settle(runBrowserPageOpsWorkerRequest('rotate', {
+            data: new Uint8Array(10 * 1024 * 1024),
+            pages: [1],
+            angle: 90,
+        }));
+        await vi.advanceTimersByTimeAsync(129_000);
+        expect(uncancellable.outcome).toBe('pending');
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(uncancellable.outcome).toContain('timed out after 130000ms');
+
+        const controller = new AbortController();
+        const cancellable = settle(runBrowserPageOpsWorkerRequest('rotate', {
+            data: new Uint8Array([1]),
+            pages: [1],
+            angle: 90,
+        }, {signal: controller.signal}));
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+        expect(cancellable.outcome).toBe('pending');
+        controller.abort(new Error('canceled by the user'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(cancellable.outcome).toBe('canceled by the user');
+    });
+
+    it('gives replacement attachments their own buffers and keeps the caller base', async () => {
+        FakeWorker.autoRespond = false;
+        const base = new TextEncoder().encode('%PDF-base');
+        const shared = new TextEncoder().encode('%PDF-attachments');
+        const first = shared.subarray(0, 8);
+        const second = shared.subarray(8);
+        const controller = new AbortController();
+        const request = runBrowserPageOpsWorkerRequest('replacePageImages', {
+            data: base,
+            replacementPdfs: [
+                first,
+                second,
+                first,
+            ],
+            instructions: {
+                maxByteRatio: 0.9,
+                pages: [],
+            },
+        }, {signal: controller.signal});
+        const settled = request.catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+
+        const call = FakeWorker.instances.at(-1)?.postMessageCalls.at(-1);
+        const payload = (call?.message as {payload: {
+            data: Uint8Array;
+            replacementPdfs: Uint8Array[]
+        }}).payload;
+        expect(new TextDecoder().decode(base)).toBe('%PDF-base');
+        expect(payload.data.buffer).not.toBe(base.buffer);
+        expect(payload.replacementPdfs.map(pdf => new TextDecoder().decode(pdf))).toEqual([
+            '%PDF-att',
+            'achments',
+            '%PDF-att',
+        ]);
+        const buffers = [
+            payload.data.buffer,
+            ...payload.replacementPdfs.map(pdf => pdf.buffer),
+        ];
+        expect(new Set(buffers).size).toBe(4);
+        expect(new Set(call?.transfer).size).toBe(call?.transfer.length);
+        expect(call?.transfer).toEqual(buffers);
+        expect(shared.byteLength).toBe(16);
+        controller.abort(new Error('test finished'));
+        await expect(settled).resolves.toMatchObject({message: 'test finished'});
+    });
+
+    it('refuses the main-thread engine for a pass that must stay cancellable', async () => {
+        vi.stubGlobal('Worker', function () { throw new Error('Worker startup is unavailable'); });
+        const result = runBrowserPageOpsWorkerRequest('recompressImages', {
+            data: Uint8Array.of(1),
+            instructions: {
+                maxByteRatio: 0.9,
+                targetDpi: 200,
+                quality: 82,
+            },
+        }, {
+            signal: new AbortController().signal,
+            requireWorker: true,
+        });
+        await expect(result).rejects.toThrow('recompressImages requires a worker');
+    });
+
+    it('ends a signaled pass at its explicit deadline', async () => {
+        FakeWorker.autoRespond = false;
+        const outcome = runBrowserPageOpsWorkerRequest('recompressImages', {
+            data: Uint8Array.of(1),
+            instructions: {
+                maxByteRatio: 0.9,
+                targetDpi: 200,
+                quality: 82,
+            },
+        }, {
+            signal: new AbortController().signal,
+            timeoutMs: 1_800_000,
+        }).then(() => 'resolved', (error: unknown) => (error instanceof Error ? error.message : String(error)));
+        await vi.advanceTimersByTimeAsync(1_799_999);
+        expect(FakeWorker.instances.at(-1)?.terminated).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(outcome).resolves.toContain('timed out after 1800000ms');
+        expect(FakeWorker.instances.at(-1)?.terminated).toBe(true);
     });
 
     it('does not report an idle worker termination', async () => {
@@ -736,6 +868,128 @@ describe('browserPageOpsWorkerClient', () => {
             ]));
         },
     );
+
+    it('removes the hidden print document when rendering a page fails before printing', async () => {
+        vi.useRealTimers();
+        const browserWindow = new Window({settings: {disableIframePageLoading: true}});
+        vi.stubGlobal('window', browserWindow);
+        vi.stubGlobal('document', browserWindow.document);
+        Reflect.set(browserWindow, 'print', () => undefined);
+        const notices: unknown[] = [];
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            remove: () => undefined,
+        }));
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const append = browserWindow.document.body.append.bind(browserWindow.document.body);
+        vi.spyOn(browserWindow.document.body, 'append').mockImplementation((...nodes) => {
+            append(...nodes);
+            // Supply the frame-load browser event; the real DOM owns its contents.
+            queueMicrotask(() => browserWindow.document.querySelector('iframe')
+                ?.dispatchEvent(new browserWindow.Event('load')));
+        });
+        let rendered = false;
+        const scope = effectScope();
+        try {
+            const print = scope.run(() => useWorkspacePrint({
+                totalPages: ref(1),
+                currentPage: ref(1),
+                selectedPages: ref([]),
+                sourcePdf: ref(null),
+                workingCopyPath: ref(null),
+                fileName: ref('failed-print.pdf'),
+                hasPendingUnsavedChanges: ref(false),
+                getQuickPrintPageMetrics: async () => null,
+                getPrintableSourceData: async () => null,
+                renderLoadedPdfPagesForBrowserPrint: async (targetDocument) => {
+                    rendered = true;
+                    expect(browserWindow.document.querySelectorAll('iframe[aria-hidden="true"]')).toHaveLength(1);
+                    targetDocument.querySelector('[data-browser-print-root]')?.append(targetDocument.createElement('section'));
+                    throw new Error('The PDF page could not be rendered for print');
+                },
+            }));
+            if (!print) throw new Error('Missing print owner');
+            await print.handlePrintDialogSubmit({
+                pageNumbers: [1],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            expect(rendered).toBe(true);
+            expect(print.isPreparingPrint.value).toBe(false);
+            expect(notices).not.toEqual([]);
+            expect(browserWindow.document.querySelectorAll('iframe')).toHaveLength(0);
+        } finally {
+            scope.stop();
+            await browserWindow.happyDOM.close();
+            vi.restoreAllMocks();
+            vi.useFakeTimers();
+        }
+    });
+
+    it('stops reading and releases a prepared print PDF when the dialog closes', async () => {
+        const notices: unknown[] = [];
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            remove: () => undefined,
+        }));
+        const firstRead = Promise.withResolvers<undefined>();
+        const continueRead = Promise.withResolvers<undefined>();
+        const chunkBytes = 4 * 1024 * 1024;
+        const size = chunkBytes * 2 + 1;
+        let bytesRead = 0;
+        let released = false;
+        setBrowserPlatformApi(createPlatformApiFixture({
+            backend: 'browser',
+            overrides: {documentFiles: {
+                statFile: async () => ({size}),
+                readFileRange: async (_path, offset, length) => {
+                    if (offset === 0) {
+                        firstRead.resolve(undefined);
+                        await continueRead.promise;
+                    }
+                    bytesRead += length;
+                    return new Uint8Array(length);
+                },
+            }},
+        }));
+        const scope = effectScope();
+        const print = scope.run(() => useWorkspacePrint({
+            totalPages: ref(2),
+            currentPage: ref(1),
+            selectedPages: ref([]),
+            sourcePdf: ref(null),
+            workingCopyPath: ref(null),
+            fileName: ref('cancel-prepared.djvu'),
+            hasPendingUnsavedChanges: ref(false),
+            getQuickPrintPageMetrics: async () => null,
+            getPrintableSourceData: async () => null,
+            preparePrintSource: async () => ({
+                status: 'printable-pdf',
+                documentRef: requireDocumentRef('browser://documents/prepared-print.pdf'),
+                release: async () => { released = true; },
+            }),
+        }));
+        if (!print) throw new Error('Missing print owner');
+        print.handlePrintDialogOpenChange(true);
+        const preparation = print.handlePrintDialogSubmit({
+            viewMode: 'single',
+            orientation: 'auto',
+        });
+        try {
+            await firstRead.promise;
+            print.handlePrintDialogOpenChange(false);
+            continueRead.resolve(undefined);
+            await preparation;
+            expect(bytesRead).toBe(chunkBytes);
+            expect(released).toBe(true);
+            expect(print.isPreparingPrint.value).toBe(false);
+            expect(notices).toEqual([]);
+        } finally {
+            continueRead.resolve(undefined);
+            await preparation;
+            scope.stop();
+        }
+    });
 
     it('stops the isolated layout worker when the workspace print dialog closes', async () => {
         FakeWorker.autoRespond = false;

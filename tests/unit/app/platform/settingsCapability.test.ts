@@ -7,6 +7,10 @@ import {
 } from 'vitest';
 import { MemoryStorage } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
+import {
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
 
 describe('browserSettingsCapability', () => {
     beforeEach(() => {
@@ -151,7 +155,7 @@ describe('browserSettingsCapability', () => {
         expect(settings.theme).toBe('light');
     });
 
-    it('preserves a future storage schema and fails closed', async () => {
+    it('runs on defaults beside a future storage schema, preserves it and refuses to save over it', async () => {
         const localStorage = new MemoryStorage();
         const futureSettings = JSON.stringify({
             version: 99,
@@ -163,7 +167,11 @@ describe('browserSettingsCapability', () => {
 
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
-        await expect(browserSettingsCapability.get()).rejects.toMatchObject({
+        const { DEFAULT_SETTINGS } = await import('@contracts/settings');
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({authorName: DEFAULT_SETTINGS.authorName});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'unsupported'});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toBeNull();
+        await expect(browserSettingsCapability.save({authorName: 'Older tab'})).rejects.toMatchObject({
             code: 'unsupported-settings-schema',
             version: 99,
         });
@@ -248,6 +256,45 @@ describe('browserSettingsCapability', () => {
 
         expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'granted'});
         expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('clientDiagnosticsPreference');
+    });
+
+    it('grants no consent and saves nothing while a newer version owns either settings source', async () => {
+        const localStorage = new MemoryStorage();
+        const browserWindow = Object.assign(new EventTarget(), {localStorage});
+        vi.stubGlobal('window', browserWindow);
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        const {BROWSER_SETTINGS_COOKIE_KEY} = await import('@app/utils/browserSettingsPersistence');
+        const supported = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        });
+        localStorage.setItem(SETTINGS_STORAGE_KEY, supported);
+        const futureCookie = encodeURIComponent(JSON.stringify({
+            version: 99,
+            clientDiagnosticsPreference: 'granted',
+        }));
+        const cookieWrites: string[] = [];
+        vi.stubGlobal('document', {
+            get cookie() {
+                return `${BROWSER_SETTINGS_COOKIE_KEY}=${futureCookie}`;
+            },
+            set cookie(value: string) {
+                cookieWrites.push(value);
+            },
+        });
+
+        // The reporter reads consent before settings load.
+        const reporter = await import('@app/utils/failureReporter');
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('unknown');
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'unknown'});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'unsupported'});
+        browserWindow.dispatchEvent(new Event('pageshow'));
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'unknown'});
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('unknown');
+        await expect(browserSettingsCapability.save({authorName: 'Older tab'})).rejects.toMatchObject({code: 'unsupported-settings-schema'});
+        expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(supported);
+        expect(cookieWrites).toEqual([]);
     });
 
     it('delivers current shared settings and fails closed when storage is cleared or unsupported', async () => {
@@ -541,5 +588,130 @@ describe('browserSettingsCapability', () => {
         expect(changes.some(settings => settings.clientDiagnosticsPreference === 'granted')).toBe(false);
         expect(changes.at(-1)).toMatchObject({clientDiagnosticsPreference: 'denied'});
         unsubscribe();
+    });
+
+    it('reports a malformed stored settings reset once and stores defaults', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const localStorage = new MemoryStorage();
+        localStorage.setItem(SETTINGS_STORAGE_KEY, '{"version": 2, "authorName": ');
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({authorName: ''});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'corrupt'});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toBeNull();
+        expect(JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? 'null')).toMatchObject({version: 2});
+
+        vi.resetModules();
+        const reloaded = await import('@app/platform/browser-api/browserSettingsCapability');
+        await reloaded.browserSettingsCapability.get();
+        expect(await reloaded.browserSettingsCapability.getRecoveryNotice()).toBeNull();
+    });
+
+    it('reports unavailable storage as unreadable without a write, even with bootstrap cookies', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const {
+            BROWSER_LOCALE_COOKIE_KEY,
+            BROWSER_THEME_COOKIE_KEY,
+        } = await import('@app/utils/browserSettingsPersistence');
+        vi.stubGlobal('document', {cookie: `${BROWSER_LOCALE_COOKIE_KEY}=ru; ${BROWSER_THEME_COOKIE_KEY}=dark`});
+        const setItem = vi.fn();
+        vi.stubGlobal('window', {localStorage: {
+            getItem: () => {
+                throw new DOMException('Access is denied', 'SecurityError');
+            },
+            setItem,
+        }});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({locale: 'ru'});
+        expect(await browserSettingsCapability.getRecoveryNotice()).toEqual({reason: 'unreadable'});
+        expect(setItem).not.toHaveBeenCalled();
+    });
+
+    it('reports no recovery for a clean profile or valid stored settings', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await browserSettingsCapability.get();
+        expect(await browserSettingsCapability.getRecoveryNotice()).toBeNull();
+        await browserSettingsCapability.save({authorName: 'Stored user'});
+
+        vi.resetModules();
+        const reloaded = await import('@app/platform/browser-api/browserSettingsCapability');
+        await expect(reloaded.browserSettingsCapability.get()).resolves.toMatchObject({authorName: 'Stored user'});
+        expect(await reloaded.browserSettingsCapability.getRecoveryNotice()).toBeNull();
+    });
+
+    it('buffers renderer logs in desktop debug-log entries, redacted and bounded', async () => {
+        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+        const { decodeDebugLogEntry } = await import('@contracts/electronApiCommon');
+        const streamed: unknown[] = [];
+        const unsubscribe = browserSettingsCapability.onDebugLog(entry => streamed.push(entry));
+
+        browserSettingsCapability.rendererLog({
+            level: 'error',
+            section: 'ocr',
+            message: 'OCR backend reported page failures',
+            timestamp: requireIsoTimestamp('2026-11-01T10:00:00.000Z'),
+            data: {
+                errors: ['Model download failed: https://models.test/eng.traineddata?token=s3cr3t'],
+                errorCode: 'OCR_MODEL_DOWNLOAD_FAILED',
+            },
+            failureRef: {
+                eventId: '0123456789abcdef0123456789abcdef',
+                code: 'RENDERER_OCR_BACKEND_FAILED',
+                occurredAt: requireEpochMs(1),
+                severity: 'error',
+            },
+        });
+        browserSettingsCapability.rendererLog({
+            level: 'warn',
+            section: 'ocr',
+            message: 'OCR run was not started',
+            timestamp: requireIsoTimestamp('2026-11-01T10:00:01.000Z'),
+        });
+
+        const logs = await browserSettingsCapability.getDebugLogs();
+        expect(logs).toEqual([
+            {
+                source: 'ocr',
+                message: expect.stringContaining('[ERROR] OCR backend reported page failures errors=') as unknown,
+                timestamp: '2026-11-01T10:00:00.000Z',
+                level: 'ERROR',
+                failureRef: {
+                    eventId: '0123456789abcdef0123456789abcdef',
+                    code: 'RENDERER_OCR_BACKEND_FAILED',
+                    severity: 'error',
+                },
+            },
+            {
+                source: 'ocr',
+                message: '[WARN] OCR run was not started',
+                timestamp: '2026-11-01T10:00:01.000Z',
+                level: 'WARN',
+            },
+        ]);
+        expect(logs[0]!.message).toContain('token=[redacted]');
+        expect(logs[0]!.message).not.toContain('s3cr3t');
+        expect(logs.map(entry => decodeDebugLogEntry(entry))).toEqual(logs);
+        expect(streamed).toEqual(logs);
+        unsubscribe();
+
+        for (let index = 0; index < 2_005; index += 1) {
+            browserSettingsCapability.rendererLog({
+                level: 'warn',
+                section: 'bulk',
+                message: `entry ${index}`,
+                timestamp: requireIsoTimestamp('2026-11-01T10:00:02.000Z'),
+            });
+        }
+        const bounded = await browserSettingsCapability.getDebugLogs();
+        expect(bounded).toHaveLength(2_000);
+        expect(bounded[0]!.message).toBe('[WARN] entry 5');
+        expect(bounded.at(-1)!.message).toBe('[WARN] entry 2004');
+        expect(streamed).toHaveLength(2);
     });
 });

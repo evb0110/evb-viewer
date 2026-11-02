@@ -10,8 +10,6 @@
                 :has-pdf="presentation.toolbarHasPdf.value"
                 :can-toggle-sidebar="presentation.canToggleSidebar.value"
                 :can-use-ocr="canUseOcr"
-                can-use-djvu
-                :is-desktop-runtime="isDesktopRuntime"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 :is-opening-document="presentation.isOpeningDocumentForDisplay.value"
@@ -28,13 +26,9 @@
                 :ocr-popup-open="ocrPopupOpen"
                 :zoom-dropdown-open="zoomDropdownOpen"
                 :page-dropdown-open="pageDropdownOpen"
-                :overflow-menu-open="overflowMenuOpen"
-                :app-menu-open="appMenuOpen"
                 @update:ocr-popup-open="handleDropdownOpen('ocr', $event)"
                 @update:zoom-dropdown-open="handleDropdownOpen('zoom', $event)"
                 @update:page-dropdown-open="handleDropdownOpen('page', $event)"
-                @update:overflow-menu-open="handleDropdownOpen('overflow', $event)"
-                @update:app-menu-open="handleDropdownOpen('appMenu', $event)"
                 @update:zoom="observeReaderCommand(); zoom = $event"
                 @update:zoom-mode="observeReaderCommand(); zoomMode = $event"
                 @update:fit-mode="observeReaderCommand(); fitMode = $event"
@@ -43,27 +37,14 @@
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="scanCleanup.openScanCleanup"
                 @save="runToolbarAction(handleSaveWithAutomationEvent)"
-                @repair-save="runToolbarAction(save.handleRepairSave)"
-                @optimize-pdf-for-interaction="runToolbarAction(openOptimizePdfForInteractionDialog)"
                 @save-as="runToolbarAction(handleSaveAs)"
                 @print="print.handlePrint"
                 @print-current-page="print.handlePrintCurrentPage"
-                @combine-files="emit('open-combine')"
                 @export-docx="runToolbarAction(handleExportDocx)"
                 @ocr-export-docx="handleExportDocx"
                 @ocr-cancel-docx-export="cancelDocxExportDirect"
-                @export-images="exportWorkflow.handleExportImages()"
-                @export-multi-page-tiff="exportWorkflow.handleExportMultiPageTiff()"
-                @convert-to-pdf="file.openConvertDialog"
                 @undo="runToolbarAction(history.handleUndo)"
                 @redo="runToolbarAction(history.handleRedo)"
-                @insert-image-from-file="handleInsertImageFromFile"
-                @paste-image-from-clipboard="handlePasteImageFromClipboard"
-                @delete-pages="workspaceExpose.handleDeletePages()"
-                @extract-pages="workspaceExpose.handleExtractPages()"
-                @rotate-cw="workspaceExpose.handleRotateCw()"
-                @rotate-ccw="workspaceExpose.handleRotateCcw()"
-                @insert-pages="workspaceExpose.handleInsertPages()"
                 @toggle-sidebar="runToolbarAction(workspaceExpose.handleToggleSidebar)"
                 @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
                 @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
@@ -74,7 +55,6 @@
                 @crop="runToolbarAction(handleCropAction)"
                 @quick-note="runToolbarAction(handleQuickNoteAction)"
                 @toggle-fullscreen="emit('toggle-fullscreen')"
-                @set-view-mode="observeReaderCommand(); runToolbarAction(() => setViewMode($event))"
                 @go-to-page="navigation.handleGoToPage"
             />
         </WorkspaceToolbarHost>
@@ -189,7 +169,6 @@ import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
 import {runDetached} from '@app/utils/asyncGuard';
-import type { TPdfViewMode } from '@contracts/shared';
 import { useDocumentWorkspaceAgent } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import { createDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
@@ -236,7 +215,6 @@ const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
-    'open-combine': [];
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();
@@ -247,7 +225,6 @@ const {
     toolbarHostId: 'editor-global-toolbar-host',
     statusHostId: 'editor-global-status-host',
 });
-const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = useCanUseOcr();
 // This mount is one view of the document its DocumentSessionHost holds.
 const context = createDocumentViewContext({
@@ -275,7 +252,6 @@ const {
 const {
     file,
     fileOps,
-    exportWorkflow,
     history,
     save,
     print,
@@ -303,8 +279,6 @@ const {
     zoomDropdownOpen,
     pageDropdownOpen,
     ocrPopupOpen,
-    overflowMenuOpen,
-    appMenuOpen,
     closeAllDropdowns,
     zoom,
     zoomMode,
@@ -409,9 +383,6 @@ function runToolbarAction(action: () => unknown) {
 // The zoom control's own edits are the reader moving this view, as a scroll is;
 // the workspace's view commands count themselves.
 const observeReaderCommand = () => view.documentViewerRef.value?.observeReaderCommand?.();
-function setViewMode(mode: TPdfViewMode) {
-    viewMode.value = mode;
-}
 const viewerCapabilities = computed(() => documentContext.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 const {
     runAgentAction,
@@ -430,6 +401,12 @@ const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     initialVisualReady: presentation.initialDocumentVisualReady,
+    toolbarHasPdf: presentation.toolbarHasPdf,
+    documentBusy: presentation.toolbarDocumentBusyForDisplay,
+    canToggleSidebar: presentation.canToggleSidebar,
+    ocrActionDisabled: presentation.ocrActionDisabled,
+    ocrTriggerDisabled: presentation.ocrTriggerDisabled,
+    scanCleanupDisabled: presentation.scanCleanupDisabled,
     canRepairSave: presentation.canRepairSave,
     canOptimizePdf: presentation.canOptimizePdf,
     canExportDocx,

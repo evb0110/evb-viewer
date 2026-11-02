@@ -495,6 +495,7 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.zoomMode.value = 'fit-height';
             setup.viewMode.value = 'facing';
             setup.continuousScroll.value = false;
+            setup.viewRotation.value = 90;
 
             setup.pdfSrc.value = null;
             await nextTick();
@@ -504,6 +505,7 @@ describe('useWorkspaceViewerDefaults', () => {
             expect(setup.zoomMode.value).toBe('custom');
             expect(setup.viewMode.value).toBe('single');
             expect(setup.continuousScroll.value).toBe(true);
+            expect(setup.viewRotation.value).toBe(0);
         } finally {
             setup.stop();
         }
@@ -524,6 +526,7 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.zoomMode.value = 'custom';
             setup.viewMode.value = 'facing';
             setup.continuousScroll.value = false;
+            setup.viewRotation.value = 90;
 
             setup.documentSourceKey.value = 'djvu:/docs/b.djvu';
             await nextTick();
@@ -533,6 +536,7 @@ describe('useWorkspaceViewerDefaults', () => {
             expect(setup.zoomMode.value).toBe('custom');
             expect(setup.viewMode.value).toBe('single');
             expect(setup.continuousScroll.value).toBe(true);
+            expect(setup.viewRotation.value).toBe(0);
         } finally {
             setup.stop();
         }

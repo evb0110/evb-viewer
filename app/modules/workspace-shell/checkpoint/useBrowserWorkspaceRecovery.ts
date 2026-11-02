@@ -281,7 +281,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     });
                     continue;
                 }
-                let bytes: Uint8Array | null | undefined;
+                let snapshot: Awaited<ReturnType<IWorkspaceExpose['createRecoverySnapshot']>> | undefined;
                 if (tab.workingCopyRef) {
                     try {
                         const mountedView = session
@@ -292,7 +292,13 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                                 .find(view => view?.mountedWorkspace.value)
                             : null;
                         const drafts = tab.annotationRecovery?.payload.drafts ?? [];
-                        bytes = await mountedView?.mountedWorkspace.value?.createRecoverySnapshotBytes(drafts.length > 0 ? tab.annotationRecovery : undefined);
+                        snapshot = await mountedView?.mountedWorkspace.value?.createRecoverySnapshot(
+                            {
+                                fileName: `${tab.fileName ?? 'document'}.recovery.pdf`,
+                                sourceRef: tab.sourceRef,
+                            },
+                            drafts.length > 0 ? tab.annotationRecovery : undefined,
+                        );
                         // Native snapshots already contain canonical edits. Only
                         // drafts need the captured payload and unchanged base.
                         if (drafts.length === 0) delete tab.annotationRecovery;
@@ -306,7 +312,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         }
                     }
                 }
-                if (!bytes) {
+                if (!snapshot) {
                     // Save or reopen can supersede this capture while it waits
                     // for the document lease. The existing pending revision
                     // captures the current owner; discard this old checkpoint.
@@ -337,11 +343,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 }
                 const {
                     ref: snapshotRef, revisionToken,
-                } = await snapshots.createSnapshot(
-                    `${tab.fileName ?? 'document'}.recovery.pdf`,
-                    bytes,
-                    tab.sourceRef ?? undefined,
-                );
+                } = snapshot;
                 createdRefs.push(snapshotRef);
                 if (tab.annotationRecovery) {
                     tab.annotationRecovery = {

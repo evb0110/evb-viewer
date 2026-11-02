@@ -19,6 +19,8 @@ const PAGE_KIND_IMAGE: u32 = 1;
 const PAGE_KIND_MASK: u32 = 2;
 const PAGE_KIND_LAYERED: u32 = 3;
 const PAGE_KIND_LAYERED_COLOR: u32 = 4;
+const PAGE_KIND_BLACK_AND_WHITE: u32 = 5;
+const PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK: u32 = 6;
 // WASM32 Rust's allocation layout uses a signed pointer-sized length.
 const MAX_REQUEST_BYTES: usize = i32::MAX as usize;
 
@@ -175,7 +177,9 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         default_dpi,
         max_pages,
         max_pixels,
-        max_bilevel_pixels: max_pixels,
+        // As on desktop: a photo raster has the header's limit, a bilevel mask
+        // desktop's own, so a large scanned page stays a lossless mask.
+        max_bilevel_pixels: crate::DEFAULT_MAX_BILEVEL_PIXELS,
         max_output_bytes: u64::MAX,
         allow_large_output: true,
         max_tiff_frames: read_usize_le(request, offset, "max_tiff_frames")?,
@@ -308,6 +312,46 @@ fn parse_v3_v5_page_specs<'a>(
                 },
                 frames: FramePolicy::ExactlyOne,
             },
+            // Desktop's `image-jpeg` manifest line: no resampling, no guardrail.
+            PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK => {
+                if jpeg_quality == 0 || ppi_cap != 0 {
+                    return Err(
+                        "JPEG-with-Flate pages need a JPEG quality of 1-100 and no PPI cap".into(),
+                    );
+                }
+                PageSpec::Image {
+                    page_size: Some(page_size),
+                    placement: None,
+                    rotation_degrees,
+                    image: ImageSpec {
+                        source: read_netpbm_source(request, offset, &[b"P5", b"P6"])?,
+                        compression: ImageCompression::JpegWithFlateFallback {
+                            quality: jpeg_quality,
+                        },
+                        processing: ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    frames: FramePolicy::ExactlyOne,
+                }
+            }
+            // Desktop's `image-bw` manifest line.
+            PAGE_KIND_BLACK_AND_WHITE => {
+                if jpeg_quality != 0 || ppi_cap != 0 {
+                    return Err("Black-and-white pages take no JPEG quality and no PPI cap".into());
+                }
+                PageSpec::Image {
+                    page_size: Some(page_size),
+                    placement: None,
+                    rotation_degrees,
+                    image: ImageSpec {
+                        source: read_netpbm_source(request, offset, &[b"P5"])?,
+                        compression: ImageCompression::Auto,
+                        processing: ImageProcessing::BlackAndWhite,
+                        size_guardrail: None,
+                    },
+                    frames: FramePolicy::ExactlyOne,
+                }
+            }
             PAGE_KIND_MASK => PageSpec::Mask {
                 page_size,
                 foreground_mask: read_input_source(request, offset)?,
@@ -371,6 +415,19 @@ fn read_input_source<'a>(request: &'a [u8], offset: &mut usize) -> Result<InputS
     let file_name = str::from_utf8(take_bytes(request, offset, name_len)?)?;
     let data = take_bytes(request, offset, data_len)?;
     Ok(InputSource::Bytes { file_name, data })
+}
+
+fn read_netpbm_source<'a>(
+    request: &'a [u8],
+    offset: &mut usize,
+    magics: &[&[u8; 2]],
+) -> Result<InputSource<'a>> {
+    let source = read_input_source(request, offset)?;
+    if matches!(&source, InputSource::Bytes { data, .. } if magics.iter().any(|magic| data.starts_with(*magic)))
+    {
+        return Ok(source);
+    }
+    Err("This image-combine WASM page kind needs a binary Netpbm render".into())
 }
 
 fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usize> {
@@ -466,6 +523,20 @@ mod tests {
         let next_pointer = evb_pdf_image_combine_alloc(1);
         assert!(!next_pointer.is_null());
         unsafe { evb_pdf_image_combine_free(next_pointer, 1) };
+    }
+
+    #[test]
+    fn header_admits_desktop_bilevel_masks_beside_the_photo_limit() {
+        let mut request = Vec::new();
+        for value in [0_u32, 1, 80_000_000, 1, 1] {
+            request.extend_from_slice(&value.to_le_bytes());
+        }
+        let header = parse_request_header(&request, &mut 0).unwrap();
+        assert_eq!(header.options.max_pixels, 80_000_000);
+        assert_eq!(
+            header.options.max_bilevel_pixels,
+            crate::DEFAULT_MAX_BILEVEL_PIXELS
+        );
     }
 
     #[test]
@@ -582,6 +653,116 @@ mod tests {
     }
 
     #[test]
+    fn optimize_kinds_map_to_desktop_manifest_pages_and_build() {
+        let pgm = gray_square_pgm();
+        let jpeg = optimize_request(
+            PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK,
+            82,
+            0,
+            "page.ppm",
+            PPM,
+        );
+        let (specs, options) = parse_request(&jpeg).unwrap();
+        assert!(matches!(
+            specs.as_slice(),
+            [PageSpec::Image {
+                image: ImageSpec {
+                    compression: ImageCompression::JpegWithFlateFallback { quality: 82 },
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                    ..
+                },
+                frames: FramePolicy::ExactlyOne,
+                ..
+            }]
+        ));
+        assert!(write_pdf(Vec::new(), specs, &options, |_| {})
+            .unwrap()
+            .starts_with(b"%PDF-"));
+
+        let gray_jpeg = optimize_request(
+            PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK,
+            60,
+            0,
+            "page.pgm",
+            &pgm,
+        );
+        let (specs, options) = parse_request(&gray_jpeg).unwrap();
+        assert!(write_pdf(Vec::new(), specs, &options, |_| {}).is_ok());
+
+        let bw = optimize_request(PAGE_KIND_BLACK_AND_WHITE, 0, 0, "page.pgm", &pgm);
+        let (specs, options) = parse_request(&bw).unwrap();
+        assert!(matches!(
+            specs.as_slice(),
+            [PageSpec::Image {
+                image: ImageSpec {
+                    compression: ImageCompression::Auto,
+                    processing: ImageProcessing::BlackAndWhite,
+                    size_guardrail: None,
+                    ..
+                },
+                ..
+            }]
+        ));
+        let pdf = write_pdf(Vec::new(), specs, &options, |_| {}).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/BitsPerComponent 1"), "{text}");
+    }
+
+    #[test]
+    fn optimize_kinds_reject_inconsistent_options_and_inputs() {
+        let pgm = gray_square_pgm();
+        let ppm_bw = optimize_request(PAGE_KIND_BLACK_AND_WHITE, 0, 0, "page.ppm", PPM);
+        let bitmap_jpeg = optimize_request(
+            PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK,
+            82,
+            0,
+            "page.pbm",
+            PBM,
+        );
+        for (request, message) in [
+            (
+                optimize_request(PAGE_KIND_BLACK_AND_WHITE, 60, 0, "page.pgm", &pgm),
+                "Black-and-white pages take no JPEG quality and no PPI cap",
+            ),
+            (
+                optimize_request(PAGE_KIND_BLACK_AND_WHITE, 0, 300, "page.pgm", &pgm),
+                "Black-and-white pages take no JPEG quality and no PPI cap",
+            ),
+            (
+                ppm_bw,
+                "This image-combine WASM page kind needs a binary Netpbm render",
+            ),
+            (
+                optimize_request(
+                    PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK,
+                    0,
+                    0,
+                    "page.ppm",
+                    PPM,
+                ),
+                "JPEG-with-Flate pages need a JPEG quality of 1-100 and no PPI cap",
+            ),
+            (
+                optimize_request(
+                    PAGE_KIND_IMAGE_JPEG_WITH_FLATE_FALLBACK,
+                    82,
+                    200,
+                    "page.ppm",
+                    PPM,
+                ),
+                "JPEG-with-Flate pages need a JPEG quality of 1-100 and no PPI cap",
+            ),
+            (
+                bitmap_jpeg,
+                "This image-combine WASM page kind needs a binary Netpbm render",
+            ),
+        ] {
+            assert_eq!(parse_request(&request).err().unwrap().to_string(), message);
+        }
+    }
+
+    #[test]
     fn preserves_parser_errors_and_request_ceiling_envelope() {
         let mut unsupported = request_header(99, 1);
         push_input(&mut unsupported, "page.ppm", PPM);
@@ -656,6 +837,31 @@ mod tests {
         push_u32(&mut request, 90);
         push_input(&mut request, "page.ppm", PPM);
         request
+    }
+
+    fn optimize_request(kind: u32, quality: u32, ppi_cap: u32, name: &str, data: &[u8]) -> Vec<u8> {
+        let mut request = request_header(REQUEST_VERSION_V4, 1);
+        push_u32(&mut request, kind);
+        request.extend_from_slice(&72f64.to_le_bytes());
+        request.extend_from_slice(&72f64.to_le_bytes());
+        push_u32(&mut request, quality);
+        push_u32(&mut request, ppi_cap);
+        push_input(&mut request, name, data);
+        request
+    }
+
+    /// A light 32x32 page with a dark square, so thresholding finds ink.
+    fn gray_square_pgm() -> Vec<u8> {
+        let mut pgm = b"P5\n32 32\n255\n".to_vec();
+        pgm.extend((0..32 * 32).map(|index| {
+            let (x, y) = (index % 32, index / 32);
+            if (8..24).contains(&x) && (8..24).contains(&y) {
+                20
+            } else {
+                235
+            }
+        }));
+        pgm
     }
 
     fn layered_color_request(version: u32) -> Vec<u8> {

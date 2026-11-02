@@ -54,6 +54,7 @@ import {
     MAX_OPEN_INPUT_PATHS,
 } from '@electron/features/documents/public/assertOpenInputPathCount';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {compareFolderEntryNames} from '@pdf-core/documentOpenFileTypes';
 
 const logger = createLogger('documents-dialogs');
 const E2E_OPEN_IMAGE_PATH_ENV = 'EVB_E2E_OPEN_IMAGE_PATH';
@@ -65,10 +66,6 @@ const E2E_OPEN_IMAGE_PATH_ENV = 'EVB_E2E_OPEN_IMAGE_PATH';
  * request another window started.
  */
 const activeDirectBatchRequests = new Map<string, AbortController>();
-const folderEntryCollator = new Intl.Collator(undefined, {
-    numeric: true,
-    sensitivity: 'base',
-});
 
 // An expected refusal (a file that changed, is damaged, is gone or is too
 // large) is told by the renderer, so it is a warning here, not an error report.
@@ -140,10 +137,7 @@ export async function collectSupportedFolderPaths(folderPath: string) {
             path,
             name: basename(path),
         }))
-        .sort((left, right) => (
-            folderEntryCollator.compare(left.name, right.name)
-            || left.name.localeCompare(right.name)
-        ))
+        .sort((left, right) => compareFolderEntryNames(left.name, right.name))
         .map(entry => entry.path);
 }
 

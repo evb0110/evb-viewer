@@ -7,12 +7,12 @@ import {
     BYTES_HEADER,
     DOCUMENT_LIST_HEADER,
     GEOMETRY_HEADER,
-    MAX_DOCUMENTS,
     MAX_U32,
     MUTATION_HEADER,
     NATIVE_MUTATION_HEADER,
     NATIVE_MUTATION_POSTCONDITIONS_VERIFIED,
-    OCR_TEXT_LAYER_HEADER,
+    INSTRUCTED_REQUEST_HEADER,
+    REPORTED_HEADER,
     TEXT_BOX_APPEARANCE_HEADER,
     RESPONSE_TEXT_BOX_APPEARANCE,
     OPERATION_CODES,
@@ -20,7 +20,7 @@ import {
     REQUEST_MAGIC,
     REQUEST_VERSION,
     REQUEST_VERSION_DOCUMENT_LIST,
-    REQUEST_VERSION_OCR_TEXT_LAYER,
+    REQUEST_VERSION_INSTRUCTED,
     REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE,
     REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
     RESPONSE_ANNOTATION_PARSE,
@@ -29,6 +29,8 @@ import {
     RESPONSE_JSON,
     RESPONSE_MUTATION,
     RESPONSE_NATIVE_MUTATIONS,
+    RESPONSE_REPORTED_INCREMENT,
+    RESPONSE_REPORTED_PDF,
     U32_BYTES,
 } from '@contracts/browserPageOpsWasm.generated';
 import {
@@ -41,10 +43,7 @@ import {
     BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
     isBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-import {
-    BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
-    decodeBrowserPdfCatalog,
-} from '@contracts/browserPdfCatalog';
+import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type {ICropMargins} from '@contracts/shared';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
@@ -88,7 +87,7 @@ const wasmIdentityBindingsSchema = BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA
 const wasmCatalogResultSchema = v.pipe(
     v.unknown(),
     // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
-    v.transform(value => decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})),
+    v.transform(value => decodeBrowserPdfCatalog(value)),
     v.check(value => value !== null),
     v.transform(value => value as NonNullable<typeof value>),
 );
@@ -236,8 +235,13 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'printLayout':
             return request.payload.pageNumbers;
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
             return request.payload.pages;
         case 'ocrTextLayer':
+        case 'splitPages':
+        case 'overlayText':
+        case 'recompressImages':
+        case 'replacePageImages':
         case 'insertPages':
         case 'getPageGeometry':
         case 'decrypt':
@@ -269,7 +273,12 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'saveMutations':
         case 'printLayout':
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
         case 'ocrTextLayer':
+        case 'splitPages':
+        case 'overlayText':
+        case 'recompressImages':
+        case 'replacePageImages':
             return request.payload.data;
         case 'mergePages':
         case 'textBoxAppearance':
@@ -360,38 +369,99 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'printLayout':
         case 'textBoxAppearance':
         case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
         case 'ocrTextLayer':
+        case 'splitPages':
+        case 'overlayText':
+        case 'recompressImages':
+        case 'replacePageImages':
             return null;
     }
 }
 
-/** The document, its JSON instructions, then each Tesseract page PDF with its length. */
-function buildOcrTextLayerWasmRequest(payload: IBrowserPageOpsWasmRequestMap['ocrTextLayer']) {
+interface IInstructedWasmRequest {
+    data: Uint8Array;
+    instructions: unknown;
+    attachments: Uint8Array[];
+}
+
+/** The writers whose desktop commands read a JSON instructions file. */
+function getInstructedRequest(request: TBrowserPageOpsWasmRequest): IInstructedWasmRequest | null {
+    switch (request.type) {
+        case 'ocrTextLayer':
+            return {
+                data: request.payload.data,
+                instructions: request.payload.instructions,
+                attachments: request.payload.pagePdfs,
+            };
+        case 'splitPages':
+        case 'recompressImages':
+            return {
+                data: request.payload.data,
+                instructions: request.payload.instructions,
+                attachments: [],
+            };
+        case 'overlayText':
+            return {
+                data: request.payload.data,
+                instructions: request.payload.instructions,
+                attachments: [request.payload.sourceData],
+            };
+        case 'replacePageImages':
+            return {
+                data: request.payload.data,
+                instructions: request.payload.instructions,
+                attachments: request.payload.replacementPdfs,
+            };
+        case 'textBoxAppearance':
+        case 'deletePages':
+        case 'extractPages':
+        case 'reorderPages':
+        case 'insertPages':
+        case 'rotate':
+        case 'crop':
+        case 'removeCrop':
+        case 'getPageGeometry':
+        case 'parseAnnotations':
+        case 'readCatalog':
+        case 'conformance':
+        case 'saveMutations':
+        case 'decrypt':
+        case 'printLayout':
+        case 'mergePages':
+        case 'ocrTextVisibility':
+        case 'inspectScanCleanupPdf':
+            return null;
+    }
+}
+
+/** The document, its JSON instructions, then each attached PDF with its length. */
+function buildInstructedWasmRequest(operation: number, payload: IInstructedWasmRequest) {
     const instructions = new TextEncoder().encode(JSON.stringify(payload.instructions));
-    const pageLengths = payload.pagePdfs.map(page => toWasmU32(page.byteLength));
-    const output: Uint8Array<ArrayBuffer> = new Uint8Array(pageLengths.reduce(
+    const attachmentLengths = payload.attachments.map(attachment => toWasmU32(attachment.byteLength));
+    const output: Uint8Array<ArrayBuffer> = new Uint8Array(attachmentLengths.reduce(
         (total, length) => total + U32_BYTES + length,
-        OCR_TEXT_LAYER_HEADER.bytes + payload.data.byteLength + instructions.byteLength,
+        INSTRUCTED_REQUEST_HEADER.bytes + payload.data.byteLength + instructions.byteLength,
     ));
     const view = new DataView(output.buffer);
-    writeMagic(output, OCR_TEXT_LAYER_HEADER.magic);
-    writeU32(view, OCR_TEXT_LAYER_HEADER.version, REQUEST_VERSION_OCR_TEXT_LAYER);
-    writeU32(view, OCR_TEXT_LAYER_HEADER.operation, OPERATION_CODES.ocrTextLayer);
-    writeU32(view, OCR_TEXT_LAYER_HEADER.dataLength, toWasmU32(payload.data.byteLength));
-    writeU32(view, OCR_TEXT_LAYER_HEADER.instructionsLength, toWasmU32(instructions.byteLength));
-    writeU32(view, OCR_TEXT_LAYER_HEADER.pagePdfCount, toWasmU32(payload.pagePdfs.length));
-    let offset: number = OCR_TEXT_LAYER_HEADER.bytes;
+    writeMagic(output, INSTRUCTED_REQUEST_HEADER.magic);
+    writeU32(view, INSTRUCTED_REQUEST_HEADER.version, REQUEST_VERSION_INSTRUCTED);
+    writeU32(view, INSTRUCTED_REQUEST_HEADER.operation, operation);
+    writeU32(view, INSTRUCTED_REQUEST_HEADER.dataLength, toWasmU32(payload.data.byteLength));
+    writeU32(view, INSTRUCTED_REQUEST_HEADER.instructionsLength, toWasmU32(instructions.byteLength));
+    writeU32(view, INSTRUCTED_REQUEST_HEADER.attachmentCount, toWasmU32(payload.attachments.length));
+    let offset: number = INSTRUCTED_REQUEST_HEADER.bytes;
     output.set(payload.data, offset);
     offset += payload.data.byteLength;
     output.set(instructions, offset);
     offset += instructions.byteLength;
     for (const [
         index,
-        page,
-    ] of payload.pagePdfs.entries()) {
-        offset = writeU32(view, offset, pageLengths[index]!);
-        output.set(page, offset);
-        offset += page.byteLength;
+        attachment,
+    ] of payload.attachments.entries()) {
+        offset = writeU32(view, offset, attachmentLengths[index]!);
+        output.set(attachment, offset);
+        offset += attachment.byteLength;
     }
     return {
         data: output,
@@ -402,7 +472,7 @@ function buildOcrTextLayerWasmRequest(payload: IBrowserPageOpsWasmRequestMap['oc
 
 function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const documents = getDocumentList(request);
-    if (documents === null || documents.length === 0 || documents.length > MAX_DOCUMENTS) {
+    if (documents === null || documents.length === 0) {
         throw new Error('Invalid page-op WASM document list');
     }
     const encodedLengths = documents.map(document => toWasmU32(document.byteLength));
@@ -434,8 +504,9 @@ function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
 }
 
 function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
-    if (request.type === 'ocrTextLayer') {
-        return buildOcrTextLayerWasmRequest(request.payload);
+    const instructed = getInstructedRequest(request);
+    if (instructed !== null) {
+        return buildInstructedWasmRequest(OPERATION_CODES[request.type], instructed);
     }
     if (
         request.type === 'readCatalog'
@@ -594,6 +665,53 @@ function readJsonResult(output: Uint8Array) {
     }
 }
 
+/** A REPORTED_HEADER frame: its bytes and the JSON report after them. */
+function readReportedResult(output: Uint8Array, expectedKind: number) {
+    if (output.byteLength < REPORTED_HEADER.bytes) {
+        return null;
+    }
+    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    const dataLength = view.getUint32(REPORTED_HEADER.dataLength, true);
+    const reportLength = view.getUint32(REPORTED_HEADER.reportLength, true);
+    const reportOffset = REPORTED_HEADER.bytes + dataLength;
+    if (
+        view.getUint32(REPORTED_HEADER.kind, true) !== expectedKind
+        || reportOffset + reportLength !== output.byteLength
+    ) {
+        return null;
+    }
+    try {
+        return {
+            data: toTransferableUint8Array(output.slice(REPORTED_HEADER.bytes, reportOffset)),
+            pageCount: view.getUint32(REPORTED_HEADER.pageCount, true),
+            report: JSON.parse(new TextDecoder().decode(output.subarray(reportOffset))) as unknown,
+        };
+    } catch {
+        return null;
+    }
+}
+
+const REPORTED_RESPONSE_KINDS = {
+    splitPages: RESPONSE_REPORTED_PDF,
+    overlayText: RESPONSE_REPORTED_PDF,
+    recompressImages: RESPONSE_REPORTED_INCREMENT,
+    replacePageImages: RESPONSE_REPORTED_INCREMENT,
+} as const;
+type TReportedWriterType = keyof typeof REPORTED_RESPONSE_KINDS;
+
+function isReportedWriterType(type: TBrowserPageOpsWasmRequestType): type is TReportedWriterType {
+    return Object.hasOwn(REPORTED_RESPONSE_KINDS, type);
+}
+
+function parseReportedOutput(type: TReportedWriterType, output: Uint8Array) {
+    const parsed = v.safeParse(
+        BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type],
+        readReportedResult(output, REPORTED_RESPONSE_KINDS[type]),
+        {abortEarly: true},
+    );
+    return parsed.success && !isBrowserPageOpsWasmFailure(parsed.output) ? parsed.output : null;
+}
+
 function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
     output: Uint8Array,
@@ -674,9 +792,9 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    if (type === 'ocrTextVisibility') {
+    if (type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf') {
         const parsed = kind === RESPONSE_JSON
-            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.ocrTextVisibility, readJsonResult(output), {abortEarly: true})
+            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], readJsonResult(output), {abortEarly: true})
             : null;
         return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
@@ -686,6 +804,10 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
             ? v.safeParse(wasmMutationResultSchema, readMutationResult(output), {abortEarly: true})
             : null;
         return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
+    }
+
+    if (isReportedWriterType(type)) {
+        return parseReportedOutput(type, output) as IBrowserPageOpsWasmResultMap[K] | null;
     }
 
     if (type === 'readCatalog' || type === 'conformance') {
@@ -717,6 +839,7 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
     let request: Uint8Array<ArrayBuffer> | null = null;
     let passwordOffset = 0;
     let passwordLength = 0;
+    let trapped = false;
 
     try {
         const builtRequest = buildWasmRequest({
@@ -759,6 +882,15 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
         return parseWasmOutput(type, copyWasmBytes(exports, outputPointer, outputLen))
             ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
     } catch (error) {
+        if (error instanceof Error && error.name === 'RuntimeError') {
+            // Rust panics unwind into an error envelope; a trap is an abort,
+            // which on wasm32 is an allocation the 4 GiB address space could
+            // not satisfy. The aborted request's memory is never freed, so the
+            // next request loads a fresh engine.
+            trapped = true;
+            wasmExportsPromise = null;
+            return createWasmFailure('too-large', `The browser page tool ran out of memory: ${getErrorMessage(error)}`);
+        }
         return createWasmFailure(
             'invalid-request',
             error instanceof Error ? getErrorMessage(error) : 'Page operation WASM request failed',
@@ -778,7 +910,7 @@ function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
                     ).fill(0, passwordOffset, passwordOffset + passwordLength);
                 }
             } finally {
-                exports.evb_pdf_page_ops_free(pointer, requestByteLength);
+                if (!trapped) exports.evb_pdf_page_ops_free(pointer, requestByteLength);
             }
         }
     }

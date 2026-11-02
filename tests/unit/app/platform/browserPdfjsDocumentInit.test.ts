@@ -132,7 +132,7 @@ describe('browserPdfjsDocumentInit', () => {
         await vi.waitFor(() => {
             expect(range.onDataRange).toHaveBeenCalledTimes(1);
         });
-        expect(range.onDataRange).toHaveBeenCalledWith(1024 * 1024, expect.objectContaining({ byteLength: 12 }));
+        expect(range.onDataRange).toHaveBeenCalledWith(1024 * 1024, expect.objectContaining({ byteLength: 12 }), true);
     });
 
     it('aborts browser range transport when the source signature changes', async () => {
@@ -165,8 +165,15 @@ describe('browserPdfjsDocumentInit', () => {
         expect(range.onDataRange).not.toHaveBeenCalled();
     });
 
-    it('refuses an oversized range request instead of allocating a whole large PDF', async () => {
+    it('serves a range larger than 16 MiB as chunk-sized deliveries', async () => {
         const onRangeReadFailure = vi.fn();
+        const size = BROWSER_MAX_FULL_READ_BYTES * 2;
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size,
+            contentSignature: 'content-token-1',
+        });
+        browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, offset: number, length: number) =>
+            new Uint8Array(length).fill(offset / (1024 * 1024)));
         const {
             createPdfjsDocumentInitFromBrowserDocument,
             getPdfjsLib,
@@ -183,13 +190,36 @@ describe('browserPdfjsDocumentInit', () => {
             throw new Error('Expected a PDF.js range transport for the large browser document');
         }
 
-        range.requestDataRange?.(0, BROWSER_MAX_FULL_READ_BYTES + 1);
+        const begin = 1024 * 1024;
+        const end = begin + BROWSER_MAX_FULL_READ_BYTES + 5;
+        range.requestDataRange?.(begin, end);
 
         await vi.waitFor(() => {
-            expect(onRangeReadFailure).toHaveBeenCalledWith(expect.objectContaining({message: expect.stringContaining('safe')}));
+            expect(vi.mocked(range.onDataRange).mock.calls.at(-1)?.[2]).toBe(true);
         });
-        expect(browserDocumentStoreMock.readRange).toHaveBeenCalledTimes(1);
-        expect(range.onDataRange).not.toHaveBeenCalled();
+        const deliveries = vi.mocked(range.onDataRange).mock.calls as Array<[number, Uint8Array, boolean]>;
+        expect(onRangeReadFailure).not.toHaveBeenCalled();
+        expect(deliveries.every(([
+            deliveryBegin,
+            chunk,
+        ]) => deliveryBegin === begin && chunk.byteLength <= 1024 * 1024)).toBe(true);
+        expect(deliveries.map(([
+            , , isLast,
+        ]) => isLast).filter(Boolean)).toEqual([true]);
+        let offset = begin;
+        for (const [
+            , chunk,
+        ] of deliveries) {
+            expect([
+                chunk[0],
+                chunk.at(-1),
+            ]).toEqual([
+                offset / (1024 * 1024),
+                offset / (1024 * 1024),
+            ]);
+            offset += chunk.byteLength;
+        }
+        expect(offset).toBe(end);
     });
 
     it.each([

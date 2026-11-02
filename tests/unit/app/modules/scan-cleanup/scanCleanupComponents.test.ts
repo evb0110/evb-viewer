@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 import type * as scanCleanupWorkspaceSessionModule from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 
@@ -572,7 +573,8 @@ const DropdownMenuStub = defineComponent({
     }},
     setup: (props, {slots}) => () => h('div', [
         slots.default?.(),
-        h('div', {role: 'menu'}, (props.items as Array<{
+        // Like the real menu, it takes one list of entries or a list of groups.
+        h('div', {role: 'menu'}, (props.items.flat() as Array<{
             class?: string;
             disabled?: boolean;
             label: string;
@@ -1690,6 +1692,7 @@ describe('Scan cleanup components', () => {
         });
         const requests: Array<Parameters<IScanCleanupCapability['start']>[0]> = [];
         const capability: IScanCleanupCapability = {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
             preview: vi.fn(async request => {
                 if (request.visible && request.layoutDetectionComplete) {
                     finalRequested.resolve(undefined);

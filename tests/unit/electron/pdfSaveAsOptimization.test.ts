@@ -149,6 +149,28 @@ describe('pdfSaveAsOptimization', () => {
         expect(existsSync(optimizedPath)).toBe(false);
     });
 
+    it('discards smaller qpdf output that fails its full check', async () => {
+        const tempPath = join(tempRoot, 'document.pdf');
+        const optimizedPath = `${tempPath}.optimized`;
+        writeFileSync(tempPath, 'original-pdf');
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await writeFile(optimizedPath, 'small');
+        });
+        mocks.validatePdfFile.mockResolvedValueOnce({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['damaged'],
+            warnings: [],
+        });
+        const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+
+        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true })).resolves.toBeNull();
+
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(readFileSyncUtf8(tempPath)).toBe('original-pdf');
+        expect(existsSync(optimizedPath)).toBe(false);
+    });
+
     it('automatically optimizes large PDFs on save', async () => {
         const tempPath = join(tempRoot, 'large.pdf');
         const optimizedPath = `${tempPath}.optimized`;

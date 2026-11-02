@@ -95,6 +95,7 @@ describe('workspace viewer shell state', () => {
                     }),
                     annotationSettings: ref({...DEFAULT_ANNOTATION_SETTINGS}),
                     viewMode: state.viewMode,
+                    viewRotation: state.viewRotation,
                     continuousScroll: state.continuousScroll,
                     fitMode: state.fitMode,
                     zoom: state.zoom,

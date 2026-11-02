@@ -13,6 +13,7 @@ import {
 import {
     createJobId,
     createRequestId,
+    requireJobId,
     type TJobId,
 } from '@contracts/shared';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
@@ -23,13 +24,17 @@ import {
 } from '@app/platform/browserDocumentStore';
 import {
     releaseBrowserDjvuViewingWorker,
+    resolveDjvuPreviewTargetWidth,
     retainBrowserDjvuViewingWorker,
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
+import {
+    cancelBrowserDjvuPrint, prepareBrowserDjvuPrint, 
+} from '@app/platform/browser-api/prepareBrowserDjvuPrint';
 import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
-import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import {
     cancelBrowserDjvuConversion,
     estimateBrowserDjvuSizes,
@@ -121,14 +126,15 @@ export const browserDjvuCapability = {
         });
         return Promise.resolve(handle);
     },
-    printDjvuPath() {
-        return Promise.resolve({
-            success: false,
-            error: 'DjVu printing is only available in the desktop app',
-        });
+    printDjvuPath(djvuPath, options) {
+        // The job id the print driver cancels and reads, as desktop names it.
+        const jobId = requireJobId(`djvu-print-${options.requestId ?? createRequestId('djvu-print')}`);
+        return browserDurableDjvuJobs.runPrint(jobId, () => prepareBrowserDjvuPrint(djvuPath, options, jobId));
     },
     cancel(jobId) {
-        return Promise.resolve(cancelBrowserDjvuConversion(jobId));
+        const printCanceled = cancelBrowserDjvuPrint(jobId);
+        const conversion = cancelBrowserDjvuConversion(jobId);
+        return Promise.resolve({canceled: printCanceled || conversion.canceled});
     },
     getJobState(jobId) {
         return Promise.resolve(browserDurableDjvuJobs.getState(jobId));
@@ -155,27 +161,17 @@ export const browserDjvuCapability = {
     getPageSizes(djvuPath) {
         return withBrowserDjvuWorker(djvuPath, worker => getDjvuWorkerPageSizes(worker), 'page-sizes');
     },
-    renderPagePreview(djvuPath, pageNumber, _options) {
+    renderPagePreview(djvuPath, pageNumber, options) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
             const pageSizes = await getDjvuWorkerPageSizes(worker);
             const requestedPageNumber = requirePageNumber(pageNumber, pageSizes.length);
             const pageSize = pageSizes[requestedPageNumber - 1];
             if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
-            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
-            const pageObject = await worker.doc.getPage(requestedPageNumber).createPngObjectUrl().run();
-            try {
-                const response = await fetch(pageObject.url);
-                if (!response.ok) {
-                    throw new Error(`Failed to read DjVu page preview: ${response.status}`);
-                }
-                return {
-                    bytes: new Uint8Array(await response.arrayBuffer()),
-                    width: pageObject.width,
-                    height: pageObject.height,
-                };
-            } finally {
-                worker.revokeObjectURL(pageObject.url);
-            }
+            return renderDjvuPagePreviewPng(
+                worker,
+                requestedPageNumber,
+                resolveDjvuPreviewTargetWidth(pageSize, options),
+            );
         }, 'preview');
     },
     estimateSizes: estimateBrowserDjvuSizes,

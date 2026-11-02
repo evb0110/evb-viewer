@@ -6,10 +6,11 @@ import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import * as v from 'valibot';
 
-export const BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
 // WASM32 Rust allocations must fit isize; actual available memory is checked
 // by the allocator. This is an ABI boundary, not a document-size policy.
 export const BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES = 0x7fff_ffff;
+// The per-image pixel limit desktop's image combiner applies by default.
+export const BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS = 80_000_000;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const byteArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
@@ -88,17 +89,33 @@ const pageSpecSchemas = [
             rgbChannelSchema,
         ]),
     }),
+    // Desktop Optimize's `image-bw` page: its shared black-and-white route.
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('image-bw'),
+        image: inputSchema,
+        jpegQuality: v.optional(v.never()),
+        ppiCap: v.optional(v.literal(0)),
+    }),
+    // Desktop Optimize's `image-jpeg` page: JPEG, or Flate when that is smaller.
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('image-jpeg-with-flate-fallback'),
+        image: inputSchema,
+        jpegQuality: jpegQualitySchema,
+        ppiCap: v.optional(v.literal(0)),
+    }),
 ] as const;
 
 const pageSpecSchema = v.union(pageSpecSchemas);
 const imagePreprocessingSchema = v.object({
     jpegQuality: v.optional(jpegQualitySchema),
     ppiCap: v.optional(ppiCapSchema),
-    pageSizes: v.optional(v.pipe(v.array(pageSizeSchema), v.maxLength(500))),
-    pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1), v.maxLength(500))),
+    pageSizes: v.optional(v.array(pageSizeSchema)),
+    pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1))),
 });
 const combinePayloadSchema = v.pipe(v.object({
-    inputs: v.pipe(v.array(inputSchema), v.maxLength(500)),
+    inputs: v.array(inputSchema),
     wasmImagePreprocessing: v.optional(imagePreprocessingSchema),
 }), v.check(value => value.inputs.length > 0 || (value.wasmImagePreprocessing?.pageSpecs?.length ?? 0) > 0));
 

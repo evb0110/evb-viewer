@@ -11,6 +11,16 @@ const PREFERRED_CLIPBOARD_IMAGE_TYPES = [
 
 interface IClipboardLike {read: Clipboard['read'];}
 
+/**
+ * The image a user's paste event carries. Unlike `navigator.clipboard.read`,
+ * it needs no clipboard permission, so it works where a browser blocks that read.
+ * Read it while the event is dispatched; the data is unreadable afterwards.
+ */
+export function readPageAnnotationImageFileFromPasteData(data: {readonly files: ArrayLike<File>} | null) {
+    const imageTypes: readonly string[] = PREFERRED_CLIPBOARD_IMAGE_TYPES;
+    return Array.from(data?.files ?? []).find(file => imageTypes.includes(file.type)) ?? null;
+}
+
 function isClipboardLike(value: unknown): value is IClipboardLike {
     return typeof value === 'object'
         && value !== null

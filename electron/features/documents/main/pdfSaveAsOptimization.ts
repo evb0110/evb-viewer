@@ -19,6 +19,12 @@ import { getErrorMessage } from '@electron/utils/error';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
+    getQpdfLosslessRewriteArgs,
+    QPDF_SUCCESS_EXIT_CODES,
+    QPDF_LOSSLESS_REWRITE_TIMEOUT_MS,
+    shouldKeepPdfOptimizationCandidate,
+} from '@pdf-core/qpdfCommands';
+import {
     analyzePdfConformanceFile,
     validatePdfFile,
 } from '@electron/features/documents/main/pdfConformance';
@@ -28,11 +34,11 @@ import {
 } from '@electron/utils/abort';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import * as v from 'valibot';
+import {getPdfLosslessOptimizationSkipReason} from '@pdf-core/pdfConformanceHelpers';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('documents-pdfSaveAsOptimization');
 
-const QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS = 10 * 60 * 1000;
 const LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = runtimeConfig.test.largePdfSaveOptimizeMinBytes;
 
 interface IPdfSaveOptimizationOptions {
@@ -59,24 +65,6 @@ export function normalizePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | u
         : undefined;
 }
 
-async function shouldSkipOptimization(filePath: string) {
-    const profile = await analyzePdfConformanceFile(filePath);
-    if (profile.isSigned) {
-        return 'signed PDF';
-    }
-    if (profile.isEncrypted) {
-        return 'encrypted PDF';
-    }
-    if (profile.pdfaLevel) {
-        return `${profile.pdfaLevel} PDF`;
-    }
-    if (profile.hasXfa) {
-        return 'XFA PDF';
-    }
-
-    return null;
-}
-
 function normalizeMinBytes(value: number | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
         return LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES;
@@ -97,19 +85,10 @@ async function rewritePdfLosslessly(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
-    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
-        '--linearize',
-        '--stream-data=preserve',
-        '--object-streams=generate',
-        inputPath,
-        outputPath,
-    ], {
-        allowedExitCodes: [
-            0,
-            3,
-        ],
+    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, getQpdfLosslessRewriteArgs(inputPath, outputPath), {
+        allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
         commandLabel: label,
-        timeoutMs: QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS,
+        timeoutMs: QPDF_LOSSLESS_REWRITE_TIMEOUT_MS,
         ...(signal ? { signal } : {}),
         ...(cancelGroup ? {cancelGroup} : {}),
     });
@@ -136,7 +115,7 @@ async function optimizePdf(
 
     if (options.skipSemanticPreflight !== true) {
         try {
-            const skipReason = await shouldSkipOptimization(tempPath);
+            const skipReason = getPdfLosslessOptimizationSkipReason(await analyzePdfConformanceFile(tempPath));
             if (skipReason) {
                 logger.debug(`Skipping PDF save optimization for "${tempPath}": ${skipReason}`);
                 return null;
@@ -168,7 +147,7 @@ async function optimizePdf(
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
         throwIfAborted(options.signal);
-        if (!validation.isValid) {
+        if (!shouldKeepPdfOptimizationCandidate(originalStats.size, optimizedStats.size, validation)) {
             logger.warn(
                 `Discarding PDF save optimization for "${tempPath}": optimized file failed validation`,
             );

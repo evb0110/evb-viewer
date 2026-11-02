@@ -25,9 +25,40 @@
                 <UIcon name="i-ph-x" class="browser-install-dismiss-icon" />
             </button>
         </div>
-        <div v-show="!activeToolPage" class="editor-global-toolbar-shell">
+        <!-- The window's Menu and More tools live in this row, beside whichever
+             reader toolbar the active document shows, so they stay open while
+             the workspace mounts and tabs change. -->
+        <div
+            v-show="!activeToolPage"
+            class="editor-global-toolbar-shell"
+            :data-collapse-tier="shellToolbarCollapseTier"
+        >
+            <div v-show="showShellMenus" class="shell-toolbar-menu shell-toolbar-menu--start">
+                <ToolbarAppMenu
+                    v-model:open="shellToolbarAppMenuOpen"
+                    :has-pdf="shellToolbarHasPdf"
+                    :can-print="shellToolbarSnapshot.viewerCapabilities.print"
+                    :can-save="shellToolbarSnapshot.canSave"
+                    :can-save-as="shellToolbarSnapshot.viewerCapabilities.saveAs"
+                    :can-repair-save="shellToolbarSnapshot.canRepairSave"
+                    :can-optimize-pdf="shellToolbarSnapshot.canOptimizePdf"
+                    :can-undo="shellToolbarSnapshot.canUndo"
+                    :can-redo="shellToolbarSnapshot.canRedo"
+                    :can-export-docx="shellToolbarSnapshot.canExportDocx"
+                    :is-any-saving="shellToolbarSnapshot.isAnySaving"
+                    :is-history-busy="shellToolbarSnapshot.isHistoryBusy"
+                    :is-exporting-docx="shellToolbarSnapshot.isExportingDocx"
+                    :is-preparing-print="shellToolbarSnapshot.isPreparingPrint"
+                    :is-preparing-current-page-print="shellToolbarSnapshot.isPreparingCurrentPagePrint"
+                    :is-djvu-mode="shellToolbarSnapshot.viewerCapabilities.conversionBanner"
+                    :document-busy="shellToolbarDocumentBusy"
+                    @combine-files="openCombinePage"
+                    @convert-to-pdf="runFallbackWorkspaceCommand('handleConvertToPdf')"
+                />
+            </div>
             <ShellWorkspaceToolbar
                 v-if="showShellToolbar"
+                ref="shellToolbarRef"
                 :snapshot="shellToolbarSnapshot"
                 :has-pdf="shellToolbarHasPdf"
                 :is-opening-document="isActiveTabOpening"
@@ -36,25 +67,20 @@
                 :ocr-working-copy-path="shellToolbarOcrWorkingCopyPath"
                 :zoom-dropdown-open="shellToolbarZoomDropdownOpen"
                 :page-dropdown-open="shellToolbarPageDropdownOpen"
-                :overflow-menu-open="shellToolbarOverflowMenuOpen"
-                :app-menu-open="shellToolbarAppMenuOpen"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 v-on="fallbackToolbarCommandListeners"
                 @update:ocr-popup-open="shellToolbarOcrPopupOpen = $event"
                 @update:zoom-dropdown-open="shellToolbarZoomDropdownOpen = $event"
                 @update:page-dropdown-open="shellToolbarPageDropdownOpen = $event"
-                @update:overflow-menu-open="shellToolbarOverflowMenuOpen = $event"
-                @update:app-menu-open="shellToolbarAppMenuOpen = $event"
                 @update:zoom="shellToolbarZoom = $event"
                 @update:zoom-mode="shellToolbarZoomMode = $event"
                 @update:fit-mode="shellToolbarFitMode = $event"
                 @update:view-mode="shellToolbarViewMode = $event"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
-                @combine-files="openCombinePage"
                 @toggle-fullscreen="handleToggleFullscreen"
-                @set-view-mode="handleShellToolbarOverflowSetViewMode($event, runFallbackWorkspaceCommand)"
+                @go-to-page="runFallbackWorkspaceCommand('handleGoToPage', [$event])"
             />
             <div
                 v-show="!showShellToolbar"
@@ -62,6 +88,66 @@
                 ref="globalToolbarHostRef"
                 class="editor-global-toolbar-host"
             />
+            <div v-show="showShellMenus" class="shell-toolbar-menu shell-toolbar-menu--end">
+                <ToolbarOverflowMenu
+                    v-model:open="shellToolbarOverflowMenuOpen"
+                    :collapse-tier="shellToolbarCollapseTier"
+                    :can-toggle-sidebar="shellToolbarSnapshot.canToggleSidebar"
+                    :has-pdf="shellToolbarHasPdf"
+                    :scan-cleanup-disabled="shellToolbarSnapshot.scanCleanupDisabled"
+                    :scan-cleanup-running="shellScanCleanupTrigger.running"
+                    :scan-cleanup-label="shellScanCleanupTrigger.label"
+                    :ocr-disabled="shellToolbarSnapshot.ocrTriggerDisabled"
+                    :can-export-docx="shellToolbarSnapshot.canExportDocx"
+                    :is-exporting-docx="shellToolbarSnapshot.isExportingDocx"
+                    :can-use-assistant="assistantToggleShown"
+                    :assistant-available="assistantPanelAvailable"
+                    :assistant-open="assistantPanelOpen"
+                    :assistant-label="t('assistant.toggle')"
+                    :can-toggle-continuous-scroll="shellToolbarSnapshot.viewerCapabilities.continuousScroll"
+                    :can-use-view-modes="shellToolbarSnapshot.viewerCapabilities.viewMode"
+                    :show-sidebar="shellToolbarSnapshot.showSidebar"
+                    :drag-mode="shellToolbarSnapshot.dragMode"
+                    :continuous-scroll="shellToolbarSnapshot.continuousScroll"
+                    :view-mode="shellToolbarSnapshot.viewMode"
+                    :is-djvu-mode="shellToolbarSnapshot.viewerCapabilities.conversionBanner"
+                    :is-fit-width-active="shellToolbarSnapshot.isFitWidthActive"
+                    :is-fit-height-active="shellToolbarSnapshot.isFitHeightActive"
+                    :is-capturing-region="shellToolbarSnapshot.isCapturingRegion"
+                    :is-crop-selecting="shellToolbarSnapshot.isCropSelecting"
+                    :is-placing-page-note="shellToolbarSnapshot.isPlacingPageNote"
+                    :document-busy="shellToolbarDocumentBusy"
+                    :surface="readerToolbarSurface"
+                    :show-document-section="isDesktopRuntime"
+                    can-combine-files
+                    :can-print="shellToolbarSnapshot.viewerCapabilities.print"
+                    :can-save="shellToolbarSnapshot.canSave"
+                    :can-save-as="shellToolbarSnapshot.viewerCapabilities.saveAs"
+                    :can-undo="shellToolbarSnapshot.canUndo"
+                    :can-redo="shellToolbarSnapshot.canRedo"
+                    can-print-current-page
+                    :can-convert-to-pdf="shellToolbarSnapshot.viewerCapabilities.conversionDialog"
+                    :is-preparing-print="shellToolbarSnapshot.isPreparingPrint"
+                    :is-preparing-current-page-print="shellToolbarSnapshot.isPreparingCurrentPagePrint"
+                    :is-any-saving="shellToolbarSnapshot.isAnySaving"
+                    :is-history-busy="shellToolbarSnapshot.isHistoryBusy"
+                    :is-saving="shellToolbarSnapshot.isSaving"
+                    :is-saving-as="shellToolbarSnapshot.isSavingAs"
+                    :is-fullscreen="isFullscreen"
+                    :fullscreen-supported="fullscreenSupported"
+                    trigger-icon="i-ph-dots-three"
+                    v-on="fallbackToolbarCommandListeners"
+                    @open-file="handleFallbackToolbarOpenFile"
+                    @open-ocr="runFallbackWorkspaceCommand('handleOpenOcr')"
+                    @open-scan-cleanup="runFallbackWorkspaceCommand('handleOpenScanCleanup')"
+                    @toggle-assistant="assistantPanel.toggle()"
+                    @set-view-mode="handleShellToolbarOverflowSetViewMode($event, runFallbackWorkspaceCommand)"
+                    @open-settings="openSettingsPage"
+                    @combine-files="openCombinePage"
+                    @convert-to-pdf="runFallbackWorkspaceCommand('handleConvertToPdf')"
+                    @toggle-fullscreen="handleToggleFullscreen"
+                />
+            </div>
         </div>
 
         <div v-show="!activeToolPage" class="workspace-main-shell">
@@ -91,7 +177,6 @@
                 @open-in-new-tab="handleOpenInNewTab"
                 @request-close-tab="handleCloseTab"
                 @open-settings="openSettingsPage"
-                @open-combine="openCombinePage"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @update-split-ratio="setSplitRatio"
                 @update-layout-resizing="isEditorPanesResizing = $event"
@@ -151,6 +236,7 @@
     </div>
 </template>
 <script setup lang="ts">
+import { useCanUseScanCleanup } from '@app/composables/useCanUseScanCleanup';
 import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
@@ -166,6 +252,10 @@ import DocumentPasswordDialog from '@app/modules/workspace-shell/components/Docu
 import UnencryptedSaveDialog from '@app/modules/workspace-shell/components/UnencryptedSaveDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
 import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
+import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
+import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import { useCanUseOcr } from '@app/composables/useCanUseOcr';
+import { createReaderToolbarSurface } from '@app/utils/readerCommandSurface';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
@@ -202,6 +292,7 @@ import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/
 import { useBrowserDirtyUnloadGuard } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import {
+    describeScanCleanupTrigger,
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
@@ -302,7 +393,11 @@ const {
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
 const assistantPanel = useAssistantPanel();
-const assistantPanelOpen = assistantPanel.isOpen;
+const {
+    isAvailable: assistantPanelAvailable,
+    isEnabled: assistantToggleShown,
+    isOpen: assistantPanelOpen,
+} = assistantPanel;
 const {
     panelWidth: assistantPanelWidth,
     isResizingPanel: isAssistantPanelResizing,
@@ -402,7 +497,11 @@ useNativeWindowCloseHandshake({
 useBrowserDirtyUnloadGuard(() => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value)
     .some(session => session.snapshot.value.dirty));
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
-const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
+const shellToolbarRef = ref<{$el: HTMLElement} | null>(null);
+const {
+    hasWorkspaceToolbarContent,
+    workspaceToolbar,
+} = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function activateTab(paneId: string, tabId: string) {
     activateEditorTab(paneId, tabId);
 }
@@ -542,6 +641,8 @@ onUnmounted(() => {
 
 const {
     shellToolbarAppMenuOpen,
+    shellToolbarCollapseTier,
+    shellToolbarDocumentBusy,
     shellToolbarFitMode,
     shellToolbarHasPdf,
     isActiveTabOpening,
@@ -556,12 +657,28 @@ const {
     shellToolbarZoomMode,
     shellToolbarZoomDropdownOpen,
     handleShellToolbarOverflowSetViewMode,
+    showShellMenus,
     showShellToolbar,
 } = useShellWorkspaceToolbar({
     activeDocumentSession,
     activeDocumentView,
     hasWorkspaceToolbarContent,
+    fallbackToolbar: computed(() => shellToolbarRef.value?.$el ?? null),
+    workspaceToolbar,
+    assistantToggleShown,
+    isToolbarHidden: () => !isShellActive.value || activeToolPage.value !== null || isFullscreen.value,
 });
+const canUseOcr = useCanUseOcr();
+const canUseScanCleanup = useCanUseScanCleanup();
+const readerToolbarSurface = computed(() => createReaderToolbarSurface({
+    ocr: canUseOcr.value,
+    scanCleanup: canUseScanCleanup.value,
+}));
+const shellScanCleanupTrigger = computed(() => describeScanCleanupTrigger(
+    shellToolbarOcrWorkingCopyPath.value,
+    shellToolbarSnapshot.value.totalPages,
+    t,
+));
 
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
     updatesStatus,
@@ -892,6 +1009,8 @@ useTabsShellBindings({
     isStartupOpenClaimPending,
     checkForUpdates,
     openNewPane: splitEditorEmpty,
+    canOpenNewPane: direction => activePaneId.value !== null
+        && tabContextAvailabilityByPane.value[activePaneId.value]?.splitEmpty[direction] === true,
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });

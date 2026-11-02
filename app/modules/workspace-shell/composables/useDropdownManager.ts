@@ -1,20 +1,16 @@
 import type { Ref } from 'vue';
 
-type TDropdownName = 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu';
+type TDropdownName = 'zoom' | 'page' | 'ocr';
 
 export const useDropdownManager = (deps: {
     zoomOpen: Ref<boolean>;
     pageOpen: Ref<boolean>;
     ocrOpen: Ref<boolean>;
-    overflowOpen: Ref<boolean>;
-    appMenuOpen: Ref<boolean>;
 }) => {
     const {
         zoomOpen,
         pageOpen,
         ocrOpen,
-        overflowOpen,
-        appMenuOpen,
     } = deps;
 
     function setOpenState(dropdown: TDropdownName, value: boolean) {
@@ -26,23 +22,13 @@ export const useDropdownManager = (deps: {
             pageOpen.value = value;
             return;
         }
-        if (dropdown === 'ocr') {
-            ocrOpen.value = value;
-            return;
-        }
-        if (dropdown === 'appMenu') {
-            appMenuOpen.value = value;
-            return;
-        }
-        overflowOpen.value = value;
+        ocrOpen.value = value;
     }
 
     function closeAllDropdowns() {
         zoomOpen.value = false;
         pageOpen.value = false;
         ocrOpen.value = false;
-        overflowOpen.value = false;
-        appMenuOpen.value = false;
     }
 
     function closeOtherDropdowns(except: TDropdownName) {
@@ -54,12 +40,6 @@ export const useDropdownManager = (deps: {
         }
         if (except !== 'ocr') {
             ocrOpen.value = false;
-        }
-        if (except !== 'overflow') {
-            overflowOpen.value = false;
-        }
-        if (except !== 'appMenu') {
-            appMenuOpen.value = false;
         }
     }
 

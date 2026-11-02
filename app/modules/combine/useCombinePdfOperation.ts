@@ -18,7 +18,12 @@ import {
 } from '@app/modules/workspace-shell/public/documentOpenWorkingCopyRetention';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TTranslateFn} from '@i18n-app';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {hasElectronAPI} from '@app/utils/platform';
 
 export const useCombinePdfOperation = <T extends {
     id: string;
@@ -28,7 +33,7 @@ export const useCombinePdfOperation = <T extends {
     files: Ref<T[]>;
     openResult?: (result: TOpenFileResult) => Promise<boolean>;
     emitOpenResult: (result: TOpenFileResult) => void;
-    translate: (key: string) => string;
+    translate: TTranslateFn;
 }) => {
     // `combining` builds the PDF; `opening` hands the result to a tab and
     // cannot be canceled from here.
@@ -44,6 +49,18 @@ export const useCombinePdfOperation = <T extends {
         isCombining.value || pendingCombinedResult.value !== null
     ));
     let abortController: AbortController | null = null;
+
+    // The browser engine's request ceiling, named with its size, or the
+    // memory its engine ran out of.
+    function describeCombineEngineLimit(cause: unknown) {
+        const envelope = findSerializableErrorEnvelope(cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
+        if (envelope?.code === 'browser-byte-limit' && envelope.maxBytes !== undefined) {
+            return options.translate('errors.browser.documentTooLarge', {limitMiB: Math.round(envelope.maxBytes / (1024 * 1024))});
+        }
+        return !hasElectronAPI() && findSerializableErrorEnvelope(cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
+            ? options.translate('errors.browser.notEnoughMemory')
+            : null;
+    }
 
     function buildOutputName(operationFiles: readonly T[]) {
         const firstFile = operationFiles[0];
@@ -115,7 +132,7 @@ export const useCombinePdfOperation = <T extends {
                     'limit',
                     'unsupported',
                 ].includes(error.code)
-                    ? options.translate('errors.file.invalid')
+                    ? describeCombineEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
                     : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             abortController = null;

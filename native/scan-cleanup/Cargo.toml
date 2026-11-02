@@ -8,18 +8,32 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+# rlib for the CLI and the other native crates; cdylib for the browser engine.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["wasm-exports"]
+wasm-exports = []
+
 [dependencies]
 crc32fast = "1.5.2"
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
-getrandom = "0.4.3"
 jbig2-codec = { version = "0.1.0", path = "../jbig2-codec" }
-libc.workspace = true
 rayon.workspace = true
 scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
+
+# Publication names draw OS randomness; the browser engine publishes no files.
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+getrandom = "0.4.3"
+
+# The CLI's SIGTERM handler; the library never calls libc.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 evb-native-support = { version = "0.1.0", path = "../evb-native-support", features = ["ts"] }

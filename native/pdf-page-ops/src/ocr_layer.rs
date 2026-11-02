@@ -62,22 +62,25 @@ fn validate_ocr_text_layer<S>(instructions: &OcrTextLayerFile<S>) -> Result<()> 
             return Err("ocr-text-layer page numbers must be positive and unique".into());
         }
         if let Some(inverse) = page.preprocess_inverse {
-            if !(inverse.raster_width_px.is_finite()
-                && inverse.raster_height_px.is_finite()
-                && inverse.raster_width_px > 0.0
-                && inverse.raster_height_px > 0.0)
+            if !(crate::split_pages::is_instruction_number(inverse.raster_width_px)
+                && crate::split_pages::is_instruction_number(inverse.raster_height_px)
+                && inverse.raster_width_px >= 1.0
+                && inverse.raster_height_px >= 1.0)
             {
-                return Err("ocr-text-layer raster dimensions must be positive".into());
+                return Err(
+                    "ocr-text-layer raster dimensions must be at least one pixel and in range"
+                        .into(),
+                );
             }
             if !inverse
                 .matrix
                 .iter()
                 .flatten()
-                .all(|value| value.is_finite())
+                .all(|value| crate::split_pages::is_instruction_number(*value))
                 || determinant(inverse.matrix).abs() <= 1e-12
             {
                 return Err(
-                    "ocr-text-layer preprocessing inverse must be a finite invertible 3x3 matrix"
+                    "ocr-text-layer preprocessing inverse must be a finite, in-range invertible 3x3 matrix"
                         .into(),
                 );
             }
@@ -121,7 +124,7 @@ fn apply_ocr_word_edits(
         return Ok(());
     }
     let bytes = source.get_page_content_with_limit(page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
-    let mut content = Content::decode(&bytes)?;
+    let mut content = parse_content(&bytes)??;
     // Each word's text-show operator, with the `Tz` set since the previous word.
     let mut words: Vec<(usize, Option<usize>)> = Vec::new();
     let mut scaling = None;
@@ -371,7 +374,7 @@ impl PageTextInspection<'_> {
             self.doubt("the page's Form XObjects exceed the inspection budget");
             return Ok(());
         }
-        let Ok(content) = Content::decode(&bytes) else {
+        let Ok(Ok(content)) = parse_content(&bytes) else {
             self.doubt("a Form XObject's content could not be parsed");
             return Ok(());
         };
@@ -422,7 +425,7 @@ fn inspect_page_text_visibility(
             }
             continue;
         }
-        let Ok(content) = Content::decode(&bytes) else {
+        let Ok(Ok(content)) = parse_content(&bytes) else {
             inspection.doubt("a page content stream could not be parsed");
             continue;
         };
@@ -452,7 +455,7 @@ fn inspect_page_text_visibility(
 /// where each line stands from its glyphs' `Tm`.
 /// A layer drawn as a Form XObject by earlier versions has no inline text.
 fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
-    let content = Content::decode(bytes).ok()?;
+    let content = parse_content(bytes).ok()?.ok()?;
     let mut lines: Vec<OcrLayerLine> = Vec::new();
     let mut line: Option<OcrLayerLine> = None;
     let mut block = 0u32;
@@ -591,22 +594,6 @@ pub(crate) fn ocr_text_visibility_bytes(
     let report =
         inspect_ocr_text_visibility(&mut incremental, None, page_numbers, with_evb_ocr_text)?;
     Ok(serde_json::to_vec(&report)?)
-}
-
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-fn incremental_from_bytes(data: &[u8]) -> Result<IncrementalDocument> {
-    if data.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Page-op WASM input exceeds the input admission ceiling",
-        ));
-    }
-    Ok(IncrementalDocument::from_document(
-        load_pdf_bytes(data)
-            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?,
-        u64::try_from(data.len())?,
-        data.last().copied(),
-    ))
 }
 
 fn inspect_ocr_text_visibility(
@@ -764,17 +751,8 @@ pub(crate) fn ocr_text_layer_increment_bytes(
     instructions: &[u8],
     page_pdfs: &[&[u8]],
 ) -> Result<OcrTextLayerIncrement> {
-    if instructions.len() > MAX_SIDECAR_BYTES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "OCR text-layer instructions exceed the byte admission ceiling",
-        ));
-    }
     let instructions: OcrTextLayerFile<usize> =
-        evb_native_support::bounded_io::deserialize_json_slice(
-            instructions,
-            "OCR text-layer instructions",
-        )?;
+        parse_json_sidecar_bytes(instructions, "OCR text-layer instructions")?;
     validate_ocr_text_layer(&instructions)?;
     let mut incremental = incremental_from_bytes(data)?;
     let page_count = u32::try_from(incremental.previous_document.get_pages().len())
@@ -791,15 +769,8 @@ pub(crate) fn ocr_text_layer_increment_bytes(
         }
         checked_ocr_source(load_pdf_bytes(bytes))
     })?;
-    let revision = build_incremental_revision(&mut incremental)?;
-    validate_incremental_append_bytes(
-        &revision,
-        u64::try_from(data.len())?,
-        incremental.get_prev_documents().xref_start,
-        &collect_incremental_append_object_ids(&incremental),
-    )?;
     Ok(OcrTextLayerIncrement {
-        data: revision,
+        data: appended_revision_bytes(&mut incremental)?,
         page_count,
     })
 }
@@ -1002,6 +973,24 @@ mod tests {
         let matrix = ocr_layer_matrix(view, 0, source, Some(&inverse)).unwrap();
         // 10 px of a 1000 px raster over a 100 pt page is 1 pt.
         assert_point(apply(matrix, 50.0, 50.0), (49.0, 50.0));
+    }
+
+    #[test]
+    fn refuses_preprocessing_inverses_no_pdf_real_can_carry() {
+        for inverse in [
+            serde_json::json!({"rasterWidthPx": 1e40, "rasterHeightPx": 1000, "matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}),
+            serde_json::json!({"rasterWidthPx": 1000, "rasterHeightPx": 1000, "matrix": [[1, 0, 1e40], [0, 1, 0], [0, 0, 1]]}),
+            serde_json::json!({"rasterWidthPx": 1e-40, "rasterHeightPx": 1000, "matrix": [[1, 0, 1], [0, 1, 0], [0, 0, 1]]}),
+        ] {
+            let instructions: OcrTextLayerFile<usize> = serde_json::from_value(serde_json::json!({
+                "pages": [{"pageNumber": 1, "source": 0, "preprocessInverse": inverse}],
+            }))
+            .unwrap();
+            assert!(validate_ocr_text_layer(&instructions)
+                .unwrap_err()
+                .to_string()
+                .contains("range"));
+        }
     }
 
     #[test]

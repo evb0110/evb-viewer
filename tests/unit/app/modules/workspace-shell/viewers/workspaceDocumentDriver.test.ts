@@ -1,4 +1,14 @@
+import {
+    DB_NAME, DOCUMENTS_STORE,
+} from '@app/platform/browser/browserDocumentConstants';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {
+    FakeIndexedDbFactory, MemoryStorage,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {requireJobId} from '@contracts/shared';
 import type * as TViMockOriginalModule from '@app/modules/document-viewer/public';
+import type * as TDjvuConversionPipelineModule from '@app/platform/browser-api/browserDjvuConversionPipeline';
+import type * as TPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 
 import {
     computed,
@@ -6,6 +16,7 @@ import {
     ref,
 } from 'vue';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -39,7 +50,10 @@ import {
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const driverMocks = vi.hoisted(() => ({
+    runBrowserDjvuConversion: vi.fn(async (_source: TDocumentRef, _output: TDocumentRef) => ({success: true})),
+    layoutPdfForPrint: vi.fn(async () => ({data: new Uint8Array()})),
     cancel: vi.fn(async (_jobId: TJobId) => true),
+    cleanupTemp: vi.fn(async (_path: TDocumentRef) => undefined),
     createDocumentProjectionSession: vi.fn((options: unknown) => options),
     ensurePdfProjection: vi.fn(async (
         _session: unknown,
@@ -59,10 +73,19 @@ const driverMocks = vi.hoisted(() => ({
 
 const platformApi = createElectronPlatformApiFixture({djvu: {
     cancel: driverMocks.cancel as never,
+    cleanupTemp: driverMocks.cleanupTemp as never,
     getJobState: driverMocks.getJobState as never,
     printDjvuPath: driverMocks.printDjvuPath as never,
 }});
-vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuConversionPipelineModule>(),
+    runBrowserDjvuConversion: driverMocks.runBrowserDjvuConversion,
+}));
+vi.mock('@app/platform/browser-api/browserPageOpsCore', async importOriginal => ({
+    ...await importOriginal<typeof TPageOpsCoreModule>(),
+    layoutPdfForPrint: driverMocks.layoutPdfForPrint,
+}));
+vi.mock('@app/utils/platform' , () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/modules/document-viewer/public', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     createDocumentProjectionSession: driverMocks.createDocumentProjectionSession,
@@ -315,6 +338,54 @@ describe('WorkspaceDocumentDriver', () => {
             .toBeLessThan(onNativePrintHandoffStart.mock.invocationCallOrder[0]!);
     });
 
+    it('hands a PDF the platform prepared without printing it to the workspace print', async () => {
+        driverMocks.printDjvuPath.mockResolvedValueOnce({
+            success: true,
+            canceled: false,
+            jobId: 'djvu-print-job',
+            printablePdfPath: requireDocumentRef('browser://documents/source-print.pdf'),
+        } as never);
+        driverMocks.getJobState.mockResolvedValueOnce({
+            operation: 'djvu-print',
+            status: 'completed',
+            artifactPath: 'browser://documents/source-print.pdf',
+        });
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/source.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        }).activeDocumentDriver.value!;
+        const onNativePrintHandoffStart = vi.fn();
+
+        const result = await driver.run({
+            kind: 'prepare-print',
+            request: {
+                orientation: 'auto',
+                viewMode: 'single',
+                pageNumbers: [2],
+            },
+            fileName: 'source.djvu',
+            sourceCapabilities: driver.view.defaultSourceCapabilities ?? {
+                annotations: false,
+                directImageExport: false,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            },
+            onNativePrintHandoffStart,
+        });
+
+        expect(result).toMatchObject({
+            status: 'printable-pdf',
+            documentRef: 'browser://documents/source-print.pdf',
+        });
+        expect(onNativePrintHandoffStart).not.toHaveBeenCalled();
+        await (result as {release: () => Promise<void>}).release();
+        expect(driverMocks.cleanupTemp).toHaveBeenCalledWith('browser://documents/source-print.pdf');
+    });
+
     it('cancels the admitted native print job before its dialog handoff', async () => {
         const admitted = Promise.withResolvers<undefined>();
         const preparation = Promise.withResolvers<undefined>();
@@ -556,5 +627,71 @@ describe('WorkspaceDocumentDriver', () => {
         harness.activeDocumentDriver.value = harness.createDriver('djvu');
 
         expect(harness.binding.activeViewerListeners.value.annotationEnrichmentState).toBeUndefined();
+    });
+});
+
+
+describe('DjVu print layout cancellation storage', () => {
+    afterEach(() => vi.unstubAllGlobals());
+    it('leaves no stored PDF when canceled during layout', async () => {
+        const indexedDb = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', indexedDb);
+        vi.stubGlobal('localStorage', new MemoryStorage());
+        const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
+        const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
+        const layoutStarted = Promise.withResolvers<undefined>();
+        const layout = Promise.withResolvers<{data: Uint8Array<ArrayBuffer>}>();
+        let convertedPath: TDocumentRef | null = null;
+        let printResult: Awaited<ReturnType<typeof prepareBrowserDjvuPrint>> | null = null;
+        driverMocks.runBrowserDjvuConversion.mockImplementationOnce(async (_source, output) => {
+            convertedPath = output;
+            await browserDocumentStore.write(output, new TextEncoder().encode('%PDF-converted'));
+            return {success: true};
+        });
+        driverMocks.layoutPdfForPrint.mockImplementationOnce(() => {
+            layoutStarted.resolve(undefined);
+            return layout.promise;
+        });
+        driverMocks.printDjvuPath.mockImplementationOnce(async (source, options) => {
+            const result = await prepareBrowserDjvuPrint(source, options, requireJobId(`djvu-print-${options.requestId}`));
+            printResult = result;
+            return result as never;
+        });
+        driverMocks.cancel.mockImplementationOnce(async jobId => (await browserDjvuCapability.cancel(jobId)).canceled);
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/layout-cancel.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        }).activeDocumentDriver.value!;
+        const controller = new AbortController();
+        const onNativePrintHandoffStart = vi.fn();
+        const outcome = driver.run({
+            kind: 'prepare-print',
+            request: {
+                orientation: 'portrait',
+                viewMode: 'single',
+            },
+            fileName: 'layout-cancel.djvu',
+            sourceCapabilities: driver.view.defaultSourceCapabilities!,
+            signal: controller.signal,
+            onNativePrintHandoffStart,
+        }).catch(error => error as Error);
+        await Promise.race([
+            layoutStarted.promise,
+            outcome.then(error => { throw error; }),
+        ]);
+        controller.abort();
+        layout.resolve({data: new TextEncoder().encode('%PDF-laid-out')});
+        expect(await outcome).toMatchObject({name: 'AbortError'});
+        expect(convertedPath).not.toBeNull();
+        expect(printResult).toMatchObject({
+            success: false,
+            canceled: true,
+        });
+        expect(printResult).not.toHaveProperty('printablePdfPath');
+        expect(await browserDocumentStore.exists(convertedPath!)).toBe(false);
+        expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size).toBe(0);
+        expect(onNativePrintHandoffStart).not.toHaveBeenCalled();
     });
 });

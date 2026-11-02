@@ -2,21 +2,31 @@ import {SerializableError} from '@contracts/serializableError';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IDjvuPagePreviewOptions } from '@contracts/electronApiDjvu';
-import {
-    assertDocumentAllocationSize,
-    type IDocumentsFileIoCapability,
-} from '@contracts/electronApiDocuments';
+import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
 import {
+    createDjvuWorker,
+    DJVU_COMPONENT_BASE_URL,
     loadDjvuJs,
+    type IDjvuComponentDirectory,
     type IDjvuContentsItem,
     type IDjvuNormalizedTextZone,
     type IDjvuPageSize,
     type IDjvuWorker,
 } from '@app/platform/browser-api/djvujsLoader';
+import {
+    getDjvuWorkerPageSizes,
+    isIndirectDjvuHeader,
+    parseDjvuPageHead,
+    readBrowserDjvuSourceLayout,
+    setDjvuWorkerPageSizes,
+    type IBrowserDjvuSourceLayout,
+    type TDjvuRangeReader,
+} from '@app/platform/browser-api/browserDjvuSource';
+import { getBrowserDjvuComponentFiles } from '@app/platform/browser-api/browserDjvuComponents';
 import type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/public';
 import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {
@@ -43,10 +53,11 @@ import {
 } from '@contracts/shared';
 import { createNativeDjvuTextSearchBridge } from '@app/platform/browser-api/createNativeDjvuTextSearchBridge';
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
-import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
+import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {
-    BROWSER_DJVU_INTERACTIVE_MAX_PAGES,
+    DESKTOP_DJVUJS_PREVIEW_MAX_PAGES,
+    DJVU_PREVIEW_MAX_OUTPUT_PIXELS,
     DJVU_OUTLINE_MAX_DEPTH,
     DJVU_OUTLINE_MAX_NODES,
     DJVU_OUTLINE_MAX_TITLE_CHARS,
@@ -54,9 +65,11 @@ import {
     DJVU_SEARCH_MAX_PAGE_ZONES,
 } from '@contracts/djvuResourceLimits';
 
-const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
-const DJVU_BROWSER_WORKER_MAX_SOURCE_BYTES = 192 * 1024 * 1024;
 const DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES = 96 * 1024 * 1024;
+// DIRM component flags: the low six bits mark a page.
+const DJVU_DIRM_PAGE_FLAG = 1;
+const DJVU_DIRM_TYPE_MASK = 0x3f;
+const DJVU_PAGE_TABLE_CACHE_ENTRIES = 8;
 
 interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
 
@@ -105,35 +118,45 @@ function toOwnedArrayBuffer(bytes: Uint8Array) {
     return bytes.slice().buffer;
 }
 
-async function readBrowserDocumentBytes(
-    path: TDocumentRef,
-    options: IDjvuWorkerReadOptions = {},
-) {
-    throwIfCanceled(options.signal);
-    const { size } = await browserDocumentStore.stat(path);
-    if (size > DJVU_BROWSER_WORKER_MAX_SOURCE_BYTES) {
-        throw new Error('Browser DjVu processing is limited to 192MB source files. Use the Electron app for this archival job.');
-    }
-    throwIfCanceled(options.signal);
-    if (size <= 0) {
-        return new Uint8Array();
-    }
+interface IDjvuSourceReader {
+    fileSize: number;
+    /** Identifies this version of the file, so its page table can be reused. */
+    versionKey: string;
+    readRange: TDjvuRangeReader;
+}
 
-    const output = new Uint8Array(assertDocumentAllocationSize(size));
-    let offset = 0;
-    while (offset < size) {
-        throwIfCanceled(options.signal);
-        const chunkLength = Math.min(DJVU_READ_CHUNK_BYTES, size - offset);
-        const chunk = await browserDocumentStore.readRange(path, offset, chunkLength);
-        throwIfCanceled(options.signal);
-        if (chunk.byteLength !== chunkLength) {
-            throw new Error(`Browser DjVu source returned ${chunk.byteLength} bytes for requested ${chunkLength} byte range`);
-        }
-        output.set(chunk, offset);
-        offset += chunkLength;
-    }
+async function openBrowserDjvuSourceReader(path: TDocumentRef): Promise<IDjvuSourceReader> {
+    const {
+        size, modifiedAt,
+    } = await browserDocumentStore.stat(path);
+    return {
+        fileSize: size,
+        versionKey: `${path}\u0000${size}\u0000${modifiedAt}`,
+        readRange: async (offset, length) => {
+            const bytes = await browserDocumentStore.readRange(path, offset, length);
+            if (bytes.byteLength !== length) {
+                throw new Error(`Browser DjVu source returned ${bytes.byteLength} bytes for requested ${length} byte range`);
+            }
+            return bytes;
+        },
+    };
+}
 
-    return output;
+async function openDesktopDjvuSourceReader(path: TDocumentRef): Promise<IDjvuSourceReader> {
+    const documents = getDesktopDocumentsCapability(path);
+    const {size} = await documents.statFile(path);
+    return {
+        fileSize: size,
+        // Desktop previews are short-lived; their page table is not reused.
+        versionKey: '',
+        readRange: async (offset, length) => {
+            const bytes = await documents.readFileRange(path, offset, length);
+            if (bytes.byteLength !== length) {
+                throw new Error(`DjVu source returned ${bytes.byteLength} bytes for requested ${length} byte range`);
+            }
+            return bytes;
+        },
+    };
 }
 
 function getDesktopDocumentsCapability(path: TDocumentRef) {
@@ -176,15 +199,6 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
     return djvu;
 }
 
-// DIRM's high bit declares a bundled document. An indirect index needs its
-// sibling components, which the byte-only browser decoder cannot read.
-function isIndirectDjvu(bytes: Uint8Array) {
-    return bytes.length >= 25
-        && new TextDecoder('ascii').decode(bytes.subarray(0, 8)) === 'AT&TFORM'
-        && new TextDecoder('ascii').decode(bytes.subarray(12, 20)) === 'DJVMDIRM'
-        && (bytes[24]! & 0x80) === 0;
-}
-
 async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
     const nativeDjvu = getDesktopDjvuPreviewCapability(path);
     if (!nativeDjvu) {
@@ -196,7 +210,7 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
 
         const { size } = await documents.statFile(path);
         if (size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES
-            || (size >= 25 && isIndirectDjvu(await documents.readFileRange(path, 0, 25)))) {
+            || (size >= 25 && isIndirectDjvuHeader(await documents.readFileRange(path, 0, 25)))) {
             return nativeDjvu;
         }
 
@@ -205,7 +219,7 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
         // represent, so obtain the scalar native page count before allowing
         // the compatibility decoder to load the source bytes.
         const info = await nativeDjvu.getInfo(path);
-        return info.pageCount > BROWSER_DJVU_INTERACTIVE_MAX_PAGES ? nativeDjvu : null;
+        return info.pageCount > DESKTOP_DJVUJS_PREVIEW_MAX_PAGES ? nativeDjvu : null;
     } catch (error) {
         if (error instanceof PdfCombineCapabilityError) {
             throw error;
@@ -214,77 +228,86 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
     }
 }
 
-async function readDesktopDocumentBytes(
-    path: TDocumentRef,
-    options: IDjvuWorkerReadOptions = {},
-) {
-    const documents = getDesktopDocumentsCapability(path);
-
-    throwIfCanceled(options.signal);
-    const { size } = await documents.statFile(path);
-    throwIfCanceled(options.signal);
-    if (size <= 0) {
-        return new Uint8Array();
-    }
-
-    if (size <= DJVU_READ_CHUNK_BYTES) {
-        const bytes = await documents.readFile(path);
-        throwIfCanceled(options.signal);
-        return bytes;
-    }
-
-    const output = new Uint8Array(assertDocumentAllocationSize(size));
-    let offset = 0;
-    while (offset < size) {
-        throwIfCanceled(options.signal);
-        const chunkLength = Math.min(DJVU_READ_CHUNK_BYTES, size - offset);
-        const chunk = await documents.readFileRange(path, offset, chunkLength);
-        throwIfCanceled(options.signal);
-        output.set(chunk, offset);
-        offset += chunk.byteLength;
-        if (chunk.byteLength === 0) {
-            break;
-        }
-    }
-
-    return offset === size ? output : output.slice(0, offset);
-}
-
 function throwIfCanceled(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw new Error('DjVu conversion canceled');
     }
 }
 
-async function getDjvuWorkerPageCount(worker: IDjvuWorker) {
-    const getPagesQuantity = worker.doc.getPagesQuantity;
-    if (typeof getPagesQuantity !== 'function') {
-        return null;
-    }
-    const pageCount = await getPagesQuantity().run();
-    if (!Number.isSafeInteger(pageCount) || pageCount < 0) {
-        throw new Error('DjVu worker returned an invalid page count');
-    }
-    return pageCount;
-}
+const pageTableCache = new Map<string, Promise<IDjvuPageSize[]>>();
 
-export async function getDjvuWorkerPageSizes(worker: IDjvuWorker) {
-    const pageCount = await getDjvuWorkerPageCount(worker);
-    if (pageCount === null) {
-        const pageSizes = await worker.doc.getPagesSizes().run();
-        if (pageSizes.length > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
-            throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
+export { getDjvuWorkerPageSizes };
+
+/**
+ * Reads every page size from the INFO chunk at the start of its component.
+ * DjVu.js does not hold the sizes of pages it has not loaded, and reading a
+ * few header bytes per page keeps the whole table cheap for any page count.
+ */
+async function readDjvuPageTable(
+    layout: IBrowserDjvuSourceLayout,
+    directory: IDjvuComponentDirectory | null,
+    signal?: AbortSignal,
+): Promise<IDjvuPageSize[]> {
+    if (!directory) {
+        return [parseDjvuPageHead(await layout.readComponentHead({
+            index: 0,
+            name: '',
+        }), 1)];
+    }
+    const pageSizes: IDjvuPageSize[] = [];
+    for (const [
+        index,
+        flags,
+    ] of directory.flags.entries()) {
+        if ((flags & DJVU_DIRM_TYPE_MASK) !== DJVU_DIRM_PAGE_FLAG) {
+            continue;
         }
-        return pageSizes;
-    }
-    if (pageCount > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
-        throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
-    }
-    const pageSizes = await worker.doc.getPagesSizes().run();
-    if (pageSizes.length !== pageCount) {
-        throw new Error(`DjVu worker returned ${pageSizes.length} page sizes for ${pageCount} pages`);
+        throwIfCanceled(signal);
+        pageSizes.push(parseDjvuPageHead(
+            await layout.readComponentHead({
+                index,
+                name: directory.names[index] ?? '',
+            }),
+            pageSizes.length + 1,
+        ));
     }
     return pageSizes;
+}
+
+async function readDjvuComponentDirectory(worker: IDjvuWorker) {
+    const directory = await worker.doc.evbGetComponentDirectory().run();
+    if (!directory) {
+        throw new SerializableError({
+            code: 'invalid-djvu',
+            message: 'The DjVu document has no component directory',
+        });
+    }
+    return directory;
+}
+
+function readCachedDjvuPageTable(
+    versionKey: string,
+    read: () => Promise<IDjvuPageSize[]>,
+) {
+    if (!versionKey) {
+        return read();
+    }
+    const cached = pageTableCache.get(versionKey);
+    if (cached) {
+        pageTableCache.delete(versionKey);
+        pageTableCache.set(versionKey, cached);
+        return cached;
+    }
+    const pending = read();
+    pageTableCache.set(versionKey, pending);
+    pending.catch(() => {
+        if (pageTableCache.get(versionKey) === pending) pageTableCache.delete(versionKey);
+    });
+    for (const key of pageTableCache.keys()) {
+        if (pageTableCache.size <= DJVU_PAGE_TABLE_CACHE_ENTRIES) break;
+        pageTableCache.delete(key);
+    }
+    return pending;
 }
 
 function buildBrowserDjvuSearchPage(
@@ -494,44 +517,71 @@ export async function createDjvuWorkerFromPath(
     }
     const djvuGlobal = await loadDjvuJs();
     throwIfCanceled(options.signal);
-    const worker = new djvuGlobal.Worker();
+    let worker: IDjvuWorker | null = null;
     let abortHandler: (() => void) | null = null;
 
     try {
+        const source = isBrowserRef
+            ? await openBrowserDjvuSourceReader(djvuPath)
+            : await openDesktopDjvuSourceReader(djvuPath);
+        throwIfCanceled(options.signal);
+        const layout = await readBrowserDjvuSourceLayout({
+            fileSize: source.fileSize,
+            readRange: source.readRange,
+            componentFiles: isBrowserRef ? getBrowserDjvuComponentFiles(djvuPath) : null,
+            signal: options.signal,
+        });
+        throwIfCanceled(options.signal);
+        // DjVu.js asks for components by name; the directory read after the
+        // document opens gives each name its position, before any page loads.
+        let componentIndexes: Map<string, number> | null = null;
+        const readComponent = (name: string) => {
+            const index = componentIndexes?.get(name);
+            return index === undefined
+                ? Promise.reject(new Error(`DjVu component ${name} is not in the document directory`))
+                : layout.readComponent({
+                    index,
+                    name,
+                });
+        };
+        const openedWorker = createDjvuWorker(djvuGlobal, layout.hasComponents ? readComponent : undefined);
+        worker = openedWorker;
         if (options.signal) {
             abortHandler = () => {
-                worker.terminate();
+                openedWorker.terminate();
             };
             options.signal.addEventListener('abort', abortHandler, { once: true });
         }
+        await openedWorker.createDocument(
+            toOwnedArrayBuffer(layout.documentBytes),
+            layout.hasComponents ? {baseUrl: DJVU_COMPONENT_BASE_URL} : {},
+        );
         throwIfCanceled(options.signal);
-        const bytes = isBrowserRef
-            ? await readBrowserDocumentBytes(djvuPath, options)
-            : await readDesktopDocumentBytes(djvuPath, options);
+        const directory = layout.hasComponents ? await readDjvuComponentDirectory(openedWorker) : null;
+        componentIndexes = directory
+            ? new Map(directory.names.map((name, index) => [
+                name,
+                index,
+            ] as const).toReversed())
+            : null;
         throwIfCanceled(options.signal);
-        if (isIndirectDjvu(bytes)) {
-            throw new SerializableError({
-                code: 'djvu-components-required',
-                message: 'This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.',
-            });
-        }
-        const buffer = toOwnedArrayBuffer(bytes);
-
-        await worker.createDocument(buffer, {});
+        const pageTable = await readCachedDjvuPageTable(
+            source.versionKey,
+            () => readDjvuPageTable(layout, directory, options.signal),
+        );
         throwIfCanceled(options.signal);
+        setDjvuWorkerPageSizes(openedWorker, pageTable);
+        return openedWorker;
     } catch (error) {
-        worker.terminate();
+        worker?.terminate();
         throw error;
     } finally {
+        // The store entry stays loaded: it holds the file snapshot every later
+        // component read must come from, so pages cannot mix file versions.
         if (options.signal && abortHandler) {
             options.signal.removeEventListener('abort', abortHandler);
         }
-        if (isBrowserRef) {
-            browserDocumentStore.unload(djvuPath);
-        }
     }
-
-    return worker;
 }
 
 export async function retainBrowserDjvuViewingWorker(path: TDocumentRef) {
@@ -572,99 +622,30 @@ function createPngObjectUrl(bytes: Uint8Array) {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
 }
 
-function loadImageElement(url: string) {
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('Failed to decode DjVu page preview'));
-        image.src = url;
-    });
-}
-
-function canvasToPngBlob(canvas: HTMLCanvasElement) {
-    return new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-            if (blob) {
-                resolve(blob);
-                return;
-            }
-            reject(new Error('Failed to encode scaled DjVu page preview'));
-        }, 'image/png');
-    });
-}
-
-function resolveScaledDjvuTargetWidth(
-    pageObject: {width: number;},
-    subsample: number | undefined,
-    targetWidthPx: number | undefined,
+/**
+ * The width a preview renders at: the requested device width, or the native
+ * width divided by the subsample, within the output budget desktop previews
+ * also apply.
+ */
+export function resolveDjvuPreviewTargetWidth(
+    pageSize: {
+        width: number;
+        height: number
+    },
+    options: Pick<IDjvuPagePreviewOptions, 'subsample' | 'targetWidthPx'> | undefined,
 ) {
-    if (Number.isFinite(targetWidthPx) && targetWidthPx !== undefined && targetWidthPx > 0) {
-        return resolveDjvuPreviewResolutionPlan({
-            nativeWidth: pageObject.width,
+    const targetWidthPx = options?.targetWidthPx;
+    const requestedWidth = Number.isFinite(targetWidthPx) && targetWidthPx !== undefined && targetWidthPx > 0
+        ? resolveDjvuPreviewResolutionPlan({
+            nativeWidth: pageSize.width,
             neededDevicePx: targetWidthPx,
             headroom: 1,
-        }).targetPx;
-    }
-    const normalizedSubsample = Math.max(1, Math.trunc(subsample ?? 1));
-    return Math.max(1, Math.round(pageObject.width / normalizedSubsample));
-}
-
-async function scaleDjvuPageObjectUrl(
-    pageObject: {
-        url: string;
-        width: number;
-        height: number;
-    },
-    subsample: number | undefined,
-    targetWidthPx: number | undefined,
-    revokeSourceUrl: (url: string) => void,
-    registerWindowObjectUrl?: (url: string) => void,
-): Promise<IDjvuRenderedPageObjectUrl> {
-    const targetWidth = resolveScaledDjvuTargetWidth(pageObject, subsample, targetWidthPx);
-    const targetHeight = Math.max(1, Math.round(targetWidth * pageObject.height / pageObject.width));
-    if (
-        targetWidth === pageObject.width
-        || typeof document === 'undefined'
-        || typeof Image === 'undefined'
-        || typeof URL === 'undefined'
-        || typeof URL.createObjectURL !== 'function'
-    ) {
-        return {
-            objectUrl: pageObject.url,
-            renderedPx: pageObject.width,
-        };
-    }
-
-    try {
-        const image = await loadImageElement(pageObject.url);
-        const canvas = document.createElement('canvas');
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-        const context = canvas.getContext('2d');
-        if (!context) {
-            return {
-                objectUrl: pageObject.url,
-                renderedPx: pageObject.width,
-            };
-        }
-
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.drawImage(image, 0, 0, targetWidth, targetHeight);
-        const blob = await canvasToPngBlob(canvas);
-        const scaledUrl = URL.createObjectURL(blob);
-        registerWindowObjectUrl?.(scaledUrl);
-        revokeSourceUrl(pageObject.url);
-        return {
-            objectUrl: scaledUrl,
-            renderedPx: targetWidth,
-        };
-    } catch {
-        return {
-            objectUrl: pageObject.url,
-            renderedPx: pageObject.width,
-        };
-    }
+        }).targetPx
+        : Math.max(1, Math.round(pageSize.width / Math.max(1, Math.trunc(options?.subsample ?? 1))));
+    const budgetWidth = Math.max(1, Math.floor(Math.sqrt(
+        DJVU_PREVIEW_MAX_OUTPUT_PIXELS * pageSize.width / Math.max(1, pageSize.height),
+    )));
+    return Math.min(requestedWidth, budgetWidth);
 }
 
 export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef) {
@@ -930,40 +911,27 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             if (!pageSize) {
                 throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
             }
-            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
             const previewRequestId = createFallbackPreviewRequestId(pageNumber, options);
             activePreviewRequestIds.add(previewRequestId);
             const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<TRequestId>();
             pageRequestIds.add(previewRequestId);
             activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
             try {
-                const pageObject = await enqueueFallbackRender(async () => {
+                const preview = await enqueueFallbackRender(async () => {
                     throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                    const renderedPageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-                    try {
-                        throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                        return renderedPageObject;
-                    } catch (error) {
-                        revokeFallbackObjectUrl(renderedPageObject.url);
-                        throw error;
-                    }
-                });
-                let renderedPageObjectUrl: IDjvuRenderedPageObjectUrl | null = null;
-
-                try {
-                    renderedPageObjectUrl = await scaleDjvuPageObjectUrl(
-                        pageObject,
-                        options?.subsample,
-                        options?.targetWidthPx,
-                        revokeFallbackObjectUrl,
-                        registerFallbackWindowObjectUrl,
+                    return renderDjvuPagePreviewPng(
+                        worker,
+                        pageNumber,
+                        resolveDjvuPreviewTargetWidth(pageSize, options),
                     );
-                    throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                    return renderedPageObjectUrl;
-                } catch (error) {
-                    revokeFallbackObjectUrl(renderedPageObjectUrl?.objectUrl ?? pageObject.url);
-                    throw error;
-                }
+                });
+                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                const objectUrl = createPngObjectUrl(preview.bytes);
+                registerFallbackWindowObjectUrl(objectUrl);
+                return {
+                    objectUrl,
+                    renderedPx: preview.width,
+                };
             } finally {
                 activePreviewRequestIds.delete(previewRequestId);
                 canceledPreviewRequestIds.delete(previewRequestId);

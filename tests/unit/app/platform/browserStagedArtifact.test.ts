@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES} from '@contracts/browserPageOpsLimits';
 import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
     commitBrowserStoreStagedArtifact,
@@ -156,10 +157,11 @@ describe('browser staged artifact commit', () => {
     });
 
     it.each([
-        16,
+        2047,
         64,
     ])('rejects a staged output above the configured %iMB read budget before replacing the target', async (limitMiB) => {
-        const maxBytes = limitMiB * 1024 * 1024;
+        // The default is the engine's output ceiling, 2 GiB - 1 (2047 whole MiB).
+        const maxBytes = limitMiB === 2047 ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : limitMiB * 1024 * 1024;
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument('oversized-source.pdf', Uint8Array.of(1), PDF_OPTIONS);
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
@@ -184,7 +186,7 @@ describe('browser staged artifact commit', () => {
             },
             workingRef,
             workingRevision.token,
-            limitMiB === 16 ? undefined : {maxBytes},
+            limitMiB === 2047 ? undefined : {maxBytes},
         )).rejects.toMatchObject({
             message: `Browser staged PDF output exceeds the ${limitMiB}MB browser read limit`,
             errorEnvelope: {

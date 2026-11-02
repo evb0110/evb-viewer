@@ -19,7 +19,6 @@ import {
 } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 
-const FULL_READ_CAP_MESSAGE = 'Use the native app for files this large.';
 
 async function createAnnotatedFixture(paddingBytes = 0) {
     const document = await PDFDocument.create();
@@ -51,21 +50,16 @@ async function createAnnotatedFixture(paddingBytes = 0) {
 }
 
 function createCapability() {
-    return createBrowserDocumentsFileCapability({
-        clearSearchCaches: async () => undefined,
-        errorMessageProvider: {
-            largeSaveHandleHint: () => 'Use the native app to save this file.',
-            useNativeApp: () => FULL_READ_CAP_MESSAGE,
-        },
-    });
+    return createBrowserDocumentsFileCapability({clearSearchCaches: async () => undefined});
 }
 
-async function runUnderCapFlow() {
+async function runSaveFlow(fileName: string, paddingBytes = 0) {
     const previousPicker = Reflect.get(window, 'showSaveFilePicker');
     Reflect.set(window, 'showSaveFilePicker', undefined);
+    const fixture = await createAnnotatedFixture(paddingBytes);
     const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
-        'browser-annotation-acceptance.pdf',
-        await createAnnotatedFixture(),
+        fileName,
+        fixture,
         {
             mimeType: 'application/pdf',
             kind: 'source',
@@ -81,6 +75,8 @@ async function runUnderCapFlow() {
             throw new Error('Browser annotation acceptance fixture did not open as a PDF');
         }
         workingPath = opened.workingPath;
+        const rangeOffset = fixture.byteLength - 40;
+        const range = await capability.readFileRange(workingPath, rangeOffset, 32);
         const openedRevision = await browserDocumentStore.getDocumentRevision(workingPath);
         const parsedBefore = await capability.parsePdfAnnotations(workingPath, {expectedDocumentRevisionToken: openedRevision.token});
         const note = parsedBefore.entities.find(entity => entity.kind === 'note');
@@ -129,6 +125,8 @@ async function runUnderCapFlow() {
         const parsedAfter = await capability.parsePdfAnnotations(sourcePath, {expectedDocumentRevisionToken: reopenedRevision.token});
         const reopenedNote = parsedAfter.entities.find(entity => entity.kind === 'note');
         return {
+            inputBytes: fixture.byteLength,
+            rangeReadsPreserved: range.byteLength === 32 && range.every((byte, index) => byte === fixture[rangeOffset + index]),
             openedWithAnnotations: note.contents === 'до Привет café',
             canonicalWriterVerified: committed.nativeMutationPostconditionsVerified,
             savedAndReopened: reopenedNote?.contents === 'после Привет café'
@@ -144,63 +142,12 @@ async function runUnderCapFlow() {
     }
 }
 
-async function runOverCapFlow() {
-    const oversized = await createAnnotatedFixture(BROWSER_MAX_FULL_READ_BYTES);
-    const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
-        'browser-annotation-over-cap.pdf',
-        oversized,
-        {
-            mimeType: 'application/pdf',
-            kind: 'source',
-            retention: 'transient',
-            saveKind: 'pdf',
-        },
-    ));
-    const capability = createCapability();
-    let saveMessage = '';
-    let workingPath: TLegacyDocumentRef | undefined;
-    try {
-        const opened = await capability.openDocumentDirect(sourcePath);
-        if (!opened || opened.kind !== 'pdf') {
-            throw new Error('Large annotation acceptance fixture did not open as a PDF');
-        }
-        workingPath = opened.workingPath;
-        const rangeOffset = BROWSER_MAX_FULL_READ_BYTES - 8;
-        const range = await capability.readFileRange(workingPath, rangeOffset, 32);
-        const revision = await browserDocumentStore.getDocumentRevision(workingPath);
-        const parsed = await capability.parsePdfAnnotations(workingPath, {expectedDocumentRevisionToken: revision.token});
-        try {
-            await capability.applyPdfNativeMutationsToWorkingCopy!(
-                workingPath,
-                {updates: [{
-                    objectNumber: 1,
-                    generationNumber: 0,
-                    text: 'after',
-                }]},
-                requirePdfDateString('D:20260102000000Z'),
-                {expectedDocumentRevisionToken: revision.token},
-            );
-        } catch (error) {
-            saveMessage = error instanceof Error ? error.message : String(error);
-        }
-        return {
-            openedWithAnnotations: parsed.entities.some(entity => entity.kind === 'note' && entity.contents === 'до Привет café'),
-            rangeReadsPreserved: range.byteLength === 32 && range.every((byte, index) => byte === oversized[rangeOffset + index]),
-            saveMessage,
-            saveRejectedWithLocalizedCap: saveMessage.includes(FULL_READ_CAP_MESSAGE),
-        };
-    } finally {
-        if (workingPath) {
-            await browserDocumentStore.remove(workingPath).catch(() => undefined);
-        }
-        await browserDocumentStore.remove(sourcePath).catch(() => undefined);
-    }
-}
-
 async function runAcceptance() {
     return {
-        underCap: await runUnderCapFlow(),
-        overCap: await runOverCapFlow(),
+        underCap: await runSaveFlow('browser-annotation-acceptance.pdf'),
+        // Above the 16 MiB native IPC return ceiling the browser once applied
+        // to this in-process save; below the separate download fallback.
+        overFullReadDefault: await runSaveFlow('browser-annotation-large.pdf', BROWSER_MAX_FULL_READ_BYTES + 8 * 1024 * 1024),
     };
 }
 

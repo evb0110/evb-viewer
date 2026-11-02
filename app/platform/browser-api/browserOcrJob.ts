@@ -3,9 +3,11 @@ import {
     BROWSER_OCR_ENGINE_IMAGE_PATH,
     BROWSER_OCR_ENGINE_OUTPUT_BASE,
     BROWSER_OCR_ENGINE_TESSDATA_PATH,
+    type TBrowserOcrRecognizeRequest,
 } from '@contracts/browserOcrEngine';
 import {
     getBrowserOcrLaneCount,
+    preprocessBrowserOcrRaster,
     runBrowserOcrEngine,
 } from '@app/platform/browser-api/browserOcrEngineClient';
 import {
@@ -21,7 +23,7 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
-import {OCR_TEXT_LAYER_HEADER} from '@contracts/browserPageOpsWasm.generated';
+import {INSTRUCTED_REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import {getErrorMessage} from '@app/utils/error';
 import {
     isBrowserPageOpsWasmFailure,
@@ -29,15 +31,14 @@ import {
 } from '@contracts/browserPageOpsWorker';
 import {
     canReadEarlyPrint,
-    createEarlyPrintDictionary,
     hasLongSSignature,
     planEarlyPrintWordEdits,
+    readEarlyPrintDictionary,
 } from '@ocr-core/earlyPrintReading';
 import {
     hocrWordText,
     readHocrLines,
 } from '@ocr-core/hocrReading';
-import {readTraineddataWordList} from '@ocr-core/readTraineddataWordList';
 import type {IOcrWordEdit} from '@ocr-core/types';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
@@ -49,9 +50,15 @@ import type {
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
 import {
-    OCR_LANGUAGE_MODEL_BYTES, type TOcrModelCode,
+    EARLY_PRINT_MODEL_CODES,
+    OCR_LANGUAGE_MODEL_BYTES,
+    type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    createOcrPreprocessingGeometryDiagnostic,
+    getOcrScanCleanupMode,
+} from '@contracts/scan-cleanup/ocrPreprocessing';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
 import {
     resolveOcrExtractionDpi,
@@ -100,11 +107,21 @@ export type TBrowserOcrJobOutcome =
         diagnostics: IOcrDiagnostic[];
     };
 
+type TOcrPreprocessInverse = NonNullable<IOcrTextLayerInstructions['pages'][number]['preprocessInverse']>;
+
 interface IRecognizedPage {
     pageNumber: number;
     pdf: Uint8Array;
     languages: readonly string[];
     wordEdits: IOcrWordEdit[];
+    preprocessInverse?: TOcrPreprocessInverse;
+}
+
+/** The raster Tesseract reads and how its pixels map back to the rendered page. */
+interface IPreparedRaster {
+    image: TBrowserOcrRecognizeRequest['payload']['image'];
+    preprocessInverse?: TOcrPreprocessInverse;
+    diagnostic?: IOcrDiagnostic;
 }
 
 function requireTesseractPdf(bytes: Uint8Array | undefined) {
@@ -119,15 +136,6 @@ function decodeBoundedText(bytes: Uint8Array | undefined, maxBytes: number, labe
         throw new Error(`Tesseract ${label} output is missing or exceeds its limit`);
     }
     return new TextDecoder().decode(bytes);
-}
-
-/**
- * The early-print dictionary of the selected languages, built from their own
- * models' word lists as desktop builds it (Latin is not a browser language).
- */
-async function loadEarlyPrintDictionary(languages: readonly string[]) {
-    const lists = await Promise.all([...new Set(languages)].map(async code => readTraineddataWordList(await readCachedOcrModel(code as TOcrModelCode))));
-    return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), false);
 }
 
 /** A failure the workspace explains in the user's language, by its code. */
@@ -228,7 +236,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     const {size} = await browserDocumentStore.stat(input.sourceRef);
     // Reject an impossible source before OCR. The worker accounts for page PDFs
     // and instructions once recognition has produced their actual bytes.
-    const maxInputBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - OCR_TEXT_LAYER_HEADER.bytes;
+    const maxInputBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - INSTRUCTED_REQUEST_HEADER.bytes;
     if (size > maxInputBytes) {
         throw new BrowserOcrJobError('OCR_DOCUMENT_TOO_LARGE', 'The source PDF exceeds the PDF writer request budget');
     }
@@ -323,6 +331,65 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 'hocr',
             ] as const).filter(kind => outputs[kind]).map(kind => `${outputBase}.${kind}`),
         });
+        const cleanupMode = input.options.preprocessingMode === undefined
+            ? undefined
+            : getOcrScanCleanupMode(input.options.preprocessingMode);
+        /**
+         * Renders the page and, when the run sets a preprocessing mode, cleans
+         * it as desktop does: 'off' still normalizes polarity. A cleaned page
+         * of the rendered size is recognized and its words are mapped back
+         * through the inverse transform; otherwise the rendered page is, with
+         * a diagnostic.
+         */
+        const prepareRaster = async (page: IPdfPage, dpi: number, pageNumber: number): Promise<IPreparedRaster> => {
+            const raster = await renderBrowserOcrRaster(page, dpi, signal);
+            if (cleanupMode === undefined) return {image: raster.image};
+            const failed = (reason: string): IOcrDiagnostic => ({
+                code: 'OCR_PREPROCESSING_FAILED',
+                severity: 'warning',
+                pageNumber: requirePageNumber(pageNumber),
+                message: `OCR preprocessing failed; using raw page render: ${reason}`,
+            });
+            let cleaned;
+            try {
+                cleaned = await preprocessBrowserOcrRaster({
+                    image: raster.image,
+                    mode: cleanupMode,
+                    dpi,
+                }, signal);
+            } catch (error) {
+                throwIfAborted(signal);
+                // The engine stopped or ran out of time with the raster; render it again.
+                return {
+                    image: (await renderBrowserOcrRaster(page, dpi, signal)).image,
+                    diagnostic: failed(getErrorMessage(error)),
+                };
+            }
+            if (cleaned.failure !== undefined) {
+                return {
+                    image: cleaned.image,
+                    diagnostic: failed(cleaned.failure),
+                };
+            }
+            if (cleaned.preprocessedSize !== undefined) {
+                return {
+                    image: cleaned.image,
+                    diagnostic: createOcrPreprocessingGeometryDiagnostic(
+                        requirePageNumber(pageNumber),
+                        cleaned,
+                        cleaned.preprocessedSize,
+                    ),
+                };
+            }
+            return {
+                image: cleaned.image,
+                ...(cleaned.inverseMatrix ? {preprocessInverse: {
+                    rasterWidthPx: cleaned.width,
+                    rasterHeightPx: cleaned.height,
+                    matrix: cleaned.inverseMatrix,
+                }} : {}),
+            };
+        };
         // The early-print models and each language set's dictionary load once per job.
         let earlyPrintModels: Promise<void> | null = null;
         const dictionaries = new Map<string, Promise<ReadonlySet<string>>>();
@@ -333,12 +400,9 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
          * reread PDF and the planned word edits replace the first reading only
          * when every pass succeeded.
          */
-        const readEarlyPrint = async (page: IPdfPage, dpi: number, languages: readonly string[]) => {
+        const readEarlyPrint = async (page: IPdfPage, dpi: number, languages: readonly string[], pageNumber: number) => {
             earlyPrintModels ??= (async () => {
-                for (const code of [
-                    'ita_old',
-                    'fra',
-                ] as const) {
+                for (const code of EARLY_PRINT_MODEL_CODES) {
                     await ensureBrowserOcrModel(code, {signal});
                 }
             })();
@@ -346,13 +410,13 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             const dictionaryKey = [...languages].sort().join('+');
             let dictionary = dictionaries.get(dictionaryKey);
             if (!dictionary) {
-                dictionary = loadEarlyPrintDictionary(languages);
+                dictionary = readEarlyPrintDictionary(languages, readCachedOcrModel);
                 // Awaited after the engine runs; an early rejection is not an unhandled one.
                 dictionary.catch(() => {});
                 dictionaries.set(dictionaryKey, dictionary);
             }
-            // The first request handed its raster to the engine; render the page again.
-            const raster = await renderBrowserOcrRaster(page, dpi, signal);
+            // The first request handed its raster to the engine; render and clean the page again.
+            const raster = await prepareRaster(page, dpi, pageNumber);
             const result = await runBrowserOcrEngine({
                 image: raster.image,
                 models: [...new Set([
@@ -392,11 +456,12 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 base: baseLines,
                 longS: readHocrLines(decodeBoundedText(longS!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
                 ligatures: readHocrLines(decodeBoundedText(ligatures!.outputs[0], TESSERACT_MAX_HOCR_BYTES, 'hOCR')),
-            }, await dictionary, {latin: false});
+            }, await dictionary, {latin: languages.includes('lat')});
             parseTsvOcrData(rereadTsv, {}, wordEdits);
             return {
                 pdf: requireTesseractPdf(pdf),
                 wordEdits,
+                raster,
             };
         };
         const recognizePage = async (request: IOcrSearchablePdfPage) => {
@@ -417,7 +482,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                         message: `Used ${dpi} DPI instead of ${extractionDpi} DPI to avoid upscaling the embedded page image`,
                     });
                 }
-                const raster = await renderBrowserOcrRaster(page, dpi, signal);
+                let raster = await prepareRaster(page, dpi, request.pageNumber);
+                if (raster.diagnostic) diagnostics.push(raster.diagnostic);
                 const result = await runBrowserOcrEngine({
                     image: raster.image,
                     models: [...request.languages] as TOcrModelCode[],
@@ -438,9 +504,12 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 let wordEdits: IOcrWordEdit[] = [];
                 if (canReadEarlyPrint(request.languages) && hasLongSSignature(readWordsOrNone(tsvText))) {
                     try {
-                        const early = await readEarlyPrint(page, dpi, request.languages);
+                        const early = await readEarlyPrint(page, dpi, request.languages, request.pageNumber);
                         pagePdf = early.pdf;
                         wordEdits = early.wordEdits;
+                        // The reread PDF was recognized on this raster; one diagnostic per page.
+                        if (early.raster.diagnostic && !raster.diagnostic) diagnostics.push(early.raster.diagnostic);
+                        raster = early.raster;
                     } catch (error) {
                         throwIfAborted(signal);
                         diagnostics.push({
@@ -465,6 +534,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     pdf: pagePdf,
                     languages: request.languages,
                     wordEdits,
+                    ...(raster.preprocessInverse ? {preprocessInverse: raster.preprocessInverse} : {}),
                 });
             } catch (error) {
                 throwIfAborted(signal);
@@ -485,7 +555,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             }
         };
         const memoryLanes = getBrowserOcrLaneCount(maxPageArea * (extractionDpi / 72) ** 2,
-            modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0));
+            modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode);
         const targeted = queue.length > 0;
         await Promise.all(Array.from({length: Math.min(memoryLanes, Math.max(1, queue.length))}, lane));
 
@@ -505,6 +575,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             source,
             ...(shouldNormalizeGreekMicroSign(page.languages) ? {normalizeGreekMicroSign: true} : {}),
             ...(page.wordEdits.length > 0 ? {wordEdits: page.wordEdits} : {}),
+            ...(page.preprocessInverse ? {preprocessInverse: page.preprocessInverse} : {}),
         }))};
         await browserDocumentStore.assertDocumentRevisionCurrent(input.sourceRef, revision.token);
         const written = await runBrowserPageOpsWorkerRequest('ocrTextLayer', {

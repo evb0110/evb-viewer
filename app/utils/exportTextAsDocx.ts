@@ -27,19 +27,11 @@ import {
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
 
-type TDocxBuilder = (
-    pages: readonly TDocxTextPage[],
-    direction: TDocxParagraphDirection,
-    signal?: AbortSignal,
-) => Uint8Array | Promise<Uint8Array>;
 type TDocxChunkBuilder = (
     pages: TDocxTextPageSource,
     direction: TDocxParagraphDirection,
     signal?: AbortSignal,
 ) => AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>;
-
-const BROWSER_DOCX_MAX_TEXT_CHARACTERS = 3 * 1024 * 1024;
-const BROWSER_DOCX_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
@@ -135,8 +127,7 @@ export async function exportTextAsDocx(params: {
     documentRevisionToken: TDocumentRevisionToken | null;
     pdfDocument: IPdfDocument | null;
     hasRtl?: boolean;
-    buildDocx: TDocxBuilder;
-    buildDocxChunks?: TDocxChunkBuilder;
+    buildDocxChunks: TDocxChunkBuilder;
     signal?: AbortSignal;
     t: TTranslateFn;
     toast: ReturnType<typeof useToast>;
@@ -160,24 +151,20 @@ export async function exportTextAsDocx(params: {
 
         try {
             throwIfAborted(params.signal);
-            const isBrowserOutput = isBrowserDocumentRef(outPath);
             const pageCount = params.pdfDocument?.numPages;
             const knownPageCount = typeof pageCount === 'number'
                 && Number.isSafeInteger(pageCount)
                 && pageCount > 0
                 ? pageCount
                 : undefined;
-            const docxStream = !isBrowserOutput && hasSerialDocxStream(documentFiles)
-                ? documentFiles
-                : undefined;
-            const canUseSerialDocxStream = docxStream !== undefined;
+            if (!hasSerialDocxStream(documentFiles)) {
+                throw new Error('DOCX streaming output is unavailable on this platform');
+            }
+            const docxStream = documentFiles;
             if (
-                !isBrowserOutput
-                && params.workingCopyPath
+                params.workingCopyPath
                 && params.documentRevisionToken
                 && knownPageCount !== undefined
-                && params.buildDocxChunks
-                && canUseSerialDocxStream
             ) {
                 const textPages = params.signal === undefined
                     ? await prepareDocumentTextCatalogTextPages(
@@ -224,39 +211,10 @@ export async function exportTextAsDocx(params: {
                     (catalogPages ?? []).flatMap(page => page.languages ?? []),
                 );
 
-                if (!isBrowserOutput) {
-                    if (!params.buildDocxChunks || !canUseSerialDocxStream) {
-                        throw new Error('DOCX streaming output is unavailable on this desktop platform');
-                    }
-                    const docxChunks = params.signal === undefined
-                        ? await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction)
-                        : await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction, params.signal);
-                    await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
-                } else {
-                    let catalogTextLength = 0;
-                    const pages: TDocxTextPage[] = [];
-                    for (const page of getNonEmptyPages(catalogPages)) {
-                        throwIfAborted(params.signal);
-                        catalogTextLength += typeof page === 'string' ? page.length : page.text.length;
-                        if (catalogTextLength > BROWSER_DOCX_MAX_TEXT_CHARACTERS) {
-                            throw new RangeError('Browser DOCX export text exceeds its bounded Blob budget');
-                        }
-                        pages.push(page);
-                    }
-                    const docxBytes = params.signal === undefined
-                        ? await params.buildDocx(pages, direction)
-                        : await params.buildDocx(pages, direction, params.signal);
-                    throwIfAborted(params.signal);
-                    if (docxBytes.byteLength > BROWSER_DOCX_MAX_OUTPUT_BYTES) {
-                        throw new RangeError('Browser DOCX export exceeds its bounded Blob size');
-                    }
-                    if (params.signal === undefined) {
-                        await documentFiles.writeDocxFile(outPath, docxBytes);
-                    } else {
-                        await documentFiles.writeDocxFile(outPath, docxBytes, params.signal);
-                    }
-                    throwIfAborted(params.signal);
-                }
+                const docxChunks = params.signal === undefined
+                    ? await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction)
+                    : await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction, params.signal);
+                await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
             }
             params.toast.add({
                 color: 'success',

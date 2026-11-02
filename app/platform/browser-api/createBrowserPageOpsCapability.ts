@@ -3,6 +3,7 @@ import type {
     IPageOpsMutationOptions,
     TPageIdentityDeltaPage,
     TPageOpsPageSelection,
+    TPageOpsRotationAngle,
 } from '@contracts/electronApiPageOps';
 import type {
     PAGE_OPS_PLATFORM_FEATURE,
@@ -26,6 +27,7 @@ import * as v from 'valibot';
 import { readBrowserPdfCatalogPart } from '@contracts/browserPdfCatalog';
 import {
     createRequestId,
+    type ICropMargins,
     type IPageGeometry,
     type TRequestId,
 } from '@contracts/shared';
@@ -36,12 +38,13 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
+import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
+import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
-import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserPageOpsWorkerUnavailableError,
     canUseBrowserPageOpsWorker,
@@ -100,20 +103,9 @@ interface ICreateBrowserPageOpsOptions {
     ) => Promise<void>;
 }
 
-const BROWSER_PAGE_OP_PDF_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
-const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
-const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
-const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
-/**
- * Browser page moves still need a full permutation for pdf-lib. Keep that
- * fallback deliberately small. Desktop uses the qpdf range operation and has
- * no corresponding page-count cap.
- */
-export const BROWSER_PAGE_OP_MOVE_MAX_PAGES = 10_000;
-export const BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES = 10_000;
+// A page operation's input and any insertion source travel in one engine
+// request; the engine refuses the framed remainder exactly.
+const BROWSER_PAGE_OP_INPUT_MAX_BYTES = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes;
 
 type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
 
@@ -122,14 +114,6 @@ let browserPageOpsCorePromise: Promise<TBrowserPageOpsCoreModule> | null = null;
 function loadBrowserPageOpsCore() {
     browserPageOpsCorePromise ??= import('@app/platform/browser-api/browserPageOpsCore');
     return browserPageOpsCorePromise;
-}
-
-function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
-    return buildBrowserByteLimitError(label, maxBytes, 'PDFs');
-}
-
-function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
-    return buildBrowserByteLimitError(label, maxBytes, 'jobs');
 }
 
 function assertBrowserPageOpsSource(path: string, operation: string) {
@@ -152,10 +136,8 @@ function materializePageRanges(
         (count, range) => count + range.endPage - range.startPage + 1,
         0,
     );
-    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES) {
-        throw new Error(
-            `${operation} in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} pages; use the desktop app for larger documents`,
-        );
+    if (selectedCount <= 0) {
+        throw new Error(`${operation} received an empty selection`);
     }
     const pages: number[] = [];
     for (const range of ranges) {
@@ -183,12 +165,8 @@ function materializePageSelection(
             (count, range) => count + range.endPage - range.startPage + 1,
             0,
         );
-    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES) {
-        throw new PdfPageOpsCapabilityError(
-            'too-large',
-            `${operation} in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} selected pages; use the desktop app for larger documents`,
-            {operation},
-        );
+    if (selectedCount <= 0) {
+        throw new Error(`${operation} received an empty selection`);
     }
     if (Array.isArray(selection)) {
         return selection;
@@ -244,20 +222,70 @@ function createInsertPageIdentityDelta(
     };
 }
 
+/**
+ * One page-operation call, from its start until its result is written. As on
+ * desktop, a cancel before the write stops it and the call returns canceled;
+ * once the write has started it completes and counts as committing.
+ */
+interface IActivePageOperation {
+    workingCopyPath: string;
+    controller: AbortController;
+    committing: boolean;
+}
+
+// Stopping the engine ends its dedicated worker; the result is never written.
+function beginPageOperationCommit(operation: IActivePageOperation) {
+    operation.controller.signal.throwIfAborted();
+    operation.committing = true;
+}
+
 export function createBrowserPageOpsCapability(
     options: ICreateBrowserPageOpsOptions,
 ): IPageOpsCapability {
     const workingCopyMutationQueues = new Map<string, Promise<unknown>>();
+    const activePageOperations = new Set<IActivePageOperation>();
+
+    function withUserCancel<TArgs extends [string, ...unknown[]], TResult>(
+        run: (operation: IActivePageOperation, ...args: TArgs) => Promise<TResult>,
+    ) {
+        return async (...args: TArgs): Promise<TResult | {
+            success: false;
+            canceled: true
+        }> => {
+            const operation: IActivePageOperation = {
+                workingCopyPath: args[0],
+                controller: new AbortController(),
+                committing: false,
+            };
+            activePageOperations.add(operation);
+            try {
+                return await run(operation, ...args);
+            } catch (error) {
+                if (operation.controller.signal.aborted) {
+                    return {
+                        success: false,
+                        canceled: true,
+                    };
+                }
+                throw error;
+            } finally {
+                activePageOperations.delete(operation);
+            }
+        };
+    }
 
     async function serializeWorkingCopyMutation<T>(
-        workingCopyPath: string,
+        operation: IActivePageOperation,
         mutationOptions: IPageOpsMutationOptions | undefined,
         run: () => Promise<T>,
     ) {
+        const {workingCopyPath} = operation;
         const previous = workingCopyMutationQueues.get(workingCopyPath) ?? Promise.resolve();
         const next = previous
             .catch(() => {})
             .then(async () => {
+                // A call canceled while it waited behind another never starts.
+                operation.controller.signal.throwIfAborted();
                 await browserDocumentStore.assertDocumentRevisionCurrent(
                     workingCopyPath,
                     mutationOptions?.expectedDocumentRevisionToken,
@@ -274,49 +302,10 @@ export function createBrowserPageOpsCapability(
         }
     }
 
-    async function ensurePdfWithinBudget(
-        path: string,
-        label: string,
-        maxBytes = BROWSER_PAGE_OP_PDF_MAX_BYTES,
-    ) {
-        assertBrowserPageOpsSource(path, label);
-        const { size } = await browserDocumentStore.stat(path);
-        if (size > maxBytes) {
-            throw buildBrowserPageOpLimitError(label, maxBytes);
-        }
-    }
-
-    async function getCombinedInputBytes(paths: string[], maxBytes?: number) {
-        let totalBytes = 0;
-        for (const [
-            index,
-            path,
-        ] of paths.entries()) {
-            assertBrowserPageOpsSource(path, 'Combining page-operation inputs');
-            if (index > 0) {
-                await yieldToBrowser();
-            }
-
-            const { size } = await browserDocumentStore.stat(path);
-            totalBytes += size;
-            if (typeof maxBytes === 'number' && totalBytes > maxBytes) {
-                return totalBytes;
-            }
-        }
-        return totalBytes;
-    }
-
-    async function ensureCombinedInputsWithinBudget(paths: string[], label: string) {
-        const totalBytes = await getCombinedInputBytes(paths, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
-        if (totalBytes > BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES) {
-            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
-        }
-    }
-
     async function readWorkingCopyBytes(path: string) {
         assertBrowserPageOpsSource(path, 'Reading page-operation input');
         await yieldToBrowser();
-        return browserDocumentStore.read(path);
+        return browserDocumentStore.read(path, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES});
     }
 
     function shouldReadSinglePdfInsertionSource(sourcePaths: string[]) {
@@ -331,6 +320,8 @@ export function createBrowserPageOpsCapability(
     async function readInsertionBytes(
         sourcePaths: string[],
         requestId: TRequestId | undefined,
+        destinationBytes: number,
+        signal: AbortSignal,
     ) {
         for (const sourcePath of sourcePaths) {
             assertBrowserPageOpsSource(sourcePath, 'Inserting pages');
@@ -340,7 +331,7 @@ export function createBrowserPageOpsCapability(
             if (sourcePath === undefined) {
                 throw new Error('A single PDF insertion source is required');
             }
-            return browserDocumentStore.read(sourcePath);
+            return browserDocumentStore.read(sourcePath, {maxBytes: BROWSER_PAGE_OP_INPUT_MAX_BYTES - destinationBytes});
         }
 
         return options.createCombinedPdfFromPaths(
@@ -348,8 +339,23 @@ export function createBrowserPageOpsCapability(
             {
                 operation: 'page-insert',
                 requestId: requestId ?? createRequestId('browser-page-op-insert'),
+                signal,
             },
         );
+    }
+
+    async function combinePickedFiles(pickedFiles: IPickedBrowserFile[], signal: AbortSignal) {
+        const sourcePaths = await Promise.all(pickedFiles.map(picked => browserDocumentStore.registerFile(picked.file, {
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'generic',
+            saveHandle: picked.handle ?? null,
+        })));
+        try {
+            return await readInsertionBytes(sourcePaths, undefined, 0, signal);
+        } finally {
+            await Promise.allSettled(sourcePaths.map(sourcePath => browserDocumentStore.cleanupDetachedDocument(sourcePath)));
+        }
     }
 
     async function runDirectPdfOperation<T>(
@@ -363,37 +369,25 @@ export function createBrowserPageOpsCapability(
 
     async function runWorkerBackedPdfOperation<K extends TBrowserPageOpsWorkerRequestType>(options: {
         path: string;
-        label: string;
-        maxBytes: number;
+        // A cancellable call runs on its own worker, so canceling it stops
+        // only that engine.
+        signal?: AbortSignal;
         type: K;
         createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K];
         runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>;
     }) {
-        await ensurePdfWithinBudget(
-            options.path,
-            options.label,
-            options.maxBytes,
-        );
-
-        const { size } = await browserDocumentStore.stat(options.path);
-        const workerAvailable = canUseBrowserPageOpsWorker();
-        if (
-            !workerAvailable
-            && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
-        ) {
-            throw buildBrowserPageOpLimitError(
-                options.label,
-                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-            );
-        }
-
         const data = await readWorkingCopyBytes(options.path);
         let directData = data;
-        if (workerAvailable) {
+        if (canUseBrowserPageOpsWorker()) {
             try {
                 return await runBrowserPageOpsWorkerRequest(
                     options.type,
                     options.createPayload(data),
+                    options.signal ? {
+                        dedicated: true,
+                        signal: options.signal,
+                        transferInput: true,
+                    } : {},
                 );
             } catch (error) {
                 if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
@@ -403,27 +397,19 @@ export function createBrowserPageOpsCapability(
             }
         }
 
-        if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
-            throw buildBrowserPageOpLimitError(
-                options.label,
-                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-            );
-        }
-
+        // Without a worker the engine runs here, as one long task.
         return runDirectPdfOperation(() => options.runDirect(directData));
     }
 
     async function writePageMutationResult(
-        workingCopyPath: string,
+        operation: IActivePageOperation,
         data: Uint8Array,
         pageCount: number,
         mutationOptions: IPageOpsMutationOptions | undefined,
-        label: string,
         pageIdentityDelta?: IPageIdentityDelta,
     ): Promise<IStoredPageMutationResult> {
-        if (data.byteLength > BROWSER_PAGE_OP_PDF_MAX_BYTES) {
-            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_PDF_MAX_BYTES);
-        }
+        beginPageOperationCommit(operation);
+        const {workingCopyPath} = operation;
         if (mutationOptions === undefined) {
             await browserDocumentStore.write(workingCopyPath, data);
         } else {
@@ -437,39 +423,172 @@ export function createBrowserPageOpsCapability(
         };
     }
 
-    const pageOps: IPageOpsCapability = {
-        async delete(workingCopyPath, pages, _totalPages, mutationOptions) {
-            const selectedPages = materializePageSelection(pages, _totalPages, 'Deleting pages');
-            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                const result = await runWorkerBackedPdfOperation({
-                    path: workingCopyPath,
-                    label: 'Deleting pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                    type: 'deletePages',
-                    createPayload: (data) => ({
-                        data,
-                        pages: selectedPages,
-                    }),
-                    runDirect: async (data) => {
-                        const { deletePdfPages } = await loadBrowserPageOpsCore();
-                        return deletePdfPages(data, selectedPages);
-                    },
-                });
-                return writePageMutationResult(
-                    workingCopyPath,
-                    result.data,
-                    result.pageCount,
-                    mutationOptions,
-                    'Deleting pages',
-                    createDeletePageIdentityDelta(_totalPages, selectedPages),
-                );
+    async function deletePages(
+        operation: IActivePageOperation,
+        pages: TPageOpsPageSelection,
+        totalPages: number,
+        mutationOptions: IPageOpsMutationOptions | undefined,
+    ) {
+        const selectedPages = materializePageSelection(pages, totalPages, 'Deleting pages');
+        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+            const result = await runWorkerBackedPdfOperation({
+                path: operation.workingCopyPath,
+                signal: operation.controller.signal,
+                type: 'deletePages',
+                createPayload: (data) => ({
+                    data,
+                    pages: selectedPages,
+                }),
+                runDirect: async (data) => {
+                    const { deletePdfPages } = await loadBrowserPageOpsCore();
+                    return deletePdfPages(data, selectedPages);
+                },
             });
-        },
-        async deleteRanges(workingCopyPath, ranges, _totalPages, mutationOptions) {
-            const pages = materializePageRanges(ranges, _totalPages);
-            return pageOps.delete(workingCopyPath, pages, _totalPages, mutationOptions);
-        },
-        async extract(workingCopyPath, pages) {
+            return writePageMutationResult(
+                operation,
+                result.data,
+                result.pageCount,
+                mutationOptions,
+                createDeletePageIdentityDelta(totalPages, selectedPages),
+            );
+        });
+    }
+
+    async function reorderPages(
+        operation: IActivePageOperation,
+        newOrder: number[],
+        mutationOptions: IPageOpsMutationOptions | undefined,
+    ) {
+        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+            const result = await runWorkerBackedPdfOperation({
+                path: operation.workingCopyPath,
+                signal: operation.controller.signal,
+                type: 'reorderPages',
+                createPayload: (data) => ({
+                    data,
+                    newOrder,
+                }),
+                runDirect: async (data) => {
+                    const { reorderPdfPages } = await loadBrowserPageOpsCore();
+                    return reorderPdfPages(data, newOrder);
+                },
+            });
+            return writePageMutationResult(
+                operation,
+                result.data,
+                result.pageCount,
+                mutationOptions,
+                createReorderPageIdentityDelta(newOrder.length, newOrder),
+            );
+        });
+    }
+
+    /** `readInsertion` reads the pages to insert each time it is called, given the destination's size. */
+    async function insertPages(
+        operation: IActivePageOperation,
+        totalPages: number,
+        afterPage: number,
+        readInsertion: (destinationBytes: number) => Promise<Uint8Array>,
+        mutationOptions: IPageOpsMutationOptions | undefined,
+    ) {
+        const {
+            workingCopyPath,
+            controller: {signal},
+        } = operation;
+        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+            assertBrowserPageOpsSource(workingCopyPath, 'Inserting pages');
+            const destinationData = await readWorkingCopyBytes(workingCopyPath);
+            const insertionData = await readInsertion(destinationData.byteLength);
+
+            let directInputs: [Uint8Array, Uint8Array] = [
+                destinationData,
+                insertionData,
+            ];
+            let result: IBrowserPageOpsWorkerResultMap['insertPages'] | null = null;
+            if (canUseBrowserPageOpsWorker()) {
+                try {
+                    result = await runBrowserPageOpsWorkerRequest('insertPages', {
+                        data: destinationData,
+                        insertionData,
+                        afterPage,
+                    }, {
+                        dedicated: true,
+                        signal,
+                        transferInput: true,
+                    });
+                } catch (error) {
+                    if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
+                        throw error;
+                    }
+                    // The worker took the transferred inputs; read them again.
+                    const directDestinationData = await readWorkingCopyBytes(workingCopyPath);
+                    directInputs = [
+                        directDestinationData,
+                        await readInsertion(directDestinationData.byteLength),
+                    ];
+                }
+            }
+            if (result === null) {
+                const [
+                    directDestinationData,
+                    directInsertionData,
+                ] = directInputs;
+                result = await runDirectPdfOperation(async () => {
+                    const { insertPdfPages } = await loadBrowserPageOpsCore();
+                    return insertPdfPages(
+                        directDestinationData,
+                        directInsertionData,
+                        afterPage,
+                    );
+                });
+            }
+            return writePageMutationResult(
+                operation,
+                result.data,
+                result.pageCount,
+                mutationOptions,
+                createInsertPageIdentityDelta(
+                    totalPages,
+                    afterPage,
+                    result.pageCount - totalPages,
+                ),
+            );
+        });
+    }
+
+    async function rewriteSelectedPages<K extends 'rotate' | 'crop' | 'removeCrop'>(
+        operation: IActivePageOperation,
+        selectedPages: number[],
+        mutationOptions: IPageOpsMutationOptions | undefined,
+        type: K,
+        createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K],
+        runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>,
+    ) {
+        return serializeWorkingCopyMutation(operation, mutationOptions, async () => {
+            const result = await runWorkerBackedPdfOperation({
+                path: operation.workingCopyPath,
+                signal: operation.controller.signal,
+                type,
+                createPayload,
+                runDirect,
+            });
+            return writePageMutationResult(
+                operation,
+                result.data,
+                result.pageCount,
+                mutationOptions,
+            );
+        });
+    }
+
+    const pageOps: IPageOpsCapability = {
+        delete: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, mutationOptions?: IPageOpsMutationOptions) => (
+            deletePages(operation, pages, totalPages, mutationOptions)
+        )),
+        deleteRanges: withUserCancel((operation, _workingCopyPath: string, ranges: readonly IPageMoveRangeSegment[], totalPages: number, mutationOptions?: IPageOpsMutationOptions) => (
+            deletePages(operation, materializePageRanges(ranges, totalPages), totalPages, mutationOptions)
+        )),
+        extract: withUserCancel(async (operation, workingCopyPath: string, pages: TPageOpsPageSelection) => {
             const selectedPages = materializePageSelection(
                 pages,
                 Array.isArray(pages) ? Number.MAX_SAFE_INTEGER : pages.pageCount,
@@ -492,8 +611,7 @@ export function createBrowserPageOpsCapability(
 
             const result = await runWorkerBackedPdfOperation({
                 path: workingCopyPath,
-                label: 'Extracting pages',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                signal: operation.controller.signal,
                 type: 'extractPages',
                 createPayload: (data) => ({
                     data,
@@ -505,6 +623,7 @@ export function createBrowserPageOpsCapability(
                 },
             });
             const outputBytes = result.data;
+            beginPageOperationCommit(operation);
 
             if (saveTarget.handle) {
                 await options.writeBytesToHandle(saveTarget.handle, outputBytes);
@@ -546,74 +665,33 @@ export function createBrowserPageOpsCapability(
                 success: true,
                 destPath,
             };
-        },
-        async reorder(workingCopyPath, newOrder, mutationOptions) {
-            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                const result = await runWorkerBackedPdfOperation({
-                    path: workingCopyPath,
-                    label: 'Reordering pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                    type: 'reorderPages',
-                    createPayload: (data) => ({
-                        data,
-                        newOrder,
-                    }),
-                    runDirect: async (data) => {
-                        const { reorderPdfPages } = await loadBrowserPageOpsCore();
-                        return reorderPdfPages(data, newOrder);
-                    },
-                });
-                return writePageMutationResult(
-                    workingCopyPath,
-                    result.data,
-                    result.pageCount,
-                    mutationOptions,
-                    'Reordering pages',
-                    createReorderPageIdentityDelta(newOrder.length, newOrder),
-                );
-            });
-        },
-        async move(workingCopyPath, startPage, endPage, insertAt, totalPages, mutationOptions) {
+        }),
+        reorder: withUserCancel((operation, _workingCopyPath: string, newOrder: number[], mutationOptions?: IPageOpsMutationOptions) => (
+            reorderPages(operation, newOrder, mutationOptions)
+        )),
+        move: withUserCancel(async (operation, workingCopyPath: string, startPage: number, endPage: number, insertAt: number, totalPages: number, mutationOptions?: IPageOpsMutationOptions) => {
             assertBrowserPageOpsSource(workingCopyPath, 'Moving pages');
-            if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
-                throw new Error(
-                    `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
-                );
-            }
             const move = createPageMoveRange(totalPages, startPage, endPage, insertAt);
             if (isPageMoveNoOp(move)) {
-                return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, () => Promise.resolve({
+                return serializeWorkingCopyMutation(operation, mutationOptions, () => Promise.resolve({
                     success: true,
                     pageCount: move.pageCount,
                 }));
             }
-            return pageOps.reorder(
-                workingCopyPath,
-                buildPageMoveOrder(move),
-                mutationOptions,
-            );
-        },
-        async moveRanges(workingCopyPath, ranges, insertAt, totalPages, mutationOptions) {
+            return reorderPages(operation, buildPageMoveOrder(move), mutationOptions);
+        }),
+        moveRanges: withUserCancel(async (operation, workingCopyPath: string, ranges: readonly IPageMoveRangeSegment[], insertAt: number, totalPages: number, mutationOptions?: IPageOpsMutationOptions) => {
             assertBrowserPageOpsSource(workingCopyPath, 'Moving pages');
-            if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
-                throw new Error(
-                    `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
-                );
-            }
             const move = createPageMoveRanges(totalPages, ranges, insertAt);
             if (isPageMoveRangesNoOp(move)) {
-                return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, () => Promise.resolve({
+                return serializeWorkingCopyMutation(operation, mutationOptions, () => Promise.resolve({
                     success: true,
                     pageCount: move.pageCount,
                 }));
             }
-            return pageOps.reorder(
-                workingCopyPath,
-                buildPageMoveRangesOrder(move),
-                mutationOptions,
-            );
-        },
-        async insert(workingCopyPath, totalPages, afterPage, mutationOptions) {
+            return reorderPages(operation, buildPageMoveRangesOrder(move), mutationOptions);
+        }),
+        insert: withUserCancel(async (operation, _workingCopyPath: string, totalPages: number, afterPage: number, mutationOptions?: IPageOpsMutationOptions) => {
             const pickedFiles = await options.pickFiles({
                 accept: options.openInputAccept,
                 multiple: true,
@@ -626,200 +704,78 @@ export function createBrowserPageOpsCapability(
                 };
             }
 
-            const sourcePaths = await Promise.all(
-                pickedFiles.map(async (picked) =>
-                    browserDocumentStore.registerFile(picked.file, {
-                        kind: 'source',
-                        retention: 'transient',
-                        saveKind: 'generic',
-                        saveHandle: picked.handle ?? null,
-                    }),
-                ),
+            // The insertion reads from the picked files, as desktop reads their
+            // paths: no stored document waits in the edit queue, where storage
+            // maintenance could collect it. Several files are combined first.
+            const [single] = pickedFiles;
+            const insertion = pickedFiles.length === 1 && single && /\.pdf$/iu.test(single.file.name)
+                ? single.file
+                : new Blob([toBrowserOwnedArrayBuffer(await combinePickedFiles(pickedFiles, operation.controller.signal))]);
+            return insertPages(
+                operation,
+                totalPages,
+                afterPage,
+                async () => new Uint8Array(await insertion.arrayBuffer()),
+                mutationOptions,
             );
-
-            try {
-                return await pageOps.insertFile(
-                    workingCopyPath,
-                    totalPages,
-                    afterPage,
-                    sourcePaths,
-                    undefined,
-                    mutationOptions,
-                );
-            } finally {
-                await Promise.allSettled(
-                    sourcePaths.map(async (sourcePath) => {
-                        await browserDocumentStore.cleanupDetachedDocument(sourcePath);
-                    }),
-                );
-            }
-        },
-        async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths, requestId, mutationOptions) {
-            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                await ensurePdfWithinBudget(
-                    workingCopyPath,
-                    'Inserting pages',
-                    BROWSER_PAGE_OP_INSERT_MAX_BYTES,
-                );
-                await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
-                const [
-                    { size },
-                    totalInputBytes,
-                ] = await Promise.all([
-                    browserDocumentStore.stat(workingCopyPath),
-                    getCombinedInputBytes(sourcePaths),
-                ]);
-                if (size + totalInputBytes > BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES) {
-                    throw buildBrowserPageOpJobLimitError(
-                        'Inserting pages',
-                        BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES,
-                    );
-                }
-                const workerAvailable = canUseBrowserPageOpsWorker();
-                if (
-                    !workerAvailable
-                    && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
-                ) {
-                    throw buildBrowserPageOpLimitError(
-                        'Inserting pages',
-                        BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-                    );
-                }
-                const destinationData = await readWorkingCopyBytes(workingCopyPath);
-                const insertionData = await readInsertionBytes(sourcePaths, requestId);
-
-                let result: IBrowserPageOpsWorkerResultMap['insertPages'];
-                if (workerAvailable) {
-                    try {
-                        result = await runBrowserPageOpsWorkerRequest('insertPages', {
-                            data: destinationData,
-                            insertionData,
-                            afterPage,
-                        });
-                    } catch (error) {
-                        if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
-                            throw error;
-                        }
-                        if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
-                            throw buildBrowserPageOpLimitError(
-                                'Inserting pages',
-                                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-                            );
-                        }
-                        const directDestinationData = await readWorkingCopyBytes(workingCopyPath);
-                        const directInsertionData = await readInsertionBytes(sourcePaths, requestId);
-                        result = await runDirectPdfOperation(async () => {
-                            const { insertPdfPages } = await loadBrowserPageOpsCore();
-                            return insertPdfPages(
-                                directDestinationData,
-                                directInsertionData,
-                                afterPage,
-                            );
-                        });
-                    }
-                } else {
-                    result = await runDirectPdfOperation(async () => {
-                        const { insertPdfPages } = await loadBrowserPageOpsCore();
-                        return insertPdfPages(
-                            destinationData,
-                            insertionData,
-                            afterPage,
-                        );
-                    });
-                }
-                return writePageMutationResult(
-                    workingCopyPath,
-                    result.data,
-                    result.pageCount,
-                    mutationOptions,
-                    'Inserting pages',
-                    createInsertPageIdentityDelta(
-                        _totalPages,
-                        afterPage,
-                        result.pageCount - _totalPages,
-                    ),
-                );
+        }),
+        insertFile: withUserCancel((operation, _workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[], requestId?: TRequestId, mutationOptions?: IPageOpsMutationOptions) => (
+            insertPages(
+                operation,
+                totalPages,
+                afterPage,
+                destinationBytes => readInsertionBytes(sourcePaths, requestId, destinationBytes, operation.controller.signal),
+                mutationOptions,
+            )
+        )),
+        rotate: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, angle: TPageOpsRotationAngle, mutationOptions?: IPageOpsMutationOptions) => {
+            const selectedPages = materializePageSelection(pages, totalPages, 'Rotating pages');
+            return rewriteSelectedPages(operation, selectedPages, mutationOptions, 'rotate', data => ({
+                data,
+                pages: selectedPages,
+                angle,
+            }), async (data) => {
+                const { rotatePdfBytes } = await loadBrowserPageOpsCore();
+                return rotatePdfBytes(data, selectedPages, angle);
             });
-        },
-        async rotate(workingCopyPath, pages, _totalPages, angle, mutationOptions) {
-            const selectedPages = materializePageSelection(pages, _totalPages, 'Rotating pages');
-            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                const result = await runWorkerBackedPdfOperation({
-                    path: workingCopyPath,
-                    label: 'Rotating pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                    type: 'rotate',
-                    createPayload: (data) => ({
-                        data,
-                        pages: selectedPages,
-                        angle,
-                    }),
-                    runDirect: async (data) => {
-                        const { rotatePdfBytes } = await loadBrowserPageOpsCore();
-                        return rotatePdfBytes(data, selectedPages, angle);
-                    },
-                });
-                return writePageMutationResult(
-                    workingCopyPath,
-                    result.data,
-                    result.pageCount,
-                    mutationOptions,
-                    'Rotating pages',
-                );
-            });
-        },
-        async crop(workingCopyPath, pages, _totalPages, margins, mutationOptions) {
-            const selectedPages = materializePageSelection(pages, _totalPages, 'Cropping pages');
+        }),
+        crop: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, margins: ICropMargins, mutationOptions?: IPageOpsMutationOptions) => {
+            const selectedPages = materializePageSelection(pages, totalPages, 'Cropping pages');
             const normalizedMargins = normalizeCropMargins(margins);
-            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                const result = await runWorkerBackedPdfOperation({
-                    path: workingCopyPath,
-                    label: 'Cropping pages',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                    type: 'crop',
-                    createPayload: (data) => ({
-                        data,
-                        pages: selectedPages,
-                        margins: normalizedMargins,
-                    }),
-                    runDirect: async (data) => {
-                        const { cropPdfBytes } = await loadBrowserPageOpsCore();
-                        return cropPdfBytes(data, selectedPages, normalizedMargins);
-                    },
-                });
-                return writePageMutationResult(
-                    workingCopyPath,
-                    result.data,
-                    result.pageCount,
-                    mutationOptions,
-                    'Cropping pages',
-                );
+            return rewriteSelectedPages(operation, selectedPages, mutationOptions, 'crop', data => ({
+                data,
+                pages: selectedPages,
+                margins: normalizedMargins,
+            }), async (data) => {
+                const { cropPdfBytes } = await loadBrowserPageOpsCore();
+                return cropPdfBytes(data, selectedPages, normalizedMargins);
             });
-        },
-        async removeCrop(workingCopyPath, pages, _totalPages, mutationOptions) {
-            const selectedPages = materializePageSelection(pages, _totalPages, 'Removing crop');
-            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
-                const result = await runWorkerBackedPdfOperation({
-                    path: workingCopyPath,
-                    label: 'Removing crop',
-                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                    type: 'removeCrop',
-                    createPayload: (data) => ({
-                        data,
-                        pages: selectedPages,
-                    }),
-                    runDirect: async (data) => {
-                        const { removeCropPdfBytes } = await loadBrowserPageOpsCore();
-                        return removeCropPdfBytes(data, selectedPages);
-                    },
-                });
-                return writePageMutationResult(
-                    workingCopyPath,
-                    result.data,
-                    result.pageCount,
-                    mutationOptions,
-                    'Removing page crops',
-                );
+        }),
+        removeCrop: withUserCancel((operation, _workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, mutationOptions?: IPageOpsMutationOptions) => {
+            const selectedPages = materializePageSelection(pages, totalPages, 'Removing crop');
+            return rewriteSelectedPages(operation, selectedPages, mutationOptions, 'removeCrop', data => ({
+                data,
+                pages: selectedPages,
+            }), async (data) => {
+                const { removeCropPdfBytes } = await loadBrowserPageOpsCore();
+                return removeCropPdfBytes(data, selectedPages);
+            });
+        }),
+        cancelActive(workingCopyPath) {
+            let canceled = 0;
+            let committing = 0;
+            for (const operation of activePageOperations) {
+                if (operation.workingCopyPath !== workingCopyPath || operation.controller.signal.aborted) continue;
+                if (operation.committing) {
+                    committing += 1;
+                } else {
+                    operation.controller.abort(new DOMException('Page operation canceled by the user', 'AbortError'));
+                    canceled += 1;
+                }
+            }
+            return Promise.resolve({
+                canceled,
+                committing,
             });
         },
         async renderTextBoxAppearance(_workingCopyPath, request, options) {
@@ -836,8 +792,6 @@ export function createBrowserPageOpsCapability(
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
             return runWorkerBackedPdfOperation({
                 path: workingCopyPath,
-                label: 'Inspecting page geometry',
-                maxBytes: BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES,
                 type: 'getPageGeometry',
                 createPayload: (data) => ({
                     data,
@@ -852,8 +806,6 @@ export function createBrowserPageOpsCapability(
         async readOutline(workingCopyPath): Promise<IPdfBookmarkEntry[]> {
             const catalog = await runWorkerBackedPdfOperation({
                 path: workingCopyPath,
-                label: 'Reading bookmarks',
-                maxBytes: BROWSER_PAGE_OP_PDF_MAX_BYTES,
                 type: 'readCatalog',
                 createPayload: (data) => ({data}),
                 runDirect: async (data) => {

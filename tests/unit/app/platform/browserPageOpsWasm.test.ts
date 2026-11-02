@@ -6,11 +6,14 @@ import {
     PDFDocument,
     PDFHexString,
     degrees,
+    decodePDFRawStream,
     PDFName,
     PDFNumber,
     PDFRef,
     PDFRawStream,
     PDFString,
+    rgb,
+    StandardFonts,
 } from 'pdf-lib';
 
 import {
@@ -25,9 +28,20 @@ import type { IPageGeometry } from '@contracts/shared';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {
+    SPLIT_PAGES_INSTRUCTIONS_SCHEMA,
+    OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
+    RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA,
+    REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
+} from '@contracts/browserPageOpsWriters';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
+import {
+    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
+    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+} from '@contracts/pdfAnnotationParseTypes';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
 const NativeWebAssembly = WebAssembly;
 
@@ -347,6 +361,29 @@ describe('browser page-ops WASM fast path', () => {
         vi.unstubAllGlobals();
     });
 
+    it('judges only the live append-admission allocation with its matching pointer and length', async () => {
+        const bytes = await createPdf({pageWidths: [200]});
+        const module = await NativeWebAssembly.compile(await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm')));
+        const {exports} = await NativeWebAssembly.instantiate(module, {});
+        const memory = exports.memory;
+        const alloc = exports.evb_pdf_page_ops_alloc;
+        const free = exports.evb_pdf_page_ops_free;
+        const admit = exports.evb_pdf_page_ops_append_admission;
+        if (!(memory instanceof NativeWebAssembly.Memory) || typeof alloc !== 'function'
+            || typeof free !== 'function' || typeof admit !== 'function') {
+            throw new Error('Missing append-admission WASM exports');
+        }
+        const pointer = Number(alloc(bytes.byteLength));
+        try {
+            new Uint8Array(memory.buffer, pointer, bytes.byteLength).set(bytes);
+            expect(admit(pointer, bytes.byteLength - 1)).toBe(-1);
+            expect(admit(pointer + 1, bytes.byteLength)).toBe(-1);
+            expect(admit(pointer, bytes.byteLength)).toBe(0);
+        } finally {
+            free(pointer, bytes.byteLength);
+        }
+    });
+
     it('returns a reopenable source-free text appearance and its native fit', async () => {
         const {run} = await loadWasmRunner();
         const result = await run('textBoxAppearance', {
@@ -566,6 +603,50 @@ describe('browser page-ops WASM fast path', () => {
         }
     });
 
+    it('inspects every page, or the requested ones, as desktop scan cleanup reads its page geometry', async () => {
+        const wasm = await loadWasmRunner();
+        const data = await createPdf({
+            pageWidths: [
+                200,
+                300,
+            ],
+            cropSecondPage: true,
+            rotateSecondPage: true,
+        });
+
+        const inspected = await wasm.run('inspectScanCleanupPdf', {
+            data,
+            pages: [],
+        });
+        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
+        expect(inspected.pageCount).toBe(2);
+        const pages = inspected.pages.map(page => decodePdfPageSizeRecord(page, inspected.pageCount, 'page'));
+        expect(pages[0]).toMatchObject({
+            pageNumber: 1,
+            widthPoints: 200,
+            heightPoints: 100,
+            rotation: 0,
+        });
+        // The second page's view is its CropBox inside the MediaBox it keeps.
+        expect(pages[1]).toMatchObject({
+            pageNumber: 2,
+            xPoints: 10,
+            yPoints: 12,
+            widthPoints: 270,
+            heightPoints: 80,
+            rotation: 90,
+            mediaWidthPoints: 300,
+            mediaHeightPoints: 120,
+        });
+
+        const selected = await wasm.run('inspectScanCleanupPdf', {
+            data,
+            pages: [2],
+        });
+        if (selected === null || 'status' in selected) throw new Error('inspection failed');
+        expect(selected.pages.map(page => decodePdfPageSizeRecord(page, selected.pageCount, 'page'))).toEqual([pages[1]]);
+    });
+
     it('decrypts an encrypted PDF through WASM operation 9 with the correct password', async () => {
         const encryptedPdf = await readPasswordProtectedPdf();
         const wasm = await loadWasmRunner();
@@ -623,6 +704,56 @@ describe('browser page-ops WASM fast path', () => {
             'lifecycle-text-box-two',
         ]);
         expect(parsed.foreign).toEqual([]);
+    });
+
+    it('decodes annotation parse output of any total size and keeps the desktop entry limit', async () => {
+        const data = new Uint8Array(await readFile(join(
+            process.cwd(),
+            'tests/fixtures/electron/freetext-lifecycle-test.pdf',
+        )));
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('parseAnnotations', {data});
+        if (result === null || 'status' in result) {
+            throw new Error('Expected annotation parse WASM output');
+        }
+        const [
+            header,
+            firstChunk,
+        ] = new TextDecoder().decode(result.data).split('\n');
+        const note = (JSON.parse(firstChunk!) as {entries: Array<Record<string, unknown>>}).entries[0]!;
+        const output = (entryCount: number, entriesPerLine: number, entry: unknown = note) => {
+            const lines = [header!];
+            for (let offset = 0; offset < entryCount; offset += entriesPerLine) {
+                lines.push(JSON.stringify({
+                    chunkIndex: lines.length - 1,
+                    entries: new Array(Math.min(entriesPerLine, entryCount - offset)).fill(entry),
+                }));
+            }
+            return new TextEncoder().encode(`${lines.join('\r\n')}\n`);
+        };
+
+        // Desktop reads its parse session without a total byte limit.
+        const longNote = {
+            ...note,
+            contents: 'Long note text. '.repeat(500),
+        };
+        const large = output(2_500, 400, longNote);
+        expect(large.byteLength).toBeGreaterThan(16 * 1024 * 1024);
+        const parsed = decodeBrowserPdfAnnotationsOutput(large);
+        expect(parsed.entities).toHaveLength(2_500);
+        expect(parsed.entities.at(-1)).toEqual(longNote);
+
+        expect(() => decodeBrowserPdfAnnotationsOutput(output(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1, 2_000)))
+            .toThrow(`contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`);
+        const longLine = new TextEncoder().encode(`${header}\n${JSON.stringify({
+            chunkIndex: 0,
+            entries: [],
+            padding: 'x'.repeat(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES),
+        })}\n`);
+        expect(decodeBrowserPdfAnnotationsOutput(output(1, 1)).entities).toEqual([note]);
+        expect(() => decodeBrowserPdfAnnotationsOutput(longLine)).toThrow('line 2 exceeds');
+        expect(() => decodeBrowserPdfAnnotationsOutput(Uint8Array.of(...new TextEncoder().encode(`${header}\n`), 0xff, 0x0a)))
+            .toThrow('not valid UTF-8');
     });
 
     it('matches pdf-lib page summaries for representative operations', async () => {
@@ -901,6 +1032,44 @@ describe('browser page-ops WASM fast path', () => {
         expect(sourcePdf).toEqual(sourceSnapshot);
     });
 
+    it('merges more than 500 documents and reads catalogs of more than 500 pages, as desktop does', async () => {
+        const wasm = await loadWasmRunner();
+        const onePage = await createPdf({pageWidths: [200]});
+        const mergedResult = await wasm.run('mergePages', {documents: Array.from({length: 600}, () => onePage.slice())});
+        assertSuccessfulWasmMutation(mergedResult);
+        expect(mergedResult.pageCount).toBe(600);
+        expect((await PDFDocument.load(mergedResult.data)).getPageCount()).toBe(600);
+        await expect(wasm.run('readCatalog', {data: mergedResult.data})).resolves.toMatchObject({bookmarks: []});
+        await expect(wasm.run('conformance', {data: mergedResult.data})).resolves.toMatchObject({isEncrypted: false});
+    });
+
+    it('reads more than 2,048 page-label ranges, as desktop does', async () => {
+        const wasm = await loadWasmRunner();
+        const pdfDocument = await PDFDocument.create();
+        const nums = [];
+        for (let pageIndex = 0; pageIndex < 3_000; pageIndex += 1) {
+            pdfDocument.addPage([
+                100,
+                100,
+            ]);
+            nums.push(PDFNumber.of(pageIndex), pdfDocument.context.obj({
+                S: PDFName.of(pageIndex % 2 === 0 ? 'D' : 'r'),
+                P: PDFString.of(`part-${pageIndex}-`),
+            }));
+        }
+        pdfDocument.catalog.set(PDFName.of('PageLabels'), pdfDocument.context.obj({Nums: pdfDocument.context.obj(nums)}));
+        const catalog = await wasm.run('readCatalog', {data: await pdfDocument.save()});
+        if (catalog === null || 'status' in catalog || !catalog.pageLabels) {
+            throw new Error('Expected the browser page-ops catalog to read the page labels');
+        }
+        expect(catalog.pageLabels).toHaveLength(3_000);
+        expect(catalog.pageLabels[2_999]).toMatchObject({
+            pageIndex: 2_999,
+            style: 'r',
+            prefix: 'part-2999-',
+        });
+    });
+
     it('preserves and offsets catalogs from every document in mergePages', async () => {
         const sourcePdf = await createMetadataPdf();
         const wasm = await loadWasmRunner();
@@ -1159,6 +1328,348 @@ describe('browser page-ops WASM fast path', () => {
             orientation: 'auto',
         });
         expect(facing.pageCount).toBe(2);
+    });
+
+    it('rejects unknown writer instruction fields instead of silently stripping them', () => {
+        const cropRect = {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 120,
+        };
+        const output = {cropRect};
+        const page = {
+            sourcePageIndex: 0,
+            rotationQuarterTurns: 0,
+            outputs: [output],
+        };
+        const split = {pages: [page]};
+        expect(v.parse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, split)).toEqual(split);
+        for (const instructions of [
+            {
+                ...split,
+                unexpected: true,
+            },
+            {pages: [{
+                ...page,
+                unexpected: true,
+            }]},
+            {pages: [{
+                ...page,
+                outputs: [{
+                    ...output,
+                    unexpected: true,
+                }],
+            }]},
+            {pages: [{
+                ...page,
+                outputs: [{cropRect: {
+                    ...cropRect,
+                    unexpected: true,
+                }}],
+            }]},
+            {pages: [{
+                ...page,
+                outputs: [{
+                    ...output,
+                    contentTransform: {
+                        scale: 1,
+                        translateX: 0,
+                        translateY: 0,
+                        unexpected: true,
+                    },
+                }],
+            }]},
+        ]) expect(v.safeParse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        const overlayPage = {
+            sourcePageIndex: 0,
+            outputPageIndex: 0,
+            matrix: [
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ],
+        };
+        for (const instructions of [
+            {
+                pages: [overlayPage],
+                unexpected: true,
+            },
+            {pages: [{
+                ...overlayPage,
+                unexpected: true,
+            }]},
+            {pages: [{
+                ...overlayPage,
+                sourceRegion: {
+                    rect: cropRect,
+                    matrix: overlayPage.matrix,
+                    unexpected: true,
+                },
+            }]},
+            {pages: [{
+                ...overlayPage,
+                sourceRegion: {
+                    rect: {
+                        ...cropRect,
+                        unexpected: true,
+                    },
+                    matrix: overlayPage.matrix,
+                },
+            }]},
+        ]) expect(v.safeParse(OVERLAY_TEXT_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        expect(v.safeParse(RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA, {
+            targetDpi: 150,
+            quality: 80,
+            maxByteRatio: 0.9,
+            unexpected: true,
+        }).success).toBe(false);
+        for (const instructions of [
+            {
+                maxByteRatio: 0.9,
+                pages: [],
+                unexpected: true,
+            },
+            {
+                maxByteRatio: 0.9,
+                pages: [{
+                    pageNumber: 1,
+                    replacement: 0,
+                    replacementPageNumber: 1,
+                    unexpected: true,
+                }],
+            },
+        ]) expect(v.safeParse(REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+    });
+
+    it('splits a scan and overlays its source text through the scan-cleanup writers', async () => {
+        const source = await PDFDocument.create();
+        const font = await source.embedFont(StandardFonts.Helvetica);
+        for (const label of [
+            'Left',
+            'Whole',
+        ]) {
+            source.addPage([
+                200,
+                120,
+            ]).drawText(`${label} source text`, {
+                x: 10,
+                y: 60,
+                size: 10,
+                font,
+            });
+        }
+        const sourceData = new Uint8Array(await source.save());
+        const core = await loadCoreWithWasm();
+
+        const split = await core.splitPdfPages(sourceData, {
+            catalog: 'assembly',
+            pages: [
+                {
+                    sourcePageIndex: 0,
+                    rotationQuarterTurns: 0,
+                    outputs: [
+                        {cropRect: {
+                            x: 0,
+                            y: 0,
+                            width: 100,
+                            height: 120,
+                        }},
+                        {cropRect: {
+                            x: 100,
+                            y: 0,
+                            width: 100,
+                            height: 120,
+                        }},
+                    ],
+                },
+                {
+                    sourcePageIndex: 1,
+                    rotationQuarterTurns: 0,
+                    outputs: [{cropRect: {
+                        x: 0,
+                        y: 0,
+                        width: 200,
+                        height: 120,
+                    }}],
+                },
+            ],
+        });
+        expect(split.pageCount).toBe(3);
+        expect(split.report).toEqual({});
+        expect((await summarizePdf(split.data)).map(page => Math.round((page.cropBox ?? page.mediaBox).width)))
+            .toEqual([
+                100,
+                100,
+                200,
+            ]);
+
+        // Cleaned output pages carry no text until the overlay copies it.
+        const staged = await PDFDocument.create();
+        for (const width of [
+            100,
+            100,
+            200,
+        ]) {
+            staged.addPage([
+                width,
+                120,
+            ]);
+        }
+        const identity: [number, number, number, number, number, number] = [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+        ];
+        const overlaid = await core.overlayPdfTextLayers(new Uint8Array(await staged.save()), sourceData, {
+            provenanceStampHex: '54455354',
+            pages: [
+                {
+                    sourcePageIndex: 0,
+                    outputPageIndex: 0,
+                    matrix: identity,
+                },
+                {
+                    sourcePageIndex: 1,
+                    outputPageIndex: 2,
+                    matrix: identity,
+                },
+            ],
+        });
+        expect(overlaid.pageCount).toBe(3);
+        expect(overlaid.report).toEqual({});
+        const output = await PDFDocument.load(overlaid.data);
+        const info = output.context.lookup(output.context.trailerInfo.Info, PDFDict);
+        expect(info.lookup(PDFName.of('EVBScanCleanup'), PDFString).decodeText()).toBe('54455354');
+        const pageText = (index: number) => {
+            const contents = output.getPage(index).node.Contents();
+            if (contents === undefined) return '';
+            const streams = contents instanceof PDFArray
+                ? contents.asArray().map(ref => output.context.lookup(ref))
+                : [contents];
+            return streams.map((stream) => {
+                if (!(stream instanceof PDFRawStream)) throw new Error('Expected an encoded content stream');
+                return new TextDecoder().decode(decodePDFRawStream(stream).decode());
+            }).join('\n');
+        };
+        expect(pageText(0)).toMatch(/T[jJ]/);
+        expect(pageText(1)).not.toMatch(/T[jJ]/);
+        expect(pageText(2)).toMatch(/T[jJ]/);
+    });
+
+    it('recompresses page images and returns only the revision to append', async () => {
+        const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
+        const document = await PDFDocument.create();
+        const image = await document.embedJpg(jpeg);
+        document.addPage([
+            200,
+            218,
+        ]).drawImage(image, {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 218,
+        });
+        const data = new Uint8Array(await document.save());
+        const core = await loadCoreWithWasm();
+
+        const kept = await core.recompressPdfImages(data, {
+            targetDpi: 72,
+            quality: 60,
+            maxByteRatio: 0.0001,
+        });
+        expect(kept.data.byteLength).toBe(0);
+        expect(kept.report.pages).toEqual([]);
+        expect(kept.report.images.map(entry => entry.outcome)).toEqual(['not-smaller']);
+
+        const recompressed = await core.recompressPdfImages(data, {
+            targetDpi: 72,
+            quality: 60,
+            maxByteRatio: 0.9,
+        });
+        expect(recompressed.pageCount).toBe(1);
+        expect(recompressed.report.pages).toEqual([1]);
+        const [entry] = recompressed.report.images;
+        expect(entry?.outcome).toBe('recompressed');
+        expect(entry!.recompressedBytes).toBeLessThan(entry!.sourceBytes);
+        const saved = new Uint8Array(data.byteLength + recompressed.data.byteLength);
+        saved.set(data);
+        saved.set(recompressed.data, data.byteLength);
+        const reopened = await PDFDocument.load(saved);
+        const stored = reopened.context.lookup(PDFRef.of(entry!.objectNumber));
+        if (!(stored instanceof PDFRawStream)) throw new Error('Expected the recompressed image stream');
+        expect(stored.getContentsSize()).toBe(entry!.recompressedBytes);
+    });
+
+    it('replaces a scanned page image from an attached replacement PDF', async () => {
+        const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
+        const scan = await PDFDocument.create();
+        scan.addPage([
+            200,
+            218,
+        ]).drawImage(await scan.embedJpg(jpeg), {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 218,
+        });
+        const data = new Uint8Array(await scan.save());
+        // A compact re-encoding of the page; a filled page view stands in for it.
+        const replacement = await PDFDocument.create();
+        replacement.addPage([
+            200,
+            218,
+        ]).drawRectangle({
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 218,
+            color: rgb(0.9, 0.9, 0.9),
+        });
+        const replacementData = new Uint8Array(await replacement.save());
+        const core = await loadCoreWithWasm();
+
+        const replaced = await core.replacePdfPageImages(data, [replacementData], {
+            maxByteRatio: 0.9,
+            pages: [{
+                pageNumber: 1,
+                replacement: 0,
+                replacementPageNumber: 1,
+            }],
+        });
+        expect(replaced.report.pages.map(page => page.outcome)).toEqual(['replaced']);
+        expect(replaced.data.byteLength).toBeGreaterThan(0);
+        const saved = new Uint8Array(data.byteLength + replaced.data.byteLength);
+        saved.set(data);
+        saved.set(replaced.data, data.byteLength);
+        expect((await PDFDocument.load(saved)).getPageCount()).toBe(1);
+
+        await expect(core.replacePdfPageImages(data, [], {
+            maxByteRatio: 0.9,
+            pages: [{
+                pageNumber: 1,
+                replacement: 0,
+                replacementPageNumber: 1,
+            }],
+        })).rejects.toThrow('does not carry');
+        await expect(core.overlayPdfTextLayers(data, data, {pages: [{
+            sourcePageIndex: 0,
+            outputPageIndex: 0,
+            matrix: [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        }]})).rejects.toThrow('invertible');
     });
 
     it('rejects delete-all through native page-ops WASM before saving a zero-page PDF', async () => {

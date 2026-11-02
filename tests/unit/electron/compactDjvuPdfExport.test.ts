@@ -792,7 +792,13 @@ function djvuDump(pages: ITestDumpPage[]) {
                 lines.push('      FG44 [420]        IW4 data #1, 12 slices, v1.2 (color), 100x133');
             }
             if (page.background) {
-                lines.push('      BG44 [8674]       IW4 data #1, 72 slices, v1.2 (color), 400x533');
+                // A progressive background, as c44 writes it: only the first
+                // chunk states the layer's size.
+                lines.push(
+                    '      BG44 [8674]       IW4 data #1, 72 slices, v1.2 (color), 400x533',
+                    '      BG44 [1373]       IW4 data #2, 15 slices',
+                    '      BG44 [1416]       IW4 data #3, 10 slices',
+                );
             }
             return lines;
         }),

@@ -1,5 +1,5 @@
 import {
-    mkdirSync, writeFileSync,
+    mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import {resolve} from 'node:path';
 import type {Page} from 'playwright';
@@ -7,7 +7,7 @@ import {
     afterAll, describe, expect, it,
 } from 'vitest';
 import {
-    lifecycle, waitForOpenFileReady, keepFileChooserInterceptionEnabled,
+    lifecycle, openPdfFromChooser, waitForOpenFileReady, keepFileChooserInterceptionEnabled,
 } from './documentLifecycleTestHelpers';
 
 // Public two-page regression PDF. Subsets of DejaVu Sans, Noto Serif Hebrew
@@ -324,4 +324,129 @@ describe.each([
         }
     }, 180000);
 
+});
+
+// I1 and R2: OCR search responds with the recognized word, then navigates to
+// its painted glyphs. The same saved bytes must work in a new browser context.
+describe('saved RTL OCR search', () => {
+    it('finds Arabic and pointed Hebrew OCR words with highlights after reopening saved bytes', async () => {
+        const evidence = process.env.EVB_RTL_SEARCH_EVIDENCE_DIR;
+        if (evidence) mkdirSync(evidence, {recursive: true});
+        const saved = readFileSync(resolve('tests/fixtures/browser/rtl-ocr/saved-rtl-ocr.pdf'));
+        for (const opening of [
+            'initial',
+            'reopened',
+        ]) {
+            const page = await lifecycle.browser.newPage({viewport: {
+                width: 1440,
+                height: 1000,
+            }});
+            try {
+                await page.addInitScript(() => localStorage.setItem('pdfHighlightMode', 'dom'));
+                await openPdfFromChooser(page, {
+                    name: 'saved-rtl-ocr.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: saved,
+                });
+                await page.locator('.page_container--rendered canvas').first().waitFor();
+                const searchTab = page.getByRole('tab', {
+                    name: 'Search',
+                    exact: true,
+                });
+                if (!await searchTab.isVisible()) {
+                    await page.getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    }).click();
+                }
+                await searchTab.click();
+                const input = page.locator('.document-search-bar input:visible').first();
+                for (const [
+                    index,
+                    query,
+                ] of [
+                        'السلام',
+                        'اللغة',
+                        'הַקְדְשָה',
+                    ].entries()) {
+                    await input.fill('');
+                    await input.press('Enter');
+                    await expect.poll(() => page.locator('.document-search-results').innerText()).toContain('Enter a search term');
+                    await input.pressSequentially(query);
+                    await input.press('Enter');
+                    await expect.poll(() => page.locator('.document-search-results').innerText()).toContain(`1 result for “${query}”`);
+                    await page.locator('.document-search-result:visible').click();
+                    const readHighlight = () => page.evaluate(word => {
+                        const pageNumber = /[\u0590-\u05ff]/u.test(word) ? 2 : 1;
+                        const container = document.querySelector(`.page_container[data-page="${pageNumber}"]`);
+                        const layer = container?.querySelector('.textLayer');
+                        const spans = [...layer?.querySelectorAll(':scope > span') ?? []];
+                        const clean = (text: string) => text.replace(/[\p{M}\s]/gu, '');
+                        const texts = spans.map(span => clean(span.textContent ?? ''));
+                        const start = texts.join('').indexOf(clean(word));
+                        let offset = 0;
+                        const glyphs = spans.filter((span, spanIndex) => {
+                            const before = offset;
+                            offset += texts[spanIndex]!.length;
+                            return start >= 0 && offset > start && before < start + clean(word).length;
+                        });
+                        const current = [...layer?.querySelectorAll('.pdf-search-highlight--current') ?? []];
+                        const union = (elements: Element[]) => {
+                            const rects = elements.map(element => element.getBoundingClientRect());
+                            return rects.length ? {
+                                left: Math.min(...rects.map(rect => rect.left)),
+                                right: Math.max(...rects.map(rect => rect.right)),
+                                top: Math.min(...rects.map(rect => rect.top)),
+                                bottom: Math.max(...rects.map(rect => rect.bottom)),
+                            } : null;
+                        };
+                        return {
+                            text: clean(current.map(element => element.textContent).join('')),
+                            wordBox: union(glyphs),
+                            highlightBox: union(current),
+                            pageNumber,
+                            canvasVisible: Boolean(container?.querySelector('canvas')),
+                            viewport: {
+                                width: window.innerWidth,
+                                height: window.innerHeight,
+                            },
+                        };
+                    }, query);
+                    await page.waitForFunction(pageNumber => document.querySelector(`.page_container[data-page="${pageNumber}"] .textLayer`)?.getAttribute('data-pdf-text-layer-ready') === 'true', index === 2 ? 2 : 1);
+                    await page.evaluate(async () => {
+                        const monitor = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {timeoutMs: number}) => Promise<{settled: boolean}>;};
+                        const outcome = await monitor.waitForSettled({timeoutMs: 10_000});
+                        if (!outcome.settled) throw new Error('Viewer did not settle after search navigation');
+                    });
+                    const paint = await readHighlight();
+                    if (evidence) {
+                        writeFileSync(resolve(evidence, `${opening}-${index}.json`), JSON.stringify({
+                            query,
+                            ...paint,
+                        }, null, 2));
+                        await page.screenshot({path: resolve(evidence, `${opening}-${index}.png`)});
+                    }
+                    expect.soft(paint.text, `${opening}: ${query}`).toBe(query.replace(/\p{M}/gu, ''));
+                    expect.soft(paint.canvasVisible).toBe(true);
+                    expect.soft(paint.wordBox).not.toBeNull();
+                    expect.soft(paint.highlightBox).not.toBeNull();
+                    if (!paint.wordBox || !paint.highlightBox) continue;
+                    const word = paint.wordBox;
+                    const highlight = paint.highlightBox;
+                    expect(highlight.right - highlight.left).toBeGreaterThan(0);
+                    expect(highlight.left).toBeGreaterThanOrEqual(0);
+                    expect(highlight.right).toBeLessThanOrEqual(paint.viewport.width);
+                    expect(highlight.top).toBeGreaterThanOrEqual(0);
+                    expect(highlight.bottom).toBeLessThanOrEqual(paint.viewport.height);
+                    expect(highlight.left).toBeLessThanOrEqual(word.left + 1);
+                    expect(highlight.right).toBeGreaterThanOrEqual(word.right - 1);
+                    expect(highlight.top).toBeLessThanOrEqual(word.top + 1);
+                    expect(highlight.bottom).toBeGreaterThanOrEqual(word.bottom - 1);
+                }
+            } finally {
+                if (evidence) await page.screenshot({path: resolve(evidence, `${opening}-final.png`)});
+                await page.context().close();
+            }
+        }
+    }, 90_000);
 });

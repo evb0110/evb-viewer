@@ -56,60 +56,92 @@ fn read_foreground_selection_with_limit(
     max_dimension: u32,
     max_compressed_bytes: usize,
 ) -> Result<GrayImage, RasterReadError> {
-    if path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("jb2e"))
-    {
+    if is_jbig2_selection_path(path) {
         let bytes = read_file_bounded(path, max_compressed_bytes, "raster input")
             .map_err(map_bounded_io_error)?;
-        let decoded = decode_pdf_generic_source(
-            &bytes,
-            DecodeLimits::new(max_pixels).with_max_dimension(max_dimension),
-        )
-        // A selection that exceeds the caller's dimension or pixel budget is a
-        // resource-limit rejection, not malformed input, so it must surface as
-        // TooLarge to match the explicit post-decode check below and the error
-        // taxonomy the batch adapter maps to NativeErrorCode::TooLarge. Only
-        // genuinely malformed JBIG2 stays Invalid.
-        .map_err(|error| match error {
-            Jbig2Error::InvalidDimensions { width, height }
-                if width > max_dimension || height > max_dimension =>
-            {
-                RasterReadError::TooLarge(format!(
-                    "decoded JBIG2 dimensions {width}x{height} exceed the limit of {max_dimension}"
-                ))
-            }
-            Jbig2Error::PixelLimitExceeded { pixels, maximum } => RasterReadError::TooLarge(
-                format!("decoded JBIG2 has {pixels} pixels, exceeding the limit of {maximum}"),
-            ),
-            other => RasterReadError::Invalid(other.to_string()),
-        })?;
-        // Defense in depth: the decoder already rejects oversized dimensions
-        // from the header before allocating, so this can no longer trip, but it
-        // keeps the guarantee explicit at the call site.
-        if decoded.width > max_dimension || decoded.height > max_dimension {
-            return Err(RasterReadError::TooLarge(format!(
-                "decoded JBIG2 dimensions {}x{} exceed the limit of {}",
-                decoded.width, decoded.height, max_dimension,
-            )));
-        }
-        let width = decoded.width as usize;
-        let height = decoded.height as usize;
-        let stride = width.div_ceil(8);
-        let mut samples = Vec::with_capacity(width.saturating_mul(height));
-        for y in 0..height {
-            for x in 0..width {
-                let bit = decoded.rows[y * stride + x / 8] & (0x80 >> (x % 8));
-                // JBIG2 bitmap one is a black PDF sample (zero opacity in a
-                // default DeviceGray soft mask); bitmap zero is white/opaque.
-                samples.push(if bit == 0 { 255 } else { 0 });
-            }
-        }
-        return GrayImage::from_vec(width, height, width, samples).ok_or_else(|| {
-            RasterReadError::Invalid("decoded JBIG2 selection has invalid dimensions".to_string())
-        });
+        return decode_jbig2_selection(&bytes, max_pixels, max_dimension);
     }
     read_gray(path, max_pixels, max_dimension)
+}
+
+/// A selection mask extracted as a PDF JBIG2 generic region rather than a
+/// raster; nothing in its bytes says so, so its file type names it.
+pub fn is_jbig2_selection_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jb2e"))
+}
+
+/// Decodes a selection mask the caller already holds, as
+/// [`read_foreground_selection`] decodes the file: a JBIG2 generic region when
+/// `jbig2` is set, otherwise a PNG or PPM raster.
+pub fn decode_foreground_selection_bytes(
+    bytes: &[u8],
+    jbig2: bool,
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, RasterReadError> {
+    if !jbig2 {
+        return decode_gray_bytes(bytes, max_pixels, max_dimension);
+    }
+    if bytes.len() > MAX_COMPRESSED_BYTES {
+        return Err(RasterReadError::TooLarge(format!(
+            "raster input exceeds the {MAX_COMPRESSED_BYTES}-byte admission ceiling"
+        )));
+    }
+    decode_jbig2_selection(bytes, max_pixels, max_dimension)
+}
+
+fn decode_jbig2_selection(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, RasterReadError> {
+    let decoded = decode_pdf_generic_source(
+        bytes,
+        DecodeLimits::new(max_pixels).with_max_dimension(max_dimension),
+    )
+    // A selection that exceeds the caller's dimension or pixel budget is a
+    // resource-limit rejection, not malformed input, so it must surface as
+    // TooLarge to match the explicit post-decode check below and the error
+    // taxonomy the batch adapter maps to NativeErrorCode::TooLarge. Only
+    // genuinely malformed JBIG2 stays Invalid.
+    .map_err(|error| match error {
+        Jbig2Error::InvalidDimensions { width, height }
+            if width > max_dimension || height > max_dimension =>
+        {
+            RasterReadError::TooLarge(format!(
+                "decoded JBIG2 dimensions {width}x{height} exceed the limit of {max_dimension}"
+            ))
+        }
+        Jbig2Error::PixelLimitExceeded { pixels, maximum } => RasterReadError::TooLarge(format!(
+            "decoded JBIG2 has {pixels} pixels, exceeding the limit of {maximum}"
+        )),
+        other => RasterReadError::Invalid(other.to_string()),
+    })?;
+    // Defense in depth: the decoder already rejects oversized dimensions
+    // from the header before allocating, so this can no longer trip, but it
+    // keeps the guarantee explicit at the call site.
+    if decoded.width > max_dimension || decoded.height > max_dimension {
+        return Err(RasterReadError::TooLarge(format!(
+            "decoded JBIG2 dimensions {}x{} exceed the limit of {}",
+            decoded.width, decoded.height, max_dimension,
+        )));
+    }
+    let width = decoded.width as usize;
+    let height = decoded.height as usize;
+    let stride = width.div_ceil(8);
+    let mut samples = Vec::with_capacity(width.saturating_mul(height));
+    for y in 0..height {
+        for x in 0..width {
+            let bit = decoded.rows[y * stride + x / 8] & (0x80 >> (x % 8));
+            // JBIG2 bitmap one is a black PDF sample (zero opacity in a
+            // default DeviceGray soft mask); bitmap zero is white/opaque.
+            samples.push(if bit == 0 { 255 } else { 0 });
+        }
+    }
+    GrayImage::from_vec(width, height, width, samples).ok_or_else(|| {
+        RasterReadError::Invalid("decoded JBIG2 selection has invalid dimensions".to_string())
+    })
 }
 
 pub fn read_image(
@@ -127,6 +159,41 @@ pub fn read_image(
     .map_err(map_decoder_error)
 }
 
+/// Decodes a raster the caller already holds, sniffing PNG or PPM P6 by
+/// signature exactly as [`read_image`] does for a file.
+pub fn decode_image_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<DecodedRaster, RasterReadError> {
+    let limits = decode_limits(max_pixels, max_dimension);
+    if is_ppm_signature(bytes) {
+        decode_ppm(Cursor::new(bytes), limits)
+    } else {
+        decode_png(Cursor::new(bytes), limits)
+    }
+    .map_err(map_decoder_error)
+}
+
+/// The gray plane of [`decode_image_bytes`], decoded as [`read_gray`] does.
+pub fn decode_gray_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, RasterReadError> {
+    let limits = decode_limits(max_pixels, max_dimension);
+    if is_ppm_signature(bytes) {
+        decode_ppm_gray(Cursor::new(bytes), limits)
+    } else {
+        decode_png_gray(Cursor::new(bytes), limits)
+    }
+    .map_err(map_decoder_error)
+}
+
+fn is_ppm_signature(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"P6")
+}
+
 pub fn read_dimensions(
     path: &Path,
     max_pixels: u64,
@@ -142,48 +209,94 @@ pub fn read_dimensions(
     .map_err(map_decoder_error)
 }
 
+/// The dimensions of a raster the caller already holds, read as
+/// [`read_dimensions`] reads a file's.
+pub fn decode_dimensions_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<(usize, usize), RasterReadError> {
+    let limits = decode_limits(max_pixels, max_dimension);
+    if is_ppm_signature(bytes) {
+        read_ppm_dimensions(Cursor::new(bytes), limits)
+    } else {
+        read_png_dimensions(Cursor::new(bytes), limits)
+    }
+    .map_err(map_decoder_error)
+}
+
 pub fn write_rgb_ppm_atomic(path: &Path, image: &RgbImage) -> Result<(), String> {
     validate_dimensions(image.width(), image.height())?;
-    write_atomic_with(path, |file| {
-        write!(file, "P6\n{} {}\n255\n", image.width(), image.height())
-            .map_err(|error| error.to_string())?;
-        file.write_all(image.data())
-            .map_err(|error| error.to_string())
-    })
+    write_atomic_with(path, |file| write_rgb_ppm(file, image))
+}
+
+/// The bytes [`write_rgb_ppm_atomic`] writes.
+pub fn encode_rgb_ppm(image: &RgbImage) -> Result<Vec<u8>, String> {
+    validate_dimensions(image.width(), image.height())?;
+    let mut bytes = Vec::with_capacity(image.data().len() + 32);
+    write_rgb_ppm(&mut bytes, image)?;
+    Ok(bytes)
+}
+
+fn write_rgb_ppm(out: &mut impl Write, image: &RgbImage) -> Result<(), String> {
+    write!(out, "P6\n{} {}\n255\n", image.width(), image.height())
+        .map_err(|error| error.to_string())?;
+    out.write_all(image.data())
+        .map_err(|error| error.to_string())
 }
 
 pub fn write_gray_ppm_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
     validate_dimensions(image.width(), image.height())?;
+    write_atomic_with(path, |file| write_gray_ppm(file, image))
+}
+
+/// The bytes [`write_gray_ppm_atomic`] writes.
+pub fn encode_gray_ppm(image: &GrayImage) -> Result<Vec<u8>, String> {
+    validate_dimensions(image.width(), image.height())?;
+    let mut bytes = Vec::with_capacity(image.width() * image.height() * 3 + 32);
+    write_gray_ppm(&mut bytes, image)?;
+    Ok(bytes)
+}
+
+fn write_gray_ppm(out: &mut impl Write, image: &GrayImage) -> Result<(), String> {
     let row_bytes = image
         .width()
         .checked_mul(3)
         .ok_or_else(|| "grayscale PPM row is too wide".to_string())?;
-    write_atomic_with(path, |file| {
-        write!(file, "P6\n{} {}\n255\n", image.width(), image.height())
-            .map_err(|error| error.to_string())?;
-        let mut row = vec![0; row_bytes];
-        for y in 0..image.height() {
-            let source = image.row(y);
-            for (target, value) in row.chunks_exact_mut(3).zip(source.iter().copied()) {
-                target.fill(value);
-            }
-            file.write_all(&row).map_err(|error| error.to_string())?;
+    write!(out, "P6\n{} {}\n255\n", image.width(), image.height())
+        .map_err(|error| error.to_string())?;
+    let mut row = vec![0; row_bytes];
+    for y in 0..image.height() {
+        let source = image.row(y);
+        for (target, value) in row.chunks_exact_mut(3).zip(source.iter().copied()) {
+            target.fill(value);
         }
-        Ok(())
-    })
+        out.write_all(&row).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn write_gray_pgm_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
     validate_dimensions(image.width(), image.height())?;
-    write_atomic_with(path, |file| {
-        write!(file, "P5\n{} {}\n255\n", image.width(), image.height())
+    write_atomic_with(path, |file| write_gray_pgm(file, image))
+}
+
+/// The bytes [`write_gray_pgm_atomic`] writes.
+pub fn encode_gray_pgm(image: &GrayImage) -> Result<Vec<u8>, String> {
+    validate_dimensions(image.width(), image.height())?;
+    let mut bytes = Vec::with_capacity(image.width() * image.height() + 32);
+    write_gray_pgm(&mut bytes, image)?;
+    Ok(bytes)
+}
+
+fn write_gray_pgm(out: &mut impl Write, image: &GrayImage) -> Result<(), String> {
+    write!(out, "P5\n{} {}\n255\n", image.width(), image.height())
+        .map_err(|error| error.to_string())?;
+    for y in 0..image.height() {
+        out.write_all(image.row(y))
             .map_err(|error| error.to_string())?;
-        for y in 0..image.height() {
-            file.write_all(image.row(y))
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(())
-    })
+    }
+    Ok(())
 }
 
 fn validate_dimensions(width: usize, height: usize) -> Result<(), String> {
@@ -206,7 +319,7 @@ fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
             Err(error) => return Err(error.into()),
         }
     }
-    let is_ppm = &magic[..filled] == b"P6";
+    let is_ppm = is_ppm_signature(&magic[..filled]);
     Ok((Cursor::new(magic).take(filled as u64).chain(file), is_ppm))
 }
 
@@ -252,6 +365,15 @@ mod tests {
         let decoded = read_image(&ppm_path, 16, 16).unwrap();
         assert_eq!(decoded.rgb.get(0, 0), [0, 0, 0]);
         assert_eq!(decoded.rgb.get(1, 0), [255, 255, 255]);
+
+        assert_eq!(
+            decode_image_bytes(&fs::read(&ppm_path).unwrap(), 16, 16).unwrap(),
+            decoded
+        );
+        assert_eq!(
+            decode_gray_bytes(&fs::read(&png_path).unwrap(), 16, 16).unwrap(),
+            read_gray(&png_path, 16, 16).unwrap()
+        );
 
         fs::remove_file(&png_path).unwrap();
         fs::remove_file(&ppm_path).unwrap();

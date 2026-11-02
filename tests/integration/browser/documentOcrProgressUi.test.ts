@@ -1,6 +1,7 @@
 import {
     readFile, mkdir, writeFile,
 } from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {
     PDFDocument, rgb,
@@ -24,6 +25,89 @@ async function openOcrEngineFixture(page: Page) {
 }
 
 describe('browser OCR progress', () => {
+    it('finds Hebrew OCR words through UI search after language selection and save', async () => {
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1440,
+            height: 900,
+        }});
+        let reopened: Page | undefined;
+        try {
+            // Hebrew is newly available in the browser. Its pinned 3.7 MB model
+            // is cheap to download in CI when the development archive is absent.
+            const model = join(process.cwd(), 'resources/tesseract/tessdata/heb.traineddata');
+            if (existsSync(model)) await page.route('**/heb.traineddata', route => route.fulfill({path: model}));
+            // Fixed pixels keep niqqud recognition independent of host font rasterization.
+            await openPdfFromChooser(page, {
+                name: 'hebrew-scan.png',
+                mimeType: 'image/png',
+                buffer: await readFile(join(
+                    process.cwd(), 'tests/fixtures/browser/rtl-ocr/pointed-hebrew-scan.png',
+                )),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.getByRole('button', {
+                name: 'OCR',
+                exact: true,
+            }).click();
+            const dialog = page.getByRole('dialog');
+            await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
+            await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
+            await dialog.getByRole('button', {
+                name: 'Close',
+                exact: true,
+            }).last().click();
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const path = await (await download).path();
+            if (!path) throw new Error('Save did not provide downloaded PDF bytes');
+            const saved = await readFile(path);
+            const evidence = process.env.EVB_HEBREW_OCR_EVIDENCE_DIR;
+            if (evidence) {
+                await mkdir(evidence, {recursive: true});
+                await writeFile(join(evidence, 'hebrew-saved.pdf'), saved);
+            }
+            // A fresh page proves search reads the downloaded PDF's OCR layer.
+            reopened = await lifecycle.browser.newPage({viewport: {
+                width: 1440,
+                height: 900,
+            }});
+            const searchPage = reopened;
+            await openPdfFromChooser(searchPage, {
+                name: 'hebrew-saved.pdf',
+                mimeType: 'application/pdf',
+                buffer: saved,
+            });
+            await searchPage.locator('.page_container--rendered canvas').first().waitFor();
+            const searchTab = searchPage.getByRole('tab', {
+                name: 'Search',
+                exact: true,
+            });
+            if (!await searchTab.isVisible()) {
+                await searchPage.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+            }
+            await searchTab.click();
+            const input = searchPage.locator('.document-search-bar input:visible').first();
+            await input.pressSequentially('הַקְדְשָה');
+            await input.press('Enter');
+            try {
+                await expect.poll(() => searchPage.locator('.document-search-results').innerText()).toContain('1 result for “הַקְדְשָה”');
+            } finally {
+                if (evidence) await searchPage.screenshot({path: join(evidence, 'saved-hebrew-search.png')});
+            }
+        } finally {
+            await reopened?.context().close();
+            await page.context().close();
+        }
+        // OCR may take its full 90 s; opening, saving, reopening and searching take about 10 s more.
+    }, 120_000);
+
     it('preserves recognized words and boxes across tiled pixels, warm engines and changed recipes', async () => {
         const page = await lifecycle.browser.newPage();
         const fixturePath = join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf');
@@ -282,4 +366,51 @@ describe('browser OCR progress', () => {
             await page.context().close();
         }
     }, 180_000);
+
+    it('copies the failure records of a failed run through Copy logs', async () => {
+        const context = await lifecycle.browser.newContext({
+            permissions: [
+                'clipboard-read',
+                'clipboard-write',
+            ],
+            viewport: {
+                width: 1440,
+                height: 900,
+            },
+        });
+        try {
+            const page = await context.newPage();
+            // The model host is down, so the run fails the way a user offline sees it.
+            await page.route('**/eng.traineddata', route => route.fulfill({
+                status: 503,
+                body: 'unavailable',
+            }));
+            await openPdfFromChooser(page, {
+                name: 'ocr-copy-logs.pdf',
+                mimeType: 'application/pdf',
+                buffer: await readFile(join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf')),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.getByRole('button', {
+                name: 'OCR',
+                exact: true,
+            }).click();
+            const dialog = page.getByRole('dialog');
+            await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
+            await dialog.getByRole('alert').waitFor({timeout: 60_000});
+            await dialog.getByRole('button', {
+                name: 'Copy logs',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), {timeout: 10_000})
+                .toContain('--- debug:log stream ---');
+            const copied = await page.evaluate(() => navigator.clipboard.readText());
+            const stream = copied.slice(copied.indexOf('--- debug:log stream ---'));
+            expect(stream).not.toContain('(no buffered logs available)');
+            expect(stream).not.toContain('ocr-copy-logs.pdf');
+            expect(stream).toMatch(/\] \[ocr\] \[(WARN|ERROR)\] OCR backend reported /u);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
 });

@@ -32,6 +32,7 @@ import type {
 import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runDetached } from '@app/utils/asyncGuard';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     createDocumentPageSourceSearchBackend,
@@ -300,6 +301,11 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         }
     }, {flush: 'sync'});
 
+    const imageCommandGuard = {
+        category: 'user-visible-operation',
+        scope: 'workspace',
+        message: 'Failed to insert image',
+    } as const;
     usePageShortcuts({
         isActive: computed(() => isActive.value && !document.isMoving.value),
         hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? file.djvuSourcePath.value)),
@@ -336,6 +342,13 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         handleToggleSidebar: () => {
             view.showSidebar.value = !view.showSidebar.value;
         },
+        handleInsertImageFromFile: () => void runDetached(djvuProjection.handleInsertImageFromFile, imageCommandGuard),
+        handlePasteImageFromClipboard: () => void runDetached(djvuProjection.handlePasteImageFromClipboard, imageCommandGuard),
+        handlePasteImageFile: file => void runDetached(() => djvuProjection.runEdit(() => pdfViewerRef.value?.startImagePlacement(file, {
+            pageNumber: requirePageNumber(currentPage.value),
+            pageX: 0.5,
+            pageY: 0.5,
+        })), imageCommandGuard),
     });
     const crop = useWorkspaceCrop({
         pdfViewerRef,
@@ -353,7 +366,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         });
     }
     function handleDropdownOpen(
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
+        dropdown: 'zoom' | 'page' | 'ocr',
         isOpen: boolean,
     ) {
         view.handleDropdownOpenChange(dropdown, isOpen);
@@ -365,6 +378,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     const djvuProjection = useDjvuProjectionActions({
         isDjvuMode: file.isDjvuMode,
         currentPage,
+        documentRef: originalPath,
         documentViewerRef,
         ensureProjection: file.ensureDjvuPdfProjection,
         saveAs: save.handleSaveAs,

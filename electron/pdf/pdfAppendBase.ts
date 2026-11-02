@@ -11,6 +11,10 @@ import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import {
+    getQpdfRewriteArgs,
+    QPDF_SUCCESS_EXIT_CODES,
+} from '@pdf-core/qpdfCommands';
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -32,14 +36,8 @@ export async function rewritePdfWithQpdf(
         cancelGroup?: string;
     },
 ) {
-    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
-        inputPath,
-        outputPath,
-    ], {
-        allowedExitCodes: [
-            0,
-            3,
-        ],
+    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, getQpdfRewriteArgs(inputPath, outputPath), {
+        allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(rewrite)',
         timeoutMs: QPDF_REWRITE_TIMEOUT_MS,
         ...(operation === undefined ? {} : {

@@ -17,7 +17,14 @@ mod netpbm;
 mod pdf;
 mod tiff_io;
 
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(any(
+    test,
+    all(
+        target_family = "wasm",
+        target_os = "unknown",
+        feature = "wasm-exports"
+    )
+))]
 mod wasm;
 
 use jpeg_encoder::{
@@ -808,7 +815,6 @@ fn read_processed_image(
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 fn read_black_and_white_page(
     source: InputSource<'_>,
     options: &PdfBuildOptions,
@@ -857,15 +863,6 @@ fn read_black_and_white_page(
         dpi,
         dpi,
     )
-}
-
-#[cfg(target_family = "wasm")]
-fn read_black_and_white_page(
-    _source: InputSource<'_>,
-    _options: &PdfBuildOptions,
-    _page_size: Option<PdfPageSize>,
-) -> Result<ImagePage> {
-    Err("Black-and-white pages are not available in the browser build".into())
 }
 
 fn read_mask(source: InputSource<'_>, max_pixels: u64) -> Result<BilevelStream> {

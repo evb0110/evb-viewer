@@ -1,5 +1,6 @@
 export {default as ScanCleanupScissorsIcon} from '@app/modules/scan-cleanup/components/ScanCleanupScissorsIcon.vue';
 export {
+    describeScanCleanupTrigger,
     isScanCleanupRunning,
     installScanCleanupRunCoordinator,
     pruneScanCleanupOutputs,

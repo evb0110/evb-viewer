@@ -34,6 +34,18 @@ import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    isBrowserQpdfEngineUnavailableError,
+    normalizeBrowserPdfAppendBase,
+} from '@app/platform/browser-api/browserQpdfEngineClient';
+import {
+    BROWSER_QPDF_ENGINE_ERROR_CODES,
+    BROWSER_QPDF_MAX_INPUT_BYTES,
+} from '@contracts/browserQpdfEngine';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
+import {SerializableError} from '@contracts/serializableError';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
 
 async function touchRecentFileForOpen(ref: TDocumentRef) {
     if ((await browserDocumentStore.requireEntry(ref)).memoryOnly) {
@@ -99,6 +111,47 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         outcome: 'decrypted',
         wasEncrypted: true,
     } as const;
+}
+
+/**
+ * Desktop's `normalizePdfAppendBase` for the working copy of a PDF being
+ * opened; snapshots of an open document keep its bytes, as on desktop. A PDF
+ * whose cross-reference chain an edit cannot extend is rewritten through qpdf
+ * before anything reads it, so every object number the viewer later captures
+ * belongs to the file its edits are saved into. Without the engine the copy
+ * stands, as on a desktop without its page tool; a rewrite qpdf refuses
+ * refuses the open.
+ */
+async function normalizeBrowserWorkingCopyAppendBase(workingPath: TDocumentRef, fileName: string) {
+    // A larger base cannot reach the page tool, which writes every edit; an
+    // empty file is refused later as an empty PDF.
+    const {size} = await browserDocumentStore.stat(workingPath);
+    if (size === 0 || size > BROWSER_QPDF_MAX_INPUT_BYTES) {
+        return;
+    }
+    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+    const bytes = await browserDocumentStore.read(workingPath, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
+    let output: Uint8Array | null;
+    try {
+        ({output} = await normalizeBrowserPdfAppendBase(bytes));
+    } catch (error) {
+        if (isBrowserQpdfEngineUnavailableError(error)) {
+            BrowserLogger.warn('working-copy', 'The qpdf engine is unavailable; the PDF opens without append admission', {error: getErrorMessage(error)});
+            return;
+        }
+        if (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed) {
+            throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {
+                cause: error,
+                fileName,
+            });
+        }
+        throw error;
+    }
+    if (output === null) {
+        return;
+    }
+    await browserDocumentStore.write(workingPath, output, {expectedDocumentRevisionToken: revision.token});
+    BrowserLogger.warn('working-copy', 'Rewrote a PDF whose cross-reference chain cannot take an edit');
 }
 
 type TBrowserWorkingCopyDecryptionResult = Awaited<ReturnType<typeof decryptBrowserWorkingCopy>>;
@@ -202,6 +255,7 @@ export async function openDocumentPaths(
                     originalPath: sourcePath,
                 } satisfies TOpenFileResult;
             }
+            await normalizeBrowserWorkingCopyAppendBase(workingPath, firstFileName);
             await touchRecentFileForOpen(sourcePath);
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);

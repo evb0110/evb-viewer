@@ -32,11 +32,30 @@ export const REQUIRED_WEB_WASM_ASSETS = [
             'evb_pdf_page_ops_output_len',
             'evb_pdf_page_ops_error_ptr',
             'evb_pdf_page_ops_error_len',
+            'evb_pdf_page_ops_append_admission',
+        ],
+    },
+    {
+        relativePath: 'wasm/evb-scan-cleanup.wasm',
+        requiredExports: [
+            'memory',
+            'evb_wasm_request_allocation_abi_version',
+            'evb_scan_cleanup_alloc',
+            'evb_scan_cleanup_free',
+            'evb_scan_cleanup_run',
+            'evb_scan_cleanup_output_ptr',
+            'evb_scan_cleanup_output_len',
+            'evb_scan_cleanup_error_ptr',
+            'evb_scan_cleanup_error_len',
         ],
     },
     // Emscripten minifies the engine's export names; its pinned digest is the identity.
     {
         relativePath: 'wasm/evb-tesseract.wasm',
+        requiredExports: [],
+    },
+    {
+        relativePath: 'wasm/evb-qpdf.wasm',
         requiredExports: [],
     },
 ];
@@ -80,6 +99,15 @@ export const WASM_ARTIFACTS = [
             'getrandom_backend="custom"',
         ],
     },
+    {
+        builtFileName: 'evb_scan_cleanup.wasm',
+        crateName: 'scan-cleanup',
+        label: 'Scan cleanup WASM',
+        manifestPath: 'native/scan-cleanup/Cargo.toml',
+        publicRelativePath: 'public/wasm/evb-scan-cleanup.wasm',
+        requiredExports: getRequiredExports('wasm/evb-scan-cleanup.wasm'),
+        rustflags: [],
+    },
 ];
 
 const PREBUILT_WASM_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v2';
@@ -104,6 +132,21 @@ export const PREBUILT_WASM_FILES = [
         publicRelativePath: 'public/wasm/evb-tesseract.mjs',
         sha256: 'f82b9c7173d9ccc34db0d45ebf49db690dcb905b6be5caee295ff8e24b84a848',
         url: `${PREBUILT_WASM_BASE_URL}/evb-tesseract-5.5.3-r1.mjs`,
+    },
+    // scripts/build-qpdf-wasm.sh, the desktop's qpdf for browser repair and rewrites.
+    {
+        bytes: 2587783,
+        label: 'qpdf engine WASM',
+        publicRelativePath: 'public/wasm/evb-qpdf.wasm',
+        sha256: 'dded30522af651ab3c7cf62be7b49e242a5576c3d38f08bbe89b00eb45204286',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-qpdf-12.3.2-r1.wasm`,
+    },
+    {
+        bytes: 82818,
+        label: 'qpdf engine module',
+        publicRelativePath: 'public/wasm/evb-qpdf.mjs',
+        sha256: '588c8d50aba83da884a48dbcfb15cd74589403f2086f94ea3d8da5f1d2eb530d',
+        url: `${PREBUILT_WASM_BASE_URL}/evb-qpdf-12.3.2-r1.mjs`,
     },
 ];
 

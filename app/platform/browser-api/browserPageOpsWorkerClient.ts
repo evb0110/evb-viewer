@@ -18,14 +18,18 @@ import {
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
-import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
 import {tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
-const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
+// Desktop gives its native page tools two minutes (qpdf, native crop and
+// mutation saves). The browser engine is that tool built for one wasm32
+// thread and cannot report progress, and its parse time grows with its input,
+// so a request nobody can cancel waits that long plus a second per MiB.
+const DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS = 2 * 60 * 1000;
+const ENGINE_DEADLINE_MS_PER_MIB = 1000;
 const WORKER_INPUT_COPY_CHUNK_BYTES = 512 * 1024;
 
 export {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
@@ -90,6 +94,35 @@ async function buildWorkerRequestWithTransfers(
                 transferableData.buffer,
                 transferableInsertionData.buffer,
             ] satisfies Transferable[],
+        };
+    }
+
+    if (request.type === 'replacePageImages') {
+        // The base and every attachment get their own buffer, so a caller's
+        // base survives and no backing buffer is transferred twice.
+        const transferredBuffers = new Set<ArrayBuffer>();
+        const ownBuffer = async (source: Uint8Array) => {
+            let data = await toTransferableRequestData(source);
+            if (transferredBuffers.has(data.buffer)) data = data.slice();
+            transferredBuffers.add(data.buffer);
+            transfer.push(data.buffer);
+            return data;
+        };
+        const data = await ownBuffer(request.payload.data);
+        const replacementPdfs: Uint8Array[] = [];
+        for (const replacement of request.payload.replacementPdfs) {
+            replacementPdfs.push(await ownBuffer(replacement));
+        }
+        return {
+            request: {
+                ...request,
+                payload: {
+                    ...request.payload,
+                    data,
+                    replacementPdfs,
+                },
+            },
+            transfer,
         };
     }
 
@@ -158,6 +191,21 @@ async function buildWorkerRequestWithTransfers(
 }
 
 
+/**
+ * A request whose caller holds an abort signal has no deadline: its owner
+ * stops it, and stopping it ends the worker. Others get the size-scaled one.
+ */
+function getEngineDeadlineMs(payload: object, signal: AbortSignal | undefined) {
+    if (signal) return undefined;
+    let inputBytes = 0;
+    for (const value of Object.values(payload)) {
+        for (const item of Array.isArray(value) ? value : [value]) {
+            if (item instanceof Uint8Array) inputBytes += item.byteLength;
+        }
+    }
+    return DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
+}
+
 export function canUseBrowserPageOpsWorker() {
     return canUseBrowserWorker();
 }
@@ -165,7 +213,6 @@ export function canUseBrowserPageOpsWorker() {
 function createBrowserPageOpsWorkerClient() {
     return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
         idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
-        requestTimeoutMs: BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS,
         createWorker: () => {
             try {
                 return new Worker(
@@ -186,7 +233,7 @@ function createBrowserPageOpsWorkerClient() {
 }
 
 const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
-// Two reusable workers admit isolated and CPU-bound operations; eight more may wait.
+// Two reusable workers admit isolated and CPU-bound operations; the rest wait their turn.
 const pageOpsWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPageOpsWorkerClient, 2);
 
 async function runAdmittedPageOperation<TResult>(
@@ -195,9 +242,6 @@ async function runAdmittedPageOperation<TResult>(
 ) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
-    }
-    if (pageOpsWorkerOwner.waitingCount >= 8) {
-        throw new BrowserPageOpsWorkerUnavailableError('Browser annotation parse worker queue is full');
     }
     const requestId = pageOpsWorkerOwner.createRequestId();
     const abort = () => pageOpsWorkerOwner.cancel(requestId, abortErrorFromSignal(signal!));
@@ -218,9 +262,19 @@ async function runAdmittedPageOperation<TResult>(
     }
 }
 
-interface IRunBrowserPageOpsWorkerRequestOptions {
+export interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
     dedicated?: boolean;
+    /** Replaces the default deadline: none with a signal, else size-scaled. */
+    timeoutMs?: number;
+    /**
+     * Refuses the main-thread fallback, which runs as one synchronous task
+     * that neither an abort nor a deadline can stop.
+     */
+    requireWorker?: boolean;
+    // A dedicated request copies its input so the caller keeps it; a caller
+    // that reads its input again after a failure transfers it instead.
+    transferInput?: boolean;
 }
 
 function abortErrorFromSignal(signal: AbortSignal) {
@@ -237,6 +291,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     options: {
         signal?: AbortSignal;
         preserveInputOwnership?: boolean;
+        timeoutMs?: number;
     } = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     const request: IBrowserPageOpsWorkerRequest<K> = {
@@ -250,6 +305,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     }
     const worker = client.getWorker();
 
+    const deadlineMs = options.timeoutMs ?? getEngineDeadlineMs(payload, options.signal);
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
         let removeAbortListener: () => void = () => undefined;
         let settled = false;
@@ -283,8 +339,8 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             },
             reject: error => rejectRequest(reportWorkerFailure(error)),
         }, () => reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
-            `Browser page operation worker request timed out after ${BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS}ms`,
-        )));
+            `Browser page operation worker request timed out after ${String(deadlineMs)}ms`,
+        )), deadlineMs);
 
         if (options.signal) {
             const handleAbort = () => client.cancelPendingRequest(
@@ -314,21 +370,24 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
     return type === 'textBoxAppearance' || type === 'saveMutations' || type === 'decrypt' || type === 'printLayout'
-        || type === 'ocrTextLayer' || type === 'ocrTextVisibility';
+        || type === 'ocrTextLayer' || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages'
+        || type === 'overlayText' || type === 'recompressImages' || type === 'replacePageImages';
 }
 
 async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
     yieldAdmitted: () => Promise<void>,
+    requireWorker = false,
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     if (type === 'textBoxAppearance') {
         throw new BrowserPageOpsWorkerUnavailableError('Text appearance generation requires a worker');
     }
-    const data = (payload as IBrowserPageOpsWorkerRequestMap['decrypt']).data;
-    if (data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
-        throw new BrowserPageOpsWorkerUnavailableError('Browser page operation exceeds the direct fallback byte budget');
+    if (requireWorker) {
+        throw new BrowserPageOpsWorkerUnavailableError(`The browser page operation ${type} requires a worker`);
     }
+    // Without a worker the engine runs on this thread as one long task, with
+    // the same request ceiling as the worker.
     const result = await tryRunBrowserPageOpsWithWasm(type, payload, yieldAdmitted);
     await yieldAdmitted();
     return result as IBrowserPageOpsWorkerResultMap[K];
@@ -337,8 +396,9 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
 function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-    signal?: AbortSignal,
+    options: IRunBrowserPageOpsWorkerRequestOptions,
 ) {
+    const {signal} = options;
     return runAdmittedPageOperation(signal, async (client, requestId, yieldAdmitted) => {
         if (isCpuPageOperation(type)) {
             // Worker startup and the ownership-preserving copy must not extend
@@ -350,13 +410,13 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
                 if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
                     throw error;
                 }
-                return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted);
+                return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker);
             }
             await yieldAdmitted();
         }
         return runBrowserPageOpsWorkerRequestWithClient(client, requestId, type, payload, {
-            ...(signal ? {signal} : {}),
-            preserveInputOwnership: true,
+            ...options,
+            preserveInputOwnership: !options.transferInput,
         });
     });
 }
@@ -368,14 +428,14 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     if (isCpuPageOperation(type)) {
         if (canUseBrowserPageOpsWorker()) {
-            return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+            return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
         }
         return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) => (
-            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted)
+            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker)
         ));
     }
     if (options.dedicated) {
-        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
     }
 
     return runBrowserPageOpsWorkerRequestWithClient(
@@ -383,6 +443,9 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         browserPageOpsWorkerClient.createRequestId(),
         type,
         payload,
-        options.signal ? {signal: options.signal} : {},
+        {
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+        },
     );
 }

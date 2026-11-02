@@ -1,7 +1,7 @@
 //! EPPO binary frame definitions, shared by the Rust codec and generated TS.
 //! The worker-message envelope is a separate contract.
 
-use crate::{CropMargins, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES};
+use crate::{CropMargins, Result};
 use evb_native_support::NativeErrorCode;
 
 pub(crate) const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
@@ -41,6 +41,9 @@ macro_rules! abi {
             writeln!(output, "export const REQUEST_MAGIC = '{}';", std::str::from_utf8(REQUEST_MAGIC).unwrap()).unwrap();
             $(writeln!(output, "export const {} = {};", stringify!($constant), $constant).unwrap();)*
             writeln!(output, "export const MAX_U32 = {};", u32::MAX).unwrap();
+            // The catalog reader returns at most this many bookmarks or
+            // page-label ranges; the browser decodes with desktop's ceiling.
+            writeln!(output, "export const MAX_CATALOG_ENTRIES = {};", crate::catalog::CATALOG_WALK_NODE_LIMIT).unwrap();
             output.push_str("\nexport const OPERATION_CODES = {\n");
             $(writeln!(output, "    {}: {},", $ts_operation, $operation).unwrap();)*
             output.push_str("} as const;\n");
@@ -61,12 +64,13 @@ abi! {
         REQUEST_VERSION: u32 = 2;
         REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
         REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE: u32 = 4;
-        REQUEST_VERSION_OCR_TEXT_LAYER: u32 = 5;
-        // One per recognized page; an OCR job writes at most this many at once.
-        MAX_OCR_PAGE_PDFS: usize = 100_000;
+        // INSTRUCTED_REQUEST_HEADER framing.
+        REQUEST_VERSION_INSTRUCTED: u32 = 5;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
-        MAX_DOCUMENTS: usize = 500;
+        // One request or one framed response, up to the largest single
+        // wasm32 allocation; the parsed document shares the address space.
+        MAX_BUFFER_BYTES: usize = evb_native_support::wasm_request_allocation::WASM_MAX_BUFFER_BYTES;
         RESPONSE_MUTATION: u32 = 1;
         RESPONSE_GEOMETRY: u32 = 2;
         RESPONSE_ANNOTATION_PARSE: u32 = 3;
@@ -75,6 +79,11 @@ abi! {
         RESPONSE_TEXT_BOX_APPEARANCE: u32 = 6;
         // MUTATION_HEADER layout; the data is only the appended revision.
         RESPONSE_INCREMENT: u32 = 7;
+        // REPORTED_HEADER layout: a whole PDF and its CLI command's JSON report.
+        RESPONSE_REPORTED_PDF: u32 = 8;
+        // REPORTED_HEADER layout: the appended revision, empty when the pass
+        // changed nothing, and its CLI command's JSON report.
+        RESPONSE_REPORTED_INCREMENT: u32 = 9;
         NATIVE_MUTATION_POSTCONDITIONS_VERIFIED: u32 = 1;
     }
     operations {
@@ -99,8 +108,20 @@ abi! {
         // Selected pages use the page list; insertion data is empty or the
         // UTF-8 flag "with-evb-ocr-text". Answers RESPONSE_JSON.
         OP_OCR_TEXT_VISIBILITY = 17 => "ocrTextVisibility";
-        // OCR_TEXT_LAYER_HEADER framing. Answers RESPONSE_INCREMENT.
+        // The operations below use INSTRUCTED_REQUEST_HEADER framing.
+        // Attaches one Tesseract page PDF per source. Answers RESPONSE_INCREMENT.
         OP_OCR_TEXT_LAYER = 18 => "ocrTextLayer";
+        // No attachments. Answers RESPONSE_REPORTED_PDF.
+        OP_SPLIT_PAGES = 19 => "splitPages";
+        // Attaches the source PDF. Answers RESPONSE_REPORTED_PDF.
+        OP_OVERLAY_TEXT = 20 => "overlayText";
+        // No attachments. Answers RESPONSE_REPORTED_INCREMENT.
+        OP_RECOMPRESS_IMAGES = 21 => "recompressImages";
+        // Attaches the replacement PDFs. Answers RESPONSE_REPORTED_INCREMENT.
+        OP_REPLACE_PAGE_IMAGES = 22 => "replacePageImages";
+        // REQUEST_HEADER framing; the page list selects pages, none for every
+        // page. Answers RESPONSE_JSON with each page's page-size record.
+        OP_INSPECT_SCAN_CLEANUP_PDF = 23 => "inspectScanCleanupPdf";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
@@ -115,11 +136,11 @@ abi! {
             operation: U32_BYTES, document_count: U32_BYTES,
         }
         // Followed by the document, the UTF-8 JSON instructions, then each
-        // page PDF as a little-endian u32 length and its bytes.
-        OCR_TEXT_LAYER_HEADER: OcrTextLayerHeader {
+        // attached PDF as a little-endian u32 length and its bytes.
+        INSTRUCTED_REQUEST_HEADER: InstructedRequestHeader {
             magic: REQUEST_MAGIC.len(), version: U32_BYTES, operation: U32_BYTES,
             data_length: U32_BYTES, instructions_length: U32_BYTES,
-            page_pdf_count: U32_BYTES,
+            attachment_count: U32_BYTES,
         }
         MUTATION_HEADER: MutationHeader {
             kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
@@ -133,6 +154,11 @@ abi! {
         }
         BYTES_HEADER: BytesHeader {
             kind: U32_BYTES, data_length: U32_BYTES,
+        }
+        // Followed by the data, then the UTF-8 JSON report.
+        REPORTED_HEADER: ReportedHeader {
+            kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
+            report_length: U32_BYTES,
         }
         TEXT_BOX_APPEARANCE_HEADER: TextBoxAppearanceHeader {
             kind: U32_BYTES, data_length: U32_BYTES, metadata_length: U32_BYTES,
@@ -305,58 +331,80 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     })
 }
 
-pub(crate) struct ParsedOcrTextLayerRequest<'a> {
+pub(crate) struct ParsedInstructedRequest<'a> {
+    pub(crate) operation: u32,
     pub(crate) data: &'a [u8],
     pub(crate) instructions: &'a [u8],
-    pub(crate) page_pdfs: Vec<&'a [u8]>,
+    pub(crate) attachments: Vec<&'a [u8]>,
 }
 
-pub(crate) fn parse_ocr_text_layer_request(
-    request: &[u8],
-) -> Result<ParsedOcrTextLayerRequest<'_>> {
-    let mut offset = OCR_TEXT_LAYER_HEADER.magic;
-    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC {
-        return Err("Invalid page-op WASM OCR text-layer magic".into());
-    }
-    if read_u32_at(request, OCR_TEXT_LAYER_HEADER.version)? != REQUEST_VERSION_OCR_TEXT_LAYER
-        || read_u32_at(request, OCR_TEXT_LAYER_HEADER.operation)? != OP_OCR_TEXT_LAYER
+/// Whether `request` uses INSTRUCTED_REQUEST_HEADER framing.
+pub(crate) fn is_instructed_request(request: &[u8]) -> bool {
+    request.get(INSTRUCTED_REQUEST_HEADER.magic..INSTRUCTED_REQUEST_HEADER.version)
+        == Some(REQUEST_MAGIC.as_slice())
+        && read_u32_at(request, INSTRUCTED_REQUEST_HEADER.version)
+            .is_ok_and(|version| version == REQUEST_VERSION_INSTRUCTED)
+}
+
+pub(crate) fn parse_instructed_request(request: &[u8]) -> Result<ParsedInstructedRequest<'_>> {
+    let mut offset = INSTRUCTED_REQUEST_HEADER.magic;
+    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC
+        || read_u32_at(request, INSTRUCTED_REQUEST_HEADER.version)? != REQUEST_VERSION_INSTRUCTED
     {
-        return Err("OCR text-layer framing is reserved for the ocrTextLayer operation".into());
+        return Err("Invalid page-op WASM instructed request framing".into());
     }
-    let data_len = read_usize_at(request, OCR_TEXT_LAYER_HEADER.data_length, "data_len")?;
+    let operation = read_u32_at(request, INSTRUCTED_REQUEST_HEADER.operation)?;
+    let attachments = match operation {
+        OP_OCR_TEXT_LAYER | OP_REPLACE_PAGE_IMAGES => {
+            // One per page; the request's own bytes bound the count below.
+            usize::from(operation == OP_OCR_TEXT_LAYER)..=usize::MAX
+        }
+        OP_OVERLAY_TEXT => 1..=1,
+        OP_SPLIT_PAGES | OP_RECOMPRESS_IMAGES => 0..=0,
+        _ => {
+            return Err(
+                format!("Page-op WASM operation {operation} takes no instructed framing").into(),
+            )
+        }
+    };
+    let data_len = read_usize_at(request, INSTRUCTED_REQUEST_HEADER.data_length, "data_len")?;
     let instructions_len = read_usize_at(
         request,
-        OCR_TEXT_LAYER_HEADER.instructions_length,
+        INSTRUCTED_REQUEST_HEADER.instructions_length,
         "instructions_len",
     )?;
-    let page_pdf_count = read_usize_at(
+    let attachment_count = read_usize_at(
         request,
-        OCR_TEXT_LAYER_HEADER.page_pdf_count,
-        "page PDF count",
+        INSTRUCTED_REQUEST_HEADER.attachment_count,
+        "attachment count",
     )?;
-    if page_pdf_count == 0 || page_pdf_count > MAX_OCR_PAGE_PDFS {
-        return Err("Invalid page-op WASM OCR page PDF count".into());
+    if !attachments.contains(&attachment_count) {
+        return Err(format!(
+            "Invalid page-op WASM attachment count {attachment_count} for operation {operation}"
+        )
+        .into());
     }
-    let mut offset = OCR_TEXT_LAYER_HEADER.bytes;
+    let mut offset = INSTRUCTED_REQUEST_HEADER.bytes;
     let data = take_bytes(request, &mut offset, data_len)?;
     let instructions = take_bytes(request, &mut offset, instructions_len)?;
-    // Every page PDF carries at least its length, so a count the request
+    // Every attachment carries at least its length, so a count the request
     // cannot hold fails before anything is reserved.
-    if page_pdf_count > (request.len() - offset) / U32_BYTES {
+    if attachment_count > (request.len() - offset) / U32_BYTES {
         return Err("Truncated page-op WASM request".into());
     }
-    let mut page_pdfs = Vec::with_capacity(page_pdf_count);
-    for _ in 0..page_pdf_count {
-        let len = read_usize_le(request, &mut offset, "page PDF length")?;
-        page_pdfs.push(take_bytes(request, &mut offset, len)?);
+    let mut attached = Vec::with_capacity(attachment_count);
+    for _ in 0..attachment_count {
+        let len = read_usize_le(request, &mut offset, "attachment length")?;
+        attached.push(take_bytes(request, &mut offset, len)?);
     }
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM request".into());
     }
-    Ok(ParsedOcrTextLayerRequest {
+    Ok(ParsedInstructedRequest {
+        operation,
         data,
         instructions,
-        page_pdfs,
+        attachments: attached,
     })
 }
 
@@ -417,7 +465,7 @@ pub(crate) fn encode_bytes(kind: u32, bytes: Vec<u8>) -> Result<Vec<u8>> {
         .bytes
         .checked_add(bytes.len())
         .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+    if framed_len > MAX_BUFFER_BYTES {
         return Err(page_op_output_limit());
     }
     let mut output = Vec::with_capacity(framed_len);

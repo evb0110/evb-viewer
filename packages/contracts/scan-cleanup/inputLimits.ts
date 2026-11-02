@@ -19,6 +19,10 @@ export const SCAN_CLEANUP_INPUT_MAX_VERTICES = 100_000;
 export const SCAN_CLEANUP_INPUT_MAX_PATH_BYTES = 4_096;
 export const SCAN_CLEANUP_INPUT_MAX_ID_BYTES = 128;
 export const SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** The cleanup engine's raster guardrails: a bilevel or tonal page, and either side. */
+export const SCAN_CLEANUP_MAX_BILEVEL_PIXELS = 160_000_000;
+export const SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
+export const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 
 const UTF8_ENCODER = new TextEncoder();
 

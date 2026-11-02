@@ -13,6 +13,18 @@ import type {
     IReadPdfPageSizesOptions,
     TPdfPageSizeDominantImageAnalysis,
 } from '@evb/scan-cleanup/core/types';
+import {
+    decodePdfPageSizeFinite as decodeFinite,
+    decodePdfPageSizeRecord as decodePageSizeRecord,
+    invalidPdfPageNumbering as invalidPageNumbering,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
+
+export {
+    isCropBoxOrientationMismatch,
+    isMateriallySmallerCropBox,
+    toCropBoxPageSize,
+    toMediaBoxPageSize,
+} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
 export type {
     IPdfPageSize,
@@ -32,199 +44,6 @@ const PDF_PAGE_SIZE_SIDECAR_MIN_CHUNK_BYTES = 64;
 export const PDF_PAGE_SIZE_SIDECAR_FORMAT = 'evb-pdf-page-sizes';
 export const PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION = 1;
 const MAX_U64 = 0xffffffffffffffffn;
-
-const LANDSCAPE_GEOMETRY_RATIO = 1.1;
-/** A retry candidate must lose at least this share of its physical paper. */
-const MATERIAL_CROP_AREA_RATIO = 0.8;
-
-function invalidPageNumbering(reason: string) {
-    return new Error(`evb-pdf-page-ops returned invalid page numbering: ${reason}`);
-}
-
-/**
- * The geometry a page carries: the page view (CropBox intersected with
- * MediaBox) in PDF user space, plus the display rotation that view is presented
- * under. It is the same rectangle `split-pages` writes back and the same one
- * `pdftoppm -cropbox` rasterizes, so a canvas measured from it is the canvas the
- * assembled document ends up carrying.
- */
-function decodeFinite(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-export function toCropBoxPageSize(page: IPdfPageSize): IPdfPageSize {
-    if (
-        page.cropXPoints === undefined
-        || page.cropYPoints === undefined
-        || page.cropWidthPoints === undefined
-        || page.cropHeightPoints === undefined
-    ) {
-        return page;
-    }
-    return {
-        ...page,
-        xPoints: page.cropXPoints,
-        yPoints: page.cropYPoints,
-        widthPoints: page.cropWidthPoints,
-        heightPoints: page.cropHeightPoints,
-        renderBox: 'cropbox',
-    };
-}
-
-function isLandscape(widthPoints: number, heightPoints: number) {
-    return widthPoints >= heightPoints * LANDSCAPE_GEOMETRY_RATIO;
-}
-
-function hasMediaGeometry(page: IPdfPageSize): page is IPdfPageSize & {
-    mediaXPoints: number;
-    mediaYPoints: number;
-    mediaWidthPoints: number;
-    mediaHeightPoints: number;
-} {
-    return page.mediaXPoints !== undefined
-        && page.mediaYPoints !== undefined
-        && page.mediaWidthPoints !== undefined
-        && page.mediaHeightPoints !== undefined
-        && Number.isFinite(page.mediaXPoints)
-        && Number.isFinite(page.mediaYPoints)
-        && Number.isFinite(page.mediaWidthPoints)
-        && Number.isFinite(page.mediaHeightPoints)
-        && page.mediaWidthPoints > 0
-        && page.mediaHeightPoints > 0;
-}
-
-export function isCropBoxOrientationMismatch(page: IPdfPageSize) {
-    return page.heightPoints >= page.widthPoints * LANDSCAPE_GEOMETRY_RATIO
-        && hasMediaGeometry(page)
-        && isLandscape(page.mediaWidthPoints, page.mediaHeightPoints);
-}
-
-/**
- * A large area difference alone is not enough to render a page twice. This
- * predicate is for the native retry after a first-pass classification has
- * supplied content evidence, not for the ordinary renderer fallback.
- */
-export function isMateriallySmallerCropBox(page: IPdfPageSize) {
-    if (!hasMediaGeometry(page)) {
-        return false;
-    }
-    const cropArea = page.widthPoints * page.heightPoints;
-    const mediaArea = page.mediaWidthPoints * page.mediaHeightPoints;
-    return Number.isFinite(cropArea)
-        && Number.isFinite(mediaArea)
-        && cropArea > 0
-        && mediaArea > 0
-        && cropArea / mediaArea < MATERIAL_CROP_AREA_RATIO;
-}
-
-export function toMediaBoxPageSize(page: IPdfPageSize): IPdfPageSize {
-    if (!hasMediaGeometry(page)) {
-        return page;
-    }
-    return {
-        ...page,
-        xPoints: page.mediaXPoints,
-        yPoints: page.mediaYPoints,
-        widthPoints: page.mediaWidthPoints,
-        heightPoints: page.mediaHeightPoints,
-        renderBox: 'mediabox',
-    };
-}
-
-function decodeOptionalPdfBox(page: Record<string, unknown>, prefix: 'media' | 'crop') {
-    const xPoints = decodeFinite(page[`${prefix}XPoints`]);
-    const yPoints = decodeFinite(page[`${prefix}YPoints`]);
-    const widthPoints = decodeFinite(page[`${prefix}WidthPoints`]);
-    const heightPoints = decodeFinite(page[`${prefix}HeightPoints`]);
-    if (
-        xPoints === null
-        || yPoints === null
-        || widthPoints === null
-        || heightPoints === null
-        || widthPoints <= 0
-        || heightPoints <= 0
-    ) {
-        return undefined;
-    }
-    return {
-        [`${prefix}XPoints`]: xPoints,
-        [`${prefix}YPoints`]: yPoints,
-        [`${prefix}WidthPoints`]: widthPoints,
-        [`${prefix}HeightPoints`]: heightPoints,
-    } as const;
-}
-
-function decodePageSizeRecord(
-    page: unknown,
-    pageCount: number,
-    recordLabel: string,
-) {
-    if (!isRecord(page)) {
-        throw new Error(`evb-pdf-page-ops returned no geometry for ${recordLabel}`);
-    }
-    const widthPoints = decodeFinite(page.widthPoints)
-        ?? (decodeFinite(page.widthInches) === null ? null : decodeFinite(page.widthInches)! * 72);
-    const heightPoints = decodeFinite(page.heightPoints)
-        ?? (decodeFinite(page.heightInches) === null ? null : decodeFinite(page.heightInches)! * 72);
-    const pageNumber = decodeFinite(page.pageNumber);
-    if (
-        pageNumber === null
-        || !Number.isSafeInteger(pageNumber)
-        || pageNumber < 1
-        || pageNumber > pageCount
-    ) {
-        throw invalidPageNumbering(`invalid page number for ${recordLabel}`);
-    }
-    if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
-        throw new Error(`evb-pdf-page-ops returned invalid geometry for page ${String(pageNumber)}`);
-    }
-    const rawUserUnit = page.userUnit;
-    let userUnit: number | undefined;
-    if (rawUserUnit !== undefined) {
-        const decodedUserUnit = decodeFinite(rawUserUnit);
-        if (decodedUserUnit === null || decodedUserUnit <= 0) {
-            throw new Error(`evb-pdf-page-ops returned invalid UserUnit for page ${String(pageNumber)}`);
-        }
-        userUnit = decodedUserUnit;
-    }
-    const dominantImageWidthPx = decodeFinite(page.dominantImageWidthPx);
-    const dominantImageHeightPx = decodeFinite(page.dominantImageHeightPx);
-    const dominantImageWidthPoints = decodeFinite(page.dominantImageWidthPoints);
-    const dominantImageHeightPoints = decodeFinite(page.dominantImageHeightPoints);
-    const hasDominantImage = dominantImageWidthPx !== null
-        && dominantImageHeightPx !== null
-        && dominantImageWidthPoints !== null
-        && dominantImageHeightPoints !== null
-        && Number.isSafeInteger(dominantImageWidthPx)
-        && Number.isSafeInteger(dominantImageHeightPx)
-        && dominantImageWidthPx > 0
-        && dominantImageHeightPx > 0
-        && dominantImageWidthPoints > 0
-        && dominantImageHeightPoints > 0;
-    const media = decodeOptionalPdfBox(page, 'media');
-    const crop = decodeOptionalPdfBox(page, 'crop');
-    const renderBox = page.renderBox === 'cropbox' || page.renderBox === 'mediabox'
-        ? page.renderBox
-        : undefined;
-    return {
-        pageNumber,
-        xPoints: decodeFinite(page.xPoints) ?? 0,
-        yPoints: decodeFinite(page.yPoints) ?? 0,
-        widthPoints,
-        heightPoints,
-        rotation: decodeFinite(page.rotation) ?? 0,
-        ...(userUnit === undefined ? {} : {userUnit}),
-        ...(media ?? {}),
-        ...(crop ?? {}),
-        ...(renderBox === undefined ? {} : {renderBox}),
-        ...(hasDominantImage ? {
-            dominantImageWidthPx,
-            dominantImageHeightPx,
-            dominantImageWidthPoints,
-            dominantImageHeightPoints,
-        } : {}),
-    } satisfies IPdfPageSize;
-}
 
 export interface IPdfPageSizeSidecarHeader {
     format: typeof PDF_PAGE_SIZE_SIDECAR_FORMAT;

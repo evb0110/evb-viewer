@@ -112,6 +112,8 @@ export interface ICreateStoredDocumentOptions {
     chunkCount?: number;
     chunkSize?: number;
     chunkGeneration?: string;
+    /** Copies the new document's bytes from this one instead of `data`; large copies are staged chunk by chunk. */
+    contentFrom?: string;
 }
 
 export interface IWriteDocumentOptions {

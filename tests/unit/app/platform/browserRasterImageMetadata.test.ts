@@ -9,11 +9,7 @@ import {
     readBrowserTiffFrameDpi,
     resolveBrowserRasterIccProfile,
 } from '@app/platform/browser-api/browserRasterImageMetadata';
-import {
-    assertBrowserCombinedPdfOutputBytes,
-    assertBrowserCombinedPdfPageCount,
-    consumeBrowserDecodedWorkingSet,
-} from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import {assertBrowserCombinedPdfOutputBytes} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
     probeBrowserImageFile,
     PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
@@ -141,16 +137,9 @@ describe('browserRasterImageMetadata', () => {
         })).toBe(381);
     });
 
-    it('checks page counts, nonempty output and aggregate decoded working sets', () => {
-        expect(() => assertBrowserCombinedPdfPageCount(501)).toThrow('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
+    it('checks nonempty output', () => {
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array())).toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(16 * 1024 * 1024 + 1))).not.toThrow();
-        const budget = {
-            usedBytes: 250,
-            maxBytes: 300,
-        };
-        expect(() => consumeBrowserDecodedWorkingSet(budget, 4, 4, 'next.png'))
-            .toThrow('ERR_BROWSER_PDF_COMBINE_DECODED_WORKING_SET_TOO_LARGE:next.png');
     });
 
     it('rejects a direct ICC profile before downstream embedding when it exceeds the limit', async () => {

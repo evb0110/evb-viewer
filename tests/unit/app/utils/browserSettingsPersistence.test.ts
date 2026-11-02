@@ -8,6 +8,7 @@ import {
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 import {
     BROWSER_SETTINGS_COOKIE_KEY,
+    expireLegacyBrowserSettingsCookie,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
     readBrowserPerformanceModeSnapshot,
@@ -23,6 +24,7 @@ function stubBrowserPersistence(options: {
     cookieValue?: string;
     protocol?: 'http:' | 'https:';
     storageValue?: string;
+    throwOnGet?: boolean;
     throwOnSet?: boolean;
     localeValue?: string;
     themeValue?: string;
@@ -33,7 +35,12 @@ function stubBrowserPersistence(options: {
     }
     const cookieWrites: string[] = [];
     vi.stubGlobal('window', {localStorage: {
-        getItem: (key: string) => storage.get(key) ?? null,
+        getItem: (key: string) => {
+            if (options.throwOnGet) {
+                throw new DOMException('Access is denied', 'SecurityError');
+            }
+            return storage.get(key) ?? null;
+        },
         setItem: (key: string, value: string) => {
             if (options.throwOnSet) {
                 throw new Error('storage unavailable');
@@ -122,22 +129,22 @@ describe('browserSettingsPersistence performanceMode', () => {
         });
     });
 
-    it('preserves committed storage over a stale legacy cookie', () => {
+    it('reads committed storage over a stale legacy cookie and writes nothing', () => {
+        const storageValue = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            performanceMode: 'medium',
+        });
         const browser = stubBrowserPersistence({
             cookieValue: serializeBrowserSettingsPayload({
                 ...DEFAULT_SETTINGS,
                 performanceMode: 'low',
             }),
-            storageValue: JSON.stringify({
-                ...DEFAULT_SETTINGS,
-                performanceMode: 'medium',
-            }),
+            storageValue,
         });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('medium');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'medium'});
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe(storageValue);
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('does not replace a future storage schema with a legacy cookie', () => {
@@ -150,8 +157,25 @@ describe('browserSettingsPersistence performanceMode', () => {
             storageValue: futureSettings,
         });
 
-        expect(() => readBrowserPerformanceModeSnapshot()).toThrow('newer than the supported version');
+        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
         expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe(futureSettings);
+        expect(browser.cookieWrites).toEqual([]);
+    });
+
+    it('reads defaults and writes nothing beside a future legacy settings cookie', () => {
+        const futureCookie = JSON.stringify({
+            version: DEFAULT_SETTINGS.version + 1,
+            performanceMode: 'high',
+        });
+        const browser = stubBrowserPersistence({
+            cookieValue: futureCookie,
+            storageValue: JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                performanceMode: 'medium',
+            }),
+        });
+
+        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
         expect(browser.cookieWrites).toEqual([]);
     });
 
@@ -171,37 +195,61 @@ describe('browserSettingsPersistence performanceMode', () => {
         });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('high');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'high'});
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe('{}');
+        expect(browser.cookieWrites).toEqual([]);
     });
 
-    it('migrates a legacy full-settings cookie to local storage and expires it', () => {
-        const browser = stubBrowserPersistence({cookieValue: serializeBrowserSettingsPayload({
-            ...DEFAULT_SETTINGS,
-            performanceMode: 'medium',
-        })});
+    it('reads a legacy full-settings cookie and leaves its migration to the settings capability', () => {
+        const browser = stubBrowserPersistence({
+            cookieValue: serializeBrowserSettingsPayload({
+                ...DEFAULT_SETTINGS,
+                performanceMode: 'medium',
+            }),
+            localeValue: 'ru',
+            themeValue: 'dark',
+        });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('medium');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'medium'});
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBeUndefined();
+        expect(browser.cookieWrites).toEqual([]);
     });
 
-    it('merges locale and theme cookies before the early performance migration commits', () => {
+    it('leaves malformed stored settings for the settings capability to reset and report', () => {
         const browser = stubBrowserPersistence({
-            cookieValue: serializeBrowserSettingsPayload(DEFAULT_SETTINGS),
+            storageValue: '{"version": 2, "authorName": ',
             localeValue: 'ru',
             themeValue: 'dark',
         });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
-        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({
-                locale: 'ru',
-                theme: 'dark',
-            });
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe('{"version": 2, "authorName": ');
+    });
+
+    it.each([
+        [
+            'bootstrap',
+            {
+                localeValue: 'ru',
+                themeValue: 'dark',
+            },
+        ],
+        [
+            'legacy',
+            {cookieValue: serializeBrowserSettingsPayload({
+                ...DEFAULT_SETTINGS,
+                performanceMode: 'high',
+            })},
+        ],
+    ] as const)('writes nothing over unreadable storage with %s cookies', (_kind, cookies) => {
+        const browser = stubBrowserPersistence({
+            ...cookies,
+            storageValue: JSON.stringify(DEFAULT_SETTINGS),
+            throwOnGet: true,
+        });
+
+        readBrowserPerformanceModeSnapshot();
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe(JSON.stringify(DEFAULT_SETTINGS));
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('adds Secure to legacy cookie expiry only over HTTPS', () => {
@@ -210,7 +258,7 @@ describe('browserSettingsPersistence performanceMode', () => {
             protocol: 'https:',
         });
 
-        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
+        expireLegacyBrowserSettingsCookie();
         expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry(true)]);
     });
 

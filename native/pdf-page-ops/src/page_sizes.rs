@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
     assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect, load_pdf_path,
-    load_readonly_metadata_pdf_path, reclassify_domain_error, resolve_inherited_box,
+    load_readonly_metadata_pdf_path, parse_content, reclassify_domain_error, resolve_inherited_box,
     resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
     NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
     MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
@@ -249,7 +249,7 @@ fn decode_page_content_with_limit(
                 )
             }
         })?;
-    Content::decode(&bytes).map_err(|error| {
+    parse_content(&bytes)?.map_err(|error| {
         domain_error(
             NativeErrorCode::CorruptXref,
             format!("Failed to parse PDF page content: {error}"),
@@ -399,6 +399,55 @@ fn page_size_entry(
         dominant_image_width_points: dominant_image.map(|image| image.width_points),
         dominant_image_height_points: dominant_image.map(|image| image.height_points),
     })
+}
+
+/// Scan cleanup's page facts for the browser, which has no sidecar file: the
+/// requested pages' records exactly as `write_page_sizes_sidecar_document` writes them,
+/// under the document's page count. No requested pages lists every page.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn inspect_scan_cleanup_pdf_bytes(data: &[u8], page_numbers: &[u32]) -> Result<Vec<u8>> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct InspectedPages {
+        page_count: u32,
+        pages: Vec<PageSizeEntry>,
+    }
+
+    let document = crate::load_browser_pdf(data)?;
+    let resolver = PageTreeResolver::new(&document)?;
+    let entry = |page_number: u32, page_id: ObjectId| {
+        let page_view = resolve_page_view(&document, page_id)?;
+        let rotation = resolve_page_rotation(&document, page_id)?;
+        let dominant_image = dominant_full_page_image(&document, page_id, page_view)?;
+        page_size_entry(
+            &document,
+            page_number,
+            page_id,
+            rotation,
+            page_view,
+            dominant_image,
+        )
+    };
+    let mut pages = Vec::new();
+    if page_numbers.is_empty() {
+        resolver.for_each_page_id(&document, |page_id| {
+            let page_number =
+                u32::try_from(pages.len() + 1).map_err(|_| "Page-size page number overflow")?;
+            pages.push(entry(page_number, page_id)?);
+            Ok(())
+        })?;
+    } else {
+        for &page_number in page_numbers {
+            pages.push(entry(
+                page_number,
+                resolver.page_id(&document, page_number)?,
+            )?);
+        }
+    }
+    Ok(serde_json::to_vec(&InspectedPages {
+        page_count: resolver.page_count(),
+        pages,
+    })?)
 }
 
 /// Write page geometry as a bounded JSONL sidecar. The header is one line and
@@ -961,6 +1010,29 @@ mod tests {
         assert_eq!(page.dominant_image_height_px, Some(500));
         assert_eq!(page.dominant_image_width_points, Some(200.0));
         assert_eq!(page.dominant_image_height_points, Some(100.0));
+    }
+
+    #[test]
+    fn inspects_the_pages_a_browser_asks_for_as_the_sidecar_records_them() {
+        let mut document = create_test_document_with_pages(3);
+        let sidecar = serde_json::to_value(collect_page_sizes(&document).unwrap().pages).unwrap();
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let every_page: serde_json::Value =
+            serde_json::from_slice(&inspect_scan_cleanup_pdf_bytes(&bytes, &[]).unwrap()).unwrap();
+        assert_eq!(every_page["pageCount"], 3);
+        assert_eq!(every_page["pages"], sidecar);
+
+        let selected: serde_json::Value =
+            serde_json::from_slice(&inspect_scan_cleanup_pdf_bytes(&bytes, &[3, 1]).unwrap())
+                .unwrap();
+        assert_eq!(selected["pageCount"], 3);
+        assert_eq!(
+            selected["pages"],
+            serde_json::json!([sidecar[2], sidecar[0]])
+        );
+        assert!(inspect_scan_cleanup_pdf_bytes(&bytes, &[4]).is_err());
     }
 
     #[test]

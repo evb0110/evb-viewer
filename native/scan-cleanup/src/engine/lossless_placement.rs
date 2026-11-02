@@ -6,7 +6,7 @@
 //! decision onto the preview's pixel canvas, so the preview and the assembled
 //! page are one program.
 use crate::domain::geometry::{AppliedMargins, PageHalf};
-use crate::engine::output_geometry::write_json_atomic;
+use crate::engine::output_geometry::write_bytes_atomic;
 use crate::engine::render::{quantize_decimal_half_up, CleanupWarningEvent, WarningExtentUnit};
 use crate::engine::render::{AnalysisOutputMetadata, CleanupMetadata};
 use crate::protocol::manifest_v3::DocumentCanvas;
@@ -628,9 +628,25 @@ pub(crate) fn record_source_preservation(
     page: &PdfPageGeometry,
     options: &CleanupOptions,
 ) -> Result<(), Box<dyn Error>> {
-    let mut metadata: CleanupMetadata = serde_json::from_slice(&fs::read(metadata_path)?)?;
+    if let Some(metadata) =
+        record_source_preservation_json(&fs::read(metadata_path)?, page, options)?
+    {
+        write_bytes_atomic(metadata_path, &metadata)?;
+    }
+    Ok(())
+}
+
+/// [`record_source_preservation`] on metadata bytes the caller holds: the
+/// rewritten JSON, or `None` when the output is a spread half, which keeps no
+/// compact source page.
+pub(crate) fn record_source_preservation_json(
+    metadata_json: &[u8],
+    page: &PdfPageGeometry,
+    options: &CleanupOptions,
+) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+    let mut metadata: CleanupMetadata = serde_json::from_slice(metadata_json)?;
     if metadata.half != PageHalf::Full {
-        return Ok(());
+        return Ok(None);
     }
     let crop = analysis_rect_to_pdf(
         metadata.crop_rect,
@@ -647,7 +663,7 @@ pub(crate) fn record_source_preservation(
         .unwrap_or(metadata.canvas_height as f64 / metadata.render_dpi * 72.0);
     metadata.source_pdf_placement =
         plan_source_preservation(crop, target_width, target_height, options);
-    write_json_atomic(metadata_path, &metadata)
+    Ok(Some(serde_json::to_vec(&metadata)?))
 }
 
 fn plan_source_preservation(

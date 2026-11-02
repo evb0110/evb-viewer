@@ -2,416 +2,300 @@ import {
     createHash, randomBytes,
 } from 'node:crypto';
 import {
-    readFileSync, writeFileSync, rmSync, openSync, writeSync, closeSync,
+    readFileSync, writeFileSync, mkdirSync,
 } from 'node:fs';
 import {
     basename, resolve,
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {chromium} from 'playwright';
-import type {Download} from 'playwright';
+import type {
+    Download, Page,
+} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
+    installPickerHandleFixture, openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 
+// A six-page portrait PDF whose pages read "<label> page <n>".
+async function createReadingBook(label: string, name: string) {
+    const pdf = await PDFDocument.create();
+    for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
+        pdf.addPage([
+            400,
+            600,
+        ]).drawText(`${label} page ${String(pageNumber)}`, {
+            x: 40,
+            y: 500,
+            size: 24,
+        });
+    }
+    return {
+        name,
+        mimeType: 'application/pdf',
+        buffer: Buffer.from(await pdf.save()),
+    };
+}
+
+// What the reader sees of the active view: the toolbar's page and zoom, and
+// the page in the middle of the viewport with its painted orientation.
+function readReadingView(page: Page) {
+    return page.evaluate(() => {
+        const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
+        const viewport = host?.getBoundingClientRect();
+        const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
+            const rect = container.getBoundingClientRect();
+            return viewport && rect.bottom > viewport.top + viewport.height / 4 && rect.top < viewport.bottom - viewport.height / 4;
+        });
+        const rect = visible?.getBoundingClientRect();
+        return {
+            indicator: document.querySelector('.page-controls-current-primary')?.textContent?.trim(),
+            zoom: document.querySelector('.zoom-controls-display-value')?.textContent?.trim(),
+            visibleText: visible?.querySelector('.textLayer')?.textContent?.trim(),
+            landscape: rect ? rect.width > rect.height : null,
+        };
+    });
+}
+
+// Opens a reading book through Start's Open File button and the file chooser.
+async function openReadingBook(page: Page, label: string, name: string) {
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', {
+        name: 'Open File',
+        exact: true,
+    }).first().click();
+    await (await chooser).setFiles(await createReadingBook(label, name));
+    await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe(`${label} page 1`);
+    await settleActiveOpen(page);
+}
+
 describe('browser document lifecycle UI', () => {
-    // C2/C4: opening a valid document has no size gate or console failure;
-    // a refused open explains its cause on screen and leaves the next open usable.
-    it('opens large PDFs through the chooser and Recent Files and explains invalid input', async () => {
-        const context = await lifecycle.browser.newContext({viewport: {
+
+    it.each([
+        'corrupt',
+        'clean',
+        'future-storage',
+        'future-cookie',
+        'future-between-pages',
+    ] as const)('recovers browser settings without overwriting another version (%s)', async (scenario) => {
+        // The full headless browser supports history-cache restores; the
+        // default headless shell always reports every tab as visible.
+        const historyBrowser = scenario === 'future-between-pages'
+            ? await chromium.launch({
+                headless: true,
+                channel: 'chromium',
+                ignoreDefaultArgs: ['--disable-back-forward-cache'],
+            })
+            : null;
+        const context = await (historyBrowser ?? lifecycle.browser).newContext({viewport: {
             width: 1280,
-            height: 900,
+            height: 1000,
         }});
         const page = await context.newPage();
-        const problems = collectConsoleProblems(page);
-        const dropPath = resolve(process.cwd(), `.devkit/large-drop-${process.pid}.pdf`);
-        const largePath = resolve(process.cwd(), `.devkit/billion-byte-${process.pid}.pdf`);
-        const trace: string[] = [];
-        page.on('console', message => trace.push(message.text()));
-        page.on('crash', () => trace.push('PAGE CRASHED'));
-        let phase = 'chooser';
-        try {
-            const pdf = await PDFDocument.create();
-            pdf.addPage([
-                612,
-                792,
-            ]).drawText('A large document opens in the browser', {
-                x: 40,
-                y: 740,
-            });
-            // A real, uncompressed PDF stream exceeds the former 16 MiB open ceiling.
-            pdf.catalog.set(pdf.context.obj('LargeFixture'), pdf.context.register(pdf.context.stream(new Uint8Array(18 * 1024 * 1024))));
-            const buffer = Buffer.from(await pdf.save({useObjectStreams: false}));
-            expect(buffer.byteLength).toBeGreaterThan(16 * 1024 * 1024);
-            await openPdfFromChooser(page, {
-                name: 'large-open.pdf',
-                mimeType: 'application/pdf',
-                buffer,
-            });
-            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
-            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' ')).toContain('A large document opens in the browser');
-            expect(problems).toEqual([]);
-            phase = 'password prompt';
-            const protectedChooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Menu',
-                exact: true,
-            }).click();
-            await page.getByRole('menuitem', {name: /^Open File/u}).click();
-            await (await protectedChooser).setFiles({
-                name: 'protected-open.pdf',
-                mimeType: 'application/pdf',
-                buffer: Buffer.from(readFileSync(resolve('tests/fixtures/electron/password-protected.pdf.b64'), 'utf8').trim(), 'base64'),
-            });
-            await page.getByRole('textbox', {
-                name: 'Password',
-                exact: true,
-            }).fill('frame-secret');
-            await page.getByRole('button', {
-                name: 'Open',
-                exact: true,
-            }).click();
-            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor({timeout: 30000});
-            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain('protected-open.pdf');
-            expect(problems).toEqual([]);
-            phase = 'recent';
-            await page.reload({waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            const recent = page.getByRole('button', {name: /large-open\.pdf/u}).first();
-            await recent.click();
-            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
-            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' ')).toContain('A large document opens in the browser');
-            expect(problems).toEqual([]);
-            phase = 'drop';
-            writeFileSync(dropPath, buffer);
-            const drag = await context.newCDPSession(page);
-            const dropTarget = await page.locator('.workspace-host').first().boundingBox();
-            if (!dropTarget) throw new Error('The workspace has no drop target');
-            for (const type of [
-                'dragEnter',
-                'dragOver',
-                'drop',
-            ] as const) {
-                await drag.send('Input.dispatchDragEvent', {
-                    type,
-                    x: dropTarget.x + dropTarget.width / 2,
-                    y: dropTarget.y + dropTarget.height / 2,
-                    data: {
-                        items: [],
-                        files: [dropPath],
-                        dragOperationsMask: 1,
-                    },
-                });
-            }
-            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain(`large-drop-${process.pid}.pdf`);
-            await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas').first().waitFor({timeout: 30000});
-            await drag.detach();
-            expect(problems).toEqual([]);
-
-            // A sparse local file crosses the real chooser without allocating
-            // its unused 1 GiB stream in the test process.
-            phase = 'large local file';
-            const length = 1024 * 1024 * 1024;
-            const prefix = `%PDF-1.7\n1 0 obj\n<< /Length ${length} >>\nstream\n`;
-            const offsets = [
-                0,
-                9,
-            ];
-            let tail = '\nendstream\nendobj\n';
-            const add = (id: number, body: string) => {
-                offsets[id] = prefix.length + length + tail.length;
-                tail += `${id} 0 obj\n${body}\nendobj\n`;
-            };
-            add(2, '<< /Type /Catalog /Pages 3 0 R >>');
-            add(3, '<< /Type /Pages /Count 1 /Kids [4 0 R] >>');
-            add(4, '<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 6 0 R >> >> /Contents 5 0 R >>');
-            const content = 'BT /F1 18 Tf 40 740 Td (A billion bytes can be viewed) Tj ET';
-            add(5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
-            add(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-            const xref = prefix.length + length + tail.length;
-            tail += 'xref\n0 7\n0000000000 65535 f \n';
-            tail += offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
-            tail += `trailer\n<< /Size 7 /Root 2 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-            const descriptor = openSync(largePath, 'w');
-            try {
-                writeSync(descriptor, prefix);
-                writeSync(descriptor, tail, prefix.length + length, 'utf8');
-            } finally {
-                closeSync(descriptor);
-            }
-            const largeChooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Menu',
-                exact: true,
-            }).click();
-            await page.getByRole('menuitem', {name: /^Open File/u}).click();
-            await (await largeChooser).setFiles(largePath);
-            await expect.poll(async () => (await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').allTextContents()).join(' '), {timeout: 30000}).toContain('A billion bytes can be viewed');
-            await page.getByText('Existing annotation editing is unavailable', {exact: true}).waitFor();
-            expect(problems).toEqual([]);
-
-            phase = 'invalid PDF';
-            await page.evaluate(() => sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input'));
-            const invalid = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Menu',
-                exact: true,
-            }).click();
-            await page.getByRole('menuitem', {name: /^Open File/u}).click();
-            await (await invalid).setFiles({
-                name: 'invalid.pdf',
-                mimeType: 'application/pdf',
-                buffer: Buffer.from('%PDF-1.7\nbroken'),
-            });
-            await page.locator('.app-toast-failure-reason').filter({hasText: 'The file is damaged or is not a supported document.'}).waitFor();
-            expect(await page.locator('.workspace-host[data-workspace-active="true"] .textLayer').first().textContent()).toContain('A billion bytes can be viewed');
-        } catch (error) {
-            console.info('LARGE_OPEN_FAILURE', JSON.stringify({
+        const settingsKey = 'evb-viewer:browser:settings';
+        const cookieKey = 'evb_viewer_settings';
+        const supported = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Compatible author',
+        }, null, 2);
+        const future = JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            version: 99,
+            authorName: 'Future author must not be adopted',
+            clientDiagnosticsPreference: 'granted',
+        }, null, 2);
+        const requests: string[] = [];
+        const problems: string[] = [];
+        const historyMisses: unknown[] = [];
+        context.on('request', request => requests.push(request.url()));
+        page.on('pageerror', error => problems.push(error.message));
+        await context.route('**/api/1/envelope/**', route => route.fulfill({
+            status: 200,
+            body: '{}',
+        }));
+        const evidenceDirectory = process.env.EVB_SETTINGS_EVIDENCE_DIR;
+        if (evidenceDirectory) mkdirSync(evidenceDirectory, {recursive: true});
+        async function capture(phase: string) {
+            const evidence = {
+                scenario,
                 phase,
-                trace: trace.slice(-35),
-                error: String(error),
+                browser: lifecycle.browser.version(),
+                ready: await page.evaluate(() => Reflect.get(window, '__appReady') === true),
+                stored: await page.evaluate(key => localStorage.getItem(key), settingsKey),
+                cookie: (await context.cookies()).find(cookie => cookie.name === cookieKey)?.value ?? null,
+                diagnosticsRequests: requests.filter(url => /@sentry|sentry[_/.]|\/api\/1\/envelope/iu.test(url)),
                 problems,
-                text: await page.locator('body').innerText().catch(() => '<page closed>'),
-            }));
-            throw error;
-        } finally {
-            await context.close();
-            rmSync(dropPath, {force: true});
-            rmSync(largePath, {force: true});
-        }
-    }, 120000);
-
-    // T4: every accepted note belongs to the document's Save As frontier.
-    it.each([
-        'single',
-        'split',
-    ])('writes the accepted note through browser Save As from %s view', async (view) => {
-        try {
-            const page = await lifecycle.browser.newPage({viewport: {
-                width: 1600,
-                height: 900,
-            }});
-            const fixture = resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
-            await openPdfFromChooser(page, fixture);
-            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
-            const text = 'Accepted note survives information routes';
-            await addNote(page, text, {
-                x: 200,
-                y: 200,
-            });
-            await page.getByRole('button', {
-                name: 'Open Note',
-                exact: true,
-            }).click();
-            expect(await page.getByRole('textbox', {
-                name: 'Write annotation note',
-                exact: true,
-            }).inputValue()).toBe(text);
-            await page.getByRole('button', {
-                name: 'Minimize note',
-                exact: true,
-            }).click();
-            if (view === 'split') {
-                await clickCenter(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
-                await page.getByRole('menuitem', {
-                    name: 'Split Right',
-                    exact: true,
-                }).click();
-                await expect.poll(() => page.locator('.editor-pane').count()).toBe(2);
-                const panes = await page.locator('.editor-pane').evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.editorPaneId!));
-                const right = panes[1]!;
-                await page.locator(`${paneSelector(right)} .page_container--rendered canvas`).first().waitFor({timeout: 30000});
-                await zoomActivePane(page, right, 'Zoom Out', 1);
-            }
-            expect(await page.getByRole('button', {
-                name: 'Save',
-                exact: true,
-            }).isEnabled()).toBe(true);
-            const savedContents: string[] = [];
-            const downloads: Array<Promise<void>> = [];
-            page.on('download', download => {
-                const index = downloads.length;
-                downloads.push((async () => {
-                    const path = resolve(process.cwd(), `.devkit/browser-save-as-${process.pid}-${view}-${index}.pdf`);
-                    await download.saveAs(path);
-                    const bytes = readFileSync(path);
-                    const pdf = await PDFDocument.load(bytes);
-                    savedContents.push(...noteTexts(pdf));
-                    console.info('SAVE_AS_BYTES', JSON.stringify({
-                        view,
-                        path,
-                        byteLength: bytes.length,
-                        originalChecksum: createHash('sha256').update(readFileSync(fixture)).digest('hex'),
-                        savedChecksum: createHash('sha256').update(bytes).digest('hex'),
-                        savedContents,
-                    }));
-                })());
-            });
-            await page.getByRole('button', {
-                name: 'Save options',
-                exact: true,
-            }).click();
-            await page.getByRole('menuitem', {name: /^Save As/u}).click();
-            try {
-                await expect.poll(() => savedContents, {timeout: 30000}).toContain(text);
-            } finally {
-                await Promise.all(downloads);
-            }
-        } finally {
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
-        }
-    }, 120000);
-
-    it.each([
-        'save',
-        'save-as',
-    ] as const)('retains a note accepted after the %s frontier for the next save', async mode => {
-        const context = await lifecycle.browser.newContext({
-            viewport: {
-                width: 1280,
-                height: 900,
-            },
-            acceptDownloads: true,
-        });
-        let page: Awaited<ReturnType<typeof context.newPage>> | undefined;
-        try {
-            await context.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
-            page = await context.newPage();
-            const problems = collectConsoleProblems(page);
-            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            keepFileChooserInterceptionEnabled(page);
-            const pdf = await PDFDocument.create();
-            pdf.addPage([
-                612,
-                792,
-            ]).drawText('Accepted edits stay in their document', {
-                x: 40,
-                y: 740,
-            });
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            await (await chooser).setFiles({
-                name: 'save-frontier.pdf',
-                mimeType: 'application/pdf',
-                buffer: Buffer.from(await pdf.save()),
-            });
-            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
-            const save = async (as: boolean) => {
-                const download = page!.waitForEvent('download');
-                if (as) {
-                    await page!.getByRole('button', {
-                        name: 'Save options',
-                        exact: true,
-                    }).click();
-                    await page!.getByRole('menuitem', {name: /^Save As/u}).click();
-                } else await page!.getByRole('button', {
-                    name: 'Save',
-                    exact: true,
-                }).click();
-                const path = await (await download).path();
-                if (!path) throw new Error('Save did not provide its downloaded bytes');
-                return PDFDocument.load(readFileSync(path));
+                resumeEvents: await page.evaluate(() => Reflect.get(window, '__settingsResumeEvents') as string[] | undefined),
+                historyMisses,
             };
-            if (mode === 'save') {
-                await save(true);
-                await expect.poll(() => page!.getByRole('button', {
-                    name: 'Save options',
-                    exact: true,
-                }).isEnabled()).toBe(true);
-                await page.evaluate(async () => {
-                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                    await api.waitForActiveDocumentOpenSettled?.();
-                });
-                await page.locator('.editor-pane.is-active .page_container--rendered [data-pdf-annotation-editor-ready="true"]').first().waitFor();
+            console.info('Browser settings evidence', JSON.stringify(evidence));
+            if (evidenceDirectory) {
+                writeFileSync(resolve(evidenceDirectory, `${scenario}-${phase}.json`), JSON.stringify(evidence, null, 2));
+                await page.screenshot({path: resolve(evidenceDirectory, `${scenario}-${phase}.png`)});
             }
-            await addNote(page, 'Before the save frontier', {
-                x: 160,
-                y: 180,
-            });
-            await expect.poll(() => page!.evaluate(() => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.readActiveWorkspaceStateValues!<{annotationComments: Array<{text: string}>}>(['annotationComments']).annotationComments.map(note => note.text);
-            })).toContain('Before the save frontier');
-            await page.evaluate(`(async () => {
-                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
-                const capability = getDocumentWorkingCopyCapability();
-                const method = ${JSON.stringify(mode)} === 'save-as' ? 'createWorkingCopyFromPath' : 'parsePdfAnnotations';
-                const original = capability[method].bind(capability);
-                const held = new Promise(resolve => Reflect.set(window, '__releaseSaveFrontier', resolve));
-                capability[method] = async (...args) => {
-                    capability[method] = original;
-                    const result = ${JSON.stringify(mode)} === 'save' ? await original(...args) : undefined;
-                    Reflect.set(window, '__saveFrontierHeld', true);
-                    await held;
-                    return ${JSON.stringify(mode)} === 'save' ? result : original(...args);
-                };
-            })()`);
-            const first = save(mode === 'save-as');
-            await page.waitForFunction(() => Reflect.get(window, '__saveFrontierHeld') === true);
-            await addNote(page, 'Accepted after the save frontier', {
-                x: 260,
-                y: 280,
-            });
-            expect(await page.locator('.pdf-annotation-editor-note').count()).toBe(2);
-            await expect.poll(() => page!.evaluate(() => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.readActiveWorkspaceStateValues!<{annotationComments: Array<{text: string}>}>(['annotationComments']).annotationComments.map(note => note.text);
-            })).toContain('Accepted after the save frontier');
-            await page.evaluate(() => Reflect.get(window, '__releaseSaveFrontier')());
-            const published = noteTexts(await first);
-            await expect.poll(() => page!.getByRole('button', {
-                name: 'Save options',
-                exact: true,
-            }).isEnabled()).toBe(true);
-            expect(published).toContain('Before the save frontier');
-            await expect.poll(() => page!.locator('.pdf-annotation-editor-note').count()).toBe(2);
-            if (!published.has('Accepted after the save frontier')) {
-                await expect.poll(() => page!.getByRole('button', {
-                    name: 'Save',
-                    exact: true,
-                }).isEnabled()).toBe(true);
-            }
-            await page.locator('.pdf-annotation-editor-note').last().click();
-            await expect.poll(() => page!.getByRole('textbox', {
-                name: 'Write annotation note',
-                exact: true,
-            }).inputValue()).toBe('Accepted after the save frontier');
-            await page.getByRole('button', {
-                name: 'Minimize note',
-                exact: true,
-            }).click();
-            expect(noteTexts(await save(published.has('Accepted after the save frontier')))).toEqual(new Set([
-                'Before the save frontier',
-                'Accepted after the save frontier',
-            ]));
-            await page.locator('.pdf-annotation-editor-note').last().click();
-            await page.getByRole('textbox', {
-                name: 'Write annotation note',
-                exact: true,
-            }).fill('Edited after Save As');
-            await page.getByRole('button', {
-                name: 'Minimize note',
-                exact: true,
-            }).click();
-            expect(noteTexts(await save(false))).toContain('Edited after Save As');
-            expect(problems).toEqual([]);
-        } finally {
-            if (page && !page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseSaveFrontier')?.()).catch(() => undefined);
-            await context.close();
+            return evidence;
         }
-    }, 120000);
+        try {
+            const notice = page.getByText('Saved settings could not be used, so defaults were restored.', {exact: false});
+            const newerNotice = page.getByText('These settings were saved by a newer version of EVB Viewer. They are kept unchanged, and this version uses its defaults and cannot save settings. Open the newer version to change them.', {exact: false});
+            const loadApp = async (load: () => Promise<unknown>) => {
+                await load();
+                // Bootstrap adds the notice before it reports the app ready.
+                await page.waitForFunction(() => Reflect.get(window, '__appReady') === true, undefined, {timeout: 60_000});
+            };
+            if (scenario.startsWith('future-')) {
+                // Seed a fresh origin before any app script runs. Whitespace in
+                // these raw values makes a parse-and-rewrite lose byte parity.
+                await context.addInitScript(({
+                    key, value,
+                }) => {
+                    if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+                }, {
+                    key: settingsKey,
+                    value: scenario === 'future-storage' ? future : supported,
+                });
+                await context.addCookies([{
+                    name: cookieKey,
+                    value: encodeURIComponent(scenario === 'future-cookie' ? future : supported),
+                    url: lifecycle.origin,
+                }]);
+            }
+            await loadApp(() => page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'}));
+            if (scenario === 'corrupt') {
+                await expect(notice.count()).resolves.toBe(0);
+
+                // Setup: storage corrupted outside the app, as by a crash mid-write or an extension.
+                await page.evaluate(() => window.localStorage.setItem('evb-viewer:browser:settings', '{"version": 2, "authorName": '));
+                await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
+                await notice.first().waitFor({timeout: 10_000});
+                const stored = await page.evaluate(() => window.localStorage.getItem('evb-viewer:browser:settings'));
+                expect(JSON.parse(stored ?? 'null')).toMatchObject({version: 2});
+
+                await loadApp(() => page.reload({waitUntil: 'domcontentloaded'}));
+                await expect(notice.count()).resolves.toBe(0);
+                return;
+            }
+            if (scenario === 'future-storage' || scenario === 'future-cookie') {
+                await newerNotice.first().waitFor();
+                await capture('startup');
+            } else {
+                expect(await newerNotice.count()).toBe(0);
+                expect(await notice.count()).toBe(0);
+            }
+            await page.getByRole('button', {
+                name: 'Settings',
+                exact: true,
+            }).filter({visible: true}).first().click();
+            const author = page.getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            });
+            const consent = page.getByRole('switch', {
+                name: 'Send privacy-sanitized error diagnostics',
+                exact: true,
+            });
+            expect(await consent.isChecked()).toBe(false);
+            expect(await author.inputValue()).toBe(scenario === 'future-between-pages' ? 'Compatible author' : '');
+            if (scenario === 'future-between-pages') {
+                await page.evaluate(() => {
+                    const events: string[] = [];
+                    Reflect.set(window, '__settingsResumeEvents', events);
+                    document.addEventListener('visibilitychange', () => events.push(document.visibilityState));
+                    window.addEventListener('pageshow', event => events.push(`pageshow:${String(event.persisted)}`));
+                });
+                // The peer supplies a newer version's bytes. Loading another
+                // copy of this old app would contend with its cached document
+                // lease and make Chromium evict A before pageshow can run.
+                const away = `${lifecycle.origin}/__settings-history-away`;
+                await context.route(away, route => route.fulfill({
+                    contentType: 'text/html',
+                    body: '<p>Settings history navigation fixture</p>',
+                }));
+                const second = await context.newPage();
+                await second.goto(away);
+                const session = await context.newCDPSession(page);
+                await session.send('Page.enable');
+                session.on('Page.backForwardCacheNotUsed', event => historyMisses.push(event));
+                // Resume the original page from the history cache after another
+                // page writes newer settings. A reload would lose this listener
+                // and cannot satisfy the persisted pageshow assertion.
+                await page.goto(away);
+                await second.evaluate(({
+                    key, value,
+                }) => localStorage.setItem(key, value), {
+                    key: settingsKey,
+                    value: future,
+                });
+                await page.goBack({waitUntil: 'commit'});
+                await page.waitForFunction(() => {
+                    const events = Reflect.get(window, '__settingsResumeEvents') as string[] | undefined;
+                    return events?.includes('pageshow:true');
+                });
+                await session.detach();
+                expect(await author.inputValue()).not.toBe('Future author must not be adopted');
+                expect(await consent.isChecked()).toBe(false);
+            }
+            if (scenario !== 'clean') {
+                // A real keyboard event also exercises error reporting. Future
+                // consent must neither load the SDK nor transmit an envelope.
+                await author.evaluate(element => element.addEventListener('keydown', () => {
+                    throw new Error('Settings compatibility input failure');
+                }, {once: true}));
+                await author.press('ArrowRight');
+                await page.locator('.app-toast-error-id').first().waitFor();
+            }
+            await author.fill(`Saved by ${scenario}`);
+            if (scenario === 'clean') {
+                await page.waitForFunction(({
+                    key, name,
+                }) => JSON.parse(localStorage.getItem(key) ?? '{}').authorName === name, {
+                    key: settingsKey,
+                    name: `Saved by ${scenario}`,
+                });
+                expect(await newerNotice.count()).toBe(0);
+                expect(await page.getByText('Last save failed', {exact: true}).count()).toBe(0);
+            } else {
+                await page.getByText('Last save failed', {exact: true}).first().waitFor();
+                const refused = await capture('save-refused');
+                expect(refused.stored).toBe(scenario === 'future-cookie' ? supported : future);
+                // A supported legacy cookie is migrated away on a normal start.
+                expect(refused.cookie).toBe(scenario === 'future-between-pages' ? null : encodeURIComponent(scenario === 'future-cookie' ? future : supported));
+                expect(refused.diagnosticsRequests).toEqual([]);
+                if (scenario === 'future-between-pages') {
+                    // The other version releases ownership. The same live page
+                    // can save again without a reload or private settings API.
+                    await context.addCookies([{
+                        name: cookieKey,
+                        value: encodeURIComponent(supported),
+                        url: lifecycle.origin,
+                    }]);
+                    await page.evaluate(({
+                        key, value,
+                    }) => localStorage.setItem(key, value), {
+                        key: settingsKey,
+                        value: supported,
+                    });
+                    await author.fill('Saved after compatible settings returned');
+                    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) ?? '{}').authorName === 'Saved after compatible settings returned', settingsKey);
+                }
+            }
+            expect((await capture('passed')).diagnosticsRequests).toEqual([]);
+        } finally {
+            try {
+                await capture('final');
+            } finally {
+                try {
+                    await context.close();
+                } finally {
+                    await historyBrowser?.close();
+                }
+            }
+        }
+    }, 120_000);
 
     it('withdraws hosted diagnostics in another open window and allows an explicit regrant', async () => {
         try {
@@ -1075,9 +959,13 @@ describe('browser document lifecycle UI', () => {
                 await page.evaluate(() => Reflect.get(window, '__resumeLateConformance')());
                 await page.waitForFunction(() => Reflect.get(window, '__lateConformanceDone') === true);
             }
+            const recentOpen = page.locator('[data-recent-open-actionable="true"] .recent-open')
+                .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'});
+            // Recent registration and Close finish asynchronously. Wait for the
+            // saved document on Start before navigation can interrupt either.
+            await recentOpen.waitFor({state: 'visible'});
             await page.reload({waitUntil: 'domcontentloaded'});
-            await page.locator('[data-recent-open-actionable="true"] .recent-open')
-                .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'}).click();
+            await recentOpen.click();
             await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
             if (operation === 'save-as') {
                 await expect.poll(() => page.locator('.textLayer').first().innerText()).toContain('Hello Arabic world');
@@ -1086,6 +974,199 @@ describe('browser document lifecycle UI', () => {
             expect(problems).toEqual([]);
         } finally {
             await browser.close();
+        }
+    }, 120_000);
+
+    // R4: with "Reopen documents where I left off" off, a document opened in
+    // the tab that closing the last tab leaves starts at page 1 with the
+    // default zoom and no view rotation, whatever the closed document showed.
+    it('opens the next PDF in the emptied last tab at its defaults, not the closed view', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const readView = () => readReadingView(page);
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            await openReadingBook(page, 'First', 'first.pdf');
+            const opened = await readView();
+            expect(opened).toMatchObject({
+                indicator: '1',
+                landscape: false,
+            });
+
+            await page.locator('.page-controls-display').click();
+            await page.locator('.page-controls-inline-input').fill('4');
+            await page.keyboard.press('Enter');
+            await page.locator('#editor-global-toolbar-host button[aria-label^="Zoom In"]:not([disabled])').first().click();
+            await expect.poll(async () => (await readView()).zoom, {timeout: 15_000}).not.toBe(opened.zoom);
+            // The browser shows no view-rotation control yet (desktop has it in its View menu).
+            await page.evaluate(() => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!testApi?.callActiveWorkspaceSyncCommand?.('handleViewRotationCw').called) throw new Error('View rotation is unavailable');
+            });
+            await expect.poll(readView, {timeout: 15_000}).toMatchObject({
+                indicator: '4',
+                visibleText: 'First page 4',
+                landscape: true,
+            });
+
+            await page.getByRole('button', {name: 'Close Tab'}).click();
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').count()).toBe(1);
+            await waitForOpenFileReady(page);
+            await openReadingBook(page, 'Second', 'second.pdf');
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-last-tab-next-open.png')});
+            await expect.poll(readView, {timeout: 15_000}).toEqual({
+                ...opened,
+                visibleText: 'Second page 1',
+            });
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 120_000);
+
+    // R4: with "Reopen documents where I left off" on, a Recent PDF reopens at
+    // the page, zoom and view rotation it was closed at, also after a Save; a
+    // file of the same name and page count with other bytes opens at its start.
+    it.each([
+        'download',
+        'file-handle',
+    ] as const)('reopens a Recent PDF where the reader left it, and other bytes of that name at their start (%s)', async (saveMode) => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const readView = () => readReadingView(page);
+        const settle = () => settleActiveOpen(page);
+        const openFile = (label: string) => openReadingBook(page, label, 'reading-view.pdf');
+        try {
+            if (saveMode !== 'download') await page.addInitScript(installPickerHandleFixture);
+            await page.addInitScript((mode) => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                if (mode === 'download') {
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    return;
+                }
+                // A File is a structured-cloneable picker-handle fixture. Its
+                // prototype methods survive an IndexedDB round trip and reload,
+                // and the actual bytes and writes live in a real OPFS file.
+                // Chromium 153 traps when deserializing native OPFS handles.
+                Reflect.set(window, 'showSaveFilePicker', async () => new File([], 'reading-view.pdf'));
+            }, saveMode);
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            await page.locator('.rail-item', {hasText: 'Settings'}).click();
+            await page.getByRole('switch', {name: 'Reopen documents where I left off'}).click();
+            await expect.poll(() => page.getByRole('switch', {name: 'Reopen documents where I left off'}).getAttribute('aria-checked')).toBe('true');
+            await page.locator('.rail-item', {hasText: 'Recent Files'}).click();
+            await openFile('Reading');
+            const opened = await readView();
+
+            await page.locator('.page-controls-display').click();
+            await page.locator('.page-controls-inline-input').fill('4');
+            await page.keyboard.press('Enter');
+            await page.locator('#editor-global-toolbar-host button[aria-label^="Zoom In"]:not([disabled])').first().click();
+            await expect.poll(async () => (await readView()).zoom, {timeout: 15_000}).not.toBe(opened.zoom);
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {
+                name: 'View',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {
+                name: 'Rotate View Clockwise',
+                exact: true,
+            }).click();
+            // An ordinary Save of a note writes the reader's own bytes; the view stays theirs.
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.workspace-host[data-workspace-active="true"] .page_container[data-page="4"]').first().click({position: {
+                x: 80,
+                y: 80,
+            }});
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).fill('Saved where I left off');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            // The button's name is its tooltip, which changes once nothing is left to save.
+            const save = page.locator('.save-split-primary').first();
+            const download = saveMode === 'download' ? page.waitForEvent('download') : null;
+            await save.click();
+            if (download) {
+                expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(new Set(['Saved where I left off']));
+            }
+            await expect.poll(async () => [
+                await save.getAttribute('aria-busy'),
+                await save.isDisabled(),
+            ], {timeout: 15_000}).toEqual([
+                'false',
+                true,
+            ]);
+            if (saveMode === 'file-handle') {
+                const bytes = await page.evaluate(async () => {
+                    const root = await navigator.storage.getDirectory();
+                    const handle = await root.getFileHandle('reading-view.pdf');
+                    return Array.from(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+                });
+                expect(noteTexts(await PDFDocument.load(Uint8Array.from(bytes)))).toEqual(new Set(['Saved where I left off']));
+            }
+            await expect.poll(readView, {timeout: 15_000}).toMatchObject({
+                indicator: '4',
+                visibleText: 'Reading page 4',
+                landscape: true,
+            });
+            const left = await readView();
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-recent-reading-view-${saveMode}-left.png`)});
+            // A reload leaves nothing of the closed view but what Recent stored.
+            // Close remembers the view before its tab goes, so the reload waits for that.
+            const closeAndReload = async () => {
+                await page.getByRole('button', {name: 'Close Tab'}).click();
+                await expect.poll(() => page.locator('[data-tab-list] [role="tab"]').filter({hasText: '.pdf'}).count(), {timeout: 15_000}).toBe(0);
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+            };
+            const reopenFromRecent = async (name: string) => {
+                await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: name}).click();
+                await page.locator('.workspace-host[data-workspace-active="true"] .page_container--rendered').first().waitFor({timeout: 30_000});
+                await settle();
+            };
+            await closeAndReload();
+
+            await reopenFromRecent('reading-view.pdf');
+            await expect.poll(readView, {timeout: 15_000}).toEqual(left);
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-recent-reading-view-${saveMode}-restored.png`)});
+            await closeAndReload();
+
+            await openFile('Changed');
+            await expect.poll(readView, {timeout: 15_000}).toEqual({
+                ...opened,
+                visibleText: 'Changed page 1',
+            });
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-recent-reading-view-${saveMode}-changed-bytes.png`)});
+            expect(problems).toEqual([]);
+        } finally {
+            await context.close();
         }
     }, 120_000);
 

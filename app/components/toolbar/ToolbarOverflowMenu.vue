@@ -1,13 +1,14 @@
 <template>
-    <UDropdownMenu
-        v-model:open="isOpen"
-        :items="overflowMenuItems"
-        :content="contentOptions"
-        :ui="overflowMenuUi"
-        portal="body"
-    >
-        <span class="toolbar-popover-trigger">
-            <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
+    <!-- The button itself is the menu's trigger, so closing returns focus to it. -->
+    <span class="toolbar-popover-trigger">
+        <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
+            <UDropdownMenu
+                v-model:open="isOpen"
+                :items="overflowMenuItems"
+                :content="contentOptions"
+                :ui="overflowMenuUi"
+                portal="body"
+            >
                 <UButton
                     :icon="triggerIcon"
                     variant="ghost"
@@ -18,44 +19,44 @@
                     :aria-expanded="hasOverflowMenuCommands ? isOpen : false"
                     :disabled="!hasOverflowMenuCommands"
                 />
-            </AppTooltip>
-        </span>
 
-        <template #print-current-page-leading>
-            <UIcon
-                v-if="isPreparingCurrentPagePrint"
-                name="i-ph-circle-notch"
-                class="overflow-menu-icon toolbar-menu-icon animate-spin"
-            />
-            <PrintCurrentPageIcon v-else class="overflow-menu-icon toolbar-menu-icon" />
-        </template>
+                <template #print-current-page-leading>
+                    <UIcon
+                        v-if="isPreparingCurrentPagePrint"
+                        name="i-ph-circle-notch"
+                        class="overflow-menu-icon toolbar-menu-icon animate-spin"
+                    />
+                    <PrintCurrentPageIcon v-else class="overflow-menu-icon toolbar-menu-icon" />
+                </template>
 
-        <template #facing-first-single-leading>
-            <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
-                <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
-                <span class="overflow-menu-icon-badge">1</span>
-            </span>
-        </template>
+                <template #facing-first-single-leading>
+                    <span class="overflow-menu-icon toolbar-menu-icon--facing-first-single">
+                        <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
+                        <span class="toolbar-menu-icon-badge" aria-hidden="true">1</span>
+                    </span>
+                </template>
 
-        <template #scan-cleanup-leading>
-            <span class="overflow-menu-icon overflow-menu-scan-cleanup-icon">
-                <ScanCleanupScissorsIcon class="size-[var(--app-toolbar-icon-size)]" />
-                <span
-                    v-if="scanCleanupRunning"
-                    class="overflow-menu-running-dot"
-                    aria-hidden="true"
-                />
-            </span>
-        </template>
+                <template #scan-cleanup-leading>
+                    <span class="overflow-menu-icon overflow-menu-scan-cleanup-icon">
+                        <ScanCleanupScissorsIcon class="size-[var(--app-toolbar-icon-size)]" />
+                        <span
+                            v-if="scanCleanupRunning"
+                            class="overflow-menu-running-dot"
+                            aria-hidden="true"
+                        />
+                    </span>
+                </template>
 
-        <template #item-trailing="{ item }">
-            <UIcon
-                v-if="isOverflowMenuItemChecked(item)"
-                name="i-ph-check"
-                class="overflow-menu-check"
-            />
-        </template>
-    </UDropdownMenu>
+                <template #item-trailing="{ item }">
+                    <UIcon
+                        v-if="isOverflowMenuItemChecked(item)"
+                        name="i-ph-check"
+                        class="overflow-menu-check"
+                    />
+                </template>
+            </UDropdownMenu>
+        </AppTooltip>
+    </span>
 </template>
 
 <script setup lang="ts">
@@ -63,7 +64,6 @@ import type { TPdfViewMode } from '@contracts/shared';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { ScanCleanupScissorsIcon } from '@app/modules/scan-cleanup/public/runtime';
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
-import type { TToolbarOverflowMenuCommand } from '@app/types/toolbarMenuCommands';
 import {
     isReaderCommandInMenu,
     isReaderCommandInline,
@@ -72,13 +72,43 @@ import {
 } from '@app/utils/readerCommandSurface';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
+import {
+    keepMenuFocusWhenItemsChange,
+    keepMovedFocus,
+} from '@app/utils/menuFocus';
 
 const { t } = useTypedI18n();
 
+type TToolbarOverflowMenuCommand =
+    | 'open-file'
+    | 'save'
+    | 'save-as'
+    | 'print'
+    | 'undo'
+    | 'redo'
+    | 'open-ocr'
+    | 'open-scan-cleanup'
+    | 'export-docx'
+    | 'toggle-assistant'
+    | 'toggle-sidebar'
+    | 'fit-width'
+    | 'fit-height'
+    | 'enable-drag'
+    | 'disable-drag'
+    | 'toggle-continuous-scroll'
+    | 'capture-region'
+    | 'crop'
+    | 'quick-note'
+    | 'toggle-fullscreen'
+    | 'open-settings'
+    | 'combine-files'
+    | 'print-current-page'
+    | 'convert-to-pdf';
+
 type TToolbarOverflowMenuItem =
     | {
-        type: 'label' | 'separator';
-        label?: string;
+        type: 'label';
+        label: string;
     }
     | IToolbarOverflowMenuCommandItem;
 
@@ -267,10 +297,12 @@ const contentOptions = {
     positionStrategy: 'fixed' as const,
     updatePositionStrategy: 'always' as const,
     hideWhenDetached: true,
+    onCloseAutoFocus: keepMovedFocus,
 };
 const overflowMenuUi = {
     content: 'overflow-menu toolbar-menu-panel',
-    group: 'overflow-menu-section toolbar-menu-section',
+    viewport: 'divide-y-0 p-1',
+    group: 'overflow-menu-section toolbar-menu-section p-0',
     label: 'overflow-menu-section-header toolbar-menu-section-header',
     separator: 'overflow-menu-divider toolbar-menu-divider',
     item: 'overflow-menu-item toolbar-menu-item',
@@ -284,18 +316,17 @@ const hasRelocatedFileItems = computed(() => (
     || shouldShowRelocatedCommand('save-as')
     || shouldShowRelocatedCommand('print')
 ));
-// The browser's app menu holds the File and Edit commands; More tools does
+// The browser window's Menu holds the File and Edit commands; More tools does
 // not repeat them there.
 const { isBrowserRuntime } = useRuntimeEnvironment();
-const fileCommandsInAppMenu = computed(() => isBrowserRuntime.value && isReaderCommandInline(surface, 'app-menu'));
-const hasDocumentItems = computed(() => !fileCommandsInAppMenu.value && (shouldShowMenuCommand('open-file', 5)
+const hasDocumentItems = computed(() => !isBrowserRuntime.value && (shouldShowMenuCommand('open-file', 5)
     || hasRelocatedFileItems.value || (
     showDocumentSection === true
     && (canCombineFiles === true
         || canPrintCurrentPage === true
         || canConvertToPdf === true)
 )));
-const hasEditItems = computed(() => !fileCommandsInAppMenu.value && (
+const hasEditItems = computed(() => !isBrowserRuntime.value && (
     shouldShowRelocatedCommand('undo') || shouldShowRelocatedCommand('redo')
 ));
 
@@ -324,16 +355,18 @@ const hasShellItems = computed(() => (
     || shouldShowMenuCommand('settings', 5)
 ));
 
-const overflowMenuItems = computed(() => {
-    const items: TToolbarOverflowMenuItem[] = [];
-    appendMenuSection(items, t('menu.file'), buildDocumentItems());
-    appendMenuSection(items, t('menu.edit'), buildEditItems());
-    appendMenuSection(items, t('toolbar.annotations'), buildToolItems());
-    appendMenuSection(items, t('menu.view'), buildViewItems());
-    appendMenuSection(items, t('toolbar.moreTools'), buildShellItems());
-    return items;
-});
-const hasOverflowMenuCommands = computed(() => overflowMenuItems.value.some(item => 'onSelect' in item));
+// The dropdown keys its groups and entries by position, so each section is a
+// group of its own: one section's entries coming or going with the toolbar's
+// width or the document never moves another section's.
+const overflowMenuItems = computed(() => [
+    createMenuSection(t('menu.file'), buildDocumentItems()),
+    createMenuSection(t('menu.edit'), buildEditItems()),
+    createMenuSection(t('toolbar.annotations'), buildToolItems()),
+    createMenuSection(t('menu.view'), buildViewItems()),
+    createMenuSection(t('toolbar.moreTools'), buildShellItems()),
+]);
+keepMenuFocusWhenItemsChange(() => isOpen.value, () => overflowMenuItems.value, '.overflow-menu.toolbar-menu-panel');
+const hasOverflowMenuCommands = computed(() => overflowMenuItems.value.some(section => section.length > 0));
 
 watch(hasOverflowMenuCommands, (hasCommands) => {
     if (!hasCommands && open) {
@@ -488,7 +521,9 @@ function buildViewItems() {
         }));
     }
 
-    if (canUseViewModes && shouldShowMenuCommand('view-mode', 2)) {
+    // Commands a document cannot use stay in place, disabled, so switching to
+    // another document never moves a focused entry onto a different command.
+    if (shouldShowMenuCommand('view-mode', 2)) {
         items.push(
             createViewModeItem('single', t('zoom.singlePage'), 'i-ph-file'),
             createViewModeItem('facing', t('zoom.facingPages'), 'i-ph-book-open'),
@@ -510,10 +545,10 @@ function buildViewItems() {
         }));
     }
 
-    if (canToggleContinuousScroll && shouldShowMenuCommand('continuous-scroll', 2)) {
+    if (shouldShowMenuCommand('continuous-scroll', 2)) {
         items.push(createReaderCommandItem('continuous-scroll', 'toggle-continuous-scroll', t('zoom.continuousScroll'), {
             checked: continuousScroll,
-            disabled: !hasInteractiveDocument.value,
+            disabled: !hasInteractiveDocument.value || !canToggleContinuousScroll,
         }));
     }
 
@@ -561,26 +596,16 @@ function buildShellItems() {
     return items;
 }
 
-function appendMenuSection(
-    target: TToolbarOverflowMenuItem[],
-    label: string,
-    sectionItems: IToolbarOverflowMenuCommandItem[],
-) {
-    if (sectionItems.length === 0) {
-        return;
-    }
-
-    if (target.length > 0) {
-        target.push({ type: 'separator' });
-    }
-
-    target.push(
-        {
-            type: 'label',
-            label,
-        },
-        ...sectionItems,
-    );
+function createMenuSection(label: string, sectionItems: IToolbarOverflowMenuCommandItem[]): TToolbarOverflowMenuItem[] {
+    return sectionItems.length === 0
+        ? []
+        : [
+            {
+                type: 'label',
+                label,
+            },
+            ...sectionItems,
+        ];
 }
 
 function createCommandItem(
@@ -628,7 +653,7 @@ function createViewModeItem(
     const item: IToolbarOverflowMenuCommandItem = {
         label,
         checked: viewMode === mode,
-        disabled: !hasInteractiveDocument.value,
+        disabled: !hasInteractiveDocument.value || !canUseViewModes,
         onSelect: () => handleViewModeCommand(mode),
     };
 
@@ -703,8 +728,12 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
     min-width: min(var(--app-toolbar-overflow-menu-min-width), var(--app-floating-panel-viewport-width));
 }
 
-.overflow-menu-icon--facing-first-single {
-    position: relative;
+// A rule, not a separator entry, divides a shown section from the one before
+// it, so no entry's position depends on which sections are shown.
+.overflow-menu-section:not(:empty) ~ .overflow-menu-section:not(:empty) {
+    margin-top: var(--app-space-sm);
+    padding-top: var(--app-space-sm);
+    border-top: var(--app-hairline-height) solid var(--app-toolbar-separator);
 }
 
 .overflow-menu-scan-cleanup-icon {
@@ -728,29 +757,6 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
         opacity: 0.45;
         transform: scale(0.8);
     }
-}
-
-.overflow-menu-icon-badge {
-    position: absolute;
-    top: var(--app-toolbar-overflow-badge-offset-top);
-    right: var(--app-toolbar-overflow-badge-offset-inline-end);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: var(--app-space-9xl);
-    height: var(--app-space-9xl);
-    padding: 0 var(--app-space-3xs);
-    border-radius: var(--app-radius-full);
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    font-size: var(--app-toolbar-overflow-badge-font-size);
-    line-height: var(--app-line-height-tight);
-    font-weight: 700;
-}
-
-.overflow-menu-item.is-active .overflow-menu-icon-badge {
-    color: var(--ui-text);
 }
 
 .overflow-menu-check {

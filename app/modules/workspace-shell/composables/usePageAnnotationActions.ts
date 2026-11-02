@@ -67,6 +67,7 @@ interface IPageAnnotationActionsDeps {
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { t } = useTypedI18n();
+    const toast = useToast();
     const { copy: copyClipboardText } = VueUse.useClipboard();
 
     const {
@@ -449,6 +450,15 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 ...(existingImage ?? {}),
             });
         } catch (error) {
+            // A browser may refuse clipboard reads; its paste event still
+            // carries the image, so point the user at the paste shortcut.
+            if (error instanceof DOMException && error.name === 'NotAllowedError') {
+                toast.add({
+                    color: 'warning',
+                    title: t('annotations.clipboardImageReadBlocked'),
+                });
+                return false;
+            }
             BrowserLogger.warn('annotations', 'Failed to paste image from clipboard', error);
             return false;
         }
