@@ -5,7 +5,9 @@ import {
     isDjvuFileName,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
-import {BROWSER_COMBINE_IMAGE_EXTENSIONS} from '@app/platform/browser-api/browserPlatformHelpers';
+import {
+    BROWSER_COMBINE_IMAGE_EXTENSIONS, buildBrowserByteLimitError,
+} from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserPdfCombineWorkerUnavailableError,
     canUseBrowserPdfCombineWorker,
@@ -261,7 +263,7 @@ async function createCombinedPdfFromPreparedPaths(
         : BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
     const metadata = await Promise.all(paths.map(path => browserDocumentStore.stat(path)));
     if (metadata.reduce((total, {size}) => total + size, 0) > remainingBytes) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+        throw buildBrowserByteLimitError('Combining these files', remainingBytes, 'inputs');
     }
     const inputs = [];
 

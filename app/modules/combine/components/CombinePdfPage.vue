@@ -223,7 +223,7 @@ const {
     files,
     ...(openResult ? {openResult} : {}),
     emitOpenResult: result => emit('open-result', result),
-    translate: key => t(key as never),
+    translate: t,
 });
 
 const primaryActionLabel = computed(() => {

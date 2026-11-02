@@ -18,7 +18,10 @@ import {
 } from '@app/modules/workspace-shell/public/documentOpenWorkingCopyRetention';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TTranslateFn} from '@i18n-app';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 
 export const useCombinePdfOperation = <T extends {
     id: string;
@@ -28,7 +31,7 @@ export const useCombinePdfOperation = <T extends {
     files: Ref<T[]>;
     openResult?: (result: TOpenFileResult) => Promise<boolean>;
     emitOpenResult: (result: TOpenFileResult) => void;
-    translate: (key: string) => string;
+    translate: TTranslateFn;
 }) => {
     // `combining` builds the PDF; `opening` hands the result to a tab and
     // cannot be canceled from here.
@@ -44,6 +47,14 @@ export const useCombinePdfOperation = <T extends {
         isCombining.value || pendingCombinedResult.value !== null
     ));
     let abortController: AbortController | null = null;
+
+    // The browser engine's request ceiling, named with its size.
+    function describeBrowserByteLimit(cause: unknown) {
+        const envelope = findSerializableErrorEnvelope(cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
+        return envelope?.code === 'browser-byte-limit' && envelope.maxBytes !== undefined
+            ? options.translate('errors.browser.documentTooLarge', {limitMiB: Math.floor(envelope.maxBytes / (1024 * 1024))})
+            : null;
+    }
 
     function buildOutputName(operationFiles: readonly T[]) {
         const firstFile = operationFiles[0];
@@ -115,7 +126,7 @@ export const useCombinePdfOperation = <T extends {
                     'limit',
                     'unsupported',
                 ].includes(error.code)
-                    ? options.translate('errors.file.invalid')
+                    ? describeBrowserByteLimit(error.cause) ?? options.translate('errors.file.invalid')
                     : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             abortController = null;

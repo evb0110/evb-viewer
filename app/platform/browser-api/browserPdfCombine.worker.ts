@@ -17,7 +17,7 @@ import {
 } from '@contracts/browserPdfCombineWorker';
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
-    getBrowserFileExtension,
+    getBrowserFileExtension, buildBrowserByteLimitError, 
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import {
@@ -193,7 +193,7 @@ function addInputBytes(total: number, input: IBrowserPdfCombineInput, isPageSpec
         if (isPageSpecPlan) {
             throw createPdfCombineOutputTooLargeError('Image combine WASM request exceeds the admission ceiling');
         }
-        throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
+        throw buildBrowserByteLimitError('Combining these files', MAX_INPUT_BYTES, 'inputs');
     }
     return total + input.data.byteLength;
 }

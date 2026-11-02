@@ -19,6 +19,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import {
     hasNativeErrorCode,
     NATIVE_ERROR_ENVELOPE_SCHEMA,
@@ -64,6 +65,10 @@ function throwIfCombineAborted(signal?: AbortSignal): void {
 function classifyCombineError(error: unknown, signal?: AbortSignal): TCombinePdfErrorCode {
     if (signal?.aborted) {
         return 'canceled';
+    }
+    // The browser engine's request ceiling is a limit of the inputs, not a fault.
+    if (findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)?.code === 'browser-byte-limit') {
+        return 'limit';
     }
     const envelope = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
     const code = envelope?.code ?? (hasNativeErrorCode(error) ? error.code : undefined);
