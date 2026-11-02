@@ -1073,7 +1073,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 if (driverResult.status === 'printable-pdf') {
                     let printablePdf: Uint8Array;
                     try {
-                        printablePdf = await readDocumentBytes(driverResult.documentRef);
+                        printablePdf = await readDocumentBytes(driverResult.documentRef, {signal});
                     } finally {
                         await driverResult.release().catch((error: unknown) => {
                             BrowserLogger.warn('workspace-print', 'Failed to release the prepared print PDF', {error: getErrorMessage(error)});
