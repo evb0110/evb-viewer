@@ -137,10 +137,13 @@ function readStrokePaintMetrics(): IStrokePaintMetrics {
             : null,
         userUnit,
         viewportWidth: window.innerWidth,
-        visibleShapeCount: [...shapes].filter((shape) => {
-            const shapeVisual = shape.querySelector('[data-annotation-visual]');
-            return shapeVisual !== null && window.getComputedStyle(shapeVisual).visibility === 'visible';
-        }).length,
+        // The annotation layer stays transparent until the page is rendered.
+        visibleShapeCount: pageContainer?.classList.contains('page_container--rendered')
+            ? [...shapes].filter((shape) => {
+                const shapeVisual = shape.querySelector('[data-annotation-visual]');
+                return shapeVisual !== null && window.getComputedStyle(shapeVisual).visibility === 'visible';
+            }).length
+            : 0,
     };
 }
 
