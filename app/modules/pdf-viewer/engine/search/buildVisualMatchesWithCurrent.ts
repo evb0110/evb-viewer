@@ -139,7 +139,8 @@ export async function reconcileVisualMatches(
     if (pageMatches.matches.length === 0) return [];
     const contiguous = withoutGeneratedSeparators(assembledLayerText);
     if (!pageMatches.searchQuery || pageMatches.pageText === contiguous.text || pageMatches.pageText === assembledLayerText.text) {
-        return buildVisualMatches(pageMatches, layerText, assembledLayerText);
+        // Backend text without the generated separators maps through that assembly.
+        return buildVisualMatches(pageMatches, layerText, pageMatches.pageText === contiguous.text ? contiguous : assembledLayerText);
     }
     const ordinals = pageMatches.matches.map((match, index) => match.pageMatchIndex ?? index);
     const firstOrdinal = Math.min(...ordinals);
