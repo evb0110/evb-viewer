@@ -29,7 +29,9 @@ import {
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
-import { prepareBrowserDjvuPrint } from '@app/platform/browser-api/prepareBrowserDjvuPrint';
+import {
+    cancelBrowserDjvuPrint, prepareBrowserDjvuPrint, 
+} from '@app/platform/browser-api/prepareBrowserDjvuPrint';
 import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
@@ -130,7 +132,9 @@ export const browserDjvuCapability = {
         return browserDurableDjvuJobs.runPrint(jobId, () => prepareBrowserDjvuPrint(djvuPath, options, jobId));
     },
     cancel(jobId) {
-        return Promise.resolve(cancelBrowserDjvuConversion(jobId));
+        const printCanceled = cancelBrowserDjvuPrint(jobId);
+        const conversion = cancelBrowserDjvuConversion(jobId);
+        return Promise.resolve({canceled: printCanceled || conversion.canceled});
     },
     getJobState(jobId) {
         return Promise.resolve(browserDurableDjvuJobs.getState(jobId));
