@@ -355,20 +355,24 @@ async function readPdfPageTextsInReadingOrder(
                 && hasRightToLeftSearchText(page.text);
         }).map(page => page.pageNumber)
         : [];
-    // A range PDF.js cannot read keeps Poppler's text, so search still works.
-    for (const range of groupContiguousPages(viewerOrderPages)) {
-        const rangeTexts: IPageText[] = [];
+    // One PDF.js pass spans the window's right-to-left pages; a pass that
+    // fails leaves them Poppler's text, so search still works.
+    const [firstPage] = viewerOrderPages;
+    const lastPage = viewerOrderPages.at(-1);
+    if (firstPage !== undefined && lastPage !== undefined) {
+        const reread = new Set(viewerOrderPages);
+        const rereadTexts: IPageText[] = [];
         try {
-            for await (const page of streamPdfjsPageTexts(pdfPath, range, signal)) {
-                rangeTexts.push(page);
+            for await (const page of streamPdfjsPageTexts(pdfPath, {
+                firstPage,
+                lastPage,
+            }, signal)) {
+                if (reread.has(page.pageNumber)) rereadTexts.push(page);
             }
+            for (const page of rereadTexts) orderedTexts.set(page.pageNumber, page);
         } catch (error) {
             signal?.throwIfAborted();
-            log.warn(`Right-to-left pages ${range.firstPage}-${range.lastPage} keep Poppler's text: ${getErrorMessage(error)}`);
-            continue;
-        }
-        for (const page of rangeTexts) {
-            orderedTexts.set(page.pageNumber, page);
+            log.warn(`Right-to-left pages ${firstPage}-${lastPage} keep Poppler's text: ${getErrorMessage(error)}`);
         }
     }
     return pages.map(page => orderedTexts.get(page.pageNumber) ?? page);
