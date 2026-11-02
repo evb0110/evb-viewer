@@ -38,12 +38,14 @@ interface IStrokePaintMetrics {
     devicePixelRatio: number;
     managedShapeCount: number;
     overlayPresent: boolean;
+    pageRaster: string | null;
     renderedStrokeWidth: number | null;
     scaleFactor: number | null;
     strokeWidthAttribute: string | null;
     totalScaleFactor: number | null;
     userUnit: number | null;
     viewportWidth: number;
+    visibleShapeCount: number;
 }
 
 interface IBlueStrokePixelMetrics {
@@ -126,6 +128,7 @@ function readStrokePaintMetrics(): IStrokePaintMetrics {
         devicePixelRatio: window.devicePixelRatio,
         managedShapeCount: shapes.length,
         overlayPresent: Boolean(pageContainer?.querySelector('.pdf-shape-overlay')),
+        pageRaster: pageContainer?.dataset.pageRaster ?? null,
         renderedStrokeWidth: Number.isFinite(renderedStrokeWidth) ? renderedStrokeWidth : null,
         scaleFactor,
         strokeWidthAttribute: visual?.getAttribute('stroke-width') ?? null,
@@ -134,6 +137,10 @@ function readStrokePaintMetrics(): IStrokePaintMetrics {
             : null,
         userUnit,
         viewportWidth: window.innerWidth,
+        visibleShapeCount: [...shapes].filter((shape) => {
+            const shapeVisual = shape.querySelector('[data-annotation-visual]');
+            return shapeVisual !== null && window.getComputedStyle(shapeVisual).visibility === 'visible';
+        }).length,
     };
 }
 
@@ -242,7 +249,10 @@ async function waitForStrokeMetrics(
     let metrics = await readMetrics();
     while (
         Date.now() - startedAt < timeoutMs
-        && (metrics.managedShapeCount !== 2 || metrics.renderedStrokeWidth === null)
+        // Until the page's current raster leaves out the managed annotations,
+        // the original appearance owns them and the EVB visuals stay hidden.
+        && (metrics.managedShapeCount !== 2 || metrics.renderedStrokeWidth === null
+            || metrics.pageRaster !== 'current' || metrics.visibleShapeCount !== 2)
     ) {
         await delay(250);
         metrics = await readMetrics();
@@ -387,6 +397,9 @@ describe('Electron and Playwright annotation opacity parity', () => {
             width: 1_440,
         });
         await session.page.waitForFunction(viewerLayoutSettledInPage);
+        const settledElectronMetrics = await waitForStrokeMetrics(() => session.page.evaluate(readStrokePaintMetrics));
+        expect(settledElectronMetrics.pageRaster, 'Electron page raster after the resizes').toBe('current');
+        expect(settledElectronMetrics.visibleShapeCount, 'Electron EVB visuals after the resizes').toBe(2);
         const electronPageOrigin = await session.page.evaluate(readPageSurfaceOrigin);
         console.info(`STROKE_PARITY_STEP electron-metrics:complete ${JSON.stringify(electronMetrics)}`);
         await session.page.screenshot({
@@ -458,6 +471,9 @@ describe('Electron and Playwright annotation opacity parity', () => {
                 width: 1_440,
             });
             await webPage.waitForFunction(viewerLayoutSettledInPage);
+            const settledWebMetrics = await waitForStrokeMetrics(() => webPage.evaluate(readStrokePaintMetrics));
+            expect(settledWebMetrics.pageRaster, 'browser page raster after the resizes').toBe('current');
+            expect(settledWebMetrics.visibleShapeCount, 'browser EVB visuals after the resizes').toBe(2);
             const playwrightPageOrigin = await webPage.evaluate(readPageSurfaceOrigin);
             await webPage.screenshot({path: PLAYWRIGHT_SCREENSHOT_PATH});
             const webScreenshotMetrics = await webPage.evaluate(readStrokePaintMetrics);
