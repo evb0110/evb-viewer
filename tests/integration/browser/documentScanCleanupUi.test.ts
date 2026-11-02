@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {
-    mkdir, writeFile,
+    mkdir, readFile, writeFile,
 } from 'node:fs/promises';
 import {
     join, resolve,
@@ -16,8 +16,10 @@ import {
 import {
     collectConsoleProblems, lifecycle, openPdfFromChooser, waitForOpenFileReady,
 } from './documentLifecycleTestHelpers';
+import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 
 const evidenceRoot = resolve(process.env.SC3B_EVIDENCE_DIR ?? `.devkit/parity/sc3b-ui-${String(process.pid)}`);
+const scanCleanupUiTimeoutMs = 120_000;
 const previewImage = '.preview-comparison-layer.is-visible img.preview-pixel:not(.is-outgoing):not(.is-incoming)';
 const cleanedImage = '.cleaned-outputs img.preview-pixel:not(.is-outgoing):not(.is-incoming)';
 const browserOnlyReason = 'In the browser, scan cleanup previews pages but cannot clean up the document yet. Use the desktop app to clean it up.';
@@ -275,6 +277,176 @@ async function undoRedo(page: Page, label: string, observe: () => Promise<string
 
 
 describe('browser Scan Cleanup workspace', () => {
+    // T1/T6/C2: Save As retains document settings, Recent reopens the saved
+    // identity, and a different document opened in the same tab stays isolated.
+    it('retains the page override after Save As and reopening the saved Recent document', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1440,
+            height: 1000,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const observations: Array<{
+            stage: string;
+            pageNumber: number;
+            outputMode: string;
+            documentGrayscale: string | null;
+            previewSha256: string;
+        }> = [];
+        const documentRef = () => page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
+            .readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
+        const observePage = async (stage: string, pageNumber: number, expectedMode: string) => {
+            await page.locator(`.scan-thumbnail-rail [data-thumbnail-page="${String(pageNumber)}"]`).click();
+            await page.getByRole('radio', {
+                name: `Page ${String(pageNumber)}`,
+                exact: true,
+            }).click();
+            await waitForPixels(page, pageNumber);
+            const outputMode = await page.getByRole('combobox', {
+                name: 'Output mode',
+                exact: true,
+            }).innerText();
+            const documentGrayscale = await page.getByRole('radio', {
+                name: 'Grayscale',
+                exact: true,
+            }).getAttribute('aria-checked');
+            const previewSha256 = await cleanedPixels(page);
+            observations.push({
+                stage,
+                pageNumber,
+                outputMode,
+                documentGrayscale,
+                previewSha256,
+            });
+            await page.screenshot({path: join(evidenceRoot, `${stage}-page-${String(pageNumber)}.png`)});
+            for (const [
+                index,
+                image,
+            ] of (await page.locator(cleanedImage).all()).entries()) {
+                await writeFile(join(evidenceRoot, `${stage}-page-${String(pageNumber)}-preview-${String(index)}.png`), Buffer.from(await pixels(image), 'base64'));
+            }
+            expect(outputMode, `${stage}: Page ${String(pageNumber)} output mode`).toBe(expectedMode);
+            if (stage !== 'replacement') expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('true');
+            return previewSha256;
+        };
+        try {
+            await installProbe(page);
+            const source = await fixture();
+            await openWorkspace(page, source);
+            const originalRef = await documentRef();
+            expect(originalRef).toBeTypeOf('string');
+            await page.getByRole('radio', {
+                name: 'Grayscale',
+                exact: true,
+            }).click();
+            await waitForPixels(page, 1);
+            const grayscalePage1 = await cleanedPixels(page);
+            await page.getByRole('radio', {
+                name: 'Page 1',
+                exact: true,
+            }).click();
+            await select(page, 'Output mode', 'Color');
+            await waitForPixels(page, 1);
+            const colorPage1 = await observePage('before-save', 1, 'Color');
+            expect(colorPage1, 'the painted Color preview differs from Grayscale on the same scan').not.toBe(grayscalePage1);
+            const grayscalePage2 = await observePage('before-save', 2, 'Follow document setting');
+            await page.locator('.scan-thumbnail-rail [data-thumbnail-page="1"]').click();
+            await waitForPixels(page, 1);
+            // Finish editing as a person would, before using the reader's save controls.
+            await page.getByRole('button', {
+                name: 'Done',
+                exact: true,
+            }).click();
+            const downloaded = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const download = await downloaded;
+            expect(download.suggestedFilename()).toBe(source.name);
+            const savedPath = join(evidenceRoot, 'saved.pdf');
+            await download.saveAs(savedPath);
+            const saved = await readFile(savedPath);
+            expect((await PDFDocument.load(saved)).getPageCount()).toBe(3);
+            expect(sha256(saved), 'Save As preserves the unedited scanned PDF bytes').toBe(sha256(source.buffer));
+            await expect.poll(documentRef).toBeTypeOf('string');
+            await expect.poll(documentRef).not.toBe(originalRef);
+            const savedRef = await documentRef();
+            await writeFile(join(evidenceRoot, 'save-as.json'), JSON.stringify({
+                mode: 'download',
+                originalRef,
+                savedRef,
+                suggestedFilename: download.suggestedFilename(),
+                sourceSha256: sha256(source.buffer),
+                savedSha256: sha256(saved),
+                savedBytes: saved.byteLength,
+                pages: 3,
+            }, null, 2));
+            await showWorkspace(page);
+            expect(await observePage('after-save', 1, 'Color')).toBe(colorPage1);
+            expect(await observePage('after-save', 2, 'Follow document setting')).toBe(grayscalePage2);
+
+            await page.getByRole('button', {
+                name: 'Done',
+                exact: true,
+            }).click();
+            // Reload without closing/discarding. The newest Recent entry has
+            // the same label as the imported original; verify its saved identity.
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.getByRole('button', {name: /sc3b-three-scans\.pdf/u}).first().click();
+            await expect.poll(documentRef).toBe(savedRef);
+            await showWorkspace(page);
+            expect(await observePage('after-reload', 1, 'Color')).toBe(colorPage1);
+            expect(await observePage('after-reload', 2, 'Follow document setting')).toBe(grayscalePage2);
+            await page.getByRole('button', {
+                name: 'Done',
+                exact: true,
+            }).click();
+            const activeTab = page.locator('.editor-pane.is-active .tab.is-active[data-tab-id]');
+            const tabId = await activeTab.getAttribute('data-tab-id');
+            expect(tabId).toBeTypeOf('string');
+            const otherPdf = await PDFDocument.load(source.buffer);
+            otherPdf.getPage(0).drawText('Different document', {
+                x: 20,
+                y: 260,
+                size: 18,
+            });
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Open File/u}).click();
+            await (await chooser).setFiles({
+                name: 'cb3-different-scans.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await otherPdf.save()),
+            });
+            await expect.poll(() => activeTab.innerText()).toContain('cb3-different-scans.pdf');
+            await expect.poll(() => page.locator('.page_container[data-page="1"] .textLayer').first().innerText()).toContain('Different document');
+            expect(await activeTab.getAttribute('data-tab-id'), 'Open File replaces the current tab').toBe(tabId);
+            await expect.poll(documentRef).not.toBe(savedRef);
+            await showWorkspace(page);
+            await observePage('replacement', 1, 'Follow document setting');
+            expect(await page.getByRole('radio', {name: /^Auto.*recommended per page$/u}).getAttribute('aria-checked'), 'the replacement starts with its own document output setting').toBe('true');
+            await assertPreviewOnly(page);
+            expect(problems).toEqual([]);
+        } finally {
+            // Evidence is best-effort; it never hides the outcome or skips closing the context.
+            try {
+                await writeFile(join(evidenceRoot, 'save-as-observations.json'), JSON.stringify(observations, null, 2));
+                await writeFile(join(evidenceRoot, 'save-as-console.json'), JSON.stringify(problems, null, 2));
+                await writeFile(join(evidenceRoot, 'save-as-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs), null, 2));
+            } catch (error) {
+                console.warn('Save As evidence was not written', error);
+            } finally {
+                await context.close();
+            }
+        }
+    }, scanCleanupUiTimeoutMs);
+
     it('opens without OCR, edits crop, cutter and zones with undo/redo, and reloads durable settings', async () => {
         const context = await lifecycle.browser.newContext({
             ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-video')}} : {}),
@@ -453,7 +625,7 @@ describe('browser Scan Cleanup workspace', () => {
             await writeFile(join(evidenceRoot, 'case-1-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs)));
             await context.close();
         }
-    }, 120_000);
+    }, scanCleanupUiTimeoutMs);
 
     it('keeps latest navigation, settings and detail pixels across delayed preview cancellation and hidden-tab return', async () => {
         const context = await lifecycle.browser.newContext({
@@ -567,5 +739,5 @@ describe('browser Scan Cleanup workspace', () => {
             await writeFile(join(evidenceRoot, 'case-2-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs)));
             await context.close();
         }
-    }, 120_000);
+    }, scanCleanupUiTimeoutMs);
 });
