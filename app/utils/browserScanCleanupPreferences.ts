@@ -143,7 +143,12 @@ export function adoptScanCleanupDocumentKey(
     if (Object.hasOwn(entries, legacyDocumentKey) && !Object.hasOwn(entries, key)) {
         entries[key] = entries[legacyDocumentKey];
         Reflect.deleteProperty(entries, legacyDocumentKey);
-        saveDocumentEntries(entries, storage);
+        try {
+            saveDocumentEntries(entries, storage);
+        } catch {
+            // Storage refused the move; the entry stays under the reference for a later read.
+            return legacyDocumentKey;
+        }
     }
     return key;
 }
