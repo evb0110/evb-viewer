@@ -154,6 +154,30 @@ export function adoptScanCleanupDocumentKey(
     return key;
 }
 
+/**
+ * Gives a document saved as a new file the Scan Cleanup settings of the
+ * document it was saved from: the first of `sourceKeys` that has an entry,
+ * copied whole. The source keeps its entry, since it can still be opened, and
+ * a saved file that already has settings keeps them.
+ */
+export function copyScanCleanupDocumentPreferences(
+    sourceKeys: readonly string[],
+    savedKey: string,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+) {
+    const entries = loadDocumentEntries(storage);
+    if (Object.hasOwn(entries, savedKey)) return;
+    const sourceKey = sourceKeys.find(key => Object.hasOwn(entries, key));
+    const entry = sourceKey === undefined ? null : scanCleanupPreferenceRecord(entries[sourceKey]);
+    if (!entry) return;
+    // A fresh time keeps the copy from being the entry the size bound drops.
+    entries[savedKey] = {
+        ...entry,
+        updatedAt: Date.now(),
+    };
+    saveDocumentEntries(entries, storage);
+}
+
 export function loadScanCleanupPreferences(
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ) {
