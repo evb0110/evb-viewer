@@ -403,7 +403,12 @@ async function processOcrPage(
                         dims,
                         candidateDims,
                     );
-                    log('warn', diagnostic.message, {pageNumber: page.pageNumber});
+                    log('warn', 'OCR preprocessing changed image dimensions', {
+                        pageNumber: page.pageNumber,
+                        rawSize: `${dims.width}x${dims.height}`,
+                        cleanSize: `${candidateDims.width}x${candidateDims.height}`,
+                        action: 'using raw page render to preserve text-layer alignment',
+                    });
                     diagnostics.push(diagnostic);
                 }
             }

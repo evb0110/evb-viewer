@@ -13,7 +13,7 @@ import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {stripIpcInvocationPrefix} from '@app/utils/stripIpcInvocationPrefix';
 
-/** A browser engine's limit, told alike for opening and saving; null for any other error. */
+/** A browser engine's limit or unavailability, told alike for opening and saving; null for any other error. */
 export function describeBrowserEngineLimit(error: unknown, t: TTranslateFn) {
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
     if (isBrowserFullReadTooLargeError(error) || openError?.code === 'browser-byte-limit') {

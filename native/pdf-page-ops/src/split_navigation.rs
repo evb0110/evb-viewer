@@ -277,8 +277,8 @@ fn stamp_document_provenance(incremental: &mut IncrementalDocument, stamp: &str)
 }
 
 /// Rebuild navigation once against the final page tree, after qpdf interleaves
-/// preserved pages and raster replacements. Structural loading bounds both
-/// large sources and outputs without reading their image stream bodies.
+/// preserved pages and raster replacements. The caller supplies the loaded
+/// source and output documents.
 fn restore_source_catalog(
     output: &mut IncrementalDocument,
     mut source: Document,

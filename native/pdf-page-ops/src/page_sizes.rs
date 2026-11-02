@@ -402,7 +402,7 @@ fn page_size_entry(
 }
 
 /// Scan cleanup's page facts for the browser, which has no sidecar file: the
-/// requested pages' records exactly as `write_page_sizes_sidecar` writes them,
+/// requested pages' records exactly as `write_page_sizes_sidecar_document` writes them,
 /// under the document's page count. No requested pages lists every page.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn inspect_scan_cleanup_pdf_bytes(data: &[u8], page_numbers: &[u32]) -> Result<Vec<u8>> {

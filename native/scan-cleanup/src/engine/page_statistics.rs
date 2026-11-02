@@ -20,9 +20,11 @@ pub(crate) fn trusted_selection_is_incomplete(
 pub(crate) fn page_needs_ink_sample(page: &PageDescriptor) -> bool {
     page.trusted_foreground_mask_path.is_some()
         && page.trusted_mrc_background_path.is_some()
-        && page.options.output_mode == OutputMode::Bw
-        && page.options.source_has_bilevel_layer
-        && page.options.thickness == 0
+        && ink_sample_eligible(
+            page.options.output_mode,
+            page.options.source_has_bilevel_layer,
+            page.options.thickness,
+        )
 }
 
 pub(crate) fn derive_page_ink_sample(

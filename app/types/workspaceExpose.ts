@@ -326,7 +326,7 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         uri: string,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    /** A durable recovery copy of the document's current state, or null when it changed meanwhile. */
+    /** A durable recovery copy of the document's current state, or null when none applies or the state changed meanwhile. */
     createRecoverySnapshot: (
         target: {
             fileName: string;
