@@ -687,28 +687,26 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printRunOwner?: IPrintRunOwner,
     ) {
         const frame = createHiddenPrintFrame(owner);
-        const frameLoad = waitForPrintFrameLoad(frame, signal);
-
-        frame.srcdoc = buildBrowserPrintFrameMarkup(printTitle);
-        await frameLoad;
-        throwIfPrintAborted(signal);
-
-        const frameWindow = frame.contentWindow;
-        if (!frameWindow) {
-            cleanupPrintFrame(owner);
-            throw new Error('Missing print frame window');
-        }
-
-        await renderContent(frameWindow.document, signal);
-        if (printRunOwner) {
-            assertPrintRunCurrent(printRunOwner);
-        } else {
-            throwIfPrintAborted(signal);
-        }
-
-        installAfterPrintCleanup(frameWindow, owner);
-
+        // A frame that fails before printing goes with the page images it holds.
         try {
+            const frameLoad = waitForPrintFrameLoad(frame, signal);
+            frame.srcdoc = buildBrowserPrintFrameMarkup(printTitle);
+            await frameLoad;
+            throwIfPrintAborted(signal);
+
+            const frameWindow = frame.contentWindow;
+            if (!frameWindow) {
+                throw new Error('Missing print frame window');
+            }
+
+            await renderContent(frameWindow.document, signal);
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            } else {
+                throwIfPrintAborted(signal);
+            }
+
+            installAfterPrintCleanup(frameWindow, owner);
             await waitForPrintFrameReady(frameWindow, signal);
             if (printRunOwner) {
                 assertPrintRunCurrent(printRunOwner);
