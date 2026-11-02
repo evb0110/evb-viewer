@@ -4,6 +4,8 @@ import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 interface IDjvuProjectionActionOptions {
     isDjvuMode: Ref<boolean>;
     currentPage: Ref<number>;
+    /** The open document; an edit waiting for the projection belongs to it. */
+    documentRef: Readonly<Ref<unknown>>;
     documentViewerRef: Ref<IDocumentViewerExpose | null>;
     ensureProjection: (reason: 'edit' | 'ocr' | 'save-as-pdf') => Promise<boolean>;
     saveAs: () => Promise<boolean>;
@@ -26,11 +28,16 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         }
         const viewer = options.documentViewerRef.value;
         const fallbackPage = viewer?.getCurrentPage?.() ?? options.currentPage.value;
+        const document = options.documentRef.value;
         if (!await options.ensureProjection(reason)) {
             return false;
         }
         await nextTick();
         await options.documentViewerRef.value?.waitForViewerLoadSettled?.();
+        // Another document may have replaced this one meanwhile.
+        if (options.documentRef.value !== document) {
+            return false;
+        }
         options.documentViewerRef.value?.scrollToPage(fallbackPage);
         return true;
     }
