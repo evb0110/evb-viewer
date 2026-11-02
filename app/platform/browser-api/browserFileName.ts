@@ -25,7 +25,7 @@ function ensureDocxExtension(fileName: string) {
 
 /** Desktop's suggested name for an optimized copy: `<stem>-optimized.pdf`. */
 function getOptimizedPdfName(fileName: string) {
-    const extension = getExtension(fileName);
+    const extension = fileName.lastIndexOf('.') > 0 ? getExtension(fileName) : '';
     return `${extension ? fileName.slice(0, -extension.length) : fileName}-optimized.pdf`;
 }
 

@@ -56,7 +56,7 @@ export function toBrowserDjvuDecodeError(error: unknown, width: number, height: 
     const message = typeof error === 'object' && error !== null && typeof Reflect.get(error, 'message') === 'string'
         ? String(Reflect.get(error, 'message'))
         : String(error);
-    if (error instanceof RangeError || /out of memory|allocation failed|invalid array length|invalid typed array length/iu.test(message)) {
+    if (/out of memory|allocation failed|invalid array length|invalid typed array length/iu.test(message)) {
         return djvuRasterLimit(`${context} (${width}x${height}) did not fit in browser memory: ${message}`);
     }
     return error;

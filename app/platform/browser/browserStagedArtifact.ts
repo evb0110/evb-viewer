@@ -98,9 +98,8 @@ export async function createBrowserStoreStagedArtifact(
 
 /**
  * Reads one immutable, admitted receipt for publication or revision-checked
- * commit. Staged outputs come from the in-process engine, so by default they
- * read up to the engine's own output ceiling; a download fallback passes its
- * smaller budget.
+ * commit. Staged outputs come from the in-process engine, so they read up to
+ * the engine's own output ceiling.
  */
 export async function readBrowserStoreStagedArtifact(
     store: IBrowserStagedArtifactStore,
