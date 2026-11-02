@@ -12,10 +12,11 @@ import {
  * codecs, as desktop's engines read Poppler's PPM output.
  */
 export function assembleBrowserPdfRasterPpm(image: IBrowserPdfRasterTiles) {
-    const ppm = createPpmRaster(image.width, image.height);
     const canvas = new OffscreenCanvas(1, 1);
     const columns = Math.ceil(image.width / BROWSER_PDF_RENDER_TILE_PX);
     try {
+        // The whole-page raster may be refused; the tiles close either way.
+        const ppm = createPpmRaster(image.width, image.height);
         image.tiles.forEach((tile, index) => {
             canvas.width = tile.width;
             canvas.height = tile.height;
