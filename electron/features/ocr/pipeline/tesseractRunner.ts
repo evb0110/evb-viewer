@@ -310,12 +310,20 @@ export async function runOcrFileBased(
         return result;
     }
 
-    const earlyPrint = prepareEarlyPrintModels === undefined || !canReadEarlyPrint(languages)
-        ? {
-            tsvContent,
-            wordEdits: [],
-        }
-        : await readEarlyPrint(run, outputBase, languages, tsvContent, prepareEarlyPrintModels);
+    let earlyPrint: Awaited<ReturnType<typeof readEarlyPrint>>;
+    try {
+        earlyPrint = prepareEarlyPrintModels === undefined || !canReadEarlyPrint(languages)
+            ? {
+                tsvContent,
+                wordEdits: [],
+            }
+            : await readEarlyPrint(run, outputBase, languages, tsvContent, prepareEarlyPrintModels);
+    } catch (error) {
+        // Canceled while the early-print models were prepared or read: the
+        // first pass's PDF and TSV go too, as they do for a canceled first pass.
+        await failure(getErrorMessage(error));
+        throw error;
+    }
     try {
         const parsedTsv = parseTsvOcrData(earlyPrint.tsvContent, {}, earlyPrint.wordEdits);
         const {words} = parsedTsv;
