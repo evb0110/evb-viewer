@@ -5,12 +5,14 @@ import {
 } from 'vitest';
 import {
     createScanCleanupDocumentRasterPages,
-    isStrongMediaBoxSpread,
-    shouldRetryMediaBoxPage,
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
     resolveScanCleanupAnalysisDpi,
 } from '@evb/scan-cleanup/core/detection';
+import {
+    isStrongMediaBoxSpread,
+    shouldRetryMediaBoxPage,
+} from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
 import {
     resolveScanCleanupRasterRenderLimits,
     SCAN_CLEANUP_RASTER_MAX_PIXELS,

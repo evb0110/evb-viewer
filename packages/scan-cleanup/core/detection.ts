@@ -6,17 +6,11 @@ import {join} from 'node:path';
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
-    IScanCleanupPagePlanEvidence,
     TScanCleanupProgress,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    INativeScanCleanupAnalysisOutputV3,
-    INativeScanCleanupPageMetadataV3,
-    TNativeScanCleanupProgressV3,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {TNativeScanCleanupProgressV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {getErrorMessage} from '@contracts/getErrorMessage';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW} from '@contracts/scan-cleanup/stagedInputWindow';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
@@ -55,8 +49,6 @@ import {
 import {createScanCleanupProgressEtaEstimator} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     DETECTION_DPI,
-    isCropBoxOrientationMismatch,
-    isMateriallySmallerCropBox,
     PREVIEW_DPI,
     resolvePagePreviewDpi,
     resolvePreviewProcessingDpi,
@@ -80,8 +72,15 @@ import {
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {splitContiguousPageRuns} from '@evb/scan-cleanup/core/splitContiguousPageRuns';
-import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {
+    completedPageProgress,
+    isStrongMediaBoxSpread,
+    MAX_MEDIA_BOX_RETRY_PAGES,
+    projectScanCleanupDetectionResult,
+    projectScanCleanupMediaBoxRetryResult,
+    shouldRetryMediaBoxPage,
+} from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -107,29 +106,6 @@ const RECENT_PROGRESS_PAGES = 256;
  */
 const LARGE_PROGRESS_PUBLISH_INTERVAL_MS = 1_000;
 const DETECTION_READ_ONLY_PROGRESS_INTERVAL_MS = 250;
-
-/**
- * The progress contract accepts a page list only when it is exactly the
- * completed count or explicitly marked as a bounded list. Pages the native
- * detector processes without a classification count as completed but never
- * enter the list, and a document-sized list would breach the IPC entry cap,
- * so the list is capped in verdict-arrival order and flagged whenever it is
- * not the full set.
- */
-export function completedPageProgress(
-    reportedPageNumbers: ReadonlySet<number>,
-    completedUnits: number,
-): Pick<TScanCleanupProgress, 'completedPageNumbers' | 'completedPageNumbersTruncated'> {
-    const completedPageNumbers = [...reportedPageNumbers].slice(0, SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
-    return completedPageNumbers.length === completedUnits
-        ? {completedPageNumbers}
-        : {
-            completedPageNumbers,
-            completedPageNumbersTruncated: true,
-        };
-}
-const MAX_MEDIA_BOX_RETRY_PAGES = 16;
-const MEDIA_BOX_RETRY_MIN_CONFIDENCE = 0.75;
 
 function getPageRaster(
     source: IScanCleanupPageRasterSource,
@@ -320,170 +296,6 @@ export interface IScanCleanupDetectionDependencies {
         width: number
     }>>;
     runSidecar: TScanCleanupRunSidecar;
-}
-
-function normalizeDetectionContentBox(
-    output: INativeScanCleanupAnalysisOutputV3,
-    rotationDegrees: IScanCleanupPagePlanEvidence['rotationDegrees'],
-) {
-    const contentBox = output.contentBox;
-    if (
-        contentBox === null
-        || contentBox === undefined
-        || output.inputWidthPx <= 0
-        || output.inputHeightPx <= 0
-        || output.sourceRegion.widthPx <= 0
-        || output.sourceRegion.heightPx <= 0
-    ) {
-        return undefined;
-    }
-    const analysisWidth = rotationDegrees === 90 || rotationDegrees === 270
-        ? output.inputHeightPx
-        : output.inputWidthPx;
-    const analysisHeight = rotationDegrees === 90 || rotationDegrees === 270
-        ? output.inputWidthPx
-        : output.inputHeightPx;
-    const left = Math.max(0, Math.min(output.sourceRegion.widthPx, contentBox.xPx));
-    const top = Math.max(0, Math.min(output.sourceRegion.heightPx, contentBox.yPx));
-    const right = Math.max(
-        left,
-        Math.min(output.sourceRegion.widthPx, contentBox.xPx + contentBox.widthPx),
-    );
-    const bottom = Math.max(
-        top,
-        Math.min(output.sourceRegion.heightPx, contentBox.yPx + contentBox.heightPx),
-    );
-    if (right <= left || bottom <= top) {
-        return undefined;
-    }
-    // Content coordinates are local to the output half, while their scale is
-    // the complete rotated analysis page. Normalize the two edges first and
-    // derive the extent from them so a box ending at the page edge serializes
-    // exactly as `1 - start` for the manifest validator.
-    const leftNormalized = left / analysisWidth;
-    const topNormalized = top / analysisHeight;
-    const rightNormalized = right === analysisWidth ? 1 : right / analysisWidth;
-    const bottomNormalized = bottom === analysisHeight ? 1 : bottom / analysisHeight;
-    return {
-        xNormalized: leftNormalized,
-        yNormalized: topNormalized,
-        widthNormalized: rightNormalized - leftNormalized,
-        heightNormalized: bottomNormalized - topNormalized,
-        rotationDegrees,
-    };
-}
-
-function createDetectionPagePlanEvidence(
-    result: IScanCleanupDetectionResult,
-    metadata: INativeScanCleanupPageMetadataV3,
-    includeContentBoxes: boolean,
-): IScanCleanupPagePlanEvidence {
-    const rotationDegrees = metadata.rotationDegrees;
-    const firstOutput = metadata.outputs?.[0];
-    const analysisWidth = firstOutput === undefined
-        ? 0
-        : rotationDegrees === 90 || rotationDegrees === 270
-            ? firstOutput.inputHeightPx
-            : firstOutput.inputWidthPx;
-    const splitXNormalized = result.cutterXPx === null || analysisWidth <= 0
-        ? undefined
-        : result.cutterXPx / analysisWidth;
-    const automaticSplit = splitXNormalized === undefined
-        || splitXNormalized <= 0
-        || splitXNormalized >= 1
-        ? undefined
-        : {
-            xNormalized: splitXNormalized,
-            rotationDegrees,
-        };
-    const outputs: IScanCleanupPagePlanEvidence['outputs'] = {};
-    for (const output of metadata.outputs ?? []) {
-        const contentBox = includeContentBoxes
-            ? normalizeDetectionContentBox(output, rotationDegrees)
-            : undefined;
-        if (contentBox === undefined && output.textToneDiagnostics === undefined) {
-            continue;
-        }
-        outputs[output.half] = {
-            ...(contentBox === undefined ? {} : {contentBox}),
-            ...(output.textToneDiagnostics === undefined
-                ? {}
-                : {textToneDiagnostics: output.textToneDiagnostics}),
-        };
-    }
-    return {
-        pageNumber: result.pageNumber,
-        rotationDegrees,
-        layoutClassification: result.classification,
-        ...(automaticSplit === undefined ? {} : {automaticSplit}),
-        outputs,
-    };
-}
-
-/**
- * MediaBox retries are deliberately content-gated. An undersized CropBox is
- * common in hand-authored PDFs, so area alone may never start another native
- * process. The portrait mismatch is the one metadata-only exception because
- * it cannot be an intentional crop of a dominant landscape document.
- */
-export function shouldRetryMediaBoxPage(
-    page: IPdfPageSize,
-    result: IScanCleanupDetectionResult,
-) {
-    if (!isMateriallySmallerCropBox(page)) {
-        return false;
-    }
-    if (isCropBoxOrientationMismatch(page)) {
-        return true;
-    }
-    const diagnostics = result.splitDiagnostics;
-    return result.tier1Verdict === 'two-page-spread'
-        || (result.reconciled && result.classification === 'two-page-spread')
-        || (
-            diagnostics !== undefined
-            && diagnostics.aspectSpreadScore >= 0.75
-            && diagnostics.independentSpreadCues >= 3
-        );
-}
-
-/** The second pass must prove a spread locally before its wider box is used. */
-export function isStrongMediaBoxSpread(
-    progress: TNativeScanCleanupProgressV3,
-    metadata: INativeScanCleanupPageMetadataV3,
-    rasterWidth: number,
-    rasterHeight: number,
-) {
-    const diagnostics = metadata.splitDiagnostics;
-    const verdict = progress.tier1Verdict ?? progress.classification;
-    const confidence = progress.confidence ?? metadata.layoutConfidence ?? 0;
-    const cutter = progress.cutterXPx ?? metadata.cutterXPx;
-    const decisionX = diagnostics?.decisionX;
-    if (
-        verdict !== 'two-page-spread'
-        || metadata.layoutClassification !== 'two-page-spread'
-        || !Number.isFinite(confidence)
-        || confidence < MEDIA_BOX_RETRY_MIN_CONFIDENCE
-        || diagnostics === undefined
-        || diagnostics.abstained
-        || diagnostics.independentSpreadCues < 3
-        || diagnostics.centralPositionGatePassed !== true
-        || diagnostics.bilateralGatePassed !== true
-        || diagnostics.aspectSupportGatePassed !== true
-        || diagnostics.evidenceAgreementGatePassed !== true
-        || !Number.isFinite(rasterWidth)
-        || !Number.isFinite(rasterHeight)
-        || rasterWidth <= 0
-        || rasterHeight <= 0
-        || !Number.isFinite(cutter ?? NaN)
-        || (cutter ?? 0) <= rasterWidth * 0.15
-        || (cutter ?? 0) >= rasterWidth * 0.85
-        || !Number.isFinite(decisionX)
-        || (decisionX ?? 0) <= rasterWidth * 0.15
-        || (decisionX ?? 0) >= rasterWidth * 0.85
-    ) {
-        return false;
-    }
-    return true;
 }
 
 async function resolveDetectionPageSizeStore<TDocument>(
@@ -1221,49 +1033,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 ?? compatibilityResults?.get(sourcePageNumber);
             const isFirstClassification = previousResult === undefined;
             const revision = (previousResult?.revision ?? 0) + 1;
-            const result: IScanCleanupDetectionResult = {
-                pageNumber: requirePageNumber(sourcePageNumber),
+            const result = projectScanCleanupDetectionResult({
+                pageNumber: sourcePageNumber,
                 revision,
-                classification: metadata.layoutClassification,
-                confidence: metadata.layoutConfidence ?? nativeProgress.confidence!,
-                cutterXPx: metadata.cutterXPx,
-                tier1Verdict: metadata.tier1Verdict ?? nativeProgress.tier1Verdict ?? metadata.layoutClassification,
-                reconciled: metadata.reconciled ?? nativeProgress.reconciled ?? false,
-                clusterAgreement: metadata.clusterAgreement ?? nativeProgress.clusterAgreement ?? 0,
-                documentPrior: metadata.documentPrior == null
-                    ? nativeProgress.documentPrior ?? null
-                    : {
-                        ...metadata.documentPrior,
-                        cutterRatioMedian: metadata.documentPrior.cutterRatioMedian ?? null,
-                        strokeWidthMedianPx: metadata.documentPrior.strokeWidthMedianPx ?? undefined,
-                        xHeightMedianPx: metadata.documentPrior.xHeightMedianPx ?? undefined,
-                    },
-                ...(nativeProgress.textAxis === undefined ? {} : {textAxis: nativeProgress.textAxis}),
-                ...(nativeProgress.recommendedOutputMode === undefined
-                    ? {}
-                    : {recommendedOutputMode: nativeProgress.recommendedOutputMode}),
-                ...(nativeProgress.recommendedOutputModeConfidence === undefined
-                    ? {}
-                    : {recommendedOutputModeConfidence: nativeProgress.recommendedOutputModeConfidence}),
-                ...(nativeProgress.recommendedOutputModeReason === undefined
-                    ? {}
-                    : {recommendedOutputModeReason: nativeProgress.recommendedOutputModeReason}),
-                ...(nativeProgress.softAlphaForegroundRecommendation === undefined
-                    ? {}
-                    : {softAlphaForegroundRecommendation: nativeProgress.softAlphaForegroundRecommendation}),
-                ...(nativeProgress.outputModeDiagnostics === undefined
-                    ? {}
-                    : {outputModeDiagnostics: nativeProgress.outputModeDiagnostics}),
-                ...(sourceDpi === undefined
-                    ? {}
-                    : {sourcePageMetadata: {
-                        ...sourcePage,
-                        pageNumber: requirePageNumber(sourcePage.pageNumber),
-                        sourceDpi,
-                    }}),
-            };
-            result.pagePlanEvidence = createDetectionPagePlanEvidence(result, metadata, request.options.autoDewarp !== true);
-            if (metadata.splitDiagnostics !== undefined) result.splitDiagnostics = metadata.splitDiagnostics;
+                verdict: nativeProgress,
+                metadata,
+                sourcePage,
+                sourceDpi,
+                includeContentBoxes: request.options.autoDewarp !== true,
+            });
             if (isFirstClassification) await resultStore.append(result);
             else await resultStore.replace(sourcePageNumber, result);
             batchResults.set(sourcePageNumber, result);
@@ -1628,62 +1406,23 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     const retryMetadata = decodeNativeScanCleanupPageMetadataJson(
                         await fileSystem.readFile(page.metadataPath, 'utf8'),
                     );
-                    if (!isStrongMediaBoxSpread(
-                        retryProgress,
-                        retryMetadata,
-                        page.width,
-                        page.height,
-                    )) {
+                    if (!isStrongMediaBoxSpread(retryProgress, retryMetadata, page.width, page.height)) {
                         continue;
                     }
-                    const mediaPage = toMediaBoxPageSize(page.sourcePage);
                     const result = await resultStore.getPage(page.pageNumber);
                     if (result === undefined) continue;
-                    const accepted: IScanCleanupDetectionResult = {
-                        ...result,
-                        revision: (result.revision ?? 0) + 1,
-                        classification: retryProgress.classification ?? retryMetadata.layoutClassification,
-                        confidence: retryProgress.confidence ?? retryMetadata.layoutConfidence ?? result.confidence,
-                        cutterXPx: retryProgress.cutterXPx ?? retryMetadata.cutterXPx,
-                        tier1Verdict: retryProgress.tier1Verdict ?? retryMetadata.layoutClassification,
-                        reconciled: retryProgress.reconciled ?? false,
-                        clusterAgreement: retryProgress.clusterAgreement ?? 0,
-                        documentPrior: retryProgress.documentPrior ?? null,
-                        sourcePageMetadata: {
-                            ...mediaPage,
-                            pageNumber: requirePageNumber(mediaPage.pageNumber),
-                            sourceDpi: resolveRasterPageDpi(
-                                resolvedSourceRasterStructure,
-                                page.sourcePage,
-                                retryRasterByNumber.get(page.pageNumber),
-                            ) ?? DETECTION_DPI,
-                            renderBox: 'mediabox',
-                        },
-                        ...(retryMetadata.splitDiagnostics === undefined
-                            ? {}
-                            : {splitDiagnostics: retryMetadata.splitDiagnostics}),
-                        ...(retryProgress.textAxis === undefined ? {} : {textAxis: retryProgress.textAxis}),
-                        ...(retryProgress.recommendedOutputMode === undefined
-                            ? {}
-                            : {recommendedOutputMode: retryProgress.recommendedOutputMode}),
-                        ...(retryProgress.recommendedOutputModeConfidence === undefined
-                            ? {}
-                            : {recommendedOutputModeConfidence: retryProgress.recommendedOutputModeConfidence}),
-                        ...(retryProgress.recommendedOutputModeReason === undefined
-                            ? {}
-                            : {recommendedOutputModeReason: retryProgress.recommendedOutputModeReason}),
-                        ...(retryProgress.softAlphaForegroundRecommendation === undefined
-                            ? {}
-                            : {softAlphaForegroundRecommendation: retryProgress.softAlphaForegroundRecommendation}),
-                        ...(retryProgress.outputModeDiagnostics === undefined
-                            ? {}
-                            : {outputModeDiagnostics: retryProgress.outputModeDiagnostics}),
-                    };
-                    accepted.pagePlanEvidence = createDetectionPagePlanEvidence(
-                        accepted,
-                        retryMetadata,
-                        request.options.autoDewarp !== true,
-                    );
+                    const accepted = projectScanCleanupMediaBoxRetryResult({
+                        previous: result,
+                        verdict: retryProgress,
+                        metadata: retryMetadata,
+                        mediaPage: toMediaBoxPageSize(page.sourcePage),
+                        sourceDpi: resolveRasterPageDpi(
+                            resolvedSourceRasterStructure,
+                            page.sourcePage,
+                            retryRasterByNumber.get(page.pageNumber),
+                        ) ?? DETECTION_DPI,
+                        includeContentBoxes: request.options.autoDewarp !== true,
+                    });
                     await resultStore.replace(page.pageNumber, accepted);
                     compatibilityResults?.set(page.pageNumber, accepted);
                     log(

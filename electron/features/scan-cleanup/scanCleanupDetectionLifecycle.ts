@@ -16,8 +16,8 @@ import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
-    completedPageProgress,
 } from '@evb/scan-cleanup/core/detection';
+import {completedPageProgress} from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
