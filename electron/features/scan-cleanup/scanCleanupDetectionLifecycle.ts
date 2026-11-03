@@ -19,6 +19,8 @@ import {
 } from '@evb/scan-cleanup/core/detection';
 import {
     completeScanCleanupDetectionJobState,
+    queuedScanCleanupDetectionJobState,
+    runningScanCleanupDetectionJobState,
     selectUndeliveredScanCleanupDetectionResults,
 } from '@evb/scan-cleanup/core/scanCleanupDetectionJobState';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
@@ -43,7 +45,6 @@ import {
     RENDERER_DESTROYED_CANCELLATION_REASON,
     RENDER_PROCESS_GONE_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
-import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import {runtimeConfig} from '@electron/runtimeConfig';
@@ -421,21 +422,7 @@ export function scanCleanupDetectionOwner(
                     kind: 'abortable-work',
                     workingCopyPath: request.sourcePdfPath,
                 },
-                initialProgress: {
-                    jobId,
-                    status: 'queued',
-                    documentCanvasSignature: '',
-                    progress: {
-                        stage: 'queued',
-                        completedUnits: 0,
-                        totalUnits: 0,
-                        percent: 0,
-                        completedPageNumbers: [],
-                    },
-                    resultCount: 0,
-                    results: [],
-                    updatedAtMs: createEpochMs(),
-                },
+                initialProgress: queuedScanCleanupDetectionJobState(jobId),
                 ownerLifecycle: {
                     destroyed: 'cancel',
                     renderProcessGone: 'cancel',
@@ -535,16 +522,7 @@ export function scanCleanupDetectionOwner(
                                     : {totalRamBytes: rasterPolicy.totalRamBytes}),
                             },
                             (nextResults, progress, documentCanvasSignature) => {
-                                const normalizedProgress = normalizeDetectionProgress(progress);
-                                job.publish({
-                                    jobId,
-                                    status: 'running',
-                                    documentCanvasSignature,
-                                    progress: normalizedProgress,
-                                    resultCount: normalizedProgress.completedUnits,
-                                    results: nextResults,
-                                    updatedAtMs: createEpochMs(),
-                                });
+                                job.publish(runningScanCleanupDetectionJobState(jobId, nextResults, progress, documentCanvasSignature));
                             },
                             logScanCleanupMessage,
                         );
