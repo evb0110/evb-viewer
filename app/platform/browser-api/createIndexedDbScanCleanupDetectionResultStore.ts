@@ -2,6 +2,7 @@ import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electron
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
+    assertMaxReadPages,
     assertPageCount,
     assertPageNumber,
     assertReadWindow,
@@ -109,6 +110,7 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
     maxReadPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 ): Promise<IScanCleanupDetectionResultStore> {
     assertPageCount(pageCount);
+    assertMaxReadPages(maxReadPages);
     const database = await openWindowDatabase();
     const storeId = crypto.randomUUID();
     const present = new Uint8Array(pageCount + 1);
@@ -199,6 +201,7 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
         // Each chunk is its own queued read, handed to `onChunk` outside the
         // queue, so previews and writes are not held behind a long pass.
         forEachChunk: async onChunk => {
+            assertOpen();
             for (let firstPageNumber = 1; firstPageNumber <= pageCount; firstPageNumber += maxReadPages) {
                 const lastPageNumberExclusive = Math.min(pageCount + 1, firstPageNumber + maxReadPages);
                 const results = await enqueue(async () => {

@@ -394,6 +394,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
      * callback may use the store itself.
      */
     public async forEachChunk(onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) {
+        this.assertOpen();
         for (
             let firstPageNumber = 1;
             firstPageNumber <= this.pageCount;

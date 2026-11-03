@@ -108,18 +108,33 @@ export function createScanCleanupDetectionRecorder({
     resultStore,
     signal,
     rasterMaxPixels,
-    publish,
+    publish: publishFrame,
 }: ICreateScanCleanupDetectionRecorderInput) {
+    let publishedCanvasSignature = '';
+    const publish: TScanCleanupDetectionPublish = (results, progress, documentCanvasSignature) => {
+        publishedCanvasSignature = documentCanvasSignature;
+        publishFrame(results, progress, documentCanvasSignature);
+    };
     const canvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
     // Keep the provisional summary used while reconciliation is still open
     // separate from the resolved summary. The former contains every automatic
-    // page as unclassified geometry; the latter receives each page only after
-    // its classification and can therefore answer the final document-canvas
-    // question without retaining a layout map.
+    // page as unclassified geometry; the latter receives each page once its
+    // layout is final, when its batch ends or, for a MediaBox retry
+    // candidate, when the retries are decided. It can therefore answer the
+    // final document-canvas question without retaining a layout map.
     const resolvedCanvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
+    let layoutEvidenceComplete = false;
+    const addResolvedPage = (sourcePage: IPdfPageSize, result: IScanCleanupDetectionResult) => {
+        addScanCleanupDocumentCanvasObservedPage(
+            resolvedCanvasAccumulator,
+            sourcePage,
+            request.options,
+            result.classification,
+        );
+    };
     let matchedPreviewDpi = Number.POSITIVE_INFINITY;
     let baselineCanvasSignature: string | null = null;
-    const documentCanvasSignature = (layoutEvidenceComplete = false) => {
+    const documentCanvasSignature = () => {
         if (!request.options.matchPageSize) {
             return '';
         }
@@ -180,6 +195,11 @@ export function createScanCleanupDetectionRecorder({
     const reportedPageNumbers = new Set<number>();
     const etaEstimator = createScanCleanupProgressEtaEstimator();
     const mediaBoxRetryCandidates: IScanCleanupMediaBoxRetryCandidate[] = [];
+    /** Accepted MediaBox retries, by page: the geometry and result that replaced the first pass. */
+    const acceptedMediaBoxRetries = new Map<number, {
+        mediaPage: IPdfPageSize;
+        result: IScanCleanupDetectionResult
+    }>();
     // The large-document path deliberately sends no document-sized completion
     // list through progress. A batch-local list still lets the UI identify the
     // pages represented by the latest frame without retaining a million page
@@ -239,7 +259,7 @@ export function createScanCleanupDetectionRecorder({
                     ? {completedPageNumbers: []}
                     : completedPageProgress(reportedPageNumbers, analyzedPages)),
             },
-        ), documentCanvasSignature(analyzedPages >= totalPages));
+        ), documentCanvasSignature());
     };
     const markProgress = () => {
         readOnlyProgressDirty = true;
@@ -293,6 +313,7 @@ export function createScanCleanupDetectionRecorder({
             endOffsetExclusive: number
         }) {
             const batchResults = new Map<number, IScanCleanupDetectionResult>();
+            const batchSourcePages = new Map<number, IPdfPageSize>();
             const countedRasterPages = new Set<number>();
             let firstVerdictsComplete = false;
             const recordResult = async (input: IScanCleanupDetectionVerdictInput) => {
@@ -316,6 +337,7 @@ export function createScanCleanupDetectionRecorder({
                 if (isFirstClassification) await resultStore.append(result);
                 else await resultStore.replace(input.sourcePageNumber, result);
                 batchResults.set(input.sourcePageNumber, result);
+                batchSourcePages.set(input.sourcePageNumber, sourcePage);
                 compatibilityResults?.set(input.sourcePageNumber, result);
                 if (compatibilityResults === null) {
                     recentResults.push(result);
@@ -323,12 +345,6 @@ export function createScanCleanupDetectionRecorder({
                 if (isFirstClassification) {
                     addScanCleanupDocumentCanvasObservedPage(
                         canvasAccumulator,
-                        sourcePage,
-                        request.options,
-                        result.classification,
-                    );
-                    addScanCleanupDocumentCanvasObservedPage(
-                        resolvedCanvasAccumulator,
                         sourcePage,
                         request.options,
                         result.classification,
@@ -420,13 +436,18 @@ export function createScanCleanupDetectionRecorder({
                             percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
                             ...completedPageProgress(reportedPageNumbers, completedUnits),
                         },
-                    ), documentCanvasSignature(completedUnits >= totalPages));
+                    ), documentCanvasSignature());
                 },
-                /** After the batch ends, its single pages whose CropBox may hide a spread, in page order. */
-                collectMediaBoxCandidates(pages: ReadonlyArray<{
+                /**
+                 * After the batch ends, collects its single pages whose CropBox
+                 * may hide a spread, in page order, and adds every other page's
+                 * final layout to the resolved canvas.
+                 */
+                end(pages: ReadonlyArray<{
                     pageNumber: number;
                     sourcePage: IPdfPageSize | undefined
                 }>) {
+                    const candidatePages = new Set<number>();
                     for (const {
                         pageNumber,
                         sourcePage,
@@ -438,12 +459,19 @@ export function createScanCleanupDetectionRecorder({
                             && result.classification === 'single-uncut-page'
                             && shouldRetryMediaBoxPage(sourcePage, result)
                         ) {
+                            candidatePages.add(pageNumber);
                             mediaBoxRetryCandidates.push({
                                 pageNumber,
                                 result,
                                 sourcePage,
                             });
                         }
+                    }
+                    for (const [
+                        pageNumber,
+                        result,
+                    ] of batchResults) {
+                        if (!candidatePages.has(pageNumber)) addResolvedPage(batchSourcePages.get(pageNumber)!, result);
                     }
                 },
             };
@@ -486,10 +514,21 @@ export function createScanCleanupDetectionRecorder({
             });
             await resultStore.replace(input.pageNumber, accepted);
             compatibilityResults?.set(input.pageNumber, accepted);
+            acceptedMediaBoxRetries.set(input.pageNumber, {
+                mediaPage: input.mediaPage,
+                result: accepted,
+            });
             return true;
         },
         /** Publishes the last pending frame and summarizes the stored results. */
         async finish(): Promise<IScanCleanupDetectionOutcome> {
+            for (const candidate of mediaBoxRetryCandidates) {
+                const retry = acceptedMediaBoxRetries.get(candidate.pageNumber);
+                addResolvedPage(retry?.mediaPage ?? candidate.sourcePage, retry?.result ?? candidate.result);
+            }
+            // The last frame carries the canvas of every page's final layout.
+            layoutEvidenceComplete = true;
+            if (documentCanvasSignature() !== publishedCanvasSignature) readOnlyProgressDirty = true;
             publishReadOnlyProgress(true);
             const placementAnchorSummary = usesScanCleanupInkAlignment(request.options)
                 ? await buildScanCleanupPlacementAnchorSummary({

@@ -1,6 +1,7 @@
-import {parseDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
@@ -20,9 +21,9 @@ const sources = new Map<string, ISourceEntry>();
  * Rust reader desktop's page-size sidecar runs, and its PDF.js document.
  */
 async function openSource(ref: string, revision: string, signal: AbortSignal): Promise<IBrowserScanCleanupSource> {
-    const token = parseDocumentRevisionToken(revision);
+    const token = requireDocumentRevisionToken(revision);
     await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
-    const data = await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES});
+    const data = await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
     const inspected = await runBrowserPageOpsWorkerRequest('inspectScanCleanupPdf', {
         data,
         pages: [],

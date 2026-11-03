@@ -63,7 +63,10 @@ import {
 } from '@evb/scan-cleanup/core/pageScope';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {splitContiguousPageRuns} from '@evb/scan-cleanup/core/splitContiguousPageRuns';
-import {createScanCleanupDetectionRecorder} from '@evb/scan-cleanup/core/createScanCleanupDetectionRecorder';
+import {
+    createScanCleanupDetectionRecorder,
+    type IScanCleanupDetectionRecorder,
+} from '@evb/scan-cleanup/core/createScanCleanupDetectionRecorder';
 
 export {
     DETECTION_DPI,
@@ -329,14 +332,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
     signal: AbortSignal,
     retention: IScanCleanupDetectionRetention<TDocument>,
     pageSizeStore: IPdfPageSizeStore,
-    resultStore: IScanCleanupDetectionResultStore,
+    recorder: IScanCleanupDetectionRecorder,
     dependencies: IScanCleanupDetectionDependencies,
     policy: TScanCleanupDetectionPolicy,
-    publish: (
-        results: IScanCleanupDetectionResult[],
-        progress: TScanCleanupProgress,
-        documentCanvasSignature: string,
-    ) => void,
     log: TScanCleanupLog,
     document: TDocument,
     pageScope: TScanCleanupPageScope,
@@ -348,14 +346,6 @@ async function runBatchedScanCleanupDetection<TDocument>(
     const getAvailableScratchBytes = dependencies.getAvailableScratchBytes;
     if (!getAvailableScratchBytes) throw new Error('Scan cleanup detection requires injected scratch-budget capability');
     let sourceRasterStructure: IScanCleanupPageRasterSource | undefined;
-    const recorder = createScanCleanupDetectionRecorder({
-        request,
-        totalPages,
-        resultStore,
-        signal,
-        rasterMaxPixels: policy.rasterMaxPixels,
-        publish,
-    });
     let geometryPages = 0;
     let expectedGeometryPageNumber = 1;
     await pageSizeStore.forEachChunk(async chunk => {
@@ -900,7 +890,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     allowedPathRoot: dependencies.getTempDir(),
                 },
             );
-            batchRecorder.collectMediaBoxCandidates(manifestPages.map(page => ({
+            batchRecorder.end(manifestPages.map(page => ({
                 pageNumber: page.pageNumber,
                 sourcePage: batchPageByNumber.get(page.pageNumber),
             })));
@@ -1164,6 +1154,7 @@ export async function runScanCleanupDetection<TDocument>(
         const pageScope = resolveScanCleanupPageScopeLazy(undefined, totalPages);
         const pageSizeStore = await resolveDetectionPageSizeStore(retention, document, signal);
         let resultStore: IScanCleanupDetectionResultStore | null = null;
+        let recorder: IScanCleanupDetectionRecorder | null = null;
         let resultStoreTransferred = false;
         try {
             resultStore = await createFileBackedScanCleanupDetectionResultStore({
@@ -1172,15 +1163,22 @@ export async function runScanCleanupDetection<TDocument>(
                 pageCount: totalPages,
             });
             dependencies.onResultStoreReady?.(resultStore);
+            recorder = createScanCleanupDetectionRecorder({
+                request,
+                totalPages,
+                resultStore,
+                signal,
+                rasterMaxPixels: policy.rasterMaxPixels,
+                publish,
+            });
             const outcome = await runBatchedScanCleanupDetection(
                 request,
                 signal,
                 retention,
                 pageSizeStore,
-                resultStore,
+                recorder,
                 dependencies,
                 policy,
-                publish,
                 log,
                 document,
                 pageScope,
@@ -1190,6 +1188,8 @@ export async function runScanCleanupDetection<TDocument>(
             resultStoreTransferred = true;
             return outcome;
         } finally {
+            // A failed run must not leave a throttled progress frame pending.
+            recorder?.dispose();
             if (!resultStoreTransferred && resultStore !== null) {
                 await resultStore.close().catch(error => {
                     log(

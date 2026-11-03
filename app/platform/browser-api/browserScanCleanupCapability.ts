@@ -304,8 +304,9 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
                 base,
                 detail,
             ].filter(owned);
-            if (owned(base)) base = null;
-            if (owned(detail)) detail = null;
+            // Canceled work keeps its slot until it settles, so the next
+            // preview waits for it before replacing the source it reads.
+            for (const work of claimed) work?.controller.abort(new DOMException('Scan cleanup preview was canceled.', 'AbortError'));
             if (retainedBase !== null && retainedBase.ownerId === request.ownerId && retainedBase.ref === request.sourcePdfPath
                 && (request.invalidateRawCache === true || !(request.retainPages ?? []).some(page => page === retainedBase?.pageNumber))) {
                 retainedBase = null;
@@ -313,7 +314,8 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
             return claimed;
         });
         await Promise.all(retiring.map(retire));
-        if (request.invalidateRawCache === true && base === null && detail === null) {
+        const idle = (work: IPreviewWork | null) => work === null || work.controller.signal.aborted;
+        if (request.invalidateRawCache === true && idle(base) && idle(detail)) {
             previewSource?.release();
             previewSource = null;
         }

@@ -266,7 +266,7 @@ export async function runBrowserScanCleanupDetection({
                 rerendered: () => batchRecorder.noteInputRequired(),
                 completed: (finished, index) => batchRecorder.recordComplete(verdictInput(finished, index)),
             });
-            batchRecorder.collectMediaBoxCandidates(pages.map(page => ({
+            batchRecorder.end(pages.map(page => ({
                 pageNumber: page.pageNumber,
                 sourcePage: page.view,
             })));

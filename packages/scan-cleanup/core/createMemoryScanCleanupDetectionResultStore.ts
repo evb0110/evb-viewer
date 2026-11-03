@@ -70,8 +70,10 @@ export function createMemoryScanCleanupDetectionResultStore(
             return readRange(firstPageNumber, lastPageNumberExclusive);
         },
         forEachChunk: async onChunk => {
-            assertOpen();
-            for (let firstPageNumber = 1; firstPageNumber <= pageCount; firstPageNumber += maxReadPages) {
+            // A callback may close the store; the next chunk must not read as empty.
+            for (let firstPageNumber = 1; ; firstPageNumber += maxReadPages) {
+                assertOpen();
+                if (firstPageNumber > pageCount) return;
                 await onChunk(
                     readRange(firstPageNumber, Math.min(pageCount + 1, firstPageNumber + maxReadPages)),
                     firstPageNumber,
