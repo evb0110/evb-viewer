@@ -25,6 +25,8 @@ interface IHostZenEscapeTestWindow {
     };
     focus: ReturnType<typeof vi.fn>;
     getBounds: ReturnType<typeof vi.fn<() => IHostZenEscapeTestBounds>>;
+    getContentSize: ReturnType<typeof vi.fn>;
+    setContentSize: ReturnType<typeof vi.fn>;
     isDestroyed: ReturnType<typeof vi.fn>;
     isFocused: ReturnType<typeof vi.fn>;
     isFullScreen: ReturnType<typeof vi.fn>;
@@ -95,6 +97,17 @@ vi.mock('electron', () => {
                 mocks.focusedWindow = window;
             }),
             getBounds: vi.fn(() => bounds),
+            getContentSize: vi.fn(() => [
+                bounds.width,
+                bounds.height,
+            ]),
+            setContentSize: vi.fn((width: number, height: number) => {
+                bounds = {
+                    ...bounds,
+                    width,
+                    height,
+                };
+            }),
             isDestroyed: vi.fn(() => false),
             isFocused: vi.fn(() => mocks.focusedWindow === window),
             isFullScreen: vi.fn(() => fullScreen),
@@ -156,6 +169,10 @@ vi.mock('electron', () => {
                     workArea: {
                         x: 0,
                         y: 0,
+                        width: 800,
+                        height: 600,
+                    },
+                    workAreaSize: {
                         width: 800,
                         height: 600,
                     },
@@ -322,23 +339,39 @@ describe('host environment startup argument', () => {
         const window = mocks.createWindow(4);
         window.maximized = true;
 
-        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
+        const normal = {
             fullScreen: false,
             maximized: false,
             supported: true,
-        });
+            contentSize: {
+                width: 800,
+                height: 600,
+            },
+            workAreaSize: {
+                width: 800,
+                height: 600,
+            },
+        };
+        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual(normal);
         // Already normal: nothing to leave, same answer.
-        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
-            fullScreen: false,
-            maximized: false,
-            supported: true,
+        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual(normal);
+        // A requested content area is given natively, whatever the frame.
+        await expect(restoreHostNormalWindowForWindow(window as never, {
+            width: 640,
+            height: 480,
+        })).resolves.toEqual({
+            ...normal,
+            contentSize: {
+                width: 640,
+                height: 480,
+            },
         });
         expect(window.focus).not.toHaveBeenCalled();
 
         const stuck = mocks.createWindow(5);
         stuck.maximized = true;
         stuck.honorsUnmaximize = false;
-        await expect(restoreHostNormalWindowForWindow(stuck as never)).resolves.toEqual({
+        await expect(restoreHostNormalWindowForWindow(stuck as never)).resolves.toMatchObject({
             fullScreen: false,
             maximized: true,
             supported: true,
@@ -374,6 +407,14 @@ describe('host environment startup argument', () => {
                 fullScreen: false,
                 maximized: false,
                 supported: true,
+                contentSize: {
+                    width: 1000,
+                    height: 700,
+                },
+                workAreaSize: {
+                    width: 800,
+                    height: 600,
+                },
             });
             await new Promise(resolve => setTimeout(resolve, 0));
 

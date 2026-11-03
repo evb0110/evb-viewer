@@ -18,8 +18,8 @@ import type { ISessionState } from '@scripts/electron-run/electronRunSessionType
 import { cast } from '@tests/helpers/cast';
 
 // The window a person resizes is the native one. These cases keep the two
-// commands apart: `windowResize` must move the native window through its own
-// frame arithmetic, and `emulateViewport` must never touch it.
+// commands apart: `windowResize` must size the native window's content area,
+// and `emulateViewport` must never touch it.
 
 interface INativeWindowModel {
     contentWidth: number;
@@ -70,11 +70,23 @@ function stubRendererWindow(model: INativeWindowModel) {
             return model.contentHeight + model.frameHeight;
         },
         devicePixelRatio: 2,
-        electronAPI: {host: {restoreNormalWindow() {
+        electronAPI: {host: {restoreNormalWindow(contentSize?: {
+            width: number;
+            height: number;
+        }) {
             if (model.maximized && model.honorsRestore) {
                 model.maximized = false;
                 model.contentWidth = model.normalContentWidth;
                 model.contentHeight = model.normalContentHeight;
+            }
+            // The host sizes the content area natively; a maximized window
+            // keeps the window manager's size.
+            if (contentSize !== undefined) {
+                model.resizeRequests.push(contentSize);
+                if (!model.maximized) {
+                    model.contentWidth = Math.max(model.minimumContentWidth, contentSize.width);
+                    model.contentHeight = contentSize.height;
+                }
             }
             return Promise.resolve({
                 fullScreen: false,
@@ -82,17 +94,6 @@ function stubRendererWindow(model: INativeWindowModel) {
                 supported: true,
             });
         }}},
-        resizeTo(width: number, height: number) {
-            model.resizeRequests.push({
-                width,
-                height,
-            });
-            if (model.maximized) {
-                return;
-            }
-            model.contentWidth = Math.max(model.minimumContentWidth, width - model.frameWidth);
-            model.contentHeight = height - model.frameHeight;
-        },
     });
 }
 
@@ -151,11 +152,11 @@ describe('electron run window resize command', () => {
             settled: boolean;
         };
 
-        // The request names the whole window, so the frame has to be added
-        // back or the document would lose the frame's worth of layout.
+        // The request names the content area itself, whatever frame the
+        // window has, so no frame size is guessed from the renderer.
         expect(model.resizeRequests).toEqual([{
             width: 640,
-            height: 512,
+            height: 480,
         }]);
         expect(result.before.contentSize.width).toBe(900);
         expect(result.after.contentSize).toEqual({

@@ -54,10 +54,8 @@ export function readElectronWindowMetrics(page: Page) {
 
 /**
  * Resizes the real window so its content area becomes `contentSize`, then
- * waits until the renderer reports that size. The resize request names the
- * whole window, so it adds the frame the window has at that moment. A session
- * is ready only after its window paints, so that frame already includes a
- * Linux menu bar.
+ * waits until the renderer reports that size. The host sizes the content area
+ * natively, so the request does not depend on the frame the renderer sees.
  */
 export async function resizeElectronWindowContentArea(
     page: Page,
@@ -68,9 +66,12 @@ export async function resizeElectronWindowContentArea(
         metrics.contentSize.width === contentSize.width && metrics.contentSize.height === contentSize.height
     );
 
-    const windowState = await page.evaluate(() => (
-        (window as Window & {electronAPI: {host: IHostCapability;};}).electronAPI.host.restoreNormalWindow()
-    ));
+    const before = await readElectronWindowMetrics(page);
+    // The host sets the content area natively, so no frame size is guessed
+    // from the renderer's outer and inner measurements.
+    const windowState = await page.evaluate((requested: IElectronWindowSize) => (
+        (window as Window & {electronAPI: {host: IHostCapability;};}).electronAPI.host.restoreNormalWindow(requested)
+    ), contentSize);
     if (!windowState.supported || windowState.fullScreen || windowState.maximized) {
         throw new Error(
             'The window did not leave its native placement before the resize '
@@ -79,13 +80,6 @@ export async function resizeElectronWindowContentArea(
         );
     }
 
-    const before = await readElectronWindowMetrics(page);
-    await page.evaluate((requested: IElectronWindowSize) => {
-        window.resizeTo(requested.width, requested.height);
-    }, {
-        width: contentSize.width + before.windowSize.width - before.contentSize.width,
-        height: contentSize.height + before.windowSize.height - before.contentSize.height,
-    });
 
     const deadline = Date.now() + settleTimeoutMs;
     let after = await readElectronWindowMetrics(page);
