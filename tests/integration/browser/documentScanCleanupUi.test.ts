@@ -107,18 +107,20 @@ async function longFixture() {
     const pdf = await PDFDocument.create();
     pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
     pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+    // Small pages keep a thousand page analyses quick; detection measures
+    // the ink, not the paper size.
     for (let pageIndex = 0; pageIndex < LONG_DOCUMENT_PAGES; pageIndex += 1) {
         const page = pdf.addPage([
-            144,
-            216,
+            72,
+            108,
         ]);
-        const top = 186 - (pageIndex % 7) * 6;
+        const top = 93 - (pageIndex % 7) * 3;
         for (let row = 0; row < 9; row += 1) {
             page.drawRectangle({
-                x: 18,
-                y: top - row * 15,
-                width: 104 - (row % 3) * 14,
-                height: 5,
+                x: 9,
+                y: top - row * 7.5,
+                width: 52 - (row % 3) * 7,
+                height: 2.5,
                 color: rgb(0.1, 0.1, 0.1),
             });
         }
