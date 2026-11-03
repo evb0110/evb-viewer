@@ -20,13 +20,14 @@ const variablePageSizes = [
 ];
 
 describe('document page display layout', () => {
-    it('fits every page independently without an active-page input', () => {
+    it('fits each page on its own in paged mode', () => {
         const layouts = resolveDocumentPageDisplayLayouts({
             availableHeight: 500,
             availableWidth: 600,
             manualZoom: 1,
             pageSizes: variablePageSizes,
             zoomMode: 'fit-width',
+            continuousScroll: false,
         });
 
         expect(layouts).toEqual([
@@ -43,6 +44,28 @@ describe('document page display layout', () => {
         ]);
     });
 
+    it('fits the widest page in continuous scroll, one scale for every page', () => {
+        expect(resolveDocumentPageDisplayLayouts({
+            availableHeight: 500,
+            availableWidth: 600,
+            manualZoom: 1,
+            pageSizes: variablePageSizes,
+            zoomMode: 'fit-width',
+            continuousScroll: true,
+        })).toEqual([
+            {
+                height: 750,
+                scale: 0.75,
+                width: 600,
+            },
+            {
+                height: 900,
+                scale: 0.75,
+                width: 450,
+            },
+        ]);
+    });
+
     it('shares fit-height and custom semantics across renderers', () => {
         expect(resolveDocumentPageDisplayLayouts({
             availableHeight: 600,
@@ -50,6 +73,7 @@ describe('document page display layout', () => {
             manualZoom: 1,
             pageSizes: variablePageSizes,
             zoomMode: 'fit-height',
+            continuousScroll: true,
         })).toEqual([
             {
                 height: 600,
@@ -68,6 +92,7 @@ describe('document page display layout', () => {
             manualZoom: 1.25,
             pageSizes: variablePageSizes,
             zoomMode: 'custom',
+            continuousScroll: true,
         })).toEqual([
             {
                 height: 1_250,
