@@ -56,7 +56,10 @@ const cacheProbe = vi.hoisted(() => ({instances: [] as IScanCleanupPreviewCache[
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 vi.mock('@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache', async importOriginal => {
     const actual = await importOriginal<typeof scanCleanupPreviewCacheModule>();

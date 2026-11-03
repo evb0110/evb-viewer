@@ -301,6 +301,8 @@ export interface IScanCleanupCoordinatorDependencies {
     createCompletedOutputSaveAs: (outputPath: string) => () => Promise<unknown>;
     openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
     t: TTranslateFn;
+    /** The app's language now, for the numbers a message carries. */
+    locale: () => string;
     toast: IScanCleanupToast;
 }
 
@@ -780,7 +782,10 @@ async function handleTerminalState(state: TScanCleanupJobState) {
 
     if (state.status === 'failed') {
         const error = formatScanCleanupErrorByCode(
-            terminalDependencies.t,
+            {
+                t: terminalDependencies.t,
+                locale: terminalDependencies.locale(),
+            },
             state.errorCode,
             state.error,
             state.scratchShortfall,

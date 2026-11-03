@@ -31,7 +31,10 @@ import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/anno
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 
 const disposals: Array<() => void> = [];

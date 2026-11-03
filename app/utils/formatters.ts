@@ -1,27 +1,40 @@
-export function formatBytes(bytes: number) {
+import type {MaybeRefOrGetter} from 'vue';
+import type {TTranslateFn} from '@i18n-app';
+
+export interface IByteSizeFormat {
+    t: TTranslateFn;
+    locale: MaybeRefOrGetter<string>;
+}
+
+const BYTE_SIZE_UNITS = [
+    'common.unitKilobyte',
+    'common.unitMegabyte',
+    'common.unitGigabyte',
+] as const;
+
+/** A byte count in the app's language: its units and its decimal separator. */
+export function formatBytes(bytes: number, {
+    t,
+    locale,
+}: IByteSizeFormat) {
     if (!Number.isFinite(bytes) || bytes < 0) {
         return '-';
     }
     if (bytes < 1024) {
-        return `${bytes} B`;
+        return `${new Intl.NumberFormat(toValue(locale)).format(bytes)} ${t('common.unitByte')}`;
     }
-
-    const units = [
-        'KB',
-        'MB',
-        'GB',
-        'TB',
-    ];
     let value = bytes;
     let unitIndex = -1;
-
     do {
         value /= 1024;
         unitIndex += 1;
-    } while (value >= 1024 && unitIndex < units.length - 1);
-
+    } while (value >= 1024 && unitIndex < BYTE_SIZE_UNITS.length - 1);
     const digits = value >= 10 ? 1 : 2;
-    return `${value.toFixed(digits)} ${units[unitIndex] ?? 'TB'}`;
+    const number = new Intl.NumberFormat(toValue(locale), {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+    }).format(value);
+    return `${number} ${t(BYTE_SIZE_UNITS[unitIndex] ?? 'common.unitGigabyte')}`;
 }
 
 interface IRelativeTimeLabels {

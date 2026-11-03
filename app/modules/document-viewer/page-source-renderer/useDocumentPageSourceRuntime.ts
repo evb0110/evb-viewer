@@ -1,3 +1,4 @@
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
@@ -748,7 +749,9 @@ export const useDocumentPageSourceRuntime = (options: {
         readRevisionToken: () => props.value.documentRevisionToken ?? null,
         readSrc: () => props.value.src,
     });
+    const {t} = useTypedI18n();
     const presentation = createDocumentPageSourcePresentation({
+        t,
         chassisAuthority,
         emit,
         ensureExactPageMetric,

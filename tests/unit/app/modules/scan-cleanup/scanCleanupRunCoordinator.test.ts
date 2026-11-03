@@ -171,6 +171,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: async () => true,
             createCompletedOutputSaveAs: () => async () => undefined,
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         try {
@@ -270,6 +271,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         try {
@@ -325,6 +327,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         try {
@@ -389,6 +392,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         try {
@@ -488,6 +492,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
 
@@ -529,6 +534,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
 
@@ -659,6 +665,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         };
         const cleanup = coordinator.installScanCleanupRunCoordinator(dependencies);
@@ -750,6 +757,7 @@ describe('scan cleanup run coordinator', () => {
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             openScanCleanupForDocument: vi.fn(),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -789,6 +797,7 @@ describe('scan cleanup run coordinator', () => {
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             openScanCleanupForDocument: vi.fn(),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -822,6 +831,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => true),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -846,8 +856,8 @@ describe('scan cleanup run coordinator', () => {
                 .toContain('scanCleanup.errors.insufficientScratch'));
             const error = coordinator.getScanCleanupRunError(ownerContext.ownerId);
             expect(error).toContain('scanCleanup.errors.insufficientScratchSpace');
-            expect(error).toContain('"available":"520.0 MB"');
-            expect(error).toContain('"required":"1.07 GB"');
+            expect(error).toContain('"available":"520.0 common.unitMegabyte"');
+            expect(error).toContain('"required":"1.07 common.unitGigabyte"');
             expect(error).not.toContain('raw ENOSPC detail');
         } finally {
             cleanup();
@@ -882,6 +892,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: async () => true,
             createCompletedOutputSaveAs: () => async () => undefined,
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -957,6 +968,7 @@ describe('scan cleanup run coordinator', () => {
             createCompletedOutputSaveAs: outputPath => async () => { savedOutput = outputPath; return true; },
             openScanCleanupForDocument,
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1010,6 +1022,7 @@ describe('scan cleanup run coordinator', () => {
                 openGeneratedPdf,
                 createCompletedOutputSaveAs: () => async () => { savedOutput = '/replacement.pdf'; return true; },
                 t: translate,
+                locale: () => 'en',
                 toast: {add: toastAdd},
             });
             try {
@@ -1082,6 +1095,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1163,6 +1177,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: firstOpen,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: firstToast},
         });
         let reinstall: (() => void) | null = null;
@@ -1200,6 +1215,7 @@ describe('scan cleanup run coordinator', () => {
                 openGeneratedPdf: secondOpen,
                 createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
                 t: translate,
+                locale: () => 'en',
                 toast: {add: secondToast},
             });
             listener(completedState('job-disposed'));
@@ -1436,6 +1452,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1481,6 +1498,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1519,6 +1537,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1564,6 +1583,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1638,6 +1658,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: toastAdd},
         });
         try {
@@ -1719,6 +1740,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         try {
@@ -1762,6 +1784,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         try {
@@ -1823,6 +1846,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(async () => true),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         };
         const firstCleanup = coordinator.installScanCleanupRunCoordinator(dependencies);
@@ -1866,12 +1890,14 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
         const secondCleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(),
             createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
+            locale: () => 'en',
             toast: {add: vi.fn()},
         });
 

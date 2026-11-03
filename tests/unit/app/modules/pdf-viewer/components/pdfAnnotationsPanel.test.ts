@@ -34,7 +34,10 @@ import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotatio
 vi.mock('@app/composables/useSettings', () => ({useSettings: () => ({settings: {authorName: null}})}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue', () => ({default: {render: () => null}}));
 

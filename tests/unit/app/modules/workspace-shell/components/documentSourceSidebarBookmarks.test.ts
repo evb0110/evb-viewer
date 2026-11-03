@@ -28,7 +28,10 @@ import DocumentSourceSidebar from '@app/modules/workspace-shell/components/Docum
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 
 function stub(marker: string) {

@@ -272,7 +272,10 @@ interface IProps {
     authorName?: string | null | undefined;
 }
 
-const { t } = useTypedI18n();
+const {
+    t,
+    locale,
+} = useTypedI18n();
 
 const {
     activeCommentStableKey: activeCommentStableKeyProp = undefined,
@@ -331,10 +334,11 @@ const query = ref('');
 const searchVisible = ref(false);
 const searchInputRef = useTemplateRef<{focus: () => void}>('searchInputRef');
 
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
+// Dates read in the app's selected language, and follow a language switch.
+const timeFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
     dateStyle: 'medium',
     timeStyle: 'short',
-});
+}));
 
 const authorName = computed(() => authorNameProp ?? null);
 const activeCommentStableKey = computed(() => activeCommentStableKeyProp ?? null);
@@ -625,7 +629,7 @@ function highlightTextParts(text: string) {
 }
 
 function formatTime(timestamp: number) {
-    return timeFormatter.format(timestamp);
+    return timeFormatter.value.format(timestamp);
 }
 
 function commentTimeLabel(comment: IAnnotationCommentSummary) {

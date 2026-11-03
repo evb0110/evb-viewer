@@ -4,7 +4,11 @@ import {
     normalizeTranslationParams,
     plural,
 } from '@i18n-core';
-import { LOCALE_MESSAGES } from '@i18n-app';
+import {
+    LOCALE_MESSAGES,
+    type TTranslateFn,
+} from '@i18n-app';
+import {formatBytes} from '@app/utils/formatters';
 import {
     describe,
     expect,
@@ -37,6 +41,22 @@ describe('message formatting', () => {
         expect(formatTranslationLeaf(selected, {count: 21}, 'ru')).toBe('Выбрана 21');
         expect(formatTranslationLeaf(selected, {count: 22}, 'ru')).toBe('Выбрано 22');
         expect(formatTranslationLeaf(selected, {count: 25}, 'ru')).toBe('Выбрано 25');
+    });
+
+    it('names a single page in the singular where a count can be one', () => {
+        const en = LOCALE_MESSAGES.en;
+        expect(formatTranslationLeaf(en.print.summary, {
+            count: 1,
+            layout: 'Single page',
+            orientation: 'Portrait',
+        }, 'en')).toBe('Printing 1 page with Single page and Portrait orientation.');
+        expect(formatTranslationLeaf(en.scanCleanup.pages.count, {count: 1}, 'en')).toBe('Source pages: 1');
+        expect(formatTranslationLeaf(en.pageNumbering.targetAllPages, {count: 1}, 'en')).toBe('Target: all pages (1).');
+        expect(formatTranslationLeaf(LOCALE_MESSAGES.de.print.summary, {
+            count: 1,
+            layout: 'Einzelseite',
+            orientation: 'Hochformat',
+        }, 'de')).toBe('1 Seite wird mit Einzelseite und Hochformat gedruckt.');
     });
 
     it('continues to support legacy pipe-delimited messages', () => {
@@ -81,5 +101,34 @@ describe('message formatting', () => {
         expect(getNestedTranslationLeaf(messages, 'nested.hit')).toBe('Hello');
         expect(getNestedTranslationLeaf(messages, 'nested.missing')).toBeNull();
         expect(getNestedTranslationLeaf(messages, 'nested.object')).toBeNull();
+    });
+});
+
+function translator(locale: 'en' | 'fr' | 'ru'): TTranslateFn {
+    return ((key: string) => formatTranslationLeaf(
+        key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)[part], LOCALE_MESSAGES[locale]) as string,
+        undefined,
+        locale,
+    )) as TTranslateFn;
+}
+
+describe('formatBytes', () => {
+    it('states a size with the language units and decimal separator', () => {
+        expect(formatBytes(1536, {
+            t: translator('fr'),
+            locale: 'fr',
+        })).toBe('1,50 Ko');
+        expect(formatBytes(1536, {
+            t: translator('en'),
+            locale: 'en',
+        })).toBe('1.50 KB');
+        expect(formatBytes(5 * 1024 ** 3, {
+            t: translator('ru'),
+            locale: 'ru',
+        })).toBe('5,00 ГБ');
+        expect(formatBytes(512, {
+            t: translator('en'),
+            locale: 'en',
+        })).toBe('512 B');
     });
 });

@@ -1,3 +1,4 @@
+import type {TTranslateFn} from '@i18n-app';
 // @vitest-environment happy-dom
 
 import {
@@ -119,6 +120,7 @@ function createPresentationHarness() {
     const scheduleRender = vi.fn();
     let pageScale = 2;
     const presentation = createDocumentPageSourcePresentation({
+        t: ((key: string) => key === 'common.pageRenderFailed' ? 'Unable to render this page' : key) as TTranslateFn,
         chassisAuthority: null,
         emit,
         ensureExactPageMetric: vi.fn(async () => ({
@@ -333,7 +335,7 @@ describe('document page-source presentation lifecycle', () => {
         await harness.presentation.renderPage(1);
         expect(harness.presentation.pageStates.get(1)?.retryCount).toBe(2);
         await harness.presentation.renderPage(1);
-        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
+        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to render this page');
         expect(render).toHaveBeenCalledTimes(3);
         expect(capture).toHaveBeenCalledOnce();
         expect(harness.presentation.getVisualFailurePresentation(1)?.failure).toBe(receipt);
@@ -355,12 +357,12 @@ describe('document page-source presentation lifecycle', () => {
         harness.presentation.beginSourceGeneration();
 
         await harness.presentation.renderPage(1);
-        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
+        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to render this page');
         expect(harness.emit).toHaveBeenCalledWith('loadError', refusal);
 
         // Another render request leaves the refused page failed.
         await harness.presentation.renderPage(1);
-        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
+        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to render this page');
     });
 
     it('persists image-error retries until exhaustion and clears them with the source generation', async () => {
@@ -408,7 +410,7 @@ describe('document page-source presentation lifecycle', () => {
             'retry-surface-2',
             createCurrentTargetEvent(harness.image),
         );
-        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
+        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to render this page');
         expect(harness.source.renderPage).toHaveBeenCalledTimes(2);
 
         harness.presentation.beginSourceGeneration();

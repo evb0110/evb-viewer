@@ -1,3 +1,4 @@
+import {formatElapsedClock} from '@app/utils/progressFormatting';
 import type { TAgentAssistantTurnPhase } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
 
@@ -40,20 +41,6 @@ export function truncateAssistantStatusText(value: string, limit: number) {
     return `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
 }
 
-export function formatAssistantElapsed(elapsedMs: number) {
-    const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
-    if (seconds < 60) {
-        return `${seconds}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) {
-        return `${minutes}m`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
 export function formatAssistantTurnStatus(options: {
     phase: TAgentAssistantTurnPhase;
     activity: string;
@@ -65,7 +52,7 @@ export function formatAssistantTurnStatus(options: {
 }) {
     const age = options.ageReferenceMs === null
         ? null
-        : formatAssistantElapsed(options.nowMs - options.ageReferenceMs);
+        : formatElapsedClock(options.nowMs - options.ageReferenceMs);
     if (options.hasQueuedSteer && options.phase === 'interrupting') {
         return options.t('assistant.steerQueued');
     }
@@ -92,7 +79,7 @@ export function formatAssistantTurnStatus(options: {
         });
     }
     if (options.startedAtMs !== null) {
-        return options.t('assistant.workingElapsed', {age: formatAssistantElapsed(options.nowMs - options.startedAtMs)});
+        return options.t('assistant.workingElapsed', {age: formatElapsedClock(options.nowMs - options.startedAtMs)});
     }
     return options.t('assistant.working');
 }

@@ -85,33 +85,36 @@ vi.mock('@evb/scan-cleanup/core/policy/scanCleanupPagePolicy', async importOrigi
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (
-        key: string,
-        values?: Record<string, unknown>,
-    ) => {
-        if (key === 'scanCleanup.detectAll.preAnalyzing') {
-            return 'Pre-analyzing pages';
-        }
-        if (key === 'scanCleanup.runCount') {
-            return `${String(values?.completed)} of ${String(values?.total)} pages`;
-        }
-        if (key === 'scanCleanup.runStatus') {
-            return `${String(values?.phase)} — ${String(values?.counter)}`;
-        }
-        if (key === 'scanCleanup.etaMinutes') {
-            return `Current task: about ${String(values?.minutes)} min`;
-        }
-        if (key === 'scanCleanup.etaSeconds') {
-            return `Current task: about ${String(values?.seconds)} sec`;
-        }
-        if (key === 'scanCleanup.runProgress.assembling') {
-            return 'Building PDF';
-        }
-        if (key === 'scanCleanup.runProgress.handoff') {
-            return 'Opening result';
-        }
-        return values?.output === undefined ? key : `${key}:${String(values.output)}`;
-    }}),
+    useTypedI18n: () => ({
+        locale: {value: 'en'},
+        t: (
+            key: string,
+            values?: Record<string, unknown>,
+        ) => {
+            if (key === 'scanCleanup.detectAll.preAnalyzing') {
+                return 'Pre-analyzing pages';
+            }
+            if (key === 'scanCleanup.runCount') {
+                return `${String(values?.completed)} of ${String(values?.total)} pages`;
+            }
+            if (key === 'scanCleanup.runStatus') {
+                return `${String(values?.phase)} — ${String(values?.counter)}`;
+            }
+            if (key === 'scanCleanup.etaMinutes') {
+                return `Current task: about ${String(values?.minutes)} min`;
+            }
+            if (key === 'scanCleanup.etaSeconds') {
+                return `Current task: about ${String(values?.seconds)} sec`;
+            }
+            if (key === 'scanCleanup.runProgress.assembling') {
+                return 'Building PDF';
+            }
+            if (key === 'scanCleanup.runProgress.handoff') {
+                return 'Opening result';
+            }
+            return values?.output === undefined ? key : `${key}:${String(values.output)}`;
+        },
+    }),
 }));
 
 function previewResult(
@@ -589,7 +592,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         expect(mounted.session.run.error.value).toMatch(
-            /^scanCleanup\.detectAll\.evidenceMissing\nError ID: [0-9a-f]{8}$/u,
+            /^scanCleanup\.detectAll\.evidenceMissing\nerrors\.runtime\.errorId: [0-9a-f]{8}$/u,
         );
         mounted.unmount();
     });
@@ -3803,7 +3806,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(mounted.session.run.error.value).toMatch(
-            /^scanCleanup\.errors\.toolsUnavailable \(Scan cleanup is unavailable\)\nError ID: [0-9a-f]{8}$/u,
+            /^scanCleanup\.errors\.toolsUnavailable \(Scan cleanup is unavailable\)\nerrors\.runtime\.errorId: [0-9a-f]{8}$/u,
         );
         expect(mounted.session.run.errorCode.value).toBe('tools-unavailable');
         mounted.unmount();

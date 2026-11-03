@@ -27,7 +27,10 @@ import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnn
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 
 async function mountList(options: {
