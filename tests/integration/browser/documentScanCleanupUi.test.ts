@@ -23,6 +23,7 @@ const scanCleanupUiTimeoutMs = 120_000;
 const previewImage = '.preview-comparison-layer.is-visible img.preview-pixel:not(.is-outgoing):not(.is-incoming)';
 const cleanedImage = '.cleaned-outputs img.preview-pixel:not(.is-outgoing):not(.is-incoming)';
 const browserOnlyReason = 'In the browser, scan cleanup previews pages but cannot clean up the document yet. Use the desktop app to clean it up.';
+const provisionalPageSizeNotice = 'Page size may still change until every page is analyzed.';
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
 interface IProbe {
@@ -215,22 +216,25 @@ async function cleanedPixels(page: Page) {
     return JSON.stringify(await Promise.all((await page.locator(cleanedImage).all()).map(async image => sha256(Buffer.from(await pixels(image), 'base64')))));
 }
 
-async function assertPreviewOnly(page: Page) {
+async function assertBrowserScope(page: Page) {
+    // The workspace detects every page on its own, as desktop does: the
+    // control to detect again is offered, and matched page sizes settle.
+    await expect.poll(() => page.locator('.scan-cleanup-surface').getAttribute('data-detection-status'), {timeout: 60_000}).toBe('completed');
     expect(await page.getByRole('button', {
         name: 'Detect layout for all pages',
         exact: true,
-    }).isDisabled()).toBe(true);
+    }).isDisabled()).toBe(false);
+    await expect.poll(() => page.getByText(provisionalPageSizeNotice, {exact: true}).count(), {timeout: 30_000}).toBe(0);
     expect(await page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u}).isDisabled()).toBe(true);
     expect(await page.locator('[data-run-disabled-reason]').innerText()).toBe(browserOnlyReason);
-    expect(await page.locator('.scan-cleanup-surface').getAttribute('data-detection-status')).toBe('idle');
     expect(await page.getByText('Aligning page placement', {exact: true}).count()).toBe(0);
     expect(await page.evaluate(`(async () => {
         const {getPlatformAPI} = await import('/_nuxt/utils/platform.ts');
         return getPlatformAPI().scanCleanup.getSupport();
     })()`)).toEqual({
         preview: true,
-        detection: false,
-        calibration: false,
+        detection: true,
+        calibration: true,
         conversion: false,
     });
     const inputs = await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs);
@@ -431,7 +435,7 @@ describe('browser Scan Cleanup workspace', () => {
             await showWorkspace(page);
             await observePage('replacement', 1, 'Follow document setting');
             expect(await page.getByRole('radio', {name: /^Auto.*recommended per page$/u}).getAttribute('aria-checked'), 'the replacement starts with its own document output setting').toBe('true');
-            await assertPreviewOnly(page);
+            await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
             // Evidence is best-effort; it never hides the outcome or skips closing the context.
@@ -617,7 +621,7 @@ describe('browser Scan Cleanup workspace', () => {
             }).click();
             await expect.poll(zoneShape).toBe(afterZone);
             await page.screenshot({path: join(evidenceRoot, 'reloaded.png')});
-            await assertPreviewOnly(page);
+            await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
             await page.screenshot({path: join(evidenceRoot, 'case-1-final.png')}).catch(() => undefined);
@@ -731,7 +735,7 @@ describe('browser Scan Cleanup workspace', () => {
             await waitForPixels(page, 2);
             expect(await cleanedPixels(page)).not.toBe(latest);
             await page.screenshot({path: join(evidenceRoot, 'latest-after-hidden-return.png')});
-            await assertPreviewOnly(page);
+            await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
             await page.screenshot({path: join(evidenceRoot, 'case-2-final.png')}).catch(() => undefined);
