@@ -6,7 +6,9 @@ import {
     join, resolve,
 } from 'node:path';
 import {encode} from 'fast-png';
-import {PDFDocument} from 'pdf-lib';
+import {
+    PDFDocument, rgb,
+} from 'pdf-lib';
 import type {
     Locator, Page,
 } from 'playwright';
@@ -89,6 +91,46 @@ async function fixture() {
     }, null, 2));
     return {
         name: 'sc3b-three-scans.pdf',
+        mimeType: 'application/pdf',
+        buffer: bytes,
+    };
+}
+
+/** One more page than a renderer keeps results for in its detection state. */
+const LONG_DOCUMENT_PAGES = 1025;
+
+/**
+ * A long document of small pages with rows of ink whose top edge moves from
+ * page to page, so detection and ink placement measure real content.
+ */
+async function longFixture() {
+    const pdf = await PDFDocument.create();
+    pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+    pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+    for (let pageIndex = 0; pageIndex < LONG_DOCUMENT_PAGES; pageIndex += 1) {
+        const page = pdf.addPage([
+            144,
+            216,
+        ]);
+        const top = 186 - (pageIndex % 7) * 6;
+        for (let row = 0; row < 9; row += 1) {
+            page.drawRectangle({
+                x: 18,
+                y: top - row * 15,
+                width: 104 - (row % 3) * 14,
+                height: 5,
+                color: rgb(0.1, 0.1, 0.1),
+            });
+        }
+    }
+    const bytes = Buffer.from(await pdf.save());
+    await mkdir(evidenceRoot, {recursive: true});
+    await writeFile(join(evidenceRoot, 'long-source.json'), JSON.stringify({
+        sha256: sha256(bytes),
+        pages: LONG_DOCUMENT_PAGES,
+    }, null, 2));
+    return {
+        name: 'long-scan.pdf',
         mimeType: 'application/pdf',
         buffer: bytes,
     };
@@ -185,8 +227,8 @@ async function showWorkspace(page: Page) {
     if (await guidance.count()) await guidance.click();
 }
 
-async function waitForPixels(page: Page, pageNumber: number) {
-    await page.locator('.page-label .scan-cleanup-stable-width-value').filter({hasText: `Page ${String(pageNumber)} of 3`}).waitFor();
+async function waitForPixels(page: Page, pageNumber: number, totalPages = 3) {
+    await page.locator('.page-label .scan-cleanup-stable-width-value').filter({hasText: `Page ${String(pageNumber)} of ${String(totalPages)}`}).waitFor();
     await page.waitForFunction(({
         selector, pageNumber,
     }) => {
@@ -744,4 +786,40 @@ describe('browser Scan Cleanup workspace', () => {
             await context.close();
         }
     }, scanCleanupUiTimeoutMs);
+    // T6: a document longer than the renderer's result window keeps its
+    // detection evidence in the browser's store, calibrates ink placement
+    // from it, and previews a page no renderer state still carries.
+    it('detects a long document into kept evidence that calibrates ink placement and previews its last page', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1440,
+            height: 1000,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await installProbe(page);
+            await openWorkspace(page, await longFixture());
+            await expect.poll(() => page.locator('.scan-cleanup-surface').getAttribute('data-detection-status'), {
+                timeout: 240_000,
+                interval: 1_000,
+            }).toBe('completed');
+            expect(await page.evaluate(async () => (await indexedDB.databases())
+                .some(database => database.name?.startsWith('evb-viewer-scan-cleanup-detection-')))).toBe(true);
+            await page.getByRole('radio', {
+                name: 'Keep where the ink is',
+                exact: true,
+            }).click();
+            // Calibration over the kept store settles: the run is held back
+            // only by the browser's missing conversion, not by placement.
+            await expect.poll(() => page.locator('[data-run-disabled-reason]').innerText(), {timeout: 60_000}).toBe(browserOnlyReason);
+            await page.locator('.scan-thumbnail-rail [data-thumbnail-page="1"]').click();
+            await page.keyboard.press('End');
+            await waitForPixels(page, LONG_DOCUMENT_PAGES, LONG_DOCUMENT_PAGES);
+            await page.screenshot({path: join(evidenceRoot, 'case-long-last-page.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            await writeFile(join(evidenceRoot, 'case-long-console.json'), JSON.stringify(problems, null, 2));
+            await context.close();
+        }
+    }, 360_000);
 });
