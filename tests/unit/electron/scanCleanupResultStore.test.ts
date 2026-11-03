@@ -556,4 +556,19 @@ describe.each([
         await store.close();
         await expect(store.getPage(1)).rejects.toThrow('closed');
     });
+
+    it('refuses to read chunks once closed, including when a chunk closes it', async () => {
+        const store = await create(4, 2);
+        await store.append(detectionResult(3));
+        const chunks: number[] = [];
+        await expect(store.forEachChunk(async (_results, firstPageNumber) => {
+            chunks.push(firstPageNumber);
+            await store.close();
+        })).rejects.toThrow('closed');
+        expect(chunks).toEqual([1]);
+
+        const empty = await create(0);
+        await empty.close();
+        await expect(empty.forEachChunk(() => undefined)).rejects.toThrow('closed');
+    });
 });

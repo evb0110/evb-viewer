@@ -256,6 +256,28 @@ async function pixels(image: Locator) {
     });
 }
 
+/** The first inked pixel row of the cleaned preview, and the preview's height. */
+async function cleanedInkTop(page: Page) {
+    return page.locator(cleanedImage).first().evaluate(element => {
+        const img = element as HTMLImageElement;
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(img, 0, 0);
+        const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
+        for (let y = 0; y < canvas.height; y += 1) {
+            for (let x = 0; x < canvas.width; x += 1) {
+                if (data[(y * canvas.width + x) * 4]! < 128) return {
+                    row: y,
+                    height: canvas.height,
+                };
+            }
+        }
+        return null;
+    });
+}
+
 async function cleanedPixels(page: Page) {
     return JSON.stringify(await Promise.all((await page.locator(cleanedImage).all()).map(async image => sha256(Buffer.from(await pixels(image), 'base64')))));
 }
@@ -805,8 +827,37 @@ describe('browser Scan Cleanup workspace', () => {
                 timeout: 240_000,
                 interval: 1_000,
             }).toBe('completed');
-            expect(await page.evaluate(async () => (await indexedDB.databases())
-                .some(database => database.name?.startsWith('evb-viewer-scan-cleanup-detection-')))).toBe(true);
+            // Every page's record is kept, including the first pages no
+            // renderer state carries any more.
+            expect(await page.evaluate(async () => {
+                const name = (await indexedDB.databases())
+                    .find(database => database.name?.startsWith('evb-viewer-scan-cleanup-detection-'))?.name;
+                if (name === undefined) return null;
+                const database = await new Promise<IDBDatabase>((resolve, reject) => {
+                    const open = indexedDB.open(name);
+                    open.onsuccess = () => resolve(open.result);
+                    open.onerror = () => reject(open.error);
+                });
+                try {
+                    const rows = await new Promise<Array<{pageNumber: number}>>((resolve, reject) => {
+                        const read = database.transaction('records', 'readonly').objectStore('records').getAll();
+                        read.onsuccess = () => resolve(read.result as Array<{pageNumber: number}>);
+                        read.onerror = () => reject(read.error);
+                    });
+                    const pageNumbers = new Set(rows.map(row => row.pageNumber));
+                    return {
+                        pages: pageNumbers.size,
+                        first: Math.min(...pageNumbers),
+                        last: Math.max(...pageNumbers),
+                    };
+                } finally {
+                    database.close();
+                }
+            })).toEqual({
+                pages: LONG_DOCUMENT_PAGES,
+                first: 1,
+                last: LONG_DOCUMENT_PAGES,
+            });
             await page.getByRole('radio', {
                 name: 'Keep where the ink is',
                 exact: true,
@@ -818,6 +869,19 @@ describe('browser Scan Cleanup workspace', () => {
             await page.keyboard.press('End');
             await waitForPixels(page, LONG_DOCUMENT_PAGES, LONG_DOCUMENT_PAGES);
             await page.screenshot({path: join(evidenceRoot, 'case-long-last-page.png')});
+            // The last page's ink starts 3 pt lower on its 108 pt page than
+            // the page before it. Calibration over every kept page snaps that
+            // jitter to one ink line; placement without it keeps the offset.
+            const lastInkTop = (await cleanedInkTop(page))!;
+            await page.locator(`.scan-thumbnail-rail [data-thumbnail-page="${String(LONG_DOCUMENT_PAGES - 1)}"]`).click();
+            await waitForPixels(page, LONG_DOCUMENT_PAGES - 1, LONG_DOCUMENT_PAGES);
+            const previousInkTop = (await cleanedInkTop(page))!;
+            // The line stays inside the source's ink band, 12.5 pt to 30.5 pt
+            // from the top edge, where a top-aligned page would not put it.
+            expect(lastInkTop.height * 3 / 108).toBeGreaterThan(3);
+            expect(Math.abs(lastInkTop.row - previousInkTop.row)).toBeLessThanOrEqual(1);
+            expect(lastInkTop.row / lastInkTop.height).toBeGreaterThanOrEqual(12 / 108);
+            expect(lastInkTop.row / lastInkTop.height).toBeLessThanOrEqual(31 / 108);
             expect(problems).toEqual([]);
         } finally {
             await writeFile(join(evidenceRoot, 'case-long-console.json'), JSON.stringify(problems, null, 2));
