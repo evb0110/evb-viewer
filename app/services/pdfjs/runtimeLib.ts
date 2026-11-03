@@ -239,7 +239,15 @@ async function assertPdfjsVendoredAssetVersionOnce(
         await assertPdfjsVendoredAssetVersion(runtime, options);
         return;
     }
-    vendoredAssetVersionPromise ??= assertPdfjsVendoredAssetVersion(runtime, options);
+    if (vendoredAssetVersionPromise === null) {
+        const check = assertPdfjsVendoredAssetVersion(runtime, options);
+        vendoredAssetVersionPromise = check;
+        // Only a passed check is remembered: after a failed request, the next
+        // open asks again instead of failing on the old rejection.
+        check.catch(() => {
+            if (vendoredAssetVersionPromise === check) vendoredAssetVersionPromise = null;
+        });
+    }
     await vendoredAssetVersionPromise;
 }
 

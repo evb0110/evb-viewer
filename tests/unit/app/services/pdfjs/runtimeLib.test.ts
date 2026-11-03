@@ -4,6 +4,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     assertPdfjsVendoredAssetVersion,
@@ -61,5 +62,24 @@ describe('pdf.js runtime adapter probes', () => {
             force: true,
             readVersionStamp: async () => '5.7.283',
         })).rejects.toThrow('installed runtime is 6.3.311, vendored assets are 5.7.283');
+    });
+
+    it('checks the vendored assets again after a failed request instead of failing every later open', async () => {
+        vi.resetModules();
+        const {preparePdfjsBrowserRuntime} = await import('@app/services/pdfjs/runtimeLib');
+        const runtime = createCompatibleRuntime();
+        const fetchStamp = vi.fn()
+            .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+            .mockResolvedValue(new Response('6.3.311\n'));
+        vi.stubGlobal('fetch', fetchStamp);
+        try {
+            await expect(preparePdfjsBrowserRuntime(runtime as never)).rejects.toThrow('Failed to fetch');
+            await expect(preparePdfjsBrowserRuntime(runtime as never)).resolves.toBeUndefined();
+            // A passed check is kept.
+            await expect(preparePdfjsBrowserRuntime(runtime as never)).resolves.toBeUndefined();
+            expect(fetchStamp).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });
