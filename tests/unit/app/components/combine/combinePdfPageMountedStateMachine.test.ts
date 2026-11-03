@@ -467,4 +467,44 @@ describe('mounted Combine PDF page state machine', () => {
 
         expect(mocks.cleanupFile).not.toHaveBeenCalled();
     });
+
+    it('removes the combined file when the page goes away while its open fails', async () => {
+        const opened = deferred<boolean>();
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        const page = await mountCombinePageStateMachine(() => opened.promise);
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        // The user leaves while the result is still opening; then it fails.
+        page.unmount();
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
+        opened.resolve(false);
+        await flushUpdates();
+
+        expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
+    });
+
+    it('leaves the combined file to the document when the page goes away while it opens', async () => {
+        const opened = deferred<boolean>();
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        const page = await mountCombinePageStateMachine(() => opened.promise);
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        page.unmount();
+        opened.resolve(true);
+        await flushUpdates();
+
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
+    });
 });

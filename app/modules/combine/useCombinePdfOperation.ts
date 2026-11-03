@@ -137,6 +137,9 @@ export const useCombinePdfOperation = <T extends {
         } finally {
             abortController = null;
             phase.value = 'idle';
+            // A page closed while this ran can no longer offer Retry or Save
+            // As: what is still pending is let go. An opened result is not.
+            if (disposed) releasePendingResult();
         }
     }
 
@@ -196,7 +199,9 @@ export const useCombinePdfOperation = <T extends {
         combineErrorIsExpected.value = false;
     }
 
+    let disposed = false;
     onScopeDispose(() => {
+        disposed = true;
         if (!isCombining.value) {
             releasePendingResult();
         }
