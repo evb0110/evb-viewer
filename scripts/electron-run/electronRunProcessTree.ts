@@ -258,9 +258,11 @@ function isLinuxProcStatAlive(stat: string) {
 // hit this window routinely: the E2E controller is a detached child of the
 // test worker that kills Electron and then probes identity in one synchronous
 // stretch, during which the controller exits and cannot be reaped.
-function isPosixZombie(pid: number) {
+// The state `ps` reports, or null when `ps` could not report one (including
+// when the process left between kill(0) and the probe).
+function readPosixProcessState(pid: number) {
     try {
-        const state = execFileSync('ps', [
+        return execFileSync('ps', [
             '-p',
             String(pid),
             '-o',
@@ -273,9 +275,8 @@ function isPosixZombie(pid: number) {
                 'ignore',
             ],
         }).trim();
-        return state.startsWith('Z');
     } catch {
-        return false;
+        return null;
     }
 }
 
@@ -292,7 +293,19 @@ export function isProcessAlive(pid: number) {
         return true;
     }
     if (process.platform !== 'linux') {
-        return !isPosixZombie(pid);
+        const state = readPosixProcessState(pid);
+        if (state === null) {
+            // As on Linux: a second probe tells an exit during the race from
+            // an unusual ps failure.
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        }
+        // No row, a zombie or a dead process: it has exited.
+        return state !== '' && !state.startsWith('Z') && !state.startsWith('X');
     }
     try {
         return isLinuxProcStatAlive(readFileSync(`/proc/${String(pid)}/stat`, 'utf8'));
