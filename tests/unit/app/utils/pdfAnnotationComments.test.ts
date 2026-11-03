@@ -141,4 +141,36 @@ describe('pdfAnnotationComments', () => {
             match: false,
         }]);
     });
+
+    it('highlights the matched characters when lowercasing changes a character length', () => {
+        // İ lowercases to two code units, which used to shift every later highlight.
+        expect(splitByQueryMatches('İXabcX', 'x')).toEqual([
+            {
+                text: 'İ',
+                match: false,
+            },
+            {
+                text: 'X',
+                match: true,
+            },
+            {
+                text: 'abc',
+                match: false,
+            },
+            {
+                text: 'X',
+                match: true,
+            },
+        ]);
+        expect(splitByQueryMatches('İİ', 'i')).toEqual([
+            {
+                text: 'İ',
+                match: true,
+            },
+            {
+                text: 'İ',
+                match: true,
+            },
+        ]);
+    });
 });
