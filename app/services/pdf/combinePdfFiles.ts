@@ -206,6 +206,14 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
         if (!result) {
             throw new Error(options.openErrorMessage);
         }
+        // A cancel can arrive after main finished but before its reply: the
+        // user asked for no result, so it is discarded, as in the browser.
+        if (options.signal?.aborted) {
+            if ('workingPath' in result && result.workingPath) {
+                await getDocumentWorkingCopyCapability().cleanupFile(result.workingPath).catch(() => undefined);
+            }
+            throw getCombineAbortReason(options.signal);
+        }
 
         emitCompleteProgress(options, latestProgress);
         return result;
