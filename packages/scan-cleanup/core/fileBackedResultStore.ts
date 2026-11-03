@@ -388,24 +388,26 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         });
     }
 
-    public forEachChunk(onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) {
-        return this.enqueue(async () => {
-            this.assertOpen();
-            for (
-                let firstPageNumber = 1;
-                firstPageNumber <= this.pageCount;
-                firstPageNumber += this.maxReadPages
-            ) {
-                const lastPageNumberExclusive = Math.min(
-                    this.pageCount + 1,
-                    firstPageNumber + this.maxReadPages,
-                );
-                await onChunk(
-                    await this.readRangeInternal(firstPageNumber, lastPageNumberExclusive),
-                    firstPageNumber,
-                );
-            }
-        });
+    /**
+     * Each chunk is read as its own queued operation and handed to `onChunk`
+     * outside the queue, so other reads and writes run between chunks and a
+     * callback may use the store itself.
+     */
+    public async forEachChunk(onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) {
+        for (
+            let firstPageNumber = 1;
+            firstPageNumber <= this.pageCount;
+            firstPageNumber += this.maxReadPages
+        ) {
+            const lastPageNumberExclusive = Math.min(
+                this.pageCount + 1,
+                firstPageNumber + this.maxReadPages,
+            );
+            await onChunk(
+                await this.readRange(firstPageNumber, lastPageNumberExclusive),
+                firstPageNumber,
+            );
+        }
     }
 
     public close() {

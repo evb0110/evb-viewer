@@ -196,15 +196,18 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
             assertOpen();
             return readRange(firstPageNumber, lastPageNumberExclusive);
         }),
-        forEachChunk: onChunk => enqueue(async () => {
-            assertOpen();
+        // Each chunk is its own queued read, handed to `onChunk` outside the
+        // queue, so previews and writes are not held behind a long pass.
+        forEachChunk: async onChunk => {
             for (let firstPageNumber = 1; firstPageNumber <= pageCount; firstPageNumber += maxReadPages) {
-                await onChunk(
-                    await readRange(firstPageNumber, Math.min(pageCount + 1, firstPageNumber + maxReadPages)),
-                    firstPageNumber,
-                );
+                const lastPageNumberExclusive = Math.min(pageCount + 1, firstPageNumber + maxReadPages);
+                const results = await enqueue(async () => {
+                    assertOpen();
+                    return readRange(firstPageNumber, lastPageNumberExclusive);
+                });
+                await onChunk(results, firstPageNumber);
             }
-        }),
+        },
         close: () => enqueue(async () => {
             if (closed) return;
             closed = true;

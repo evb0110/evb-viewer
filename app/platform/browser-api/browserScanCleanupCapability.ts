@@ -85,8 +85,37 @@ let retainedBase: IRetainedBase | null = null;
 // revision is previewed or the preview releases it.
 let previewSource: TBrowserScanCleanupSourceBorrow | null = null;
 
+// Preview requests and cancellations claim the preview slot in the order
+// they arrive, even when a request first reads its page plan from detection.
+// The chain covers only the claim, never the render.
+let previewAdmission: Promise<unknown> = Promise.resolve();
+function admitPreview<T>(claim: () => Promise<T> | T): Promise<T> {
+    const claimed = previewAdmission.then(claim);
+    previewAdmission = claimed.then(() => undefined, () => undefined);
+    return claimed;
+}
+
 const detection = createBrowserScanCleanupDetectionOwner();
-onBrowserWorkingCopyClose(ref => detection.closeSource(ref));
+// A closed document ends its detection and releases what its previews hold:
+// their work, the base a detail would refine, and its source snapshot.
+onBrowserWorkingCopyClose(async ref => {
+    detection.closeSource(ref);
+    const retiring = await admitPreview(() => {
+        const claimed = [
+            base,
+            detail,
+        ].filter(work => work !== null && work.ref === ref);
+        if (base?.ref === ref) base = null;
+        if (detail?.ref === ref) detail = null;
+        if (retainedBase?.ref === ref) retainedBase = null;
+        if (previewSource?.ref === ref) {
+            previewSource.release();
+            previewSource = null;
+        }
+        return claimed;
+    });
+    await Promise.all(retiring.map(retire));
+});
 
 /** What makes two base previews the same picture; a detail adds only its viewport. */
 function baseIdentity(request: IScanCleanupPreviewRequest) {
@@ -246,16 +275,6 @@ function unavailableStart() {
         error: BROWSER_SCAN_CLEANUP_OPERATION_UNAVAILABLE,
         errorCode: 'tools-unavailable' as const,
     });
-}
-
-// Preview requests and cancellations claim the preview slot in the order
-// they arrive, even when a request first reads its page plan from detection.
-// The chain covers only the claim, never the render.
-let previewAdmission: Promise<unknown> = Promise.resolve();
-function admitPreview<T>(claim: () => Promise<T> | T): Promise<T> {
-    const claimed = previewAdmission.then(claim);
-    previewAdmission = claimed.then(() => undefined, () => undefined);
-    return claimed;
 }
 
 export const browserScanCleanupCapability: IScanCleanupCapability = {
