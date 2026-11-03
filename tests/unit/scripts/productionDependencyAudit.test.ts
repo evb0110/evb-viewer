@@ -9,12 +9,16 @@ import {
     it,
 } from 'vitest';
 
-function createAdvisory(moduleName: string, severity: string, patchedVersions: string) {
+function createAdvisory(moduleName: string, severity: string, patchedVersions: string, versions = ['1.0.0']) {
     return {
         github_advisory_id: `GHSA-${moduleName}`,
         module_name: moduleName,
         patched_versions: patchedVersions,
         severity,
+        findings: versions.map(version => ({
+            version,
+            paths: [`.>${moduleName}`],
+        })),
     };
 }
 
@@ -80,11 +84,34 @@ describe('production dependency audit policy', () => {
     });
 
     it('rejects vulnerability counts that the advisory list does not match', () => {
-        expect(() => assertProductionAuditIsClean(createAuditReport({high: 2}), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but lists 0 advisories.');
+        expect(() => assertProductionAuditIsClean(createAuditReport({high: 2}), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but its advisories list 0.');
         expect(() => assertProductionAuditIsClean(createAuditReport({
             advisories: {1: createAdvisory('braces', 'high', '<0.0.0')},
             high: 2,
-        }), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but lists 1 advisories.');
+        }), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but its advisories list 1.');
+    });
+
+    it('counts each vulnerable install of one advisory, as pnpm does', () => {
+        // pnpm counts one advisory once per installed version it affects.
+        expect(() => assertProductionAuditIsClean(createAuditReport({
+            advisories: {
+                1: createAdvisory('minimatch', 'moderate', '>=11.0.1', [
+                    '3.1.5',
+                    '9.0.9',
+                    '10.2.6',
+                ]),
+                2: createAdvisory('deepmerge', 'low', '<0.0.0'),
+            },
+            low: 1,
+            moderate: 3,
+        }), 'root')).toThrow('root dependency audit found 1 advisories with a patched release or an unknown patched status:\nminimatch moderate GHSA-minimatch (patched: >=11.0.1)');
+        expect(assertProductionAuditIsClean(createAuditReport({
+            advisories: {1: createAdvisory('deepmerge', 'low', '<0.0.0', [
+                '4.3.0',
+                '4.3.1',
+            ])},
+            low: 2,
+        }), 'root').unpatched).toEqual(['deepmerge low GHSA-deepmerge (patched: <0.0.0)']);
     });
 
     it('fails on an advisory whose patched status is unknown', () => {
@@ -93,6 +120,10 @@ describe('production dependency audit policy', () => {
                 github_advisory_id: 'GHSA-x',
                 module_name: 'braces',
                 severity: 'high',
+                findings: [{
+                    version: '1.0.0',
+                    paths: ['.>braces'],
+                }],
             }},
             high: 1,
         }), 'root')).toThrow('root dependency audit found 1 advisories with a patched release or an unknown patched status:\nbraces high GHSA-x (patched: unknown)');
