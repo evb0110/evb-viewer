@@ -1799,6 +1799,7 @@ export default {
             'annotationsTooLarge': 'The document is open for reading. Importing existing annotations exceeds the browser tool’s memory limit. Use the desktop app to edit them.',
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
             'imageExtensionMismatch': 'Export was not saved. Choose a file name ending in {extensions}.',
+            'saveExtensionMismatch': 'File was not saved. Choose a file name ending in {extensions}.',
         },
         'search': {
             'browserTooLarge': 'Search is unavailable in the browser for very large documents.',

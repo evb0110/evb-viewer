@@ -1799,6 +1799,7 @@ export default {
             'annotationsTooLarge': 'Das Dokument ist zum Lesen geöffnet. Der Import vorhandener Anmerkungen überschreitet das Speicherlimit des Browserwerkzeugs. Bearbeiten Sie sie in der Desktop-App.',
             'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',
             'imageExtensionMismatch': 'Der Export wurde nicht gespeichert. Wählen Sie einen Dateinamen mit der Endung {extensions}.',
+            'saveExtensionMismatch': 'Die Datei wurde nicht gespeichert. Wählen Sie einen Dateinamen mit der Endung {extensions}.',
         },
         'search': {
             'browserTooLarge': 'Die Suche ist im Browser für sehr große Dokumente nicht verfügbar.',

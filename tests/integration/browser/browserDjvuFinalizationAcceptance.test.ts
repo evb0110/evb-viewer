@@ -185,12 +185,42 @@ beforeAll(async () => {
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
     });
     combineWorkerBytes = await readFile(workerPath);
+    const saveWorkers = new Map<string, Buffer>();
+    for (const name of [
+        'browserQpdfEngine.worker',
+        'browserPageOps.worker',
+    ]) {
+        const path = join(temporaryDirectory, `${name}.js`);
+        await build({
+            bundle: true,
+            entryPoints: [resolve(process.cwd(), `app/platform/browser-api/${name}.ts`)],
+            format: 'esm',
+            outfile: path,
+            platform: 'browser',
+            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+        });
+        saveWorkers.set(`/${name}.ts`, await readFile(path));
+    }
     combineWasmBytes = await readFile(resolve(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
     djvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
     mixedDpiDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/mixed-dpi.djvu'));
     boundaryDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu'));
     djvuScriptBytes = await readFile(resolve(process.cwd(), 'public/vendor/djvujs/djvu.js'));
     server = createServer((_request, response) => {
+        const pathname = new URL(_request.url ?? '/', 'http://localhost').pathname;
+        const worker = saveWorkers.get(pathname);
+        if (worker) {
+            response.writeHead(200, {'content-type': 'text/javascript'});
+            response.end(worker);
+            return;
+        }
+        if (/^\/wasm\/(?:evb-qpdf\.(?:mjs|wasm)|evb-pdf-page-ops\.wasm)$/u.test(pathname)) {
+            void readFile(resolve(process.cwd(), 'public', pathname.slice(1))).then(bytes => {
+                response.writeHead(200, {'content-type': pathname.endsWith('.mjs') ? 'text/javascript' : 'application/wasm'});
+                response.end(bytes);
+            }, () => {response.writeHead(404); response.end();});
+            return;
+        }
         if (_request.url === '/browserPdfCombine.worker.ts') {
             response.writeHead(200, {'content-type': 'text/javascript'});
             response.end(combineWorkerBytes);
@@ -456,6 +486,30 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 decodable: true,
                 storedName: 'page-001.jpg',
             });
+        } finally {
+            await browser.close();
+        }
+    });
+
+    it('refuses a PDF Save As to an incompatible physical handle with the localized message', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            page.on('pageerror', error => console.log('[browser export acceptance]', error.message));
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallTypedPdfSaveAcceptance') === 'function');
+            await page.evaluate(() => Reflect.get(globalThis, '__evbInstallTypedPdfSaveAcceptance')());
+            await page.locator('#typed-pdf-save').click();
+            await page.waitForFunction(() => Reflect.has(globalThis, '__evbTypedSaveResult'));
+            expect(await page.locator('#typed-save-message').innerText()).toBe('Le fichier n’a pas été enregistré. Choisissez un nom de fichier se terminant par .pdf.');
+            const result = await page.evaluate(() => Reflect.get(globalThis, '__evbTypedSaveResult'));
+            expect(result.saved).toBeNull();
+            expect(result.bytes).toBe('sentinel bytes');
+            expect(result.source).toBe(result.originalSource);
         } finally {
             await browser.close();
         }

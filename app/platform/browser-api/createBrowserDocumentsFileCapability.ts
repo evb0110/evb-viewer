@@ -198,7 +198,7 @@ export function createBrowserDocumentsFileCapability(
             pickerTypes: saveKind === 'pdf' ? buildPdfSaveTypes() : buildDocxSaveTypes(),
         });
         if (saveResult.canceled) return null;
-        const name = normalizeName(saveResult.fileName);
+        const name = saveResult.handle?.name ?? normalizeName(saveResult.fileName);
         const ref = await reserveBrowserDocumentWorkingCopy(name);
         try {
             return await browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
@@ -626,20 +626,13 @@ export function createBrowserDocumentsFileCapability(
         // Streams a DOCX into the file chosen for `path`, or, without a file
         // handle, into `path`'s own record and then a download.
         async beginDocxFileStream(path) {
-            const saveTarget = await browserDocumentStore.getSaveTarget(path);
-            const fileName = ensureDocxExtension(saveTarget.saveName);
-            const sink = await openBrowserOutputSink(
-                saveTarget.saveHandle
-                    ? {
-                        fileName,
-                        handle: saveTarget.saveHandle,
-                    }
-                    : {
-                        fileName,
-                        stagingRef: path,
-                    },
-                {mimeType: DOCX_MIME_TYPE},
-            );
+            const {
+                saveHandle: handle, saveName,
+            } = await browserDocumentStore.getSaveTarget(path);
+            const sink = await openBrowserOutputSink({
+                fileName: handle?.name ?? ensureDocxExtension(saveName),
+                ...(handle ? {handle} : {stagingRef: path}),
+            }, {mimeType: DOCX_MIME_TYPE});
             const sessionId = createSessionId('browser-docx');
             docxStreams.set(sessionId, sink);
             return {sessionId};

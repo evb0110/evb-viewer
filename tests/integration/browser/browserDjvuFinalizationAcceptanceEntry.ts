@@ -767,3 +767,44 @@ async function installTiffPartsAcceptance(sourceKind: 'pdf' | 'djvu', destinatio
     }, {once: true});
 }
 Reflect.set(globalThis, '__evbInstallTiffPartsAcceptance', installTiffPartsAcceptance);
+
+async function installTypedPdfSaveAcceptance() {
+    const [
+        {createBrowserDocumentsFileCapability},
+        {configureBrowserFilePickerMessages},
+        {default: messages},
+    ] = await Promise.all([
+        import('@app/platform/browser-api/createBrowserDocumentsFileCapability'),
+        import('@app/platform/browser-api/browserFilePickerAdapter'),
+        import('../../../packages/i18n-app/messages/fr'),
+    ]);
+    configureBrowserFilePickerMessages({saveExtensionMismatch: extensions => messages.errors.browser.saveExtensionMismatch.replace('{extensions}', extensions)});
+    const source = await stagePdfFixture();
+    const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+    const root = await navigator.storage.getDirectory();
+    const handle = await root.getFileHandle('report.txt', {create: true});
+    const writer = await handle.createWritable();
+    await writer.write('sentinel bytes');
+    await writer.close();
+    Reflect.set(window, 'showSaveFilePicker', async () => handle);
+    document.body.insertAdjacentHTML('beforeend', '<button id="typed-pdf-save">Save PDF As</button><output id="typed-save-message"></output>');
+    document.querySelector('#typed-pdf-save')!.addEventListener('click', async event => {
+        if (!event.isTrusted) throw new Error('Save As requires trusted input');
+        let message = '';
+        let saved: TDocumentRef | null = null;
+        try {
+            const revision = await browserDocumentStore.getDocumentRevision(working);
+            saved = await createBrowserDocumentsFileCapability({clearSearchCaches: () => {}}).savePdfAs(working, undefined, {expectedDocumentRevisionToken: revision.token});
+        } catch (error) {
+            message = error instanceof Error ? error.message : String(error);
+        }
+        document.querySelector('#typed-save-message')!.textContent = message || 'Saved';
+        Reflect.set(globalThis, '__evbTypedSaveResult', {
+            saved,
+            bytes: await (await handle.getFile()).text(),
+            source: await browserDocumentStore.getSourceRef(working),
+            originalSource: source,
+        });
+    }, {once: true});
+}
+Reflect.set(globalThis, '__evbInstallTypedPdfSaveAcceptance', installTypedPdfSaveAcceptance);

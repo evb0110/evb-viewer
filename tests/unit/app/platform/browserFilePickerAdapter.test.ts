@@ -233,6 +233,113 @@ describe('browser file picker adapter', () => {
     });
 
     it.each([
+        'pick',
+        'bytes',
+    ] as const)('refuses incompatible typed handles with the configured translation through %s', async path => {
+        const {
+            pickSaveTarget, saveBytesToPickerOrDownload, configureBrowserFilePickerMessages,
+        } = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        configureBrowserFilePickerMessages({saveExtensionMismatch: extensions => `Nicht gespeichert: ${extensions}`});
+        try {
+            for (const [
+                mimeType,
+                extensions,
+            ] of [
+                    [
+                        'application/pdf',
+                        ['.pdf'],
+                    ],
+                    [
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        ['.docx'],
+                    ],
+                    [
+                        'image/tiff',
+                        [
+                            '.tif',
+                            '.tiff',
+                        ],
+                    ],
+                ] as const) {
+                for (const name of [
+                    'report.txt',
+                    `report${extensions[0]}.txt`,
+                    `report${extensions[0]} `,
+                ]) {
+                    const handle = createFileSystemFileHandle({name});
+                    Reflect.set(handle, 'getFile', async () => new File(['sentinel bytes'], name));
+                    const writer = vi.spyOn(handle, 'createWritable');
+                    let excludesAll = false;
+                    Reflect.set(window, 'showSaveFilePicker', async (options: {excludeAcceptAllOption?: boolean}) => {
+                        excludesAll = options.excludeAcceptAllOption === true;
+                        return handle;
+                    });
+                    const options = {
+                        suggestedName: `report${extensions[0]}`,
+                        pickerTypes: [{accept: {[mimeType]: [...extensions]}}],
+                    };
+                    const saving = path === 'pick' ? pickSaveTarget(options) : saveBytesToPickerOrDownload(Uint8Array.of(1), {
+                        ...options,
+                        mimeType,
+                    });
+                    await expect(saving).rejects.toThrow(`Nicht gespeichert: ${extensions.join(', ')}`);
+                    expect(excludesAll).toBe(true);
+                    expect(await (await handle.getFile()).text()).toBe('sentinel bytes');
+                    expect(writer).not.toHaveBeenCalled();
+                }
+            }
+        } finally {
+            configureBrowserFilePickerMessages({saveExtensionMismatch: extensions => `File was not saved. Choose a file name ending in ${extensions}.`});
+        }
+    });
+
+    it.each([
+        'report.pdf',
+        'REPORT.PDF',
+        ' report.PDF',
+        'report.docx',
+        'REPORT.DOCX',
+        ' report.DOCX',
+        'report.tif',
+        'report.tiff',
+    ])('keeps the physical typed handle name exactly: %s', async name => {
+        const {pickSaveTarget} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const extension = name.toLowerCase().endsWith('.pdf') ? '.pdf' : name.toLowerCase().endsWith('.docx') ? '.docx' : '.tif';
+        const extensions = extension === '.tif' ? [
+            '.tif',
+            '.tiff',
+        ] : [extension];
+        const handle = createFileSystemFileHandle({name});
+        Reflect.set(window, 'showSaveFilePicker', async () => handle);
+        await expect(pickSaveTarget({
+            suggestedName: 'report',
+            pickerTypes: [{accept: {'application/octet-stream': extensions}}],
+        })).resolves.toMatchObject({
+            canceled: false,
+            fileName: name,
+            handle,
+        });
+    });
+
+    it.each([
+        'de',
+        'en',
+        'es',
+        'fr',
+        'it',
+        'nl',
+        'pt',
+        'ptBr',
+        'ru',
+    ])('provides the typed-save error in %s with its extensions placeholder', async locale => {
+        const {default: messages} = await import(`../../../../packages/i18n-app/messages/${locale}.ts`);
+        const message: string = messages.errors.browser.saveExtensionMismatch;
+        expect(message).toContain('{extensions}');
+        expect(message.replace('{extensions}', '.pdf')).toContain('.pdf');
+        expect(message.replace('{extensions}', '.pdf')).not.toMatch(/\{[^}]+\}/u);
+    });
+
+    it.each([
         'jpeg',
         'png',
         'tiff',
