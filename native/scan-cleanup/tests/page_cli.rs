@@ -5875,8 +5875,17 @@ fn direct_split_refuses_an_input_named_like_a_split_output() {
     let input = scratch.path("alias-left.png");
     direct_split_fixture(&input);
     let original = fs::read(&input).unwrap();
-    let result = run_direct_split(&input, &scratch.path("alias.png"), &scratch.path("alias-meta.json"));
-    assert!(!result.status.success(), "the left split output would overwrite the input");
+    let result = run_direct_split(
+        &input,
+        &scratch.path("alias.png"),
+        &scratch.path("alias-meta.json"),
+    );
+    assert!(
+        !result.status.success(),
+        "the left split output would overwrite the input"
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["code"], "invalid-request");
     assert_eq!(fs::read(&input).unwrap(), original);
 }
 
@@ -5890,15 +5899,30 @@ fn direct_split_restores_prior_outputs_on_failure_and_keeps_what_it_does_not_wri
     fs::write(&left, sentinel).unwrap();
     fs::create_dir(scratch.path("meta-right.json")).unwrap();
     let failed = run_direct_split(&input, &scratch.path("out.png"), &scratch.path("meta.json"));
-    assert!(!failed.status.success(), "the right metadata cannot replace a directory");
+    assert!(
+        !failed.status.success(),
+        "the right metadata cannot replace a directory"
+    );
     assert_eq!(fs::read(&left).ok().as_deref(), Some(sentinel.as_slice()));
 
     fs::remove_dir(scratch.path("meta-right.json")).unwrap();
     let plain = scratch.path("out.png");
     fs::write(&plain, sentinel).unwrap();
     let split = run_direct_split(&input, &plain, &scratch.path("meta.json"));
-    assert!(split.status.success(), "stderr={}", String::from_utf8_lossy(&split.stderr));
-    assert_ne!(fs::read(&left).unwrap(), sentinel, "the split writes its left page");
+    assert!(
+        split.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&split.stderr)
+    );
+    assert_ne!(
+        fs::read(&left).unwrap(),
+        sentinel,
+        "the split writes its left page"
+    );
     assert!(scratch.path("out-right.png").exists());
-    assert_eq!(fs::read(&plain).unwrap(), sentinel, "a split leaves the unsuffixed file alone");
+    assert_eq!(
+        fs::read(&plain).unwrap(),
+        sentinel,
+        "a split leaves the unsuffixed file alone"
+    );
 }
