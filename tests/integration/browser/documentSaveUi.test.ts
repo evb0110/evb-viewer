@@ -80,6 +80,8 @@ describe('browser document lifecycle UI', () => {
                     ['isPageOperationInProgress'],
                 ).isPageOperationInProgress === false;
             }, undefined, {timeout: 60_000});
+            await settleActiveOpen(page);
+            await page.locator('.page_container--rendered[data-page="1"] [data-pdf-annotation-editor-ready="true"]').first().waitFor();
             await addNote(page, 'Large PDF note survives Save', {
                 x: 120,
                 y: 120,
