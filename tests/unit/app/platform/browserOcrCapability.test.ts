@@ -376,3 +376,37 @@ describe('browser scan cleanup preview admission', () => {
         await vi.waitFor(() => expect(destroyed.count).toBe(1));
     });
 });
+
+describe('browser OCR raster size', () => {
+    it('renders a UserUnit page in user-space units, as desktop Poppler does', async () => {
+        const {
+            BrowserOcrRasterTooLargeError,
+            renderBrowserOcrRaster,
+        } = await import('@app/platform/browser-api/browserOcrRaster');
+        const userUnit = 10;
+        const page = cast<Parameters<typeof renderBrowserOcrRaster>[0]>({
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 612 * scale * userUnit,
+                height: 792 * scale * userUnit,
+                userUnit,
+                scale,
+                rotation: 0,
+                transform: [
+                    scale * userUnit,
+                    0,
+                    0,
+                    -scale * userUnit,
+                    0,
+                    792 * scale * userUnit,
+                ],
+                clone: () => page.getViewport({scale}),
+            }),
+            render: () => ({promise: Promise.reject(new Error('rendered at the user-space size'))}),
+        });
+
+        // 85 dpi over a 612x792 unit page is about 723x935 pixels, under the
+        // guard; scaled by UserUnit it was 7225x9350 and refused.
+        const outcome = await renderBrowserOcrRaster(page, 85, new AbortController().signal).catch((error: unknown) => error);
+        expect(outcome).not.toBeInstanceOf(BrowserOcrRasterTooLargeError);
+    });
+});
