@@ -141,7 +141,8 @@ function isHiddenNoteWindow(
         || paintedRect.height <= 0;
 }
 
-function findActiveWorkspaceHost(root: Document) {
+/** The one painted workspace the reader is looking at, or null. */
+export function findActiveWorkspaceHost(root: Document) {
     for (const selector of ACTIVE_WORKSPACE_HOST_SELECTORS) {
         const host = root.querySelector<HTMLElement>(selector);
         if (host && isPaintedElement(host)) {

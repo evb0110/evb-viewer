@@ -35,6 +35,7 @@
                                 v-for="preset in zoomPresets"
                                 :key="preset.value"
                                 :class="['zoom-chip', { 'is-active': isPresetActive(preset.value) }]"
+                                :aria-pressed="isPresetActive(preset.value)"
                                 @click="handleSetZoom(preset.value)"
                             >
                                 {{ preset.label }}
@@ -59,6 +60,7 @@
                         <div class="zoom-toggle-group zoom-toggle-group--fit">
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('width') }]"
+                                :aria-pressed="isFitModeActive('width')"
                                 @click="handleSetFitMode('width')"
                             >
                                 <UIcon name="i-ph-arrows-out-line-horizontal" class="zoom-toggle-icon" />
@@ -66,6 +68,7 @@
                             </button>
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('height') }]"
+                                :aria-pressed="isFitModeActive('height')"
                                 @click="handleSetFitMode('height')"
                             >
                                 <UIcon name="i-ph-arrows-out-line-vertical" class="zoom-toggle-icon" />
@@ -78,6 +81,7 @@
                         <div v-if="canUseViewModes" class="zoom-toggle-group zoom-toggle-group--view-modes">
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('single') }]"
+                                :aria-pressed="isViewModeActive('single')"
                                 :aria-label="t('zoom.singlePage')"
                                 @click="handleSetViewMode('single')"
                             >
@@ -86,6 +90,7 @@
                             </button>
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing') }]"
+                                :aria-pressed="isViewModeActive('facing')"
                                 :aria-label="t('zoom.facingPages')"
                                 @click="handleSetViewMode('facing')"
                             >
@@ -94,6 +99,7 @@
                             </button>
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing-first-single') }]"
+                                :aria-pressed="isViewModeActive('facing-first-single')"
                                 :aria-label="t('zoom.facingWithFirstSingle')"
                                 @click="handleSetViewMode('facing-first-single')"
                             >

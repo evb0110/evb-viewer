@@ -6,6 +6,7 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
+import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IWorkspacePdfViewerCropPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { getPageOpsCapability } from '@app/utils/platformDocuments';
@@ -99,6 +100,8 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         }
 
         const effectiveBox = geometry.cropBox ?? geometry.mediaBox;
+        // The selection was drawn under the view's rotation as well as the page's.
+        const displayRotation = resolvePdfPageViewportRotation(geometry.rotation, result.viewRotation);
         const margins = screenRectToMargins(
             result.pageLocalRect,
             {
@@ -109,13 +112,13 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
             },
             effectiveBox,
             geometry.mediaBox,
-            geometry.rotation,
+            displayRotation,
         );
 
         cropDialogMargins.value = margins;
         cropDialogMediaBox.value = geometry.mediaBox;
         cropDialogCurrentBox.value = geometry.cropBox;
-        cropDialogRotation.value = geometry.rotation;
+        cropDialogRotation.value = displayRotation;
         await nextTick();
         if (!isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
             if (requestToken === cropRequestToken) {

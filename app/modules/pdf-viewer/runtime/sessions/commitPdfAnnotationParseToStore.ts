@@ -24,14 +24,12 @@ export function applyParsedHighlightTextToStore(options: {
     selectedTextByPdfRef: ReadonlyMap<string, string | null>;
     parsedEntities: readonly TPdfAnnotationParseEntity[];
 }) {
-    options.targetStore.batch(() => options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
-        const id = options.targetStore.resolveExternal({pdfRef});
-        const parsed = options.parsedEntities.find(entry => entry.kind === 'highlight'
-            && pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber) === pdfRef);
-        const expectedQuadPoints = parsed?.kind === 'highlight' ? parsed.quadPoints : undefined;
-        if (id && expectedQuadPoints) {
-            options.targetStore.updateTextMarkupSelectedText(id, selectedText, expectedQuadPoints);
-        }
+    // One pass over the parsed highlights, each looked up in the map.
+    options.targetStore.batch(() => options.parsedEntities.forEach((parsed) => {
+        if (parsed.kind !== 'highlight') return;
+        const pdfRef = pdfAnnotationRefKey(parsed.objectNumber, parsed.generationNumber);
+        const id = options.selectedTextByPdfRef.has(pdfRef) && options.targetStore.resolveExternal({pdfRef});
+        if (id) options.targetStore.updateTextMarkupSelectedText(id, options.selectedTextByPdfRef.get(pdfRef) ?? null, parsed.quadPoints);
     }));
 }
 

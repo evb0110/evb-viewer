@@ -18,6 +18,7 @@ import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
+import { isEqual } from 'es-toolkit';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -55,6 +56,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     let cachedSnapshotSignature = '';
     let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
     const activeCommandAbortControllers = new Map<string, AbortController>();
+    // Tabs an assistant turn is running a command in, by count.
+    const scopedCommandCounts = shallowRef<ReadonlyMap<string, number>>(new Map());
 
     function createToolbarSnapshotSignature(tabId: string) {
         const snapshot = options.documentSessionsByTabId.value[tabId]?.getView(tabId)?.toolbarSnapshot.value;
@@ -544,23 +547,53 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         });
     }
 
+    // A scoped command that committed a new revision of its own document
+    // reports it, so the assistant turn that ran it keeps working on it.
+    function describeCommandSuccessor(scope: IAgentCommandExecutionScope | undefined) {
+        const commandTarget = scope?.commandTarget && getTabCommandTarget(scope.tabId);
+        if (!commandTarget || isEqual(commandTarget, scope.commandTarget)) return undefined;
+        // Plain copies: the session's reactive identity cannot cross IPC.
+        const documentIdentity = getTabDocumentIdentity(scope.tabId);
+        return {
+            commandTarget: {...commandTarget},
+            documentIdentity: documentIdentity && {...documentIdentity},
+        };
+    }
+
+    function trackScopedCommand(tabId: string | undefined, delta: 1 | -1) {
+        if (tabId === undefined) return;
+        const counts = new Map(scopedCommandCounts.value);
+        const count = (counts.get(tabId) ?? 0) + delta;
+        if (count > 0) counts.set(tabId, count);
+        else counts.delete(tabId);
+        scopedCommandCounts.value = counts;
+    }
+
     function submitCommandResult(request: IAgentCommandRequest) {
         const abortController = new AbortController();
         activeCommandAbortControllers.set(request.requestId, abortController);
+        const scopedTabId = request.scope?.tabId;
+        trackScopedCommand(scopedTabId, 1);
         guardAsync(
             runCommand(request, abortController.signal)
-                .then(result => submitCommandResponseWithAck({
-                    requestId: request.requestId,
-                    ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
-                    ok: true,
-                    result,
-                }))
+                .then((result) => {
+                    const successor = describeCommandSuccessor(request.scope);
+                    return submitCommandResponseWithAck({
+                        requestId: request.requestId,
+                        ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                        ok: true,
+                        result,
+                        ...(successor === undefined ? {} : {successor}),
+                    });
+                })
                 .catch(error => submitCommandResponseWithAck(
                     createCommandErrorResponse(request, error),
                 ))
                 .finally(() => {
                     abortController.abort();
                     activeCommandAbortControllers.delete(request.requestId);
+                    // Main has adopted any successor by the time it acknowledges.
+                    trackScopedCommand(scopedTabId, -1);
                 }),
             {
                 category: 'background-diagnostic',
@@ -643,5 +676,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         unsubscribeCommandCancelRequest = null;
     });
 
-    return { buildSnapshot: () => buildAgentWorkspaceSnapshot(options) };
+    return {
+        buildSnapshot: () => buildAgentWorkspaceSnapshot(options),
+        isScopedCommandRunning: (tabId: string) => scopedCommandCounts.value.has(tabId),
+    };
 };

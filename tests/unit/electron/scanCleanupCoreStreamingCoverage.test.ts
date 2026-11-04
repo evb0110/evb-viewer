@@ -219,9 +219,9 @@ function findScratchFile(root: string, fileName: string) {
 // These conversion controls are rasters; the native read must not write an
 // assembler output or invent positioned source text on their refused pages.
 async function rasterTextVisibilityResult(args: readonly string[]) {
-    if (args[0] === 'parse-annotations') {
+    if (args[0] === 'annotation-index') {
         await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify({
-            format: 'evb-pdf-annotation-parse',
+            format: 'evb-pdf-annotation-name-index',
             schemaVersion: 1,
             pageCount: 200_000,
             chunkBytes: 4 * 1024 * 1024,

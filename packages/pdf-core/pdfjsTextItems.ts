@@ -1,3 +1,18 @@
+import type {IPdfjsPageViewBox} from '@pdf-core/pdfjsTextGeometry';
+
+interface IPdfjsTextRunGeometry {
+    str: string;
+    transform: readonly number[];
+    width: number;
+    height: number;
+}
+
+interface IPdfjsTextRunStyle {
+    vertical?: boolean;
+    ascent?: number;
+    descent?: number;
+}
+
 /**
  * PDF.js runs the bidi algorithm over each text chunk it builds and reverses a
  * right-to-left one. A writer that draws right-to-left text in logical order,
@@ -211,4 +226,57 @@ export function mergePositionedPdfjsGlyphItems<TItem extends IPdfjsTextItem>(ite
         previousIsGlyphRun = isGlyphRun;
     });
     return merged;
+}
+
+export function pdfjsTextItemIntersectsBox(
+    box: Pick<IPdfjsPageViewBox, 'xMin' | 'xMax' | 'yMin' | 'yMax'>,
+    item: IPdfjsTextRunGeometry,
+    style?: IPdfjsTextRunStyle,
+) {
+    // TextLayer may leave a single glyph unscaled, so its advance is not a bound.
+    if (item.str.length === 1) return true;
+    const transform = item.transform;
+    // Missing metrics do not prove that a run is outside the visible page.
+    if (transform.length !== 6 || !transform.every(Number.isFinite) || typeof style?.vertical !== 'boolean') return true;
+    const [
+        a,
+        b,
+        c,
+        d,
+        x,
+        y,
+    ] = transform as [number, number, number, number, number, number];
+    const baselineScale = Math.hypot(a, b);
+    const fontHeight = Math.hypot(c, d);
+    const advance = style.vertical ? item.height : item.width;
+    if (baselineScale === 0 || fontHeight === 0 || !Number.isFinite(advance) || advance <= 0) return true;
+    // TextLayer uses atan2(b, a), adds a quarter turn for vertical fonts,
+    // and uses height (not width) as the vertical run's already-scaled advance.
+    const ux = (style.vertical ? b : a) / baselineScale;
+    const uy = (style.vertical ? -a : b) / baselineScale;
+    // Its ascent can come from browser font metrics instead of the PDF style.
+    // Enclose both sides of the baseline, including outlying fallback metrics.
+    const metrics = [
+        style.ascent ?? 0,
+        1 + (style.descent ?? 0),
+    ];
+    if (!metrics.every(Number.isFinite)) return true;
+    const crossExtent = fontHeight * Math.max(1, ...metrics.flatMap(value => [
+        Math.abs(value),
+        Math.abs(value - 1),
+    ]));
+    const xRadius = Math.abs(uy) * crossExtent;
+    const yRadius = Math.abs(ux) * crossExtent;
+    const endX = x + ux * advance;
+    const endY = y + uy * advance;
+    if (![
+        endX,
+        endY,
+        xRadius,
+        yRadius,
+    ].every(Number.isFinite)) return true;
+    return Math.max(x, endX) + xRadius >= box.xMin
+        && Math.min(x, endX) - xRadius <= box.xMax
+        && Math.max(y, endY) + yRadius >= box.yMin
+        && Math.min(y, endY) - yRadius <= box.yMax;
 }

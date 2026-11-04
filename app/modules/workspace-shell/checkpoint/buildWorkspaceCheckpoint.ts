@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type {TDocumentRef} from '@contracts/documentRef';
+import type {TTabId} from '@contracts/windowTabs';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -98,7 +99,7 @@ export function buildWorkspaceCheckpoint(
     workingCopyRef?: TDocumentRef | null,
 ) {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
-    const seenDocuments = new Set<IWorkspaceDocumentController>();
+    const firstTabByDocument = new Map<IWorkspaceDocumentController, TTabId>();
 
     return {
         version: 1,
@@ -125,12 +126,13 @@ export function buildWorkspaceCheckpoint(
             const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
             // The first tab of a document carries its unsaved annotations:
             // restore reopens the document in that tab and replays them there.
-            const capturedAnnotationRecovery = snapshot.isDirty && session && !seenDocuments.has(session)
+            const linkedToTabId = session && firstTabByDocument.get(session);
+            const capturedAnnotationRecovery = snapshot.isDirty && session && !linkedToTabId
                 && (workingCopyRef === undefined || documentRefs.workingCopyRef === workingCopyRef)
                 ? captureDocumentAnnotationRecovery(session)
                 : null;
-            if (session) {
-                seenDocuments.add(session);
+            if (session && !linkedToTabId) {
+                firstTabByDocument.set(session, snapshot.tabId);
             }
             const annotationRecovery = capturedAnnotationRecovery?.recovery && workingByteRevision
                 ? capturedAnnotationRecovery.recovery
@@ -142,6 +144,7 @@ export function buildWorkspaceCheckpoint(
                 fileName: snapshot.fileName,
                 sourceRef: documentRefs.sourceRef ?? snapshot.originalPath ?? null,
                 workingCopyRef: documentRefs.workingCopyRef,
+                ...(linkedToTabId ? {linkedToTabId} : {}),
                 requiresSaveAsOnFirstSave: documentRefs.requiresSaveAsOnFirstSave,
                 isDirty: snapshot.isDirty,
                 isDjvu: snapshot.isDjvu,

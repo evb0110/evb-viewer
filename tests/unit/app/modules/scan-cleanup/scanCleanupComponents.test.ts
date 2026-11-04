@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type {IScanCleanupZoneSelection} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
+import type {TScanCleanupPageOverrides} from '@contracts/scan-cleanup/domain';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 import type * as scanCleanupWorkspaceSessionModule from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
@@ -18,6 +20,7 @@ import {
     h,
     nextTick,
     reactive,
+    provide,
     ref,
     shallowRef,
     unref,
@@ -50,6 +53,8 @@ import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
@@ -1340,19 +1345,26 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
     };
 }
 
-async function mountRealWorkspace(documentKey: string) {
+async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeof useWorkspaceCommandLedger>) {
     const {useScanCleanupWorkspaceSession} = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>(
         '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession',
     );
     const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
     realWorkspaceSession.create = useScanCleanupWorkspaceSession;
-    const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
-        sourcePath,
-        documentKey,
-        currentPage: 1,
-        totalPages: 2,
-        toolbarActive: true,
-    })}));
+    const harness = mount(defineComponent({setup() {
+        if (ledger) provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        return () => h(ScanCleanupWorkspace, {
+            sourcePath,
+            documentKey,
+            currentPage: 1,
+            totalPages: 2,
+            toolbarActive: true,
+        });
+    }}));
     await nextTick();
     return {
         ...harness,
@@ -1594,6 +1606,42 @@ describe('Scan cleanup components', () => {
         expect(popover.textContent).toContain('Edge confidence');
     });
 
+
+    it('undoes an All margin edit through the workspace control without losing inherited margins', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const harness = await mountRealWorkspace('all-margin-undo', ledger);
+        const {
+            settings, selection,
+        } = harness.session;
+        const originalMargins = {...settings.values.marginsMm};
+        const inherited = {
+            leftMm: 13,
+            topMm: 13,
+            rightMm: 13,
+            bottomMm: 13,
+        };
+        selection.setPageOverrideDefaults(createScanCleanupPageOverride({marginsMm: inherited}));
+        settings.values.pageOverrides['2'] = createScanCleanupPageOverride({rotationDegrees: 90});
+        selection.setSettingsScope('all');
+        settings.setMarginsLinked(true);
+        await nextTick();
+        const margin = harness.host.querySelector<HTMLInputElement>('[data-margin-side="all"]')!;
+        expect(margin.value).toBe('13');
+        margin.value = '20';
+        margin.dispatchEvent(new Event('input', {bubbles: true}));
+        margin.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(settings.values.marginsMm.topMm).toBe(20);
+        await ledger.undoTimeline();
+        await nextTick();
+        expect(settings.values.pageOverrideDefaults?.marginsMm).toEqual(inherited);
+        expect(settings.values.marginsMm).toEqual(originalMargins);
+        expect(settings.values.pageOverrides['2']?.rotationDegrees).toBe(90);
+        expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="all"]')?.value).toBe('13');
+        await ledger.redoTimeline();
+        expect(settings.values.marginsMm.topMm).toBe(20);
+        expect(settings.values.pageOverrideDefaults?.marginsMm).toBeUndefined();
+    });
 
     it('links page margins without changing the document or other pages', async () => {
         const harness = await mountRealWorkspace('page-margin-link');
@@ -5273,6 +5321,95 @@ describe('Scan cleanup components', () => {
         expect(updateManualZones).not.toHaveBeenCalled();
     });
 
+    it('selects a zone and resizes it from a corner with the keyboard alone', async () => {
+        const disabled = ref(false);
+        const zones = ref<IScanCleanupManualZones>({
+            picture: [],
+            fill: [{
+                points: [
+                    {
+                        xNormalized: 0.2,
+                        yNormalized: 0.2,
+                    },
+                    {
+                        xNormalized: 0.4,
+                        yNormalized: 0.2,
+                    },
+                    {
+                        xNormalized: 0.4,
+                        yNormalized: 0.4,
+                    },
+                    {
+                        xNormalized: 0.2,
+                        yNormalized: 0.4,
+                    },
+                ],
+                rotationDegrees: 0,
+            }],
+        });
+        const selected = ref<IScanCleanupZoneSelection | null>(null);
+        const updates = vi.fn<(value: IScanCleanupManualZones) => void>();
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            disabled: disabled.value,
+            frame: {
+                height: 300,
+                left: 0,
+                top: 0,
+                width: 200,
+            },
+            manualZones: zones.value,
+            rotationDegrees: 0,
+            selected: selected.value,
+            zoneKind: 'fill',
+            'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
+                updates(value);
+                zones.value = value;
+            },
+            'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
+                selected.value = value;
+            },
+        })}));
+        const polygon = harness.host.querySelector<SVGPolygonElement>('.zone-editor-polygon')!;
+        expect(polygon.getAttribute('tabindex')).toBe('0');
+
+        polygon.focus();
+        await nextTick();
+        expect(selected.value).toEqual({
+            kind: 'fill',
+            index: 0,
+        });
+        const corner = harness.host.querySelector<HTMLButtonElement>('.zone-editor-handle.is-se')!;
+        corner.focus();
+        corner.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowRight',
+        }));
+        // Each key press is its own task; the view updates between them.
+        await nextTick();
+        corner.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowDown',
+            shiftKey: true,
+        }));
+        await nextTick();
+        expect(updates).toHaveBeenCalledTimes(2);
+        const points = harness.host.querySelector('.zone-editor-polygon')!.getAttribute('points')!
+            .split(' ').map(point => point.split(',').map(Number));
+        expect(Math.max(...points.map(([x]) => x!))).toBeCloseTo(0.41);
+        expect(Math.max(...points.map(([
+            , y,
+        ]) => y!))).toBeCloseTo(0.45);
+        expect(Math.min(...points.map(([x]) => x!))).toBeCloseTo(0.2);
+
+        disabled.value = true;
+        await nextTick();
+        harness.host.querySelector('.zone-editor-handle.is-se')!.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowRight',
+        }));
+        expect(updates, 'a disabled preview takes no edit').toHaveBeenCalledTimes(2);
+    });
+
     it('drops a zone drawn across the moment edits become disabled', async () => {
         const disabled = ref(false);
         const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
@@ -6741,6 +6878,75 @@ describe('Scan cleanup components', () => {
             settings.outputMode = mode;
             await nextTick();
             expect(harness.host.querySelector('[aria-label="Text thickness"]')).toBe(slider);
+        }
+    });
+
+    it('enables thickness and speckle removal when a page is black and white under a gray or color document', async () => {
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'grayscale' as 'grayscale' | 'color',
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {} as TScanCleanupPageOverrides,
+        });
+        const totalPages = ref(5);
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            settingsPanelProps(settings, 'all', {totalPages: totalPages.value}),
+        )}));
+        const disabled = () => ({
+            thickness: harness.host.querySelector('[aria-label="Text thickness"]')?.getAttribute('disabled') === 'true',
+            despeckle: harness.host.querySelector<HTMLSelectElement>('select:has(option[value="cautious"])')?.disabled,
+        });
+        expect(disabled()).toEqual({
+            thickness: true,
+            despeckle: true,
+        });
+        for (const outputMode of [
+            'grayscale',
+            'color',
+        ] as const) {
+            settings.outputMode = outputMode;
+            settings.pageOverrides = {'4': createScanCleanupPageOverride({outputModeOverride: 'bw'})};
+            totalPages.value = 5;
+            await nextTick();
+            expect(disabled()).toEqual({
+                thickness: false,
+                despeckle: false,
+            });
+            totalPages.value = 2;
+            await nextTick();
+            expect(disabled(), 'removed pages cannot enable B&W controls').toEqual({
+                thickness: true,
+                despeckle: true,
+            });
+            settings.pageOverrides = {'2': createScanCleanupPageOverride({outputModeOverride: 'bw'})};
+            await nextTick();
+            expect(disabled(), `a B&W page under a ${outputMode} document`).toEqual({
+                thickness: false,
+                despeckle: false,
+            });
+            settings.pageOverrides = {'2': createScanCleanupPageOverride({
+                outputModeOverride: 'bw',
+                excluded: true,
+            })};
+            await nextTick();
+            expect(disabled(), 'an excluded B&W page is not output').toEqual({
+                thickness: true,
+                despeckle: true,
+            });
         }
     });
 

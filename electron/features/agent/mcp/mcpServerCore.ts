@@ -352,9 +352,12 @@ async function getTargetTabFromParams(
 function createActionParams(params: unknown) {
     const input = getOptionalActionInput(params) ?? {};
     const tabId = getOptionalTabId(params);
+    // The tab is resolved in the window the request names, not the focused one.
+    const windowId = getOptionalWindowId(params);
     return {
         ...input,
         ...(tabId ? {tabId} : {}),
+        ...(windowId === undefined ? {} : {windowId}),
     };
 }
 

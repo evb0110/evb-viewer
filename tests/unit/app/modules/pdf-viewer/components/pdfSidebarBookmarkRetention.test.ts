@@ -172,6 +172,7 @@ async function mountSidebar(overrides: {
         resizeAriaLabel: 'Resize sidebar',
         showSidebar: state.isOpen,
         sidebarContentWidth: overrides.width ?? SIDEBAR.DEFAULT_WIDTH,
+        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
         sidebarWrapperStyle: {width: `${(overrides.width ?? SIDEBAR.DEFAULT_WIDTH) + SIDEBAR.RESIZER_WIDTH}px`},
     }, {sidebar: renderSidebar})}));
     app.mount(host);

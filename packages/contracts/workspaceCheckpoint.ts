@@ -87,6 +87,9 @@ const checkpointTabSchema = v.object({
     fileName: v.nullable(v.string()),
     sourceRef: v.nullable(documentRefSchema),
     workingCopyRef: v.nullable(documentRefSchema),
+    // A later view of the document an earlier tab holds, so it comes back
+    // linked even when no working copy is retained for a clean document.
+    linkedToTabId: v.optional(tabIdSchema),
     // Set by a claim: the file a rolled-back save kept beside the PDF, named when the tab reopens its working copy.
     keptOriginalPath: v.optional(documentRefSchema),
     requiresSaveAsOnFirstSave: v.optional(v.boolean()),

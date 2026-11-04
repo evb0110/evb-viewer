@@ -603,6 +603,64 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         harness.app.unmount();
     });
 
+    it('reports the revision a scoped command committed so its assistant turn can keep it', async () => {
+        const harnessRef: {current?: Awaited<ReturnType<typeof mountAgentWorkspaceSnapshotHarness>>;} = {};
+        const runAgentAction = vi.fn<IWorkspaceExpose['runAgentAction']>(async (_id, _input, _options, context) => {
+            recommitIdentity(harnessRef.current!.session, '/tmp/document.pdf', createDocumentIdentity('revision-2', 2));
+            context?.assertCurrentDocument({allowRevisionChange: true});
+            return {saved: true};
+        });
+        const harness = await mountAgentWorkspaceSnapshotHarness({workspace: createWorkspace({
+            hasPdf: true,
+            currentPage: 1,
+            totalPages: 3,
+        }, {runAgentAction})});
+        harnessRef.current = harness;
+        const tabId = requireTabId('tab-1');
+        const before = harness.session.createCommandTarget(tabId);
+        const command = {
+            name: 'run_action',
+            arguments: {
+                id: 'file.save',
+                tabId,
+            },
+        } as const;
+
+        const response = await harness.submitCommand({
+            requestId: requireRequestId('command-own-save'),
+            command,
+            scope: {
+                windowId: 1,
+                tabId,
+                documentRef: before.documentRef,
+                documentInstanceId: before.documentInstanceId ?? null,
+                documentIdentity: harness.session.snapshot.value.identity.revisionInfo,
+                commandTarget: before,
+            },
+        });
+
+        expect(response).toMatchObject({
+            ok: true,
+            result: {saved: true},
+            successor: {
+                commandTarget: harness.session.createCommandTarget(tabId),
+                documentIdentity: {token: 'revision-2'},
+            },
+        });
+        expect(response.successor?.commandTarget).not.toEqual(before);
+        // It crosses IPC, which clones it.
+        expect(() => structuredClone(response.successor)).not.toThrow();
+        // A caller without a turn's scope has no turn to hand a successor to.
+        harness.commandResponses.length = 0;
+        const unscoped = await harness.submitCommand({
+            requestId: requireRequestId('command-unscoped-save'),
+            command,
+        });
+        expect(unscoped).toMatchObject({ok: true});
+        expect(unscoped).not.toHaveProperty('successor');
+        harness.app.unmount();
+    });
+
     it('rejects a command when the session target changes after activation', async () => {
         const harnessRef: {current?: Awaited<ReturnType<typeof mountAgentWorkspaceSnapshotHarness>>;} = {};
         const harness = await mountAgentWorkspaceSnapshotHarness({activateTab: () => {

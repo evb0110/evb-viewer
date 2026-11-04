@@ -398,6 +398,7 @@ function stopDrag(event?: MouseEvent) {
     }
     isDragging.value = false;
     dragWindowTarget.value = undefined;
+    followPage();
     emitPositionUpdate();
 }
 
@@ -450,8 +451,14 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
-useEventListener(dragWindowTarget, 'mousemove', noteDragMove.schedule);
+// A release outside the window never reaches mouseup, and a window that loses
+// focus mid-drag may never see one: either ends the drag where it last was.
+useEventListener(dragWindowTarget, 'mousemove', (event: MouseEvent) => {
+    if ((event.buttons & 1) === 0) stopDrag();
+    else noteDragMove.schedule(event);
+});
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
+useEventListener(dragWindowTarget, 'blur', () => stopDrag());
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];

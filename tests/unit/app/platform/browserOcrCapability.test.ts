@@ -11,7 +11,10 @@ import {
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    IScanCleanupDetectionResult,
+    IScanCleanupPreviewRequest,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IBrowserScanCleanupPreviewBase,
     IBrowserScanCleanupPreviewRendering,
@@ -262,6 +265,21 @@ describe('browser scan cleanup preview admission', () => {
         return (await import('@app/platform/browser-api/browserScanCleanupCapability')).browserScanCleanupCapability;
     }
 
+    it('leaves no PDF source open when the working copy closes before a preview is admitted', async () => {
+        const capability = await loadCapability();
+        const {closeBrowserWorkingCopyWork} = await import('@app/platform/browser-api/browserWorkingCopyClose');
+        const loadPdf = vi.mocked((await import('@app/platform/browser-api/loadBrowserPdfjsDocument')).loadBrowserPdfjsDocument);
+
+        const preview = capability.preview(request());
+        const close = closeBrowserWorkingCopyWork(requireDocumentRef('/docs/scan.pdf'));
+        await expect(preview).resolves.toEqual({canceled: true});
+        await close;
+        await settleTurns();
+
+        expect(renders.pending).toHaveLength(0);
+        expect(destroyed.count).toBe(loadPdf.mock.calls.length);
+    });
+
     it('declines a speculative neighbour without retiring the visible page', async () => {
         const capability = await loadCapability();
         const visible = capability.preview(request());
@@ -375,6 +393,210 @@ describe('browser scan cleanup preview admission', () => {
         })).resolves.toBe(true);
         await expect(visible).resolves.toEqual({canceled: true});
         await vi.waitFor(() => expect(destroyed.count).toBe(1));
+    });
+});
+
+describe('browser scan cleanup preview plan', () => {
+    afterEach(() => {
+        for (const path of [
+            '@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore',
+            '@app/platform/browser-api/browserScanCleanupSources',
+            '@app/platform/browser-api/runBrowserScanCleanupDetection',
+        ]) vi.doUnmock(path);
+    });
+
+    it('keeps a live preview page plan and all layouts in one snapshot during reconciliation', async () => {
+        vi.resetModules();
+        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const store = createMemoryScanCleanupDetectionResultStore(2000, 1);
+        const result = (pageNumber: number, classification: IScanCleanupDetectionResult['classification']): IScanCleanupDetectionResult => ({
+            pageNumber: requirePageNumber(pageNumber),
+            revision: 1,
+            classification,
+            confidence: 1,
+            cutterXPx: null,
+            tier1Verdict: classification,
+            reconciled: true,
+            clusterAgreement: 1,
+            documentPrior: null,
+            pagePlanEvidence: {
+                pageNumber: requirePageNumber(pageNumber),
+                rotationDegrees: 0,
+                layoutClassification: classification,
+                outputs: {},
+            },
+        });
+        await store.append(result(1, 'two-page-spread'));
+        await store.append(result(2000, 'two-page-spread'));
+        const walk = store.forEachChunk;
+        let reconciled = false;
+        store.forEachChunk = callback => walk(async (rows, firstPageNumber) => {
+            await callback(rows, firstPageNumber);
+            if (!reconciled) {
+                reconciled = true;
+                await store.replace(1, result(1, 'single-uncut-page'));
+                await store.replace(2000, result(2000, 'single-uncut-page'));
+            }
+        });
+        const running = Promise.withResolvers<undefined>();
+        const entered = Promise.withResolvers<undefined>();
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async () => store}));
+        vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
+            borrowBrowserScanCleanupSource: () => ({
+                opened: Promise.resolve({pageSizes: Array.from({length: 2000})}),
+                release() {},
+            }),
+            awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
+        }));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async () => {
+            entered.resolve(undefined);
+            await running.promise;
+            return {
+                resultStore: store,
+                results: [],
+                blankPageCount: 0,
+            };
+        }}));
+        const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
+        const owner = createBrowserScanCleanupDetectionOwner();
+        const preview = request({layoutByPage: {'2000': 'single-uncut-page'}});
+        await owner.detectAll(preview);
+        await entered.promise;
+        try {
+            const snapshot = await owner.resolvePreviewPagePlan(preview);
+            expect(snapshot.layoutByPage?.['2000']).toBe(snapshot.layoutByPage?.['1']);
+            expect(snapshot.pagePlanEvidence?.layoutClassification).toBe(snapshot.layoutByPage?.['1']);
+            await store.replace(1, result(1, 'single-uncut-page'));
+            await store.replace(2000, result(2000, 'single-uncut-page'));
+            const next = await owner.resolvePreviewPagePlan(preview);
+            expect(next.layoutByPage?.['2000']).toBe('single-uncut-page');
+            expect(next.pagePlanEvidence?.layoutClassification).toBe('single-uncut-page');
+            expect(snapshot.layoutByPage?.['1']).toBe('two-page-spread');
+        } finally {
+            running.resolve(undefined);
+            owner.closeSource(requireDocumentRef(preview.sourcePdfPath));
+        }
+    });
+
+    it('reads a reconciled layout a running detection replaced since the last preview', async () => {
+        vi.resetModules();
+        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const result = (classification: 'two-page-spread' | 'single-uncut-page') => cast<IScanCleanupDetectionResult>({
+            pageNumber: requirePageNumber(1),
+            revision: 2,
+            classification,
+            confidence: 1,
+            cutterXPx: 1275,
+            tier1Verdict: classification,
+            reconciled: true,
+            clusterAgreement: 1,
+            documentPrior: null,
+        });
+        const running = Promise.withResolvers<undefined>();
+        let liveStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore> | null = null;
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async (count: number) => createMemoryScanCleanupDetectionResultStore(count)}));
+        vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
+            borrowBrowserScanCleanupSource: () => ({
+                opened: Promise.resolve({pageSizes: Array.from({length: 2000})}),
+                release() {},
+            }),
+            awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
+        }));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>}) => {
+            liveStore = resultStore;
+            await resultStore.append(result('two-page-spread'));
+            await running.promise;
+            return {
+                resultStore,
+                results: [],
+                blankPageCount: 0,
+            };
+        }}));
+        const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
+        const owner = createBrowserScanCleanupDetectionOwner();
+        const preview = request({options: {
+            ...scanCleanupPreviewOptions,
+            outputMode: 'bw',
+        }});
+        await owner.detectAll(preview);
+        await vi.waitFor(() => expect(liveStore?.resultCount).toBe(1));
+        expect((await owner.resolvePreviewPagePlan(preview)).layoutByPage?.['1']).toBe('two-page-spread');
+
+        await liveStore!.replace(1, result('single-uncut-page'));
+
+        expect((await owner.resolvePreviewPagePlan(preview)).layoutByPage?.['1']).toBe('single-uncut-page');
+        running.resolve(undefined);
+        owner.closeSource(requireDocumentRef('/docs/scan.pdf'));
+    });
+
+    it('matches the canvas to every detected page, not only the ones the renderer still keeps', async () => {
+        vi.resetModules();
+        const pageCount = 1025;
+        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const {
+            addScanCleanupDocumentCanvasPage,
+            createScanCleanupDocumentCanvasAccumulator,
+            resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
+        } = await import('@evb/scan-cleanup/core/policy/documentCanvas');
+        const spread = (pageNumber: number) => cast<IScanCleanupDetectionResult>({
+            pageNumber: requirePageNumber(pageNumber),
+            revision: 2,
+            classification: 'two-page-spread',
+            confidence: 1,
+            cutterXPx: 1275,
+            tier1Verdict: 'two-page-spread',
+            reconciled: true,
+            clusterAgreement: 1,
+            documentPrior: null,
+        });
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async (count: number) => createMemoryScanCleanupDetectionResultStore(count)}));
+        vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
+            borrowBrowserScanCleanupSource: () => ({
+                opened: Promise.resolve({pageSizes: Array.from({length: pageCount})}),
+                release() {},
+            }),
+            awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
+        }));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>}) => {
+            for (let page = 1; page <= pageCount; page += 1) await resultStore.append(spread(page));
+            return {
+                resultStore,
+                results: [],
+                blankPageCount: 0,
+            };
+        }}));
+        const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
+        const owner = createBrowserScanCleanupDetectionOwner();
+        const preview = request({options: {
+            ...scanCleanupPreviewOptions,
+            outputMode: 'bw',
+        }});
+        const job = await owner.detectAll(preview);
+        await vi.waitFor(async () => expect((await owner.getDetectionJobState(job.jobId, preview))?.status).toBe('completed'));
+        // The renderer keeps only its last 256 layouts.
+        const kept = Object.fromEntries(Array.from({length: 256}, (_, index) => [
+            String(pageCount - 255 + index),
+            'two-page-spread' as const,
+        ]));
+
+        const planned = await owner.resolvePreviewPagePlan({
+            ...preview,
+            layoutByPage: kept,
+            layoutDetectionComplete: true,
+        });
+
+        expect(Object.keys(planned.layoutByPage ?? {})).toHaveLength(pageCount);
+        const accumulator = createScanCleanupDocumentCanvasAccumulator();
+        for (let page = 1; page <= pageCount; page += 1) addScanCleanupDocumentCanvasPage(accumulator, {
+            pageNumber: page,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 1224,
+            heightPoints: 792,
+            rotation: 0,
+        }, planned.options, planned.layoutByPage?.[String(page)]);
+        expect(resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(accumulator, 150, planned.options, true)?.widthPoints).toBe(612);
+        owner.closeSource(requireDocumentRef('/docs/scan.pdf'));
     });
 });
 

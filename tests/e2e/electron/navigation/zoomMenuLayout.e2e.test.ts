@@ -178,5 +178,13 @@ describe('Electron E2E - localized zoom menu layout', () => {
         expect(layout.menuRect.left).toBeGreaterThanOrEqual(0);
         expect(layout.menu.clientWidth).toBeLessThan(ZOOM_MENU_VIEWPORT.width * 0.6);
         expect(layout.menu.scrollWidth).toBeLessThanOrEqual(layout.menu.clientWidth + 1);
+        // Screen readers hear which choices are current, as sighted users see.
+        const pressed = await session.page.$$eval('.zoom-dropdown button.zoom-toggle-btn, .zoom-dropdown button.zoom-chip', buttons => buttons.map(button => ({
+            active: button.classList.contains('is-active'),
+            pressed: button.getAttribute('aria-pressed'),
+        })));
+        expect(pressed.length).toBeGreaterThan(5);
+        expect(pressed.every(button => button.pressed === String(button.active))).toBe(true);
+        expect(pressed.some(button => button.active)).toBe(true);
     }, ZOOM_MENU_TIMEOUT_MS);
 });

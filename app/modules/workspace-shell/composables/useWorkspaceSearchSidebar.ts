@@ -82,7 +82,9 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         isResizingSidebar,
         isPointerResizingSidebar,
         isSlidingSidebar,
+        effectiveMaxWidth: sidebarMaxWidth,
         startSidebarResize,
+        resizeSidebarBy,
         setSidebarContainerWidth,
         cleanupSidebarResizeListeners,
     } = useSidebarResize({
@@ -123,7 +125,9 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         isResizingSidebar,
         isPointerResizingSidebar,
         isSlidingSidebar,
+        sidebarMaxWidth,
         startSidebarResize,
+        resizeSidebarBy,
         setSidebarContainerWidth,
         cleanupSidebarResizeListeners,
     };

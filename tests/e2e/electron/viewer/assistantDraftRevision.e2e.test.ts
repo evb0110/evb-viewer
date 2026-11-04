@@ -113,4 +113,42 @@ describe('Electron E2E - assistant draft revision', () => {
             }],
         });
     }, 60_000);
+
+    // A10-4: the assistant's own save commits a revision its turn must keep.
+    it('lets an assistant turn read its document after the turn saves it', async () => {
+        const session = fixture.getSession();
+        const {page} = session;
+        const directory = join(tmpdir(), session.name);
+        fixtureDirectory = directory;
+        mkdirSync(directory, {recursive: true});
+        const pdfPath = join(directory, 'assistant-own-save.pdf');
+        copyFileSync(resolve('tests/fixtures/release/packaged-core-smoke.pdf'), pdfPath);
+        await page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        await page.reload();
+        await openPdfInApp(page, pdfPath);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const disclosure = '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-disclosure';
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        await page.keyboard.type('A104-');
+        await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
+        if (await page.$('.agent-assistant-input') === null) {
+            await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        }
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.agent-assistant-input');
+        await page.keyboard.type('A10-4 own save');
+        await page.keyboard.press('Enter');
+
+        const reply = '.agent-assistant-message.is-assistant:last-child';
+        await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('save:'), {}, reply);
+        await session.command('screenshot', ['a10-4-own-save']);
+        expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('save:ok read:ok');
+        expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('A104-1');
+    });
 });

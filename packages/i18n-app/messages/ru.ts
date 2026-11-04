@@ -215,6 +215,8 @@ export default {
         'resize': 'Изменить ширину боковой панели',
     },
     'annotations': {
+        'externalLink': 'Ссылка на {url}',
+        'internalLink': 'Ссылка на другое место в этом документе',
         'clipboardImageReadBlocked': 'Браузер запретил чтение буфера обмена. Нажмите Ctrl+V (⌘V на Mac), чтобы вставить изображение.',
         'toolDefaults': 'Параметры инструмента',
         'selectedProperties': 'Свойства выбранных аннотаций',
@@ -627,6 +629,7 @@ export default {
             'useMixedOutput': 'Включить смешанный режим',
             'delete': 'Удалить выбранную зону',
             'resizeHandle': 'Изменить размер зоны за {direction}',
+            'zoneLabel': 'Зона {number}: {kind}',
             'corners': {
                 'nw': 'левый верхний угол',
                 'ne': 'правый верхний угол',

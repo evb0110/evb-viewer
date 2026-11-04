@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Usa output misto',
             'delete': 'Elimina la zona selezionata',
             'resizeHandle': 'Ridimensiona la zona da {direction}',
+            'zoneLabel': 'Zona {number}: {kind}',
             'corners': {
                 'nw': 'angolo superiore sinistro',
                 'ne': 'angolo superiore destro',
@@ -736,6 +737,8 @@ export default {
         'resize': 'Ridimensiona barra laterale',
     },
     'annotations': {
+        'externalLink': 'Collegamento a {url}',
+        'internalLink': 'Collegamento a un altro punto di questo documento',
         'clipboardImageReadBlocked': 'Il browser ha bloccato la lettura degli appunti. Premi Ctrl+V (⌘V su Mac) per incollare l’immagine.',
         'toolDefaults': 'Impostazioni dello strumento',
         'selectedProperties': 'Proprietà delle annotazioni selezionate',

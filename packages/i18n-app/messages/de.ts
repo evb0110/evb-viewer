@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Gemischte Ausgabe verwenden',
             'delete': 'Ausgewählten Bereich löschen',
             'resizeHandle': 'Bereich von {direction} aus skalieren',
+            'zoneLabel': 'Bereich {number}: {kind}',
             'corners': {
                 'nw': 'obere linke Ecke',
                 'ne': 'obere rechte Ecke',
@@ -736,6 +737,8 @@ export default {
         'resize': 'Seitenleiste anpassen',
     },
     'annotations': {
+        'externalLink': 'Link zu {url}',
+        'internalLink': 'Link zu einer anderen Stelle in diesem Dokument',
         'clipboardImageReadBlocked': 'Der Browser hat das Lesen der Zwischenablage blockiert. Drücken Sie Strg+V (⌘V auf dem Mac), um das Bild einzufügen.',
         'toolDefaults': 'Werkzeugvorgaben',
         'selectedProperties': 'Eigenschaften ausgewählter Anmerkungen',

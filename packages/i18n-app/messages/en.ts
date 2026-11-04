@@ -215,6 +215,8 @@ export default {
         'resize': 'Resize sidebar',
     },
     'annotations': {
+        'externalLink': 'Link to {url}',
+        'internalLink': 'Link to another place in this document',
         'clipboardImageReadBlocked': 'The browser blocked reading the clipboard. Press Ctrl+V (⌘V on a Mac) to paste the image.',
         'toolDefaults': 'Tool defaults',
         'selectedProperties': 'Selected annotation properties',
@@ -621,6 +623,7 @@ export default {
             'useMixedOutput': 'Use mixed output',
             'delete': 'Delete selected zone',
             'resizeHandle': 'Resize zone from the {direction}',
+            'zoneLabel': 'Zone {number}: {kind}',
             'corners': {
                 'nw': 'top-left corner',
                 'ne': 'top-right corner',

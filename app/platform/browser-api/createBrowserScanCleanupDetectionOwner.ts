@@ -15,7 +15,6 @@ import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/creat
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {TDocumentRef} from '@contracts/documentRef';
-import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {createMemoryScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore';
 import {createScanCleanupPlacementAnchorCalibrations} from '@evb/scan-cleanup/core/createScanCleanupPlacementAnchorCalibrations';
 import {
@@ -45,7 +44,7 @@ interface IStoreIdentity {
 }
 
 interface IStoreEntry {
-    store: IScanCleanupDetectionResultStore;
+    store: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>;
     identity: IStoreIdentity;
     leases: number;
     retired: boolean;
@@ -329,16 +328,30 @@ export function createBrowserScanCleanupDetectionOwner() {
                 documentRevision: request.documentRevision,
                 detectionSignature,
             };
-            const lease = (running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity))
-                ?? leaseStore(ownerStore.get(request.ownerId), identity);
+            const live = running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity);
+            const lease = live ?? leaseStore(ownerStore.get(request.ownerId), identity);
             if (lease === null) return request;
             try {
-                const result = await lease.store.getPage(request.pageNumber);
+                const {
+                    page: result, layoutByPage,
+                } = await lease.store.readPreviewSnapshot(
+                    request.pageNumber, request.options.matchPageSize,
+                );
+                const layouts = request.options.matchPageSize
+                    ? {layoutByPage: {
+                        ...request.layoutByPage,
+                        ...layoutByPage,
+                    }}
+                    : {};
                 // The plan travels with the page view it was measured on.
                 return result?.pagePlanEvidence === undefined
-                    ? request
+                    ? {
+                        ...request,
+                        ...layouts,
+                    }
                     : {
                         ...request,
+                        ...layouts,
                         pagePlanEvidence: result.pagePlanEvidence,
                         ...(result.sourcePageMetadata?.renderBox === 'mediabox'
                             ? {sourcePageMetadata: result.sourcePageMetadata}

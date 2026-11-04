@@ -1094,6 +1094,43 @@ describe('workingCopy', () => {
         expect(getWorkingCopyBackingEntry(generatedWorkingPath, 7)?.backingState).toBe('eager');
     });
 
+    it.each([
+        'external-edit',
+        'external-edit-without-current-mapping',
+        'saved-by-evb',
+    ] as const)('keeps the document\'s admitted original when an older copy is restored (%s)', async (change) => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const originalPath = join(tempRoot, `restored-${change}.pdf`);
+        writeFileSync(originalPath, Buffer.from('revision A'));
+        const trustedOriginalPath = allowOpenPath(originalPath)!;
+        const documentWorkingPath = await createWorkingCopyFromPath(trustedOriginalPath, undefined, 7);
+        // A history snapshot of the document, as Undo keeps.
+        const snapshotPath = await createWorkingCopyFromPath(documentWorkingPath as TOpenPath, originalPath, 7);
+        if (change === 'external-edit-without-current-mapping') {
+            const {
+                forgetWorkingCopyOriginalPath, findWorkingCopyPathByOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            expect(forgetWorkingCopyOriginalPath(documentWorkingPath)).toBe(true);
+            expect(findWorkingCopyPathByOriginalPath(originalPath, 7)).toBeNull();
+        }
+        writeFileSync(originalPath, Buffer.from('revision B'));
+        if (change === 'saved-by-evb') {
+            await refreshWorkingCopyOriginalFileExpectation(documentWorkingPath, 7);
+        }
+
+        const restoredPath = await createWorkingCopyFromPath(snapshotPath as TOpenPath, originalPath, 7);
+
+        // Save of the restored copy is refused over another program's edit,
+        // and admitted over the document's own save.
+        const witness = await captureOriginalPathSaveWitness(restoredPath, originalPath, 7);
+        if (change !== 'saved-by-evb') expect(witness).toBeNull();
+        else expect(witness).not.toBeNull();
+    });
+
     it('keeps encrypted PDFs eager and captures a constant-time original stat witness', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const writer = vi.fn(async () => ({

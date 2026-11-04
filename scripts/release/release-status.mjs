@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {listWorkflowRuns} from './github-workflow-run.mjs';
 import {run} from './shared.mjs';
+import {verifyMirrorObjects} from './verifyReleaseMirror.mjs';
 
 const MIRROR_CHANNEL_KEY = 'evb-viewer/channels/stable.json';
 /** @param {string} version */
@@ -24,9 +25,9 @@ const REQUIRED_ASSETS = version => [
 ];
 
 /** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
-/** @param {string} tag @param {{runCommand?: TCommandRunner, listWorkflowRunsFn?: typeof listWorkflowRuns, env?: NodeJS.ProcessEnv}} [deps] */
-export function summarizeReleaseStatus(tag, {
-    runCommand = run, listWorkflowRunsFn = listWorkflowRuns, env = process.env,
+/** @param {string} tag @param {{runCommand?: TCommandRunner, listWorkflowRunsFn?: typeof listWorkflowRuns, env?: NodeJS.ProcessEnv, verifyMirrorObjectsFn?: typeof verifyMirrorObjects}} [deps] */
+export async function summarizeReleaseStatus(tag, {
+    runCommand = run, listWorkflowRunsFn = listWorkflowRuns, env = process.env, verifyMirrorObjectsFn = verifyMirrorObjects,
 } = {}) {
     if (!/^v\d+\.\d+\.\d+$/u.test(tag)) throw new Error(`Expected a release tag such as v1.2.3, received "${tag}"`);
     const version = tag.slice(1);
@@ -43,7 +44,8 @@ export function summarizeReleaseStatus(tag, {
     const assets = assetNames.filter(name => typeof name === 'string').sort();
     const missing = REQUIRED_ASSETS(version).filter(name => !assets.includes(name));
     const runs = listWorkflowRunsFn('release.yml', {runCommand});
-    const workflow = runs.find(item => item.displayTitle?.includes(tag)) ?? null;
+    // `Release v1.2.3` only: a substring would also take `Release v1.2.30`.
+    const workflow = runs.find(item => item.displayTitle === `Release ${tag}`) ?? null;
     let mirror = 'not checked';
     if (env.MIRROR_S3_ENDPOINT && env.MIRROR_S3_BUCKET && env.MIRROR_S3_ACCESS_KEY_ID && env.MIRROR_S3_SECRET_KEY) {
         try {
@@ -63,9 +65,19 @@ export function summarizeReleaseStatus(tag, {
             }}));
             mirror = (channel.release?.tag ?? channel.tag) === tag ? `matches ${tag}` : `points at ${channel.release?.tag ?? channel.tag ?? 'no tag'}`;
         } catch (error) { mirror = `error: ${error instanceof Error ? error.message : String(error)}`; }
+    } else {
+        // Without mirror credentials, the updater's public route is the proof:
+        // a publication that never reached it is not complete.
+        try {
+            await verifyMirrorObjectsFn({
+                tag,
+                env,
+            });
+            mirror = `matches ${tag}`;
+        } catch (error) { mirror = `error: ${error instanceof Error ? error.message : String(error)}`; }
     }
     const isPublic = release.isDraft !== true;
-    const mirrorOk = mirror === 'not checked' || mirror === `matches ${tag}`;
+    const mirrorOk = mirror === `matches ${tag}`;
     const complete = isPublic && missing.length === 0 && mirrorOk;
     const state = complete ? 'complete' : release.isDraft ? 'in-progress' : missing.length ? 'blocked' : 'in-progress';
     return {
@@ -81,7 +93,7 @@ export function summarizeReleaseStatus(tag, {
     };
 }
 
-/** @param {ReturnType<typeof summarizeReleaseStatus>} status */
+/** @param {Awaited<ReturnType<typeof summarizeReleaseStatus>>} status */
 export function formatReleaseStatus(status) {
     return [
         `Release status: ${status.tag}`,
@@ -98,7 +110,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
     const tag = process.argv[2]?.trim();
     if (!tag) throw new Error('Usage: release-status.mjs <release tag>');
     try {
-        const status = summarizeReleaseStatus(tag);
+        const status = await summarizeReleaseStatus(tag);
         process.stdout.write(formatReleaseStatus(status));
         if (!status.complete) process.exitCode = 1;
     } catch (error) { process.stderr.write(`${getCliErrorMessage(error)}\n`); process.exitCode = 1; }

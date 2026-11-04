@@ -1091,6 +1091,25 @@ describe('processMcpRequest', () => {
     });
 
     it.each([
+        'document.inspect_text',
+        'document.search',
+        'document.read_pages',
+    ])('resolves the %s tab in the window the request names', async (id) => {
+        const options = createOptions();
+        const response = await callTool(options, 'evb_read_action', {
+            id,
+            windowId: 42,
+            input: id === 'document.search' ? {query: 'Grammar'} : {},
+        });
+
+        expect(response?.error).toBeUndefined();
+        expect(response?.result).toMatchObject({structuredContent: {tabId: 'tab-1'}});
+        expect(response?.result).not.toHaveProperty('isError', true);
+        expect(options.getWorkspaceSnapshot).toHaveBeenCalledWith(42);
+        expect(options.getWorkspaceSnapshot).not.toHaveBeenCalledWith(undefined);
+    });
+
+    it.each([
         [
             'toc.read',
             'toc',

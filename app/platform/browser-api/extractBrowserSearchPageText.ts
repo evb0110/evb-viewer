@@ -4,10 +4,12 @@ import {
     buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
+import {pdfjsTextItemIntersectsBox} from '@pdf-core/pdfjsTextItems';
 import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import {
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
+    type IPdfjsPageViewBox,
     type TPdfjsTextOps,
 } from '@pdf-core/pdfjsTextGeometry';
 
@@ -33,6 +35,8 @@ export interface IBrowserSearchPageData {
     words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
+    /** The CropBox hid some of the page's text, as desktop search leaves out. */
+    croppedText?: true;
 }
 
 async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSearchPageTextOptions['shouldContinue']) {
@@ -44,6 +48,7 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
 async function extractTextContentPageText(
     page: IBrowserSearchTextPageLike,
     options: IExtractBrowserSearchPageTextOptions = {},
+    visibleBox?: IPdfjsPageViewBox,
 ) {
     const content = await page.getTextContent({
         includeMarkedContent: true,
@@ -54,11 +59,19 @@ async function extractTextContentPageText(
         text: string;
         separatorAfter: 'line' | 'none'
     }> = [];
+    let hiddenItems = 0;
 
     for (let index = 0; index < content.items.length; index += 128) {
         const chunk = content.items.slice(index, index + 128);
         for (const item of chunk) {
             if ('str' in item) {
+                if (visibleBox && !pdfjsTextItemIntersectsBox(visibleBox, item, content.styles[item.fontName ?? ''])) {
+                    hiddenItems += 1;
+                    if (item.hasEOL && textItems.length > 0) {
+                        textItems[textItems.length - 1]!.separatorAfter = 'line';
+                    }
+                    continue;
+                }
                 textItems.push({
                     text: String(item.str),
                     separatorAfter: item.hasEOL ? 'line' : 'none',
@@ -72,7 +85,10 @@ async function extractTextContentPageText(
         }
     }
 
-    return assembleSearchablePageTextItems(textItems).text;
+    return {
+        text: assembleSearchablePageTextItems(textItems).text,
+        hiddenItems,
+    };
 }
 
 async function cleanupBrowserSearchPage(page: IBrowserSearchTextPageLike) {
@@ -88,7 +104,7 @@ export async function extractBrowserSearchPageText(
     options: IExtractBrowserSearchPageTextOptions = {},
 ) {
     try {
-        return await extractTextContentPageText(page, options);
+        return (await extractTextContentPageText(page, options)).text;
     } finally {
         await cleanupBrowserSearchPage(page);
     }
@@ -115,12 +131,19 @@ export async function extractBrowserSearchPageData(
             const pageBox = getPdfjsPageViewBox(page);
             const operatorList = await page.getOperatorList();
             await throwIfBrowserSearchCanceled(options.shouldContinue);
-            const words = extractPdfjsWordBoxesFromOperatorList(operatorList, pageBox, pdfjsOps);
+            const allWords = extractPdfjsWordBoxesFromOperatorList(operatorList, pageBox, pdfjsOps);
+            // Word boxes are in CropBox space; a word centred outside it is cropped away.
+            const words = allWords.filter(word => {
+                const x = word.x + word.width / 2;
+                const y = word.y + word.height / 2;
+                return x >= 0 && x <= pageBox.pageWidth && y >= 0 && y <= pageBox.pageHeight;
+            });
             const pageData: IBrowserSearchPageData = {
                 text: buildOcrTextLayerIndexText(words),
                 words,
                 pageWidth: pageBox.pageWidth,
                 pageHeight: pageBox.pageHeight,
+                ...(words.length < allWords.length ? {croppedText: true as const} : {}),
             };
             // Operator-list glyphs are in paint order. For bidi text, use the
             // same PDF.js logical items as the rendered text layer and let its
@@ -131,7 +154,13 @@ export async function extractBrowserSearchPageData(
         }
 
         await throwIfBrowserSearchCanceled(options.shouldContinue);
-        return {text: await extractTextContentPageText(page, options)};
+        const {
+            text, hiddenItems,
+        } = await extractTextContentPageText(page, options, getPdfjsPageViewBox(page));
+        return {
+            text,
+            ...(hiddenItems > 0 ? {croppedText: true as const} : {}),
+        };
     } finally {
         await cleanupBrowserSearchPage(page);
     }

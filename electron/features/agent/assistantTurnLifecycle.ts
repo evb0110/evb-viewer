@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type {
+    IAgentCommandSuccessor,
     TAgentAssistantProviderId,
     TAgentAssistantTurnPhase,
     TAgentWorkspaceCommandTarget,
@@ -249,6 +250,43 @@ export function getAssistantTurnPhase(owner: TAssistantTurnOwnerState): TAgentAs
 
 export function getAssistantTurnScope(owner: TAssistantTurnOwnerState) {
     return isAssistantTurnActive(owner) ? owner.scope : null;
+}
+
+/**
+ * The turn moved to the revision one of its own commands committed. Only the
+ * same document in the same tab qualifies: any other change still ends the
+ * turn's authority, and an interrupting turn keeps the binding it had.
+ */
+export function advanceAssistantTurnScope(
+    owner: TAssistantTurnOwnerState,
+    generation: number,
+    successor: IAgentCommandSuccessor,
+): TAssistantTurnOwnerState {
+    if ((owner.phase !== 'starting' && owner.phase !== 'running') || owner.generation !== generation) {
+        return owner;
+    }
+    const {scope} = owner;
+    const current = scope.commandTarget;
+    const next = successor.commandTarget;
+    const sameDocument = current !== undefined
+        && next.tabId === current.tabId
+        && next.sessionId === current.sessionId
+        && next.documentRef === current.documentRef
+        && next.documentBackend === current.documentBackend
+        && (next.documentInstanceId ?? null) === (current.documentInstanceId ?? null)
+        // The identity names the working copy, not the tab's original file.
+        && (successor.documentIdentity === null || scope.documentIdentity === null
+            || successor.documentIdentity.documentRef === scope.documentIdentity.documentRef);
+    return sameDocument
+        ? {
+            ...owner,
+            scope: {
+                ...scope,
+                commandTarget: {...next},
+                documentIdentity: successor.documentIdentity && {...successor.documentIdentity},
+            },
+        }
+        : owner;
 }
 
 export function buildAssistantSessionScopeBindingFingerprint(

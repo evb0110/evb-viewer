@@ -52,14 +52,17 @@ describe('native Rust targets', () => {
         expect(normalizeNativeTargetArch('aarch64')).toBe('arm64');
     });
 
-    it('uses the host release directory when the requested target matches the runner', () => {
+    it('names the host target too, so an ambient Cargo default target cannot redirect the build', () => {
         expect(getRequestedNativeRustTarget({}, {
             arch: 'arm64',
             platform: 'darwin',
         })).toEqual({
             arch: 'arm64',
             binaryExtension: '',
-            cargoTargetArgs: [],
+            cargoTargetArgs: [
+                '--target',
+                'aarch64-apple-darwin',
+            ],
             isHostTarget: true,
             platform: 'darwin',
             platformArch: 'darwin-arm64',

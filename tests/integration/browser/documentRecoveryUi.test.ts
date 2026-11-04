@@ -431,7 +431,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const source = await response.text();
                 const publication = 'const outgoing = container.querySelector(".text-layer");';
-                const completed = 'if (!isTextLayerRendered) return false;';
+                const completed = 'if (!isTextLayerRendered) return failure ?? false;';
                 if (!source.includes(publication) || !source.includes(completed)) {
                     throw new Error('Initial text-layer publication seam was not found');
                 }

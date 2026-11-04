@@ -2332,6 +2332,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
         await waitForSidebarAnnotationCount(page, 0);
+        // The link a keyboard reaches says where it goes.
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane.is-active .pdf-link-overlay'))
+            .some(link => link.getAttribute('aria-label') === 'Link to https://example.com/evb-viewer-link-fixture'
+                && link.getAttribute('tabindex') === '0'), {timeout: 30_000});
     });
 
     it.each([
@@ -2589,6 +2593,64 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // 20-point icon rectangle around the same centre.
         expectMarkerCentreClose(reopened.markerRect, moved.markerRect);
     }, 90_000);
+
+    it('ends a note window drag when the window loses focus or the button is released outside it', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-lifecycle-${Date.now()}-note-drag-end.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Note');
+        await createStickyNoteWithPointer(page, `Drag end note ${Date.now()}`, {
+            x: 0.4,
+            y: 0.3,
+        });
+        const windowRect = () => page.$eval('.editor-pane.is-active .note-window', element => {
+            const rect = element.getBoundingClientRect();
+            return [
+                Math.round(rect.left),
+                Math.round(rect.top),
+            ];
+        });
+        const grabTitle = async () => {
+            const title = await page.$eval('.editor-pane.is-active .note-window .note-window__title-main', element => element.getBoundingClientRect().toJSON());
+            const start = {
+                x: title.x + title.width / 2,
+                y: title.y + title.height / 2,
+            };
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(start.x + 30, start.y + 20, {steps: 4});
+            await expect.poll(windowRect, {message: 'the title drag moves the window'}).not.toEqual(before);
+            return start;
+        };
+
+        let before = await windowRect();
+        let start = await grabTitle();
+        const afterGrab = await windowRect();
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await page.mouse.move(start.x + 150, start.y + 90, {steps: 4});
+        await page.mouse.up();
+        expect(await windowRect(), 'a window that lost focus stops the drag').toEqual(afterGrab);
+
+        before = afterGrab;
+        start = await grabTitle();
+        const afterSecondGrab = await windowRect();
+        // A release outside the window reaches it only as a move with no button down.
+        const cdp = await page.createCDPSession();
+        onTestFinished(() => cdp.detach().catch(() => undefined));
+        await cdp.send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: start.x + 60,
+            y: start.y + 40,
+            button: 'none',
+            buttons: 0,
+        });
+        await page.mouse.move(start.x + 160, start.y + 100, {steps: 4});
+        await page.mouse.up();
+        expect(await windowRect(), 'a move after the release does not drag the window').toEqual(afterSecondGrab);
+    });
 
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {
         const session = sessionFixture.getSession();

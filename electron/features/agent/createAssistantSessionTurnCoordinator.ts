@@ -1,9 +1,13 @@
-import type { IAgentAssistantChatScope } from '@contracts/agent';
+import type {
+    IAgentAssistantChatScope,
+    IAgentCommandSuccessor,
+} from '@contracts/agent';
 import type {
     IAssistantChatSession,
     TAssistantChatSessionStore,
 } from '@electron/features/agent/assistantChatSessionStore';
 import {
+    advanceAssistantTurnScope,
     claimAssistantTurn,
     completeAssistantTurn,
     errorAssistantTurn,
@@ -158,6 +162,28 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         transitionSessionTurn(session, supersedeAssistantTurn(session.turnOwner), 'cancelled');
     }
 
+    // The session's scope follows the turn, so its events and state carry the
+    // revision the renderer now shows.
+    function adoptSessionTurnSuccessor(
+        session: IAssistantChatSession,
+        generation: number,
+        successor: IAgentCommandSuccessor,
+    ) {
+        const nextOwner = advanceAssistantTurnScope(session.turnOwner, generation, successor);
+        if (nextOwner === session.turnOwner) {
+            return false;
+        }
+        session.turnOwner = nextOwner;
+        session.scope = {
+            ...session.scope,
+            commandTarget: {...successor.commandTarget},
+            documentIdentity: successor.documentIdentity && {...successor.documentIdentity},
+        };
+        syncSessionTurnScope(session);
+        options.sessionStore.recordTurnBoundary(session);
+        return true;
+    }
+
     function releaseClaimedSessionTurn(session: IAssistantChatSession, generation: number) {
         if (session.turnOwner.generation !== generation || !isAssistantTurnActive(session.turnOwner)) {
             return;
@@ -173,6 +199,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
     }
 
     return {
+        adoptSessionTurnSuccessor,
         claimSessionTurn,
         completeSessionTurn,
         errorSessionTurn,

@@ -581,6 +581,8 @@ async function readExportPageSizes(
         timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
         commandLabel: 'pdfinfo(export-page-size)',
         onStdout,
+        // Every byte reaches onStdout; only the retained copy is cut short.
+        rejectOnStdoutTruncation: false,
         ...(signal ? { signal } : {}),
         ...(cancelGroup ? { cancelGroup } : {}),
     };

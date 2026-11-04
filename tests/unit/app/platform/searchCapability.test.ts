@@ -1,3 +1,4 @@
+import type {IPdfTextContent} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type * as TSearchContractsModule from '@contracts/search';
 import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
 
@@ -29,6 +30,39 @@ interface ISearchConformanceCase {
 }
 
 interface ISearchConformanceCorpus {cases: ISearchConformanceCase[];}
+
+const searchPageView = [
+    0,
+    0,
+    612,
+    792,
+];
+
+function makeTextContent(str = ''): IPdfTextContent {
+    return {
+        styles: {f1: {
+            fontFamily: 'sans-serif',
+            vertical: false,
+        }},
+        lang: null,
+        items: [{
+            str,
+            dir: 'ltr',
+            transform: [
+                10,
+                0,
+                0,
+                10,
+                20,
+                100,
+            ],
+            width: Math.max(1, str.length * 5),
+            height: 10,
+            fontName: 'f1',
+            hasEOL: false,
+        }],
+    };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -176,7 +210,10 @@ describe('createBrowserSearchCapability', () => {
         ]));
         pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({
             numPages: pageCount,
-            getPage: async (pageNumber: number) => ({getTextContent: async () => ({items: [{str: pageNumber === 12 ? '' : `page ${pageNumber} foo`}]})}),
+            getPage: async (pageNumber: number) => ({
+                view: searchPageView,
+                getTextContent: async () => makeTextContent(pageNumber === 12 ? '' : `page ${pageNumber} foo`),
+            }),
             loadingTask: {destroy: async () => {}},
         })});
         const {createBrowserSearchCapability} = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -214,7 +251,8 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage: async () => ({
-                getTextContent: async () => ({items: [{str: 'readable needle'}]}),
+                view: searchPageView,
+                getTextContent: async () => makeTextContent('readable needle'),
                 cleanup: async () => {},
             }),
             loadingTask: {destroy: async () => {}},
@@ -250,7 +288,8 @@ describe('createBrowserSearchCapability', () => {
     it('extracts browser search text from the current PDF bytes without OCR sidecars', async () => {
         const pdfPath = 'browser://documents/test/search.pdf';
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'pdf fallback needle'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('pdf fallback needle')),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -277,7 +316,8 @@ describe('createBrowserSearchCapability', () => {
     it('executes regex page matching in the browser search worker and keeps UTF-16 offsets', async () => {
         const pageText = '😀 needle';
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageText}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageText)),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -339,7 +379,8 @@ describe('createBrowserSearchCapability', () => {
 
     it('gives every page its own regex budget, as the shared search core does', async () => {
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('aaaaaaaa')),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -389,7 +430,8 @@ describe('createBrowserSearchCapability', () => {
 
     it('turns a stalled regex worker into a typed bounded failure', async () => {
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('aaaaaaaa')),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -470,7 +512,8 @@ describe('createBrowserSearchCapability', () => {
 
     it('resets the search worker when a canceled search has a regex match pending', async () => {
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('aaaaaaaa')),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -521,7 +564,8 @@ describe('createBrowserSearchCapability', () => {
     it.each(searchConformanceCorpus.cases.filter(fixture => fixture.options?.useRegex !== true))('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
         const pdfPath = `browser://documents/test/${fixture.id}.pdf`;
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: fixture.text}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(fixture.text)),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -561,7 +605,7 @@ describe('createBrowserSearchCapability', () => {
             unicode,
             width: unicode === '«' || unicode === '»' ? 200 : 600,
         }));
-        const getTextContent = vi.fn(async () => ({items: [{str: 'fallback'}]}));
+        const getTextContent = vi.fn(async () => makeTextContent('fallback'));
         const getPage = vi.fn(async () => ({
             view: [
                 0,
@@ -705,7 +749,8 @@ describe('createBrowserSearchCapability', () => {
         const firstDocument = {
             numPages: 1,
             getPage: vi.fn(async () => ({
-                getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
+                view: searchPageView,
+                getTextContent: vi.fn(async () => makeTextContent('alpha foo')),
                 cleanup: vi.fn(async () => {}),
             })),
             loadingTask: {destroy: vi.fn(async () => {})},
@@ -713,7 +758,8 @@ describe('createBrowserSearchCapability', () => {
         const secondDocument = {
             numPages: 1,
             getPage: vi.fn(async () => ({
-                getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
+                view: searchPageView,
+                getTextContent: vi.fn(async () => makeTextContent('beta bar')),
                 cleanup: vi.fn(async () => {}),
             })),
             loadingTask: {destroy: vi.fn(async () => {})},
@@ -756,7 +802,8 @@ describe('createBrowserSearchCapability', () => {
         const firstDocument = {
             numPages: 1,
             getPage: vi.fn(async () => ({
-                getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
+                view: searchPageView,
+                getTextContent: vi.fn(async () => makeTextContent('alpha foo')),
                 cleanup: vi.fn(async () => {}),
             })),
             loadingTask: {destroy: vi.fn(async () => {})},
@@ -764,7 +811,8 @@ describe('createBrowserSearchCapability', () => {
         const secondDocument = {
             numPages: 1,
             getPage: vi.fn(async () => ({
-                getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
+                view: searchPageView,
+                getTextContent: vi.fn(async () => makeTextContent('beta bar')),
                 cleanup: vi.fn(async () => {}),
             })),
             loadingTask: {destroy: vi.fn(async () => {})},
@@ -827,7 +875,8 @@ describe('createBrowserSearchCapability', () => {
         const firstDocument = {
             numPages: 1,
             getPage: vi.fn(async () => ({
-                getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
+                view: searchPageView,
+                getTextContent: vi.fn(async () => makeTextContent('alpha foo')),
                 cleanup: vi.fn(async () => {}),
             })),
             loadingTask: {destroy: vi.fn(async () => {})},
@@ -835,7 +884,8 @@ describe('createBrowserSearchCapability', () => {
         const secondDocument = {
             numPages: 1,
             getPage: vi.fn(async () => ({
-                getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
+                view: searchPageView,
+                getTextContent: vi.fn(async () => makeTextContent('beta bar')),
                 cleanup: vi.fn(async () => {}),
             })),
             loadingTask: {destroy: vi.fn(async () => {})},
@@ -879,7 +929,8 @@ describe('createBrowserSearchCapability', () => {
             'beta foo',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -913,7 +964,8 @@ describe('createBrowserSearchCapability', () => {
             return { promise: Promise.resolve({
                 numPages: 1,
                 getPage: vi.fn(async () => ({
-                    getTextContent: vi.fn(async () => ({items: [{str: pageText}]})),
+                    view: searchPageView,
+                    getTextContent: vi.fn(async () => makeTextContent(pageText)),
                     cleanup: vi.fn(async () => {}),
                 })),
                 loadingTask: {destroy: vi.fn(async () => {})},
@@ -942,7 +994,8 @@ describe('createBrowserSearchCapability', () => {
 
     it('searches documents above 64 MiB with metadata-only admission and range reads', async () => {
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'foo'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('foo')),
             cleanup: vi.fn(async () => {}),
         }));
         browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
@@ -972,7 +1025,8 @@ describe('createBrowserSearchCapability', () => {
             '',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
@@ -996,7 +1050,7 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
-        expect(record.version).toBe(9);
+        expect(record.version).toBe(10);
         expect(record.pageCount).toBe(3);
         expect(record.pages).toEqual([{
             pageNumber: 2,
@@ -1008,7 +1062,8 @@ describe('createBrowserSearchCapability', () => {
     it('discards cache records an older extractor wrote and reads the page again', async () => {
         const path = '/tmp/older-extractor.pdf';
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'fresh'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('fresh')),
             cleanup: vi.fn(async () => {}),
         }));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -1050,7 +1105,8 @@ describe('createBrowserSearchCapability', () => {
     it('cancels a million-page direct scan after one delivered page', async () => {
         const arrayFrom = vi.spyOn(Array, 'from');
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageNumber === 1 ? 'needle' : ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageNumber === 1 ? 'needle' : '')),
             cleanup: vi.fn(async () => {}),
         }));
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
@@ -1105,7 +1161,8 @@ describe('createBrowserSearchCapability', () => {
             'beta sign',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
 
@@ -1171,7 +1228,8 @@ describe('createBrowserSearchCapability', () => {
             'delta foo',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
 
@@ -1227,7 +1285,8 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({
             numPages: 2,
             getPage: async (page: number) => ({
-                getTextContent: async () => ({items: [{str: pageTexts[page - 1]}]}),
+                view: searchPageView,
+                getTextContent: async () => makeTextContent(pageTexts[page - 1]),
                 cleanup: async () => {},
             }),
             loadingTask: {destroy: async () => {}},
@@ -1296,7 +1355,8 @@ describe('createBrowserSearchCapability', () => {
             'gamma without a match',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
 
@@ -1340,7 +1400,8 @@ describe('createBrowserSearchCapability', () => {
             'delta foo',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
 
@@ -1393,7 +1454,8 @@ describe('createBrowserSearchCapability', () => {
 
     it('assigns page match indexes without scanning prior results', async () => {
         const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'foo foo foo'}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent('foo foo foo')),
             cleanup: vi.fn(async () => {}),
         }));
 
@@ -1431,7 +1493,8 @@ describe('createBrowserSearchCapability', () => {
             '',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            view: searchPageView,
+            getTextContent: vi.fn(async () => makeTextContent(pageTexts[pageNumber - 1] ?? '')),
             cleanup: vi.fn(async () => {}),
         }));
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
@@ -1482,12 +1545,13 @@ describe('createBrowserSearchCapability', () => {
             releaseFirstPageRead = resolve;
         });
         const getPage = vi.fn(async (pageNumber: number) => ({
+            view: searchPageView,
             getTextContent: vi.fn(async () => {
                 if (holdPageRead && pageNumber === 1) {
                     firstPageRead = true;
                     await firstPageReadGate;
                 }
-                return {items: [{str: `page ${pageNumber} foo`}]};
+                return makeTextContent(`page ${pageNumber} foo`);
             }),
             cleanup: vi.fn(async () => {}),
         }));

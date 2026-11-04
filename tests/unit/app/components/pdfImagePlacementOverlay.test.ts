@@ -10,6 +10,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     createApp,
     defineComponent,
     h,
@@ -21,6 +22,11 @@ import type {
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
+import {
+    annotationEditorSurfaceKey,
+    type IAnnotationEditorSurface,
+} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -56,7 +62,7 @@ afterEach(() => {
     }
 });
 
-function mountOverlay(busy = false, echoRectangleUpdates = false) {
+function mountOverlay(busy = false, echoRectangleUpdates = false, active?: boolean) {
     const host = document.createElement('div');
     document.body.append(host);
     const currentPlacement = ref(placement);
@@ -84,6 +90,9 @@ function mountOverlay(busy = false, echoRectangleUpdates = false) {
             events.finalize += 1;
         },
     })}));
+    if (active !== undefined) {
+        app.provide(annotationEditorSurfaceKey, cast<IAnnotationEditorSurface>({isActive: computed(() => active)}));
+    }
     app.mount(host);
 
     const unmount = () => {
@@ -364,4 +373,61 @@ describe('PdfImagePlacementOverlay', () => {
         expect(currentPlacement.value.y).toBeCloseTo(placement.y + 32 / 800);
     });
 
+
+    describe('keyboard', () => {
+        const press = (target: EventTarget, key: string) => target.dispatchEvent(new KeyboardEvent('keydown', {
+            key,
+            bubbles: true,
+            cancelable: true,
+        }));
+
+        it('embeds with Enter and cancels with Escape on the image', () => {
+            const overlay = mountOverlay();
+            press(overlay.host.querySelector('.pdf-image-placement__surface')!, 'Enter');
+            expect(overlay.events).toEqual({
+                cancel: 0,
+                finalize: 1,
+            });
+            press(overlay.host.querySelector('.pdf-image-placement__surface')!, 'Escape');
+            expect(overlay.events.cancel).toBe(1);
+        });
+
+        it('leaves Enter on the Cancel button to that button', () => {
+            const overlay = mountOverlay();
+            const cancel = overlay.host.querySelector<HTMLButtonElement>('.pdf-image-placement__action--secondary')!;
+            const pressed = press(cancel, 'Enter');
+            expect(pressed, 'the button keeps its native activation').toBe(true);
+            cancel.click();
+            expect(overlay.events).toEqual({
+                cancel: 1,
+                finalize: 0,
+            });
+        });
+
+        it('leaves Enter on an outside summary to its native control', () => {
+            const overlay = mountOverlay(false, false, true);
+            const details = document.createElement('details');
+            details.innerHTML = '<summary>Thinking</summary><p>Thought</p>';
+            document.body.append(details);
+            try {
+                const summary = details.querySelector('summary')!;
+                summary.focus();
+                expect(press(summary, 'Enter')).toBe(true);
+                expect(overlay.events).toEqual({
+                    cancel: 0,
+                    finalize: 0,
+                });
+            } finally {
+                details.remove();
+            }
+        });
+
+        it('takes Enter only in the active pane' , () => {
+            const inactive = mountOverlay(false, false, false);
+            const active = mountOverlay(false, false, true);
+            press(document.body, 'Enter');
+            expect(active.events.finalize).toBe(1);
+            expect(inactive.events.finalize, 'the other pane keeps its placement').toBe(0);
+        });
+    });
 });

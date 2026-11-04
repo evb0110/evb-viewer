@@ -193,6 +193,7 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
     const panelProps = reactive({
         chatScope: initialState?.scope ?? scope,
         isChatScopePending: false,
+        isAssistantCommandRunning: false,
         activeDocumentName: 'Document A',
         hasActiveDocument: true,
         hasAnyDocument: true,
@@ -267,6 +268,9 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
         setScopePending(pending: boolean) {
             panelProps.isChatScopePending = pending;
         },
+        setCommandRunning(running: boolean) {
+            panelProps.isAssistantCommandRunning = running;
+        },
     };
 }
 
@@ -325,6 +329,31 @@ describe('mounted assistant panel lifecycle', () => {
         expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
         await vi.waitFor(() => expect(harness.host.querySelector('.can-send')?.textContent).toBe('true'));
         expect(mocks.sendAssistantMessage).not.toHaveBeenCalled();
+    });
+
+    it('keeps a turn through the revision its own command saves, but not through one main never adopted', async () => {
+        const harness = await mountHarness(createReadyState('streaming', revisionScope(1)));
+        harness.setCommandRunning(true);
+        harness.setScope(revisionScope(2));
+        await nextTick();
+        // Main adopts the command's successor before the command ends.
+        assistantEvent.emit({
+            type: 'state',
+            state: createReadyState('streaming', revisionScope(2)),
+        });
+        harness.setCommandRunning(false);
+        await nextTick();
+        await nextTick();
+        expect(mocks.interruptAssistant).not.toHaveBeenCalled();
+        expect(harness.host.querySelector('.phase')?.textContent).toBe('streaming');
+
+        harness.setCommandRunning(true);
+        harness.setScope(revisionScope(3));
+        await nextTick();
+        harness.setCommandRunning(false);
+        await nextTick();
+        await nextTick();
+        expect(mocks.interruptAssistant).toHaveBeenCalledWith(expect.objectContaining({scope: revisionScope(2)}));
     });
 
     it('makes an interrupted queued correction editable after Save and rejects old turn completions', async () => {

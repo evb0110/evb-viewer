@@ -24,6 +24,7 @@
         <div class="page-controls-item">
             <button
                 v-if="!isEditing"
+                ref="pageDisplayRef"
                 class="page-controls-display"
                 :disabled="disabled || totalPages === 0"
                 :style="pageDisplayStyle"
@@ -51,8 +52,8 @@
                         ref="pageInputRef"
                         v-model="pageInputValue"
                         class="page-controls-inline-input"
-                        @keydown.enter.prevent="commitPageInput"
-                        @keydown.escape.prevent="cancelEditing"
+                        @keydown.enter.prevent="closeByKeyboard(commitPageInput)"
+                        @keydown.escape.prevent="closeByKeyboard(cancelEditing)"
                         @blur="commitPageInput"
                     />
                     <span
@@ -144,6 +145,7 @@ const isEditing = computed({
 const pageInputValue = ref(currentPage.toString());
 const pageInputRef = ref<HTMLInputElement | null>(null);
 const pageControlsRef = ref<HTMLElement | null>(null);
+const pageDisplayRef = ref<HTMLButtonElement | null>(null);
 
 
 const showTotalInDisplay = computed(() => true);
@@ -216,6 +218,12 @@ function startEditing() {
 function cancelEditing() {
     isEditing.value = false;
     pageInputValue.value = getCurrentInputLabel();
+}
+
+// A keyboard close hands focus back to the page button the field replaced.
+function closeByKeyboard(close: () => void) {
+    close();
+    void nextTick(() => pageDisplayRef.value?.focus());
 }
 
 function goToFirst() {

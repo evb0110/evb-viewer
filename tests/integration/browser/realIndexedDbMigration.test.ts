@@ -13,6 +13,8 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
+import type * as DetectionStore from '@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import type * as BrowserDocumentIdb from '../../../app/platform/browser/browserDocumentIdb';
 import type * as BrowserDocumentRepository from '../../../app/platform/browser/browserDocumentRepository';
 import type * as BrowserDocumentMaintenance from '../../../app/platform/browser/browserDocumentMaintenance';
@@ -29,6 +31,7 @@ import {
     it,
 } from 'vitest';
 
+let detectionBundlePath = '';
 let bundlePath = '';
 let recoveryBundlePath = '';
 let documentBundlePath = '';
@@ -257,6 +260,7 @@ async function awaitRecoveryOperationResult<T>(page: Page) {
 
 beforeAll(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-idb-migration-'));
+    detectionBundlePath = join(temporaryDirectory, 'scan-cleanup-detection.js');
     bundlePath = join(temporaryDirectory, 'browser-document-idb.js');
     recoveryBundlePath = join(temporaryDirectory, 'browser-workspace-recovery.js');
     documentBundlePath = join(temporaryDirectory, 'browser-documents.js');
@@ -309,6 +313,15 @@ beforeAll(async () => {
             tsconfig: resolve(process.cwd(), 'tsconfig.json'),
         });
     }
+    await build({
+        bundle: true,
+        entryPoints: [resolve('app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore.ts')],
+        format: 'iife',
+        globalName: 'EvbDetectionStore',
+        outfile: detectionBundlePath,
+        platform: 'browser',
+        tsconfig: resolve('tsconfig.json'),
+    });
     server = createServer((_request, response) => {
         response.writeHead(200, {'content-type': 'text/html'});
         response.end('<!doctype html><title>IndexedDB migration harness</title>');
@@ -1585,4 +1598,85 @@ describe('browser document IndexedDB migration in Chromium', () => {
             await browser.close();
         }
     }, 30_000);
+});
+
+
+describe('IndexedDB detection preview snapshots', () => {
+    it('captures persisted page evidence and full layouts before queued replacements', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({path: detectionBundlePath});
+            const snapshots = await page.evaluate(async () => {
+                const {createIndexedDbScanCleanupDetectionResultStore} = Reflect.get(window, 'EvbDetectionStore') as typeof DetectionStore;
+                const store = await createIndexedDbScanCleanupDetectionResultStore(2000, 1);
+                const record = (pageNumber: number, classification: 'two-page-spread' | 'single-uncut-page') => ({
+                    pageNumber: pageNumber as TPageNumber,
+                    revision: 1,
+                    classification,
+                    confidence: 1,
+                    cutterXPx: null,
+                    tier1Verdict: classification,
+                    reconciled: true,
+                    clusterAgreement: 1,
+                    documentPrior: null,
+                });
+                try {
+                    // The 256th append flushes page 1 to disk, so its next read
+                    // actually awaits an IndexedDB request inside the store queue.
+                    for (let number = 1; number <= 256; number += 1) await store.append(record(number, 'two-page-spread'));
+                    await store.append(record(2000, 'two-page-spread'));
+                    const pending = store.readPreviewSnapshot(1, true);
+                    await Promise.all([
+                        store.replace(1, record(1, 'single-uncut-page')),
+                        store.replace(2000, record(2000, 'single-uncut-page')),
+                    ]);
+                    const before = await pending;
+                    const after = await store.readPreviewSnapshot(1, true);
+                    before.layoutByPage['2'] = 'single-uncut-page';
+                    const detached = await store.readPreviewSnapshot(2, true);
+                    const missing = await store.readPreviewSnapshot(1999, false);
+                    return {
+                        before: [
+                            before.page?.classification,
+                            before.layoutByPage['1'],
+                            before.layoutByPage['2000'],
+                        ],
+                        after: [
+                            after.page?.classification,
+                            after.layoutByPage['1'],
+                            after.layoutByPage['2000'],
+                        ],
+                        detached: detached.layoutByPage['2'],
+                        missing: {
+                            hasPage: missing.page !== undefined,
+                            layouts: missing.layoutByPage,
+                        },
+                    };
+                } finally {
+                    await store.close();
+                }
+            });
+            expect(snapshots).toEqual({
+                before: [
+                    'two-page-spread',
+                    'two-page-spread',
+                    'two-page-spread',
+                ],
+                after: [
+                    'single-uncut-page',
+                    'single-uncut-page',
+                    'single-uncut-page',
+                ],
+                detached: 'two-page-spread',
+                missing: {
+                    hasPage: false,
+                    layouts: {},
+                },
+            });
+        } finally {
+            await browser.close();
+        }
+    });
 });

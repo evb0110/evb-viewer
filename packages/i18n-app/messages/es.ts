@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Usar salida mixta',
             'delete': 'Eliminar la zona seleccionada',
             'resizeHandle': 'Cambiar el tamaño de la zona desde {direction}',
+            'zoneLabel': 'Zona {number}: {kind}',
             'corners': {
                 'nw': 'esquina superior izquierda',
                 'ne': 'esquina superior derecha',
@@ -736,6 +737,8 @@ export default {
         'resize': 'Redimensionar panel lateral',
     },
     'annotations': {
+        'externalLink': 'Enlace a {url}',
+        'internalLink': 'Enlace a otro lugar de este documento',
         'clipboardImageReadBlocked': 'El navegador bloqueó la lectura del portapapeles. Pulsa Ctrl+V (⌘V en Mac) para pegar la imagen.',
         'toolDefaults': 'Valores de la herramienta',
         'selectedProperties': 'Propiedades de las anotaciones seleccionadas',

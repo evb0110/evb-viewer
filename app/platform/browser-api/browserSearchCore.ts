@@ -27,8 +27,7 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
 
 export async function loadBrowserSearchDocument(pdfPath: string) {
     const pdfDocument = await loadBrowserPdfjsDocument(pdfPath);
-    // PDF.js gives right-to-left OCR words one glyph per item, so search reads
-    // those pages' EVB OCR lines, as desktop and the text catalog do.
+    // Right-to-left pages read their EVB OCR lines unless cropped, as desktop does.
     const readEvbLayerText = createEvbLayerTextReader(pdfPath, pdfDocument.numPages);
     return {
         pageCount: pdfDocument.numPages,
@@ -53,7 +52,7 @@ async function extractBrowserSearchDocumentPage(
         options.shouldContinue ? {shouldContinue: options.shouldContinue} : {},
     );
     await throwIfBrowserSearchCanceled(options.shouldContinue);
-    const evbText = hasRightToLeftSearchText(pageData.text)
+    const evbText = hasRightToLeftSearchText(pageData.text) && !pageData.croppedText
         ? await readEvbLayerText(pageNumber, options.signal)
         : undefined;
     await throwIfBrowserSearchCanceled(options.shouldContinue);
@@ -84,8 +83,6 @@ export async function* streamBrowserSearchDocumentPages(
             await yieldToBrowser();
             await throwIfBrowserSearchCanceled(options.shouldContinue);
         }
-
-        return;
     } finally {
         await document.destroy();
     }

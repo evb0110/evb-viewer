@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Usar saída mista',
             'delete': 'Eliminar a zona selecionada',
             'resizeHandle': 'Redimensionar a zona a partir de {direction}',
+            'zoneLabel': 'Zona {number}: {kind}',
             'corners': {
                 'nw': 'canto superior esquerdo',
                 'ne': 'canto superior direito',
@@ -736,6 +737,8 @@ export default {
         'resize': 'Redimensionar painel lateral',
     },
     'annotations': {
+        'externalLink': 'Ligação para {url}',
+        'internalLink': 'Ligação para outro ponto deste documento',
         'clipboardImageReadBlocked': 'O navegador bloqueou a leitura da área de transferência. Prima Ctrl+V (⌘V num Mac) para colar a imagem.',
         'toolDefaults': 'Predefinições da ferramenta',
         'selectedProperties': 'Propriedades das anotações selecionadas',

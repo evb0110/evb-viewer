@@ -1,5 +1,9 @@
+import type * as AppTempDir from '@electron/utils/appTempDir';
+import type * as FileSystem from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import {
+    existsSync,
+    mkdirSync,
     linkSync,
     mkdtempSync,
     renameSync,
@@ -23,7 +27,40 @@ import {
     assertDjvuSourceIdentity,
     createDjvuDiskQuotaMonitor,
     openDjvuArtifactJob,
+    pruneStaleDjvuArtifactJobs,
+    releaseDjvuArtifactConsumer,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
+
+const pruneState = vi.hoisted(() => ({
+    root: '',
+    manifest: '',
+    intercept: false,
+    captured: Promise.withResolvers<undefined>(),
+    resume: Promise.withResolvers<undefined>(),
+}));
+
+vi.mock('@electron/utils/appTempDir', async importOriginal => {
+    const actual = await importOriginal<typeof AppTempDir>();
+    return {
+        ...actual,
+        getAppTempDir: () => pruneState.root || actual.getAppTempDir(),
+    };
+});
+vi.mock('node:fs/promises', async importOriginal => {
+    const actual = await importOriginal<typeof FileSystem>();
+    return {
+        ...actual,
+        stat: async (...args: Parameters<typeof actual.stat>) => {
+            const info = await actual.stat(...args);
+            if (pruneState.intercept && String(args[0]) === pruneState.manifest) {
+                pruneState.intercept = false;
+                pruneState.captured.resolve(undefined);
+                await pruneState.resume.promise;
+            }
+            return info;
+        },
+    };
+});
 
 describe('DjVu artifact manifests', () => {
     const directories: string[] = [];
@@ -400,5 +437,83 @@ describe('DjVu artifact manifests', () => {
         await expect(monitor.checkNow()).rejects.toThrow('DjVu disk quota exceeded');
         expect(monitor.signal.aborted).toBe(true);
         await monitor.stop();
+    });
+});
+
+
+describe('DjVu pruning concurrent claims', () => {
+    it.each([
+        {
+            reason: 'stale age',
+            claim: 'open job',
+        },
+        {
+            reason: 'retention limit',
+            claim: 'open job',
+        },
+        {
+            reason: 'stale age',
+            claim: 'closed consumer',
+        },
+        {
+            reason: 'retention limit',
+            claim: 'closed consumer',
+        },
+        {
+            reason: 'stale age',
+            claim: 'refreshed manifest',
+        },
+        {
+            reason: 'retention limit',
+            claim: 'refreshed manifest',
+        },
+    ])('preserves a $claim admitted during $reason enumeration', async ({
+        reason, claim,
+    }) => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-djvu-prune-'));
+        pruneState.root = root;
+        pruneState.captured = Promise.withResolvers<undefined>();
+        pruneState.resume = Promise.withResolvers<undefined>();
+        const sourcePath = join(root, 'source.djvu');
+        writeFileSync(sourcePath, 'djvu-source');
+        const ranges = [{
+            startPage: 1,
+            endPage: 1,
+        }];
+        const original = await openDjvuArtifactJob(sourcePath, ranges, {});
+        await original.close();
+        const old = new Date(Date.now() - (reason === 'stale age' ? 8 * 86400_000 : 10_000));
+        utimesSync(original.manifestPath, old, old);
+        if (reason === 'retention limit') {
+            for (let index = 0; index < 32; index += 1) {
+                const idle = join(root, 'djvu-artifact-jobs', `idle-${String(index)}`);
+                mkdirSync(idle);
+                writeFileSync(join(idle, 'manifest.json'), '{}');
+            }
+        }
+        pruneState.manifest = original.manifestPath;
+        pruneState.intercept = true;
+        const pruning = pruneStaleDjvuArtifactJobs();
+        await pruneState.captured.promise;
+        const consumer = claim === 'closed consumer';
+        const admitted = await openDjvuArtifactJob(sourcePath, ranges, {consumer});
+        try {
+            if (claim !== 'open job') await admitted.close();
+            pruneState.resume.resolve(undefined);
+            // This must settle while an open job still holds its lock.
+            await pruning;
+            expect(existsSync(admitted.manifestPath)).toBe(true);
+            expect(readFileSync(admitted.manifestPath, 'utf8')).toContain(admitted.manifest.fingerprint);
+        } finally {
+            pruneState.resume.resolve(undefined);
+            await admitted.close();
+            if (consumer) await releaseDjvuArtifactConsumer(admitted.directory, {remove: true});
+            pruneState.root = '';
+            pruneState.intercept = false;
+            rmSync(root, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

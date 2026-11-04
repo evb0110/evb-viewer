@@ -466,7 +466,12 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
     for (const sourcePage of sourcePages) {
         const records = mappingsBySource.get(sourcePage)!;
         const emptyRecords = records.filter(record => record.outputOrdinal === null);
-        if (emptyRecords.length > 0 && (records.length !== 1 || !emptyRecords[0]!.excluded && !emptyRecords[0]!.blank)) {
+        // A spread may skip one blank half beside the half it produced.
+        const blankHalfBesideSibling = records.length === 2
+            && records.some(record => record.half === 'left') && records.some(record => record.half === 'right')
+            && emptyRecords.length === 1 && emptyRecords[0]!.blank === true && !emptyRecords[0]!.excluded;
+        if (emptyRecords.length > 0 && !blankHalfBesideSibling
+            && (records.length !== 1 || !emptyRecords[0]!.excluded && !emptyRecords[0]!.blank)) {
             fail('empty output mapping must be the only mapping for its source page');
         }
     }

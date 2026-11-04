@@ -17,8 +17,12 @@ import {
     defineComponent,
     effectScope,
     h,
+    nextTick,
     ref,
+    shallowRef,
 } from 'vue';
+import {usePdfCropSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
+import { cast } from '@tests/helpers/cast';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
     createPdfDocumentSessionSlot,
@@ -226,4 +230,139 @@ describe('usePdfViewerFeatureController wiring', () => {
         expect(interaction.event.preventDefault).not.toHaveBeenCalled();
         expect(readUserViewportInteractionEpoch(harness.controller)).toBeGreaterThan(before);
     });
+});
+
+describe('public annotation requests and document replacement', () => {
+    it('creates no shape when the document is replaced while its page renders', async () => {
+        const { usePdfViewerPublicApiController } = await import('@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController');
+        const releaseRender = Promise.withResolvers<undefined>();
+        const renderStarted = Promise.withResolvers<undefined>();
+        const viewer = document.createElement('div');
+        viewer.innerHTML = '<div class="page_container" data-page="1"></div>';
+        const original = {
+            shapes: [] as object[],
+            listCommentSummaries: () => [],
+        };
+        const replacement = {
+            shapes: [] as object[],
+            listCommentSummaries: () => [],
+        };
+        const application = shallowRef(original);
+        let revision = 1;
+        const api = usePdfViewerPublicApiController(cast({
+            viewerContainer: ref(viewer),
+            cancelPendingSearchScroll: vi.fn(),
+            documentSession: {
+                numPages: ref(2),
+                pdfDocument: shallowRef({}),
+                captureFence: () => revision,
+                isCurrent: (fence: number) => fence === revision,
+                ensurePageMetricsInRange: async () => undefined,
+                pageMetrics: ref([]),
+                pageMetricsVersion: ref(0),
+            },
+            viewportSession: {
+                currentPage: ref(1),
+                scale: {effectiveScale: ref(1)},
+                singlePageScroll: {scrollToPage: vi.fn()},
+            },
+            annotationSession: {
+                annotations: {commentSync: {}},
+                annotationMutationService: {},
+                annotationCommentModel: {},
+                annotationSettings: ref(null),
+                focusAnnotationComment: vi.fn(),
+                shapeTool: {handleShapeCreated: (shape: object) => application.value.shapes.push(shape)},
+                shapeComposable: {buildShapeAnnotation: (target: object) => ({
+                    id: 'shape',
+                    ...target,
+                })},
+                selectedShapeCommands: {},
+                annotationApplication: application,
+                appAnnotationHistory: {},
+                annotationEditorSurface: {},
+                highlightComposable: {},
+            },
+            waitForViewerLoadSettled: async () => undefined,
+            renderVisiblePages: async () => {
+                renderStarted.resolve(undefined);
+                await releaseRender.promise;
+            },
+        }));
+
+        const creation = api.createShapeAnnotation(cast({
+            pageNumber: 1,
+            tool: 'rectangle',
+            rect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.2,
+            },
+        }));
+        await renderStarted.promise;
+        // A page deletion reloads the document, with its own annotation store.
+        revision += 1;
+        application.value = replacement;
+        releaseRender.resolve(undefined);
+
+        await expect(creation).resolves.toMatchObject({created: false});
+        expect(original.shapes).toHaveLength(0);
+        expect(replacement.shapes).toHaveLength(0);
+        viewer.remove();
+    });
+});
+
+
+it('cancels a crop gesture when the view rotates and accepts a fresh rotated gesture', async () => {
+    const viewer = document.createElement('div');
+    viewer.innerHTML = '<div class="page_container" data-page="1"></div>';
+    const page = viewer.firstElementChild as HTMLElement;
+    const viewRotation = ref<0 | 90>(0);
+    vi.spyOn(viewer, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 0, 600, 800));
+    vi.spyOn(page, 'getBoundingClientRect').mockImplementation(() => viewRotation.value === 0
+        ? new DOMRect(0, 0, 600, 800) : new DOMRect(0, 0, 800, 600));
+    let crop!: ReturnType<typeof usePdfCropSelection>;
+    const app = createApp(defineComponent({setup() {
+        crop = usePdfCropSelection({
+            viewerContainer: ref(viewer),
+            viewRotation,
+        });
+        return () => h('div');
+    }}));
+    app.mount(document.createElement('div'));
+    const pointer = (width: number, height: number) => ({
+        clientX: 60,
+        clientY: 80,
+        overlayRect: {
+            left: 0,
+            top: 0,
+            width,
+            height,
+        },
+    });
+    try {
+        const oldSelection = crop.startCropSelection();
+        crop.onPointerStart(pointer(600, 800));
+        viewRotation.value = 90;
+        await nextTick();
+        crop.onPointerEnd(pointer(800, 600));
+        await expect(oldSelection).resolves.toBeNull();
+        const newSelection = crop.startCropSelection();
+        crop.onPointerStart(pointer(800, 600));
+        crop.onPointerEnd({
+            ...pointer(800, 600),
+            clientX: 300,
+            clientY: 400,
+        });
+        await expect(newSelection).resolves.toMatchObject({
+            viewRotation: 90,
+            pageRect: {
+                width: 800,
+                height: 600,
+            },
+        });
+    } finally {
+        app.unmount();
+    }
 });

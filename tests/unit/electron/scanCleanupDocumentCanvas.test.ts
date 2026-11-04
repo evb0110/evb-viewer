@@ -959,6 +959,57 @@ describe('scan cleanup document canvas', () => {
             }),
         ];
 
+        it('plans resampling from the detected layout the canvas was built on', async () => {
+            // A spread whose detected leaves make the canvas: nothing needs scaling.
+            const spread = page({
+                pageNumber: 1,
+                widthPoints: 1_224,
+                heightPoints: 792,
+            });
+            const layoutByPage = {'1': 'two-page-spread' as const};
+            const canvas = resolveScanCleanupDocumentCanvas(
+                [spread],
+                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                losslessOptions,
+                layoutByPage,
+            );
+            if (canvas === null) throw new Error('expected a matched canvas');
+            const store: IPdfPageSizeStore = {
+                pageCount: 1,
+                getPage: async () => spread,
+                readRange: async () => [spread],
+                forEachChunk: async onChunk => onChunk({
+                    pageCount: 1,
+                    chunkIndex: 0,
+                    firstPageNumber: 1,
+                    offset: 0,
+                    byteLength: 0,
+                    pages: [spread],
+                }),
+                close: async () => undefined,
+            };
+            const plan = (readLayouts?: () => Promise<typeof layoutByPage>) => resolveMatchedCanvasResamplePagesFromStore({
+                pageSizeStore: store,
+                documentPageCount: 1,
+                canvas,
+                options: losslessOptions,
+                rasterSource: {
+                    detected: true,
+                    getPageRaster: async () => ({
+                        dpi: 300,
+                        width: 5_100,
+                        height: 3_300,
+                    }),
+                },
+                rasterDetectionAvailable: true,
+                ...(readLayouts ? {readLayouts} : {}),
+            });
+
+            await expect(plan(async () => layoutByPage)).resolves.toEqual([]);
+            // Without the layout the whole sheet is measured against a leaf.
+            await expect(plan()).resolves.toEqual([1]);
+        });
+
         it('validates order and total page count while planning from a store', async () => {
             const canvas = resolveScanCleanupDocumentCanvas(
                 mixedScale,

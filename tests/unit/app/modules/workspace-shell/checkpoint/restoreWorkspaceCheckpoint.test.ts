@@ -46,7 +46,7 @@ function checkpointTab(tabId: string, paneId: string, place: {
 vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 
 describe('restoreWorkspaceCheckpoint', () => {
-    it('restores a hidden linked tab as a view of the document at its own page and zoom', async () => {
+    it('restores hidden linked and clean tabs at their own page, zoom and layout before they mount', async () => {
         const tabs = ref<ITab[]>([]);
         const documentSessions = useWorkspaceDocumentSessions({
             activeTabId: ref(null),
@@ -62,7 +62,10 @@ describe('restoreWorkspaceCheckpoint', () => {
             panes: [
                 {
                     paneId: requirePaneId('pane-1'),
-                    tabIds: [requireTabId('tab-1')],
+                    tabIds: [
+                        requireTabId('tab-1'),
+                        requireTabId('tab-4'),
+                    ],
                     activeTabId: requireTabId('tab-1'),
                 },
                 {
@@ -94,6 +97,18 @@ describe('restoreWorkspaceCheckpoint', () => {
                     sourceRef: requireDocumentRef('/documents/other.pdf'),
                     workingCopyRef: requireDocumentRef('/managed/other.pdf'),
                 },
+                // An ordinary clean tab behind tab-1: it opens only when shown.
+                {
+                    ...checkpointTab('tab-4', 'pane-1', {
+                        currentPage: 7,
+                        zoom: 2,
+                        zoomMode: 'custom',
+                    }),
+                    viewMode: 'facing' as const,
+                    continuousScroll: false,
+                    sourceRef: requireDocumentRef('/documents/hidden.pdf'),
+                    workingCopyRef: requireDocumentRef('/managed/hidden.pdf'),
+                },
             ],
         });
 
@@ -105,6 +120,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                     {id: 'tab-1'},
                     {id: 'tab-2'},
                     {id: 'tab-3'},
+                    {id: 'tab-4'},
                 ];
             },
             activateTab: () => {},
@@ -145,6 +161,112 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(hiddenView.viewState.value).toMatchObject({
             currentPage: 5,
             zoom: 1.5,
+            zoomMode: 'custom',
+        });
+
+        // The hidden clean tab mounts nothing yet, but keeps its own place, so
+        // its first open starts there rather than at the defaults.
+        const hiddenPrimary = documentSessions.getView('tab-4')!;
+        expect(hiddenPrimary.mountedWorkspace.value).toBeNull();
+        expect(hiddenPrimary.restored).toBe(true);
+        expect(hiddenPrimary.viewState.value).toMatchObject({
+            currentPage: 7,
+            zoom: 2,
+            zoomMode: 'custom',
+            viewMode: 'facing',
+            continuousScroll: false,
+        });
+    });
+
+    it('relinks clean views that kept no working copy, and leaves a separate open of the file alone', async () => {
+        const tabs = ref<ITab[]>([]);
+        const documentSessions = useWorkspaceDocumentSessions({
+            activeTabId: ref(null),
+            tabs,
+        });
+        const place = {
+            currentPage: 1,
+            zoom: 1,
+            zoomMode: 'fit-width' as const,
+        };
+        const checkpoint = cast<IWorkspaceCheckpoint>({
+            version: 1,
+            capturedAt: requireEpochMs(1),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
+            layout: null,
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
+                    requireTabId('tab-3'),
+                ],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [
+                {
+                    ...checkpointTab('tab-1', 'pane-1', place),
+                    workingCopyRef: null,
+                },
+                {
+                    ...checkpointTab('tab-2', 'pane-1', {
+                        currentPage: 4,
+                        zoom: 1.75,
+                        zoomMode: 'custom',
+                    }),
+                    workingCopyRef: null,
+                    linkedToTabId: requireTabId('tab-1'),
+                },
+                {
+                    ...checkpointTab('tab-3', 'pane-1', place),
+                    workingCopyRef: null,
+                },
+            ],
+        });
+
+        const restoring = restoreWorkspaceCheckpoint(checkpoint, {
+            activeTabId: ref(null),
+            documentSessions,
+            restoreGraph: () => {
+                tabs.value = [
+                    {id: 'tab-1'},
+                    {id: 'tab-2'},
+                    {id: 'tab-3'},
+                ];
+            },
+            activateTab: () => {},
+        });
+        await nextTick();
+        const document = documentSessions.getSession('tab-1')!;
+        document.attachWorkspace('tab-1', createWorkspaceExposeFixture({waitForDocumentOpenSettled: async () => {
+            await document.runOpen({
+                kind: 'open',
+                target: {
+                    fileName: 'shared.pdf',
+                    originalPath,
+                },
+            }, async () => {
+                document.commitDocument({
+                    fileName: 'shared.pdf',
+                    originalPath,
+                    isDjvu: false,
+                    revisionInfo: null,
+                });
+                document.markPresented();
+                return true;
+            });
+        }}));
+        await restoring;
+
+        expect(documentSessions.getSession('tab-2')).toBe(document);
+        expect(documentSessions.getSession('tab-3')).not.toBe(document);
+        // The hidden linked view first opens at its own checkpointed place.
+        const linked = documentSessions.getView('tab-2')!;
+        expect(linked.restored).toBe(true);
+        expect(linked.viewState.value).toMatchObject({
+            currentPage: 4,
+            zoom: 1.75,
             zoomMode: 'custom',
         });
     });

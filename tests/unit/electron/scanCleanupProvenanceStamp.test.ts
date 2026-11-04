@@ -222,6 +222,53 @@ describe('scan-cleanup provenance stamp contract', () => {
         );
     });
 
+    it('accepts a spread that skipped one blank half beside the half it produced', () => {
+        const half = (side: 'left' | 'right' | 'full', outputOrdinal: number | null) => ({
+            sourcePage: 1,
+            half: side,
+            outputOrdinal,
+            rotationDegrees: 0 as const,
+            excluded: false,
+            blank: outputOrdinal === null,
+        });
+        const stampFor = (outputMappings: Array<ReturnType<typeof half>>) => {
+            const perSourcePage = [effectiveOptions(1)];
+            return () => encodeScanCleanupProvenanceStampHex(buildScanCleanupProvenanceStamp({
+                sourceSha256: 'a'.repeat(64),
+                effectiveOptions: perSourcePage,
+                outputMappings,
+                pagePlanDigests: perSourcePage.map(record => buildScanCleanupPagePlanDigest(
+                    record.sourcePage,
+                    record.options,
+                    {sourcePage: record.sourcePage},
+                )),
+                buildIds: buildFixtureBuildIds(),
+            }));
+        };
+
+        for (const mappings of [
+            [
+                half('left', 1),
+                half('right', null),
+            ],
+            [
+                half('left', null),
+                half('right', 1),
+            ],
+        ]) {
+            expect(verifyScanCleanupProvenanceStampHex(stampFor(mappings)())).toMatchObject({status: 'valid'});
+        }
+        // Two owners of one half, or a whole page beside a half, still conflict.
+        expect(stampFor([
+            half('left', 1),
+            half('left', null),
+        ])).toThrow('empty output mapping');
+        expect(stampFor([
+            half('full', 1),
+            half('right', null),
+        ])).toThrow('empty output mapping');
+    });
+
     it.each([
         'c'.repeat(40),
         'd'.repeat(64),

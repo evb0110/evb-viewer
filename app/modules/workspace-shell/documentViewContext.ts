@@ -85,11 +85,10 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         throw new Error(`Tab ${tabId} mounted a workspace for a document it does not view or that is not hosted`);
     }
     const document = hostedDocument;
-    // The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
-    // comes back where it was.
+    // The tab's view seeds this mount: a cold or restored tab returns there.
     const initialViewState = documentView.viewState.value;
-    const preserveInitialStateForFirstSource = controller.snapshot.value.phase === 'presented'
-        && documentView.toolbarSnapshot.value.initialVisualReady;
+    const preserveInitialStateForFirstSource = documentView.restored
+        || (controller.snapshot.value.phase === 'presented' && documentView.toolbarSnapshot.value.initialVisualReady);
     const {
         file,
         annotations,

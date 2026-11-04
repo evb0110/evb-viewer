@@ -91,9 +91,14 @@ cmake --build "$BUILD_DIR/poppler-26.02.0/build" --parallel "$JOBS" --target pdf
 # the unbuilt GUI/test/utility targets.
 cp -P "$BUILD_DIR/poppler-26.02.0/build/"libpoppler*.dylib "$PREFIX/lib/"
 # qpdf's built-in crypto removes the OpenSSL bottle dependency (as on Linux).
-cmake_configure qpdf-12.3.2 -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON \
+# libqpdf stays a shared library: pdf-page-ops loads it beside qpdf to read a
+# large document's metadata selectively, and without it falls back to reading
+# every object, which the largest documents exceed. The CLI links it, so the
+# dylib closure below ships it.
+cmake_configure qpdf-12.3.2 -DBUILD_STATIC_LIBS=OFF \
   -DREQUIRE_CRYPTO_NATIVE=ON -DUSE_IMPLICIT_CRYPTO=OFF -DBUILD_DOC=OFF -DINSTALL_EXAMPLES=OFF
 cmake --build "$BUILD_DIR/qpdf-12.3.2/build" --parallel "$JOBS" --target qpdf
+find "$BUILD_DIR/qpdf-12.3.2/build/libqpdf" -maxdepth 1 -name 'libqpdf*.dylib' -exec cp -P {} "$PREFIX/lib/" \;
 (
   cd "$BUILD_DIR/djvulibre-3.5.30"
   ./configure --prefix="$PREFIX" --disable-static --enable-shared --disable-xmltools --disable-desktopfiles \
@@ -142,5 +147,7 @@ smoke_tool() {
   cat "$output"
 }
 smoke_tool qpdf qpdf --version
+compgen -G "$PROJECT_ROOT/resources/qpdf/darwin-arm64/lib/libqpdf*.dylib" >/dev/null \
+  || { echo "Error: the qpdf bundle has no libqpdf for pdf-page-ops" >&2; exit 1; }
 smoke_tool pdftoppm poppler -v
 smoke_tool ddjvu djvulibre --help

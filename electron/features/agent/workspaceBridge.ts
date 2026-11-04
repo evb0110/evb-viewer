@@ -7,6 +7,7 @@ import {
     AGENT_WORKSPACE_SNAPSHOT_RESPONSE_SCHEMA,
     type IAgentCommandRequest,
     type IAgentCommandExecutionScope,
+    type IAgentCommandSuccessor,
     type IAgentRendererAck,
     type IAgentWorkspaceSnapshot,
     type IAgentWorkspaceSnapshotRequest,
@@ -26,6 +27,7 @@ import {
 } from '@electron/features/agent/main/agentRendererEvents';
 import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import { createLogger } from '@electron/utils/createLogger';
 import * as v from 'valibot';
 
 export const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 10_000;
@@ -64,7 +66,11 @@ interface IPendingRequest<TResponse> {
 }
 
 const pendingSnapshotRequests = new Map<TRequestId, IPendingRequest<IAgentWorkspaceSnapshot>>();
+const logger = createLogger('agent-workspace-bridge');
 const pendingCommandRequests = new Map<TRequestId, IPendingRequest<Record<string, unknown>>>();
+// Called while the renderer's response is handled, before it is acknowledged,
+// so main has adopted a command's own successor before the renderer moves on.
+const commandSuccessorHandlers = new Map<TRequestId, (successor: IAgentCommandSuccessor) => void>();
 const snapshotCacheByWindowId = new Map<number, ICachedWorkspaceSnapshot>();
 const snapshotLifecycleByWindowId = new Map<number, IWorkspaceSnapshotLifecycle>();
 let nextSnapshotGeneration = 1;
@@ -404,12 +410,14 @@ export function requestAgentCommand(
     timeoutMs?: number,
     scope?: IAgentCommandExecutionScope,
     signal?: AbortSignal,
+    onSuccessor?: (successor: IAgentCommandSuccessor) => void,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     if (signal?.aborted) {
         return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
     }
     const requestId = createRequestId('agent-command');
+    if (onSuccessor) commandSuccessorHandlers.set(requestId, onSuccessor);
     const effectiveTimeoutMs = resolveAgentCommandRequestTimeoutMs(command, timeoutMs);
     const request: IAgentCommandRequest = {
         requestId,
@@ -428,6 +436,7 @@ export function requestAgentCommand(
         },
         () => sendAgentCommandCancel(window, requestId),
     );
+    pending.catch(() => undefined).finally(() => commandSuccessorHandlers.delete(requestId));
 
     try {
         if (pendingCommandRequests.has(requestId)) {
@@ -582,6 +591,15 @@ export function submitAgentCommandResponse(
         return acceptRendererAck();
     }
 
+    if (response.successor && pendingCommandRequests.has(response.requestId)) {
+        // A turn that cannot adopt the successor is refused on its next
+        // request; this command's own result still arrives.
+        try {
+            commandSuccessorHandlers.get(response.requestId)?.(response.successor);
+        } catch (error) {
+            logger.warn(`Agent command successor was not adopted: ${getErrorMessage(error)}`);
+        }
+    }
     resolvePendingRequest(
         pendingCommandRequests,
         response.requestId,

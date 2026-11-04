@@ -633,6 +633,58 @@ describe('WorkspaceDocumentDriver', () => {
 
 describe('DjVu print layout cancellation storage', () => {
     afterEach(() => vi.unstubAllGlobals());
+    it('starts no conversion when canceled while its output is being created', async () => {
+        const indexedDb = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', indexedDb);
+        vi.stubGlobal('localStorage', new MemoryStorage());
+        const {prepareBrowserDjvuPrint} = await import('@app/platform/browser-api/prepareBrowserDjvuPrint');
+        const {browserDjvuCapability} = await import('@app/platform/browser-api/browserDjvuCapability');
+        const createStarted = Promise.withResolvers<undefined>();
+        const releaseCreate = Promise.withResolvers<undefined>();
+        const createStoredDocument = browserDocumentStore.createStoredDocument.bind(browserDocumentStore);
+        const create = vi.spyOn(browserDocumentStore, 'createStoredDocument').mockImplementationOnce(async (...args) => {
+            createStarted.resolve(undefined);
+            await releaseCreate.promise;
+            return createStoredDocument(...args);
+        });
+        let printResult: Awaited<ReturnType<typeof prepareBrowserDjvuPrint>> | null = null;
+        driverMocks.printDjvuPath.mockImplementationOnce(async (source, options) => {
+            printResult = await prepareBrowserDjvuPrint(source, options, requireJobId(`djvu-print-${options.requestId}`));
+            return printResult as never;
+        });
+        driverMocks.cancel.mockImplementationOnce(async jobId => (await browserDjvuCapability.cancel(jobId)).canceled);
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/create-cancel.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        }).activeDocumentDriver.value!;
+        const controller = new AbortController();
+        try {
+            const outcome = driver.run({
+                kind: 'prepare-print',
+                request: {
+                    orientation: 'auto',
+                    viewMode: 'single',
+                },
+                fileName: 'create-cancel.djvu',
+                sourceCapabilities: driver.view.defaultSourceCapabilities!,
+                signal: controller.signal,
+                onNativePrintHandoffStart: vi.fn(),
+            }).catch(error => error as Error);
+            await createStarted.promise;
+            controller.abort();
+            releaseCreate.resolve(undefined);
+
+            expect(await outcome).toMatchObject({name: 'AbortError'});
+            await vi.waitFor(() => expect(printResult).toMatchObject({canceled: true}));
+            expect(driverMocks.runBrowserDjvuConversion).not.toHaveBeenCalled();
+            expect(indexedDb.getDatabase(DB_NAME)?.getStoreRecords(DOCUMENTS_STORE).size ?? 0).toBe(0);
+        } finally {
+            create.mockRestore();
+        }
+    });
+
     it('leaves no stored PDF when canceled during layout', async () => {
         const indexedDb = new FakeIndexedDbFactory();
         vi.stubGlobal('indexedDB', indexedDb);

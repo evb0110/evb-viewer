@@ -264,7 +264,11 @@ const BOOKMARK_PATH_SELECTOR_SCHEMA = v.pipe(
 );
 const BOOKMARK_PATH_ITEMS_SCHEMA = v.pipe(v.array(v.strictObject({path: BOOKMARK_PATH_REQUIRED_SCHEMA})), v.minLength(1), v.description('Alias for paths using objects returned by bookmarks.read flat entries.'));
 const BOOKMARK_PATH_BOOKMARKS_SCHEMA = v.pipe(v.array(v.strictObject({path: BOOKMARK_PATH_REQUIRED_SCHEMA})), v.minLength(1), v.description('Alias for items.'));
+// The outline revision bookmarks.read and each write return. A write that
+// passes it is refused once the reader has changed the outline since.
+const BOOKMARK_REVISION_PROPERTIES = {revision: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.description('The bookmarks revision from bookmarks.read or the previous write. Pass it with paths: a write against an outline that changed since is refused.')))};
 const BOOKMARK_PATH_SELECTOR_PROPERTIES = {
+    ...BOOKMARK_REVISION_PROPERTIES,
     paths: v.optional(BOOKMARK_PATH_SELECTOR_SCHEMA),
     items: v.optional(BOOKMARK_PATH_ITEMS_SCHEMA),
     bookmarks: v.optional(BOOKMARK_PATH_BOOKMARKS_SCHEMA),
@@ -294,6 +298,7 @@ const BOOKMARK_FLAT_ENTRY_SCHEMA = v.strictObject({
     depth: v.optional(v.pipe(v.number(), v.description('Zero-based outline depth for flat TOC input; depth 0 is a root bookmark.'))),
 });
 export const BOOKMARK_TREE_INPUT_SCHEMA = v.strictObject({
+    ...BOOKMARK_REVISION_PROPERTIES,
     bookmarks: v.optional(v.pipe(v.array(BOOKMARK_ENTRY_SCHEMA), v.description('Complete replacement bookmark tree.'))),
     items: v.optional(v.pipe(v.array(BOOKMARK_ENTRY_SCHEMA), v.description('Alias for bookmarks.'))),
     tree: v.optional(v.pipe(v.array(BOOKMARK_ENTRY_SCHEMA), v.description('Alias for bookmarks.'))),
@@ -303,10 +308,12 @@ export const BOOKMARK_TREE_INPUT_SCHEMA = v.strictObject({
 });
 export const BOOKMARK_PLAN_INPUT_SCHEMA = BOOKMARK_TREE_INPUT_SCHEMA;
 export const BOOKMARK_ADD_INPUT_SCHEMA = v.strictObject({
+    ...BOOKMARK_REVISION_PROPERTIES,
     ...BOOKMARK_ENTRY_PROPERTIES,
     bookmark: v.optional(BOOKMARK_ENTRY_SCHEMA),
 });
 export const BOOKMARK_ADD_BATCH_INPUT_SCHEMA = v.strictObject({
+    ...BOOKMARK_REVISION_PROPERTIES,
     parentPath: v.optional(BOOKMARK_PATH_SCHEMA),
     bookmarks: v.optional(v.array(BOOKMARK_ENTRY_SCHEMA)),
     items: v.optional(v.array(BOOKMARK_ENTRY_SCHEMA)),
@@ -318,11 +325,15 @@ const {
     ...BOOKMARK_UPDATE_ENTRY_PROPERTIES
 } = BOOKMARK_ENTRY_PROPERTIES;
 export const BOOKMARK_UPDATE_INPUT_SCHEMA = v.strictObject({
+    ...BOOKMARK_REVISION_PROPERTIES,
     path: BOOKMARK_PATH_SCHEMA,
     ...BOOKMARK_UPDATE_ENTRY_PROPERTIES,
     bookmark: v.optional(v.strictObject(BOOKMARK_UPDATE_ENTRY_PROPERTIES)),
 });
-export const BOOKMARK_DELETE_INPUT_SCHEMA = v.strictObject({path: BOOKMARK_PATH_SCHEMA});
+export const BOOKMARK_DELETE_INPUT_SCHEMA = v.strictObject({
+    ...BOOKMARK_REVISION_PROPERTIES,
+    path: BOOKMARK_PATH_SCHEMA,
+});
 const BOOKMARK_DELETE_BATCH_PROPERTIES = {
     ...BOOKMARK_PATH_SELECTOR_PROPERTIES,
     paths: v.optional(v.pipe(BOOKMARK_PATH_SELECTOR_SCHEMA, v.description('Zero-based bookmark paths to delete in one metadata edit.'))),

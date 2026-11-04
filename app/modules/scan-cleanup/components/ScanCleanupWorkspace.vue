@@ -184,7 +184,6 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSettingsBadges';
 import {formatScanCleanupSettingsBadge} from '@app/modules/scan-cleanup/runtime/formatScanCleanupSettingsBadge';
 import {
-    attachScanCleanupPageOverrideDefaults,
     areScanCleanupMarginsMmEqual,
     createScanCleanupPageOverride,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
@@ -327,6 +326,8 @@ const {
     setMarginsLinked: setSelectionMarginsLinked,
     updateOutputModeOverride: updateSelectionOutputModeOverride,
     updateOverrides: updateSelectionOverrides,
+    setPageOverrideDefaults,
+    recordOverrideEdit,
     updateCurrentPlacement,
 } = workspaceSession.selection;
 const previewPage = selectionLeader;
@@ -459,13 +460,6 @@ const zoneEditing = ref(false);
 const allScopeDefaultOverride = computed(() => settings.pageOverrideDefaults
     ?? createScanCleanupPageOverride());
 
-function setAllScopeDefault(value: IScanCleanupPageOverride) {
-    const next = createScanCleanupPageOverride(value);
-    settings.pageOverrideDefaults = next;
-    attachScanCleanupPageOverrideDefaults(settings.pageOverrides, next, settings.marginsMm);
-    return next;
-}
-
 function resetSettingsToDefaults() {
     if (isRunning.value) {
         return;
@@ -495,12 +489,8 @@ function updateScopeOverrides(
     update: TScanCleanupPageOverrideUpdate,
     updateExisting: TScanCleanupPageOverrideUpdate = update,
 ) {
-    if (settingsScope.value === 'all') {
-        setAllScopeDefault(update(allScopeDefaultOverride.value, selectionLeader.value));
-        updateSelectionOverrides(existingOverridePages(), updateExisting);
-        return;
-    }
-    updateSelectionOverrides(scopePageNumbers.value, update);
+    if (settingsScope.value === 'all') updateSelectionOverrides(existingOverridePages(), updateExisting, update(allScopeDefaultOverride.value, selectionLeader.value));
+    else updateSelectionOverrides(scopePageNumbers.value, update);
 }
 
 const scopePageOverrides = computed(() => settingsScope.value === 'all'
@@ -514,11 +504,7 @@ function resolveAllPageOverrideValue<T>(
     const values = [settings.pageOverrideDefaults === undefined
         ? defaultValue
         : read(allScopeDefaultOverride.value)];
-    for (const pageKey of Object.keys(settings.pageOverrides)) {
-        const page = Number(pageKey);
-        if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
-            continue;
-        }
+    for (const page of existingOverridePages()) {
         values.push(read(getPageOverride(page)));
     }
     return resolveScanCleanupMixedValue(values);
@@ -880,12 +866,14 @@ function handleScopeInclusion(value: string | number) {
 
 function updateScopeMargin(target: Parameters<typeof updateDocumentMargin>[0], value: number) {
     if (settingsScope.value === 'all') {
-        const {
-            marginsMm: _marginsMm,
-            ...withoutMargins
-        } = allScopeDefaultOverride.value;
-        setAllScopeDefault(createScanCleanupPageOverride(withoutMargins));
-        updateDocumentMargin(target, value);
+        recordOverrideEdit(Object.keys(settings.pageOverrides).map(Number), () => {
+            const {
+                marginsMm: _marginsMm,
+                ...withoutMargins
+            } = allScopeDefaultOverride.value;
+            setPageOverrideDefaults(withoutMargins);
+            updateDocumentMargin(target, value);
+        });
         return;
     }
     updateSelectionMargins(target, value, scopePageNumbers.value);
@@ -907,7 +895,7 @@ function setScopeMarginsLinked(linked: boolean) {
         marginsMm: _marginsMm,
         ...withoutMargins
     } = allScopeDefaultOverride.value;
-    setAllScopeDefault(createScanCleanupPageOverride(withoutMargins));
+    setPageOverrideDefaults(withoutMargins);
     setDocumentMarginsLinked(linked);
 }
 

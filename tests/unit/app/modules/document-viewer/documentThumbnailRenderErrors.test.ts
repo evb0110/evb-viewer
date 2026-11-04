@@ -87,6 +87,14 @@ describe('DocumentThumbnailList render errors', () => {
         expect(countDocumentThumbnailCalls(harness.renderCalls, 3)).toBe(3);
     });
 
+    it('names each row by the document page it shows when rows are reordered', async () => {
+        const harness = createDocumentThumbnailSourceHarness();
+        const {host} = mountDocumentThumbnailList(harness.source, true, undefined, row => 10 + row);
+        await settleDocumentThumbnailList();
+
+        expect(documentThumbnailRow(host, 3)?.getAttribute('aria-label')).toBe('Go to page 13');
+    });
+
     it('recovers without an error surface when a retry succeeds', async () => {
         const harness = createDocumentThumbnailSourceHarness();
         harness.behaviors.set(3, 'defer');

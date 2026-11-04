@@ -25,6 +25,7 @@ import {
     requestAgentWorkspaceSnapshot,
 } from '@electron/features/agent/workspaceBridge';
 import {
+    adoptAssistantTurnSuccessor,
     assertAssistantMcpSnapshotMatchesScope,
     assertAssistantMcpTabMatchesBinding,
     clearAssistantMcpSessionScope,
@@ -415,6 +416,7 @@ function createDefaultMcpRequestOptions(
                     undefined,
                     scope,
                     signal,
+                    successor => adoptAssistantTurnSuccessor(binding, successor),
                 );
             },
             inspectDocumentText: async (input, windowId, signal) => {

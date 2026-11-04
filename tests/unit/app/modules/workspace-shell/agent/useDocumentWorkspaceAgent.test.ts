@@ -1,4 +1,7 @@
 import { ref } from 'vue';
+import {cast} from '@tests/helpers/cast';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 import {
     describe,
     expect,
@@ -179,6 +182,7 @@ function createAgentOptions(
         handleBookmarksChange: vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         }),
+        getBookmarksRevision: () => 0,
         updateTextMarkupColorWithHistory: vi.fn(() => true),
         handleDeleteAnnotationComment: vi.fn(async () => undefined),
         handleDropdownOpen: vi.fn(),
@@ -196,12 +200,12 @@ function createAgentOptions(
         handlePageLabelRangesUpdate: vi.fn((ranges) => {
             pageLabelRanges.value = ranges;
         }),
-        handlePageRotate: vi.fn(async () => undefined),
+        handlePageRotate: vi.fn(async () => true),
         handlePrint: vi.fn(),
         handlePrintCurrentPage: vi.fn(async () => undefined),
         handleQuickNoteAction: vi.fn(async () => undefined),
         handleSave: vi.fn(async () => true),
-        handleSaveAs: vi.fn(async () => undefined),
+        handleSaveAs: vi.fn(async () => true),
         handleZoomIn: vi.fn(),
         handleZoomOut: vi.fn(),
         hasPdf: ref(true),
@@ -220,9 +224,9 @@ function createAgentOptions(
         pageLabelRanges,
         pageLabels: ref<string[] | null>(null),
         pageLabelsDirty: ref(false),
-        pageOpsDelete: vi.fn(async () => undefined),
-        pageOpsExtract: vi.fn(async () => undefined),
-        pageOpsInsert: vi.fn(async () => undefined),
+        pageOpsDelete: vi.fn(async () => true),
+        pageOpsExtract: vi.fn(async () => true),
+        pageOpsInsert: vi.fn(async () => true),
         handleCropPages: vi.fn(async () => true),
         handleRemoveCrop: vi.fn(async () => true),
         pdfViewerRef: ref<IWorkspacePdfViewerAgentPort | null>(null),
@@ -477,6 +481,30 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(applied[0]?.startNumber).toBe(admitted);
         await agent.runAgentAction('page_labels.apply_plan', {segments: [input]});
         expect(options.pageLabelRanges.value).toEqual(applied);
+    });
+
+    it.each([
+        'page_labels.apply_range',
+        'page_labels.apply_plan',
+        'page_labels.set_ranges',
+    ])('keeps an explicit null style as a literal label through %s', async (actionId) => {
+        const options = createAgentOptions();
+        const agent = createDocumentWorkspaceAgent(options);
+        const range = {
+            startPage: 1,
+            endPage: 1,
+            style: null,
+            prefix: 'Cover',
+        };
+        await agent.runAgentAction(actionId, actionId === 'page_labels.apply_range'
+            ? range
+            : actionId === 'page_labels.apply_plan' ? {segments: [range]} : {ranges: [range]});
+
+        expect(options.pageLabelRanges.value[0]).toMatchObject({
+            startPage: 1,
+            style: null,
+            prefix: 'Cover',
+        });
     });
 
     it('keeps primary renderer action handlers aligned with advertised capabilities', () => {
@@ -1441,6 +1469,110 @@ describe('createDocumentWorkspaceAgent', () => {
         )).toThrow(/did not match its advertised schema/u);
     });
 
+    it('refuses a bookmark write by path once the reader has changed the outline since it was read', async () => {
+        const bookmarkState = useBookmarkState({markDirty: vi.fn()});
+        const entry = (title: string, pageIndex: number): IPdfBookmarkEntry => ({
+            title,
+            pageIndex: requirePageIndex(pageIndex),
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        });
+        bookmarkState.handleBookmarksChange({
+            bookmarks: [
+                entry('A', 0),
+                entry('B', 1),
+                entry('C', 2),
+            ],
+            dirty: false,
+        });
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            ...bookmarkState,
+            totalPages: ref(3),
+        }));
+        const read = await agent.runAgentAction('bookmarks.read', {}) as {revision: number};
+
+        // The reader deletes A in the sidebar; path [1] now names C.
+        bookmarkState.handleBookmarksChange({
+            bookmarks: bookmarkState.bookmarkItems.value.slice(1),
+            dirty: true,
+        });
+        await expect(agent.runAgentAction('bookmarks.delete', {
+            path: [1],
+            revision: read.revision,
+        })).rejects.toThrow(/changed since revision/u);
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
+            'B',
+            'C',
+        ]);
+
+        const reread = await agent.runAgentAction('bookmarks.read', {}) as {revision: number};
+        const deleted = await agent.runAgentAction('bookmarks.delete', {
+            path: [1],
+            revision: reread.revision,
+        }) as {revision: number};
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual(['B']);
+        expect(deleted.revision, 'the write returns the revision after it').toBeGreaterThan(reread.revision);
+    });
+
+    it('refuses a stale preview plan and applies a plan after the reader reviews again', async () => {
+        const bookmarkState = useBookmarkState({markDirty: vi.fn()});
+        const entry = (title: string, pageIndex: number): IPdfBookmarkEntry => ({
+            title,
+            pageIndex: requirePageIndex(pageIndex),
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        });
+        bookmarkState.handleBookmarksChange({
+            bookmarks: [
+                entry('A', 0),
+                entry('B', 1),
+                entry('C', 2),
+            ],
+            dirty: false,
+        });
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            ...bookmarkState,
+            totalPages: ref(3),
+        }));
+        const plan = await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value}) as {
+            revision: number;
+            bookmarks: IPdfBookmarkEntry[]
+        };
+        bookmarkState.handleBookmarksChange({
+            bookmarks: bookmarkState.bookmarkItems.value.slice(1),
+            dirty: true,
+        });
+        await expect(agent.runAgentAction('bookmarks.apply_plan', {
+            bookmarks: plan.bookmarks,
+            revision: plan.revision,
+        }))
+            .rejects.toThrow(/changed since revision/u);
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
+            'B',
+            'C',
+        ]);
+        const current = await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value}) as {
+            revision: number;
+            bookmarks: IPdfBookmarkEntry[]
+        };
+        await expect(agent.runAgentAction('bookmarks.apply_plan', {
+            bookmarks: current.bookmarks,
+            revision: current.revision,
+        })).resolves.toBeDefined();
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
+            'B',
+            'C',
+        ]);
+    });
+
     it('lets file.save observe save readiness after an immediate bookmark action', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
         const bookmarksDirty = ref(false);
@@ -1740,9 +1872,57 @@ describe('createDocumentWorkspaceAgent', () => {
         }), 'Updated note');
     });
 
+    it('undoes an assistant note edit back to the open, unsaved draft', async () => {
+        const comment = createAnnotationComment({
+            text: 'Original note',
+            hasNote: true,
+            kindLabel: 'Note',
+            subtype: 'Text',
+        });
+        const annotationId = annotationIdForSummary(comment);
+        // The reader typed into the open note; the debounce has not saved it.
+        const noteWindows = ref([cast<IAnnotationNoteWindowViewModel>({
+            annotationId,
+            draftText: 'Reader draft',
+            dirty: true,
+        })]);
+        const updateAnnotationNoteText = vi.fn((id: string, text: string) => {
+            noteWindows.value = noteWindows.value.map(note => note.annotationId === id ? {
+                ...note,
+                draftText: text,
+            } : note);
+        });
+        const historyCommands: Array<{
+            cmd: () => void;
+            undo: () => void;
+        }> = [];
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            annotationComments: ref([comment]),
+            sortedAnnotationNoteWindows: noteWindows,
+            updateAnnotationNoteText,
+            pdfViewerRef: ref(createAgentViewerPort({registerAnnotationHistoryCommand: vi.fn((command: {
+                cmd: () => void;
+                undo: () => void;
+            }) => {
+                historyCommands.push(command);
+            })})),
+        }));
+
+        // Back to the stored text: still a change from what the reader sees.
+        await agent.runAgentAction('annotation.update_note', {
+            stableKey: comment.stableKey,
+            text: 'Original note',
+        });
+        expect(noteWindows.value[0]?.draftText).toBe('Original note');
+        expect(historyCommands).toHaveLength(1);
+
+        historyCommands[0]!.undo();
+        expect(noteWindows.value[0]?.draftText, 'Undo brings back the reader draft').toBe('Reader draft');
+    });
+
     it('passes an exact compact selection to page-operation actions', async () => {
         const selection = createRangePageSelection(1_000_000, 2, 100_002);
-        const pageOpsDelete = vi.fn(async () => undefined);
+        const pageOpsDelete = vi.fn(async () => true);
         const agent = createDocumentWorkspaceAgent(createAgentOptions({
             totalPages: ref(1_000_000),
             selectedThumbnailPages: ref([]),
@@ -1757,16 +1937,29 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(pageOpsDelete).toHaveBeenCalledWith(selection, 1_000_000);
     });
 
+    it('reports a refused page operation and a canceled Save As as failures', async () => {
+        // Deleting a document's only page is refused; the dialog of Save As is canceled.
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            totalPages: ref(1),
+            selectedThumbnailPages: ref([1]),
+            pageOpsDelete: vi.fn(async () => false),
+            handleSaveAs: vi.fn(async () => false),
+        }));
+
+        await expect(agent.runAgentAction('page_ops.delete_selected', {})).rejects.toThrow('did not complete');
+        await expect(agent.runAgentAction('file.save_as', {})).rejects.toThrow('did not complete');
+    });
+
     it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {
         const selectedThumbnailPages = ref([
             1,
             2,
         ]);
         const showConvertDialog = ref(false);
-        const pageOpsDelete = vi.fn(async () => undefined);
-        const pageOpsExtract = vi.fn(async () => undefined);
-        const pageOpsInsert = vi.fn(async () => undefined);
-        const handlePageRotate = vi.fn(async () => undefined);
+        const pageOpsDelete = vi.fn(async () => true);
+        const pageOpsExtract = vi.fn(async () => true);
+        const pageOpsInsert = vi.fn(async () => true);
+        const handlePageRotate = vi.fn(async () => true);
         const openConvertDialog = vi.fn(() => {
             showConvertDialog.value = true;
         });
