@@ -892,10 +892,18 @@ describe('scan cleanup renderer preference store', () => {
     it.each([
         'reset',
         'another view',
+        'an unchanged selected page edited in another view',
     ] as const)('undo preserves page overrides after %s', async action => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const sourceSha256 = 'a'.repeat(64);
+        const unchangedPage = action === 'an unchanged selected page edited in another view';
+        if (unchangedPage) {
+            await store.update({document: {
+                sourceSha256,
+                patch: {overrideEdits: {'1': createScanCleanupPageOverride({rotationDegrees: 90})}},
+            }});
+        }
         const ledger = useWorkspaceCommandLedger();
         const active = ref(false);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
@@ -924,19 +932,31 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            if (unchangedPage) expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);
             if (action === 'reset') selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
-            selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+            // Page 1 is already turned: the bulk turn changes only page 2.
+            if (unchangedPage) selection.updateRotation(90, [
+                1,
+                2,
+            ]);
+            else selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
             await nextTick();
             await flushScanCleanupDocumentPreferencesStore();
             if (action === 'reset') {
                 settings.resetPageOverrides();
             } else {
+                const otherPage = unchangedPage ? '1' : '3';
                 await store.update({document: {
                     sourceSha256,
-                    patch: {overrideEdits: {'3': createScanCleanupPageOverride({rotationDegrees: 270})}},
+                    patch: {overrideEdits: {[otherPage]: createScanCleanupPageOverride(unchangedPage
+                        ? {
+                            rotationDegrees: 90,
+                            excluded: true,
+                        }
+                        : {rotationDegrees: 270})}},
                 }});
                 active.value = true;
-                await vi.waitFor(() => expect(settings.values.pageOverrides['3']?.rotationDegrees).toBe(270));
+                await vi.waitFor(() => expect(settings.values.pageOverrides[otherPage]?.[unchangedPage ? 'excluded' : 'rotationDegrees']).toBe(unchangedPage ? true : 270));
             }
 
             await ledger.undoTimeline();
@@ -946,6 +966,12 @@ describe('scan cleanup renderer preference store', () => {
             if (action === 'reset') {
                 expect(displayed).toEqual({});
                 expect(ledger.canUndoTimeline.value).toBe(false);
+            } else if (unchangedPage) {
+                expect(displayed['1']).toMatchObject({
+                    rotationDegrees: 90,
+                    excluded: true,
+                });
+                expect(displayed['2']).toBeUndefined();
             } else {
                 expect(displayed['1']).toBeUndefined();
                 expect(displayed['3']?.rotationDegrees).toBe(270);

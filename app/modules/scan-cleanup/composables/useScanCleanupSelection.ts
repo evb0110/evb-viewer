@@ -155,29 +155,31 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         update: Parameters<typeof updateScanCleanupPageOverrides>[2],
     ) {
         // Undo and redo replay only the pages this edit changed, so a reset or a
-        // later edit of other pages stays as it is.
-        const pageNumbers = [...new Set(pages)];
-        const readPages = () => pageNumbers.map(page => cloneScanCleanupPreferenceValue(options.settings.pageOverrides[String(page)]));
+        // later edit of another page, selected or not, stays as it is.
+        const selected = [...new Set(pages)];
+        const readPages = () => selected.map(page => cloneScanCleanupPreferenceValue(options.settings.pageOverrides[String(page)]));
         const before = readPages();
-        updateScanCleanupPageOverrides(options.settings.pageOverrides, pageNumbers, update, options.settings.marginsMm);
+        updateScanCleanupPageOverrides(options.settings.pageOverrides, selected, update, options.settings.marginsMm);
         const after = readPages();
-        if (isEqual(before, after)) return;
-        const apply = (values: typeof before) => {
-            pageNumbers.forEach((page, index) => {
-                const value = values[index];
-                if (value === undefined) Reflect.deleteProperty(options.settings.pageOverrides, String(page));
-                else options.settings.pageOverrides[String(page)] = cloneScanCleanupPreferenceValue(value);
-            });
+        const changed = selected.flatMap((page, index) => isEqual(before[index], after[index]) ? [] : [{
+            page,
+            before: before[index],
+            after: after[index],
+        }]);
+        if (changed.length === 0) return;
+        const apply = (side: 'before' | 'after') => {
+            for (const entry of changed) {
+                const value = entry[side];
+                if (value === undefined) Reflect.deleteProperty(options.settings.pageOverrides, String(entry.page));
+                else options.settings.pageOverrides[String(entry.page)] = cloneScanCleanupPreferenceValue(value);
+            }
             return true;
         };
         commandSink?.register({
             source: 'scan-cleanup',
-            estimatedBytes: JSON.stringify([
-                before,
-                after,
-            ]).length * 2,
-            undo: () => apply(before),
-            cmd: () => apply(after),
+            estimatedBytes: JSON.stringify(changed).length * 2,
+            undo: () => apply('before'),
+            cmd: () => apply('after'),
         });
     }
 
