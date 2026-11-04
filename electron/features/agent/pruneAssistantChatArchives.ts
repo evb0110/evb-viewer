@@ -17,7 +17,9 @@ export async function pruneAssistantChatArchives(
     }> = [];
     try {
         for (const entry of await readdir(archiveDir, {withFileTypes: true})) {
-            if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
+            // Migration backups retain nonselected conversations and suppress re-import.
+            if (!entry.isFile() || !entry.name.endsWith('.jsonl')
+                || /\.scope-(?:migrated|backup)\.\d+\.[a-f0-9]+\.jsonl$/u.test(entry.name)) {
                 continue;
             }
             const filePath = join(archiveDir, entry.name);

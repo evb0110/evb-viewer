@@ -8,6 +8,7 @@ import {
 } from 'fs';
 import {
     appendFile,
+    copyFile,
     mkdir,
     readFile,
     readdir,
@@ -32,7 +33,9 @@ import type {
 } from '@contracts/agent';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
-import {parseDocumentRef} from '@contracts/documentRef';
+import {
+    inferDocumentRefBackend, parseDocumentRef,
+} from '@contracts/documentRef';
 import {
     isEpochMs,
     parseIsoTimestamp,
@@ -537,6 +540,22 @@ function createPersistedSnapshotRecord(
     };
 }
 
+// Compatibility for pre-004d174623 document-session scopes. Remove only when
+// importing schema-1 chats from those releases is no longer supported.
+function legacyDocumentScopeKey(entry: IRecoveredAssistantChatSessionFile) {
+    const {
+        provider, scope,
+    } = entry.session;
+    if (!scope.key.startsWith('document-session:')
+        || scope.key === 'document-session:'
+        || entry.key !== `${provider}:${scope.key}`) return null;
+    const documentRef = parseDocumentRef(scope.documentRef);
+    if (documentRef === null) return null;
+    const backend = inferDocumentRefBackend(documentRef);
+    if (scope.documentBackend !== undefined && scope.documentBackend !== backend) return null;
+    return `document:${backend}:${documentRef}`;
+}
+
 export class AssistantChatPersistence {
     readonly rootDir: string;
     readonly sessionsDir: string;
@@ -555,6 +574,8 @@ export class AssistantChatPersistence {
     private readonly activeSnapshotCounts = new Map<string, number>();
     /** Index metadata of each recovered session file, with the identity it was read at. */
     private readonly indexedSessionFiles = new Map<string, TAssistantChatSessionIndexEntry & {identity: string}>();
+    /** The compatibility pass runs once per owner, and only after a complete read. */
+    private legacyScopesMigrated = false;
     private writeQueue: Promise<void> = Promise.resolve();
     private writeOutcome: Promise<void> = Promise.resolve();
 
@@ -602,6 +623,15 @@ export class AssistantChatPersistence {
             this.onError('Failed to enumerate assistant chat sessions', error);
             return [];
         }
+        let migrationFailure: AssistantChatPersistenceError | undefined;
+        await this.enqueue('scope-migration', async () => {
+            try {
+                entries = await this.adoptLegacyDocumentScopes(entries);
+            } catch (error) {
+                migrationFailure = this.toPersistenceError('scope-migration', error);
+            }
+        });
+        if (migrationFailure) throw migrationFailure;
         const recovered = entries.map(entry => ({
             ...entry,
             session: interruptRecoveredSession(entry.session),
@@ -613,65 +643,219 @@ export class AssistantChatPersistence {
     }
 
     async recoverSession(key: string): Promise<IRecoveredAssistantChatSession | null> {
-        // The queued callback supplies the result before the lookup returns.
         let recovered = null as IRecoveredAssistantChatSession | AssistantChatPersistenceError | null;
         this.forcePendingSnapshot(key, true);
         await this.enqueue(key, async () => {
-            const legacyName = `${Buffer.from(key).toString('base64url')}.jsonl`;
-            const paths = [this.sessionPath(key)];
-            if (Buffer.byteLength(legacyName) <= 255) {
-                paths.push(join(this.sessionsDir, legacyName));
-            }
-            const archives = await this.readSessionArchives(key);
-            for (const candidate of [
-                ...paths.map(filePath => ({
-                    filePath,
-                    reason: 'live',
-                })),
-                ...archives,
-            ]) {
-                if (candidate.reason === 'reset' || candidate.reason === 'corrupt') {
-                    break;
+            try {
+                if (!this.legacyScopesMigrated && /^(codex|claude):document:/u.test(key)) {
+                    await this.adoptLegacyDocumentScopes(await this.readSessionEntries());
                 }
-                let contents: string;
-                try {
-                    contents = await this.readSessionContents(candidate.filePath, key);
-                } catch (error) {
-                    if (isErrnoException(error) && error.code === 'ENOENT') {
-                        continue;
-                    }
-                    recovered = this.toPersistenceError(key, error);
-                    this.onError(`Failed to recover assistant chat session "${key}" during lookup`, recovered);
-                    break;
-                }
-                let file;
-                try {
-                    file = this.recoverSessionContents(candidate.filePath, key, contents);
-                } catch (error) {
-                    if (error instanceof AssistantChatPersistenceError) {
-                        recovered = error;
-                    } else {
-                        await this.quarantineCorruptSession(candidate.filePath);
-                    }
-                    this.onError(`Failed to recover assistant chat session "${key}" during lookup`, error);
-                    break;
-                }
-                if (file) {
-                    recovered = {
-                        key: file.key,
-                        session: interruptRecoveredSession(file.session),
-                        filePath: candidate.filePath,
-                        sizeBytes: Buffer.byteLength(contents),
-                    };
-                }
-                // An empty/reset live transcript is authoritative, as is the
-                // newest retained eviction snapshot. Never resurrect older data.
-                break;
+                const {entry} = await this.readSessionForRecovery(key);
+                if (entry) recovered = {
+                    ...entry,
+                    session: interruptRecoveredSession(entry.session),
+                };
+            } catch (error) {
+                recovered = this.toPersistenceError(key, error);
+                this.onError(`Failed to recover assistant chat session "${key}" during lookup`, recovered);
             }
         }, true);
-        // A failed lookup must reject without poisoning the settled write queue.
+        // Report failure after the queued callback settles, so a retry is usable.
         if (recovered instanceof AssistantChatPersistenceError) throw recovered;
         return recovered;
+    }
+
+    /** One authority rule for ordinary lookup and legacy scope adoption. */
+    private async readSessionForRecovery(key: string): Promise<{
+        entry: IAssistantChatSessionEntry | null;
+        blocksImport: boolean;
+    }> {
+        const legacyName = `${Buffer.from(key).toString('base64url')}.jsonl`;
+        const paths = [this.sessionPath(key)];
+        if (Buffer.byteLength(legacyName) <= 255) paths.push(join(this.sessionsDir, legacyName));
+        const archives = await this.readSessionArchives(key);
+        const isBarrier = (reason: string) => reason === 'reset' || reason === 'corrupt' || reason === 'scope-migrated';
+        const retiredLegacyKey = /^(codex|claude):document-session:/u.test(key)
+            && archives.some(archive => archive.reason === 'scope-migrated');
+        for (const candidate of [
+            ...paths.map(filePath => ({
+                filePath,
+                reason: 'live',
+            })),
+            ...archives,
+        ]) {
+            if (isBarrier(candidate.reason) || candidate.reason !== 'live' && retiredLegacyKey) return {
+                entry: null,
+                blocksImport: true,
+            };
+            let contents: string;
+            try {
+                contents = await this.readSessionContents(candidate.filePath, key);
+            } catch (error) {
+                if (isErrnoException(error) && error.code === 'ENOENT') continue;
+                throw error;
+            }
+            let file;
+            try {
+                file = this.recoverSessionContents(candidate.filePath, key, contents);
+            } catch (error) {
+                if (error instanceof AssistantChatPersistenceError) throw error;
+                await this.quarantineCorruptSession(candidate.filePath);
+                this.onError(`Failed to recover assistant chat session "${key}" during lookup`, error);
+                return {
+                    entry: null,
+                    blocksImport: true,
+                };
+            }
+            return {
+                entry: file ? {
+                    key: file.key,
+                    session: file.session,
+                    filePath: candidate.filePath,
+                    lastAccessedAtMs: file.session.lastAccessedAtMs,
+                    sizeBytes: Buffer.byteLength(contents),
+                } : null,
+                // An empty/reset transcript and explicit reset/corrupt archives
+                // must never be treated as an automatically-created empty chat.
+                blocksImport: !file || archives.some(archive => archive.reason === 'reset' || archive.reason === 'corrupt'),
+            };
+        }
+        return {
+            entry: null,
+            blocksImport: false,
+        };
+    }
+
+    /** Runs inside the existing write queue, before any recovered grants escape. */
+    private async adoptLegacyDocumentScopes(entries: IAssistantChatSessionEntry[]) {
+        if (this.legacyScopesMigrated) return entries;
+        // A transiently unreadable live transcript keeps the pass retryable.
+        const completeRead = (await this.listSessionFiles()).length === entries.length;
+        const candidates: IRecoveredAssistantChatSessionFile[] = [...entries];
+        // Discover old logical keys even when their only retained copy was evicted.
+        // Choose the newest archive per filename prefix before reading its bytes.
+        const newest = new Map<string, {
+            filePath: string;
+            reason: string;
+            time: number
+        }>();
+        for (const file of await readdir(this.archiveDir, {withFileTypes: true})) {
+            const match = /^(.*)\.(evicted|expired|reset|corrupt|scope-migrated)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(file.name);
+            if (!file.isFile() || !match) continue;
+            const candidate = {
+                filePath: join(this.archiveDir, file.name),
+                reason: match[2]!,
+                time: Number(match[3]),
+            };
+            const previous = newest.get(match[1]!);
+            const terminal = (reason: string) => /^(reset|corrupt|scope-migrated)$/u.test(reason);
+            if (!previous || candidate.time > previous.time
+                || candidate.time === previous.time && (
+                    Number(terminal(candidate.reason)) > Number(terminal(previous.reason))
+                    || terminal(candidate.reason) === terminal(previous.reason) && candidate.filePath > previous.filePath
+                )) newest.set(match[1]!, candidate);
+        }
+        for (const archive of newest.values()) {
+            if (archive.reason !== 'evicted' && archive.reason !== 'expired') continue;
+            try {
+                const entry = await this.recoverSessionFileAsync(archive.filePath);
+                if (entry) candidates.push(entry);
+            } catch (error) {
+                if (error instanceof AssistantChatPersistenceError) throw error;
+                await this.quarantineCorruptSession(archive.filePath);
+                this.onError('Failed to inspect archived assistant chat scope', error);
+            }
+        }
+        const groups = new Map<string, Set<string>>();
+        for (const entry of candidates) {
+            const scopeKey = legacyDocumentScopeKey(entry);
+            if (scopeKey === null) continue;
+            const key = `${entry.session.provider}:${scopeKey}`;
+            const group = groups.get(key) ?? new Set<string>();
+            group.add(entry.key);
+            groups.set(key, group);
+        }
+        let changed = false;
+        for (const [
+            key,
+            oldKeys,
+        ] of [...groups].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+            const current = await this.readSessionForRecovery(key);
+            const legacy: IAssistantChatSessionEntry[] = [];
+            for (const oldKey of oldKeys) {
+                const source = await this.readSessionForRecovery(oldKey);
+                if (source.entry) {
+                    const scopeKey = legacyDocumentScopeKey(source.entry);
+                    if (scopeKey !== null && `${source.entry.session.provider}:${scopeKey}` === key) legacy.push(source.entry);
+                }
+            }
+            const hasConversation = (entry: IAssistantChatSessionEntry) => entry.session.messages.length > 0 || entry.session.providerThreadId !== null;
+            legacy.sort((a, b) => Number(hasConversation(b)) - Number(hasConversation(a))
+                || b.lastAccessedAtMs - a.lastAccessedAtMs || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+            if (legacy.length === 0) continue;
+            let canonical = current.entry;
+            if (!current.blocksImport && (!canonical || !hasConversation(canonical))) {
+                const winner = legacy[0]!;
+                const session = clonePersistedSession(interruptRecoveredSession(winner.session));
+                session.scope = {
+                    ...session.scope,
+                    key: key.slice(`${session.provider}:`.length),
+                };
+                // Retain any existing empty transcript before replacing it.
+                if (canonical) await this.archiveSessionFile(canonical.filePath, 'scope-backup');
+                await this.snapshotStorage.writeBoundedSnapshot(this.sessionPath(key), createSnapshotRecord(key, session), key);
+                canonical = {
+                    key,
+                    session,
+                    filePath: this.sessionPath(key),
+                    lastAccessedAtMs: session.lastAccessedAtMs,
+                    sizeBytes: (await stat(this.sessionPath(key))).size,
+                };
+                changed = true;
+            }
+            // A reset/corrupt canonical entry forbids adoption, but old histories
+            // still retire to protected backups instead of being re-imported.
+            if (!canonical && !current.blocksImport) continue;
+            if (canonical && canonical.filePath !== this.sessionPath(key)) {
+                const session = clonePersistedSession(interruptRecoveredSession(canonical.session));
+                await this.snapshotStorage.writeBoundedSnapshot(this.sessionPath(key), createSnapshotRecord(key, session), key);
+                canonical = {
+                    ...canonical,
+                    session,
+                    filePath: this.sessionPath(key),
+                };
+                changed = true;
+            }
+            // Publication above is durable before any old live filename retires.
+            for (const source of legacy) {
+                const oldName = `${Buffer.from(source.key).toString('base64url')}.jsonl`;
+                const paths = new Set([
+                    source.filePath,
+                    this.sessionPath(source.key),
+                ]);
+                if (Buffer.byteLength(oldName) <= 255) paths.add(join(this.sessionsDir, oldName));
+                for (const filePath of paths) {
+                    if (await this.pathExists(filePath)) await this.archiveSessionFile(filePath, 'scope-migrated');
+                }
+                changed = true;
+            }
+            // Retire a canonical base64 sibling too, so directory order cannot
+            // replace the published hashed transcript on the next startup.
+            for (const entry of entries) {
+                if (entry.key === key && entry.filePath !== canonical?.filePath
+                    && await this.pathExists(entry.filePath)) {
+                    await this.archiveSessionFile(entry.filePath, 'scope-migrated');
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            this.indexedSessionFiles.clear();
+        }
+        const migrated = changed ? await this.readSessionEntries() : entries;
+        await this.writeIndex(migrated);
+        this.legacyScopesMigrated = completeRead;
+        return migrated;
     }
 
     private async readSessionArchives(key: string) {
@@ -683,7 +867,7 @@ export class AssistantChatPersistence {
         const archives = [];
         for (const entry of entries) {
             const prefix = prefixes.find(value => entry.name.startsWith(value));
-            const match = prefix && /^(evicted|expired|reset|corrupt)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(entry.name.slice(prefix.length));
+            const match = prefix && /^(evicted|expired|reset|corrupt|scope-migrated)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(entry.name.slice(prefix.length));
             if (entry.isFile() && match) {
                 archives.push({
                     filePath: join(this.archiveDir, entry.name),
@@ -692,7 +876,10 @@ export class AssistantChatPersistence {
                 });
             }
         }
-        return archives.sort((left, right) => right.archivedAt - left.archivedAt);
+        const terminal = (reason: string) => /^(reset|corrupt|scope-migrated)$/u.test(reason);
+        return archives.sort((left, right) => right.archivedAt - left.archivedAt
+            || Number(terminal(right.reason)) - Number(terminal(left.reason))
+            || (left.filePath < right.filePath ? -1 : left.filePath > right.filePath ? 1 : 0));
     }
 
     // fallow-ignore-next-line unused-class-member
@@ -1087,12 +1274,17 @@ export class AssistantChatPersistence {
 
     private async archiveSessionFile(filePath: string, reason: string) {
         await mkdir(this.archiveDir, {recursive: true});
-        const name = basename(filePath, '.jsonl').replace(/\.(?:evicted|expired|reset|corrupt)\.\d+\.[a-f0-9]+$/u, '');
+        const name = basename(filePath, '.jsonl').replace(/\.(?:evicted|expired|reset|corrupt|scope-migrated)\.\d+\.[a-f0-9]+$/u, '');
         const archivedPath = join(
             this.archiveDir,
             `${name}.${reason}.${this.now()}.${randomSuffix()}.jsonl`,
         );
-        await rename(filePath, archivedPath);
+        if (reason === 'scope-backup') {
+            await copyFile(filePath, archivedPath);
+            await fsyncFile(archivedPath);
+        } else {
+            await rename(filePath, archivedPath);
+        }
         await fsyncParentDirectory(filePath);
         await fsyncParentDirectory(archivedPath);
     }

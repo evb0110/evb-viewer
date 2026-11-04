@@ -1440,3 +1440,497 @@ describe('assistant chat persistence grant fields', () => {
         expect(record?.session.providerThreadId).toBe('resume-original');
     });
 });
+
+describe('pre-file-key chat upgrade compatibility', () => {
+    const currentScope = {
+        ...scope,
+        key: `document:electron:${scope.documentRef}`,
+        documentBackend: 'electron' as const,
+        documentSessionKey: 'reopened',
+    };
+    const currentKey = `codex:${currentScope.key}`;
+
+    function seed(
+        persistence: AssistantChatPersistence,
+        key: string,
+        text: string | null,
+        time: number,
+        options: {
+            base64?: boolean;
+            threadOnly?: boolean;
+            session?: Partial<IPersistedAssistantChatSession>;
+        } = {},
+    ) {
+        const session: IPersistedAssistantChatSession = {
+            ...selection,
+            scope: {
+                ...scope,
+                key: key.slice('codex:'.length),
+                documentBackend: 'electron',
+                documentSessionKey: 'old-opening',
+            },
+            providerThreadId: text === null && !options.threadOnly ? null : `thread-${text ?? 'empty'}`,
+            turnOwner: {
+                phase: 'idle',
+                generation: 0,
+                turnId: null,
+                localTurnId: null,
+            },
+            messages: text === null ? [] : [{
+                id: text.slice(0, 40),
+                role: 'user',
+                text,
+                createdAt: requireIsoTimestamp('2026-01-01T00:00:00.000Z'),
+            }],
+            lastAccessedAtMs: time,
+            ...options.session,
+        };
+        const bytes = `${JSON.stringify({
+            schemaVersion: 1,
+            type: 'session-snapshot',
+            key,
+            writtenAt: '2026-01-01T00:00:00.000Z',
+            session,
+        })}\n`;
+        const path = options.base64
+            ? join(persistence.sessionsDir, `${Buffer.from(key).toString('base64url')}.jsonl`)
+            : persistence.sessionPath(key);
+        writeFileSync(path, bytes);
+        return {
+            key,
+            path,
+            bytes,
+            session,
+        };
+    }
+
+    function preserved(persistence: AssistantChatPersistence, bytes: string) {
+        return readdirSync(persistence.archiveDir).some(name => readFileSync(join(persistence.archiveDir, name), 'utf8') === bytes);
+    }
+
+    it.each([
+        {
+            mode: 'startup',
+            restart: false,
+        },
+        {
+            mode: 'startup',
+            restart: true,
+        },
+        {
+            mode: 'direct',
+            restart: false,
+        },
+        {
+            mode: 'direct',
+            restart: true,
+        },
+    ] as const)('preserves own $mode failure and repairs the index with restart=$restart', async ({
+        mode, restart,
+    }) => {
+        const persistence = createPersistence();
+        const original = seed(persistence, 'codex:document-session:a', 'durable winner', 20);
+        mkdirSync(persistence.indexPath);
+        const first = mode === 'startup'
+            ? persistence.recoverSessions()
+            : persistence.recoverSession(currentKey);
+        await expect(first).rejects.toMatchObject({
+            name: 'AssistantChatPersistenceError',
+            code: 'write-failed',
+            sessionKey: mode === 'startup' ? 'scope-migration' : currentKey,
+            retryable: true,
+        });
+        expect(readFileSync(persistence.sessionPath(currentKey), 'utf8')).toContain('durable winner');
+        expect(preserved(persistence, original.bytes)).toBe(true);
+        rmSync(persistence.indexPath, {recursive: true});
+
+        const retry = restart ? createPersistence(persistence.rootDir) : persistence;
+        const recovered = mode === 'startup'
+            ? (await retry.recoverSessions()).find(entry => entry.key === currentKey)
+            : await retry.recoverSession(currentKey);
+        expect(recovered?.session.messages).toEqual(original.session.messages);
+        expect(recovered?.session.providerThreadId).toBe(original.session.providerThreadId);
+        expect(JSON.parse(readFileSync(retry.indexPath, 'utf8'))).toMatchObject({
+            schemaVersion: 1,
+            sessions: [{
+                key: currentKey,
+                file: basename(retry.sessionPath(currentKey)),
+            }],
+        });
+        expect(preserved(retry, original.bytes)).toBe(true);
+    });
+
+    it('direct recovery rejects a failed pending write and explicit flush retries it', async () => {
+        const persistence = createPersistence();
+        const original = seed(persistence, currentKey, 'older durable bytes', 10);
+        const latest = {
+            ...original.session,
+            messages: [{
+                ...original.session.messages[0]!,
+                text: 'latest pending bytes',
+            }],
+            lastAccessedAtMs: 20,
+        };
+        const append = vi.spyOn(chatFiles, 'appendFile').mockRejectedValueOnce(new Error('snapshot append refused'));
+        try {
+            persistence.recordSessionSnapshot(currentKey, latest);
+            await expect(persistence.recoverSession(currentKey)).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+            expect(readFileSync(original.path, 'utf8')).toBe(original.bytes);
+        } finally {
+            append.mockRestore();
+        }
+        await persistence.flush();
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(latest.messages);
+        expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.messages).toEqual(latest.messages);
+    });
+
+    it('direct recovery publishes a pending snapshot before returning its bytes', async () => {
+        const persistence = createPersistence();
+        const original = seed(persistence, currentKey, 'older durable bytes', 10);
+        const latest = {
+            ...original.session,
+            messages: [{
+                ...original.session.messages[0]!,
+                text: 'latest pending bytes',
+            }],
+            lastAccessedAtMs: 20,
+        };
+        persistence.recordSessionSnapshot(currentKey, latest);
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(latest.messages);
+        expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.messages).toEqual(latest.messages);
+    });
+
+    it.each([
+        'codex',
+        'claude',
+    ] as const)('adopts %s schema-1 history using the current UI key and preserves its original bytes', async (provider) => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxArchives: 0});
+        const legacyScope = {
+            ...scope,
+            key: 'document-session:old-opening',
+            documentSessionKey: 'old-opening',
+            documentBackend: 'electron' as const,
+        };
+        const currentScope = {
+            ...scope,
+            key: `document:electron:${scope.documentRef}`,
+            documentSessionKey: 'reopened',
+            documentBackend: 'electron' as const,
+        };
+        const key = `${provider}:${legacyScope.key}`;
+        const session: IPersistedAssistantChatSession = {
+            provider,
+            scope: legacyScope,
+            model: selection.model,
+            effort: selection.effort,
+            speedMode: selection.speedMode,
+            providerThreadId: 'pre-upgrade-thread',
+            turnOwner: {
+                phase: 'idle',
+                generation: 0,
+                turnId: null,
+                localTurnId: null,
+            },
+            messages: [{
+                id: 'old-message',
+                role: 'user',
+                text: 'Saved before the key change',
+                createdAt: requireIsoTimestamp('2026-01-01T00:00:00.000Z'),
+            }],
+            lastAccessedAtMs: 10,
+        };
+        // Literal historical schema-1 writer shape, including old live-only fields.
+        const bytes = `${JSON.stringify({
+            schemaVersion: 1,
+            type: 'session-snapshot',
+            key,
+            writtenAt: '2026-01-01T00:00:00.000Z',
+            session: {
+                ...session,
+                lastSenderWindowId: 99,
+                scopeBinding: null,
+            },
+        })}\n`;
+        writeFileSync(persistence.sessionPath(key), bytes);
+        const store = createAssistantChatSessionStore({persistence});
+        const loaded = await store.loadSession(currentScope, {
+            ...selection,
+            provider,
+        }, {create: true});
+        expect(loaded.messages).toEqual(session.messages);
+        expect(loaded.providerThreadId).toBe('pre-upgrade-thread');
+        expect(loaded.lastSenderWindowId).toBeNull();
+        expect(loaded.scopeBinding).toBeNull();
+        expect(loaded.scope.key).toBe(currentScope.key);
+        expect(loaded.scope.documentSessionKey).toBe('reopened');
+        await store.flushPersistenceForTests();
+        expect(readdirSync(persistence.archiveDir).some(name => readFileSync(join(persistence.archiveDir, name), 'utf8') === bytes)).toBe(true);
+        const restarted = createAssistantChatSessionStore({persistence: createPersistence(rootDir, {maxArchives: 0})});
+        const afterRestart = await restarted.loadSession(currentScope, {
+            ...selection,
+            provider,
+        }, {create: true});
+        expect(afterRestart.messages).toEqual(session.messages);
+        expect(afterRestart.providerThreadId).toBe('pre-upgrade-thread');
+        expect(afterRestart.scopeBinding).toBeNull();
+    });
+
+    it.each([
+        false,
+        true,
+    ])('selects the same old conversation with reversed directory insertion %s and retains every log', async (reverse) => {
+        const persistence = createPersistence(createTempRoot(), {maxArchives: 0});
+        const placeholder = seed(persistence, currentKey, null, 99, {base64: true});
+        const aliases = [
+            [
+                'codex:document-session:a',
+                'winner',
+                20,
+            ],
+            [
+                'codex:document-session:b',
+                'other conversation',
+                20,
+            ],
+            [
+                'codex:document-session:empty',
+                null,
+                100,
+            ],
+        ] as const;
+        const old = (reverse ? [...aliases].reverse() : aliases).map(([
+            key,
+            text,
+            time,
+        ], index) =>
+            seed(persistence, key, text, time, {base64: index === 1}));
+        const store = createAssistantChatSessionStore({persistence});
+        const loaded = await store.loadSession(currentScope, selection, {create: true});
+        expect(loaded.messages.map(message => message.text)).toEqual(['winner']);
+        expect(loaded.providerThreadId).toBe('thread-winner');
+        await store.flushPersistenceForTests();
+        for (const original of [
+            placeholder,
+            ...old,
+        ]) expect(preserved(persistence, original.bytes)).toBe(true);
+        expect(readdirSync(persistence.sessionsDir)).toEqual([basename(persistence.sessionPath(currentKey))]);
+        const restarted = createAssistantChatSessionStore({persistence: createPersistence(persistence.rootDir, {maxArchives: 0})});
+        expect((await restarted.loadSession(currentScope, selection, {create: true})).messages).toEqual(loaded.messages);
+        expect((await restarted.loadSession(currentScope, selection, {create: true})).providerThreadId).toBe('thread-winner');
+    });
+
+    it.each([
+        false,
+        true,
+    ])('preserves an authoritative canonical conversation including a thread without messages %s', async (threadOnly) => {
+        const persistence = createPersistence();
+        const canonical = seed(persistence, currentKey, threadOnly ? null : 'canonical', 1, {threadOnly});
+        const legacy = seed(persistence, 'codex:document-session:a', 'newer legacy', 20);
+        const recovered = await persistence.recoverSession(currentKey);
+        expect(recovered?.session.messages).toEqual(canonical.session.messages);
+        expect(recovered?.session.providerThreadId).toBe(canonical.session.providerThreadId);
+        expect(preserved(persistence, legacy.bytes)).toBe(true);
+        const restarted = createPersistence(persistence.rootDir);
+        expect((await restarted.recoverSession(currentKey))?.session.messages).toEqual(canonical.session.messages);
+    });
+
+    it('prefers meaningful history by recency before newer empty aliases', async () => {
+        const persistence = createPersistence();
+        const old = [
+            seed(persistence, 'codex:document-session:a', 'older', 20),
+            seed(persistence, 'codex:document-session:b', 'newer', 21),
+            seed(persistence, 'codex:document-session:c', null, 99),
+        ];
+        const recovered = await persistence.recoverSession(currentKey);
+        expect(recovered?.session.messages.map(message => message.text)).toEqual(['newer']);
+        expect(recovered?.session.providerThreadId).toBe('thread-newer');
+        for (const original of old) expect(preserved(persistence, original.bytes)).toBe(true);
+    });
+
+    it.each([
+        'live',
+        'archive',
+        'corrupt',
+    ] as const)('does not revive history behind a canonical %s reset/corruption barrier', async (barrier) => {
+        const persistence = createPersistence();
+        const canonical = seed(persistence, currentKey, null, 99);
+        if (barrier === 'live') writeFileSync(canonical.path, '');
+        if (barrier === 'corrupt') writeFileSync(canonical.path, 'not a chat record\n');
+        if (barrier === 'archive') {
+            renameSync(canonical.path, join(persistence.archiveDir, `${basename(canonical.path, '.jsonl')}.reset.1.abcd.jsonl`));
+        }
+        const legacy = seed(persistence, 'codex:document-session:a', 'before reset', 20);
+        const recovered = await persistence.recoverSession(currentKey);
+        expect(recovered?.session.messages ?? []).toEqual([]);
+        expect(recovered?.session.providerThreadId ?? null).toBeNull();
+        expect(preserved(persistence, legacy.bytes)).toBe(true);
+        const restarted = createPersistence(persistence.rootDir);
+        expect((await restarted.recoverSession(currentKey))?.session.messages ?? []).toEqual([]);
+    });
+
+    it.each([
+        false,
+        true,
+    ])('adopts an evicted-only alias with a base64 filename %s through direct lookup', async (base64) => {
+        const persistence = createPersistence();
+        const original = seed(persistence, 'codex:document-session:a', 'evicted history', 20, {base64});
+        renameSync(original.path, join(persistence.archiveDir, `${basename(original.path, '.jsonl')}.evicted.1.abcd.jsonl`));
+        const fresh = createPersistence(persistence.rootDir);
+        expect((await fresh.recoverSession(currentKey))?.session.messages).toEqual(original.session.messages);
+        expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.providerThreadId).toBe('thread-evicted history');
+        expect(preserved(fresh, original.bytes)).toBe(true);
+    });
+
+    it('keeps the old live bytes when canonical publication fails and permits recovery on the same owner', async () => {
+        const persistence = createPersistence();
+        const original = seed(persistence, 'codex:document-session:a', 'publish safely', 20);
+        const write = vi.spyOn(AssistantChatSnapshotStorage.prototype, 'writeBoundedSnapshot').mockRejectedValueOnce(new Error('publication refused'));
+        try {
+            await expect(persistence.recoverSession(currentKey)).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+            expect(readFileSync(original.path, 'utf8')).toBe(original.bytes);
+        } finally {
+            write.mockRestore();
+        }
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(original.session.messages);
+        expect(preserved(persistence, original.bytes)).toBe(true);
+    });
+
+    it('finishes interrupted retirement without replacing already-published messages', async () => {
+        const persistence = createPersistence();
+        const canonical = seed(persistence, currentKey, 'continued after adoption', 1);
+        const original = seed(persistence, 'codex:document-session:a', 'pre-adoption history', 20);
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(canonical.session.messages);
+        expect(preserved(persistence, original.bytes)).toBe(true);
+        expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.messages).toEqual(canonical.session.messages);
+    });
+
+    it('keeps published history and backups when the index fails and repairs it on recovery', async () => {
+        const persistence = createPersistence();
+        const original = seed(persistence, 'codex:document-session:a', 'index repair', 20);
+        mkdirSync(persistence.indexPath);
+        await expect(persistence.recoverSession(currentKey)).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+        expect(readFileSync(persistence.sessionPath(currentKey), 'utf8')).toContain('index repair');
+        expect(preserved(persistence, original.bytes)).toBe(true);
+        rmSync(persistence.indexPath, {recursive: true});
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(original.session.messages);
+        await persistence.recoverSessions();
+        expect(JSON.parse(readFileSync(persistence.indexPath, 'utf8'))).toMatchObject({schemaVersion: 1});
+        expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.messages).toEqual(original.session.messages);
+    });
+
+    it.each([
+        false,
+        true,
+    ])('round-trips an oversized legacy transcript and attachments with a pre-existing blob %s', async (blob) => {
+        const persistence = createPersistence(createTempRoot(), {
+            maxSessionBytes: 1_024,
+            maxArchives: 0,
+        });
+        const image = createLargeAssistantImage(16, 16);
+        const attachments = [{
+            type: 'image' as const,
+            id: 'image-1',
+            name: 'image.png',
+            mimeType: 'image/png' as const,
+            sizeBytes: image.length,
+            dataUrl: `data:image/png;base64,${image.toString('base64')}`,
+        }];
+        const original = seed(persistence, 'codex:document-session:a', 'long history '.repeat(10_000), 20);
+        original.session.messages[0]!.attachments = attachments;
+        const record = {
+            schemaVersion: 1 as const,
+            type: 'session-snapshot' as const,
+            key: original.key,
+            writtenAt: requireIsoTimestamp('2026-01-01T00:00:00.000Z'),
+            session: original.session,
+        };
+        if (blob) {
+            const storage = new AssistantChatSnapshotStorage<IPersistedAssistantChatSession, 1>({
+                blobsDir: persistence.blobsDir,
+                maxSessionBytes: 1_024,
+                createTooLargeError: key => new Error(key),
+                parseRecord: value => JSON.parse(value) as typeof record,
+            });
+            await storage.writeBoundedSnapshot(original.path, record, original.key);
+        } else writeFileSync(original.path, `${JSON.stringify(record)}\n`);
+        const originalBytes = readFileSync(original.path, 'utf8');
+        const store = createAssistantChatSessionStore({persistence});
+        const loaded = await store.loadSession(currentScope, selection, {create: true});
+        expect(loaded.messages).toEqual(original.session.messages);
+        expect(loaded.providerThreadId).toBe(original.session.providerThreadId);
+        await store.flushPersistenceForTests();
+        expect(statSync(persistence.sessionPath(currentKey)).size).toBeLessThanOrEqual(1_024);
+        expect(preserved(persistence, originalBytes)).toBe(true);
+        const restarted = createPersistence(persistence.rootDir, {
+            maxSessionBytes: 1_024,
+            maxArchives: 0,
+        });
+        expect((await restarted.recoverSession(currentKey))?.session.messages).toEqual(original.session.messages);
+        if (blob) {
+            const backup = readdirSync(persistence.archiveDir).find(name => readFileSync(join(persistence.archiveDir, name), 'utf8') === originalBytes)!;
+            // A separate root can still decode the original backup using its retained blobs.
+            const backupRoot = createPersistence(createTempRoot());
+            for (const name of readdirSync(persistence.blobsDir)) {
+                mkdirSync(backupRoot.blobsDir, {recursive: true});
+                writeFileSync(join(backupRoot.blobsDir, name), readFileSync(join(persistence.blobsDir, name)));
+            }
+            writeFileSync(backupRoot.sessionPath(original.key), readFileSync(join(persistence.archiveDir, backup)));
+            expect((await backupRoot.recoverSession(original.key))?.session.messages).toEqual(original.session.messages);
+        }
+    });
+
+    it.each([
+        'custom',
+        'missing-ref',
+        'provider-mismatch',
+        'backend-conflict',
+    ] as const)('leaves %s records untouched while adopting an eligible sibling', async (kind) => {
+        const persistence = createPersistence();
+        const key = kind === 'custom' ? 'custom:document-session:a' : 'codex:document-session:a';
+        const invalidScope = {
+            ...scope,
+            key: key.slice('codex:'.length),
+            ...(kind === 'missing-ref' ? {documentRef: undefined} : {}),
+            ...(kind === 'backend-conflict' ? {documentBackend: 'browser' as const} : {}),
+        };
+        const invalid = seed(persistence, key, 'leave me alone', 30, {session: {
+            scope: invalidScope,
+            ...(kind === 'provider-mismatch' ? {provider: 'claude' as const} : {}),
+        }});
+        const eligible = seed(persistence, 'codex:document-session:valid', 'adopt me', 20);
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(eligible.session.messages);
+        expect(readFileSync(invalid.path, 'utf8')).toBe(invalid.bytes);
+        expect((await persistence.recoverSession(key))?.session.messages).toEqual(invalid.session.messages);
+    });
+
+
+    it('retires stale canonical and alias base64 siblings while retaining hashed live precedence', async () => {
+        const persistence = createPersistence();
+        const canonical = seed(persistence, currentKey, 'canonical live', 1);
+        const staleCanonical = seed(persistence, currentKey, 'stale sibling', 99, {base64: true});
+        const alias = seed(persistence, 'codex:document-session:a', 'hashed alias', 20);
+        const staleAlias = seed(persistence, alias.key, 'base64 alias', 99, {base64: true});
+        expect((await persistence.recoverSession(currentKey))?.session.messages).toEqual(canonical.session.messages);
+        for (const original of [
+            staleCanonical,
+            alias,
+            staleAlias,
+        ]) expect(preserved(persistence, original.bytes)).toBe(true);
+        expect(readdirSync(persistence.sessionsDir)).toEqual([basename(canonical.path)]);
+        expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.providerThreadId).toBe('thread-canonical live');
+    });
+
+    it('infers the backend of eligible legacy records without stored backend metadata', async () => {
+        const persistence = createPersistence();
+        const original = seed(persistence, 'codex:document-session:a', 'old backend omitted', 20, {session: {scope: {
+            ...scope,
+            key: 'document-session:a',
+        }}});
+        const recovered = await persistence.recoverSession(currentKey);
+        expect(recovered?.session.messages).toEqual(original.session.messages);
+        expect(recovered?.session.scope.key).toBe(currentScope.key);
+        expect(preserved(persistence, original.bytes)).toBe(true);
+    });
+
+});

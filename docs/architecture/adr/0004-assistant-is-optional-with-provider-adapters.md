@@ -69,6 +69,22 @@ chat lifecycle while preserving saved conversations, credentials, settings,
 and both provider capabilities. It adds a versioned migration only if its
 implementation demonstrates a schema change.
 
+### Legacy document scope migration
+
+Schema-1 conversations keyed by a former document opening are adopted by the
+stable backend/file scope. Meaningful history wins over an empty canonical
+session; recency and then the session key break ties. The chosen transcript
+keeps its provider thread id. Original records, including nonselected history,
+remain as migration backups outside ordinary archive pruning.
+
+The persistence owner publishes the canonical snapshot before retiring old
+live sources, then publishes the index before marking migration complete.
+A failed publication remains retryable through the same owner or after restart.
+Startup migration follows the settled write queue without inheriting an
+unrelated snapshot failure; explicit flush and direct recovery still report
+failed writes and retain pending snapshots for retry. Remove this compatibility
+pass only when pre-file-key schema-1 stores no longer require upgrade support.
+
 ### MCP boundary
 
 Keep the existing local MCP implementation and its access controls. The
