@@ -10,6 +10,7 @@
 //! keeps its bytes, and so does one drawn by content that cannot be read.
 
 use super::*;
+use crate::page_geometry::resolve_page_user_unit;
 use crate::split_pages::PdfMatrix;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -197,11 +198,13 @@ impl ImageWalk<'_> {
             bytes.push(b'\n');
         }
         let mut forms = Vec::new();
+        // A UserUnit page draws each unit that many points large.
+        let unit = resolve_page_user_unit(self.document(), page_id)?;
         self.walk_content(
             page_number,
             &bytes,
             xobjects.as_ref(),
-            PdfMatrix::IDENTITY,
+            PdfMatrix::from_values([unit, 0.0, 0.0, unit, 0.0, 0.0]),
             &mut forms,
         )
     }

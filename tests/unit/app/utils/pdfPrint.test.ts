@@ -241,6 +241,8 @@ describe('pdfPrint', () => {
             height: Math.ceil(792 * (300 / 72)),
         });
         expect(environment.peakCanvasesHoldingPixels()).toBe(1);
+        // PDF.js picks annotations by their Print flag only with print intent.
+        expect(pages[0]!.render).toHaveBeenCalledWith(expect.objectContaining({intent: 'print'}));
         vi.unstubAllGlobals();
     });
 

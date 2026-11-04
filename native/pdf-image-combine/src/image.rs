@@ -489,12 +489,15 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
         }
     };
 
-    let dpi = metadata.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI);
+    let (dpi_x, dpi_y) = metadata
+        .dpi
+        .or_else(|| default_dpi.map(|dpi| (dpi, dpi)))
+        .unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
     Ok(ImagePage {
         width: metadata.width,
         height: metadata.height,
-        dpi_x: dpi,
-        dpi_y: dpi,
+        dpi_x,
+        dpi_y,
         color_space,
         icc_profile: metadata.icc_profile,
         payload: ImagePayload::Jpeg { data: bytes },

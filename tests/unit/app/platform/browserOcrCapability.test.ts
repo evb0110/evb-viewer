@@ -5,6 +5,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -596,5 +597,44 @@ describe('browser scan cleanup preview plan', () => {
         }, planned.options, planned.layoutByPage?.[String(page)]);
         expect(resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(accumulator, 150, planned.options, true)?.widthPoints).toBe(612);
         owner.closeSource(requireDocumentRef('/docs/scan.pdf'));
+    });
+});
+
+describe('browser OCR raster size', () => {
+    it('renders a UserUnit page in user-space units, as desktop Poppler does', async () => {
+        const {renderBrowserOcrRaster} = await import('@app/platform/browser-api/browserOcrRaster');
+        vi.stubGlobal('document', {createElement: () => ({getContext: () => ({})})});
+        onTestFinished(() => {
+            vi.unstubAllGlobals();
+        });
+        const renderedWidths: number[] = [];
+        const userUnit = 10;
+        const page = cast<Parameters<typeof renderBrowserOcrRaster>[0]>({
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 612 * scale * userUnit,
+                height: 792 * scale * userUnit,
+                userUnit,
+                scale,
+                rotation: 0,
+                transform: [
+                    scale * userUnit,
+                    0,
+                    0,
+                    -scale * userUnit,
+                    0,
+                    792 * scale * userUnit,
+                ],
+                clone: () => page.getViewport({scale}),
+            }),
+            render: ({viewport}: {viewport: {width: number}}) => {
+                renderedWidths.push(viewport.width);
+                return {promise: Promise.reject(new Error('rendered'))};
+            },
+        });
+
+        // 85 dpi over a 612x792 unit page is about 723x935 pixels, under the
+        // guard; scaled by UserUnit it was 7225x9350 and refused.
+        await expect(renderBrowserOcrRaster(page, 85, new AbortController().signal)).rejects.toThrow('rendered');
+        expect(renderedWidths).toEqual([612 * 85 / 72]);
     });
 });

@@ -56,6 +56,7 @@ pub(crate) struct PageCloneContext<'a> {
     pub(crate) pages_id: ObjectId,
     pub(crate) object_map: HashMap<(usize, ObjectId), ObjectId>,
     completed_pages: HashSet<(usize, ObjectId)>,
+    pending_objects: Vec<(usize, ObjectId, ObjectId)>,
 }
 
 struct BrowserPageLabelRange {
@@ -483,6 +484,7 @@ pub(crate) fn build_browser_page_subset_pdf(
         pages_id,
         object_map: HashMap::new(),
         completed_pages: HashSet::new(),
+        pending_objects: Vec::new(),
     };
     for source in page_sequence {
         clone_context
@@ -628,12 +630,15 @@ fn remap_browser_page_labels(
 fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> Result<String> {
     // The ranges are sorted by start page; a reverse scan per page made a
     // label on every page quadratic in the document.
-    let range = ranges
+    let Some(range) = ranges
         .partition_point(|range| range.start_page <= page_number)
         .checked_sub(1)
         .and_then(|index| ranges.get(index))
         .or_else(|| ranges.first())
-        .expect("PDF page labels must contain a range");
+    else {
+        // An empty label tree labels nothing: the page keeps its number.
+        return Ok(format_decimal(page_number));
+    };
     let number = range
         .start_number
         .saturating_add(page_number.saturating_sub(range.start_page))
@@ -767,41 +772,64 @@ impl PageCloneContext<'_> {
         Ok(new_page_id)
     }
 
+    /// Clones one indirect object and every object it reaches.
     pub(crate) fn clone_indirect_object(
         &mut self,
         source_index: usize,
         object_id: ObjectId,
     ) -> Result<ObjectId> {
-        if let Some(new_id) = self.object_map.get(&(source_index, object_id)) {
-            return Ok(*new_id);
-        }
-
-        let new_id = self.target.new_object_id();
-        self.object_map.insert((source_index, object_id), new_id);
-        let object = self.source(source_index)?.get_object(object_id)?.clone();
-        let cloned_object = self.clone_object_references(source_index, object)?;
-        self.target.objects.insert(new_id, cloned_object);
+        let new_id = self.map_indirect_object(source_index, object_id);
+        self.drain_pending_objects()?;
         Ok(new_id)
     }
 
+    /// Clones a direct object and every indirect object it reaches.
     pub(crate) fn clone_object_references(
         &mut self,
         source_index: usize,
         object: Object,
     ) -> Result<Object> {
+        let cloned = self.clone_direct_references(source_index, object)?;
+        self.drain_pending_objects()?;
+        Ok(cloned)
+    }
+
+    // A reference takes its target id at once and its object later, from a
+    // worklist, so a long chain such as an outline's /Next links cannot
+    // exhaust the stack the way recursing through each link did.
+    fn map_indirect_object(&mut self, source_index: usize, object_id: ObjectId) -> ObjectId {
+        if let Some(new_id) = self.object_map.get(&(source_index, object_id)) {
+            return *new_id;
+        }
+        let new_id = self.target.new_object_id();
+        self.object_map.insert((source_index, object_id), new_id);
+        self.pending_objects.push((source_index, object_id, new_id));
+        new_id
+    }
+
+    fn drain_pending_objects(&mut self) -> Result<()> {
+        while let Some((source_index, object_id, new_id)) = self.pending_objects.pop() {
+            let object = self.source(source_index)?.get_object(object_id)?.clone();
+            let cloned_object = self.clone_direct_references(source_index, object)?;
+            self.target.objects.insert(new_id, cloned_object);
+        }
+        Ok(())
+    }
+
+    fn clone_direct_references(&mut self, source_index: usize, object: Object) -> Result<Object> {
         match object {
             Object::Reference(object_id) => {
                 if self.is_unretained_page_tree_object(source_index, object_id)? {
                     return Ok(Object::Null);
                 }
                 Ok(Object::Reference(
-                    self.clone_indirect_object(source_index, object_id)?,
+                    self.map_indirect_object(source_index, object_id),
                 ))
             }
             Object::Array(items) => Ok(Object::Array(
                 items
                     .into_iter()
-                    .map(|item| self.clone_object_references(source_index, item))
+                    .map(|item| self.clone_direct_references(source_index, item))
                     .collect::<Result<Vec<_>>>()?,
             )),
             Object::Dictionary(dictionary) => Ok(Object::Dictionary(
@@ -815,7 +843,7 @@ impl PageCloneContext<'_> {
         }
     }
 
-    pub(crate) fn clone_dictionary_references(
+    fn clone_dictionary_references(
         &mut self,
         source_index: usize,
         dictionary: Dictionary,
@@ -824,7 +852,7 @@ impl PageCloneContext<'_> {
         for (key, value) in dictionary.iter() {
             cloned_dictionary.set(
                 key.clone(),
-                self.clone_object_references(source_index, value.clone())?,
+                self.clone_direct_references(source_index, value.clone())?,
             );
         }
         Ok(cloned_dictionary)

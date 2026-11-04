@@ -67,6 +67,9 @@ struct ManifestPublicationTransaction {
     journal_path: PathBuf,
     manifest_path: PathBuf,
     journal_entries: Vec<PublicationJournalEntry>,
+    /// Unwritten destinations already restored to what they held; a later
+    /// rollback must leave them, not remove them as new outputs.
+    restored: HashSet<PathBuf>,
 }
 
 impl ManifestPublicationTransaction {
@@ -93,6 +96,7 @@ impl ManifestPublicationTransaction {
             journal_path,
             manifest_path: manifest_path.to_path_buf(),
             journal_entries: Vec::new(),
+            restored: HashSet::new(),
         };
         // One journal write records every snapshot and absent destination
         // before any original is removed. A write per destination made a
@@ -192,7 +196,33 @@ impl ManifestPublicationTransaction {
         }
     }
 
-    fn commit(mut self) -> Result<(), String> {
+    fn commit(mut self, keep_unwritten: bool) -> Result<(), String> {
+        // A listed destination the operation did not write keeps what it
+        // held, restored before the journal says the run is committed.
+        if keep_unwritten {
+            let (mut unwritten, written): (Vec<_>, Vec<_>) = self
+                .backups
+                .drain(..)
+                .partition(|backup| !backup.original().exists());
+            self.backups = written;
+            while let Some(backup) = unwritten.pop() {
+                let original = backup.original().to_path_buf();
+                if let Err(error) = backup.restore() {
+                    // The rest stay with the transaction for rollback to restore.
+                    self.backups.append(&mut unwritten);
+                    let rollback = self.rollback();
+                    return Err(format!(
+                        "restoring unwritten destination {} failed: {error}{}",
+                        original.display(),
+                        rollback
+                            .err()
+                            .map(|rollback| format!("; rollback was incomplete: {rollback}"))
+                            .unwrap_or_default()
+                    ));
+                }
+                self.restored.insert(original);
+            }
+        }
         if let Err(error) = write_publication_journal(
             &self.journal_path,
             &self.manifest_path,
@@ -229,6 +259,7 @@ impl ManifestPublicationTransaction {
             .backups
             .iter()
             .map(|backup| backup.original().to_path_buf())
+            .chain(self.restored.iter().cloned())
             .collect::<HashSet<_>>();
         let mut failures = Vec::new();
         for path in &self.destinations {
@@ -280,16 +311,20 @@ pub(super) fn run_manifest_transaction(
             .into_iter()
             .map(Path::to_path_buf)
             .collect(),
+        false,
         operation,
     )
 }
 
 /// Publishes `destinations` all or nothing: a failed or panicking operation
 /// restores every original. `journal_anchor` names the request the recovery
-/// journal sits beside, a manifest or a direct invocation's output.
+/// journal sits beside, a manifest or a direct invocation's output. With
+/// `keep_unwritten`, destinations the operation did not write keep their
+/// content, for a caller that lists every destination it might write.
 pub(super) fn run_publication_transaction(
     journal_anchor: &Path,
     destinations: Vec<PathBuf>,
+    keep_unwritten: bool,
     operation: impl FnOnce() -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
     let transaction =
@@ -308,7 +343,7 @@ pub(super) fn run_publication_transaction(
             }
             std::panic::resume_unwind(panic);
         }
-        Ok(Ok(())) => transaction.commit().map_err(|error| {
+        Ok(Ok(())) => transaction.commit(keep_unwritten).map_err(|error| {
             NativeError::new(
                 NativeErrorCode::Io,
                 format!("Unable to finalize scan-cleanup output transaction: {error}"),
@@ -476,6 +511,40 @@ mod tests {
         );
         assert!(!journal_path.exists());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_commit_marker_keeps_the_unwritten_original() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-commit-marker-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let plain = dir.join("out.png");
+        let left = dir.join("out-left.png");
+        fs::write(&plain, b"plain original").unwrap();
+        fs::write(&left, b"left original").unwrap();
+        let journal = super::publication_journal_path(&plain);
+
+        let result = super::run_publication_transaction(
+            &plain,
+            vec![plain.clone(), left.clone()],
+            true,
+            || {
+                fs::write(&left, b"left new")?;
+                // The commit marker cannot be installed over a non-empty
+                // directory, as when the disk is full.
+                fs::remove_file(&journal)?;
+                fs::create_dir_all(journal.join("blocker"))?;
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&plain).unwrap(), b"plain original");
+        assert_eq!(fs::read(&left).unwrap(), b"left original");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
