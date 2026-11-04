@@ -11,7 +11,7 @@ use crate::engine::output_geometry::{match_page_sizes, write_json_atomic};
 use crate::engine::page_statistics::{
     derive_page_ink_contexts, derive_page_ink_sample, page_needs_ink_sample,
 };
-use crate::engine::page_workflow::{run_classification, run_page, PageRunResult};
+use crate::engine::page_workflow::{run_classification, run_page, suffixed_path, PageRunResult};
 use crate::engine::resource_planning::{
     manifest_cache, page_cache_for, page_worker_threads, processing_worker_threads,
     run_page_jobs_with_worker_threads, run_regular_page_jobs, PageDescriptor, PlanningOperation,
@@ -227,14 +227,21 @@ fn run_inner(
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
     // The manifest route's admission and publication, for one page: aliases
     // are refused before anything is written, and a failure restores whatever
-    // the destinations held. Direct mode stays an exit-code-only CLI; only
-    // manifest mode emits the sidecar ResultEnvelope protocol line.
+    // the destinations held. A split page writes suffixed left and right
+    // files instead, so those are admitted and protected too; whichever set
+    // the page does not write keeps its content. Direct mode stays an
+    // exit-code-only CLI; only manifest mode emits the sidecar ResultEnvelope
+    // protocol line.
+    let destination_paths = [&output, &metadata]
+        .into_iter()
+        .flat_map(|path| [path.clone(), suffixed_path(path, 0), suffixed_path(path, 1)])
+        .collect::<Vec<_>>();
     let paths = StagedPathPlan {
         input_paths: vec![page.input_path.clone()],
-        destination_paths: vec![output.clone(), metadata.clone()],
+        destination_paths,
     };
     preflight_paths(&paths)?;
-    run_publication_transaction(&output, paths.destination_paths, || {
+    run_publication_transaction(&output, paths.destination_paths, true, || {
         run_page(
             &page,
             CanvasScope::Page,

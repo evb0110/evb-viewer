@@ -363,7 +363,7 @@ fn resolve_destinations(
         .collect())
 }
 
-fn suffixed_path(path: &Path, index: usize) -> std::path::PathBuf {
+pub(crate) fn suffixed_path(path: &Path, index: usize) -> std::path::PathBuf {
     let suffix = if index == 0 { "left" } else { "right" };
     let stem = path
         .file_stem()

@@ -192,7 +192,30 @@ impl ManifestPublicationTransaction {
         }
     }
 
-    fn commit(mut self) -> Result<(), String> {
+    fn commit(mut self, keep_unwritten: bool) -> Result<(), String> {
+        // A listed destination the operation did not write keeps what it
+        // held, restored before the journal says the run is committed.
+        if keep_unwritten {
+            let (unwritten, written): (Vec<_>, Vec<_>) = self
+                .backups
+                .drain(..)
+                .partition(|backup| !backup.original().exists());
+            self.backups = written;
+            for backup in unwritten {
+                let original = backup.original().to_path_buf();
+                if let Err(error) = backup.restore() {
+                    let rollback = self.rollback();
+                    return Err(format!(
+                        "restoring unwritten destination {} failed: {error}{}",
+                        original.display(),
+                        rollback
+                            .err()
+                            .map(|rollback| format!("; rollback was incomplete: {rollback}"))
+                            .unwrap_or_default()
+                    ));
+                }
+            }
+        }
         if let Err(error) = write_publication_journal(
             &self.journal_path,
             &self.manifest_path,
@@ -280,16 +303,20 @@ pub(super) fn run_manifest_transaction(
             .into_iter()
             .map(Path::to_path_buf)
             .collect(),
+        false,
         operation,
     )
 }
 
 /// Publishes `destinations` all or nothing: a failed or panicking operation
 /// restores every original. `journal_anchor` names the request the recovery
-/// journal sits beside, a manifest or a direct invocation's output.
+/// journal sits beside, a manifest or a direct invocation's output. With
+/// `keep_unwritten`, destinations the operation did not write keep their
+/// content, for a caller that lists every destination it might write.
 pub(super) fn run_publication_transaction(
     journal_anchor: &Path,
     destinations: Vec<PathBuf>,
+    keep_unwritten: bool,
     operation: impl FnOnce() -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
     let transaction =
@@ -308,7 +335,7 @@ pub(super) fn run_publication_transaction(
             }
             std::panic::resume_unwind(panic);
         }
-        Ok(Ok(())) => transaction.commit().map_err(|error| {
+        Ok(Ok(())) => transaction.commit(keep_unwritten).map_err(|error| {
             NativeError::new(
                 NativeErrorCode::Io,
                 format!("Unable to finalize scan-cleanup output transaction: {error}"),
