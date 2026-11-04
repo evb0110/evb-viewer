@@ -78,6 +78,7 @@ function dispatchTransitionEnd(target: HTMLElement, propertyName: string) {
 describe('sidebar open layout stability', () => {
     it('lets the keyboard reach the sash and step the width to its bounds', async () => {
         const view = mountHost();
+        onTestFinished(view.dispose);
         view.showSidebar.value = true;
         await nextTick();
         const sash = view.sash()!;
@@ -108,7 +109,6 @@ describe('sidebar open layout stability', () => {
             Number.NEGATIVE_INFINITY,
             Number.POSITIVE_INFINITY,
         ]);
-        view.dispose();
     });
 
     it('gives the panel its open width on the first frame of the slide', async () => {
