@@ -6,12 +6,17 @@ import {
     readFileSync,
     rmSync,
     statSync,
+    mkdirSync,
+    writeFileSync,
 } from 'node:fs';
 import {
     basename, join, resolve,
 } from 'node:path';
 import {promisify} from 'node:util';
-import {PDFDocument} from 'pdf-lib';
+import {
+    PDFDocument, PDFName, PDFString,
+} from 'pdf-lib';
+import {renderPdfCanvasFidelityMetrics} from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 import {
     afterEach, describe, expect, it,
 } from 'vitest';
@@ -124,6 +129,75 @@ describe('Optimize PDF saves only smaller copies', () => {
             outputPath,
         };
     }
+
+    it('keeps a Figure and its default OFF layer connected after Optimize saves a smaller JPEG copy', async () => {
+        const evidence = resolve('.devkit/fixes16/evidence/optimize-semantic');
+        mkdirSync(evidence, {recursive: true});
+        const fixturePath = join(evidence, 'semantic-scan.pdf');
+        const pdf = await PDFDocument.create();
+        const page = pdf.addPage([
+            200,
+            218,
+        ]);
+        const image = await pdf.embedJpg(readFileSync(resolve('tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg')));
+        const layer = pdf.context.register(pdf.context.obj({
+            Type: 'OCG',
+            Name: PDFString.of('Hidden scan'),
+        }));
+        const root = pdf.context.nextRef();
+        const figure = pdf.context.register(pdf.context.obj({
+            Type: 'StructElem',
+            S: 'Figure',
+            P: root,
+            Pg: page.ref,
+            K: 0,
+            Alt: PDFString.of('Scan image'),
+        }));
+        const parentTree = pdf.context.register(pdf.context.obj({Nums: [
+            0,
+            [figure],
+        ]}));
+        pdf.context.assign(root, pdf.context.obj({
+            Type: 'StructTreeRoot',
+            K: [figure],
+            ParentTree: parentTree,
+        }));
+        page.node.set(PDFName.of('StructParents'), pdf.context.obj(0));
+        page.node.set(PDFName.of('Resources'), pdf.context.obj({
+            XObject: {Scan: image.ref},
+            Properties: {Hidden: layer},
+        }));
+        page.node.set(PDFName.of('Contents'), pdf.context.register(pdf.context.flateStream('/Figure <</MCID 0>> BDC /OC /Hidden BDC q 200 0 0 218 0 0 cm /Scan Do Q EMC EMC')));
+        pdf.catalog.set(PDFName.of('StructTreeRoot'), root);
+        pdf.catalog.set(PDFName.of('MarkInfo'), pdf.context.obj({Marked: true}));
+        pdf.catalog.set(PDFName.of('OCProperties'), pdf.context.obj({
+            OCGs: [layer],
+            D: {
+                OFF: [layer],
+                Order: [layer],
+            },
+        }));
+        writeFileSync(fixturePath, await pdf.save());
+        const {
+            page: appPage, inputPath, outputPath,
+        } = await openFixture(fixturePath);
+        const original = readFileSync(inputPath);
+        await optimizeAsUser(appPage, 'Smaller scanned PDF');
+        await appPage.screenshot({path: join(evidence, 'saved-hidden-layer.png')});
+        expect(existsSync(outputPath)).toBe(true);
+        expect(statSync(outputPath).size).toBeLessThan(original.length);
+        await waitForActiveDocumentSource(appPage, outputPath, TIMEOUT_MS);
+        await waitForViewerInteractive(appPage, TIMEOUT_MS);
+        const hidden = await renderPdfCanvasFidelityMetrics(outputPath);
+        const shown = await renderPdfCanvasFidelityMetrics(outputPath, 1, true);
+        expect(hidden.meanLuminance).toBeGreaterThan(254);
+        expect(shown.meanLuminance).toBeLessThan(245);
+        const saved = await PDFDocument.load(readFileSync(outputPath));
+        expect(saved.catalog.has(PDFName.of('StructTreeRoot'))).toBe(true);
+        expect(saved.getPage(0).node.has(PDFName.of('StructParents'))).toBe(true);
+        expect(readFileSync(inputPath)).toEqual(original);
+        copyFileSync(outputPath, join(evidence, 'optimized.pdf'));
+    });
 
     // T3: emitted PDF bytes remain usable. I1: a no-op gives defined feedback.
     // A plausible wrong implementation writes its larger raster result and

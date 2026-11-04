@@ -1,6 +1,7 @@
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import * as v from 'valibot';
+import {REPLACE_PAGE_IMAGES_REPORT_SCHEMA} from '@contracts/browserPageOpsWriters';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
@@ -19,23 +20,6 @@ import {
 const PASS_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 
 const pageNumber = v.pipe(v.number(), v.integer(), v.minValue(1));
-const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
-    format: v.literal('evb-pdf-replace-page-images'),
-    pages: v.array(v.object({
-        pageNumber,
-        outcome: v.picklist([
-            'replaced',
-            'not-smaller',
-            'no-images',
-            'visible-text',
-            'visible-drawing',
-            'form-xobject',
-            'unsupported-text',
-        ]),
-        sourceBytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
-        replacementBytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    })),
-});
 const RECOMPRESS_IMAGES_REPORT_SCHEMA = v.object({
     format: v.literal('evb-pdf-recompress-images'),
     pages: v.array(pageNumber),

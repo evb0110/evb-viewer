@@ -55,6 +55,8 @@ pub(crate) enum ReplacePageOutcome {
     VisibleDrawing,
     FormXobject,
     UnsupportedText,
+    TaggedContent,
+    OptionalContent,
 }
 
 pub(crate) fn read_replace_page_images_file(path: &Path) -> Result<ReplacePageImagesFile> {
@@ -342,6 +344,19 @@ fn classify_page(
     operations: &[ContentOperation],
     drawn: &mut Vec<Object>,
 ) -> Result<Option<ReplacePageOutcome>> {
+    let page = document.get_dictionary(page_id)?;
+    if page.has(b"StructParents") || page.has(b"StructParent") {
+        return Ok(Some(ReplacePageOutcome::TaggedContent));
+    }
+    for id in document.get_page_contents(page_id) {
+        let stream = document.get_object(id)?.as_stream()?;
+        if stream.dict.has(b"StructParents") || stream.dict.has(b"StructParent") {
+            return Ok(Some(ReplacePageOutcome::TaggedContent));
+        }
+        if stream.dict.has(b"OC") {
+            return Ok(Some(ReplacePageOutcome::OptionalContent));
+        }
+    }
     let xobjects = page_xobjects(document, page_id)?;
     let view = resolve_page_view(document, page_id)?;
     let mut placement = PdfMatrix::IDENTITY;
@@ -356,6 +371,18 @@ fn classify_page(
     let mut shows_drawing = false;
     for operation in operations {
         match operation.operator.as_str() {
+            "BDC" | "BMC"
+                if operation
+                    .operands
+                    .first()
+                    .and_then(|value| value.as_name().ok())
+                    == Some(b"OC") =>
+            {
+                return Ok(Some(ReplacePageOutcome::OptionalContent));
+            }
+            // A replacement cannot preserve arbitrary property-list semantics,
+            // including direct/named MCID, ActualText and Alt bindings.
+            "BDC" => return Ok(Some(ReplacePageOutcome::TaggedContent)),
             "q" => saved.push((placement, mode, clipped, styled)),
             "Q" => {
                 (placement, mode, clipped, styled) =
@@ -405,6 +432,12 @@ fn classify_page(
                 // A Form XObject may paint text or vectors this page cannot keep.
                 if xobject.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Image") {
                     return Ok(Some(ReplacePageOutcome::FormXobject));
+                }
+                if xobject.dict.has(b"OC") {
+                    return Ok(Some(ReplacePageOutcome::OptionalContent));
+                }
+                if xobject.dict.has(b"StructParent") || xobject.dict.has(b"StructParents") {
+                    return Ok(Some(ReplacePageOutcome::TaggedContent));
                 }
                 draws_image = true;
                 if !clipped && !styled && is_opaque_cover(&xobject.dict, placement, view) {

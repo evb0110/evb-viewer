@@ -1809,6 +1809,56 @@ describe('browser page-ops WASM fast path', () => {
         expect(stored.getContentsSize()).toBe(entry!.recompressedBytes);
     });
 
+    it.each([
+        [
+            'tagged-content',
+            '/Figure <</MCID 0>> BDC',
+        ],
+        [
+            'optional-content',
+            '/OC /Hidden BDC',
+        ],
+    ])('decodes a %s image-replacement refusal with an empty browser revision', async (outcome, prefix) => {
+        const source = await PDFDocument.create();
+        const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
+        const page = source.addPage([
+            200,
+            218,
+        ]);
+        const image = await source.embedJpg(jpeg);
+        page.node.set(PDFName.of('Contents'), source.context.register(source.context.stream(
+            `${prefix}\nq 200 0 0 218 0 0 cm /Scan Do Q\nEMC\n`,
+        )));
+        const layer = source.context.register(source.context.obj({
+            Type: 'OCG',
+            Name: PDFString.of('Hidden'),
+        }));
+        page.node.set(PDFName.of('Resources'), source.context.obj({
+            XObject: {Scan: image.ref},
+            Properties: {Hidden: layer},
+        }));
+        source.catalog.set(PDFName.of('OCProperties'), source.context.obj({
+            OCGs: [layer],
+            D: {OFF: [layer]},
+        }));
+        const data = new Uint8Array(await source.save());
+        const replacement = await PDFDocument.create();
+        replacement.addPage([
+            200,
+            218,
+        ]);
+        const core = await loadCoreWithWasm();
+        const result = await core.replacePdfPageImages(data, [new Uint8Array(await replacement.save())], {
+            maxByteRatio: 0.9,
+            pages: [{
+                pageNumber: 1,
+                replacement: 0,
+                replacementPageNumber: 1,
+            }],
+        });
+        expect(result.report.pages[0]?.outcome).toBe(outcome);
+        expect(result.data.byteLength).toBe(0);
+    });
 
     it('replaces a scanned page image from an attached replacement PDF', async () => {
         const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
