@@ -19,13 +19,13 @@ interface ICreateDocumentAgentFilePageHistoryActionsOptions {
     originalPath: Ref<TDocumentRef | null>;
     handleRepairSave: () => Promise<boolean>;
     handleOptimizePdfForInteraction: () => Promise<boolean>;
-    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<unknown>;
-    handleRemoveCrop: (pages: number[]) => Promise<unknown>;
+    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
+    handleRemoveCrop: (pages: number[]) => Promise<boolean>;
     handleUndo: () => Promise<unknown> | unknown;
     handleRedo: () => Promise<unknown> | unknown;
     waitForAgentMutationStateSettled: () => Promise<void>;
     runPdfPageOperationAgentAction: (
-        run: () => Promise<object>,
+        run: () => Promise<{completed: boolean} & object>,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<object>;
 }
@@ -111,11 +111,8 @@ export function createDocumentAgentFilePageHistoryActions(
             parse: parseCropInput,
             async run(cropInput: ReturnType<typeof parseCropInput>, _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
-                    const cropped = await options.handleCropPages(cropInput.pages, cropInput.margins);
-                    if (cropped === false) {
-                        throw new Error('Page crop did not complete.');
-                    }
                     return {
+                        completed: await options.handleCropPages(cropInput.pages, cropInput.margins),
                         pages: cropInput.pages,
                         margins: cropInput.margins,
                         cropped: true,
@@ -129,11 +126,8 @@ export function createDocumentAgentFilePageHistoryActions(
             parse: parseRemoveCropInput,
             async run(pages: number[], _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
-                    const removed = await options.handleRemoveCrop(pages);
-                    if (removed === false) {
-                        throw new Error('Page crop removal did not complete.');
-                    }
                     return {
+                        completed: await options.handleRemoveCrop(pages),
                         pages,
                         cropRemoved: true,
                     };

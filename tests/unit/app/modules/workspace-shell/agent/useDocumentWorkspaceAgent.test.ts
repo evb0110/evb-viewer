@@ -195,12 +195,12 @@ function createAgentOptions(
         handlePageLabelRangesUpdate: vi.fn((ranges) => {
             pageLabelRanges.value = ranges;
         }),
-        handlePageRotate: vi.fn(async () => undefined),
+        handlePageRotate: vi.fn(async () => true),
         handlePrint: vi.fn(),
         handlePrintCurrentPage: vi.fn(async () => undefined),
         handleQuickNoteAction: vi.fn(async () => undefined),
         handleSave: vi.fn(async () => true),
-        handleSaveAs: vi.fn(async () => undefined),
+        handleSaveAs: vi.fn(async () => true),
         handleZoomIn: vi.fn(),
         handleZoomOut: vi.fn(),
         hasPdf: ref(true),
@@ -219,9 +219,9 @@ function createAgentOptions(
         pageLabelRanges,
         pageLabels: ref<string[] | null>(null),
         pageLabelsDirty: ref(false),
-        pageOpsDelete: vi.fn(async () => undefined),
-        pageOpsExtract: vi.fn(async () => undefined),
-        pageOpsInsert: vi.fn(async () => undefined),
+        pageOpsDelete: vi.fn(async () => true),
+        pageOpsExtract: vi.fn(async () => true),
+        pageOpsInsert: vi.fn(async () => true),
         handleCropPages: vi.fn(async () => true),
         handleRemoveCrop: vi.fn(async () => true),
         pdfViewerRef: ref<IWorkspacePdfViewerAgentPort | null>(null),
@@ -1650,7 +1650,7 @@ describe('createDocumentWorkspaceAgent', () => {
 
     it('passes an exact compact selection to page-operation actions', async () => {
         const selection = createRangePageSelection(1_000_000, 2, 100_002);
-        const pageOpsDelete = vi.fn(async () => undefined);
+        const pageOpsDelete = vi.fn(async () => true);
         const agent = createDocumentWorkspaceAgent(createAgentOptions({
             totalPages: ref(1_000_000),
             selectedThumbnailPages: ref([]),
@@ -1665,16 +1665,29 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(pageOpsDelete).toHaveBeenCalledWith(selection, 1_000_000);
     });
 
+    it('reports a refused page operation and a canceled Save As as failures', async () => {
+        // Deleting a document's only page is refused; the dialog of Save As is canceled.
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            totalPages: ref(1),
+            selectedThumbnailPages: ref([1]),
+            pageOpsDelete: vi.fn(async () => false),
+            handleSaveAs: vi.fn(async () => false),
+        }));
+
+        await expect(agent.runAgentAction('page_ops.delete_selected', {})).rejects.toThrow('did not complete');
+        await expect(agent.runAgentAction('file.save_as', {})).rejects.toThrow('did not complete');
+    });
+
     it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {
         const selectedThumbnailPages = ref([
             1,
             2,
         ]);
         const showConvertDialog = ref(false);
-        const pageOpsDelete = vi.fn(async () => undefined);
-        const pageOpsExtract = vi.fn(async () => undefined);
-        const pageOpsInsert = vi.fn(async () => undefined);
-        const handlePageRotate = vi.fn(async () => undefined);
+        const pageOpsDelete = vi.fn(async () => true);
+        const pageOpsExtract = vi.fn(async () => true);
+        const pageOpsInsert = vi.fn(async () => true);
+        const handlePageRotate = vi.fn(async () => true);
         const openConvertDialog = vi.fn(() => {
             showConvertDialog.value = true;
         });

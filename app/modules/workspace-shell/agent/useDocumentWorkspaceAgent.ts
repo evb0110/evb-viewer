@@ -405,15 +405,21 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         };
     }
 
+    // An operation refused, canceled or failed did not change the pages, so
+    // the agent is told so rather than shown success.
     async function runPdfPageOperationAgentAction(
-        run: () => Promise<object>,
+        run: () => Promise<{completed: boolean} & object>,
         context?: IWorkspaceAgentCommandContext,
     ) {
         if (isDjvuMode.value) {
             return createDjvuPageOperationBlockedResult();
         }
         context?.assertCurrentDocument();
-        return run();
+        const {
+            completed, ...result
+        } = await run();
+        if (!completed) throw new Error('The page operation did not complete.');
+        return result;
     }
 
     const agentActionHandlers = createAgentActionHandlerRegistry([
@@ -864,7 +870,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                await handleSaveAs();
+                if (!await handleSaveAs()) throw new Error('Save As did not complete.');
                 return {};
             },
         },
@@ -1006,8 +1012,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await pageOpsDelete(selection, totalPages.value);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await pageOpsDelete(selection, totalPages.value),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1018,8 +1026,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await pageOpsExtract(selection);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await pageOpsExtract(selection),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1030,8 +1040,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await handlePageRotate(selection, 90);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await handlePageRotate(selection, 90),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1042,8 +1054,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
-                    await handlePageRotate(selection, 270);
-                    return describeSelectedPagePayload(selection);
+                    return {
+                        completed: await handlePageRotate(selection, 270),
+                        ...describeSelectedPagePayload(selection),
+                    };
                 }, context);
             },
         },
@@ -1053,8 +1067,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseAgentInsertPagesInput,
             async run(afterPage: number, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    await pageOpsInsert(totalPages.value, afterPage);
-                    return {};
+                    return {completed: await pageOpsInsert(totalPages.value, afterPage)};
                 }, context);
             },
         },
