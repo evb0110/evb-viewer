@@ -236,9 +236,13 @@ Page numbering tools use PDF page-label ranges:
 
 Supported styles are `D` decimal, `R`/`r` roman, `A`/`a` alphabetic, or `null`/`literal` for prefix-only labels.
 
+`summary.duplicateLabelCount` counts distinct nonempty labels that occur more than once. It is `null` when `summary.duplicateLabelAnalysisComplete` is false. Compact numbered ranges are not exhaustively analyzed; the accompanying `duplicate_page_label_analysis_incomplete` issue is not evidence of uniqueness. Literal-only ranges have exact counts without expanding pages. Partial literal duplicate issues say "at least".
+
 When agents reconstruct page labels from printed paper-page numbers, OCR/searchable text is only the starting hypothesis. They should verify range boundaries, restarts, front matter, appendices, and doubtful OCR hits with `document.capture_page_image`, run `page_labels.preview`, inspect the diff/issues/samples, then commit with `page_labels.apply_plan`. Page-label edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
 
 ### Bookmark Capabilities
+
+Live `bookmarks.set_tree` and `bookmarks.apply_plan` calls, and `bookmarks.update` calls that supply an `items` or `children` array directly or inside `bookmark`, require explicit user confirmation. The current MCP transport has no confirmation grant, so these calls return the existing confirmation error. Use `bookmarks.preview_tree` to inspect replacements. Internal `dryRun` stays non-mutating and available; external write policy is unchanged. Scalar updates and incremental additions remain available internally.
 
 Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `bookmarks.read` or `evb://document/{tabId}/bookmarks` first; returned bookmarks include zero-based `path` arrays such as `[0, 2]`, a flattened list, summary counts, and validation hints.
 
@@ -254,7 +258,7 @@ Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `
 
 Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`. Flat rebuild plans may use `entries`, `flat`, or `outline` arrays with `level` (1-based) or `depth` (0-based), so an extracted table of contents can be passed without hand-nesting. Use the style fields to distinguish semantic parts of an outline — for example bold parts/chapters, italic front and back matter, or one color for appendices — and restyle existing entries in bulk with `bookmarks.set_style` instead of rewriting the tree.
 
-When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches, run `bookmarks.preview_tree`, inspect the diff/issues/flat paths, then commit with `bookmarks.apply_plan`. Bookmark edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
+When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches, run `bookmarks.preview_tree`, then inspect the diff/issues/flat paths. Stop at the preview and present the verified plan to the user, who must apply the replacement through the app. The current MCP transport cannot grant the confirmation needed by `bookmarks.apply_plan`. Internal scalar bookmark updates and incremental additions go through the metadata undo stack; after final verification the internal agent should save with `file.save`. External MCP callers retain the write restrictions described above.
 
 ### File, Page Operation, And History Capabilities
 

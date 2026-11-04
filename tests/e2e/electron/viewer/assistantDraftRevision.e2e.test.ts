@@ -1,5 +1,7 @@
+import {createHash} from 'node:crypto';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {
-    copyFileSync, mkdirSync, rmSync,
+    copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {
     join, resolve,
@@ -151,4 +153,106 @@ describe('Electron E2E - assistant draft revision', () => {
         expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('save:ok read:ok');
         expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('A104-1');
     });
+
+    // ADR 0004: schema-1 conversation history and provider continuation survive upgrades.
+    it('shows the deterministically adopted legacy conversation after opening the panel and relaunching', async () => {
+        let session = fixture.getSession();
+        const directory = join(tmpdir(), session.name);
+        fixtureDirectory = directory;
+        mkdirSync(directory, {recursive: true});
+        const pdfPath = join(directory, 'legacy-chat.pdf');
+        copyFileSync(resolve('tests/fixtures/release/packaged-core-smoke.pdf'), pdfPath);
+        const root = join(electronUserDataPath(session.name), 'assistant-chat');
+        const sessions = join(root, 'sessions');
+        mkdirSync(sessions, {recursive: true});
+        const canonicalScopeKey = `document:electron:${pdfPath}`;
+        const canonicalKey = `codex:${canonicalScopeKey}`;
+        const fileName = (key: string) => `v2-${createHash('sha256').update(key).digest('hex')}.jsonl`;
+        const seed = (scopeKey: string, text: string | null, lastAccessedAtMs: number) => {
+            const key = `codex:${scopeKey}`;
+            const bytes = `${JSON.stringify({
+                schemaVersion: 1,
+                type: 'session-snapshot',
+                key,
+                writtenAt: '2026-01-01T00:00:00.000Z',
+                session: {
+                    provider: 'codex',
+                    scope: {
+                        kind: 'document',
+                        key: scopeKey,
+                        title: 'legacy-chat.pdf',
+                        tabId: 'old-tab',
+                        documentRef: pdfPath,
+                        documentBackend: 'electron',
+                        documentSessionKey: 'old-opening',
+                    },
+                    model: 'gpt-5',
+                    effort: 'medium',
+                    speedMode: 'standard',
+                    providerThreadId: text ? `thread-${text}` : null,
+                    turnOwner: {
+                        phase: 'idle',
+                        generation: 0,
+                        turnId: null,
+                        localTurnId: null,
+                    },
+                    messages: text ? [{
+                        id: scopeKey,
+                        role: 'user',
+                        text,
+                        createdAt: '2026-01-01T00:00:00.000Z',
+                    }] : [],
+                    lastAccessedAtMs,
+                },
+            })}\n`;
+            writeFileSync(join(sessions, fileName(key)), bytes);
+            return bytes;
+        };
+        const originals = [
+            seed('document-session:b', 'Other saved conversation', 20),
+            seed(canonicalScopeKey, null, 99),
+            seed('document-session:a', 'Saved before the file-key upgrade', 20),
+        ];
+        await session.page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        session = await fixture.restart({clean: false});
+        const openChat = async () => {
+            await openPdfInApp(session.page, pdfPath);
+            await waitForPdfLoaded(session.page);
+            if (!await session.page.$('.agent-assistant-input')) {
+                await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
+            }
+            await session.page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        };
+        await openChat();
+        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-user .agent-assistant-message-bubble',
+            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual(['Saved before the file-key upgrade']);
+        await session.command('screenshot', ['a35-legacy-chat-recovered']);
+        const canonicalPath = join(sessions, fileName(canonicalKey));
+        const readCanonicalSnapshot = () => readFileSync(canonicalPath, 'utf8').trim().split('\n')
+            .map(line => JSON.parse(line) as {
+                type: string;
+                session?: {providerThreadId: string}
+            })
+            .findLast(record => record.type === 'session-snapshot');
+        expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
+        const backups = readdirSync(join(root, 'archive')).map(name => readFileSync(join(root, 'archive', name), 'utf8'));
+        for (const bytes of originals) expect(backups).toContain(bytes);
+        await clickAsUser(session.page, '.agent-assistant-input');
+        await session.page.keyboard.type('Continue this saved conversation.');
+        await session.page.keyboard.press('Enter');
+        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-assistant .agent-assistant-message-bubble',
+            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');
+        session = await fixture.restart({clean: false});
+        await openChat();
+        await expect.poll(() => session.page.$$eval('.agent-assistant-message.is-user .agent-assistant-message-bubble',
+            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toEqual([
+            'Saved before the file-key upgrade',
+            'Continue this saved conversation.',
+        ]);
+        expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
+        await session.command('screenshot', ['a35-legacy-chat-relaunched']);
+    });
+
 });

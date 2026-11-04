@@ -1,3 +1,4 @@
+import { isRecord } from '@contracts/runtimeGuards';
 import type { IAgentCapabilityTemplate } from '@electron/features/agent/mcp/mcpDefinitions';
 import type {
     IProcessMcpRequestOptions,
@@ -26,9 +27,26 @@ export function getMcpCallerKind(options: IProcessMcpRequestOptions): TMcpCaller
     return options.callerKind ?? 'internal';
 }
 
-export function enforceCapabilityPolicy(template: IAgentCapabilityTemplate, options: IProcessMcpRequestOptions) {
+export function enforceCapabilityPolicy(
+    template: IAgentCapabilityTemplate,
+    options: IProcessMcpRequestOptions,
+    action: {
+        input?: Record<string, unknown> | undefined;
+        dryRun?: boolean | undefined
+    } = {},
+) {
     const callerKind = getMcpCallerKind(options);
-    const decision = template.policy[callerKind];
+    const input = action.input ?? {};
+    const bookmark = isRecord(input.bookmark) ? input.bookmark : input;
+    const replacesBookmarks = template.id === 'bookmarks.set_tree'
+        || template.id === 'bookmarks.apply_plan'
+        || template.id === 'bookmarks.update' && (
+            Array.isArray(bookmark.items) || Array.isArray(bookmark.children)
+        );
+    const policy = template.policy[callerKind];
+    const decision = policy === 'allow' && !action.dryRun && replacesBookmarks
+        ? 'confirm'
+        : policy;
     if (decision === 'allow') {
         return;
     }

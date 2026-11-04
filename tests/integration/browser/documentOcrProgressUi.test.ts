@@ -2,6 +2,7 @@ import {
     readFile, mkdir, writeFile,
 } from 'node:fs/promises';
 import {existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {
     PDFDocument, rgb,
@@ -11,6 +12,9 @@ import {
 } from 'vitest';
 import type {Page} from 'playwright';
 import {buildTesseractArgs} from '@ocr-core/tesseractRecipe';
+import {
+    getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256,
+} from '@contracts/ocrLanguages';
 import {
     lifecycle, openPdfFromChooser,
 } from './documentLifecycleTestHelpers';
@@ -32,10 +36,23 @@ describe('browser OCR progress', () => {
         }});
         let reopened: Page | undefined;
         try {
-            // Hebrew is newly available in the browser. Its pinned 3.7 MB model
-            // is cheap to download in CI when the development archive is absent.
+            // Provision the exact model before app work. A cold CI archive must
+            // not turn a fixture download failure into an OCR completion timeout.
             const model = join(process.cwd(), 'resources/tesseract/tessdata/heb.traineddata');
-            if (existsSync(model)) await page.route('**/heb.traineddata', route => route.fulfill({path: model}));
+            let modelBytes: Buffer;
+            if (existsSync(model)) {
+                modelBytes = await readFile(model);
+            } else {
+                const response = await fetch(getOcrModelDownloadUrl('heb'));
+                expect(response.ok, `Hebrew model fixture download: HTTP ${response.status}`).toBe(true);
+                modelBytes = Buffer.from(await response.arrayBuffer());
+            }
+            expect(modelBytes.byteLength).toBe(OCR_LANGUAGE_MODEL_BYTES.heb);
+            expect(createHash('sha256').update(modelBytes).digest('hex')).toBe(OCR_LANGUAGE_MODEL_SHA256.heb);
+            await page.route('**/heb.traineddata', route => route.fulfill({
+                contentType: 'application/octet-stream',
+                body: modelBytes,
+            }));
             // Fixed pixels keep niqqud recognition independent of host font rasterization.
             await openPdfFromChooser(page, {
                 name: 'hebrew-scan.png',
@@ -51,8 +68,21 @@ describe('browser OCR progress', () => {
             }).click();
             const dialog = page.getByRole('dialog');
             await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
+            const ocrStartedAt = Date.now();
             await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
-            await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
+            const completionText = 'OCR complete - PDF is now searchable';
+            let terminalText: string;
+            try {
+                await dialog.getByText(completionText, {exact: true})
+                    .or(dialog.getByRole('alert')).first().waitFor({timeout: 90_000});
+            } finally {
+                terminalText = await dialog.innerText();
+                console.log('Hebrew OCR terminal', JSON.stringify({
+                    elapsedMs: Date.now() - ocrStartedAt,
+                    dialog: terminalText,
+                }));
+            }
+            expect(terminalText).toContain(completionText);
             await dialog.getByRole('button', {
                 name: 'Close',
                 exact: true,

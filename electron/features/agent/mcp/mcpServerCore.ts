@@ -375,7 +375,12 @@ async function runAgentActionTool(
     if (dispatchOptions.readOnlyOnly) {
         enforceReadActionToolPolicy(template);
     }
-    enforceCapabilityPolicy(template, options);
+    const input = getOptionalActionInput(params);
+    const dryRun = getOptionalBoolean(params, 'dryRun');
+    enforceCapabilityPolicy(template, options, {
+        input,
+        dryRun,
+    });
 
     const windowId = getOptionalWindowId(params);
     const actionParams = createActionParams(params);
@@ -467,8 +472,6 @@ async function runAgentActionTool(
     }
 
     const tabId = getOptionalTabId(actionParams);
-    const input = getOptionalActionInput(params);
-    const dryRun = getOptionalBoolean(params, 'dryRun');
     const actionCommand: TAgentCommand = {
         name: 'run_action',
         arguments: {
