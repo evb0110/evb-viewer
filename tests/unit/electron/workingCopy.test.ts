@@ -2573,6 +2573,166 @@ describe('workingCopy', () => {
         },
     );
 
+    it('A39 preserves claimed committed bytes while stale eligibility finishes their journal', async () => {
+        const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-claim-journal-race');
+        const path = join(workDir, 'document.pdf');
+        const backup = join(workDir, 'journal-before-save.bak');
+        const journal = join(workDir, 'journal.json');
+        const bytes = Buffer.from('%PDF committed bytes owned by recovery');
+        mkdirSync(workDir, {recursive: true});
+        writeFileSync(path, bytes);
+        writeFileSync(backup, '%PDF bytes before the committed transition');
+        const {getWorkingCopyManifestPath} = await import('@electron/file-access/workingCopyDirectory');
+        writeFileSync(getWorkingCopyManifestPath(path), JSON.stringify({
+            version: 1,
+            revision: {
+                version: 1,
+                documentRef: path,
+                authority: 'electron-working-copy',
+                token: 'revision-after-interrupted-transition',
+                contentRevision: 2,
+                mintedAt: 123,
+            },
+        }));
+        writeFileSync(journal, JSON.stringify({
+            version: 1,
+            workingCopyPath: path,
+            nextRevisionToken: 'revision-after-interrupted-transition',
+            backupPath: backup,
+            backupMode: 'copy',
+        }));
+        ageWorkingDirectory(workDir);
+        const entered = Promise.withResolvers<undefined>();
+        const resume = Promise.withResolvers<undefined>();
+        vi.doMock('fs/promises', async importOriginal => {
+            const actual = await importOriginal<typeof FsPromises>();
+            return {
+                ...actual,
+                readFile: async (...args: Parameters<typeof actual.readFile>) => {
+                    if (String(args[0]) === journal) {
+                        entered.resolve(undefined);
+                        await resume.promise;
+                    }
+                    return actual.readFile(...args);
+                },
+            };
+        });
+        vi.resetModules();
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const {
+            claimWorkingCopyRecovery, releaseWorkingCopyRecovery,
+        } = await import('@electron/file-access/workingCopyStore');
+        const sweep = cleanupStaleWorkingCopyDirectories();
+        let generation: number | undefined;
+        try {
+            await entered.promise;
+            generation = await claimWorkingCopyRecovery(path);
+            resume.resolve(undefined);
+            await expect(sweep).resolves.toEqual({removedDirectories: 0});
+            expect(readFileSync(path)).toEqual(bytes);
+            expect(existsSync(journal)).toBe(false);
+            expect(existsSync(backup)).toBe(false);
+        } finally {
+            resume.resolve(undefined);
+            await sweep;
+            if (generation !== undefined) releaseWorkingCopyRecovery(path, generation);
+        }
+    });
+
+    it('A39 finishes a save visiting a closed journal while stale eligibility is in flight', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        const originalPath = join(tempRoot, 'save-sweep-original.pdf');
+        const activeDir = join(tempRoot, 'evb-viewer', 'pdf-work-save-sweep-active');
+        const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-save-sweep-closed');
+        const workingCopyPath = join(activeDir, 'document.pdf');
+        const closedPath = join(workDir, 'document.pdf');
+        const journal = join(workDir, 'journal.json');
+        const stagedPath = join(tempRoot, 'staged-save.pdf');
+        mkdirSync(activeDir, {recursive: true});
+        mkdirSync(workDir, {recursive: true});
+        writeFileSync(originalPath, '%PDF original before this save');
+        writeFileSync(workingCopyPath, '%PDF accepted working bytes');
+        writeFileSync(stagedPath, '%PDF newly saved bytes');
+        const backupPath = join(workDir, 'journal-before-save.bak');
+        writeFileSync(backupPath, '%PDF previous closed bytes');
+        writeFileSync(journal, JSON.stringify({
+            version: 1,
+            workingCopyPath: closedPath,
+            nextRevisionToken: 'revision-closed-before-save',
+            backupPath,
+            backupMode: 'copy',
+            original: {
+                path: originalPath,
+                backupPath: join(tempRoot, 'closed-original.bak'),
+                state: 'restored',
+            },
+        }));
+        ageWorkingDirectory(workDir);
+        const sweepReading = Promise.withResolvers<undefined>();
+        const saveVisiting = Promise.withResolvers<undefined>();
+        const releaseReads = Promise.withResolvers<undefined>();
+        let journalReads = 0;
+        vi.doMock('fs/promises', async importOriginal => {
+            const actual = await importOriginal<typeof FsPromises>();
+            return {
+                ...actual,
+                readFile: async (...args: Parameters<typeof actual.readFile>) => {
+                    const text = await actual.readFile(...args);
+                    if (String(args[0]) === journal) {
+                        journalReads += 1;
+                        if (journalReads === 1) sweepReading.resolve(undefined);
+                        else saveVisiting.resolve(undefined);
+                        await releaseReads.promise;
+                    }
+                    return text;
+                },
+            };
+        });
+        vi.resetModules();
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {backingState: 'eager'});
+        await ensureWorkingCopyRevision(workingCopyPath, 7);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+        const sweep = cleanupStaleWorkingCopyDirectories();
+        await sweepReading.promise;
+        const save = transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            senderId: 7,
+            reason: 'save-sync',
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            stagePublication: () => Promise.resolve({path: stagedPath}),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(stagedPath, originalPath, {
+                assertDestinationCurrent,
+                destinationBackupPath,
+            }),
+        });
+        try {
+            await saveVisiting.promise;
+            releaseReads.resolve(undefined);
+            const [
+                , saved,
+            ] = await Promise.all([
+                sweep,
+                save,
+            ]);
+            expect(saved).not.toBeNull();
+            expect(readFileSync(originalPath, 'utf8')).toBe('%PDF newly saved bytes');
+            expect(readFileSync(workingCopyPath, 'utf8')).toBe('%PDF newly saved bytes');
+            expect(existsSync(workDir)).toBe(false);
+        } finally {
+            releaseReads.resolve(undefined);
+            await Promise.allSettled([
+                sweep,
+                save,
+            ]);
+        }
+    });
+
     it.each([
         'directory removal',
         'Windows backup unlink',
