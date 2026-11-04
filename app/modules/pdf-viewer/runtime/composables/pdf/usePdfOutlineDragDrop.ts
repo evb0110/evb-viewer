@@ -3,10 +3,7 @@ import type {
     IBookmarkDropTarget,
     IBookmarkItem,
 } from '@app/types/pdfOutline';
-import {
-    collectBookmarkIds,
-    findBookmarkLocation,
-} from '@app/utils/pdfOutlineHelpers';
+import {findBookmarkLocation} from '@app/utils/pdfOutlineHelpers';
 
 type TBookmarkDropDestination =
     | { kind: 'root-end' }
@@ -187,25 +184,14 @@ export const usePdfOutlineDragDrop = (
         return [...roots].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
     }
 
-    function collectDraggedBranchIds(draggedRootIds: string[]) {
-        const ids = new Set<string>();
-        for (const id of draggedRootIds) {
-            const location = findBookmarkLocation(bookmarks.value, id);
-            if (!location) {
-                continue;
-            }
-            collectBookmarkIds(location.item, ids);
-        }
-        return ids;
-    }
-
+    // The target may be neither a dragged branch nor inside one: its own
+    // ancestry says so without walking the dragged branches.
     function canDropBookmarks(draggedRootIds: string[], targetId: string) {
-        if (draggedRootIds.includes(targetId)) {
-            return false;
+        const dragged = new Set(draggedRootIds);
+        for (let cursor: string | null = targetId; cursor; cursor = parentBookmarkIdMap.value.get(cursor) ?? null) {
+            if (dragged.has(cursor)) return false;
         }
-
-        const draggedBranchIds = collectDraggedBranchIds(draggedRootIds);
-        return !draggedBranchIds.has(targetId);
+        return true;
     }
 
     function moveBookmarksToRootEnd(draggedRootIds: string[]) {

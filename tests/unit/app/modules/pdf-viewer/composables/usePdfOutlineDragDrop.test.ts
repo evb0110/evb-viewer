@@ -51,6 +51,51 @@ function createOrderMap(items: IBookmarkItem[]) {
 }
 
 describe('usePdfOutlineDragDrop', () => {
+    it('refuses a drop inside a dragged branch and accepts one beside it', () => {
+        const child = createBookmark('child');
+        const grandchild = createBookmark('grandchild');
+        child.items = [grandchild];
+        const parent = {
+            ...createBookmark('parent'),
+            items: [child],
+        };
+        const bookmarks = ref([
+            parent,
+            createBookmark('other'),
+        ]);
+        const dragDrop = usePdfOutlineDragDrop(
+            bookmarks,
+            ref(new Set()),
+            computed(() => true),
+            ref(new Set(['parent'])),
+            computed(() => createParentMap(bookmarks.value)),
+            computed(() => createOrderMap(bookmarks.value)),
+            vi.fn(),
+            vi.fn(),
+        );
+        dragDrop.handleBookmarkDragStart({id: 'parent'});
+
+        for (const targetId of [
+            'parent',
+            'child',
+            'grandchild',
+        ]) {
+            dragDrop.handleBookmarkDragHover({
+                targetId,
+                position: 'child',
+            });
+            expect(dragDrop.bookmarkDropTarget.value, targetId).toBeNull();
+        }
+        dragDrop.handleBookmarkDragHover({
+            targetId: 'other',
+            position: 'child',
+        });
+        expect(dragDrop.bookmarkDropTarget.value).toEqual({
+            id: 'other',
+            position: 'child',
+        });
+    });
+
     it('does not emit bookmark changes for no-op root-end drops', () => {
         const bookmarks = ref([
             createBookmark('first'),
