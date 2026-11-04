@@ -233,7 +233,10 @@ describe('usePdfRendererTextLayerController', () => {
         const harness = createHarness();
 
         harness.failNextTextLayer(new Error('text extraction failed'));
-        expect(await harness.renderAtScale(1)).toMatchObject({error: expect.objectContaining({message: 'text extraction failed'})});
+        expect(await harness.renderAtScale(1)).toMatchObject({
+            failure: STAGE_FAILURE_RECEIPT,
+            error: expect.objectContaining({message: 'text extraction failed'}),
+        });
         expect(harness.setupTextLayerInteraction).not.toHaveBeenCalled();
         expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
 
@@ -247,7 +250,10 @@ describe('usePdfRendererTextLayerController', () => {
             throw new Error('interaction setup failed');
         });
 
-        expect(await harness.renderAtScale(1)).toMatchObject({error: expect.objectContaining({message: 'interaction setup failed'})});
+        expect(await harness.renderAtScale(1)).toMatchObject({
+            failure: STAGE_FAILURE_RECEIPT,
+            error: expect.objectContaining({message: 'interaction setup failed'}),
+        });
         expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
     });
 
