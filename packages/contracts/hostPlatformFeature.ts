@@ -37,7 +37,7 @@ const hostZenModeStateSchema = v.object({
 }, 'invalid host zen mode state');
 export type IHostZenModeState = v.InferOutput<typeof hostZenModeStateSchema>;
 
-/** Native placement of the window: fullscreen and maximized both override its own size. */
+// A whole number of device-independent pixels a window can have.
 const windowDimension = v.pipe(
     v.number('invalid host window size'),
     v.integer('invalid host window size'),
@@ -48,9 +48,10 @@ const hostWindowSizeSchema = v.strictObject({
     width: windowDimension,
     height: windowDimension,
 }, 'invalid host window size');
-/** A window's content area, in device-independent pixels. */
+/** A width and height in device-independent pixels: a content area or a display's work area. */
 export type IHostWindowSize = v.InferOutput<typeof hostWindowSizeSchema>;
 
+/** Native placement of the window: fullscreen and maximized both override its own size. */
 const hostWindowStateSchema = v.object({
     fullScreen: v.boolean('invalid host window state'),
     maximized: v.boolean('invalid host window state'),
