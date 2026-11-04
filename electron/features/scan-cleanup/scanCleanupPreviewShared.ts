@@ -24,7 +24,6 @@ import type {
 
 import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 
-import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
 
 import {scanCleanupLayoutSignature} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
@@ -92,20 +91,6 @@ export const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
 // independently of this page-number batch size.
 export const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 export const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
-
-export function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
-    if (
-        progress.completedUnits > 0
-        && progress.completedPageNumbers?.length === 0
-        && progress.completedPageNumbersTruncated !== true
-    ) {
-        return {
-            ...progress,
-            completedPageNumbersTruncated: true,
-        };
-    }
-    return progress;
-}
 
 /** Stable identity for two equivalent preview requests. */
 export function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {

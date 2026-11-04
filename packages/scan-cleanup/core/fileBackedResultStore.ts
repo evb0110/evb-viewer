@@ -11,9 +11,17 @@ import type {
     IScanCleanupResultStore,
 } from '@evb/scan-cleanup/core/types';
 import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {
+    assertMaxReadPages,
+    assertPageCount,
+    assertPageNumber,
+    assertReadWindow,
+    assertRecordWrite,
+    assertResultCount,
+    RESULT_STORE_MAX_RECORD_BYTES,
+    toPersistedDetectionResult,
+} from '@evb/scan-cleanup/core/resultStoreRules';
 
-/** A single result record must stay smaller than the native sidecar line cap. */
-const RESULT_STORE_MAX_LINE_BYTES = 4 * 1024 * 1024;
 export const RESULT_STORE_INDEX_BYTES = 8;
 const RESULT_STORE_READ_CHUNK_BYTES = 64 * 1024;
 /** One read serves every record a range finds inside it. */
@@ -53,48 +61,12 @@ export interface IOpenFileBackedScanCleanupResultStoreOptions<TRecord>
     fileSystem?: Pick<TFileBackedScanCleanupFileSystem, 'open'>;
 }
 
-function assertPageCount(pageCount: number) {
-    if (!Number.isSafeInteger(pageCount) || pageCount < 0) {
-        throw new RangeError('Scan cleanup result store page count must be a non-negative safe integer');
-    }
-}
-
-function assertResultCount(resultCount: number, pageCount: number) {
-    if (!Number.isSafeInteger(resultCount) || resultCount < 0 || resultCount > pageCount) {
-        throw new RangeError('Scan cleanup result store result count must be within its page count');
-    }
-}
-
 function checkedIndexLength(pageCount: number) {
     const length = BigInt(pageCount) * BigInt(RESULT_STORE_INDEX_BYTES);
     if (length > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new RangeError('Scan cleanup result store index length exceeds the safe integer range');
     }
     return Number(length);
-}
-
-function assertPageNumber(pageNumber: number, pageCount: number) {
-    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
-        throw new RangeError(`Scan cleanup result store has no page ${String(pageNumber)}`);
-    }
-}
-
-function assertReadWindow(
-    firstPageNumber: number,
-    lastPageNumberExclusive: number,
-    pageCount: number,
-    maxReadPages: number,
-) {
-    if (
-        !Number.isSafeInteger(firstPageNumber)
-        || !Number.isSafeInteger(lastPageNumberExclusive)
-        || firstPageNumber < 1
-        || lastPageNumberExclusive < firstPageNumber
-        || lastPageNumberExclusive > pageCount + 1
-        || lastPageNumberExclusive - firstPageNumber > maxReadPages
-    ) {
-        throw new RangeError('Scan cleanup result store read range is invalid or exceeds its bounded window');
-    }
 }
 
 function checkedIndexPosition(pageNumber: number) {
@@ -147,9 +119,9 @@ function parseRecordLine<TRecord>(line: Buffer) {
 function serializeRecord<TRecord>(record: TRecord) {
     const line = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
     const bytes = line.byteLength;
-    if (bytes > RESULT_STORE_MAX_LINE_BYTES) {
+    if (bytes > RESULT_STORE_MAX_RECORD_BYTES) {
         throw new RangeError(
-            `Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_LINE_BYTES)} bytes`,
+            `Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_RECORD_BYTES)} bytes`,
         );
     }
     return {
@@ -202,9 +174,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         this.pageCount = options.pageCount;
         this.pageNumberOf = options.pageNumberOf;
         this.maxReadPages = options.maxReadPages ?? SCAN_CLEANUP_STREAMING_BATCH_PAGES;
-        if (!Number.isSafeInteger(this.maxReadPages) || this.maxReadPages < 1) {
-            throw new RangeError('Scan cleanup result store read window must be a positive safe integer');
-        }
+        assertMaxReadPages(this.maxReadPages);
         this._resultCount = options.resultCount ?? 0;
     }
 
@@ -260,7 +230,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         const chunk = Buffer.allocUnsafe(RESULT_STORE_READ_CHUNK_BYTES);
         let totalBytes = 0;
         let position = offset;
-        while (totalBytes <= RESULT_STORE_MAX_LINE_BYTES) {
+        while (totalBytes <= RESULT_STORE_MAX_RECORD_BYTES) {
             const {bytesRead} = await this.recordsFile.read(
                 chunk,
                 0,
@@ -298,21 +268,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         this.assertOpen();
         this.assertWritable();
         assertPageNumber(pageNumber, this.pageCount);
-        const recordPageNumber = this.pageNumberOf(record);
-        if (recordPageNumber !== pageNumber) {
-            throw new Error(
-                `Scan cleanup result store received page ${String(recordPageNumber)} for page ${String(pageNumber)}`,
-            );
-        }
         const existingOffset = skipExistingCheck
             ? undefined
             : await this.readOffset(pageNumber);
-        if (requireExisting && existingOffset === undefined) {
-            throw new Error(`Scan cleanup result store cannot replace missing page ${String(pageNumber)}`);
-        }
-        if (!requireExisting && existingOffset !== undefined) {
-            throw new Error(`Scan cleanup result store already contains page ${String(pageNumber)}`);
-        }
+        assertRecordWrite(pageNumber, this.pageNumberOf(record), existingOffset !== undefined, requireExisting);
         const serialized = serializeRecord(record);
         const offset = this.nextOffset;
         const nextOffset = BigInt(offset) + BigInt(serialized.bytes);
@@ -429,24 +388,27 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         });
     }
 
-    public forEachChunk(onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) {
-        return this.enqueue(async () => {
-            this.assertOpen();
-            for (
-                let firstPageNumber = 1;
-                firstPageNumber <= this.pageCount;
-                firstPageNumber += this.maxReadPages
-            ) {
-                const lastPageNumberExclusive = Math.min(
-                    this.pageCount + 1,
-                    firstPageNumber + this.maxReadPages,
-                );
-                await onChunk(
-                    await this.readRangeInternal(firstPageNumber, lastPageNumberExclusive),
-                    firstPageNumber,
-                );
-            }
-        });
+    /**
+     * Each chunk is read as its own queued operation and handed to `onChunk`
+     * outside the queue, so other reads and writes run between chunks and a
+     * callback may use the store itself.
+     */
+    public async forEachChunk(onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) {
+        this.assertOpen();
+        for (
+            let firstPageNumber = 1;
+            firstPageNumber <= this.pageCount;
+            firstPageNumber += this.maxReadPages
+        ) {
+            const lastPageNumberExclusive = Math.min(
+                this.pageCount + 1,
+                firstPageNumber + this.maxReadPages,
+            );
+            await onChunk(
+                await this.readRange(firstPageNumber, lastPageNumberExclusive),
+                firstPageNumber,
+            );
+        }
     }
 
     public close() {
@@ -574,14 +536,6 @@ export function createFileBackedScanCleanupDetectionResultStore(
         ...options,
         pageNumberOf: result => result.pageNumber,
     }).then(store => {
-        const persistedResult = (result: IScanCleanupDetectionResult): IScanCleanupDetectionResult => {
-            if (result.outputModeDiagnostics === undefined) {
-                return result;
-            }
-            const persisted = {...result};
-            delete persisted.outputModeDiagnostics;
-            return persisted;
-        };
         return {
             close: () => store.close(),
             forEachChunk: onChunk => store.forEachChunk(onChunk),
@@ -596,8 +550,8 @@ export function createFileBackedScanCleanupDetectionResultStore(
             readRange: (firstPageNumber, lastPageNumberExclusive) => (
                 store.readRange(firstPageNumber, lastPageNumberExclusive)
             ),
-            append: result => store.append(persistedResult(result)),
-            replace: (pageNumber, result) => store.replace(pageNumber, persistedResult(result)),
+            append: result => store.append(toPersistedDetectionResult(result)),
+            replace: (pageNumber, result) => store.replace(pageNumber, toPersistedDetectionResult(result)),
         };
     });
 }

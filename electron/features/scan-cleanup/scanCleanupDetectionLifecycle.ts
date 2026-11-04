@@ -16,8 +16,13 @@ import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
-    completedPageProgress,
 } from '@evb/scan-cleanup/core/detection';
+import {
+    completeScanCleanupDetectionJobState,
+    queuedScanCleanupDetectionJobState,
+    runningScanCleanupDetectionJobState,
+    selectUndeliveredScanCleanupDetectionResults,
+} from '@evb/scan-cleanup/core/scanCleanupDetectionJobState';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
@@ -40,7 +45,6 @@ import {
     RENDERER_DESTROYED_CANCELLATION_REASON,
     RENDER_PROCESS_GONE_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
-import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import {runtimeConfig} from '@electron/runtimeConfig';
@@ -60,14 +64,8 @@ import {
     type IRegisteredMainOperation,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
-import {
-    createScanCleanupDetectionSignature,
-    createScanCleanupPlacementAnchorCalibrationSignature,
-} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {
-    buildScanCleanupPlacementAnchorSummary,
-    resolveScanCleanupPlacementAnchorsFromResult,
-} from '@evb/scan-cleanup/core/placementAnchors';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {createScanCleanupPlacementAnchorCalibrations} from '@evb/scan-cleanup/core/createScanCleanupPlacementAnchorCalibrations';
 
 const logger = createLogger('scan-cleanup-detection');
 function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
@@ -109,37 +107,14 @@ function createScanCleanupDetectionLifecycle(): IScanCleanupDetectionLifecycle {
     const deliveredResults = new Map<string, Map<number, number | string>>();
     const ownedResultStores = new Map<string, IScanCleanupDetectionResultStore>();
     const activeJobs = new Map<string, IScanCleanupActiveDetectionJob>();
-    const deliveredSignature = (result: IScanCleanupDetectionResult) => result.revision ?? JSON.stringify([
-        result.classification,
-        result.confidence,
-        result.cutterXPx,
-        result.tier1Verdict,
-        result.reconciled,
-        result.clusterAgreement,
-        result.documentPrior,
-        result.textAxis,
-        result.recommendedOutputMode,
-        result.recommendedOutputModeConfidence,
-        result.recommendedOutputModeReason,
-        result.softAlphaForegroundRecommendation,
-        result.pagePlanEvidence,
-    ]);
     return {
         resetDelivery(deliveryKey) {
             deliveredResults.delete(deliveryKey);
         },
         selectUndelivered(deliveryKey, results) {
             const delivered = deliveredResults.get(deliveryKey) ?? new Map<number, number | string>();
-            const changed = results.filter(result => {
-                const signature = deliveredSignature(result);
-                if (delivered.get(result.pageNumber) === signature) {
-                    return false;
-                }
-                delivered.set(result.pageNumber, signature);
-                return true;
-            });
             deliveredResults.set(deliveryKey, delivered);
-            return changed;
+            return selectUndeliveredScanCleanupDetectionResults(delivered, results);
         },
         ownResultStore(jobId, store) {
             ownedResultStores.set(jobId, store);
@@ -211,12 +186,7 @@ export function scanCleanupDetectionOwner(
     const detectionLifecycle = createScanCleanupDetectionLifecycle();
     interface IResultStoreOwnerBinding {close: () => Promise<void>;}
     const resultStoreOwnerBindings = new Map<string, IResultStoreOwnerBinding>();
-    const placementCalibrationByStore = new Map<string, {
-        key: string;
-        promise: ReturnType<typeof buildScanCleanupPlacementAnchorSummary>;
-        controller: AbortController;
-        waiters: number;
-    }>();
+    const placementCalibrations = createScanCleanupPlacementAnchorCalibrations();
     // A completed store is evidence about one open document, so the document's
     // working-copy close retires it. The close reaches it the way it reaches
     // every working-copy dependent: as a registered operation it cancels.
@@ -241,14 +211,7 @@ export function scanCleanupDetectionOwner(
         const closeRetirement = workingCopyCloseRetirements.get(ownerKey);
         workingCopyCloseRetirements.delete(ownerKey);
         await releaseScanCleanupDetectionResultStoreForOwner(ownerKey).finally(() => closeRetirement?.complete());
-        for (const [
-            storeId,
-            build,
-        ] of placementCalibrationByStore) {
-            if (isScanCleanupDetectionResultStoreRegistered(storeId)) continue;
-            placementCalibrationByStore.delete(storeId);
-            if (build.waiters === 0) build.controller.abort();
-        }
+        placementCalibrations.retireUnless(isScanCleanupDetectionResultStoreRegistered);
     };
     const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) => (
         state === null ? null : projectScanCleanupDetectionStateForRenderer(state)
@@ -301,35 +264,7 @@ export function scanCleanupDetectionOwner(
             ...scanCleanupScratchShortfall(cause),
         }),
         terminalProgress: {
-            completed: (latest, result) => {
-                const resultCount = result.resultStore.resultCount;
-                const pageCount = result.resultStore.pageCount;
-                const results = resultCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
-                    ? result.results
-                    : [];
-                return {
-                    jobId: latest.jobId,
-                    status: 'completed',
-                    documentCanvasSignature: latest.documentCanvasSignature ?? '',
-                    progress: {
-                        stage: 'detecting',
-                        completedUnits: resultCount,
-                        totalUnits: pageCount,
-                        percent: pageCount === 0 ? 100 : resultCount / pageCount * 100,
-                        ...completedPageProgress(new Set(results.map(item => item.pageNumber)), resultCount),
-                    },
-                    resultCount,
-                    blankPageCount: result.blankPageCount,
-                    ...(result.resultStoreId === undefined
-                        ? {}
-                        : {detectionResultStoreId: result.resultStoreId}),
-                    ...(result.placementAnchorSummary === undefined
-                        ? {}
-                        : {placementAnchorSummary: result.placementAnchorSummary}),
-                    results,
-                    updatedAtMs: createEpochMs(),
-                };
-            },
+            completed: completeScanCleanupDetectionJobState,
             canceled: latest => ({
                 ...latest,
                 status: 'canceled',
@@ -409,87 +344,21 @@ export function scanCleanupDetectionOwner(
             request.options.pageOverrideDefaults,
             request.options.marginsMm,
         );
-        const detectionSignature = createScanCleanupDetectionSignature(request.options);
-        const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
         const lease = claimScanCleanupDetectionResultStore(
             request.detectionResultStoreId,
             {
-                detectionSignature,
+                detectionSignature: createScanCleanupDetectionSignature(request.options),
                 documentRevision: request.documentRevision,
                 ownerId: request.ownerId,
                 sourcePdfPath: request.sourcePdfPath,
             },
         );
         if (lease === null) {
-            placementCalibrationByStore.delete(request.detectionResultStoreId);
+            placementCalibrations.retire(request.detectionResultStoreId);
             throw new Error('Detection results are no longer available for this document');
         }
-        const key = JSON.stringify([
-            request.detectionResultStoreId,
-            request.ownerId,
-            request.documentRevision,
-            detectionSignature,
-            calibrationSignature,
-        ]);
         try {
-            let build = placementCalibrationByStore.get(request.detectionResultStoreId);
-            if (build === undefined || build.key !== key) {
-                if (build !== undefined && build.waiters === 0) {
-                    build.controller.abort();
-                }
-                const controller = new AbortController();
-                const promise = buildScanCleanupPlacementAnchorSummary({
-                    options: request.options,
-                    resultStore: lease.resultStore,
-                    signal: controller.signal,
-                    identity: {
-                        documentRevision: request.documentRevision,
-                        detectionSignature,
-                        calibrationSignature,
-                    },
-                });
-                build = {
-                    key,
-                    promise,
-                    controller,
-                    waiters: 0,
-                };
-                placementCalibrationByStore.set(request.detectionResultStoreId, build);
-                void promise.catch(() => {
-                    if (placementCalibrationByStore.get(request.detectionResultStoreId) === build) {
-                        placementCalibrationByStore.delete(request.detectionResultStoreId);
-                    }
-                });
-            }
-            // A changed option set must not abort a caller still waiting on the
-            // previous build, but a superseded build nobody awaits is aborted so
-            // rapid option changes do not run concurrent passes over the store.
-            const currentBuild = build;
-            currentBuild.waiters += 1;
-            let summary: Awaited<typeof currentBuild.promise>;
-            try {
-                summary = await currentBuild.promise;
-            } finally {
-                currentBuild.waiters -= 1;
-                if (
-                    currentBuild.waiters === 0
-                    && placementCalibrationByStore.get(request.detectionResultStoreId) !== currentBuild
-                ) {
-                    currentBuild.controller.abort();
-                }
-            }
-            const result = request.pageNumber === undefined
-                ? undefined
-                : await lease.resultStore.getPage(request.pageNumber);
-            if (request.pageNumber !== undefined && result === undefined) {
-                throw new Error(`Scan cleanup placement calibration has no page ${String(request.pageNumber)}`);
-            }
-            return {
-                summary,
-                placementAnchors: result === undefined
-                    ? {}
-                    : resolveScanCleanupPlacementAnchorsFromResult(summary, request.options, result),
-            };
+            return await placementCalibrations.resolve(request.detectionResultStoreId, lease.resultStore, request);
         } finally {
             await lease.release();
         }
@@ -553,21 +422,7 @@ export function scanCleanupDetectionOwner(
                     kind: 'abortable-work',
                     workingCopyPath: request.sourcePdfPath,
                 },
-                initialProgress: {
-                    jobId,
-                    status: 'queued',
-                    documentCanvasSignature: '',
-                    progress: {
-                        stage: 'queued',
-                        completedUnits: 0,
-                        totalUnits: 0,
-                        percent: 0,
-                        completedPageNumbers: [],
-                    },
-                    resultCount: 0,
-                    results: [],
-                    updatedAtMs: createEpochMs(),
-                },
+                initialProgress: queuedScanCleanupDetectionJobState(jobId),
                 ownerLifecycle: {
                     destroyed: 'cancel',
                     renderProcessGone: 'cancel',
@@ -667,16 +522,7 @@ export function scanCleanupDetectionOwner(
                                     : {totalRamBytes: rasterPolicy.totalRamBytes}),
                             },
                             (nextResults, progress, documentCanvasSignature) => {
-                                const normalizedProgress = normalizeDetectionProgress(progress);
-                                job.publish({
-                                    jobId,
-                                    status: 'running',
-                                    documentCanvasSignature,
-                                    progress: normalizedProgress,
-                                    resultCount: normalizedProgress.completedUnits,
-                                    results: nextResults,
-                                    updatedAtMs: createEpochMs(),
-                                });
+                                job.publish(runningScanCleanupDetectionJobState(jobId, nextResults, progress, documentCanvasSignature));
                             },
                             logScanCleanupMessage,
                         );
@@ -817,8 +663,7 @@ export function scanCleanupDetectionOwner(
             await detectionJobs.dispose();
             await disposeResultStoreOwnerBindings();
             await detectionLifecycle.dispose();
-            placementCalibrationByStore.forEach(build => build.controller.abort());
-            placementCalibrationByStore.clear();
+            placementCalibrations.dispose();
         },
     };
 }

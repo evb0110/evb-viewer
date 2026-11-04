@@ -22,6 +22,7 @@ import {
     createFileBackedScanCleanupDetectionResultStore,
     createFileBackedScanCleanupResultStore,
 } from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {createMemoryScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore';
 import {
     preserveScanCleanupJsonEvidence,
     isScanCleanupRunReportFile,
@@ -465,5 +466,109 @@ describe('file-backed scan-cleanup result store', () => {
         )).rejects.toThrow('lossless child canceled');
         expect(forEachChunk).not.toHaveBeenCalled();
         expect(pageSizeStore.readRange).not.toHaveBeenCalled();
+    });
+});
+
+function detectionResult(pageNumber: number, classification: IScanCleanupDetectionResult['classification'] = 'single-uncut-page'): IScanCleanupDetectionResult {
+    return {
+        pageNumber: requirePageNumber(pageNumber),
+        revision: 1,
+        classification,
+        confidence: 1,
+        cutterXPx: null,
+        tier1Verdict: classification,
+        reconciled: false,
+        clusterAgreement: 1,
+        documentPrior: null,
+        recommendedOutputMode: 'grayscale',
+        outputModeDiagnostics: {rule: 'blank'} as NonNullable<IScanCleanupDetectionResult['outputModeDiagnostics']>,
+    };
+}
+
+// Desktop keeps detection records on disk; the browser, which has no scratch
+// filesystem, keeps the same records in memory. Both obey one contract.
+describe.each([
+    {
+        name: 'file-backed',
+        create: async (pageCount: number, maxReadPages?: number) => {
+            const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-test-'));
+            roots.push(root);
+            return createFileBackedScanCleanupDetectionResultStore({
+                pageCount,
+                rootDir: root,
+                ...(maxReadPages === undefined ? {} : {maxReadPages}),
+            });
+        },
+    },
+    {
+        name: 'memory',
+        create: async (pageCount: number, maxReadPages?: number) => createMemoryScanCleanupDetectionResultStore(pageCount, maxReadPages),
+    },
+])('$name scan-cleanup detection result store', ({create}) => {
+    it('keeps one record per page without analysis-only diagnostics', async () => {
+        const store = await create(3);
+        await store.append(detectionResult(2));
+        await expect(store.append(detectionResult(2))).rejects.toThrow('already contains page 2');
+        await expect(store.replace(1, detectionResult(1))).rejects.toThrow('cannot replace missing page 1');
+        await expect(store.replace(2, detectionResult(3))).rejects.toThrow('received page 3 for page 2');
+        await store.replace(2, detectionResult(2, 'two-page-spread'));
+
+        const persisted = await store.getPage(2);
+        expect(persisted).not.toHaveProperty('outputModeDiagnostics');
+        expect(persisted?.classification).toBe('two-page-spread');
+        expect(store.resultCount).toBe(1);
+        expect(await store.getPage(1)).toBeUndefined();
+        await expect(store.getPage(4)).rejects.toThrow('has no page 4');
+        await store.close();
+    });
+
+    it('reads page-ordered bounded windows and chunks over missing pages', async () => {
+        const store = await create(5, 2);
+        for (const pageNumber of [
+            5,
+            1,
+            3,
+        ]) await store.append(detectionResult(pageNumber));
+
+        expect((await store.readRange(1, 3)).map(result => result.pageNumber)).toEqual([1]);
+        await expect(store.readRange(1, 4)).rejects.toThrow('bounded window');
+        const chunks: Array<[number, number[]]> = [];
+        await store.forEachChunk((results, firstPageNumber) => {
+            chunks.push([
+                firstPageNumber,
+                results.map(result => result.pageNumber),
+            ]);
+        });
+        expect(chunks).toEqual([
+            [
+                1,
+                [1],
+            ],
+            [
+                3,
+                [3],
+            ],
+            [
+                5,
+                [5],
+            ],
+        ]);
+        await store.close();
+        await expect(store.getPage(1)).rejects.toThrow('closed');
+    });
+
+    it('refuses to read chunks once closed, including when a chunk closes it', async () => {
+        const store = await create(4, 2);
+        await store.append(detectionResult(3));
+        const chunks: number[] = [];
+        await expect(store.forEachChunk(async (_results, firstPageNumber) => {
+            chunks.push(firstPageNumber);
+            await store.close();
+        })).rejects.toThrow('closed');
+        expect(chunks).toEqual([1]);
+
+        const empty = await create(0);
+        await empty.close();
+        await expect(empty.forEachChunk(() => undefined)).rejects.toThrow('closed');
     });
 });
