@@ -1,4 +1,12 @@
 import {
+    mkdir,
+    mkdtemp,
+    rm,
+    symlink,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
     join,
     relative,
 } from 'node:path';
@@ -77,6 +85,27 @@ describe('working copy quarantine', () => {
         );
 
         expect(isWorkingCopyQuarantined(absolutePath)).toBe(true);
+    });
+
+    it('answers for a spelling through a symlinked folder', async () => {
+        const {
+            isWorkingCopyQuarantined,
+            quarantineWorkingCopy,
+        } = await importQuarantine();
+        const root = await mkdtemp(join(tmpdir(), 'evb-quarantine-alias-'));
+        try {
+            await mkdir(join(root, 'real'));
+            await writeFile(join(root, 'real', 'working.pdf'), '%PDF');
+            await symlink(join(root, 'real'), join(root, 'alias'), 'dir');
+            quarantineWorkingCopy(join(root, 'alias', 'working.pdf'), 'process tree was not proven dead');
+
+            expect(isWorkingCopyQuarantined(join(root, 'real', 'working.pdf'))).toBe(true);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('logs the path the caller supplied rather than the normalized key', async () => {
