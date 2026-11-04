@@ -490,12 +490,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     return true;
                 },
             );
-            if (typeof textReady === 'object') {
-                settleFailedLayers(pageNumber, version, requestId, container, textReady);
-                return;
+            if (!textReady) return;
+            if (typeof textReady !== 'object') {
+                if (!pageRenderState.markTextLayerReady(pageNumber, version, requestId, container)) return;
+                options.onRenderedPageStateChanged?.();
             }
-            if (!textReady || !pageRenderState.markTextLayerReady(pageNumber, version, requestId, container)) return;
-            options.onRenderedPageStateChanged?.();
             const annotation = stagedAnnotations ?? await annotationLayerController(
                 pageNumber,
                 version,
@@ -503,6 +502,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 context,
                 shouldContinue,
             );
+            if (typeof textReady === 'object') {
+                if (shouldContinue()) {
+                    settleFailedLayers(pageNumber, version, requestId, container, textReady);
+                }
+                return;
+            }
             if ('error' in annotation && shouldContinue()) {
                 settleFailedLayers(pageNumber, version, requestId, container, annotation);
                 return;
