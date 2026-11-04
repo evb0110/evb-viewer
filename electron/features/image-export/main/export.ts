@@ -33,6 +33,7 @@ import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TImageExportProgressPhase } from '@contracts/imageExportPlatformFeature';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import {runQpdfCommand} from '@electron/features/page-ops/publicNative';
 import {
     buildPopplerEnv,
     type IPopplerRuntimePaths,
@@ -857,15 +858,12 @@ async function usingPreparedSourcePdf<T>(
             '--',
             subsetPdfPath,
         ];
-        await usingExportScratch(options, 'qpdfArgs-', async argsDir => {
-            const argsPath = join(argsDir, 'args.txt');
-            await writeFile(argsPath, qpdfArgs.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
-            await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [`@${argsPath}`], {
-                timeoutMs: QPDF_TIMEOUT_MS,
-                commandLabel: 'qpdf(export-subset)',
-                ...(options.signal ? { signal: options.signal } : {}),
-                ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-            });
+        await runQpdfCommand(qpdfArgs, {
+            scratchDirectory: tempDir,
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(export-subset)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         return run(subsetPdfPath);
     });

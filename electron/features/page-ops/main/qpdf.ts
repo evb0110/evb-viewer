@@ -1,5 +1,6 @@
 import {
     copyFile,
+    symlink,
     rm,
     stat,
     unlink,
@@ -10,7 +11,9 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {devNull} from 'node:os';
-import { join } from 'path';
+import {
+    dirname, join, resolve,
+} from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { getAppTempDir } from '@electron/utils/appTempDir';
@@ -25,7 +28,9 @@ import {
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
-import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {
+    createManagedScratchTempDir, usingManagedScratchScope,
+} from '@electron/utils/managedScratchTemp';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
     getPdfPageCount,
@@ -69,7 +74,10 @@ interface IQpdfWorkingCopyMaterialization {
     signal?: AbortSignal;
 }
 type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
-    & {workingCopyMaterialization?: IQpdfWorkingCopyMaterialization};
+    & {
+        workingCopyMaterialization?: IQpdfWorkingCopyMaterialization;
+        scratchDirectory?: string;
+    };
 
 const NON_COMMITTING_MATERIALIZATION_SIGNAL = {markCommitStarted: () => undefined};
 
@@ -184,27 +192,13 @@ function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
     };
 }
 
-async function writeQpdfArgsFile(args: string[]) {
-    const tempDir = await createManagedScratchTempDir('qpdfArgs-', getAppTempDir());
-    const argsPath = join(tempDir, 'args.txt');
-    await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
-    return {
-        argsPath,
-        cleanup: async () => {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            });
-        },
-    };
-}
-
 export async function runQpdfCommand(
     args: string[],
     options: TRunQpdfCommandOptions,
 ) {
     const {
         workingCopyMaterialization,
+        scratchDirectory,
         ...nativeOptions
     } = options;
     if (workingCopyMaterialization) {
@@ -214,15 +208,39 @@ export async function runQpdfCommand(
             workingCopyMaterialization.signal,
         );
     }
-    const argsFile = await writeQpdfArgsFile(args);
-    const onSpawn = createSelectedPagePrintQpdfSpawnHold(argsFile.argsPath, nativeOptions.cancelGroup);
-    try {
-        await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], {
+    const runWithArguments = async (tempDir: string) => {
+        const argsPath = join(tempDir, 'args.txt');
+        if (/[\r\n]/u.test(argsPath)) throw new TypeError('qpdf argument scratch path contains a line break');
+        const binary = getQpdfBinary();
+        const aliases = new Map<string, string>();
+        const encoded: string[] = [];
+        // The supported commands put CR/LF only in path operands. A symlink
+        // preserves their spelling, including a not-yet-created staged output.
+        for (const arg of args) {
+            if (!/[\r\n]/u.test(arg)) {
+                encoded.push(arg);
+                continue;
+            }
+            const target = resolve(nativeOptions.cwd ?? dirname(binary), arg);
+            let alias = aliases.get(target);
+            if (alias === undefined) {
+                alias = join(tempDir, `path-${aliases.size}.pdf`);
+                await symlink(target, alias, 'file');
+                aliases.set(target, alias);
+            }
+            encoded.push(alias);
+        }
+        await writeFile(argsPath, encoded.join('\n'));
+        const onSpawn = createSelectedPagePrintQpdfSpawnHold(argsPath, nativeOptions.cancelGroup);
+        await runNativeToolCommand(binary, [`@${argsPath}`], {
             ...nativeOptions,
             ...(onSpawn ? {onSpawn} : {}),
         });
-    } finally {
-        await argsFile.cleanup();
+    };
+    if (scratchDirectory === undefined) {
+        await usingManagedScratchScope('qpdfArgs-', getAppTempDir(), runWithArguments);
+    } else {
+        await runWithArguments(scratchDirectory);
     }
 }
 

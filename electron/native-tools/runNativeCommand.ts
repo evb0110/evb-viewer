@@ -387,7 +387,8 @@ export async function runNativeCommand(
             },
             onClose: () => {
                 childClosed = true;
-                void cleanupScratchIfProven();
+                // A close can precede recording an abnormal Windows tree outcome.
+                if (terminationProof !== null) void cleanupScratchIfProven();
                 options.onClose?.();
             },
             onTerminationProof: proof => {
@@ -810,7 +811,8 @@ async function runNativeCommandCore(
                 if (!closeSignal) {
                     const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
                     if (structuredError) {
-                        finalizeReject(structuredError);
+                        if (process.platform === 'win32') requestTermination(structuredError);
+                        else finalizeReject(structuredError);
                         return;
                     }
                 }
@@ -824,12 +826,14 @@ async function runNativeCommandCore(
                     closeSignal,
                 );
                 log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
-                finalizeReject(new NativeProcessError(
+                const error = new NativeProcessError(
                     closeSignal ? 'signal' : 'exit-code',
                     exitCode,
                     closeSignal,
                     failure.message,
-                ));
+                );
+                if (process.platform === 'win32') requestTermination(error);
+                else finalizeReject(error);
                 return;
             }
             if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {

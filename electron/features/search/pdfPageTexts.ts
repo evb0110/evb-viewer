@@ -19,12 +19,14 @@ import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nat
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { streamItems } from '@electron/features/search/streamItems';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 import type { IPageText } from '@electron/features/search/pageText';
 import { readOcrLayerLayout } from '@ocr-core/readOcrLayerLayout';
 import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
@@ -264,7 +266,18 @@ async function readVisiblePopplerPageTexts(
  * pdftotext on OCR layers that embed a font per page.
  */
 function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
-    return streamItems<IPageText>((emit, workerSignal) => runResultWorkerTask({
+    return streamItems<IPageText>((emit, workerSignal) => mainJobBroker.run({
+        ownerId: 'pdf-text',
+        kind: 'pdf-text',
+        priority: 'background',
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 0,
+            ioWeight: 1,
+        },
+        signal: workerSignal,
+    }, () => runResultWorkerTask({
         workerPath: resolveUnpackedWorkerPath(dirname(fileURLToPath(import.meta.url)), PDF_TEXT_WORKER_FILENAME),
         workerData: {
             pdfPath,
@@ -281,7 +294,7 @@ function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: Ab
             return parsed.success;
         },
         signal: workerSignal,
-    }), signal);
+    })), signal);
 }
 
 function resolvePageOpsBinary() {
@@ -409,11 +422,9 @@ async function readRemainingPopplerPageTexts(
 }
 
 /**
- * Streams the PDF text layer page by page, in reading order. pdftotext reads
- * it in windows whose pages wait until it finishes, since only then does it
- * say whether Poppler lacked CJK data for any of them; such a window is
- * streamed with PDF.js instead. Poppler stops adding small glyphs to a page
- * after 50,000, so a window holds a few megabytes of real text.
+ * Streams PDF text in reading order. Poppler windows wait for completion to
+ * detect missing CJK data, then fall back to PDF.js. Poppler stops each page
+ * at 50,000 small glyphs, bounding each window to a few megabytes of text.
  */
 export function streamPdfPageTexts(
     pdfPath: string,
@@ -425,7 +436,25 @@ export function streamPdfPageTexts(
         visiblePageOnly = false,
         ...range
     } = options;
-    return streamPdfPageTextRanges(pdfPath, [range], signal, onProgress, visiblePageOnly);
+    const cancellation = new AbortController();
+    const iterator = (async function* () {
+        try {
+            yield* streamPdfPageTextRanges(pdfPath, [range], signal ? AbortSignal.any([
+                signal,
+                cancellation.signal,
+            ]) : cancellation.signal, onProgress, visiblePageOnly);
+        } catch (error) {
+            if (getUnprovenNativeTerminationDetail(error) !== undefined
+                || !cancellation.signal.aborted || signal?.aborted) throw error;
+        }
+    })();
+    const finish = iterator.return.bind(iterator);
+    iterator.return = value => {
+        // Async generators queue return behind next, so abort admission before queuing it.
+        cancellation.abort();
+        return finish(value);
+    };
+    return iterator;
 }
 
 async function* streamPdfPageTextRanges(

@@ -1,3 +1,5 @@
+import type * as TNodeFsPromises from 'node:fs/promises';
+import type * as TNativeToolCommand from '@electron/native-tools/runNativeToolCommand';
 import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
 
 import {
@@ -564,5 +566,191 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
             },
         }));
         expect(mocks.fork).not.toHaveBeenCalled();
+    });
+});
+
+
+// Child-module harness: real staged/target bytes and the real targeted loop.
+// doMock is deliberately scoped so the parent-adapter harness above keeps its seams.
+describe('document save utility child shutdown proof', () => {
+    async function childHarness() {
+        const fs = await vi.importActual<typeof TNodeFsPromises>('node:fs/promises');
+        const {join} = await import('node:path');
+        const {tmpdir} = await import('node:os');
+        const directory = await fs.mkdtemp(join(tmpdir(), 'save-child-shutdown-'));
+        const sourcePath = join(directory, 'staged.pdf');
+        const targetPath = join(directory, 'target.pdf');
+        const source = '%PDF-1.4\n1 0 obj <<>> endobj\n%%EOF\n';
+        await fs.writeFile(sourcePath, source);
+        await fs.writeFile(targetPath, 'original target bytes');
+        const parent = Object.assign(new EventEmitter(), {postMessage: vi.fn()});
+        const descriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+        const termHandlers = new Set(process.listeners('SIGTERM'));
+        const tool = vi.fn<typeof TNativeToolCommand.runNativeToolCommand>();
+        vi.resetModules();
+        vi.doMock('node:fs/promises', () => fs);
+        vi.doMock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: tool}));
+        vi.doMock('@electron/native-tools/runNativeCommand', () => ({
+            runNativeCommand: tool,
+            cancelNativeCommandGroupAndWait: async () => true,
+        }));
+        vi.doMock('@electron/utils/processIdentity', () => ({getOwnStartTime: async () => 'child-start'}));
+        Object.defineProperty(process, 'parentPort', {
+            value: parent,
+            configurable: true,
+        });
+        await import('@electron/features/documents/main/documentSaveUtilityProcess');
+        return {
+            fs,
+            tool,
+            parent,
+            sourcePath,
+            targetPath,
+            commit() {
+                parent.emit('message', {data: {
+                    type: 'commit',
+                    sourcePath,
+                    targetPath,
+                    expectedBytes: Buffer.byteLength(source),
+                    validationBinary: '/qpdf',
+                    changedObjectRefs: [
+                        '3 0 R',
+                        '4 0 R',
+                    ],
+                }});
+            },
+            shutdown(requestId: string) { parent.emit('message', {data: {
+                type: 'shutdown',
+                requestId,
+            }}); },
+            async close() {
+                for (const handler of process.listeners('SIGTERM')) {
+                    if (!termHandlers.has(handler)) process.removeListener('SIGTERM', handler);
+                }
+                if (descriptor) Object.defineProperty(process, 'parentPort', descriptor);
+                else Reflect.deleteProperty(process, 'parentPort');
+                vi.doMock('node:fs/promises', () => ({stat: mocks.stat}));
+                vi.doUnmock('@electron/native-tools/runNativeToolCommand');
+                vi.doUnmock('@electron/native-tools/runNativeCommand');
+                vi.doUnmock('@electron/utils/processIdentity');
+                vi.resetModules();
+                await fs.rm(directory, {
+                    recursive: true,
+                    force: true,
+                });
+            },
+        };
+    }
+
+    it.each([
+        false,
+        true,
+    ])('waits for targeted native settlement and preserves false proof (%s)', async marked => {
+        const h = await childHarness();
+        const pending = Promise.withResolvers<{
+            exitCode: number;
+            stdout: string;
+            stderr: string
+        }>();
+        const started = Promise.withResolvers<AbortSignal | undefined>();
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const failure = markUnprovenNativeTermination(new Error('native timeout'), 'qpdf still owns staged bytes');
+        const commands: string[][] = [];
+        h.tool.mockImplementation((_binary, args, options) => {
+            if (args[0] === '--check') return Promise.resolve({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            });
+            commands.push(args);
+            started.resolve(options?.signal);
+            return pending.promise;
+        });
+        try {
+            h.commit();
+            const signal = await started.promise;
+            h.shutdown('first');
+            expect(signal?.aborted).toBe(true);
+            await Promise.resolve();
+            expect(h.parent.postMessage.mock.calls.some(([frame]) => frame.type === 'shutdown-complete')).toBe(false);
+            expect(await h.fs.readFile(h.targetPath, 'utf8')).toBe('original target bytes');
+            if (marked) pending.reject(failure);
+            else pending.resolve({
+                exitCode: 0,
+                stdout: '<< /Type /Page >>',
+                stderr: '',
+            });
+            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
+                type: 'shutdown-complete',
+                requestId: 'first',
+                terminated: !marked,
+            }));
+            h.shutdown('second');
+            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
+                type: 'shutdown-complete',
+                requestId: 'second',
+                terminated: !marked,
+            }));
+            expect(commands).toEqual([[
+                '--show-object=3,0',
+                h.sourcePath,
+            ]]);
+            expect(await h.fs.readFile(h.targetPath, 'utf8')).toBe('original target bytes');
+            expect(await h.fs.readFile(h.sourcePath, 'utf8')).toContain('%%EOF');
+        } finally { await h.close(); }
+    });
+
+    it('acknowledges an empty shutdown and rejects subsequent publication', async () => {
+        const h = await childHarness();
+        try {
+            h.shutdown('empty');
+            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
+                type: 'shutdown-complete',
+                requestId: 'empty',
+                terminated: true,
+            }));
+            h.commit();
+            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'result',
+                ok: false,
+            })));
+            expect(await h.fs.readFile(h.targetPath, 'utf8')).toBe('original target bytes');
+        } finally { await h.close(); }
+    });
+
+    it('publishes a normal targeted commit with an object between 256 KiB and 1 MiB', async () => {
+        const h = await childHarness();
+        const object = `<< /Payload (${'.'.repeat(300 * 1024)}) >>`;
+        h.tool.mockImplementation(async (_binary, args, options) => {
+            if (args[0] === '--check') return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+            expect(options).toMatchObject({
+                timeoutMs: 60_000,
+                maxStdoutBytes: 1024 * 1024,
+                maxStderrBytes: 256 * 1024,
+            });
+            return {
+                exitCode: 0,
+                stdout: object,
+                stderr: '',
+            };
+        });
+        try {
+            h.commit();
+            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'result',
+                ok: true,
+            })));
+            expect(await h.fs.readFile(h.targetPath, 'utf8')).toContain('%%EOF');
+            h.shutdown('normal');
+            await vi.waitFor(() => expect(h.parent.postMessage).toHaveBeenCalledWith({
+                type: 'shutdown-complete',
+                requestId: 'normal',
+                terminated: true,
+            }));
+        } finally { await h.close(); }
     });
 });

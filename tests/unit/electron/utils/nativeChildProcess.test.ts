@@ -112,4 +112,18 @@ describe('nativeChildProcess', () => {
         expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
         expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
     });
+    it.each([
+        'linux',
+        'win32',
+    ] as const)('keeps a missing-PID Windows tree unproven even after direct exit (%s)', async platform => {
+        const proc = {
+            pid: undefined,
+            exitCode: 0,
+            signalCode: null,
+            kill: vi.fn(),
+        };
+        await expect(terminateDetachedChildProcess(proc as never, 0, platform)).resolves.toBe(platform !== 'win32');
+        expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
+    });
+
 });
