@@ -84,7 +84,13 @@ function createUnitTestProject(
             ],
             globals: false,
             ...(name === vitestProjectNames.browserIntegration
-                ? {expect: {poll: {timeout: 15_000}}}
+                ? {
+                    expect: {poll: {timeout: 15_000}},
+                    // Each file owns Nuxt, Chromium and WASM workers. Leave
+                    // runner cores for those children instead of competing
+                    // with another full app for every Vitest worker.
+                    maxWorkers: 2,
+                }
                 : {}),
             ...(processCss ? {css: true} : {}),
             setupFiles: setupFiles ?? unitTestSetupFiles,
