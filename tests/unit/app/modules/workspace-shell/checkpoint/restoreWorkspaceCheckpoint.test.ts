@@ -46,7 +46,7 @@ function checkpointTab(tabId: string, paneId: string, place: {
 vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 
 describe('restoreWorkspaceCheckpoint', () => {
-    it('restores a hidden linked tab as a view of the document at its own page and zoom', async () => {
+    it('restores hidden linked and clean tabs at their own page, zoom and layout before they mount', async () => {
         const tabs = ref<ITab[]>([]);
         const documentSessions = useWorkspaceDocumentSessions({
             activeTabId: ref(null),
@@ -62,7 +62,10 @@ describe('restoreWorkspaceCheckpoint', () => {
             panes: [
                 {
                     paneId: requirePaneId('pane-1'),
-                    tabIds: [requireTabId('tab-1')],
+                    tabIds: [
+                        requireTabId('tab-1'),
+                        requireTabId('tab-4'),
+                    ],
                     activeTabId: requireTabId('tab-1'),
                 },
                 {
@@ -94,6 +97,18 @@ describe('restoreWorkspaceCheckpoint', () => {
                     sourceRef: requireDocumentRef('/documents/other.pdf'),
                     workingCopyRef: requireDocumentRef('/managed/other.pdf'),
                 },
+                // An ordinary clean tab behind tab-1: it opens only when shown.
+                {
+                    ...checkpointTab('tab-4', 'pane-1', {
+                        currentPage: 7,
+                        zoom: 2,
+                        zoomMode: 'custom',
+                    }),
+                    viewMode: 'facing' as const,
+                    continuousScroll: false,
+                    sourceRef: requireDocumentRef('/documents/hidden.pdf'),
+                    workingCopyRef: requireDocumentRef('/managed/hidden.pdf'),
+                },
             ],
         });
 
@@ -105,6 +120,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                     {id: 'tab-1'},
                     {id: 'tab-2'},
                     {id: 'tab-3'},
+                    {id: 'tab-4'},
                 ];
             },
             activateTab: () => {},
@@ -146,6 +162,19 @@ describe('restoreWorkspaceCheckpoint', () => {
             currentPage: 5,
             zoom: 1.5,
             zoomMode: 'custom',
+        });
+
+        // The hidden clean tab mounts nothing yet, but keeps its own place, so
+        // its first open starts there rather than at the defaults.
+        const hiddenPrimary = documentSessions.getView('tab-4')!;
+        expect(hiddenPrimary.mountedWorkspace.value).toBeNull();
+        expect(hiddenPrimary.restored).toBe(true);
+        expect(hiddenPrimary.viewState.value).toMatchObject({
+            currentPage: 7,
+            zoom: 2,
+            zoomMode: 'custom',
+            viewMode: 'facing',
+            continuousScroll: false,
         });
     });
 });

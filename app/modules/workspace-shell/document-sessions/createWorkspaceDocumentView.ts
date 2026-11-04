@@ -22,6 +22,13 @@ export interface IWorkspaceDocumentView {
     readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
     publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
     applyViewState(state: ITabViewSessionState): void;
+    /**
+     * Sets the place a checkpoint kept for this view before it is first
+     * shown; its first source then opens there instead of at the defaults.
+     */
+    restoreView(seed: IWorkspaceDocumentViewSeed): void;
+    /** Whether the view's place came from a checkpoint. */
+    readonly restored: boolean;
     /** Retains this view's current place before its presentation is replaced. */
     captureReadingAnchor(): IPdfSemanticAnchor | null;
     /** The mounted workspace, or null once the document has failed or the view was removed. */
@@ -56,12 +63,25 @@ export function createWorkspaceDocumentView(tabId: string, options: {
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     let retired = false;
+    let restored = false;
 
     function captureReadingAnchor() {
         if (mountedWorkspace.value) {
             readingAnchor.value = mountedWorkspace.value.captureReadingAnchor?.() ?? null;
         }
         return readingAnchor.value;
+    }
+
+    function publishToolbarSnapshot(next: IWorkspaceToolbarSnapshot) {
+        if (!isEqual(toolbarSnapshot.value, next)) {
+            toolbarSnapshot.value = next;
+        }
+    }
+
+    function applyViewState(state: ITabViewSessionState) {
+        if (!isEqual(viewState.value, state)) {
+            viewState.value = state;
+        }
     }
 
     function settleMountWaiters(workspace: IWorkspaceExpose | null) {
@@ -78,15 +98,15 @@ export function createWorkspaceDocumentView(tabId: string, options: {
         readingAnchor,
         captureReadingAnchor,
         mountedWorkspace,
-        publishToolbarSnapshot(next) {
-            if (!isEqual(toolbarSnapshot.value, next)) {
-                toolbarSnapshot.value = next;
-            }
+        publishToolbarSnapshot,
+        applyViewState,
+        restoreView(seed) {
+            publishToolbarSnapshot(seed.toolbarSnapshot);
+            applyViewState(seed.viewState);
+            restored = true;
         },
-        applyViewState(state) {
-            if (!isEqual(viewState.value, state)) {
-                viewState.value = state;
-            }
+        get restored() {
+            return restored;
         },
         whenMounted() {
             if (mountedWorkspace.value) {
