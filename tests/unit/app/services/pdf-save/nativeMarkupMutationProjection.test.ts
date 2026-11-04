@@ -7,11 +7,87 @@ import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
-import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
+import {
+    PDF_NATIVE_MUTATION_LIMITS,
+    normalizePdfNativeMutationSet,
+} from '@contracts/nativePdfMutations';
+import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {createComment} from '@tests/unit/app/services/pdf-save/createComment';
 
 describe('native markup builders', () => {
+    it.each([
+        'Highlight',
+        'Underline',
+        'StrikeOut',
+        'Squiggly',
+    ] as const)(
+        'keeps %s dates through collection, projection and contract normalization', subtype => {
+            for (const [
+                createdAt,
+                modifiedAt,
+            ] of [
+                    [
+                        requireEpochMs(1793750400000),
+                        requireEpochMs(1793750460000),
+                    ],
+                    [
+                        requireEpochMs(0),
+                        requireEpochMs(0),
+                    ],
+                    [
+                        null,
+                        null,
+                    ],
+                ] as const) {
+                const comment = createComment({
+                    subtype,
+                    annotationId: null,
+                    source: 'editor',
+                    createdAt,
+                    modifiedAt,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.1,
+                    },
+                    markupGeometry: [{
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.1,
+                    }],
+                });
+                const markup = buildNativeMarkupMutationForSave({
+                    canonicalComments: [comment],
+                    changedComments: [comment],
+                    annotationWorkDirty: true,
+                });
+                const normalized = normalizePdfNativeMutationSet({markup: markup ?? undefined}, 'collected markup dates');
+                expect(normalized.markup?.hints[0]).toMatchObject({
+                    subtype,
+                    createdAt,
+                    modifiedAt,
+                });
+            }
+            const absent = toNativeMarkupHint({
+                subtype,
+                pageIndex: requirePageIndex(0),
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+                consumed: false,
+            });
+            const normalized = normalizePdfNativeMutationSet({markup: {hints: [absent!]}}, 'absent markup dates');
+            expect(normalized.markup?.hints[0]).not.toHaveProperty('createdAt');
+            expect(normalized.markup?.hints[0]).not.toHaveProperty('modifiedAt');
+        },
+    );
+
     it('converts eligible markup hints and edited comment hints', () => {
         const markerRect = {
             left: 0.1,

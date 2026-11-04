@@ -45,6 +45,8 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                     color: Some("#00ff00".to_string()),
                     opacity: Some(0.45),
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -118,6 +120,8 @@ fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
                 annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: Some("#00ff00".to_string()),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: Some("updated contents".to_string()),
                 id: Some("markup-preserve".to_string()),
                 page_markup_index: Some(0),
@@ -162,6 +166,8 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
         annotation_id: None,
         color: Some("#00ff00".to_string()),
         author: None,
+        created_at: None,
+        modified_at: None,
         contents: None,
         id: Some("legacy-markup".to_string()),
         page_markup_index: Some(0),
@@ -219,6 +225,8 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
                     color: None,
                     opacity: None,
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -333,8 +341,151 @@ fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
     }
 }
 
+fn saves_new_markup_dates_on_all_writer_routes() {
+    let save_time = "D:20261105000000Z";
+    let cases = [
+        ("missing", None, None, save_time, save_time),
+        (
+            "explicit",
+            Some(1_793_750_400_000u64),
+            Some(1_793_750_460_000u64),
+            "D:20261104000000Z",
+            "D:20261104000100Z",
+        ),
+        ("null", None, None, save_time, save_time),
+        (
+            "epoch",
+            Some(0),
+            Some(0),
+            "D:19700101000000Z",
+            "D:19700101000000Z",
+        ),
+        (
+            "subsecond",
+            Some(1_793_750_400_999),
+            Some(1_793_750_460_999),
+            "D:20261104000000Z",
+            "D:20261104000100Z",
+        ),
+        (
+            "modified-only",
+            None,
+            Some(1_793_750_460_000),
+            "D:20261104000100Z",
+            "D:20261104000100Z",
+        ),
+        (
+            "created-only",
+            Some(1_793_750_400_000),
+            None,
+            "D:20261104000000Z",
+            save_time,
+        ),
+    ];
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        for (label, created, modified, expected_created, expected_modified) in cases {
+            let id = format!("dates-{subtype}-{label}");
+            let mut hint = serde_json::json!({
+                "subtype": subtype, "pageIndex": 0,
+                "markerRect": {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.1},
+                "markupGeometry": [{"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.1}],
+                "id": id, "appAnnotationId": id, "source": "editor", "contents": "New dated markup",
+                "color": "#ff0000", "opacity": 1,
+            });
+            if label != "missing" {
+                hint["createdAt"] = serde_json::json!(created);
+                hint["modifiedAt"] = serde_json::json!(modified);
+            }
+            let mutation = NativeMutationsFile {
+                markup: Some(MarkupMutation {
+                    hints: vec![serde_json::from_value(hint).unwrap()],
+                }),
+                ..NativeMutationsFile::default()
+            };
+            for route in ["full", "path", "bytes"] {
+                let (source, page_id) = create_test_document();
+                let saved = saved_annotation_regression(&source, &mutation, route, save_time);
+                let annots = get_page_annots(&saved, page_id).unwrap();
+                assert_eq!(annots.len(), 1);
+                let annotation = saved
+                    .get_dictionary(annots[0].as_reference().unwrap())
+                    .unwrap();
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"CreationDate").unwrap()).as_deref(),
+                    Some(expected_created),
+                    "{subtype}, {label}, {route}"
+                );
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"M").unwrap()).as_deref(),
+                    Some(expected_modified),
+                    "{subtype}, {label}, {route}"
+                );
+                let parsed = collect_parsed_annotations(&saved, save_time).unwrap();
+                let parsed = parsed
+                    .iter()
+                    .find_map(|entry| match entry {
+                        PdfAnnotationParseEntry::Highlight(value) => Some(value),
+                        _ => None,
+                    })
+                    .unwrap();
+                let expected_epoch = |value: &str| parse_pdf_date_timestamp(value).unwrap();
+                assert_eq!(parsed.created_at, Some(expected_epoch(expected_created)));
+                assert_eq!(parsed.modified_at, Some(expected_epoch(expected_modified)));
+                let repeated =
+                    saved_annotation_regression(&saved, &mutation, route, "D:20261106000000Z");
+                let annots = get_page_annots(&repeated, page_id).unwrap();
+                assert_eq!(
+                    annots.len(),
+                    1,
+                    "identity upsert must not duplicate {subtype}"
+                );
+                let annotation = repeated
+                    .get_dictionary(annots[0].as_reference().unwrap())
+                    .unwrap();
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"CreationDate").unwrap()).as_deref(),
+                    Some(expected_created)
+                );
+            }
+        }
+        for created in [
+            serde_json::Value::Null,
+            serde_json::json!(1_793_750_400_000u64),
+        ] {
+            let (mut source, _page_id, markup_id) = create_test_markup_pdf(subtype);
+            let original = Object::string_literal("D:19691231235959Z");
+            source
+                .get_dictionary_mut(markup_id)
+                .unwrap()
+                .set("CreationDate", original.clone());
+            let hint = serde_json::json!({
+                "subtype": subtype, "pageIndex": 0,
+                "markerRect": {"left": 0.1, "top": 0.5, "width": 0.4, "height": 0.3},
+                "annotationId": format!("{} 0 R", markup_id.0),
+                "contents": "Changed imported comment", "createdAt": created,
+            });
+            let mutation = NativeMutationsFile {
+                markup: Some(MarkupMutation {
+                    hints: vec![serde_json::from_value(hint).unwrap()],
+                }),
+                ..NativeMutationsFile::default()
+            };
+            for route in ["full", "path", "bytes"] {
+                let saved = saved_annotation_regression(&source, &mutation, route, save_time);
+                let annotation = saved.get_dictionary(markup_id).unwrap();
+                assert_eq!(annotation.get(b"CreationDate").unwrap(), &original);
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"Contents").unwrap()).as_deref(),
+                    Some("Changed imported comment")
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn creates_new_text_markup_annotations_with_quad_geometry() {
+    saves_new_markup_dates_on_all_writer_routes();
     let (document, page_id) = create_test_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let marker_rect = MarkerRect {
@@ -371,6 +522,8 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         app_annotation_id: None,
         color: Some(color.to_string()),
         author: None,
+        created_at: None,
+        modified_at: None,
         contents: None,
         id: Some(id.to_string()),
         page_markup_index: None,
@@ -381,9 +534,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
 
     apply_markup_mutations_incremental(
         &mut incremental,
-        &MarkupMutation {
-            hints,
-        },
+        &MarkupMutation { hints },
         "D:20260829120500+04'00'",
     )
     .expect("new text markup annotations should be created");
@@ -396,11 +547,22 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         .enumerate()
     {
         let object_id = annots[index].as_reference().expect("annotation reference");
-        let annotation = revision.dictionary(object_id).expect("annotation dictionary");
-        assert_eq!(canonical_markup_subtype(annotation).as_deref(), Some(subtype));
-        assert_eq!(annotation.get(b"Type").unwrap().as_name().unwrap(), b"Annot");
+        let annotation = revision
+            .dictionary(object_id)
+            .expect("annotation dictionary");
+        assert_eq!(
+            canonical_markup_subtype(annotation).as_deref(),
+            Some(subtype)
+        );
+        assert_eq!(
+            annotation.get(b"Type").unwrap().as_name().unwrap(),
+            b"Annot"
+        );
         assert_eq!(annotation.get(b"F").unwrap().as_i64().unwrap() & 4, 4);
-        assert_eq!(annotation.get(b"P").unwrap().as_reference().unwrap(), page_id);
+        assert_eq!(
+            annotation.get(b"P").unwrap().as_reference().unwrap(),
+            page_id
+        );
         assert!(annotation.get(b"NM").is_ok());
         assert!(annotation.get(b"Rect").is_ok());
         assert!(annotation.get(b"QuadPoints").is_ok());
@@ -408,8 +570,8 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         let quad_points = read_markup_quad_points(&revision, annotation).unwrap();
         let expected_quad_points = if subtype == "Underline" {
             vec![
-                20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0,
-                120.0, 40.0, 160.0, 40.0, 120.0, 30.0, 160.0, 30.0,
+                20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0, 120.0, 40.0, 160.0, 40.0, 120.0,
+                30.0, 160.0, 30.0,
             ]
         } else {
             vec![20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0]
@@ -454,6 +616,8 @@ fn recreates_markup_after_deleted_pdf_ref_in_the_same_revision() {
             annotation_id: None,
             color: Some("#ff0000".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some(format_pdfjs_annotation_ref(markup_id)),
             page_markup_index: None,
@@ -497,6 +661,8 @@ fn emits_exact_identity_binding_for_new_native_markup() {
             annotation_id: None,
             color: Some("#ff0000".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
@@ -556,6 +722,8 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
             annotation_id: None,
             color: Some("#ff0000".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
@@ -655,6 +823,8 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
                 annotation_id: None,
                 color: Some(color.to_string()),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: None,
                 id: Some(id.to_string()),
                 page_markup_index: None,
@@ -766,6 +936,8 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                     annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: Some("#ff0000".to_string()),
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -829,6 +1001,8 @@ fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
                         color: None,
                         opacity: None,
                         author: None,
+                        created_at: None,
+                        modified_at: None,
                         contents: None,
                         id: None,
                         page_markup_index: Some(0),
@@ -885,6 +1059,8 @@ fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
                 color: None,
                 opacity: Some(0.45),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: None,
                 id: None,
                 page_markup_index: Some(0),
@@ -933,6 +1109,8 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
                 annotation_id: None,
                 color: Some("#ffd400".to_string()),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: Some(String::new()),
                 id: Some("9R".to_string()),
                 page_markup_index: Some(0),
@@ -1043,6 +1221,8 @@ fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
                 annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: None,
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: Some("edited imported markup note".to_string()),
                 id: None,
                 page_markup_index: Some(0),
@@ -1211,6 +1391,8 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
             annotation_id: None,
             color: Some("#336699".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("high-index-page-hint".to_string()),
             page_markup_index: Some(0),
@@ -1264,6 +1446,8 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
             annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
             color: Some("#00ff00".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("stale-markup-page-hint".to_string()),
             page_markup_index: Some(0),
@@ -1492,6 +1676,8 @@ fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
         annotation_id: None,
         color: Some("#ffff00".to_string()),
         author: None,
+        created_at: None,
+        modified_at: None,
         contents: None,
         id: Some(format!("hint-{index}")),
         page_markup_index: Some(index as u32),
@@ -1714,6 +1900,8 @@ fn spatial_markup_assignment_preserves_best_geometry_matches() {
             annotation_id: None,
             color: Some("#336699".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some(format!("spatial-{index}")),
             page_markup_index: Some(index as u32),

@@ -374,6 +374,7 @@ fn create_markup_annotation(
     page_view: PdfRect,
     page_rotation: i64,
     hint: &MarkupSubtypeHint,
+    modified_at: &str,
 ) -> Result<ObjectId> {
     let name = markup_annotation_name(hint)
         .ok_or("New text-markup annotation is missing a stable identity")?;
@@ -423,6 +424,20 @@ fn create_markup_annotation(
     } else {
         dict.set("CA", Object::Integer(1));
     }
+    let creation_date = hint
+        .created_at
+        .or(hint.modified_at)
+        .map(timestamp_millis_to_pdf_date_utc)
+        .unwrap_or_else(|| modified_at.to_string());
+    let modification_date = hint
+        .modified_at
+        .map(timestamp_millis_to_pdf_date_utc)
+        .unwrap_or_else(|| modified_at.to_string());
+    dict.set(
+        "CreationDate",
+        Object::string_literal(creation_date.into_bytes()),
+    );
+    dict.set("M", Object::string_literal(modification_date.into_bytes()));
     attach_markup_appearance(&mut dict, appearance_ref);
 
     let object_id = document.new_object_id();
@@ -848,41 +863,7 @@ fn create_new_markup_annotations(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-) -> Result<bool> {
-    create_new_markup_annotations_internal(
-        document,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        None,
-    )
-}
-
-fn create_new_markup_annotations_with_bindings(
-    document: &mut Document,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
-) -> Result<bool> {
-    create_new_markup_annotations_internal(
-        document,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        Some(identity_bindings),
-    )
-}
-
-fn create_new_markup_annotations_internal(
-    document: &mut Document,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
+    modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
@@ -903,8 +884,14 @@ fn create_new_markup_annotations_internal(
             Some(result) => Some(result?),
             None => None,
         };
-        let object_id =
-            create_markup_annotation(document, page_id, page_view, page_rotation, &state.hint)?;
+        let object_id = create_markup_annotation(
+            document,
+            page_id,
+            page_view,
+            page_rotation,
+            &state.hint,
+            modified_at,
+        )?;
         state.consumed = true;
         created.push(object_id);
         if let Some(bindings) = identity_bindings.as_mut() {
@@ -1091,41 +1078,7 @@ fn create_new_markup_annotations_incremental(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-) -> Result<bool> {
-    create_new_markup_annotations_incremental_internal(
-        incremental,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        None,
-    )
-}
-
-fn create_new_markup_annotations_incremental_with_bindings(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
-) -> Result<bool> {
-    create_new_markup_annotations_incremental_internal(
-        incremental,
-        page_id,
-        page_view,
-        page_rotation,
-        page_hints,
-        Some(identity_bindings),
-    )
-}
-
-fn create_new_markup_annotations_incremental_internal(
-    incremental: &mut IncrementalDocument,
-    page_id: ObjectId,
-    page_view: PdfRect,
-    page_rotation: i64,
-    page_hints: &mut [MarkupHintState],
+    modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
@@ -1152,6 +1105,7 @@ fn create_new_markup_annotations_incremental_internal(
             page_view,
             page_rotation,
             &state.hint,
+            modified_at,
         )?;
         state.consumed = true;
         created.push(object_id);
@@ -1228,23 +1182,15 @@ pub(crate) fn apply_markup_mutations_internal(
             page_rotation,
             modified_at,
         )? || modified;
-        modified = match identity_bindings.as_mut() {
-            Some(bindings) => create_new_markup_annotations_with_bindings(
-                document,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-                bindings,
-            )?,
-            None => create_new_markup_annotations(
-                document,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-            )?,
-        } || modified;
+        modified = create_new_markup_annotations(
+            document,
+            page_id,
+            page_view,
+            page_rotation,
+            &mut page_hints,
+            modified_at,
+            identity_bindings.as_deref_mut(),
+        )? || modified;
     }
 
     if !modified {
@@ -1325,23 +1271,15 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
         let document = incremental.get_prev_documents();
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        modified = match identity_bindings.as_mut() {
-            Some(bindings) => create_new_markup_annotations_incremental_with_bindings(
-                incremental,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-                bindings,
-            )?,
-            None => create_new_markup_annotations_incremental(
-                incremental,
-                page_id,
-                page_view,
-                page_rotation,
-                &mut page_hints,
-            )?,
-        } || modified;
+        modified = create_new_markup_annotations_incremental(
+            incremental,
+            page_id,
+            page_view,
+            page_rotation,
+            &mut page_hints,
+            modified_at,
+            identity_bindings.as_deref_mut(),
+        )? || modified;
     }
 
     if !modified {

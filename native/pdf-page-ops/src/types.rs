@@ -1057,6 +1057,10 @@ pub(crate) struct MarkupSubtypeHint {
     #[serde(default)]
     pub(crate) author: Option<String>,
     #[serde(default)]
+    pub(crate) created_at: Option<u64>,
+    #[serde(default)]
+    pub(crate) modified_at: Option<u64>,
+    #[serde(default)]
     pub(crate) id: Option<String>,
     #[serde(default)]
     pub(crate) page_markup_index: Option<u32>,

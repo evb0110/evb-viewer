@@ -459,6 +459,8 @@ pub(crate) fn merge_subtype_hints(
         color: existing.color.clone().or_else(|| incoming.color.clone()),
         opacity: existing.opacity.or(incoming.opacity),
         author: existing.author.clone().or_else(|| incoming.author.clone()),
+        created_at: existing.created_at.or(incoming.created_at),
+        modified_at: existing.modified_at.or(incoming.modified_at),
         contents: existing
             .contents
             .clone()

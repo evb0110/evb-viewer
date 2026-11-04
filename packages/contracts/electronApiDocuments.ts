@@ -507,6 +507,8 @@ export type IPdfNativeMarkupMarkerRect = IMarkerRect;
 
 export interface IPdfNativeMarkupSubtypeHint {
     author?: string | null;
+    createdAt?: TEpochMs | null;
+    modifiedAt?: TEpochMs | null;
     subtype: TPdfNativeMarkupSubtype;
     pageIndex: TPageIndex;
     markerRect: IPdfNativeMarkupMarkerRect;
