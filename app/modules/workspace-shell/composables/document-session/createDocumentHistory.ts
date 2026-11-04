@@ -1,4 +1,11 @@
 import { uniq } from 'es-toolkit/array';
+import {
+    invertPageIdentityDelta,
+    getPageIdentityDeltaNextPageCount,
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -35,9 +42,10 @@ export interface ILazyHistoryBaseline {
 
 interface ILazyHistoryEntry extends ILazyHistoryBaseline {kind: 'lazy';}
 
-type TDocumentHistoryEntry = TPdfHistoryEntry | ILazyHistoryEntry;
+type TMaterializedDocumentHistoryEntry = TPdfHistoryEntry & {pageIdentityDelta?: IPageIdentityDelta};
+type TDocumentHistoryEntry = TMaterializedDocumentHistoryEntry | (ILazyHistoryEntry & {pageIdentityDelta?: IPageIdentityDelta});
 
-function isMaterializedHistoryEntry(entry: TDocumentHistoryEntry): entry is TPdfHistoryEntry {
+function isMaterializedHistoryEntry(entry: TDocumentHistoryEntry): entry is TMaterializedDocumentHistoryEntry {
     return entry.kind !== 'lazy';
 }
 
@@ -45,6 +53,7 @@ interface IApplyLoadedPdfStateOptions {
     markDirty?: boolean;
     preserveHistory?: boolean;
     previousPath?: TDocumentRef | null;
+    beforeSourceCommit?: (revision: TDocumentRevisionToken | null) => Promise<void>;
     isCurrent?: (() => boolean) | undefined;
 }
 
@@ -58,7 +67,9 @@ type TDocumentHistoryWorkingCopyDeps = Pick<
     'cleanupFile' | 'createWorkingCopyFromData' | 'createWorkingCopyFromPath'
 >;
 
-interface ICreateDocumentHistoryDeps {
+export interface IHistoryRevisionSwapOptions {prepareHistoryRevisionSwap?: (revision: TDocumentRevisionToken, delta: IPageIdentityDelta | undefined) => Promise<void>;}
+
+interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
     applyLoadedPdfState: (
         path: TDocumentRef,
         nextState: IPdfLoadedState,
@@ -387,6 +398,7 @@ export function createDocumentHistory(
             const lazyEntry: ILazyHistoryEntry = {
                 kind: 'lazy',
                 ...options.lazyBaseline,
+                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
             };
             if (history.value.length === 0) {
                 replaceHistory([lazyEntry], 0, 0);
@@ -428,7 +440,10 @@ export function createDocumentHistory(
                     return;
                 }
                 const nextHistory = history.value.slice();
-                nextHistory[historyIndex.value] = entry;
+                nextHistory[historyIndex.value] = {
+                    ...entry,
+                    ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
+                };
                 replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
             } else {
                 await pushHistorySnapshot(snapshot, { reuseSnapshot: true });
@@ -439,7 +454,10 @@ export function createDocumentHistory(
                 return;
             }
             const nextHistory = history.value.slice();
-            nextHistory[historyIndex.value] = entry;
+            nextHistory[historyIndex.value] = {
+                ...entry,
+                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
+            };
             replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
         } else if (currentEntry?.kind === 'lazy') {
             const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
@@ -447,7 +465,10 @@ export function createDocumentHistory(
                 return;
             }
             const nextHistory = history.value.slice();
-            nextHistory[historyIndex.value] = entry;
+            nextHistory[historyIndex.value] = {
+                ...entry,
+                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
+            };
             replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
         } else if (!currentEntry) {
             await resetHistory(snapshot, { reuseSnapshot: true });
@@ -498,7 +519,10 @@ export function createDocumentHistory(
             nextHistory.push(entry);
             replaceHistory(nextHistory, 0, 0);
         } else {
-            nextHistory[historyIndex.value] = entry;
+            nextHistory[historyIndex.value] = {
+                ...entry,
+                ...(history.value[historyIndex.value]?.pageIdentityDelta ? {pageIdentityDelta: history.value[historyIndex.value]!.pageIdentityDelta!} : {}),
+            };
             replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
         }
         lazyHistoryBaseline = null;
@@ -572,7 +596,10 @@ export function createDocumentHistory(
         }
     }
 
-    async function reloadWorkingCopyIntoHistory(opts?: { markDirty?: boolean }) {
+    async function reloadWorkingCopyIntoHistory(opts?: {
+        markDirty?: boolean;
+        pageIdentityDelta?: IPageIdentityDelta
+    }) {
         const path = state.workingCopyPath.value;
         if (!path) {
             return false;
@@ -595,7 +622,10 @@ export function createDocumentHistory(
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextPdfSrc;
             state.pdfReloadSrc.value = nextPdfSrc;
-            didAppendHistory = await pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
+            didAppendHistory = await pushHistorySnapshot(nextState.pdfData, {
+                reuseSnapshot: true,
+                ...(opts?.pageIdentityDelta ? {pageIdentityDelta: opts.pageIdentityDelta} : {}),
+            });
         } else {
             const snapshotEntry = await createPathHistoryEntry(path, nextPdfSrc.size);
             if (!state.isActiveWorkingCopy(path)) {
@@ -605,7 +635,10 @@ export function createDocumentHistory(
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextPdfSrc;
             state.pdfReloadSrc.value = nextPdfSrc;
-            didAppendHistory = pushHistoryEntry(snapshotEntry);
+            didAppendHistory = pushHistoryEntry({
+                ...snapshotEntry,
+                ...(opts?.pageIdentityDelta ? {pageIdentityDelta: opts.pageIdentityDelta} : {}),
+            });
             if (!didAppendHistory) {
                 scheduleHistoryEntryCleanup([snapshotEntry]);
             }
@@ -625,7 +658,7 @@ export function createDocumentHistory(
         return true;
     }
 
-    function pushHistoryEntry(entry: TPdfHistoryEntry) {
+    function pushHistoryEntry(entry: TMaterializedDocumentHistoryEntry) {
         if (entry.kind === 'bytes' && entry.snapshot.byteLength > MAX_FILE_HISTORY_BYTES) {
             BrowserLogger.warn('pdf-file', 'Refusing oversized in-memory history entry', {
                 bytes: entry.snapshot.byteLength,
@@ -669,13 +702,19 @@ export function createDocumentHistory(
 
     async function pushHistorySnapshot(
         snapshot: Uint8Array,
-        options?: { reuseSnapshot?: boolean },
+        options?: {
+            reuseSnapshot?: boolean;
+            pageIdentityDelta?: IPageIdentityDelta
+        },
     ) {
         const entry = await createHistoryEntryFromSnapshot(snapshot, options);
         if (!entry) {
             return false;
         }
-        return pushHistoryEntry(entry);
+        return pushHistoryEntry({
+            ...entry,
+            ...(options?.pageIdentityDelta ? {pageIdentityDelta: options.pageIdentityDelta} : {}),
+        });
     }
 
     const canUndo = computed(
@@ -686,7 +725,7 @@ export function createDocumentHistory(
             history.value.length > 0 && historyIndex.value < history.value.length - 1,
     );
 
-    async function restoreHistoryEntry(entry: TDocumentHistoryEntry | undefined) {
+    async function restoreHistoryEntry(entry: TDocumentHistoryEntry | undefined, delta?: IPageIdentityDelta) {
         const restoreSessionVersion = fileHistorySessionVersion.value;
         const restoreOpenRequestId = deps.getOpenEpoch();
 
@@ -711,6 +750,14 @@ export function createDocumentHistory(
             }
             if (!canApplyRestore()) {
                 return false;
+            }
+            if (workingPath) {
+                const revision = await deps.documentFiles().getDocumentRevision(workingPath);
+                if (!canApplyRestore()) return false;
+                await deps.prepareHistoryRevisionSwap?.(revision.token, delta);
+                if (!canApplyRestore()) return false;
+                state.documentRevisionInfo.value = revision;
+                state.documentRevisionToken.value = revision.token;
             }
             state.pdfData.value = entry.snapshot;
             state.pdfSrc.value = deps.toPdfBlob(entry.snapshot);
@@ -744,8 +791,25 @@ export function createDocumentHistory(
         const didApply = await deps.applyLoadedPdfState(nextWorkingPath, nextState, {
             preserveHistory: true,
             previousPath,
+            isCurrent: canApplyRestore,
+            beforeSourceCommit: async (revision) => {
+                if (revision) await deps.prepareHistoryRevisionSwap?.(revision, delta);
+            },
         });
         return didApply !== false;
+    }
+
+    function getHistoryPageIdentityDelta(direction: 'undo' | 'redo') {
+        const entry = history.value[historyIndex.value + (direction === 'redo' ? 1 : 0)];
+        return direction === 'undo' && entry?.pageIdentityDelta
+            ? invertPageIdentityDelta(entry.pageIdentityDelta)
+            : entry?.pageIdentityDelta;
+    }
+
+    function mapHistoryPage(direction: 'undo' | 'redo', page: number) {
+        const delta = getHistoryPageIdentityDelta(direction);
+        return delta ? mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
+            ?? Math.max(1, Math.min(page, getPageIdentityDeltaNextPageCount(delta) ?? page)) : page;
     }
 
     async function undo() {
@@ -756,7 +820,7 @@ export function createDocumentHistory(
             return false;
         }
         const nextHistoryIndex = historyIndex.value - 1;
-        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex]);
+        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex], getHistoryPageIdentityDelta('undo'));
         if (!restored) {
             return false;
         }
@@ -773,7 +837,7 @@ export function createDocumentHistory(
             return false;
         }
         const nextHistoryIndex = historyIndex.value + 1;
-        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex]);
+        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex], getHistoryPageIdentityDelta('redo'));
         if (!restored) {
             return false;
         }
@@ -805,6 +869,7 @@ export function createDocumentHistory(
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         getHistoryDebugState,
+        mapHistoryPage,
         readDocumentDependencies: () => history.value.flatMap(entry => entry.kind === 'path'
             ? [entry.path]
             : entry.kind === 'lazy' ? [entry.workingPath] : []),

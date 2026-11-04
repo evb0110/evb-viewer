@@ -2,14 +2,35 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref, shallowRef, watch,
+} from 'vue';
+import {createDocumentOpenFlow} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import {
+    createDocumentViews, type IDocumentViewPort,
+} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {prepareDocumentViewsForRevisionSwap} from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import {usePdfHistory} from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import {
+    createEpochGuard, createDocumentSessionState,
+} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import {setBrowserPlatformApi} from '@app/utils/platform';
+import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
+import {cast} from '@tests/helpers/cast';
+import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
     createDocumentHistory,
     type IPdfLoadedState,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     createMissingRevisionError,
     createStaleRevisionError,
@@ -79,7 +100,438 @@ function createHistoryHarness(isDesktopRuntime = false) {
     };
 }
 
+function createContentHistoryHarness(pathHistory: boolean, withSurface: boolean) {
+    vi.stubGlobal('useToast', () => ({
+        add: vi.fn(),
+        update: vi.fn(),
+        remove: vi.fn(),
+    }));
+    const state = createDocumentSessionState({isDesktopRuntime: ref(pathHistory)});
+    const work = requireDocumentRef('/tmp/content-work.pdf');
+    state.workingCopyPath.value = work;
+    state.originalPath.value = requireDocumentRef('/tmp/content-original.pdf');
+    const encode = (pages: string[]) => new TextEncoder().encode(JSON.stringify(pages));
+    const storage = new Map<TDocumentRef, Uint8Array>([[
+        work,
+        encode([
+            'A',
+            'B',
+            'C',
+        ]),
+    ]]);
+    let serial = 0;
+    let revisionNumber = 1;
+    const size = pathHistory ? 64 * 1024 * 1024 : 16;
+    const revision = (path: TDocumentRef) => ({
+        version: 1 as const,
+        documentRef: path,
+        token: requireDocumentRevisionToken(`content-revision-${revisionNumber}`),
+        contentRevision: revisionNumber,
+        authority: 'electron-working-copy' as const,
+        mintedAt: requireEpochMs(1),
+    });
+    state.documentRevisionToken.value = revision(work).token;
+    const files = {
+        writeFile: vi.fn(async (path: TDocumentRef, bytes: Uint8Array) => {
+            storage.set(path, bytes.slice());
+            revisionNumber++;
+            return true;
+        }),
+        getDocumentRevision: async (path: TDocumentRef) => revision(path),
+        statFile: async () => ({size}),
+        savePdfData: async () => ({
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        }),
+    };
+    setBrowserPlatformApi(createPlatformApiFixture({
+        backend: 'browser',
+        overrides: {documentFiles: files},
+    }));
+    const workingCopies = {
+        cleanupFile: async (path: TDocumentRef) => {storage.delete(path);},
+        createWorkingCopyFromPath: async (path: TDocumentRef) => {
+            const next = requireDocumentRef(`/tmp/content-copy-${++serial}.pdf`);
+            storage.set(next, storage.get(path)!.slice());
+            return next;
+        },
+        createWorkingCopyFromData: async (_name: string, bytes: Uint8Array) => {
+            const next = requireDocumentRef(`/tmp/content-copy-${++serial}.pdf`);
+            storage.set(next, bytes.slice());
+            return next;
+        },
+    };
+    const readState = async (path: TDocumentRef): Promise<IPdfLoadedState> => ({
+        pdfData: pathHistory ? null : storage.get(path)!,
+        pdfSrc: pathHistory ? {
+            kind: 'path',
+            path,
+            size,
+        } : new Blob([storage.get(path)!.slice()]),
+    });
+    const controller = createWorkspaceDocumentController({tabId: 'one'});
+    controller.addView('two');
+    const toolbar = {
+        ...createDefaultWorkspaceToolbarSnapshot(),
+        currentPage: 1,
+        totalPages: 3,
+    };
+    controller.addView('cold', {
+        toolbarSnapshot: toolbar,
+        viewState: createTabViewSessionState(toolbar),
+        readingAnchor: {
+            page: 1,
+            pageXFraction: 0.2,
+            pageYFraction: 0.7,
+            viewportXFraction: 0.3,
+            viewportYFraction: 0.4,
+            affinity: 'center',
+        },
+    });
+    const views = createDocumentViews(controller);
+    const pages = [
+        ref(3),
+        ref(2),
+    ];
+    const surface = createDocumentOpenSurfaceSession();
+    const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 0}));
+    const viewer = {
+        scrollToPage: (page: number) => {pages[0]!.value = page;},
+        waitForViewerLoadSettled: async () => undefined,
+    };
+    for (const [
+        index,
+        tabId,
+    ] of [
+            'one',
+            'two',
+        ].entries()) {
+        const detach = views.attachView(cast<IDocumentViewPort>({
+            tabId,
+            isActive: ref(index === 0),
+            openSurface: surface,
+            view: {
+                currentPage: pages[index],
+                pdfViewerRef: shallowRef({
+                    ...viewer,
+                    preparePageMutationRevisionSwap: async () => false,
+                }),
+            },
+        }));
+        onTestFinished(detach);
+    }
+    const flow = createDocumentOpenFlow(state, {
+        cleanupAbandonedWorkingCopy: workingCopies.cleanupFile,
+        cleanupPreviousWorkingCopy: async () => undefined,
+        clearPdfConformanceProfile: () => undefined,
+        deferPdfConformanceProfile: () => undefined,
+        incrementSessionVersion: () => history.incrementSessionVersion(),
+        ensureHistoryBaselineForMutation: () => history.ensureHistoryBaselineForMutation(),
+        loadEpoch: createEpochGuard(),
+        openEpoch: createEpochGuard(),
+        pushHistorySnapshot: (...args) => history.pushHistorySnapshot(...args),
+        resetHistory: (...args) => history.resetHistory(...args),
+        syncDirtyFromHistory: () => history.syncDirtyFromHistory(),
+        t: (key, ..._args) => String(key),
+    });
+    const history = createDocumentHistory(state, {
+        applyLoadedPdfState: (...args) => flow.applyLoadedPdfState(...args),
+        prepareHistoryRevisionSwap: async (token, delta) => {
+            if (delta) views.mapPageIdentity(delta);
+            await prepareDocumentViewsForRevisionSwap(views, views.viewPorts.value.get('one')!.view.pdfViewerRef.value,
+                {
+                    documentRevision: token,
+                    invalidatedPages: [
+                        1,
+                        2,
+                        3,
+                    ],
+                    ...(delta ? {pageIdentityDelta: delta} : {}),
+                });
+        },
+        clearPdfConformanceProfile: () => undefined,
+        clearOcrCache: () => undefined,
+        deferPdfConformanceProfile: () => undefined,
+        documentFiles: () => files,
+        documentWorkingCopy: () => workingCopies,
+        getOpenEpoch: () => 1,
+        isCurrentOpenEpoch: () => true,
+        readPdfStateFromPath: readState,
+        toPdfBlob: bytes => new Blob([bytes.slice()]),
+    });
+    const ledger = useWorkspaceCommandLedger();
+    history.setWorkspaceCommandSink({
+        register: ledger.registerCommand,
+        reset: ledger.resetSource,
+        forget: ledger.forgetSourceEntries,
+    });
+    const publishSurface = () => {
+        const token = `loaded-${++serial}`;
+        const generation = surface.begin({
+            documentId: 'same-content',
+            documentRevision: token,
+        });
+        surface.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const fence = surface.createRenderFence({
+            generation,
+            documentRevision: token,
+            renderVersion: 1,
+            requestId: serial,
+            pageNumber: 1,
+        })!;
+        surface.commitCanvas(fence);
+        surface.commitViewport({
+            ...fence,
+            documentGeometryRevision: 1,
+            interactionEpoch: 0,
+            left: 0,
+            top: 0,
+        });
+        surface.markReady(fence);
+    };
+    publishSurface();
+    const ui = usePdfHistory({
+        pdfDocument,
+        pdfViewerRef: shallowRef(viewer),
+        ...(withSurface ? {openSurface: surface} : {}),
+        currentPage: pages[0]!,
+        isAnySaving: ref(false),
+        prepareHistory: () => undefined,
+        mapHistoryPage: (direction, page) => history.mapHistoryPage?.(direction, page) ?? page,
+        canUndo: ledger.canUndoTimeline,
+        canRedo: ledger.canRedoTimeline,
+        nextUndoSource: ledger.nextUndoSource,
+        nextRedoSource: ledger.nextRedoSource,
+        workingCopyPath: state.workingCopyPath,
+        resetSearchCache: () => undefined,
+        clearOcrCache: () => undefined,
+        undoHistory: ledger.undoTimeline,
+        redoHistory: ledger.redoTimeline,
+    });
+    const content = () => JSON.parse(new TextDecoder().decode(state.pdfData.value ?? storage.get(state.workingCopyPath.value!)!)) as string[];
+    const readViews = () => ({
+        mounted: pages.map(page => ({
+            page: page.value,
+            text: content()[page.value - 1],
+        })),
+        cold: {
+            page: controller.getView('cold')!.viewState.value.currentPage,
+            text: content()[(controller.getView('cold')!.viewState.value.currentPage ?? 1) - 1],
+            anchor: controller.getView('cold')!.readingAnchor.value,
+        },
+    });
+    return {
+        state,
+        history,
+        ui,
+        pages,
+        files,
+        readState,
+        work,
+        encode,
+        storage,
+        revision,
+        readViews,
+        views,
+        observeLoads: () => {
+            const stop = watch(state.pdfSrc, () => {
+                pages[0]!.value = 1;
+                pdfDocument.value = cast({id: ++serial});
+                publishSurface();
+            }, {flush: 'sync'});
+            onTestFinished(stop);
+        },
+    };
+}
+
 describe('createDocumentHistory', () => {
+    it.each([
+        false,
+        true,
+    ].flatMap(pathHistory => [
+        false,
+        true,
+    ].flatMap(withSurface => [
+        'unchanged',
+        'replacement',
+        'lazy',
+    ].map(save => ({
+        pathHistory,
+        withSurface,
+        save,
+    })))))(
+        'keeps each current content page through history (path=$pathHistory, surface=$withSurface, save=$save)', async ({
+            pathHistory, withSurface, save,
+        }) => {
+            const h = createContentHistoryHarness(pathHistory, withSurface);
+            const initial = await h.readState(h.work);
+            h.state.pdfSrc.value = initial.pdfSrc;
+            h.state.pdfReloadSrc.value = initial.pdfSrc;
+            h.state.pdfData.value = initial.pdfData;
+            await h.history.ensureHistoryBaselineForMutation();
+            const delta: IPageIdentityDelta = {
+                previousPageCount: 3,
+                nextPageCount: 2,
+                ranges: [
+                    {
+                        kind: 'delete',
+                        fromPageNumber: 1,
+                        count: 1,
+                    },
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 2,
+                        toPageNumber: 1,
+                        count: 2,
+                    },
+                ],
+            };
+            h.storage.set(h.work, h.encode([
+                'B',
+                'C',
+            ]));
+            await h.history.reloadWorkingCopyIntoHistory({
+                markDirty: true,
+                pageIdentityDelta: delta,
+            });
+            // Forward edit is already complete. Map what both readers see now,
+            // rather than giving history positions saved at the edit's start.
+            h.pages[0]!.value = 2;
+            h.pages[1]!.value = 1;
+            if (save === 'replacement') {
+                const saved = h.encode([
+                    'B',
+                    'C',
+                ]);
+                // Distinct bytes for the same content force Save's entry replacement.
+                const padded = new Uint8Array([
+                    ...saved,
+                    32,
+                ]);
+                await h.files.writeFile(h.state.workingCopyPath.value!, padded);
+                await h.history.markCurrentHistoryEntryClean(padded, {recordSnapshotChange: false});
+            } else if (save === 'lazy') {
+                await h.history.markCurrentHistoryEntryClean(null, {
+                    recordSnapshotChange: false,
+                    lazyBaseline: {
+                        workingPath: h.state.workingCopyPath.value!,
+                        revision: h.revision(h.state.workingCopyPath.value!).token,
+                        size: pathHistory ? 64 * 1024 * 1024 : 16,
+                    },
+                });
+            }
+            h.observeLoads();
+            expect(await h.ui.handleUndo()).toBe(true);
+            expect(h.readViews()).toMatchObject({
+                mounted: [
+                    {
+                        page: 3,
+                        text: 'C',
+                    },
+                    {
+                        page: 2,
+                        text: 'B',
+                    },
+                ],
+                cold: {
+                    page: 2,
+                    text: 'B',
+                    anchor: {
+                        page: 2,
+                        pageXFraction: 0.2,
+                        pageYFraction: 0.7,
+                        viewportXFraction: 0.3,
+                        viewportYFraction: 0.4,
+                    },
+                },
+            });
+            h.pages[1]!.value = 3;
+            expect(await h.ui.handleRedo()).toBe(true);
+            expect(h.readViews()).toMatchObject({
+                mounted: [
+                    {
+                        page: 2,
+                        text: 'C',
+                    },
+                    {
+                        page: 2,
+                        text: 'C',
+                    },
+                ],
+                cold: {
+                    page: 1,
+                    text: 'B',
+                    anchor: {
+                        page: 1,
+                        pageYFraction: 0.7,
+                    },
+                },
+            });
+            expect(await h.ui.handleUndo()).toBe(true);
+            // A new structural edit after Undo discards the old redo transition.
+            const current = h.state.workingCopyPath.value!;
+            h.storage.set(current, h.encode([
+                'C',
+                'A',
+                'B',
+            ]));
+            const moveDelta: IPageIdentityDelta = {
+                previousPageCount: 3,
+                pages: [
+                    {fromPageNumber: 3},
+                    {fromPageNumber: 1},
+                    {fromPageNumber: 2},
+                ],
+            };
+            h.views.mapPageIdentity(moveDelta);
+            await h.history.reloadWorkingCopyIntoHistory({
+                markDirty: true,
+                pageIdentityDelta: moveDelta,
+            });
+            expect(h.history.canRedo.value).toBe(false);
+            expect(await h.ui.handleRedo()).toBe(false);
+            expect(await h.ui.handleUndo()).toBe(true);
+            expect(h.readViews()).toMatchObject({
+                mounted: [
+                    {
+                        page: 3,
+                        text: 'C',
+                    },
+                    {
+                        page: 3,
+                        text: 'C',
+                    },
+                ],
+                cold: {
+                    page: 2,
+                    text: 'B',
+                },
+            });
+            expect(await h.ui.handleRedo()).toBe(true);
+            expect(h.readViews()).toMatchObject({
+                mounted: [
+                    {
+                        page: 1,
+                        text: 'C',
+                    },
+                    {
+                        page: 1,
+                        text: 'C',
+                    },
+                ],
+                cold: {
+                    page: 3,
+                    text: 'B',
+                },
+            });
+        });
+
     it('keeps a recovered dirty baseline when history has no entries', () => {
         const {
             history,
@@ -505,10 +957,10 @@ describe('createDocumentHistory', () => {
                     size: 64 * 1024 * 1024,
                 },
             },
-            {
+            expect.objectContaining({
                 preserveHistory: true,
                 previousPath: '/tmp/work.pdf',
-            },
+            }),
         );
     });
 
@@ -548,10 +1000,10 @@ describe('createDocumentHistory', () => {
         expect(applyLoadedPdfState).toHaveBeenCalledWith(
             '/tmp/first-mutation-baseline.pdf',
             expect.objectContaining({pdfData: new Uint8Array([3])}),
-            {
+            expect.objectContaining({
                 preserveHistory: true,
                 previousPath: '/tmp/work.pdf',
-            },
+            }),
         );
     });
 

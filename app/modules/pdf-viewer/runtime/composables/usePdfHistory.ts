@@ -26,6 +26,7 @@ export const usePdfHistory = (deps: {
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
     prepareHistory: () => void | Promise<void>;
+    mapHistoryPage?: (direction: THistoryDirection, page: number) => number;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
@@ -43,6 +44,7 @@ export const usePdfHistory = (deps: {
         currentPage,
         isAnySaving,
         prepareHistory,
+        mapHistoryPage,
         canUndo,
         canRedo,
         nextUndoSource,
@@ -132,7 +134,7 @@ export const usePdfHistory = (deps: {
         if (historySource === 'file' && workingCopyPath.value) {
             clearOcrCache(workingCopyPath.value);
         }
-        const pageToRestore = currentPage.value;
+        const pageToRestore = mapHistoryPage?.(direction, currentPage.value) ?? currentPage.value;
         const reloadWaiter = historySource === 'file'
             ? preparePdfReloadWaiter(pageToRestore)
             : null;

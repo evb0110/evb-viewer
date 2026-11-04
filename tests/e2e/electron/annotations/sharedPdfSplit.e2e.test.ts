@@ -51,6 +51,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 
 // Issue #845, owner-approved design R5: Split shows one document in two views.
 // The views share annotations, undo, dirty state and save; each keeps its own
@@ -1459,14 +1460,20 @@ describe('shared PDF split', () => {
         // The right view reads page 4.
         await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
         await goToPageViaToolbar(page, 4);
-        await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 4', view => (
+        await zoomInUntilPageFillsViewport(page, rightPane!);
+        const originalRight = await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 4', view => (
             view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
         ));
 
-        // The left view deletes page 1 from its Pages panel.
+        // The left view deletes page 1 from its Pages panel at its own zoom.
         await activatePaneByTab(page, leftPane!);
+        await zoomInUntilPageFillsViewport(page, leftPane!);
+        await clickToolbarButton(page, 'Zoom In');
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, thumbnailSelector(leftPane!, 1));
+        await waitForSteadyPaneView(page, leftPane!, 'the left view reads the page it will delete', view => (
+            view.centerPage === 1 && view.centerText?.includes('Fixture 1/6') === true
+        ));
         await clickAsUser(page, thumbnailSelector(leftPane!, 1), {button: 'right'});
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0), null, {description: 'Delete Pages'});
@@ -1478,6 +1485,39 @@ describe('shared PDF split', () => {
             view.pageCount === 5 && view.centerPage === 3 && view.centerText?.includes('Fixture 4/6') === true
         ));
         expect(rightView.centerPage).toBe(3);
+        expect(sameWidth(rightView.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+        const leftAfterDelete = await waitForSteadyPaneView(page, leftPane!, 'the left view reads its deletion fallback', view => view.pageCount === 5 && view.centerText?.includes('Fixture 2/6') === true);
+
+        await clickToolbarButton(page, 'Undo');
+        const rightAfterUndo = await waitForSteadyPaneView(page, rightPane!, 'undo keeps original page 4 in the right view', view => (
+            view.pageCount === 6 && view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
+        ));
+        expect(sameWidth(rightAfterUndo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+        expect(Math.abs((rightAfterUndo.centerOffsetPx ?? 0) / (rightAfterUndo.pageWidthPx ?? 1)
+            - (originalRight.centerOffsetPx ?? 0) / (originalRight.pageWidthPx ?? 1))).toBeLessThan(0.05);
+        await waitForSteadyPaneView(page, leftPane!, 'undo keeps original page 2 in the left view', view => (
+            view.pageCount === 6 && view.centerPage === 2 && view.centerText?.includes('Fixture 2/6') === true
+            && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
+        ));
+
+        await page.screenshot({path: join(sessionDir(session.name), 'history-after-undo.png')});
+        await activatePaneByTab(page, rightPane!);
+        await goToPageViaToolbar(page, 5);
+        const rightBeforeRedo = await waitForSteadyPaneView(page, rightPane!, 'the right view now reads original page 5', view => (
+            view.centerPage === 5 && view.centerText?.includes('Fixture 5/6') === true
+        ));
+        await clickToolbarButton(page, 'Redo');
+        const rightAfterRedo = await waitForSteadyPaneView(page, rightPane!, 'redo maps the page read now to original page 5', view => (
+            view.pageCount === 5 && view.centerPage === 4 && view.centerText?.includes('Fixture 5/6') === true
+        ));
+        expect(sameWidth(rightAfterRedo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+        expect(Math.abs((rightAfterRedo.centerOffsetPx ?? 0) / (rightAfterRedo.pageWidthPx ?? 1)
+            - (rightBeforeRedo.centerOffsetPx ?? 0) / (rightBeforeRedo.pageWidthPx ?? 1))).toBeLessThan(0.05);
+        await waitForSteadyPaneView(page, leftPane!, 'redo independently keeps original page 2 in the left view', view => (
+            view.pageCount === 5 && view.centerPage === 1 && view.centerText?.includes('Fixture 2/6') === true
+            && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
+        ));
+        await page.screenshot({path: join(sessionDir(session.name), 'history-after-redo.png')});
     }, TIMEOUT_MS);
 
     // Sweep #845: opening the same file again from a view (Recent Files, a drop)

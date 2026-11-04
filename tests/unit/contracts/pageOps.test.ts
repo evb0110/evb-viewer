@@ -4,6 +4,158 @@ import {
     it,
 } from 'vitest';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
+import {
+    invertPageIdentityDelta,
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
+import {requirePageNumber} from '@contracts/pageNumbers';
+
+describe('page identity history round trips', () => {
+    const cases: Array<{
+        name: string;
+        delta: IPageIdentityDelta;
+        forward: Array<number | null>
+    }> = [
+        {
+            name: 'legacy deletion and insertion',
+            delta: {
+                previousPageCount: 3,
+                pages: [
+                    {fromPageNumber: 2},
+                    {insertedId: 'new'},
+                    {fromPageNumber: 3},
+                ],
+            },
+            forward: [
+                null,
+                1,
+                3,
+            ],
+        },
+        {
+            name: 'compact deletion',
+            delta: {
+                previousPageCount: 3,
+                nextPageCount: 2,
+                ranges: [
+                    {
+                        kind: 'delete',
+                        fromPageNumber: 1,
+                        count: 1,
+                    },
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 2,
+                        toPageNumber: 1,
+                        count: 2,
+                    },
+                ],
+            },
+            forward: [
+                null,
+                1,
+                2,
+            ],
+        },
+        {
+            name: 'compact insertion',
+            delta: {
+                previousPageCount: 2,
+                nextPageCount: 3,
+                ranges: [
+                    {
+                        kind: 'insert',
+                        toPageNumber: 1,
+                        count: 1,
+                        identitySeed: 'new',
+                    },
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 1,
+                        toPageNumber: 2,
+                        count: 2,
+                    },
+                ],
+            },
+            forward: [
+                2,
+                3,
+            ],
+        },
+        {
+            name: 'move with a touched page',
+            delta: {
+                previousPageCount: 3,
+                nextPageCount: 3,
+                ranges: [
+                    {
+                        kind: 'move',
+                        fromPageNumber: 3,
+                        toPageNumber: 1,
+                        count: 1,
+                    },
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 1,
+                        toPageNumber: 2,
+                        count: 2,
+                    },
+                    {
+                        kind: 'touch',
+                        toPageNumber: 1,
+                        count: 1,
+                        reason: 'rotate',
+                    },
+                ],
+            },
+            forward: [
+                2,
+                3,
+                1,
+            ],
+        },
+    ];
+    it.each(cases)('returns surviving content through $name', ({
+        delta, forward,
+    }) => {
+        const inverse = invertPageIdentityDelta(delta);
+        expect(inverse.nextPageCount).toBe(delta.previousPageCount);
+        for (const [
+            index,
+            destination,
+        ] of forward.entries()) {
+            expect(mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(index + 1))).toBe(destination);
+            if (destination !== null) {
+                expect(mapPageNumberThroughPageIdentityDelta(inverse, requirePageNumber(destination))).toBe(index + 1);
+            }
+        }
+    });
+    it('has no predecessor for an inserted page when undone', () => {
+        const inverse = invertPageIdentityDelta(cases[2]!.delta);
+        expect(mapPageNumberThroughPageIdentityDelta(inverse, requirePageNumber(1))).toBeNull();
+    });
+    it('keeps a hundred million retained pages compact', () => {
+        const inverse = invertPageIdentityDelta({
+            previousPageCount: 100_000_000,
+            nextPageCount: 100_000_000,
+            ranges: [{
+                kind: 'retain',
+                fromPageNumber: 1,
+                toPageNumber: 1,
+                count: 100_000_000,
+            }],
+        });
+        expect(inverse.pages).toBeUndefined();
+        expect(inverse.ranges).toEqual([{
+            kind: 'retain',
+            fromPageNumber: 1,
+            toPageNumber: 1,
+            count: 100_000_000,
+        }]);
+        expect(mapPageNumberThroughPageIdentityDelta(inverse, requirePageNumber(100_000_000))).toBe(100_000_000);
+    });
+});
 
 describe('page ops platform feature schemas', () => {
     const channels = PAGE_OPS_PLATFORM_FEATURE.invokeChannels;

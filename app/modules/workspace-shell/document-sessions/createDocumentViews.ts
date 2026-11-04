@@ -1,4 +1,10 @@
 import type { Ref } from 'vue';
+import {
+    getPageIdentityDeltaNextPageCount,
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { usePageContextMenu } from '@app/modules/pdf-viewer/public';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
@@ -138,6 +144,35 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
         },
     });
 
+    // Remap the current reading position, never a position captured at edit time.
+    function mapPageIdentity(delta: IPageIdentityDelta) {
+        const nextCount = getPageIdentityDeltaNextPageCount(delta);
+        const map = (page: number) => mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
+            ?? Math.max(1, Math.min(page, nextCount ?? page));
+        for (const record of controller.views.value.values()) {
+            const port = viewPorts.value.get(record.tabId);
+            if (port) {
+                port.view.currentPage.value = map(port.view.currentPage.value);
+                // Its mounted viewer carries its own semantic anchor through the swap.
+                continue;
+            }
+            const page = map(record.viewState.value.currentPage ?? record.toolbarSnapshot.value.currentPage);
+            const anchor = record.readingAnchor.value;
+            record.applyViewState({
+                ...record.viewState.value,
+                currentPage: page,
+            }, anchor && {
+                ...anchor,
+                page: mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(anchor.page)) ?? page,
+            });
+            record.publishToolbarSnapshot({
+                ...record.toolbarSnapshot.value,
+                currentPage: page,
+                totalPages: nextCount ?? record.toolbarSnapshot.value.totalPages,
+            });
+        }
+    }
+
     function closeAnnotationContextMenus() {
         for (const port of viewPorts.value.values()) {
             port.closeAnnotationContextMenu();
@@ -146,6 +181,7 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
 
     return {
         viewPorts,
+        mapPageIdentity,
         closeAnnotationContextMenus,
         annotationTools,
         commandTabId: computed(() => commandTabId.value),
