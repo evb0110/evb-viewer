@@ -312,21 +312,7 @@ fn read_box(document: &Document, page: &Dictionary, key: &[u8]) -> Result<Option
     let Ok(object) = page.get(key) else {
         return Ok(None);
     };
-    let values = document.dereference(object)?.1.as_array()?;
-    if values.len() != 4 {
-        return Ok(None);
-    }
-    let mut numbers = [0.0; 4];
-    for (slot, value) in numbers.iter_mut().zip(values) {
-        *slot = object_to_f64(document.dereference(value)?.1)?;
-    }
-    let rect = PdfRect {
-        x1: numbers[0].min(numbers[2]),
-        y1: numbers[1].min(numbers[3]),
-        x2: numbers[0].max(numbers[2]),
-        y2: numbers[1].max(numbers[3]),
-    };
-    Ok((rect.width() > 0.0 && rect.height() > 0.0).then_some(rect))
+    read_normalized_rect(document, object)
 }
 
 /// The visible box is the CropBox clipped to the MediaBox.

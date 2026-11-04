@@ -896,6 +896,20 @@ describe('browser document lifecycle UI', () => {
         const trace: string[] = [];
         page.on('console', message => trace.push(message.text()));
         page.on('crash', () => trace.push('PAGE CRASHED'));
+        page.on('close', () => trace.push('PAGE CLOSED'));
+        page.on('request', request => {
+            if (request.isNavigationRequest()) trace.push(`NAVIGATION REQUEST ${request.url()}`);
+        });
+        page.on('response', response => {
+            if (response.request().isNavigationRequest()) trace.push(`NAVIGATION RESPONSE ${response.status()} ${response.url()}`);
+        });
+        page.on('requestfailed', request => {
+            if (request.isNavigationRequest()) trace.push(`NAVIGATION FAILED ${request.failure()?.errorText} ${request.url()}`);
+        });
+        page.on('framenavigated', frame => {
+            if (frame === page.mainFrame()) trace.push(`NAVIGATION COMMITTED ${frame.url()}`);
+        });
+        page.on('domcontentloaded', () => trace.push('DOM CONTENT LOADED'));
         let phase = 'chooser';
         try {
             const pdf = await PDFDocument.create();
@@ -1043,7 +1057,9 @@ describe('browser document lifecycle UI', () => {
                 trace: trace.slice(-35),
                 error: String(error),
                 problems,
-                text: await page.locator('body').innerText().catch(() => '<page closed>'),
+                url: page.url(),
+                closed: page.isClosed(),
+                serverOutput: lifecycle.serverOutput,
             }));
             throw error;
         } finally {
