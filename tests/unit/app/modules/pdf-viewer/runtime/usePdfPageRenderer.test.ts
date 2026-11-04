@@ -493,7 +493,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         }
     });
 
-    it('keeps a committed canvas canvas-only when text hydration rejects, then retries', async () => {
+    it('keeps a readable canvas when text hydration fails, and redraws text only on Retry', async () => {
         rendererFixture.renderTextLayer
             .mockRejectedValueOnce(new Error('text extraction failed'))
             .mockResolvedValue(undefined);
@@ -512,21 +512,19 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 renderOptions: {prioritizeTextLayer: true},
             });
 
+            // The failure is settled: the canvas stays, and no frame promotes
+            // the page again by itself.
             expect(harness.canvas.isConnected).toBe(true);
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('none');
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('canvas-only');
-            expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('failed');
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
+            expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
 
-            await harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 1,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                rasterDemandPages: [1],
-                prioritizeTextLayer: true,
-            });
+            const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
+            expect(retry).toBeDefined();
+            retry.onClick();
+            await vi.waitFor(() => expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready'));
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
-            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
         } finally {
             harness.root.remove();
         }

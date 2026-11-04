@@ -18,6 +18,12 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { isEqual } from 'es-toolkit';
 import { getTextLayerTextMapping } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { isRenderCancellation } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+
+export interface ITextLayerFailure {
+    failure: FailureReceipt | undefined;
+    error: unknown;
+}
 
 interface ITextLayerRenderContext {
     container: HTMLElement;
@@ -35,7 +41,7 @@ interface IUsePdfRendererTextLayerControllerOptions {
     cancelActiveTextLayerRender: (pageNumber: TPageNumber) => void;
     cancelActiveTextLayerRenderIfCurrent: (pageNumber: TPageNumber, version: number, requestId: number) => void;
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
-    logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => void;
+    logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => FailureReceipt | undefined;
 }
 
 export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLayerControllerOptions) => {
@@ -59,7 +65,10 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         scale: number,
         shouldContinue: () => boolean,
         publish: () => boolean = () => true,
-    ) {
+    ): Promise<boolean | ITextLayerFailure> {
+        // A text layer that failed or timed out, rather than one a newer
+        // render replaced; it is not tried again until asked.
+        let failure: ITextLayerFailure | null = null;
         const {
             container,
             pdfPage,
@@ -154,6 +163,10 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 // The canvas is already mounted. A nonessential text layer must not
                 // turn a readable page into a blank page when it stalls.
                 isTextLayerRendered = false;
+                failure = {
+                    failure: undefined,
+                    error: textLayerError,
+                };
             } else if (
                 getRenderVersion() !== version
                 || !shouldContinue()
@@ -169,11 +182,14 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 cleanupText();
                 return false;
             } else {
-                logNonCriticalStageError(
-                    pageNumber,
-                    'text layer',
-                    textLayerError,
-                );
+                failure = {
+                    failure: logNonCriticalStageError(
+                        pageNumber,
+                        'text layer',
+                        textLayerError,
+                    ),
+                    error: textLayerError,
+                };
                 cleanupText();
             }
         } finally {
@@ -225,17 +241,19 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             try {
                 textLayerCleanupFns.set(pageNumber, textLayerRenderer.setupTextLayerInteraction(textLayerDiv));
             } catch (textLayerInteractionError) {
-                logNonCriticalStageError(
-                    pageNumber,
-                    'text layer interaction',
-                    textLayerInteractionError,
-                );
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
-                return false;
+                return {
+                    failure: logNonCriticalStageError(
+                        pageNumber,
+                        'text layer interaction',
+                        textLayerInteractionError,
+                    ),
+                    error: textLayerInteractionError,
+                };
             }
         }
 
-        if (!isTextLayerRendered) return false;
+        if (!isTextLayerRendered) return failure ?? false;
         if (anchor?.[0] && focus?.[0]) selection?.setBaseAndExtent(anchor[0], anchor[1], focus[0], focus[1]);
 
         try {
