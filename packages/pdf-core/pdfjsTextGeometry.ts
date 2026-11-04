@@ -20,7 +20,9 @@ export type TPdfjsTextOps = Partial<Record<
     | 'showText'
     | 'showSpacedText'
     | 'nextLineShowText'
-    | 'nextLineSetSpacingShowText',
+    | 'nextLineSetSpacingShowText'
+    | 'paintFormXObjectBegin'
+    | 'paintFormXObjectEnd',
     number
 >>;
 
@@ -521,6 +523,10 @@ export function extractPdfjsWordBoxesFromOperatorList(
 
         switch (op) {
             case ops.save:
+            case ops.paintFormXObjectBegin: {
+                // A Form draws inside its own saved state, under its matrix.
+                const formMatrix = op === ops.paintFormXObjectBegin ? matrixFromArgs(args[0]) : null;
+                if (op === ops.paintFormXObjectBegin) activeWord = flushActiveWord(words, activeWord);
                 graphicsStack.push({
                     ctm: cloneMatrix(ctm),
                     fontSize: state.fontSize,
@@ -530,8 +536,11 @@ export function extractPdfjsWordBoxesFromOperatorList(
                     leading: state.leading,
                     textRise: state.textRise,
                 });
+                if (formMatrix) ctm = multiplyMatrices(ctm, formMatrix);
                 break;
-            case ops.restore: {
+            }
+            case ops.restore:
+            case ops.paintFormXObjectEnd: {
                 activeWord = flushActiveWord(words, activeWord);
                 const saved = graphicsStack.pop();
                 ctm = saved?.ctm ?? identityMatrix();

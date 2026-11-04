@@ -300,13 +300,15 @@ describe('extractBrowserSearchPageText', () => {
 
 // Real PDF.js operator lists for one-line PDFs, read by the real geometry helper.
 describe('word boxes from real PDF operators', () => {
-    function onePagePdf(stream: string) {
+    function onePagePdf(stream: string, form?: string) {
         const objects = [
             '<< /Type /Catalog /Pages 2 0 R >>',
             '<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
-            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> /XObject << /Fm1 6 0 R >> >> /Contents 5 0 R >>',
             '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
             `<< /Length ${String(stream.length)} >>\nstream\n${stream}\nendstream`,
+            // A Form drawing its text twice as large, 50 points to the right.
+            `<< /Type /XObject /Subtype /Form /BBox [0 0 150 100] /Matrix [2 0 0 2 50 0] /Resources << /Font << /F1 4 0 R >> >> /Length ${String((form ?? '').length)} >>\nstream\n${form ?? ''}\nendstream`,
         ];
         let text = '%PDF-1.4\n';
         const offsets: number[] = [];
@@ -321,11 +323,11 @@ describe('word boxes from real PDF operators', () => {
         return new TextEncoder().encode(text);
     }
 
-    async function wordBoxes(stream: string) {
+    async function wordBoxes(stream: string, form?: string) {
         const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
         const geometry = await vi.importActual<typeof PdfCore>('@pdf-core');
         const task = pdfjs.getDocument({
-            data: onePagePdf(stream),
+            data: onePagePdf(stream, form),
             useSystemFonts: true,
         });
         try {
@@ -352,6 +354,18 @@ describe('word boxes from real PDF operators', () => {
         const c = words.find(word => word.text === 'C')!;
 
         expect(c.height).toBeCloseTo(a.height, 5);
+    });
+
+    it('places text a Form draws under the Form\'s matrix', async () => {
+        const words = await wordBoxes(
+            'q /Fm1 Do Q BT /F1 10 Tf 1 0 0 1 10 170 Tm (outside) Tj ET',
+            'BT /F1 10 Tf 1 0 0 1 10 20 Tm (inside) Tj ET',
+        );
+        const inside = words.find(word => word.text === 'inside')!;
+        const outside = words.find(word => word.text === 'outside')!;
+
+        expect(inside.height).toBeCloseTo(outside.height * 2, 5);
+        expect(inside.x).toBeGreaterThan(outside.x);
     });
 });
 
