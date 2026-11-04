@@ -5,7 +5,7 @@ import {
     onTestFinished,
 } from 'vitest';
 import {
-    mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync,
+    existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
@@ -92,6 +92,38 @@ async function createLargeConformancePdf() {
     return filePath;
 }
 
+// A controlled conformance child stays alive until close cancels it. Fixture size alone
+// cannot guarantee that conformance is still running when trusted input lands.
+function createConformanceCancellationGate() {
+    const directory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-gate-'));
+    const hook = resolve(directory, 'hold-conformance.cjs');
+    const child = resolve(directory, 'held-native-child.cjs');
+    const armed = resolve(directory, 'armed');
+    const ready = resolve(directory, 'ready');
+    writeFileSync(child, `const fs=require('node:fs');
+fs.watch(${JSON.stringify(directory)},()=>{});
+fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));
+`);
+    writeFileSync(hook, `const fs=require('node:fs'),cp=require('node:child_process'),spawn=cp.spawn;
+cp.spawn=function(command,args,options){
+ if(args?.[0]==='pdf-conformance'&&fs.existsSync(${JSON.stringify(armed)})){
+  return spawn.call(this,${JSON.stringify(process.execPath)},[${JSON.stringify(child)}],options);
+ }
+ return spawn.call(this,command,args,options);
+};
+require('node:module').syncBuiltinESMExports();
+`);
+    onTestFinished(() => rmSync(directory, {
+        recursive: true,
+        force: true,
+    }));
+    return {
+        hook,
+        armed,
+        ready,
+    };
+}
+
 // Readers ignore bytes after the last %%EOF, so such a file opens normally.
 // The Windows report that led here had them, and its conformance read failed.
 function createPdfWithBytesAfterEof() {
@@ -112,7 +144,11 @@ describe('Electron E2E - PDF Conformance', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-pdf-conformance-${Date.now()}`});
 
     it('keeps conformance analysis quiet when its working copy is closed', async () => {
-        const session = sessionFixture.getSession();
+        const gate = createConformanceCancellationGate();
+        const session = await sessionFixture.restart({
+            hard: true,
+            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(gate.hook)}`},
+        });
         const stablePdf = resolve('tests/fixtures/electron/generated-text.pdf');
         const largePdf = await createLargeConformancePdf();
         expect(statSync(largePdf).size).toBeGreaterThan(MATERIALIZED_PDF_BYTES);
@@ -130,32 +166,11 @@ describe('Electron E2E - PDF Conformance', () => {
 
             const stableLog = readAppLog(session.name).slice(initialLog.length);
             const largeAnalysisStart = initialLog.length + stableLog.length;
-            let startWatcher: ReturnType<typeof watch> | null = null;
-            const pressCloseOnAnalysisStart = new Promise<void>((resolveStart, rejectStart) => {
-                let clickStarted = false;
-                const tryClick = () => {
-                    if (clickStarted) {
-                        return;
-                    }
-                    const chunk = readAppLog(session.name).slice(largeAnalysisStart);
-                    if (!hasWorkerTaskMessage(chunk, 'Worker online')) {
-                        return;
-                    }
-                    clickStarted = true;
-                    startWatcher?.close();
-                    void clickAsUser(session.page, '.tab-list .tab.is-active .tab-close')
-                        .then(() => resolveStart(), rejectStart);
-                };
-                startWatcher = watch(logPath, {persistent: false}, tryClick);
-                tryClick();
-                setTimeout(() => {
-                    startWatcher?.close();
-                    rejectStart(new Error('PDF conformance worker did not start before the close deadline'));
-                }, CONFORMANCE_WORKER_START_TIMEOUT_MS).unref();
-            });
+            writeFileSync(gate.armed, '');
             await triggerOpenPathInApp(session.page, largePdf, CONFORMANCE_WORKER_START_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, CONFORMANCE_WORKER_START_TIMEOUT_MS);
-            await pressCloseOnAnalysisStart;
+            await expect.poll(() => existsSync(gate.ready), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toBe(true);
+            await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
             await waitForActiveDocumentSource(session.page, stablePdf, 15_000);
             await waitForPdfLoaded(session.page, 15_000);
             await expect.poll(() => {
@@ -177,6 +192,10 @@ describe('Electron E2E - PDF Conformance', () => {
             expect(hasWorkerTaskMessage(stableLog, 'Worker completed')).toBe(true);
         } finally {
             observer.dispose();
+            await sessionFixture.restart({
+                hard: true,
+                extraEnv: {NODE_OPTIONS: process.env.NODE_OPTIONS ?? ''},
+            });
         }
     }, 150_000);
 

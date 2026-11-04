@@ -13,10 +13,12 @@ import {
     afterEach, describe, expect, it,
 } from 'vitest';
 import {
-    createMultiPageTextFixturePdf, createOutlinePageLabelFixturePdf, fixtureBookmark,
+    createMultiPageTextFixturePdf, createOutlinePageLabelFixturePdf, createPasswordProtectedFixturePdf, fixtureBookmark,
     readPdfMetadataWithQpdf, readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    createStickyNoteWithPointer, createCanonicalTextBoxWithPointer,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     clickVisibleToolbarButton, openDocumentSidebarTab, saveViaVisibleToolbarWithDeadline, waitForActiveDocumentSource, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -76,6 +78,94 @@ describe('checkpointed annotation recovery', () => {
             force: true,
         });
         outputDirectory = null;
+    });
+
+    // T2: replay acknowledgement cannot retire the last durable dirty note
+    // while another startup open is waiting for its password.
+    it('A46 restores an acknowledged note after a second crash while startup is password-gated', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-acknowledged-note-'));
+        const evidenceDirectory = resolve('.devkit/checks/e2e');
+        mkdirSync(evidenceDirectory, {recursive: true});
+        const sourcePath = join(outputDirectory, 'accepted-note.pdf');
+        const encryptedPath = join(outputDirectory, 'startup-password.pdf');
+        copyFileSync(FIXTURE_PATH, sourcePath);
+        copyFileSync(await createPasswordProtectedFixturePdf(`acknowledged-note-${Date.now()}.pdf`), encryptedPath);
+        const sourceBytes = readFileSync(sourcePath);
+        const name = `e2e-acknowledged-note-${Date.now()}`;
+        const marker = 'Accepted note survives the second startup crash';
+        session = await startElectronE2ESession(name, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForPdfLoaded(session.page);
+        await waitForViewerInteractive(session.page);
+        await createStickyNoteWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        interface INoteRecord {checkpoint: {
+            capturedAt: number;
+            tabs: Array<{
+                isDirty: boolean;
+                annotationRecovery?: {artifactId: string}
+            }>
+        }}
+        let originalRecord: INoteRecord | undefined;
+        await expect.poll(() => {
+            originalRecord = readWorkspaceRecoveryRecords<INoteRecord>(session!.name)
+                .find(record => record.checkpoint.tabs.some(tab => tab.isDirty && tab.annotationRecovery));
+            const artifact = originalRecord?.checkpoint.tabs.find(tab => tab.annotationRecovery)?.annotationRecovery;
+            if (!artifact) return false;
+            const path = join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`);
+            return existsSync(path) && readFileSync(path, 'utf8').includes(marker);
+        }).toBe(true);
+        const capturedAt = originalRecord!.checkpoint.capturedAt;
+        await session.page.screenshot({path: join(evidenceDirectory, 'note-before-first-crash.png')});
+        await session.browser.disconnect();
+        await stopSingleSession(session.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = null;
+
+        session = await startElectronE2ESession(name, {
+            clean: false,
+            initialOpenPaths: [encryptedPath],
+        });
+        await session.page.waitForSelector('[role="dialog"] input[type="password"]', {visible: true});
+        // The password prompt is downstream of replay + acknowledgement. No
+        // successor can publish until this external startup open settles.
+        const afterAcknowledgement = readWorkspaceRecoveryRecords<INoteRecord>(session.name);
+        writeFileSync(join(evidenceDirectory, 'password-gated-records.json'), JSON.stringify({
+            capturedAt,
+            afterAcknowledgement,
+        }, null, 2));
+        await session.page.screenshot({path: join(evidenceDirectory, 'password-gated-after-acknowledgement.png')});
+        expect.soft(afterAcknowledgement).toHaveLength(1);
+        expect.soft(afterAcknowledgement[0]?.checkpoint.capturedAt).toBe(capturedAt);
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+        await session.browser.disconnect();
+        await stopSingleSession(session.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = null;
+
+        session = await startElectronE2ESession(name, {clean: false});
+        try {
+            const noteMarker = await session.page.waitForSelector('.pdf-annotation-editor-layer [data-annotation-kind="note"]', {visible: true});
+            if (!noteMarker) throw new Error('The recovered note marker was missing');
+            await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+            await clickAsUser(session.page, noteMarker);
+            await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
+                .some(note => note.value === text), {}, marker);
+            expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+            await session.page.screenshot({path: join(evidenceDirectory, 'note-after-second-crash.png')});
+        } catch (error) {
+            console.log(await session.captureFailureArtifacts('a46-second-crash'));
+            throw error;
+        }
     });
 
     // A4/T2: Escape cannot discard text already accepted with Ctrl/Cmd+Enter.
