@@ -16,8 +16,11 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {atomicReplace} from '@electron/utils/atomicReplace';
+
+vi.mock('fs/promises', {spy: true});
 
 describe('atomicReplace real filesystem policy', () => {
     let root = '';
@@ -92,5 +95,21 @@ describe('atomicReplace real filesystem policy', () => {
         await link(sourcePath, linkedPath);
         await atomicReplace(linkedPath, destinationPath);
         expect((await stat(sourcePath)).mode & 0o777).toBe(0o644);
+    });
+
+    it.skipIf(process.platform === 'win32')('saves even when the filesystem refuses to keep the destination mode', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-mode-refused-'));
+        const destinationPath = join(root, 'private.pdf');
+        const stagingPath = join(root, 'staging.pdf');
+        await writeFile(destinationPath, 'old bytes', {mode: 0o600});
+        await chmod(destinationPath, 0o600);
+        await writeFile(stagingPath, 'new bytes');
+        await chmod(stagingPath, 0o644);
+        const {chmod: productChmod} = await import('fs/promises');
+        vi.mocked(productChmod).mockRejectedValueOnce(Object.assign(new Error('Operation not permitted'), {code: 'EPERM'}));
+
+        await atomicReplace(stagingPath, destinationPath);
+
+        await expect(readFile(destinationPath, 'utf8')).resolves.toBe('new bytes');
     });
 });

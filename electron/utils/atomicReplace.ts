@@ -381,7 +381,10 @@ async function keepDestinationMode(srcTemp: string, dst: string) {
         stat(dst).catch(() => null),
     ]);
     if (replaced === null || staged.nlink !== 1 || (staged.mode & 0o7777) === (replaced.mode & 0o7777)) return;
-    await chmod(srcTemp, replaced.mode & 0o7777);
+    // A filesystem that refuses the mode keeps the staged one; the save goes on.
+    await chmod(srcTemp, replaced.mode & 0o7777).catch((error: unknown) => {
+        logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
+    });
 }
 
 export async function atomicReplace(
