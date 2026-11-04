@@ -300,10 +300,12 @@ async function renderPdfPageNumbersForBrowserPrint(
 
                 const allocated = allocateBrowserPrintCanvas(targetDocument, page);
                 canvas = allocated.canvas;
+                // Print intent: annotations flagged to print, not those to show.
                 const renderTask = page.render({
                     canvas: allocated.context.canvas,
                     canvasContext: allocated.context,
                     viewport: allocated.viewport,
+                    intent: 'print',
                 });
                 const abortRender = () => renderTask.cancel();
                 options.signal?.addEventListener('abort', abortRender, { once: true });
