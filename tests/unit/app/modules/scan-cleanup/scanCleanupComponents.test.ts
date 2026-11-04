@@ -20,6 +20,7 @@ import {
     h,
     nextTick,
     reactive,
+    provide,
     ref,
     shallowRef,
     unref,
@@ -52,6 +53,8 @@ import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
@@ -1342,19 +1345,26 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
     };
 }
 
-async function mountRealWorkspace(documentKey: string) {
+async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeof useWorkspaceCommandLedger>) {
     const {useScanCleanupWorkspaceSession} = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>(
         '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession',
     );
     const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
     realWorkspaceSession.create = useScanCleanupWorkspaceSession;
-    const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
-        sourcePath,
-        documentKey,
-        currentPage: 1,
-        totalPages: 2,
-        toolbarActive: true,
-    })}));
+    const harness = mount(defineComponent({setup() {
+        if (ledger) provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        return () => h(ScanCleanupWorkspace, {
+            sourcePath,
+            documentKey,
+            currentPage: 1,
+            totalPages: 2,
+            toolbarActive: true,
+        });
+    }}));
     await nextTick();
     return {
         ...harness,
@@ -1596,6 +1606,42 @@ describe('Scan cleanup components', () => {
         expect(popover.textContent).toContain('Edge confidence');
     });
 
+
+    it('undoes an All margin edit through the workspace control without losing inherited margins', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const harness = await mountRealWorkspace('all-margin-undo', ledger);
+        const {
+            settings, selection,
+        } = harness.session;
+        const originalMargins = {...settings.values.marginsMm};
+        const inherited = {
+            leftMm: 13,
+            topMm: 13,
+            rightMm: 13,
+            bottomMm: 13,
+        };
+        selection.setPageOverrideDefaults(createScanCleanupPageOverride({marginsMm: inherited}));
+        settings.values.pageOverrides['2'] = createScanCleanupPageOverride({rotationDegrees: 90});
+        selection.setSettingsScope('all');
+        settings.setMarginsLinked(true);
+        await nextTick();
+        const margin = harness.host.querySelector<HTMLInputElement>('[data-margin-side="all"]')!;
+        expect(margin.value).toBe('13');
+        margin.value = '20';
+        margin.dispatchEvent(new Event('input', {bubbles: true}));
+        margin.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(settings.values.marginsMm.topMm).toBe(20);
+        await ledger.undoTimeline();
+        await nextTick();
+        expect(settings.values.pageOverrideDefaults?.marginsMm).toEqual(inherited);
+        expect(settings.values.marginsMm).toEqual(originalMargins);
+        expect(settings.values.pageOverrides['2']?.rotationDegrees).toBe(90);
+        expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="all"]')?.value).toBe('13');
+        await ledger.redoTimeline();
+        expect(settings.values.marginsMm.topMm).toBe(20);
+        expect(settings.values.pageOverrideDefaults?.marginsMm).toBeUndefined();
+    });
 
     it('links page margins without changing the document or other pages', async () => {
         const harness = await mountRealWorkspace('page-margin-link');

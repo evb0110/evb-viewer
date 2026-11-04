@@ -16,7 +16,10 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {Ref} from 'vue';
 import {isEqual} from 'es-toolkit/predicate';
-import {omit} from 'es-toolkit/object';
+import {
+    omit,
+    omitBy,
+} from 'es-toolkit/object';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {cloneScanCleanupPreferenceValue} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
@@ -89,12 +92,16 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     const currentPageOverride = computed(() => getScanCleanupPageOverride(
         settings.pageOverrides,
         requirePageNumber(leader.value),
+        settings.pageOverrideDefaults,
+        settings.marginsMm,
     ));
     const selectedPageNumbers = computed(() => [...selectedPages.value].sort((left, right) => left - right));
     const selectedPageOverrides = computed(() => selectedPageNumbers.value
         .map(page => getScanCleanupPageOverride(
             settings.pageOverrides,
             requirePageNumber(page),
+            settings.pageOverrideDefaults,
+            settings.marginsMm,
         )));
     const mixed = <T>(read: (override: (typeof selectedPageOverrides.value)[number]) => T) => computed(() => resolveScanCleanupMixedValue(selectedPageOverrides.value.map(read)));
     const layoutOverride = mixed(override => override.layoutOverride);
@@ -140,13 +147,17 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     // One edit, one undo step that replays only the page defaults and entries
     // of `pages` it changed, so a later edit of another page stays.
     function recordOverrideEdit(pages: readonly number[], edit: () => void) {
+        const fields = [
+            'pageOverrideDefaults',
+            'pageAlignment',
+            'marginsMm',
+        ];
         const keys = [
-            undefined,
+            ...fields,
             ...pages.map(String),
         ];
-        const read = () => keys.map(key => cloneScanCleanupPreferenceValue(key === undefined
-            ? settings.pageOverrideDefaults
-            : settings.pageOverrides[key]));
+        const target = (key: string) => fields.includes(key) ? settings : settings.pageOverrides;
+        const read = () => keys.map(key => cloneScanCleanupPreferenceValue<unknown>(Reflect.get(target(key), key)));
         const before = read();
         edit();
         const after = read();
@@ -158,10 +169,9 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         if (changed.length === 0) return;
         const apply = (side: 'before' | 'after') => {
             for (const entry of changed) {
-                const target = entry.key === undefined ? settings : settings.pageOverrides;
-                const key = entry.key ?? 'pageOverrideDefaults';
-                if (entry[side] === undefined) Reflect.deleteProperty(target, key);
-                else Reflect.set(target, key, cloneScanCleanupPreferenceValue(entry[side]));
+                const owner = target(entry.key);
+                if (entry[side] === undefined) Reflect.deleteProperty(owner, entry.key);
+                else Reflect.set(owner, entry.key, cloneScanCleanupPreferenceValue(entry[side]));
             }
             attachScanCleanupPageOverrideDefaults(settings.pageOverrides, settings.pageOverrideDefaults, settings.marginsMm);
             return true;
@@ -401,44 +411,22 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function updateCurrentPlacementAll(value: TScanCleanupPageAlignment) {
-        settings.pageAlignment = value;
-        if (settings.pageOverrideDefaults !== undefined) {
-            const placementOverrides = Object.fromEntries(Object.entries(
-                settings.pageOverrideDefaults.placementOverrides ?? {},
-            ).filter(([
-                ,
-                alignment,
-            ]) => alignment !== value));
-            settings.pageOverrideDefaults = {
-                ...settings.pageOverrideDefaults,
-                placementOverrides,
-            };
-            attachScanCleanupPageOverrideDefaults(
-                settings.pageOverrides,
-                settings.pageOverrideDefaults,
-                settings.marginsMm,
-            );
-        }
-        updateOverrides(Object.keys(settings.pageOverrides).map(Number), current => {
-            const placementOverrides = Object.fromEntries(Object.entries(current.placementOverrides ?? {})
-                .filter(([
-                    ,
-                    alignment,
-                ]) => alignment !== value));
-            return {
-                ...current,
-                placementOverrides,
-            };
+        const pages = Object.keys(settings.pageOverrides).map(Number);
+        const removeMatchingPlacement = (current: IScanCleanupPageOverride) => ({
+            ...current,
+            placementOverrides: omitBy(current.placementOverrides ?? {}, alignment => alignment === value),
+        });
+        recordOverrideEdit(pages, () => {
+            settings.pageAlignment = value;
+            if (settings.pageOverrideDefaults !== undefined) {
+                setPageOverrideDefaults(removeMatchingPlacement(settings.pageOverrideDefaults));
+            }
+            updateScanCleanupPageOverrides(settings.pageOverrides, pages, removeMatchingPlacement, settings.marginsMm);
         });
     }
 
     function resetOverrides(pages: Iterable<number>) {
-        updateOverrides(pages, () => ({
-            rotationDegrees: 0,
-            layoutOverride: 'auto',
-            excluded: false,
-            manualSplit: null,
-        }));
+        updateOverrides(pages, () => createScanCleanupPageOverride());
     }
 
     function setSettingsScope(value: TScanCleanupSettingsScope) {
@@ -560,6 +548,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }, true);
 
     return {
+        recordOverrideEdit,
         applyLeaderOverrides,
         contentBoxes,
         currentPageOverride,

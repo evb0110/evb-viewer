@@ -327,6 +327,7 @@ const {
     updateOutputModeOverride: updateSelectionOutputModeOverride,
     updateOverrides: updateSelectionOverrides,
     setPageOverrideDefaults,
+    recordOverrideEdit,
     updateCurrentPlacement,
 } = workspaceSession.selection;
 const previewPage = selectionLeader;
@@ -503,11 +504,7 @@ function resolveAllPageOverrideValue<T>(
     const values = [settings.pageOverrideDefaults === undefined
         ? defaultValue
         : read(allScopeDefaultOverride.value)];
-    for (const pageKey of Object.keys(settings.pageOverrides)) {
-        const page = Number(pageKey);
-        if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
-            continue;
-        }
+    for (const page of existingOverridePages()) {
         values.push(read(getPageOverride(page)));
     }
     return resolveScanCleanupMixedValue(values);
@@ -869,12 +866,14 @@ function handleScopeInclusion(value: string | number) {
 
 function updateScopeMargin(target: Parameters<typeof updateDocumentMargin>[0], value: number) {
     if (settingsScope.value === 'all') {
-        const {
-            marginsMm: _marginsMm,
-            ...withoutMargins
-        } = allScopeDefaultOverride.value;
-        setPageOverrideDefaults(withoutMargins);
-        updateDocumentMargin(target, value);
+        recordOverrideEdit(Object.keys(settings.pageOverrides).map(Number), () => {
+            const {
+                marginsMm: _marginsMm,
+                ...withoutMargins
+            } = allScopeDefaultOverride.value;
+            setPageOverrideDefaults(withoutMargins);
+            updateDocumentMargin(target, value);
+        });
         return;
     }
     updateSelectionMargins(target, value, scopePageNumbers.value);

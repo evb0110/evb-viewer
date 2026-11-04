@@ -1071,6 +1071,88 @@ describe('scan cleanup renderer preference store', () => {
         }
     });
 
+    it('restores global placement and inherited placement in the same undo step', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'c'.repeat(64);
+        const ledger = useWorkspaceCommandLedger();
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        let selection!: ReturnType<typeof useScanCleanupSelection>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            selection = useScanCleanupSelection({
+                initialPage: 1,
+                previewResult: () => null,
+                previewTotalPages: () => 3,
+                marginsLinked: ref(true),
+                settings: settings.values,
+            });
+            return () => h('output', JSON.stringify({
+                alignment: settings.values.pageAlignment,
+                defaults: settings.values.pageOverrideDefaults,
+                margins: settings.values.marginsMm,
+                pages: settings.values.pageOverrides,
+                effectivePlacement: selection.currentPlacementAlignment.value,
+            }));
+        }}));
+        app.provide(workspaceCommandSinkKey, {
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        app.mount(host);
+        const shown = async () => {
+            await nextTick();
+            return JSON.parse(host.textContent ?? '{}');
+        };
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            settings.values.pageAlignment = 'center';
+            const inheritedMargins = {
+                leftMm: 13,
+                topMm: 13,
+                rightMm: 13,
+                bottomMm: 13,
+            };
+            selection.setPageOverrideDefaults(createScanCleanupPageOverride({
+                marginsMm: inheritedMargins,
+                placementOverrides: {full: 'top-left'},
+            }));
+            const original = await shown();
+            selection.updateCurrentPlacementAll('top-left');
+            expect((await shown()).alignment).toBe('top-left');
+            await ledger.undoTimeline();
+            expect(await shown()).toEqual(original);
+            await ledger.redoTimeline();
+            expect((await shown()).alignment).toBe('top-left');
+            await ledger.undoTimeline();
+            selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+            const beforeSparseEdit = await shown();
+            selection.updateCurrentPlacementAll('top-left');
+            settings.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 270});
+            await ledger.undoTimeline();
+            const undone = await shown();
+            expect(undone.alignment).toBe(beforeSparseEdit.alignment);
+            expect(undone.defaults).toEqual(beforeSparseEdit.defaults);
+            expect(undone.effectivePlacement).toBe('top-left');
+            expect(undone.pages['2'].rotationDegrees).toBe(90);
+            expect(undone.pages['3'].rotationDegrees).toBe(270);
+            await ledger.redoTimeline();
+            expect((await shown()).alignment).toBe('top-left');
+            expect((await shown()).pages['3'].rotationDegrees).toBe(270);
+        } finally {
+            await nextTick();
+            app.unmount();
+            await flushScanCleanupPreferencesStore();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
     it('takes the document-wide settings another view saved when it comes on screen, keeping its own edit', async () => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
