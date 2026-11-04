@@ -21,7 +21,6 @@ import {
     forgetRetiredWorkingCopyOriginal,
     forgetWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
-    hasWorkingCopyRecoveryClaim,
     hasWorkingCopyRecoveryClaimInDirectory,
     normalizePathForLookup,
     rememberRetiredWorkingCopyOriginal,
@@ -658,11 +657,6 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         && ownerWebContentsId !== senderWebContentsId
     ) {
         logger.warn('Rejected cleanup for working copy path owned by another sender', {workingPath: normalizedPath});
-        return false;
-    }
-
-    if (hasWorkingCopyRecoveryClaim(normalizedPath)) {
-        logger.warn('Retained recovery working copy while checkpoint adoption is unresolved', {workingPath: normalizedPath});
         return false;
     }
 
