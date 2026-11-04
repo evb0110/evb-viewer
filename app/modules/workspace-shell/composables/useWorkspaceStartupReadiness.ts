@@ -9,7 +9,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;
 
-function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
+export function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
     if (typeof window === 'undefined') {
         return;
     }

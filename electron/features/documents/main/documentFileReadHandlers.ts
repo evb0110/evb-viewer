@@ -503,11 +503,8 @@ function resolveOriginalBackedRead(
     if (!entry || !readsThroughOriginal(entry.backingState)) {
         return null;
     }
-    if (
-        entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-        || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-    ) {
-        throw createSourceBackingError(entry.sourceBackingErrorCode);
+    if (entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED') {
+        throw createSourceBackingError('SOURCE_BACKING_CHANGED');
     }
     if (!entry.admissionSnapshot) {
         throw new WorkingCopyMaterializationError(
@@ -539,27 +536,26 @@ export function resolveOriginalBackedReadTransport(
         },
         read: async <T>(reader: (physicalPath: string) => Promise<T>) => {
             await assertOriginalBackingSnapshot(backing);
-            return withContentReadLease(backing.originalPath, async () => {
-                let result: T;
+            try {
+                return await withContentReadLease(backing.originalPath, async () => {
+                    const result = await reader(backing.originalPath);
+                    await assertOriginalBackingSnapshot(backing);
+                    return result;
+                }, () => retainOriginalBackedLease(backing), backing.logicalRef);
+            } catch (error) {
                 try {
-                    result = await reader(backing.originalPath);
-                } catch (error) {
-                    try {
-                        await assertOriginalBackingSnapshot(backing);
-                    } catch (snapshotError) {
-                        if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
-                        throw new AggregateError(
-                            [
-                                error,
-                                snapshotError,
-                            ], 'PDF read and source backing validation failed',
-                        );
-                    }
-                    throw error;
+                    await assertOriginalBackingSnapshot(backing);
+                } catch (snapshotError) {
+                    if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
+                    throw new AggregateError(
+                        [
+                            error,
+                            snapshotError,
+                        ], 'PDF read and source backing validation failed',
+                    );
                 }
-                await assertOriginalBackingSnapshot(backing);
-                return result;
-            }, () => retainOriginalBackedLease(backing), backing.logicalRef);
+                throw error;
+            }
         },
     };
 }
@@ -583,8 +579,13 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
         );
     }
     const sourceError = currentEntry.sourceBackingErrorCode;
-    if (sourceError === 'SOURCE_BACKING_CHANGED' || sourceError === 'SOURCE_BACKING_UNAVAILABLE') {
+    if (sourceError === 'SOURCE_BACKING_CHANGED') {
         throw createSourceBackingError(sourceError);
+    }
+    // The admission witness and exact registration were checked above. No
+    // await separates that check from clearing this registration's outage.
+    if (sourceError === 'SOURCE_BACKING_UNAVAILABLE') {
+        delete currentEntry.sourceBackingErrorCode;
     }
     return snapshot;
 }

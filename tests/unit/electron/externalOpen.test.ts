@@ -325,7 +325,7 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
     });
 
-    it('dispatches a timed-out claim after renderer ready without another arrival', async () => {
+    it('keeps one startup open when completion takes longer than 30 seconds', async () => {
         vi.useFakeTimers();
         const harness = createManagerHarness({ isRendererReady: false });
         const tracker = createStartupExternalOpenClaimTracker({
@@ -336,14 +336,55 @@ describe('createExternalOpenManager', () => {
         const exactPath = '/docs/startup.pdf';
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest([exactPath]);
-        tracker.track(sender, await harness.manager.claimPendingOpenPaths());
+        const claimed = await harness.manager.claimPendingOpenPaths();
+        tracker.track(sender, claimed);
+        let completeOpen!: () => void;
+        const completion = new Promise<void>(resolve => { completeOpen = resolve; });
+        const acknowledgement = completion.then(() => tracker.acknowledge(sender, []));
+
+        await vi.advanceTimersByTimeAsync(31_000);
+        completeOpen();
+        expect(await acknowledgement).toBe(true);
         harness.setRendererReady(true);
         harness.manager.scheduleFlushPendingFiles();
+        await vi.advanceTimersByTimeAsync(1_000);
 
-        await vi.advanceTimersByTimeAsync(30_100);
-
+        expect(claimed).toEqual([exactPath]);
+        expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
+        // A later deliberate open of the same file remains an independent request.
+        harness.manager.queueOpenRequest([exactPath]);
+        await vi.advanceTimersByTimeAsync(800);
         expect(harness.dispatchOpenPaths).toHaveBeenCalledExactlyOnceWith([exactPath]);
     });
+
+    it.each([
+        'main-frame navigation',
+        'renderer process gone',
+        'window closed',
+    ])(
+        'redelivers an unacknowledged startup claim after %s', async (reason) => {
+            vi.useFakeTimers();
+            const harness = createManagerHarness({ isRendererReady: false });
+            const tracker = createStartupExternalOpenClaimTracker({
+                externalOpenManager: harness.manager,
+                logger: harness.logger,
+            });
+            const sender = createTestEventSender(1) as never;
+            const exactPath = '/docs/startup.pdf';
+            harness.manager.markBootstrapReady();
+            harness.manager.queueOpenRequest([exactPath]);
+            tracker.track(sender, await harness.manager.claimPendingOpenPaths());
+
+            tracker.requeue(sender, reason);
+            tracker.requeue(sender, reason);
+            expect(tracker.acknowledge(sender, [])).toBe(false);
+            harness.setRendererReady(true);
+            harness.manager.scheduleFlushPendingFiles();
+            await vi.advanceTimersByTimeAsync(800);
+
+            expect(harness.dispatchOpenPaths).toHaveBeenCalledExactlyOnceWith([exactPath]);
+        },
+    );
 
     it('does not acknowledge a deleted exact path as its remaining sibling', async () => {
         vi.useFakeTimers();

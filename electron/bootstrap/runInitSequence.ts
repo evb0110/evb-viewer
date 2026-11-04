@@ -62,13 +62,6 @@ function shouldWaitForInitialRendererReady() {
     return runtimeConfig.automationWaitRendererReady;
 }
 
-const STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS = 30_000;
-
-interface IStartupExternalOpenClaim {
-    paths: Set<string>;
-    timeout: ReturnType<typeof setTimeout> | null;
-}
-
 interface IStartupExternalOpenClaimTracker {
     acknowledge(sender: WebContents, failedPaths: string[]): boolean;
     requeue(sender: WebContents, reason: string): void;
@@ -135,7 +128,7 @@ export interface IRunInitSequenceOptions {
 }
 
 export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
-    const claimsBySender = new Map<WebContents, IStartupExternalOpenClaim>();
+    const claimsBySender = new Map<WebContents, Set<string>>();
 
     function clearClaim(sender: WebContents) {
         const claim = claimsBySender.get(sender);
@@ -143,10 +136,6 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
             return null;
         }
 
-        if (claim.timeout) {
-            clearTimeout(claim.timeout);
-            claim.timeout = null;
-        }
         claimsBySender.delete(sender);
         return claim;
     }
@@ -157,7 +146,7 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
             return;
         }
 
-        const paths = Array.from(claim.paths);
+        const paths = Array.from(claim);
         options.externalOpenManager.acknowledgeClaimedOpenPaths(paths);
         options.logger.warn(`Requeued ${paths.length} unacknowledged startup external open path(s) after ${reason}`);
     }
@@ -165,15 +154,9 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
     function track(sender: WebContents, paths: string[]) {
         requeue(sender, 'replacement startup claim');
 
-        const claim: IStartupExternalOpenClaim = {
-            paths: new Set(paths),
-            timeout: null,
-        };
-        claim.timeout = setTimeout(() => {
-            requeue(sender, 'claim timeout');
-        }, STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS);
-        claim.timeout.unref();
-        claimsBySender.set(sender, claim);
+        // User interaction may outlive any deadline. Ownership ends on
+        // acknowledgement or the renderer lifecycle's existing requeue paths.
+        claimsBySender.set(sender, new Set(paths));
     }
 
     function acknowledge(sender: WebContents, failedPaths: string[]) {
@@ -184,8 +167,8 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
 
         const normalizedFailedPaths = normalizeAcknowledgedExternalOpenPaths(failedPaths);
         if (
-            normalizedFailedPaths.length > claim.paths.size
-            || normalizedFailedPaths.some(path => !claim.paths.has(path))
+            normalizedFailedPaths.length > claim.size
+            || normalizedFailedPaths.some(path => !claim.has(path))
         ) {
             return false;
         }
