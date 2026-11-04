@@ -74,7 +74,10 @@ interface IQpdfWorkingCopyMaterialization {
     signal?: AbortSignal;
 }
 type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
-    & {workingCopyMaterialization?: IQpdfWorkingCopyMaterialization};
+    & {
+        workingCopyMaterialization?: IQpdfWorkingCopyMaterialization;
+        scratchDirectory?: string;
+    };
 
 const NON_COMMITTING_MATERIALIZATION_SIGNAL = {markCommitStarted: () => undefined};
 
@@ -195,6 +198,7 @@ export async function runQpdfCommand(
 ) {
     const {
         workingCopyMaterialization,
+        scratchDirectory,
         ...nativeOptions
     } = options;
     if (workingCopyMaterialization) {
@@ -204,7 +208,7 @@ export async function runQpdfCommand(
             workingCopyMaterialization.signal,
         );
     }
-    await usingManagedScratchScope('qpdfArgs-', getAppTempDir(), async tempDir => {
+    const runWithArguments = async (tempDir: string) => {
         const argsPath = join(tempDir, 'args.txt');
         if (/[\r\n]/u.test(argsPath)) throw new TypeError('qpdf argument scratch path contains a line break');
         const binary = getQpdfBinary();
@@ -232,7 +236,12 @@ export async function runQpdfCommand(
             ...nativeOptions,
             ...(onSpawn ? {onSpawn} : {}),
         });
-    });
+    };
+    if (scratchDirectory === undefined) {
+        await usingManagedScratchScope('qpdfArgs-', getAppTempDir(), runWithArguments);
+    } else {
+        await runWithArguments(scratchDirectory);
+    }
 }
 
 /** Strict reopen/xref gate: warning-corrupt output is not promotable. */

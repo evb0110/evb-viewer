@@ -726,7 +726,7 @@ describe('JobBroker', () => {
         otherLease.release();
     });
 
-    it('reserves the whole supported conformance vector even on an unconfigured host', () => {
+    it('reserves the whole single-job vector on an unconfigured host', () => {
         expect(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES).toEqual({
             cpuTokens: 2,
             estimatedResidentBytes: 512 * 1024 * 1024,

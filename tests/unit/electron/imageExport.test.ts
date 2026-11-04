@@ -2783,33 +2783,52 @@ describe('image export', () => {
         for (const scope of mocks.managedScratchDirs) expect(existsSync(scope.path)).toBe(false);
     });
 
-    it.runIf(process.platform !== 'win32')('retains the outer subset scope and qpdf aliases on a marked subset failure', async () => {
-        const source = join(tempDir, 'source\nname.pdf');
-        await writeFile(source, '%PDF-1.7\n%%EOF\n');
-        mocks.pdfPageCount = 2;
-        const defaultRun = mocks.runCommand.getMockImplementation()!;
-        const error = markUnprovenNativeTermination(new Error('subset qpdf timeout'), 'subset writer still alive');
-        let argsPath = ''; let subsetPath = '';
-        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
-            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
-                argsPath = args[0].slice(1);
-                subsetPath = (await readFile(argsPath, 'utf8')).split('\n').at(-1)!;
-                await writeFile(subsetPath, 'partially written subset');
-                throw error;
+    it.each(process.platform === 'win32' ? ['ordinary'] : [
+        'ordinary',
+        'newline',
+    ])(
+        'retains subset bytes and qpdf artifacts in the injected scope on a marked failure (%s)', async spelling => {
+            const source = join(tempDir, spelling === 'newline' ? 'source\nname.pdf' : 'source.pdf');
+            await writeFile(source, '%PDF-1.7\n%%EOF\n');
+            mocks.pdfPageCount = 2;
+            const defaultRun = mocks.runCommand.getMockImplementation()!;
+            const error = markUnprovenNativeTermination(new Error('subset qpdf timeout'), 'subset writer still alive');
+            let argsPath = ''; let subsetPath = '';
+            const injectedScopes: string[] = [];
+            mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+                if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                    argsPath = args[0].slice(1);
+                    subsetPath = (await readFile(argsPath, 'utf8')).split('\n').at(-1)!;
+                    await writeFile(subsetPath, 'partially written subset');
+                    throw error;
+                }
+                return defaultRun(command, args, options);
+            });
+            const output = join(tempDir, 'unpublished.png');
+            try {
+                await expect(exportPdfPagesAsImages(source, output, {
+                    pageNumbers: [1],
+                    scratch: {using: (prefix, run) => realManagedScratch.usingManagedScratchScope(prefix, tempDir, scope => {
+                        injectedScopes.push(scope);
+                        return run(scope);
+                    })},
+                })).rejects.toBe(error);
+                expect(await readFile(subsetPath, 'utf8')).toBe('partially written subset');
+                expect(dirname(subsetPath)).toBe(injectedScopes[0]);
+                expect(dirname(argsPath)).toBe(injectedScopes[0]);
+                expect(existsSync(argsPath)).toBe(true);
+                expect((await readdir(dirname(argsPath))).some(name => name.startsWith('path-'))).toBe(spelling === 'newline');
+                expect(existsSync(output)).toBe(false);
+            } finally {
+            // The seam has no live child. Dispose only this test's retained fixtures.
+                await Promise.all([
+                    ...injectedScopes,
+                    ...mocks.managedScratchDirs.map(scope => scope.path),
+                ].map(path => realFs.rm(path, {
+                    recursive: true,
+                    force: true,
+                })));
             }
-            return defaultRun(command, args, options);
         });
-        const output = join(tempDir, 'unpublished.png');
-        await expect(exportPdfPagesAsImages(source, output, {pageNumbers: [1]})).rejects.toBe(error);
-        expect(await readFile(subsetPath, 'utf8')).toBe('partially written subset');
-        expect(existsSync(argsPath)).toBe(true);
-        expect((await readdir(dirname(argsPath))).some(name => name.startsWith('path-'))).toBe(true);
-        expect(existsSync(output)).toBe(false);
-        // The seam has no live child. Dispose only this test's retained fixtures.
-        await Promise.all(mocks.managedScratchDirs.map(scope => realFs.rm(scope.path, {
-            recursive: true,
-            force: true,
-        })));
-    });
 
 });

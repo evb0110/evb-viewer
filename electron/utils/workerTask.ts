@@ -664,7 +664,8 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (!resultPayload) {
-                const error = new Error(invalidPayloadMessage);
+                const error = options.createWorkerError?.(new Error(invalidPayloadMessage))
+                    ?? new Error(invalidPayloadMessage);
                 const receipt = workerTaskLog.error(
                     'Worker returned an invalid payload',
                     {
@@ -712,7 +713,8 @@ function attachWorkerHandlers<T>({
                         },
                     );
                     reject(markWorkerTaskErrorReported(
-                        new Error(invalidResultMessage ?? invalidPayloadMessage),
+                        options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
+                            ?? new Error(invalidResultMessage ?? invalidPayloadMessage),
                         receipt,
                     ));
                     return;

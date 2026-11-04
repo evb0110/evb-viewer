@@ -1122,6 +1122,8 @@ describe('workerTask', () => {
     it.each([
         'runtime-error',
         'empty-clean-exit',
+        'invalid-payload',
+        'invalid-result',
     ] as const)('surfaces the native owner runtime hook on %s', async mode => {
         mocks.throwConstructorError = false;
         const {
@@ -1135,10 +1137,18 @@ describe('workerTask', () => {
             invalidPayloadMessage: 'invalid result',
             createWorkerExitError: code => new Error(`exit ${code}`),
             createWorkerError: () => marked,
+            decodeResult: data => typeof data === 'string' ? data : null,
         });
         const observed = task.catch((error: unknown) => error);
         await Promise.resolve();
-        mocks.workerRecords[0]!.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);
+        const worker = mocks.workerRecords[0]!;
+        if (mode === 'invalid-payload') worker.emit('message', {type: 'unexpected'});
+        else if (mode === 'invalid-result') worker.emit('message', {
+            type: 'result',
+            ok: true,
+            data: 42,
+        });
+        else worker.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);
         expect(await observed).toBe(marked);
         expect(getUnprovenNativeTerminationDetail(await observed)).toBe('native descendants unknown');
     });

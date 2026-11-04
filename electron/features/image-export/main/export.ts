@@ -859,6 +859,7 @@ async function usingPreparedSourcePdf<T>(
             subsetPdfPath,
         ];
         await runQpdfCommand(qpdfArgs, {
+            scratchDirectory: tempDir,
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(export-subset)',
             ...(options.signal ? { signal: options.signal } : {}),

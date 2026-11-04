@@ -1077,6 +1077,8 @@ describe('conformance admission through the main handler', () => {
         'marked-frame',
         'runtime-error',
         'empty-exit',
+        'invalid-payload',
+        'invalid-result',
         'ignored-cancel',
         'ordinary-frame',
         'startup-error',
@@ -1092,6 +1094,12 @@ describe('conformance admission through the main handler', () => {
                 if (mode !== 'startup-error') worker.emit('online', undefined);
                 if (mode === 'runtime-error' || mode === 'startup-error') worker.emit('error', error);
                 else if (mode === 'empty-exit') worker.emit('exit', 0);
+                else if (mode === 'invalid-payload') worker.emit('message', {type: 'unexpected'});
+                else if (mode === 'invalid-result') worker.emit('message', {
+                    type: 'result',
+                    ok: true,
+                    data: {},
+                });
                 else if (mode === 'ignored-cancel') {
                     vi.useFakeTimers();
                     h.operations.get(path)!.controller.abort(new Error('cooperative cancellation ignored'));

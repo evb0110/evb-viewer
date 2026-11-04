@@ -1,6 +1,7 @@
 import type * as TViMockOriginalModule from '@ocr-core/resolveTesseractLanguageConfig';
 
 import { EventEmitter } from 'node:events';
+import {PassThrough} from 'node:stream';
 import {
     mkdtemp,
     readdir,
@@ -27,8 +28,8 @@ class MockStdin extends EventEmitter {
 }
 
 class MockChildProcess extends EventEmitter {
-    public stdout = Object.assign(new EventEmitter(), { resume: vi.fn() });
-    public stderr = new EventEmitter();
+    public stdout = new PassThrough();
+    public stderr = new PassThrough();
     public stdin: MockStdin | undefined;
     public kill = vi.fn((_signal: string) => true);
 }
@@ -208,7 +209,7 @@ describe('file-based Tesseract arguments', () => {
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
         });
-        child.emit('close', 1);
+        child.emit('close', 0);
         await resultPromise;
 
         expect(mocks.resolveTesseractLanguageConfig).toHaveBeenCalledWith(['eng'], {preserveDictionaries: false});
@@ -269,6 +270,7 @@ describe('file-based Tesseract arguments', () => {
                 }
             })).rejects.toMatchObject({name: 'AbortError'});
 
+            expect(mocks.spawn).toHaveBeenCalledTimes(phase === 'confirmed-reread' ? 2 : 1);
             expect(await readdir(directory)).toEqual(['page-1.png']);
         } finally {
             await rm(directory, {
@@ -299,7 +301,7 @@ describe('file-based Tesseract arguments', () => {
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
         });
-        child.emit('close', 1);
+        child.emit('close', 0);
         await resultPromise;
 
         expect(mocks.resolveTesseractLanguageConfig).toHaveBeenCalledWith(['eng'], {preserveDictionaries: true});

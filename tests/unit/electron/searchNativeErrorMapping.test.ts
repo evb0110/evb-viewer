@@ -29,6 +29,8 @@ const fake = vi.hoisted(() => ({
     broker: null as TJobBrokerModule.JobBroker | null,
     workerStopped: null as Promise<void> | null,
     workerActive: 0,
+    nativeTextStarted: null as (() => void) | null,
+    nativeTextFailure: null as Error | null,
     pageTexts: new Map<number, string>(),
     evbOcrText: null as string | null,
     visibilityStarted: null as (() => void) | null,
@@ -64,6 +66,7 @@ beforeEach(async () => {
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
     stdin?: AsyncIterable<string>;
     onStdout?: (chunk: string) => void;
+    signal?: AbortSignal;
 }) {
     const result = (stdout: string) => ({
         stdout,
@@ -74,6 +77,14 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         return result(`${fake.pageTexts.size}\n`);
     }
     if (command === '/fake/pdftotext') {
+        if (fake.nativeTextFailure) {
+            fake.nativeTextStarted?.();
+            await new Promise<void>(resolve => {
+                if (options.signal?.aborted) resolve();
+                else options.signal?.addEventListener('abort', () => resolve(), {once: true});
+            });
+            throw fake.nativeTextFailure;
+        }
         const firstPage = Number(args[args.indexOf('-f') + 1]);
         const lastPage = Number(args[args.indexOf('-l') + 1]);
         fake.pdftotextRanges.push(`${firstPage}-${lastPage}`);
@@ -199,6 +210,8 @@ const {buildSearchIndex} = await import('@electron/features/search/searchIndex')
 const {readDocumentTextSnapshot} = await import('@electron/features/ocr/main/documentText');
 
 afterEach(() => {
+    fake.nativeTextStarted = null;
+    fake.nativeTextFailure = null;
     fake.pageTexts = new Map();
     fake.evbOcrText = null;
     fake.visibilityStarted = null;
@@ -672,8 +685,9 @@ describe('PDF.js admission and producer cancellation (native-seam test)', () => 
         const observed = pending.catch((error: unknown) => error);
         await vi.waitFor(() => expect(broker.getSnapshot().queued).toBe(1));
         expect(fake.workerActive).toBe(0);
-        controller.abort(new Error('queued document closed'));
-        await observed;
+        const reason = new Error('queued document closed');
+        controller.abort(reason);
+        expect(await observed).toBe(reason);
         await pages.return(undefined);
         blocker.release();
         expect(fake.pdfjsPages).toEqual([]);
@@ -726,5 +740,31 @@ describe('PDF.js admission and producer cancellation (native-seam test)', () => 
             active: 0,
             queued: 0,
         });
+    });
+
+    it.each([
+        false,
+        true,
+    ])('keeps the native termination outcome when a bare return cancels a pending read (marked: %s)', async marked => {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const started = Promise.withResolvers<undefined>();
+        const error = new Error('pdftotext cancelled');
+        if (marked) markUnprovenNativeTermination(error, 'native reader did not settle');
+        fake.pageTexts.set(1, 'native text');
+        fake.nativeTextStarted = () => started.resolve(undefined);
+        fake.nativeTextFailure = error;
+        const pages = streamPdfPageTexts(path());
+        const pending = pages.next().catch((cause: unknown) => cause);
+        await started.promise;
+        const leaving = pages.return(undefined);
+        try {
+            if (marked) expect(await pending).toBe(error);
+            else expect(await pending).toEqual({
+                value: undefined,
+                done: true,
+            });
+        } finally {
+            await leaving;
+        }
     });
 });

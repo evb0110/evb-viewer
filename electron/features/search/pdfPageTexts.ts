@@ -19,6 +19,7 @@ import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nat
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -421,11 +422,9 @@ async function readRemainingPopplerPageTexts(
 }
 
 /**
- * Streams the PDF text layer page by page, in reading order. pdftotext reads
- * it in windows whose pages wait until it finishes, since only then does it
- * say whether Poppler lacked CJK data for any of them; such a window is
- * streamed with PDF.js instead. Poppler stops adding small glyphs to a page
- * after 50,000, so a window holds a few megabytes of real text.
+ * Streams PDF text in reading order. Poppler windows wait for completion to
+ * detect missing CJK data, then fall back to PDF.js. Poppler stops each page
+ * at 50,000 small glyphs, bounding each window to a few megabytes of text.
  */
 export function streamPdfPageTexts(
     pdfPath: string,
@@ -438,24 +437,24 @@ export function streamPdfPageTexts(
         ...range
     } = options;
     const cancellation = new AbortController();
-    const producerSignal = signal ? AbortSignal.any([
-        signal,
-        cancellation.signal,
-    ]) : cancellation.signal;
     const iterator = (async function* () {
         try {
-            yield* streamPdfPageTextRanges(pdfPath, [range], producerSignal, onProgress, visiblePageOnly);
+            yield* streamPdfPageTextRanges(pdfPath, [range], signal ? AbortSignal.any([
+                signal,
+                cancellation.signal,
+            ]) : cancellation.signal, onProgress, visiblePageOnly);
         } catch (error) {
-            // A consumer return ends its pending next; external cancellation still rejects.
-            if (!cancellation.signal.aborted || signal?.aborted) throw error;
+            if (getUnprovenNativeTerminationDetail(error) !== undefined
+                || !cancellation.signal.aborted || signal?.aborted) throw error;
         }
     })();
     const finish = iterator.return.bind(iterator);
-    return Object.assign(iterator, {return(value: void | PromiseLike<void>) {
+    iterator.return = value => {
         // Async generators queue return behind next, so abort admission before queuing it.
         cancellation.abort();
         return finish(value);
-    }});
+    };
+    return iterator;
 }
 
 async function* streamPdfPageTextRanges(
