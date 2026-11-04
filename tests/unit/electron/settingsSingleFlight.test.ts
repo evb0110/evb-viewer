@@ -3,6 +3,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import {cast} from '@tests/helpers/cast';
 import {
     readFileSync, writeFileSync, 
 } from 'node:fs';
@@ -399,5 +400,31 @@ describe('settings single-flight loading', () => {
             locale: 'ru',
             skippedUpdateVersion: '9.9.9',
         });
+    });
+
+    it('does not let a grant refused over unreadable settings reach a later save', async () => {
+        const settingsPath = join(mocks.userDataPath, 'settings.json');
+        const stored = JSON.stringify({
+            version: 2,
+            clientDiagnosticsPreference: 'denied',
+        });
+        writeFileSync(settingsPath, stored);
+        mocks.readFile.mockRejectedValue(Object.assign(new Error('transient I/O failure'), {code: 'EIO'}));
+        const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
+        const diagnostics = await import('@electron/features/diagnostics/public');
+        const reporter = vi.spyOn(diagnostics, 'setMainDiagnosticsPreference').mockImplementation(() => undefined);
+        const bindings = createSettingsMainBindings(async () => undefined);
+
+        await expect(bindings.save(cast({senderId: 811}), {clientDiagnosticsPreference: 'granted'})).rejects.toThrow('could not be read');
+        expect(readFileSync(settingsPath, 'utf-8')).toBe(stored);
+
+        // Readable again, an unrelated change saves the stored choice with it.
+        mocks.readFile.mockResolvedValue(stored);
+        await bindings.save(cast({senderId: 811}), {authorName: 'Unrelated edit'});
+        expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toMatchObject({
+            authorName: 'Unrelated edit',
+            clientDiagnosticsPreference: 'denied',
+        });
+        expect(reporter).not.toHaveBeenCalledWith('granted');
     });
 });
