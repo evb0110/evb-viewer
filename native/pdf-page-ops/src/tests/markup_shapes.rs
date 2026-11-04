@@ -1,3 +1,6 @@
+#[path = "../../../test-support/external_tool.rs"]
+mod markup_external_tool;
+
 fn assert_quad_points_approximately(actual: &[f64], expected: &[f64]) {
     assert_eq!(actual.len(), expected.len());
     for (actual, expected) in actual.iter().zip(expected) {
@@ -338,6 +341,171 @@ fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
                 }
             }
         }
+    }
+
+    let painted_pixels = |document: &Document, page_id, markup_id| {
+        let mut document = document.clone();
+        let appearance = document
+            .get_dictionary(markup_id)
+            .unwrap()
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .clone();
+        // Render the saved /AP itself: readers can synthesize a highlight
+        // from /QuadPoints and conceal a broken appearance stream.
+        let contents = document.add_object(Stream::new(
+            dictionary! {},
+            b"q /MarkupAppearance Do Q\n".to_vec(),
+        ));
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.remove(b"Annots");
+        page.set(
+            "Resources",
+            dictionary! {"XObject" => dictionary! {"MarkupAppearance" => appearance}},
+        );
+        page.set("Contents", contents);
+        let path = temp_pdf_path("markup-style-coverage");
+        document.save(&path).unwrap();
+        let rendered = std::process::Command::new(markup_external_tool::tool_path(
+            "PDFTOPPM_PATH",
+            "poppler",
+            "pdftoppm",
+        ))
+        .args(["-r", "72", "-aa", "no", "-aaVector", "no", "-singlefile"])
+        .arg(&path)
+        .output()
+        .unwrap();
+        remove_file(path).unwrap();
+        assert!(
+            rendered.status.success(),
+            "{}",
+            String::from_utf8_lossy(&rendered.stderr)
+        );
+        let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+        assert_eq!(header.next().unwrap(), b"P6");
+        assert_eq!(header.next().unwrap(), b"200 100");
+        assert_eq!(header.next().unwrap(), b"255");
+        header
+            .next()
+            .unwrap()
+            .chunks_exact(3)
+            .filter(|rgb| {
+                let low = *rgb.iter().min().unwrap();
+                let high = *rgb.iter().max().unwrap();
+                low < 32 && high > 224 && high - low > 192
+            })
+            .count()
+    };
+    for (order, quads) in [
+        (
+            "z-order",
+            [20.0, 50.0, 120.0, 50.0, 20.0, 20.0, 120.0, 20.0],
+        ),
+        (
+            "counterclockwise",
+            [20.0, 20.0, 120.0, 20.0, 120.0, 50.0, 20.0, 50.0],
+        ),
+    ] {
+        let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+        let appearance = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Form",
+                "BBox" => vec![20.into(), 20.into(), 120.into(), 50.into()],
+                "Resources" => dictionary! {},
+            },
+            b"q 1 0 0 rg 20 20 m 120 20 l 120 50 l 20 50 l h f Q\n".to_vec(),
+        ));
+        let annotation = document.get_dictionary_mut(markup_id).unwrap();
+        annotation.set("Rect", vec![20.into(), 20.into(), 120.into(), 50.into()]);
+        annotation.set("QuadPoints", quad_points_object(&quads));
+        annotation.set("C", vec![1.into(), 0.into(), 0.into()]);
+        annotation.set("CA", 1);
+        annotation.set("F", 4);
+        annotation.set("P", page_id);
+        annotation.set("Contents", Object::string_literal(""));
+        annotation.set("NM", Object::string_literal("iso-counterclockwise"));
+        annotation.set("AP", dictionary! {"N" => appearance});
+        let original = annotation.clone();
+        let source_pixels = painted_pixels(&document, page_id, markup_id);
+        assert_eq!(source_pixels, 3000, "{order} source rectangle");
+        let parsed = collect_parsed_annotations(&document, "D:20261104000000Z").unwrap();
+        let parsed = parsed
+            .iter()
+            .find_map(|entry| match entry {
+                PdfAnnotationParseEntry::Highlight(value) => Some(value),
+                _ => None,
+            })
+            .expect("the real parser admits both corner orders");
+        let hint = serde_json::json!({
+            "subtype": "Highlight", "pageIndex": 0,
+            "annotationId": format!("{} {} R", markup_id.0, markup_id.1),
+            "markerRect": parsed.quad_points[0], "markupGeometry": parsed.quad_points,
+            "color": "#0000ff", "opacity": 1, "contents": "", "source": "pdf",
+        });
+        let mutation = NativeMutationsFile {
+            markup: Some(MarkupMutation {
+                hints: vec![serde_json::from_value(hint).unwrap()],
+            }),
+            ..NativeMutationsFile::default()
+        };
+        let mut coverage = Vec::new();
+        for route in ["full", "path", "bytes"] {
+            let saved =
+                saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+            let after = saved.get_dictionary(markup_id).unwrap();
+            for key in [b"QuadPoints".as_slice(), b"Rect"] {
+                assert_eq!(
+                    after.get(key).unwrap(),
+                    original.get(key).unwrap(),
+                    "{order} {route} {key:?}"
+                );
+            }
+            assert_eq!(
+                pdf_string_to_text(after.get(b"Contents").unwrap()).as_deref(),
+                Some(""),
+                "{order} {route} keeps the empty comment"
+            );
+            let color: Vec<_> = after
+                .get(b"C")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| f64::from(value.as_float().unwrap()))
+                .collect();
+            assert_quad_points_approximately(&color, &[0.0, 0.0, 1.0]);
+            if order == "z-order" {
+                let ap = after
+                    .get(b"AP")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"N")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap();
+                let stream = saved.get_object(ap).unwrap().as_stream().unwrap();
+                let content = stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone());
+                assert_eq!(content, b"q\n/GS0 gs\n0 0 1 RG\n0 0 1 rg\n20 50 m\n120 50 l\n120 20 l\n20 20 l\nh\nf\nQ\n", "{route} retains the Z-order saved appearance bytes");
+            }
+            coverage.push((route, painted_pixels(&saved, page_id, markup_id)));
+        }
+        println!("{order} saved appearance coverage: {coverage:?}");
+        assert_eq!(
+            coverage,
+            vec![
+                ("full", source_pixels),
+                ("path", source_pixels),
+                ("bytes", source_pixels)
+            ],
+            "{order} style-only Save must keep the complete filled rectangle"
+        );
     }
 }
 

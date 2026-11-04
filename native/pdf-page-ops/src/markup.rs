@@ -75,17 +75,31 @@ pub(crate) fn build_text_markup_appearance_stream(
         "Highlight" => {
             content.push_str(&format!("{red} {green} {blue} rg\n"));
             for quad in values.chunks_exact(8) {
-                content.push_str(&format!(
-                    "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\n",
-                    number_to_content(quad[0]),
-                    number_to_content(quad[1]),
-                    number_to_content(quad[2]),
-                    number_to_content(quad[3]),
-                    number_to_content(quad[6]),
-                    number_to_content(quad[7]),
-                    number_to_content(quad[4]),
-                    number_to_content(quad[5]),
-                ));
+                // Adobe Z order paints corners 0, 1, 3, 2. A quad whose
+                // corners run around its perimeter would cross itself that
+                // way, so paint whichever order encloses more area.
+                let area = |order: [usize; 4]| {
+                    (0..4)
+                        .map(|i| {
+                            let (a, b) = (order[i], order[(i + 1) % 4]);
+                            quad[2 * a] * quad[2 * b + 1] - quad[2 * b] * quad[2 * a + 1]
+                        })
+                        .sum::<f64>()
+                        .abs()
+                };
+                let order = if area([0, 1, 2, 3]) > area([0, 1, 3, 2]) {
+                    [0, 1, 2, 3]
+                } else {
+                    [0, 1, 3, 2]
+                };
+                let [p0, p1, p2, p3] = order.map(|i| {
+                    format!(
+                        "{} {}",
+                        number_to_content(quad[2 * i]),
+                        number_to_content(quad[2 * i + 1])
+                    )
+                });
+                content.push_str(&format!("{p0} m\n{p1} l\n{p2} l\n{p3} l\nh\n"));
                 has_path = true;
             }
             content.push_str("f\n");
