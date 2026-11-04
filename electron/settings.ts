@@ -44,7 +44,7 @@ const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
 
 let settingsCache: ISettingsData | null = null;
-let settingsLoadPromise: Promise<ISettingsData> | null = null;
+let settingsLoadPromise: Promise<ISettingsData | null> | null = null;
 let settingsCacheGeneration = 0;
 let settingsMutationQueue: Promise<unknown> = Promise.resolve();
 let settingsRecoveryNotice: ISettingsRecoveryNotice | null = null;
@@ -169,7 +169,8 @@ export function consumeSettingsRecoveryNotice() {
     return notice;
 }
 
-async function readSettingsFromStorage(storagePath: string) {
+/** The stored settings, or null when the file exists but cannot be read. */
+async function readSettingsFromStorage(storagePath: string): Promise<ISettingsData | null> {
     let content: string;
     try {
         content = await readFile(storagePath, 'utf-8');
@@ -185,7 +186,7 @@ async function readSettingsFromStorage(storagePath: string) {
         // the file away: one bad boot would become permanently lost settings.
         // Boot on defaults, leave the file alone, and let the next launch retry.
         settingsRecoveryNotice ??= {reason: 'unreadable'};
-        return getDefaultSettings();
+        return null;
     }
 
     try {
@@ -216,7 +217,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     }
 
     if (settingsLoadPromise) {
-        return cloneSettings(withLatestConsent(await settingsLoadPromise));
+        return cloneSettings(withLatestConsent(await settingsLoadPromise ?? getDefaultSettings()));
     }
 
     const generation = settingsCacheGeneration;
@@ -225,9 +226,12 @@ export async function loadSettings(): Promise<ISettingsData> {
     settingsLoadPromise = loadPromise;
     let parsed: ISettingsData;
     try {
-        parsed = await loadPromise;
-        if (generation === settingsCacheGeneration) {
-            settingsCache = withLatestConsent(parsed);
+        const stored = await loadPromise;
+        // Defaults standing in for an unreadable file are never cached, so a
+        // later write reads the file again instead of replacing it with them.
+        parsed = stored ?? getDefaultSettings();
+        if (stored !== null && generation === settingsCacheGeneration) {
+            settingsCache = withLatestConsent(stored);
         }
     } finally {
         if (settingsLoadPromise === loadPromise) {
@@ -280,7 +284,11 @@ export async function updateSettings(
     return queueSettingsMutation(async () => {
         const generation = settingsCacheGeneration;
         const storagePath = getStoragePath();
-        const current = settingsCache ? cloneSettings(settingsCache) : await loadSettings();
+        if (!settingsCache) await loadSettings();
+        if (!settingsCache) {
+            throw new Error('Settings could not be read, so the change was not saved over them');
+        }
+        const current = cloneSettings(settingsCache);
         const draft = cloneSettings(current);
         const mutationResult = await mutate(draft);
         let next = migrateSettings(isRecord(mutationResult)
