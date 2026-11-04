@@ -290,9 +290,13 @@ fn read_jfif_dpi(bytes: &[u8], offset: usize, segment_length: usize) -> Option<(
     let units = *bytes.get(offset + 9)?;
     let x_density = read_u16_be(bytes, offset + 10)? as u32;
     let y_density = read_u16_be(bytes, offset + 12)? as u32;
-    if x_density == 0 || y_density == 0 {
-        return None;
-    }
+    // A zero axis takes the other's density; with neither there is none.
+    let (x_density, y_density) = match (x_density, y_density) {
+        (0, 0) => return None,
+        (0, y) => (y, y),
+        (x, 0) => (x, x),
+        axes => axes,
+    };
     let per_inch = |density: u32| match units {
         1 => Some(density),
         2 => Some((density as f64 * CM_PER_INCH).round() as u32),
@@ -327,6 +331,11 @@ mod tests {
         // Dots per centimeter convert each axis on its own.
         bytes[13] = 0x02;
         assert_eq!(parse_jpeg_metadata(&bytes).unwrap().dpi, Some((762, 381)));
+        // A zero axis takes the other's density.
+        bytes[13] = 0x01;
+        bytes[16] = 0x00;
+        bytes[17] = 0x00;
+        assert_eq!(parse_jpeg_metadata(&bytes).unwrap().dpi, Some((300, 300)));
     }
 
     #[test]

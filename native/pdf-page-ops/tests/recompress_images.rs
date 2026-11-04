@@ -340,6 +340,27 @@ fn user_unit_page_sizes_the_photo_by_its_physical_placement() {
 }
 
 #[test]
+fn dangling_user_unit_reference_falls_back_to_one_unit() {
+    let scratch = Scratch::new("user-unit-dangling");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, false, false);
+    let page = pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    pdf.document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("UserUnit", Object::Reference((999, 0)));
+    pdf.save(&scratch.path("source.pdf"));
+
+    let report = run(&scratch, &[]);
+
+    image_report(&report, image, "recompressed");
+    assert_eq!(report["pages"], json!([1]));
+}
+
+#[test]
 fn form_matrix_contributes_to_the_photos_drawn_size() {
     let scratch = Scratch::new("form");
     let mut pdf = Pdf::new();
