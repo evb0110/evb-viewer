@@ -180,6 +180,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
             documentIdentity: successor.documentIdentity && {...successor.documentIdentity},
         };
         syncSessionTurnScope(session);
+        options.sessionStore.recordTurnBoundary(session);
         return true;
     }
 

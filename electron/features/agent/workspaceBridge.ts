@@ -27,6 +27,7 @@ import {
 } from '@electron/features/agent/main/agentRendererEvents';
 import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import { createLogger } from '@electron/utils/createLogger';
 import * as v from 'valibot';
 
 export const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 10_000;
@@ -65,6 +66,7 @@ interface IPendingRequest<TResponse> {
 }
 
 const pendingSnapshotRequests = new Map<TRequestId, IPendingRequest<IAgentWorkspaceSnapshot>>();
+const logger = createLogger('agent-workspace-bridge');
 const pendingCommandRequests = new Map<TRequestId, IPendingRequest<Record<string, unknown>>>();
 // Called while the renderer's response is handled, before it is acknowledged,
 // so main has adopted a command's own successor before the renderer moves on.
@@ -590,7 +592,13 @@ export function submitAgentCommandResponse(
     }
 
     if (response.successor && pendingCommandRequests.has(response.requestId)) {
-        commandSuccessorHandlers.get(response.requestId)?.(response.successor);
+        // A turn that cannot adopt the successor is refused on its next
+        // request; this command's own result still arrives.
+        try {
+            commandSuccessorHandlers.get(response.requestId)?.(response.successor);
+        } catch (error) {
+            logger.warn(`Agent command successor was not adopted: ${getErrorMessage(error)}`);
+        }
     }
     resolvePendingRequest(
         pendingCommandRequests,
