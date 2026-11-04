@@ -266,9 +266,6 @@ const {
     settingsLoadError,
     settingsLoadFailure,
     save,
-    settingsSaveError,
-    settingsSaveFailure,
-    settingsSaveStatus,
     updateSetting,
 } = useSettings();
 const {
@@ -311,18 +308,6 @@ const settingsLoadFailurePresentation = computed<FailurePresentation | null>(() 
     };
 });
 
-const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() => {
-    const capture = settingsSaveFailure.value;
-    if (!capture) {
-        return null;
-    }
-    return {
-        ...capture,
-        title: t('status.saveFailed'),
-        ...(settingsSaveError.value ? {description: settingsSaveError.value} : {}),
-    };
-});
-
 watch(isLoaded, (loaded) => {
     if (loaded) {
         settingsLoadFailed.value = false;
@@ -333,28 +318,6 @@ watch(isLoaded, (loaded) => {
 watch(settingsLoadFailurePresentation, (presentation) => {
     if (presentation) {
         presentFailureToast(presentation);
-    }
-});
-// Every save that ends failed is told, a retried one too; its receipt keeps
-// it one toast while it is still showing.
-watch([
-    settingsSaveFailurePresentation,
-    settingsSaveStatus,
-], ([
-    presentation,
-    status,
-]) => {
-    if (presentation && status === 'failed') {
-        presentFailureToast({
-            ...presentation,
-            actions: [{
-                label: t('common.retry'),
-                color: 'primary',
-                onClick: () => {
-                    void retrySettingsSave();
-                },
-            }],
-        });
     }
 });
 let unsubscribeAssistantEvent: (() => void) | null = null;
@@ -490,10 +453,6 @@ async function retrySettingsLoad() {
     } finally {
         settingsLoadPending.value = false;
     }
-}
-
-async function retrySettingsSave() {
-    await save();
 }
 
 function updateSettingSafely<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {

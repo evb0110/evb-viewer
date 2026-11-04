@@ -309,6 +309,27 @@ describe('useSettings', () => {
         expect(settingsSaveFailure.value).toBeNull();
     });
 
+    it('keeps the 400 ms pending write and its failure after the Settings child scope closes', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.useFakeTimers();
+        mockGet.mockResolvedValue(DEFAULT_SETTINGS);
+        const pending = createDeferred();
+        mockSave.mockReturnValueOnce(pending.promise);
+        const {effectScope} = await import('vue');
+        const {useSettings} = await import('@app/composables/useSettings');
+        const root = useSettings();
+        await root.load();
+        const child = effectScope();
+        child.run(() => useSettings().updateSetting('authorName', 'Choice after closing'));
+        child.stop();
+        await vi.advanceTimersByTimeAsync(400);
+        pending.reject(new Error('ENOSPC'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(root.settingsSaveStatus.value).toBe('failed');
+        expect(root.settingsSaveFailure.value?.failure.code).toBe('SETTINGS_SAVE_FAILED');
+        expect(root.settings.value.authorName).toBe('Choice after closing');
+    });
+
     it('debounces updateSetting saves and flushes a pending save on pagehide', async () => {
         vi.useFakeTimers();
         mockSave.mockResolvedValue(undefined);
