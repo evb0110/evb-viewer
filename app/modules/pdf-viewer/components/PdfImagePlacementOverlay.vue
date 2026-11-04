@@ -539,7 +539,7 @@ function handlePlacementKeydown(event: KeyboardEvent) {
     }
 
     // Enter on any other control, such as Cancel, does what that control does.
-    const control = event.target instanceof Element ? event.target.closest('button, a[href], [role="button"]') : null;
+    const control = event.target instanceof Element ? event.target.closest('button, summary, a[href], [role="button"]') : null;
     if (
         (event.key === 'Enter' || event.key === 'NumpadEnter')
         && (control === null || control.closest('.pdf-image-placement__transform') !== null)

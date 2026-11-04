@@ -404,7 +404,25 @@ describe('PdfImagePlacementOverlay', () => {
             });
         });
 
-        it('takes Enter only in the active pane', () => {
+        it('leaves Enter on an outside summary to its native control', () => {
+            const overlay = mountOverlay(false, false, true);
+            const details = document.createElement('details');
+            details.innerHTML = '<summary>Thinking</summary><p>Thought</p>';
+            document.body.append(details);
+            try {
+                const summary = details.querySelector('summary')!;
+                summary.focus();
+                expect(press(summary, 'Enter')).toBe(true);
+                expect(overlay.events).toEqual({
+                    cancel: 0,
+                    finalize: 0,
+                });
+            } finally {
+                details.remove();
+            }
+        });
+
+        it('takes Enter only in the active pane' , () => {
             const inactive = mountOverlay(false, false, false);
             const active = mountOverlay(false, false, true);
             press(document.body, 'Enter');
