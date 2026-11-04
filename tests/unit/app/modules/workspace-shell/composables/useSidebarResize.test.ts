@@ -284,3 +284,20 @@ describe('useSidebarResize', () => {
         expect(resize.isResizingSidebar.value).toBe(false);
     });
 });
+
+it.each([
+    SIDEBAR.KEYBOARD_STEP,
+    Number.POSITIVE_INFINITY,
+])('keeps the preferred width at a temporary keyboard maximum (%s)', async (step) => {
+    const {useSidebarResize} = await import('@app/modules/workspace-shell/composables/useSidebarResize');
+    const resize = useSidebarResize({
+        showSidebar: ref(true),
+        initialWidth: 500,
+    });
+    resize.setSidebarContainerWidth(SIDEBAR.MIN_VIEWER_WIDTH + 300);
+    expect(resize.sidebarContentWidth.value).toBe(300);
+    resize.resizeSidebarBy(step);
+    resize.setSidebarContainerWidth(1200);
+    expect(resize.sidebarWidth.value).toBe(500);
+    expect(resize.sidebarContentWidth.value).toBe(500);
+});

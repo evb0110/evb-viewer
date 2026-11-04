@@ -159,7 +159,10 @@ export const useSidebarResize = (deps: {
 
     // A keyboard step moves the presented width within the bounds a drag has.
     function resizeSidebarBy(delta: number) {
-        sidebarWidth.value = clamp(sidebarContentWidth.value + delta, SIDEBAR.MIN_WIDTH, effectiveMaxWidth.value);
+        const nextWidth = clamp(sidebarContentWidth.value + delta, SIDEBAR.MIN_WIDTH, effectiveMaxWidth.value);
+        if (Math.round(nextWidth) !== Math.round(sidebarContentWidth.value)) {
+            sidebarWidth.value = nextWidth;
+        }
     }
 
     function setSidebarContainerWidth(width: number) {
