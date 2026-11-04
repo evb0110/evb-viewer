@@ -644,11 +644,10 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
             })();
             await nextTick();
-            if (lifecycle.isDisposed.valueOf()) {
-                return;
+            if (!lifecycle.isDisposed.valueOf()) {
+                traceRendererStartup('tabs shell dispatching app:rendererReady');
+                notifyRendererReadyAndScheduleViewerWarmup();
             }
-            traceRendererStartup('tabs shell dispatching app:rendererReady');
-            notifyRendererReadyAndScheduleViewerWarmup();
             await startupOpen;
             if (lifecycle.isDisposed.valueOf()) {
                 return;

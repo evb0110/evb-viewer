@@ -788,6 +788,27 @@ describe('fileOps path security', () => {
         },
     );
 
+    it('reports an unavailable source when a recovered probe cannot acquire its read handle', async () => {
+        const entry = {
+            ...lazyOriginalEntry(),
+            sourceBackingErrorCode: 'SOURCE_BACKING_UNAVAILABLE',
+        };
+        const unavailable = Object.assign(new Error('source disappeared before open'), {code: 'ENOENT'});
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockResolvedValueOnce(entry.admissionSnapshot)
+            .mockRejectedValue(unavailable);
+        mocks.open.mockRejectedValue(unavailable);
+        const transport = resolveOriginalBackedReadTransport('/tmp/electron-test/lazy.pdf', 42);
+
+        try {
+            await expect(transport?.read(async () => 'geometry'))
+                .rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+        } finally {
+            await clearCachedRangeReadHandlesForTests();
+        }
+    });
+
     it('stats lazy-original documents against the admission witness', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());

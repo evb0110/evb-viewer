@@ -536,27 +536,26 @@ export function resolveOriginalBackedReadTransport(
         },
         read: async <T>(reader: (physicalPath: string) => Promise<T>) => {
             await assertOriginalBackingSnapshot(backing);
-            return withContentReadLease(backing.originalPath, async () => {
-                let result: T;
+            try {
+                return await withContentReadLease(backing.originalPath, async () => {
+                    const result = await reader(backing.originalPath);
+                    await assertOriginalBackingSnapshot(backing);
+                    return result;
+                }, () => retainOriginalBackedLease(backing), backing.logicalRef);
+            } catch (error) {
                 try {
-                    result = await reader(backing.originalPath);
-                } catch (error) {
-                    try {
-                        await assertOriginalBackingSnapshot(backing);
-                    } catch (snapshotError) {
-                        if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
-                        throw new AggregateError(
-                            [
-                                error,
-                                snapshotError,
-                            ], 'PDF read and source backing validation failed',
-                        );
-                    }
-                    throw error;
+                    await assertOriginalBackingSnapshot(backing);
+                } catch (snapshotError) {
+                    if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
+                    throw new AggregateError(
+                        [
+                            error,
+                            snapshotError,
+                        ], 'PDF read and source backing validation failed',
+                    );
                 }
-                await assertOriginalBackingSnapshot(backing);
-                return result;
-            }, () => retainOriginalBackedLease(backing), backing.logicalRef);
+                throw error;
+            }
         },
     };
 }

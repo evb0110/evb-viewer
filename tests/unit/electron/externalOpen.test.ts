@@ -351,7 +351,7 @@ describe('createExternalOpenManager', () => {
 
         expect(claimed).toEqual([exactPath]);
         expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
-        // T4 still permits a later deliberate open of the same file.
+        // A later deliberate open of the same file remains an independent request.
         harness.manager.queueOpenRequest([exactPath]);
         await vi.advanceTimersByTimeAsync(800);
         expect(harness.dispatchOpenPaths).toHaveBeenCalledExactlyOnceWith([exactPath]);

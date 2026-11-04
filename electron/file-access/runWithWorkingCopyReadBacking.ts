@@ -1,4 +1,5 @@
 import {existsSync} from 'node:fs';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     captureWorkingCopyAdmissionSnapshot,
     getWorkingCopyBackingEntry,
@@ -98,10 +99,24 @@ export async function runWithWorkingCopyReadBacking<TResult>(
                 );
             }
             await assertOriginalBackingCurrent(currentEntry, logicalRef);
-            const result = await operation(
-                currentEntry.originalPath,
-                () => assertOriginalBackingCurrent(currentEntry, logicalRef),
-            );
+            let result: TResult;
+            try {
+                result = await operation(
+                    currentEntry.originalPath,
+                    () => assertOriginalBackingCurrent(currentEntry, logicalRef),
+                );
+            } catch (error) {
+                try {
+                    await assertOriginalBackingCurrent(currentEntry, logicalRef);
+                } catch (snapshotError) {
+                    if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
+                    throw new AggregateError([
+                        error,
+                        snapshotError,
+                    ], 'Read and source backing validation failed');
+                }
+                throw error;
+            }
             // Callers that publish something durable check freshness themselves
             // at the moment of publication; this trailing check is for the ones
             // whose result is only meaningful if the file held still throughout.

@@ -870,6 +870,29 @@ describe('workingCopyMaterialization', () => {
         },
     );
 
+    it('reports another outage when the recovered source disappears during the read', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024, 47));
+        const {runWithWorkingCopyReadBacking} = await import('@electron/file-access/runWithWorkingCopyReadBacking');
+        const {getWorkingCopyBackingStatus} = await import('@electron/features/documents/main/workingCopyBackingStatus');
+        const offline = `${fixture.originalPath}.offline`;
+        const read = () => runWithWorkingCopyReadBacking(fixture.workingPath,
+            async path => readFileSync(path), {ownerWebContentsId: 7});
+        renameSync(fixture.originalPath, offline);
+        await expect(read()).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+        renameSync(offline, fixture.originalPath);
+
+        await expect(runWithWorkingCopyReadBacking(fixture.workingPath, async (path) => {
+            renameSync(path, offline);
+            return readFileSync(path);
+        }, {ownerWebContentsId: 7})).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+        expect(getWorkingCopyBackingStatus(7, fixture.workingPath)?.failure).toEqual({
+            code: 'SOURCE_BACKING_UNAVAILABLE',
+            retryable: true,
+        });
+        renameSync(offline, fixture.originalPath);
+        expect((await read()).equals(fixture.bytes)).toBe(true);
+    });
+
     it.each([
         'read',
         'materialize',
