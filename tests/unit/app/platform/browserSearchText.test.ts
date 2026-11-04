@@ -300,11 +300,11 @@ describe('extractBrowserSearchPageText', () => {
 
 // Real PDF.js operator lists for one-line PDFs, read by the real geometry helper.
 describe('word boxes from real PDF operators', () => {
-    function onePagePdf(stream: string, form?: string) {
+    function onePagePdf(stream: string, form?: string, cropBox = '[0 0 300 200]') {
         const objects = [
             '<< /Type /Catalog /Pages 2 0 R >>',
             '<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
-            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> /XObject << /Fm1 6 0 R >> >> /Contents 5 0 R >>',
+            `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /CropBox ${cropBox} /Resources << /Font << /F1 4 0 R >> /XObject << /Fm1 6 0 R >> >> /Contents 5 0 R >>`,
             '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
             `<< /Length ${String(stream.length)} >>\nstream\n${stream}\nendstream`,
             // A Form drawing its text twice as large, 50 points to the right.
@@ -366,6 +366,23 @@ describe('word boxes from real PDF operators', () => {
 
         expect(inside.height).toBeCloseTo(outside.height * 2, 5);
         expect(inside.x).toBeGreaterThan(outside.x);
+    });
+
+    it('leaves out the words a CropBox hides', async () => {
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        const task = pdfjs.getDocument({
+            data: onePagePdf('BT /F1 10 Tf 1 0 0 1 10 170 Tm (visible) Tj 1 0 0 1 200 170 Tm (hidden) Tj ET', '', '[0 0 150 200]'),
+            useSystemFonts: true,
+        });
+        try {
+            const page = await (await task.promise).getPage(1);
+            const pageData = await extractBrowserSearchPageData(page, pdfjs.OPS);
+
+            expect(pageData.text).toContain('visible');
+            expect(pageData.text).not.toContain('hidden');
+        } finally {
+            await task.destroy();
+        }
     });
 });
 
