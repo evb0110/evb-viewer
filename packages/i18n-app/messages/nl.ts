@@ -1799,6 +1799,7 @@ export default {
             'annotationsTooLarge': 'Het document is geopend om te lezen. Het importeren van bestaande annotaties overschrijdt de geheugenlimiet van het browsergereedschap. Gebruik de desktopapp om ze te bewerken.',
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
             'imageExtensionMismatch': 'De export is niet opgeslagen. Kies een bestandsnaam die eindigt op {extensions}.',
+            'saveExtensionMismatch': 'Het bestand is niet opgeslagen. Kies een bestandsnaam die eindigt op {extensions}.',
         },
         'search': {
             'browserTooLarge': 'Zoeken is in de browser niet beschikbaar voor zeer grote documenten.',

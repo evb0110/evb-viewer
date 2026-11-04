@@ -1811,6 +1811,7 @@ export default {
             'annotationsTooLarge': 'O documento está aberto para leitura. A importação das anotações existentes excede o limite de memória da ferramenta do navegador. Use o aplicativo para desktop para editá-las.',
             'filePickerSetupDenied': 'O acesso do navegador aos arquivos foi negado. Escolha Abrir novamente para usar o seletor compatível.',
             'imageExtensionMismatch': 'A exportação não foi salva. Escolha um nome de arquivo que termine em {extensions}.',
+            'saveExtensionMismatch': 'O arquivo não foi salvo. Escolha um nome de arquivo que termine em {extensions}.',
         },
         'search': {
             'browserTooLarge': 'A pesquisa não está disponível no navegador para documentos muito grandes.',

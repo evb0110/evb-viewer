@@ -2234,8 +2234,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const controller = new AbortController();
         let physical = sentinel;
         const handle = createFileSystemFileHandle({
-            name: 'picked',
-            getFile: async () => new File([physical], 'picked', {type: 'application/pdf'}),
+            name: 'report-optimized.pdf',
+            getFile: async () => new File([physical], 'report-optimized.pdf', {type: 'application/pdf'}),
             createWritable: async () => {
                 const chunks: Uint8Array[] = [];
                 return createFileSystemWritableFileStream({
@@ -2675,6 +2675,103 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             release.resolve(undefined);
             pending.mockRestore();
         }
+    });
+
+    it.each([
+        'pdf',
+        'docx',
+    ] as const)('refuses an incompatible %s Save As through the real picker without publishing', async kind => {
+        const handle = createFileSystemFileHandle({
+            name: 'report.txt',
+            getFile: async () => new File(['sentinel bytes'], 'report.txt'),
+        });
+        const writer = vi.spyOn(handle, 'createWritable');
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const source = await store.createStoredDocument('source.pdf', await createPdfBytes(), PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const sourceBefore = await store.getSourceRef(working);
+        const operation = kind === 'pdf' ? capability.savePdfAs(working, undefined, await getRevisionOptions(store, working)) : capability.saveDocxAs(working);
+        await expect(operation).rejects.toThrow(`Choose a file name ending in .${kind}`);
+        expect(await (await handle.getFile()).text()).toBe('sentinel bytes');
+        expect(writer).not.toHaveBeenCalled();
+        expect(await store.getSourceRef(working)).toBe(sourceBefore);
+    });
+
+    it('keeps a physical PDF name across Save As and the next ordinary Save', async () => {
+        let bytes = await createPdfBytes();
+        const name = ' report.PDF';
+        const handle = createFileSystemFileHandle({
+            name,
+            getFile: async () => new File([bytes], name, {lastModified: 1}),
+            createWritable: async () => {
+                const chunks: Uint8Array[] = [];
+                return createFileSystemWritableFileStream({
+                    write: async chunk => {chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));},
+                    close: async () => {bytes = new Uint8Array(Buffer.concat(chunks));},
+                });
+            },
+        });
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const source = await store.createStoredDocument('source.pdf', bytes, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const saved = await capability.savePdfAs(working, undefined, await getRevisionOptions(store, working));
+        if (!saved) throw new Error('Expected saved PDF');
+        expect((await PDFDocument.load(await (await handle.getFile()).arrayBuffer())).getPageCount()).toBe(1);
+        expect((await store.requireEntry(saved)).fileName).toBe(name);
+        expect(await store.getSaveTarget(saved)).toMatchObject({
+            saveName: name,
+            saveHandle: handle,
+        });
+        const updated = await PDFDocument.load(await store.read(working));
+        updated.setTitle('Ordinary Save reaches the physical PDF');
+        await store.write(working, await updated.save(), await getRevisionOptions(store, working));
+        await expect(capability.saveFileStructured(working, await getRevisionOptions(store, working))).resolves.toMatchObject({ok: true});
+        expect((await PDFDocument.load(await (await handle.getFile()).arrayBuffer())).getTitle()).toBe('Ordinary Save reaches the physical PDF');
+        expect(await store.getSaveTarget(source)).toMatchObject({
+            saveName: name,
+            saveHandle: handle,
+        });
+    });
+
+    it('streams a valid DOCX ZIP and records its exact physical name', async () => {
+        const name = ' report.DOCX';
+        let bytes = new Uint8Array();
+        const handle = createFileSystemFileHandle({
+            name,
+            getFile: async () => new File([bytes], name),
+            createWritable: async () => {
+                const chunks: Uint8Array[] = [];
+                return createFileSystemWritableFileStream({
+                    write: async chunk => {chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));},
+                    close: async () => {bytes = new Uint8Array(Buffer.concat(chunks));},
+                });
+            },
+        });
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const {createDocxFromTextChunks} = await import('@app/utils/docxStreaming');
+        const output = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
+        if (!output) throw new Error('Expected DOCX target');
+        const {sessionId} = await capability.beginDocxFileStream(output);
+        const expected: Uint8Array[] = [];
+        for await (const chunk of createDocxFromTextChunks(['Saved text'])) {
+            expected.push(chunk);
+            await capability.writeDocxFileStreamChunk(sessionId, chunk);
+        }
+        await capability.commitDocxFileStream(sessionId);
+        expect(Buffer.from(await (await handle.getFile()).arrayBuffer())).toEqual(Buffer.concat(expected));
+        expect(Buffer.from(bytes).includes(Buffer.from('word/document.xml'))).toBe(true);
+        expect(Buffer.from(bytes).readUInt32LE(bytes.byteLength - 22)).toBe(0x06054b50);
+        expect((await store.requireEntry(output)).fileName).toBe(name);
+        expect(await store.getSaveTarget(output)).toMatchObject({
+            saveName: name,
+            saveHandle: handle,
+        });
     });
 
     it('writes a streamed DOCX through its file handle and leaves no download', async () => {

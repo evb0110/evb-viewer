@@ -296,6 +296,43 @@ describe('atomicReplace', () => {
             });
         }
     });
+    // T3: the no-hard-link fallback must preserve occupied directory entries.
+    it.each([
+        'file',
+        'symlink',
+        'missing',
+    ] as const)('keeps a no-link destination safe: %s', async (kind) => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-move-no-link-'));
+        const fs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            link: async () => { throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'}); },
+        }));
+        try {
+            const source = join(root, 'staged.tmp');
+            const destination = join(root, 'export.png');
+            await fs.writeFile(source, 'export bytes');
+            if (kind === 'file') await fs.writeFile(destination, 'earlier bytes');
+            if (kind === 'symlink') await fs.symlink(join(root, 'absent'), destination);
+            const {moveFileToMissingPath} = await import('@electron/utils/atomicReplace');
+            if (kind === 'missing') {
+                await moveFileToMissingPath(source, destination);
+                expect(await fs.readFile(destination, 'utf8')).toBe('export bytes');
+            } else {
+                await expect(moveFileToMissingPath(source, destination)).rejects.toMatchObject({code: 'EEXIST'});
+                expect(await fs.readFile(source, 'utf8')).toBe('export bytes');
+                if (kind === 'file') expect(await fs.readFile(destination, 'utf8')).toBe('earlier bytes');
+                else expect(await fs.readlink(destination)).toBe(join(root, 'absent'));
+            }
+        } finally {
+            vi.doUnmock('fs/promises');
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it.each([
         [
             'journal',

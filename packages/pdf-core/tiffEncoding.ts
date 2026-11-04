@@ -135,3 +135,64 @@ export function encodeTiffIfds(
 
     return data.slice(0, ifdOffset);
 }
+
+export const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
+
+function tiffHeaderByteLength(pages: ITiffImageDescriptor[], encoder: ITiffEncoderModule) {
+    return 8 + sumBy(pages, page => measureTiffIfdSize(buildTiffImageIfd(page, 0), encoder.ttypes));
+}
+
+function alignTiffDataOffset(headerByteLength: number) {
+    return Math.ceil(headerByteLength / 8) * 8;
+}
+
+export function estimateMultiPageTiffByteLength(pages: ITiffImageDescriptor[], encoder: ITiffEncoderModule) {
+    return alignTiffDataOffset(tiffHeaderByteLength(pages, encoder)) + sumBy(pages, page => page.dataLength);
+}
+
+export function encodeMultiPageTiffHeader(pages: ITiffImageDescriptor[], encoder: ITiffEncoderModule) {
+    const firstDataOffset = alignTiffDataOffset(tiffHeaderByteLength(pages, encoder));
+    const totalByteLength = firstDataOffset + sumBy(pages, page => page.dataLength);
+    if (totalByteLength > CLASSIC_TIFF_MAX_BYTE_LENGTH) {
+        throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
+    }
+    let offset = firstDataOffset;
+    const ifds = pages.map(page => {
+        const ifd = buildTiffImageIfd(page, offset);
+        offset += page.dataLength;
+        return ifd;
+    });
+    return {
+        header: encodeTiffIfds(ifds, encoder),
+        firstDataOffset,
+        totalByteLength,
+    };
+}
+
+export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImageDescriptor>(
+    pages: TPage[],
+    encoder: ITiffEncoderModule,
+    maxByteLength = CLASSIC_TIFF_MAX_BYTE_LENGTH,
+) {
+    const groups: TPage[][] = [];
+    let group: TPage[] = [];
+    let headerBytes = 8;
+    let dataBytes = 0;
+    for (const page of pages) {
+        const ifdBytes = measureTiffIfdSize(buildTiffImageIfd(page, 0), encoder.ttypes);
+        if (alignTiffDataOffset(8 + ifdBytes) + page.dataLength > maxByteLength) {
+            throw new Error('A single TIFF page exceeds the Classic TIFF 4GB limit');
+        }
+        if (group.length && alignTiffDataOffset(headerBytes + ifdBytes) + dataBytes + page.dataLength > maxByteLength) {
+            groups.push(group);
+            group = [];
+            headerBytes = 8;
+            dataBytes = 0;
+        }
+        group.push(page);
+        headerBytes += ifdBytes;
+        dataBytes += page.dataLength;
+    }
+    if (group.length) groups.push(group);
+    return groups;
+}
