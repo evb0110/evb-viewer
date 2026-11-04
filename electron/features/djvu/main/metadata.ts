@@ -2,6 +2,7 @@ import { open } from 'node:fs/promises';
 import {
     dirname,
     resolve,
+    basename,
 } from 'node:path';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
@@ -21,15 +22,19 @@ interface IRunResult {
 
 const DJVU_METADATA_TIMEOUT_MS = 20_000;
 const DJVU_METADATA_MAX_STDOUT_BYTES = 262_144;
+const DJVU_COMPONENT_LIST_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const DJVU_METADATA_MAX_STDERR_BYTES = 131_072;
-interface IDjvuMetadataOptions {signal?: AbortSignal;}
+interface IDjvuMetadataOptions {
+    signal?: AbortSignal;
+    maxStdoutBytes?: number;
+}
 
 async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): Promise<IRunResult> {
     const { djvused } = getDjvuNativeToolPaths();
     const commandOptions = {
         env: buildDjvuRuntimeEnv(),
         timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-        maxStdoutBytes: DJVU_METADATA_MAX_STDOUT_BYTES,
+        maxStdoutBytes: options.maxStdoutBytes ?? DJVU_METADATA_MAX_STDOUT_BYTES,
         maxStderrBytes: DJVU_METADATA_MAX_STDERR_BYTES,
         commandLabel: 'djvused',
         defaultCwdToCommandDir: true,
@@ -146,13 +151,21 @@ export async function getDjvuIndirectComponentPaths(filePath: string, options: I
     if (!isIndirect) {
         return [];
     }
+    // One line per component: a book of single-page files lists thousands.
     const result = await runDjvused([
         filePath,
         '-e',
         'ls',
-    ], options);
+    ], {
+        ...options,
+        maxStdoutBytes: DJVU_COMPONENT_LIST_MAX_STDOUT_BYTES,
+    });
     const names = result.stdout.split(/\r?\n/u)
         .flatMap(line => line.match(/^\s*(?:\d+\s+)?[PITS]\s+\d+\s+(\S.*?)\s*$/u)?.[1] ?? []);
+    // Components are files beside the index; any other name is not one.
+    if (names.some(name => name !== basename(name) || name === '.' || name === '..')) {
+        throw new Error('Indirect DjVu names a component outside its folder');
+    }
     return [...new Set(names.map(name => resolve(dirname(filePath), name)))];
 }
 

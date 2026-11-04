@@ -148,6 +148,30 @@ describe('compact DjVu checkpoints', () => {
         await reopened.cleanup?.();
     });
 
+    it('refuses an indirect document whose index names a component outside its folder, and lists thousands', async () => {
+        const {getDjvuIndirectComponentPaths} = await import('@electron/features/djvu/main/metadata');
+        const index = join(process.cwd(), 'tests', 'fixtures', 'djvu', 'sources', 'indirect', 'index.djvu');
+        runDjvuSourceCommand.mockResolvedValueOnce({
+            stdout: '   1 P        0  ../outside.djvu\n',
+            stderr: '',
+            exitCode: 0,
+        });
+        await expect(getDjvuIndirectComponentPaths(index)).rejects.toThrow('outside its folder');
+
+        runDjvuSourceCommand.mockResolvedValueOnce({
+            stdout: Array.from({length: 10_000}, (_, page) => `${String(page + 1).padStart(6)} P        0  page-${String(page + 1).padStart(5, '0')}.djvu`).join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+        await expect(getDjvuIndirectComponentPaths(index)).resolves.toHaveLength(10_000);
+        // The real tool stops at this limit; the listing above needs about 480 KB.
+        const [
+            , , , commandOptions,
+        ] = (runDjvuSourceCommand.mock.lastCall ?? []) as unknown[];
+        expect(commandOptions).toMatchObject({maxStdoutBytes: expect.any(Number)});
+        expect((commandOptions as {maxStdoutBytes: number}).maxStdoutBytes).toBeGreaterThan(10_000 * 48);
+    });
+
     it('rejects a checkpoint build that points at an artifact outside the job directory', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'compact-checkpoint-path-test-'));
         const sourcePath = join(tempDir, 'source.djvu');
