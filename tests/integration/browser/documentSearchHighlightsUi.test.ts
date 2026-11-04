@@ -1257,18 +1257,8 @@ end
                     && previous.endContainer === range.endContainer && previous.endOffset === range.endOffset
                 )))
                 .map(range => range.toString()).join(''));
-        await expect.poll(readCurrent, {timeout: 10000}).toBe(expected);
-        const state = {
-            before,
-            after: await layer.textContent(),
-            current: await readCurrent(),
-            paint: await layer.locator('.pdf-search-highlight').allTextContents(),
-        };
-        writeFileSync(resolve(out, 'state.json'), JSON.stringify(state, null, 2));
-        expect(state.after).toBe(before);
-        expect(state.current).toBe(expected);
         if (query === 'f') {
-            const current = await page.evaluate(() => {
+            const readCurrentIdentity = () => page!.evaluate(() => {
                 const layer = document.querySelector('.page_container[data-page="1"] .textLayer')!;
                 const span = layer.querySelector(':scope > span')!;
                 const current = [...CSS.highlights.get('pdf-search-current-match') ?? []];
@@ -1283,9 +1273,25 @@ end
                         preceding: range instanceof Range ? span.textContent?.slice(0, range.startOffset) : '',
                     };
             });
-            expect(current.text).toBe('ﬃ');
-            expect(current.preceding).toBe('ﬃ');
+            // Both ligatures have the same text. Wait until current paint
+            // reaches the requested glyph before checking the saved state.
+            await expect.poll(readCurrentIdentity, {timeout: 10000}).toEqual({
+                text: 'ﬃ',
+                preceding: 'ﬃ',
+            });
         }
+        else {
+            await expect.poll(readCurrent, {timeout: 10000}).toBe(expected);
+        }
+        const state = {
+            before,
+            after: await layer.textContent(),
+            current: await readCurrent(),
+            paint: await layer.locator('.pdf-search-highlight').allTextContents(),
+        };
+        writeFileSync(resolve(out, 'state.json'), JSON.stringify(state, null, 2));
+        expect(state.after).toBe(before);
+        expect(state.current).toBe(expected);
         const paintBounds = mode === 'dom'
             ? await layer.locator('.pdf-search-highlight').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
             : await page.evaluate(() => [...CSS.highlights.get('pdf-search-current-match') ?? []].flatMap(range => range instanceof Range ? [range.getBoundingClientRect().toJSON()] : []));
