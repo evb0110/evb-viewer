@@ -11,6 +11,7 @@ import {
 import {
     createApp,
     defineComponent,
+    effectScope,
     h,
     nextTick,
     ref,
@@ -30,9 +31,13 @@ import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { cast } from '@tests/helpers/cast';
+import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
+import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import { captureCanonicalAnnotationRecovery } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import {
+    captureCanonicalAnnotationRecovery, restoreCanonicalAnnotationRecovery,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import { createdTextBox } from '@tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
@@ -142,6 +147,7 @@ function mountLinkedDocumentRecovery(
     createRecoverySnapshot: IWorkspaceExpose['createRecoverySnapshot'],
     contentRevision = ref(0),
     workingCopyPath = requireDocumentRef('/browser-working/shared.pdf'),
+    inspectOptions?: (options: Parameters<typeof useBrowserWorkspaceRecovery>[0]) => void,
 ) {
     const originalPath = requireDocumentRef('/documents/shared.pdf');
     const session = createWorkspaceDocumentController({tabId: 'tab-1'});
@@ -187,7 +193,7 @@ function mountLinkedDocumentRecovery(
     ];
     const host = document.createElement('div');
     const app = createApp(defineComponent({setup() {
-        useBrowserWorkspaceRecovery({
+        const options: Parameters<typeof useBrowserWorkspaceRecovery>[0] = {
             enabled: ref(true),
             panes: ref(panes),
             tabs: ref([
@@ -215,7 +221,9 @@ function mountLinkedDocumentRecovery(
                 'tab-2': session,
             }),
             getPaneByTabId: tabId => panes.find(pane => pane.tabIds.includes(requireTabId(tabId))) ?? null,
-        });
+        };
+        inspectOptions?.(options);
+        useBrowserWorkspaceRecovery(options);
         return () => h('div');
     }}));
     app.mount(host);
@@ -247,7 +255,165 @@ function latestCheckpointRefs() {
     return (stores.checkpoints.at(-1) as IWorkspaceCheckpoint | undefined)?.tabs.map(tab => tab.workingCopyRef) ?? [];
 }
 
+// Use the real graph restorer and annotation replay; only PDF open/storage are ports.
+async function restorePublishedRecovery(checkpoint: IWorkspaceCheckpoint) {
+    const scope = effectScope();
+    unmounts.push(() => scope.stop());
+    const tabs = ref<Array<{id: string}>>([]);
+    const documentSessions = scope.run(() => useWorkspaceDocumentSessions({
+        activeTabId: ref(null),
+        tabs,
+    }))!;
+    const annotations = new AnnotationApplication('restored');
+    const drafts: Array<ReturnType<typeof restoreCanonicalAnnotationRecovery>['drafts'][number]> = [];
+    const restoring = restoreWorkspaceCheckpoint(checkpoint, {
+        activeTabId: ref(null),
+        documentSessions: {
+            ...documentSessions,
+            linkView: (source, target, seed) => {
+                const linked = documentSessions.linkView(source, target, seed);
+                if (linked) documentSessions.getSession(target)!.attachWorkspace(target, createWorkspaceExposeFixture());
+                return linked;
+            },
+        },
+        restoreGraph: () => { tabs.value = checkpoint.tabs.map(tab => ({id: tab.tabId})); },
+        activateTab: () => {},
+    });
+    await nextTick();
+    const first = checkpoint.tabs[0]!;
+    const session = documentSessions.getSession(first.tabId)!;
+    session.attachWorkspace(first.tabId, createWorkspaceExposeFixture({
+        handleOpenFileWithResult: async () => true,
+        waitForDocumentOpenSettled: async () => {
+            session.commitDocument({
+                fileName: first.fileName,
+                originalPath: first.sourceRef,
+                isDjvu: false,
+                revisionInfo: {
+                    version: 1,
+                    token: requireDocumentRevisionToken('recovery-revision'),
+                    documentRef: first.workingCopyRef!,
+                    authority: 'browser-document-store',
+                    contentRevision: 1,
+                    mintedAt: requireEpochMs(1),
+                },
+            });
+        },
+        getAutomationStateSnapshot: () => cast({
+            workingCopyPath: first.workingCopyRef,
+            documentIdentity: session.snapshot.value.identity.revisionInfo,
+        }),
+        restoreCanonicalAnnotationRecovery: value => {
+            const recovered = restoreCanonicalAnnotationRecovery(annotations.store, value);
+            drafts.push(...recovered.drafts);
+            return recovered;
+        },
+    }));
+    expect(await restoring).toEqual([]);
+    return {
+        annotations,
+        drafts,
+        documentSessions,
+    };
+}
+
 describe('browser workspace recovery', () => {
+    it.each([
+        'close',
+        'reorder',
+        'failed-refresh',
+    ] as const)('restores canonical annotations and drafts after %s of the recovery carrier', async change => {
+        vi.useFakeTimers();
+        const annotations = new AnnotationApplication('before-close');
+        const annotation = annotations.store.createTextBox({
+            ...createdTextBox,
+            text: 'Accepted canonical text',
+        });
+        const payload = captureCanonicalAnnotationRecovery(annotations.store, [{
+            annotationId: annotation.identity.id,
+            kind: 'text-box',
+            canonicalRevision: annotation.revision,
+            text: 'Unapplied draft text',
+            generation: 1,
+        }]);
+        let options!: Parameters<typeof useBrowserWorkspaceRecovery>[0];
+        let currentPayload = payload;
+        let available = true;
+        const revision = ref(0);
+        const session = mountLinkedDocumentRecovery(async target => available ? storeRecoverySnapshot(target, PDF_BYTES) : null, revision,
+            requireDocumentRef('/browser-working/shared.pdf'), value => { options = value; });
+        for (const view of session.views.value.values()) view.mountedWorkspace.value!.captureCanonicalAnnotationRecovery = () => currentPayload;
+        await vi.advanceTimersByTimeAsync(1_000);
+        const before = stores.checkpoints.at(-1) as IWorkspaceCheckpoint;
+        const retainedRecovery = before.tabs[0]!.annotationRecovery;
+        if (change === 'failed-refresh') {
+            available = false;
+            const newer = new AnnotationApplication('newer-capture');
+            const nextAnnotation = newer.store.createTextBox({
+                ...createdTextBox,
+                text: 'Newer unmatched text',
+            });
+            currentPayload = captureCanonicalAnnotationRecovery(newer.store, [{
+                annotationId: nextAnnotation.identity.id,
+                kind: 'text-box',
+                canonicalRevision: nextAnnotation.revision,
+                text: 'Newer unmatched draft',
+                generation: 2,
+            }]);
+            session.commitDocument({
+                fileName: 'shared.pdf',
+                originalPath: requireDocumentRef('/documents/shared.pdf'),
+                isDjvu: false,
+                revisionInfo: {
+                    version: 1,
+                    token: requireDocumentRevisionToken('revision-2'),
+                    documentRef: requireDocumentRef('/browser-working/shared.pdf'),
+                    authority: 'browser-document-store',
+                    contentRevision: 2,
+                    mintedAt: requireEpochMs(2),
+                },
+            });
+            revision.value += 1;
+        }
+        if (change !== 'reorder') {
+            session.removeView('tab-1');
+            options.tabs.value = [{id: 'tab-2'}];
+            options.documentSessionsByTabId.value = {'tab-2': session};
+            options.panes.value = [options.panes.value[1]!];
+            options.layout.value = {
+                type: 'leaf',
+                paneId: requirePaneId('pane-2'),
+            };
+        } else {
+            options.tabs.value = [
+                {id: 'tab-2'},
+                {id: 'tab-1'},
+            ];
+        }
+        await vi.advanceTimersByTimeAsync(1_000);
+        const after = stores.checkpoints.at(-1) as IWorkspaceCheckpoint;
+        expect(after.tabs.map(tab => tab.tabId)).toEqual(change !== 'reorder' ? ['tab-2'] : [
+            'tab-2',
+            'tab-1',
+        ]);
+        expect(Reflect.get(after.tabs[0]!, 'linkedToTabId')).toBeUndefined();
+        if (change === 'reorder' && Reflect.has(before.tabs[1]!, 'linkedToTabId')) {
+            expect(Reflect.get(after.tabs[1]!, 'linkedToTabId')).toBe('tab-2');
+        }
+        expect(stores.documents).toHaveLength(1);
+        expect(after.tabs[0]!.workingCopyRef).toBe(before.tabs[0]!.workingCopyRef);
+        const restored = await restorePublishedRecovery(after);
+        expect(restored.annotations.store.get(annotation.identity.id)).toMatchObject({text: 'Accepted canonical text'});
+        expect(restored.annotations.store.dirtyEntities()).toHaveLength(1);
+        expect(restored.drafts).toEqual(payload.drafts);
+        // This also checks document instance and byte-revision binding are unchanged.
+        expect(after.tabs[0]!.annotationRecovery).toEqual(retainedRecovery);
+        expect(after.tabs.filter(tab => tab.annotationRecovery)).toHaveLength(1);
+        if (change === 'reorder') {
+            expect(restored.documentSessions.getSession('tab-1')).toBe(restored.documentSessions.getSession('tab-2'));
+        }
+    });
+
     it('keeps new notes recoverable after a prior heartbeat returns behind Save clearing', async () => {
         vi.useFakeTimers();
         const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});

@@ -360,13 +360,13 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 });
             }
 
-            const recoveryTabs = checkpoint.tabs.flatMap<IWorkspaceCheckpointTab>((tab) => {
-                if (unavailableRecoveryTabIds.has(tab.tabId)) {
-                    return [];
-                }
-                const snapshotRef = replacements.get(tab.tabId);
+            const recoveryTabs: IWorkspaceCheckpointTab[] = [];
+            for (const tab of checkpoint.tabs) {
+                if (unavailableRecoveryTabIds.has(tab.tabId)) continue;
+                const snapshotRef = replacements.get(tab.tabId)
+                    ?? retainedRecoveryTabs.get(tab.tabId)?.workingCopyRef;
                 if (snapshotRef && refreshedTabIds.has(tab.tabId)) {
-                    return [{
+                    recoveryTabs.push({
                         ...tab,
                         sourceRef: tab.sourceRef ?? snapshotRef,
                         workingCopyRef: snapshotRef,
@@ -374,32 +374,36 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         // remains dirty and requires an explicit destination;
                         // recovery can never overwrite or download by itself.
                         requiresSaveAsOnFirstSave: true,
-                    }];
+                    });
+                    continue;
                 }
-                const retained = retainedRecoveryTabs.get(tab.tabId)
-                    ?? [...retainedRecoveryTabs.values()].find(candidate => candidate.workingCopyRef === snapshotRef);
+                const retained = [...retainedRecoveryTabs.values()].find(candidate => (
+                    candidate.workingCopyRef === snapshotRef && candidate.annotationRecovery
+                )) ?? [...retainedRecoveryTabs.values()].find(candidate => candidate.workingCopyRef === snapshotRef);
                 if (tab.isDirty && retained?.workingCopyRef) {
-                    // Keep document identity and drafts bound to the retained
-                    // bytes, including when a newer content capture failed.
-                    return [{
-                        ...retained,
-                        paneId: tab.paneId,
-                        currentPage: tab.currentPage,
-                        zoom: tab.zoom,
-                        zoomMode: tab.zoomMode,
-                        continuousScroll: tab.continuousScroll,
-                        viewMode: tab.viewMode,
-                        viewRotation: tab.viewRotation,
-                    }];
+                    // Retained bytes own their identity and payload. The current
+                    // graph owns the view; only its first carrier replays edits.
+                    const firstCarrier = !recoveryTabs.some(candidate => candidate.workingCopyRef === snapshotRef);
+                    recoveryTabs.push({
+                        ...tab,
+                        fileName: retained.fileName,
+                        sourceRef: retained.sourceRef,
+                        workingCopyRef: retained.workingCopyRef,
+                        isDjvu: retained.isDjvu,
+                        requiresSaveAsOnFirstSave: retained.requiresSaveAsOnFirstSave,
+                        annotationRecovery: firstCarrier ? retained.annotationRecovery : undefined,
+                        annotationRecoveryFailure: retained.annotationRecoveryFailure,
+                    });
+                    continue;
                 }
-                return [{
+                recoveryTabs.push({
                     ...tab,
                     // Clean documents reopen from their durable source;
                     // their ordinary transient working copies are absent from
                     // this checkpoint, but remain protected by the live owner.
                     workingCopyRef: null,
-                }];
-            });
+                });
+            }
             const recoveryTabIds = new Set(recoveryTabs.map(tab => tab.tabId));
             const recoveryPanes = checkpoint.panes.map(pane => {
                 const tabIds = pane.tabIds.filter(tabId => recoveryTabIds.has(tabId));
