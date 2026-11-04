@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type {TScanCleanupPageOverrides} from '@contracts/scan-cleanup/domain';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 import type * as scanCleanupWorkspaceSessionModule from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
@@ -6741,6 +6742,61 @@ describe('Scan cleanup components', () => {
             settings.outputMode = mode;
             await nextTick();
             expect(harness.host.querySelector('[aria-label="Text thickness"]')).toBe(slider);
+        }
+    });
+
+    it('enables thickness and speckle removal when a page is black and white under a gray or color document', async () => {
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'grayscale' as 'grayscale' | 'color',
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {} as TScanCleanupPageOverrides,
+        });
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            settingsPanelProps(settings, 'all'),
+        )}));
+        const disabled = () => ({
+            thickness: harness.host.querySelector('[aria-label="Text thickness"]')?.getAttribute('disabled') === 'true',
+            despeckle: harness.host.querySelector<HTMLSelectElement>('select:has(option[value="cautious"])')?.disabled,
+        });
+        expect(disabled()).toEqual({
+            thickness: true,
+            despeckle: true,
+        });
+        for (const outputMode of [
+            'grayscale',
+            'color',
+        ] as const) {
+            settings.outputMode = outputMode;
+            settings.pageOverrides = {'2': createScanCleanupPageOverride({outputModeOverride: 'bw'})};
+            await nextTick();
+            expect(disabled(), `a B&W page under a ${outputMode} document`).toEqual({
+                thickness: false,
+                despeckle: false,
+            });
+            settings.pageOverrides = {'2': createScanCleanupPageOverride({
+                outputModeOverride: 'bw',
+                excluded: true,
+            })};
+            await nextTick();
+            expect(disabled(), 'an excluded B&W page is not output').toEqual({
+                thickness: true,
+                despeckle: true,
+            });
         }
     });
 
