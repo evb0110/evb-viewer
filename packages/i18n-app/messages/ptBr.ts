@@ -208,7 +208,11 @@ export default {
         'pages': {
             'title': 'Páginas de origem',
             'resetAction': 'Redefinir',
-            'count': 'Páginas de origem: {count}',
+            'count': plural({
+                zero: '{count} páginas de origem',
+                one: '{count} página de origem',
+                other: '{count} páginas de origem',
+            }),
             'technicalDetails': 'Detalhes técnicos',
             'detecting': 'Detectando…',
             'includeInOutput': 'Incluir na saída',
@@ -1879,6 +1883,9 @@ export default {
         },
         'settings': {
             'load': 'Não foi possível carregar as configurações',
+            'save': 'Não foi possível salvar as configurações. Tente novamente.',
+            'storageFull': 'O armazenamento está cheio. Libere espaço e tente novamente.',
+            'storageUnavailable': 'O acesso ao armazenamento está bloqueado. Permita o acesso e tente novamente.',
             'recovered': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi mantido como cópia de recuperação quando possível.',
             'recoveredWithPath': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi colocado em quarentena em {path}.',
             'newerVersion': 'Estas configurações foram salvas por uma versão mais recente do EVB Viewer. Elas são mantidas sem alterações; esta versão usa os padrões e não consegue salvar configurações. Abra a versão mais recente para alterá-las.',

@@ -208,7 +208,10 @@ export default {
         'pages': {
             'title': 'Pages sources',
             'resetAction': 'Réinitialiser',
-            'count': 'Pages sources : {count}',
+            'count': plural({
+                one: '{count} page source',
+                other: '{count} pages sources',
+            }),
             'technicalDetails': 'Détails techniques',
             'detecting': 'Détection…',
             'includeInOutput': 'Inclure dans la sortie',
@@ -1879,6 +1882,9 @@ export default {
         },
         'settings': {
             'load': 'Impossible de charger les paramètres',
+            'save': 'Les paramètres n’ont pas pu être enregistrés. Réessayez.',
+            'storageFull': 'Le stockage est plein. Libérez de l’espace et réessayez.',
+            'storageUnavailable': 'L’accès au stockage est bloqué. Autorisez l’accès et réessayez.',
             'recovered': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. Le fichier précédent a été conservé comme copie de récupération lorsque cela était possible.',
             'recoveredWithPath': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. L\'ancien fichier a été placé en quarantaine à l\'emplacement {path}.',
             'newerVersion': 'Ces paramètres ont été enregistrés par une version plus récente d’EVB Viewer. Ils sont conservés tels quels ; cette version utilise ses valeurs par défaut et ne peut pas enregistrer de paramètres. Ouvrez la version plus récente pour les modifier.',

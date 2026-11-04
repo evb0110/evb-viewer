@@ -298,7 +298,10 @@ describe('useSettings', () => {
         settings.value.locale = 'fr';
         await expect(save()).resolves.toBe(false);
         expect(settingsSaveStatus.value).toBe('failed');
-        expect(settingsSaveError.value).toBe('temporary failure');
+        expect(settingsSaveError.value).toMatchObject({
+            name: 'Error',
+            message: 'temporary failure',
+        });
         expect(settingsSaveFailure.value?.failure.code).toBe('SETTINGS_SAVE_FAILED');
 
         settings.value.locale = 'de';
@@ -307,6 +310,52 @@ describe('useSettings', () => {
         expect(settingsSaveStatus.value).toBe('idle');
         expect(settingsSaveError.value).toBeNull();
         expect(settingsSaveFailure.value).toBeNull();
+    });
+
+    it.each([
+        'QuotaExceededError',
+        'SecurityError',
+        'NotAllowedError',
+    ])('retains the %s cause and receipt until a successful retry', async (name) => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mockGet.mockResolvedValue(DEFAULT_SETTINGS);
+        const error = new DOMException('RAW storage detail', name);
+        mockSave.mockRejectedValueOnce(error).mockResolvedValue(undefined);
+        const {useSettings} = await import('@app/composables/useSettings');
+        const settings = useSettings();
+        await settings.load();
+        settings.settings.value.authorName = 'Retained choice';
+        await expect(settings.save()).resolves.toBe(false);
+        expect(settings.settingsSaveStatus.value).toBe('failed');
+        expect(settings.settingsSaveError.value).toEqual({
+            name,
+            message: 'RAW storage detail',
+        });
+        expect(settings.settingsSaveFailure.value?.failure.eventId).toBeTruthy();
+        await expect(settings.save()).resolves.toBe(true);
+        expect(settings.settingsSaveError.value).toBeNull();
+        expect(settings.settingsSaveFailure.value).toBeNull();
+    });
+
+    it('keeps the 400 ms pending write and its failure after the Settings child scope closes', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.useFakeTimers();
+        mockGet.mockResolvedValue(DEFAULT_SETTINGS);
+        const pending = createDeferred();
+        mockSave.mockReturnValueOnce(pending.promise);
+        const {effectScope} = await import('vue');
+        const {useSettings} = await import('@app/composables/useSettings');
+        const root = useSettings();
+        await root.load();
+        const child = effectScope();
+        child.run(() => useSettings().updateSetting('authorName', 'Choice after closing'));
+        child.stop();
+        await vi.advanceTimersByTimeAsync(400);
+        pending.reject(new Error('ENOSPC'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(root.settingsSaveStatus.value).toBe('failed');
+        expect(root.settingsSaveFailure.value?.failure.code).toBe('SETTINGS_SAVE_FAILED');
+        expect(root.settings.value.authorName).toBe('Choice after closing');
     });
 
     it('debounces updateSetting saves and flushes a pending save on pagehide', async () => {
@@ -496,7 +545,7 @@ describe('useSettings', () => {
         await vi.advanceTimersByTimeAsync(550);
         expect(instance.settings.value.authorName).toBe('Chosen author');
         expect(instance.settingsSaveStatus.value).toBe('failed');
-        expect(instance.settingsSaveError.value).toContain('ENOSPC');
+        expect(instance.settingsSaveError.value?.message).toContain('ENOSPC');
         expect(instance.settingsSaveFailure.value).not.toBeNull();
         expect(stored.authorName).toBe('Other window');
 

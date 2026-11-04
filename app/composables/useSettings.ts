@@ -45,6 +45,11 @@ const pendingSettingsIntent = new Map<keyof ISettingsData, unknown>();
 
 type TSettingsPersistenceFailureCode = 'SETTINGS_LOAD_FAILED' | 'SETTINGS_SAVE_FAILED';
 
+interface ISettingsSaveError {
+    name: string;
+    message: string;
+}
+
 function captureSettingsPersistenceFailure(
     code: TSettingsPersistenceFailureCode,
     error: unknown,
@@ -134,7 +139,7 @@ export const useSettings = () => {
         () => null,
     );
     const settingsSaveStatus = useState<TSettingsPersistenceStatus>('settings:save-status', () => 'idle');
-    const settingsSaveError = useState<string | null>('settings:save-error', () => null);
+    const settingsSaveError = useState<ISettingsSaveError | null>('settings:save-error', () => null);
     const settingsLoadFailure = useState<IPresentedFailureCapture | null>('settings:load-failure', () => null);
     const settingsSaveFailure = useState<IPresentedFailureCapture | null>('settings:save-failure', () => null);
 
@@ -234,7 +239,12 @@ export const useSettings = () => {
             },
             onStatusChanged(status, error) {
                 settingsSaveStatus.value = status === 'idle' && pendingSettingsIntent.size > 0 ? 'saving' : status;
-                settingsSaveError.value = error ? getErrorMessage(error) : null;
+                settingsSaveError.value = error ? {
+                    name: typeof error === 'object' && 'name' in error && typeof error.name === 'string'
+                        ? error.name
+                        : 'Error',
+                    message: getErrorMessage(error),
+                } : null;
             },
         });
         return settingsPersistenceQueue;

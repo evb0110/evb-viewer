@@ -130,7 +130,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         isSameAnnotationComment,
     } = useAnnotationNoteWindows({
         annotationComments,
-        markAnnotationDirty,
         reportNoteFailure: options.reportNoteFailure,
         updateAnnotationCommentInViewer: (annotationId, text) => {
             const comment = resolveNoteComment(annotationId);
@@ -163,6 +162,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const hasUnsavedAnnotationChanges = computed(() => {
         void annotationComments.value;
         return annotationDirty.value
+            || annotationNoteWindows.value.some(note => note.dirty)
             || annotationEditorState.value.hasPendingFreeTextDraft === true
             || hasAnnotationChanges()
             || pendingEmbeddedAnnotationDeleteCount.value > 0;
