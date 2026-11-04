@@ -2023,3 +2023,19 @@ fn accepted_named_and_pending_targets_resolve_without_dropping_unknown_entries()
     crate::outline::names::resolve_bookmark_source_targets(&document, &mut unreadable).unwrap();
     assert_eq!(unreadable, unknown);
 }
+
+
+#[test]
+fn combine_catalog_refuses_tags_and_layers_independently_including_null_roots() {
+    for key in [b"StructTreeRoot".as_slice(), b"OCProperties".as_slice()] {
+        let (mut document, _) = create_test_document();
+        document
+            .catalog_mut()
+            .unwrap()
+            .set(key.to_vec(), Object::Null);
+        let error = read_pdf_combine_catalog(&document)
+            .expect_err("unsupported catalog must refuse")
+            .to_string();
+        assert!(error.contains("ERR_PDF_STRUCTURE_PRESERVATION:"), "{error}");
+    }
+}

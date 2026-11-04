@@ -490,6 +490,33 @@ describe('browser page-ops WASM fast path', () => {
         }
     });
 
+    it.each([
+        'StructTreeRoot',
+        'OCProperties',
+    ])('refuses browser Combine %s in either source position', async key => {
+        const source = await PDFDocument.load(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+        source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
+        const feature = new Uint8Array(await source.save());
+        const ordinary = await createPdf({pageWidths: [200]});
+        const wasm = await loadWasmRunner();
+        for (const documents of [
+            [
+                feature,
+                ordinary,
+            ],
+            [
+                ordinary,
+                feature,
+            ],
+        ]) {
+            const result = await wasm.run('mergePages', {documents});
+            expect(result).toMatchObject({
+                status: 'failed',
+                error: {code: 'invalid-request'},
+            });
+            expect(result && 'status' in result ? result.error.message : '').toContain('ERR_PDF_STRUCTURE_PRESERVATION:');
+        }
+    });
 
     it('refuses tagged page subsets and insertion from either source', async () => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/tagged.pdf')));

@@ -190,6 +190,53 @@ describe('browser document lifecycle UI', () => {
         }
     });
 
+    it.each([
+        'StructTreeRoot',
+        'OCProperties',
+    ])('shows the localized Combine refusal for browser %s without a generated tab', async key => {
+        const context = await lifecycle.browser.newContext();
+        const page = await context.newPage();
+        const source = await PDFDocument.load(readFileSync(resolve('tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+        source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
+        const feature = Buffer.from(await source.save());
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.locator('nav[aria-label="File"] button.rail-item').click();
+            await page.locator('[data-combine-page]').waitFor();
+            await page.locator('input[type="file"]').setInputFiles([
+                {
+                    name: 'features.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: feature,
+                },
+                {
+                    name: 'ordinary.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')),
+                },
+            ]);
+            await expect.poll(() => page.locator('[data-combine-row]').count()).toBe(2);
+            const tabCount = await page.getByRole('tab').count();
+            await page.locator('footer.combine-actions button').click();
+            await expect.poll(async () => await page.locator('.app-toast, .page_container').count() > 0
+                || await page.getByRole('tab').count() > tabCount).toBe(true);
+            const evidence = resolve('.devkit/fixes16/evidence/combine-browser');
+            mkdirSync(evidence, {recursive: true});
+            await page.screenshot({path: resolve(evidence, `${key}.png`)});
+            expect((await page.locator('.app-toast').allTextContents()).join('\n')).toContain('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
+            expect(await page.locator('[data-combine-row]').count()).toBe(2);
+            expect(await page.getByRole('tab').count()).toBe(tabCount);
+            expect(await page.locator('.page_container').count()).toBe(0);
+        } finally {
+            await context.close();
+        }
+    });
 
     it('saves a note and rotation in a PDF over 16 MiB', async () => {
         const context = await lifecycle.browser.newContext({

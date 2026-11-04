@@ -345,6 +345,10 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
             serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?,
         ),
         OP_MERGE_PAGES => {
+            let catalogs = documents
+                .iter()
+                .map(read_pdf_combine_catalog)
+                .collect::<Result<Vec<_>>>()?;
             let sources = documents.iter().collect::<Vec<_>>();
             let mut sequence = Vec::new();
             for (document_index, document) in documents.iter().enumerate() {
@@ -360,8 +364,7 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
             let mut page_offset = 0u32;
             let mut bookmarks = Vec::new();
             let mut page_labels = Vec::new();
-            for (source_index, document) in documents.iter().enumerate() {
-                let mut source_catalog = read_pdf_combine_catalog(document)?;
+            for (source_index, mut source_catalog) in catalogs.into_iter().enumerate() {
                 add_implicit_default_page_label_range(
                     &mut source_catalog.page_labels,
                     documents[source_index].get_pages().len() as u32,
