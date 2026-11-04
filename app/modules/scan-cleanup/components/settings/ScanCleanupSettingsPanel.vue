@@ -693,7 +693,9 @@ const contentBoxesState = computed(() => props.contentBoxes.mixed
 const bilevelOutput = computed(() => !lossless.value && [
     props.settings.pageOverrideDefaults ?? DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     ...Object.keys(props.settings.pageOverrides)
-        .map(page => getScanCleanupPageOverride(props.settings.pageOverrides, requirePageNumber(Number(page)))),
+        .map(Number)
+        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= props.totalPages)
+        .map(page => getScanCleanupPageOverride(props.settings.pageOverrides, requirePageNumber(page))),
 ].some(override => !override.excluded
     && [
         'auto',

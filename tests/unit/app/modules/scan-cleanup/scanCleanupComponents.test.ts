@@ -6855,9 +6855,10 @@ describe('Scan cleanup components', () => {
             skipBlankPages: false,
             pageOverrides: {} as TScanCleanupPageOverrides,
         });
+        const totalPages = ref(5);
         const harness = mount(defineComponent({setup: () => () => h(
             ScanCleanupSettingsPanel,
-            settingsPanelProps(settings, 'all'),
+            settingsPanelProps(settings, 'all', {totalPages: totalPages.value}),
         )}));
         const disabled = () => ({
             thickness: harness.host.querySelector('[aria-label="Text thickness"]')?.getAttribute('disabled') === 'true',
@@ -6872,6 +6873,19 @@ describe('Scan cleanup components', () => {
             'color',
         ] as const) {
             settings.outputMode = outputMode;
+            settings.pageOverrides = {'4': createScanCleanupPageOverride({outputModeOverride: 'bw'})};
+            totalPages.value = 5;
+            await nextTick();
+            expect(disabled()).toEqual({
+                thickness: false,
+                despeckle: false,
+            });
+            totalPages.value = 2;
+            await nextTick();
+            expect(disabled(), 'removed pages cannot enable B&W controls').toEqual({
+                thickness: true,
+                despeckle: true,
+            });
             settings.pageOverrides = {'2': createScanCleanupPageOverride({outputModeOverride: 'bw'})};
             await nextTick();
             expect(disabled(), `a B&W page under a ${outputMode} document`).toEqual({
