@@ -210,6 +210,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         const checkpoint = buildWorkspaceCheckpoint(options);
         const allDirtyTabs = checkpoint.tabs.filter(tab => tab.isDirty);
         const previous = await recovery.load(ownerId);
+        if (capturedCheckpointRevision !== checkpointRevision) return;
         const expectedGeneration = generation ?? previous?.generation ?? 0;
         generation = expectedGeneration;
         if (allDirtyTabs.length === 0) {
@@ -312,14 +313,14 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         }
                     }
                 }
+                // Every awaited capture, including success, must still belong
+                // to the checkpoint that requested it. Drain captures its successor.
+                if (snapshot) createdRefs.push(snapshot.ref);
+                if (capturedCheckpointRevision !== checkpointRevision) {
+                    await cleanupSnapshots(createdRefs);
+                    return;
+                }
                 if (!snapshot) {
-                    // Save or reopen can supersede this capture while it waits
-                    // for the document lease. The existing pending revision
-                    // captures the current owner; discard this old checkpoint.
-                    if (capturedCheckpointRevision !== checkpointRevision) {
-                        await cleanupSnapshots(createdRefs);
-                        return;
-                    }
                     if (!retained?.workingCopyRef) {
                         BrowserLogger.warn(
                             'workspace-recovery',
@@ -344,7 +345,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 const {
                     ref: snapshotRef, revisionToken,
                 } = snapshot;
-                createdRefs.push(snapshotRef);
                 if (tab.annotationRecovery) {
                     tab.annotationRecovery = {
                         ...tab.annotationRecovery,
@@ -523,7 +523,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             }
             schedule();
         },
-        {immediate: true},
+        {
+            immediate: true,
+            flush: 'sync',
+        },
     );
 
     const targetWindow = typeof window === 'undefined' ? undefined : window;

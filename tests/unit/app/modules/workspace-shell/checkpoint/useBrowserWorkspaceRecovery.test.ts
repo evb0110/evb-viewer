@@ -414,6 +414,111 @@ describe('browser workspace recovery', () => {
         }
     });
 
+    it.each([
+        'load',
+        'snapshot',
+        'lease',
+        'instance',
+    ] as const)('publishes coherent document identity and bytes after replacement during %s', async pause => {
+        vi.useFakeTimers();
+        const gate = Promise.withResolvers<undefined>();
+        const published: Array<{
+            checkpoint: IWorkspaceCheckpoint;
+            bytes: Uint8Array | undefined
+        }> = [];
+        const save = recovery.save;
+        vi.spyOn(recovery, 'save').mockImplementation(async (owner, generation, value) => {
+            const checkpoint = cast<IWorkspaceCheckpoint>(value);
+            published.push({
+                checkpoint,
+                bytes: stores.readableDocuments.get(checkpoint.tabs[0]!.workingCopyRef!)?.slice(),
+            });
+            return save(owner, generation, value);
+        });
+        if (pause === 'load') vi.spyOn(recovery, 'load').mockImplementationOnce(async () => { await gate.promise; return null; });
+        let bytes = PDF_BYTES;
+        let staleRef: string | null = null;
+        let first = true;
+        const session = mountLinkedDocumentRecovery(async target => {
+            const copy = async () => storeRecoverySnapshot(target, bytes);
+            if (!first || pause === 'load') return copy();
+            first = false;
+            const result = pause === 'lease'
+                ? await session.operationLease.runExclusive('recovery-snapshot', copy)
+                : await gate.promise.then(copy);
+            staleRef = result.ref;
+            return result;
+        }, ref(0), requireDocumentRef('/browser-working/shared.pdf'), value => {
+            value.documentSessionsByTabId.value['tab-1']!.removeView('tab-2');
+            value.tabs.value = [{id: 'tab-1'}];
+            value.documentSessionsByTabId.value = {'tab-1': value.documentSessionsByTabId.value['tab-1']!};
+            value.panes.value = [value.panes.value[0]!];
+            value.layout.value = {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            };
+            value.activePaneId.value = 'pane-1';
+            value.activeTabId.value = 'tab-1';
+        });
+        const replacementRef = requireDocumentRef(pause === 'instance' ? '/browser-working/shared.pdf' : '/browser-working/replacement.pdf');
+        const replacementSource = requireDocumentRef(pause === 'instance' ? '/documents/shared.pdf' : '/documents/replacement.pdf');
+        const replacementName = pause === 'instance' ? 'shared.pdf' : 'replacement.pdf';
+        const replacementBytes = pause === 'instance' ? PDF_BYTES : new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+        const replace = () => {
+            session.assign({
+                fileName: replacementName,
+                originalPath: replacementSource,
+                isDjvu: false,
+                isDirty: true,
+            });
+            session.commitDocument({
+                fileName: replacementName,
+                originalPath: replacementSource,
+                isDjvu: false,
+                revisionInfo: {
+                    version: 1,
+                    token: requireDocumentRevisionToken(pause === 'instance' ? 'revision-1' : 'replacement-revision'),
+                    documentRef: replacementRef,
+                    authority: 'browser-document-store',
+                    contentRevision: 1,
+                    mintedAt: requireEpochMs(2),
+                },
+            });
+            session.getView('tab-1')!.mountedWorkspace.value!.getAutomationStateSnapshot = () => cast({
+                originalPath: replacementSource,
+                workingCopyPath: replacementRef,
+            });
+            bytes = replacementBytes;
+        };
+        const mutation = pause === 'lease'
+            ? session.operationLease.runExclusive('page-operation', async () => { await gate.promise; replace(); })
+            : null;
+        await vi.advanceTimersByTimeAsync(750);
+        if (pause !== 'lease') replace();
+        gate.resolve(undefined);
+        await mutation;
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(published.length).toBeGreaterThan(0);
+        // Inspect every durable intermediate record, not just the corrected tail.
+        for (const {
+            checkpoint, bytes: savedBytes,
+        } of published) {
+            expect(savedBytes).toEqual(replacementBytes);
+            expect(checkpoint.tabs[0]).toMatchObject({
+                fileName: replacementName,
+                sourceRef: replacementSource,
+            });
+            if (staleRef) expect(checkpoint.tabs[0]!.workingCopyRef).not.toBe(staleRef);
+        }
+        if (staleRef) expect(stores.readableDocuments.has(staleRef)).toBe(false);
+        expect(published.at(-1)!.checkpoint.tabs[0]!.requiresSaveAsOnFirstSave).toBe(true);
+    });
+
+
     it('keeps new notes recoverable after a prior heartbeat returns behind Save clearing', async () => {
         vi.useFakeTimers();
         const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});

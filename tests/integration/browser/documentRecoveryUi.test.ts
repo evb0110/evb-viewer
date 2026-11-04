@@ -113,6 +113,138 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    // T2: every admitted recovery names the document whose bytes it contains.
+    it('A46 rejects a capture after the ordinary tab replaces its document', async () => {
+        const evidenceDir = resolve(process.env.EVB_A46_EVIDENCE_DIR ?? '.devkit/checks/browser/after', 'replacement');
+        mkdirSync(evidenceDir, {recursive: true});
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1280,
+            height: 800,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const observations: unknown[] = [];
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__a46LoadGate', new Promise<void>(resolveGate => Reflect.set(window, '__a46ReleaseLoad', resolveGate)));
+                Reflect.set(window, '__a46Publications', []);
+                const put = IDBObjectStore.prototype.put;
+                IDBObjectStore.prototype.put = function (...args: Parameters<IDBObjectStore['put']>) {
+                    if (this.name === 'workspace-recovery' && Reflect.get(window, '__a46ObservePublications')) {
+                        Reflect.get(window, '__a46Publications').push(structuredClone(args[0]));
+                    }
+                    return Reflect.apply(put, this, args);
+                };
+            });
+            // Hold the existing awaited load, leaving all document input and bytes real.
+            await page.route('**/checkpoint/useBrowserWorkspaceRecovery.ts*', async route => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'const previous = await recovery.load(ownerId);';
+                if (!body.includes(marker)) throw new Error('Recovery load gate seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, `${marker}
+                    if (Reflect.get(window, '__a46HoldLoad')) {
+                        Reflect.set(window, '__a46HoldLoad', false);
+                        document.body.dataset.a46Load = 'held';
+                        await Reflect.get(window, '__a46LoadGate');
+                    }`),
+                });
+            });
+            await openPdfFromChooser(page, resolve('tests/fixtures/electron/generated-text.pdf'));
+            await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            const originalTab = await page.locator('.tab.is-active[data-tab-id]').getAttribute('data-tab-id');
+            await page.evaluate(() => Reflect.set(window, '__a46HoldLoad', true));
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 200,
+                y: 200,
+            }});
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).fill('Discarded A note');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await page.waitForFunction(() => document.body.dataset.a46Load === 'held');
+            await page.evaluate(() => Reflect.set(window, '__a46ObservePublications', true));
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Open File/u}).click();
+            await page.getByRole('button', {
+                name: 'Discard changes',
+                exact: true,
+            }).click();
+            await (await chooser).setFiles({
+                name: 'a46-replacement.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')),
+            });
+            await expect.poll(() => page.locator('.tab.is-active[data-tab-id]').textContent()).toContain('a46-replacement.pdf');
+            expect(await page.locator('.tab.is-active[data-tab-id]').getAttribute('data-tab-id')).toBe(originalTab);
+            await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 220,
+                y: 220,
+            }});
+            const replacementNote = 'Replacement B recovery bytes';
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).fill(replacementNote);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await page.evaluate(() => Reflect.get(window, '__a46ReleaseLoad')());
+            await expect.poll(async () => (await readRecoveries(page, '/Text')).some(record => record.notes.has(replacementNote))).toBe(true);
+            const publications = await page.evaluate(() => Reflect.get(window, '__a46Publications') as Array<{checkpoint: {tabs: Array<{
+                fileName: string;
+                sourceRef: string
+            }>}}>);
+            observations.push({
+                step: 'publications',
+                publications,
+            });
+            expect(publications.length).toBeGreaterThan(0);
+            for (const publication of publications) {
+                expect(publication.checkpoint.tabs[0]!.fileName).toBe('a46-replacement.pdf');
+                expect(publication.checkpoint.tabs[0]!.sourceRef).toContain('a46-replacement.pdf');
+            }
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).inputValue()).toBe(replacementNote);
+            await page.screenshot({path: resolve(evidenceDir, 'restored.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+            await context.close();
+        }
+    }, 90_000);
+
     it('places a new note over an imported highlight without moving the highlight', async () => {
         const pdf = await PDFDocument.create();
         const pagePdf = pdf.addPage([
