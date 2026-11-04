@@ -126,25 +126,18 @@ export function createBrowserScanCleanupDetectionOwner() {
     // its completed state has read the store's counts.
     const unkeptStoreByJob = new Map<string, string>();
     const ownerStore = new Map<string, string>();
-    // Every page's detected layout, read once per store state: the renderer
-    // keeps only a bounded window of them, and the matched canvas needs all.
-    const layoutsByStore = new WeakMap<IScanCleanupDetectionResultStore, {
-        resultCount: number;
-        layoutByPage: NonNullable<IScanCleanupPreviewRequest['layoutByPage']>;
-    }>();
-    async function readStoreLayouts(store: IScanCleanupDetectionResultStore) {
-        const cached = layoutsByStore.get(store);
-        const resultCount = store.resultCount;
-        if (cached?.resultCount === resultCount) return cached.layoutByPage;
+    // Every page's detected layout: the renderer keeps only a bounded window
+    // of them, and the matched canvas needs all. A running job still appends
+    // and reconciles, so only a finished job's kept store is read once.
+    const keptLayouts = new WeakMap<IScanCleanupDetectionResultStore, NonNullable<IScanCleanupPreviewRequest['layoutByPage']>>();
+    async function readStoreLayouts(store: IScanCleanupDetectionResultStore, finished: boolean) {
+        const kept = keptLayouts.get(store);
+        if (kept) return kept;
         const layoutByPage: NonNullable<IScanCleanupPreviewRequest['layoutByPage']> = {};
         await store.forEachChunk((results) => {
             for (const result of results) layoutByPage[String(result.pageNumber)] = result.classification;
         });
-        // Results appended during the scan leave it stale for the next read.
-        layoutsByStore.set(store, {
-            resultCount,
-            layoutByPage,
-        });
+        if (finished) keptLayouts.set(store, layoutByPage);
         return layoutByPage;
     }
     const closeIfIdle = (entry: IStoreEntry) => {
@@ -350,15 +343,15 @@ export function createBrowserScanCleanupDetectionOwner() {
                 documentRevision: request.documentRevision,
                 detectionSignature,
             };
-            const lease = (running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity))
-                ?? leaseStore(ownerStore.get(request.ownerId), identity);
+            const live = running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity);
+            const lease = live ?? leaseStore(ownerStore.get(request.ownerId), identity);
             if (lease === null) return request;
             try {
                 const result = await lease.store.getPage(request.pageNumber);
                 const layouts = request.options.matchPageSize
                     ? {layoutByPage: {
                         ...request.layoutByPage,
-                        ...await readStoreLayouts(lease.store),
+                        ...await readStoreLayouts(lease.store, live === null),
                     }}
                     : {};
                 // The plan travels with the page view it was measured on.
