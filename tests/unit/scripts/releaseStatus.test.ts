@@ -20,38 +20,84 @@ const assets = [
     `EVB-Viewer-${version}-win-arm64-provenance.json`,
     'SHA256SUMS',
 ];
-const deps = (releaseAssets: string[], isDraft = false) => ({
+const servedMirror = async ({tag}: {tag: string}) => ({
+    publicRoute: true,
+    tag,
+});
+const deps = (releaseAssets: string[], isDraft = false, {
+    conclusion = 'success',
+    verifyMirrorObjectsFn = servedMirror,
+}: {
+    conclusion?: string;
+    verifyMirrorObjectsFn?: (options: {tag: string}) => Promise<{
+        publicRoute: boolean;
+        tag: string
+    }>;
+} = {}) => ({
+    env: {},
     runCommand: () => JSON.stringify({
         assets: releaseAssets.map(name => ({name})),
         isDraft,
         publishedAt: null,
         tagName: 'v1.2.3',
     }),
-    listWorkflowRunsFn: () => [{
-        displayTitle: 'Release v1.2.3',
-        status: 'completed',
-        conclusion: 'success',
-        url: 'https://example.test/run',
-    }],
+    listWorkflowRunsFn: () => [
+        {
+            displayTitle: 'Release v1.2.30',
+            status: 'completed',
+            conclusion: 'success',
+            url: 'https://example.test/run-v1.2.30',
+        },
+        {
+            displayTitle: 'Release v1.2.3',
+            status: 'completed',
+            conclusion,
+            url: 'https://example.test/run',
+        },
+    ],
+    verifyMirrorObjectsFn,
 });
 
 describe('release status', () => {
-    it('requires every package target, checksums, and release completion', () => {
-        const status = summarizeReleaseStatus('v1.2.3', deps(assets));
+    it('requires every package target, checksums, and release completion', async () => {
+        const status = await summarizeReleaseStatus('v1.2.3', deps(assets));
         expect(status.complete).toBe(true);
         expect(status.missing).toEqual([]);
         expect(formatReleaseStatus(status)).toContain('required assets: complete');
         expect(status.workflow?.conclusion).toBe('success');
+        expect(status.workflow?.url, 'the run of this exact tag, not of v1.2.30').toBe('https://example.test/run');
     });
 
-    it('reports missing assets and keeps drafts in progress', () => {
-        const status = summarizeReleaseStatus('v1.2.3', deps(assets.slice(0, 4), true));
+    it('reports missing assets and keeps drafts in progress', async () => {
+        const status = await summarizeReleaseStatus('v1.2.3', deps(assets.slice(0, 4), true));
         expect(status.complete).toBe(false);
         expect(status.state).toBe('in-progress');
         expect(status.missing).toContain('EVB-Viewer-1.2.3-arm64-setup.exe');
     });
 
-    it('accepts stable tags only', () => {
-        expect(() => summarizeReleaseStatus('v1.2.3-drill.4', deps(assets))).toThrow('Expected a release tag');
+    it('accepts stable tags only', async () => {
+        await expect(summarizeReleaseStatus('v1.2.3-drill.4', deps(assets))).rejects.toThrow('Expected a release tag');
+    });
+
+    it('keeps a public release incomplete until the updater mirror is shown to serve it', async () => {
+        for (const conclusion of [
+            'failure',
+            'success',
+        ]) {
+            const status = await summarizeReleaseStatus('v1.2.3', deps(assets, false, {
+                conclusion,
+                verifyMirrorObjectsFn: async () => {
+                    throw new Error('Mirror channel points to v1.2.2, expected v1.2.3');
+                },
+            }));
+            expect(status.complete, `${conclusion} run, mirror on the previous tag`).toBe(false);
+            expect(status.mirror).toContain('v1.2.2');
+        }
+    });
+
+    it('reports complete when the served result is proven, even after a failed earlier run', async () => {
+        const status = await summarizeReleaseStatus('v1.2.3', deps(assets, false, {conclusion: 'failure'}));
+        expect(status.complete).toBe(true);
+        expect(status.mirror).toBe('matches v1.2.3');
     });
 });
