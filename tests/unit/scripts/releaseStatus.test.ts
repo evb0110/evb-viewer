@@ -5,6 +5,8 @@ import {
     formatReleaseStatus, summarizeReleaseStatus,
 } from '@scripts/release/release-status.mjs';
 
+import {verifyMirrorObjects} from '@scripts/release/verifyReleaseMirror.mjs';
+
 const version = '1.2.3';
 const assets = [
     `EVB-Viewer-${version}-arm64.dmg`,
@@ -100,4 +102,23 @@ describe('release status', () => {
         expect(status.complete).toBe(true);
         expect(status.mirror).toBe('matches v1.2.3');
     });
+
+    it('keeps status incomplete when the manifest serves only its first asset', async () => {
+        const status = await summarizeReleaseStatus('v1.2.3', deps(assets, false, {verifyMirrorObjectsFn: options => verifyMirrorObjects({
+            ...options,
+            fetchFn: async (url) => {
+                const requestUrl = String(url);
+                if (requestUrl.endsWith('/stable.json')) return Response.json({release: {tag: 'v1.2.3'}});
+                if (requestUrl.endsWith('/manifest.json')) return Response.json({
+                    release: {tag: 'v1.2.3'},
+                    assets: assets.map(name => ({name})),
+                });
+                return new Response(null, {status: requestUrl.endsWith(`/${assets[0]}`) ? 200 : 404});
+            },
+        })}));
+        expect(status.missing).toEqual([]);
+        expect(status.complete).toBe(false);
+        expect(status.mirror).toContain(`${assets[1]} returned HTTP 404`);
+    });
+
 });
