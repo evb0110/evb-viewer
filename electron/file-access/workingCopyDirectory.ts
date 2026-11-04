@@ -32,6 +32,7 @@ import {
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {createLogger} from '@electron/utils/createLogger';
 import {fsyncDirectorySync} from '@electron/utils/fsyncPath';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'ENOTSUP',
@@ -306,7 +307,7 @@ export async function copyFileFromStableSource(
             }
             options.signal?.throwIfAborted();
             hash?.update(buffer.subarray(0, length));
-            await targetHandle.write(buffer, 0, length, Number(offset));
+            await writeFileHandleFully(targetHandle, buffer.subarray(0, length), Number(offset));
             offset += BigInt(length);
             if (offset < sourceStat.size) {
                 await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));

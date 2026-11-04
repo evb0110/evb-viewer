@@ -230,4 +230,44 @@ describe('workingCopyDirectory', () => {
             });
         }
     });
+
+    it('copies every byte when the target accepts only part of each write', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-stable-copy-test-'));
+        const sourcePath = join(root, 'source.pdf');
+        const targetPath = join(root, 'target.pdf');
+        const source = Buffer.from(Array.from({length: 2 * 1024 * 1024 + 33}, (_, index) => index % 251));
+        writeFileSync(sourcePath, source);
+        try {
+            // A write may report success after writing only some of the bytes.
+            vi.doMock('fs/promises', async importOriginal => {
+                const original = await importOriginal<typeof FsPromises>();
+                return {
+                    ...original,
+                    open: async (...args: Parameters<typeof original.open>) => {
+                        const handle = await original.open(...args);
+                        if (args[0] === targetPath) {
+                            const write = handle.write.bind(handle);
+                            handle.write = ((buffer: Uint8Array, offset: number, length: number, position: number) => write(
+                                buffer,
+                                offset,
+                                Math.max(1, Math.floor(length / 2)),
+                                position,
+                            )) as typeof handle.write;
+                        }
+                        return handle;
+                    },
+                };
+            });
+            vi.resetModules();
+            const {copyFileFromStableSource} = await import('@electron/file-access/workingCopyDirectory');
+            await copyFileFromStableSource(sourcePath, targetPath);
+
+            expect(readFileSync(targetPath).equals(source)).toBe(true);
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 });
