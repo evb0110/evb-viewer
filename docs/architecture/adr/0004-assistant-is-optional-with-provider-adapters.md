@@ -71,11 +71,20 @@ implementation demonstrates a schema change.
 
 ### Legacy document scope migration
 
-Schema-1 conversations keyed by a former document opening are adopted by the
-stable backend/file scope. Meaningful history wins over an empty canonical
-session; recency and then the session key break ties. The chosen transcript
-keeps its provider thread id. Original records, including nonselected history,
-remain as migration backups outside ordinary archive pruning.
+This migration preserves schema version 1. Legacy conversations have a scope
+key `document-session:<opening-id>`, which changes on each opening. Their
+persisted session key is `<provider>:document-session:<opening-id>`, and their
+scope metadata supplies the document reference. They are adopted by scope
+`document:<backend>:<documentRef>`, whose backend and file reference remain
+stable across openings, with persisted key
+`<provider>:document:<backend>:<documentRef>`. For example,
+`codex:document-session:a` for `/tmp/a.pdf` becomes
+`codex:document:electron:/tmp/a.pdf`.
+
+Meaningful history wins over an empty canonical session; recency and then the
+session key break ties. The chosen transcript keeps its provider thread id.
+Original records, including nonselected history, remain as migration backups
+outside ordinary archive pruning.
 
 The persistence owner publishes the canonical snapshot before retiring old
 live sources, then publishes the index before marking migration complete.
@@ -83,7 +92,8 @@ A failed publication remains retryable through the same owner or after restart.
 Startup migration follows the settled write queue without inheriting an
 unrelated snapshot failure; explicit flush and direct recovery still report
 failed writes and retain pending snapshots for retry. Remove this compatibility
-pass only when pre-file-key schema-1 stores no longer require upgrade support.
+pass only when importing schema-1 stores with `document-session:` scope keys
+from releases before `004d174623` is no longer supported.
 
 ### MCP boundary
 

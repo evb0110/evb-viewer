@@ -1376,9 +1376,20 @@ describe('bookmark replacement confirmation', () => {
                     },
                 ],
             ] as const) {
-            const dryRun = await runAction(options, id, input, {dryRun: true});
+            const dryRun = await runAction(options, id, input, {
+                tabId: 'tab-1',
+                dryRun: true,
+            });
             expect(dryRun?.result).toMatchObject({structuredContent: {dryRun: true}});
-            expect(bookmarkItems.value).toEqual(before);
+            expect(options.runCommand).toHaveBeenLastCalledWith({
+                name: 'run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id,
+                    input,
+                    dryRun: true,
+                },
+            }, undefined);
         }
         const rename = await runAction(options, 'bookmarks.update', {
             path: [0],

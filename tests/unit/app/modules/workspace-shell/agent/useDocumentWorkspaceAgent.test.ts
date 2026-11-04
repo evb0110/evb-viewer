@@ -527,9 +527,20 @@ describe('createDocumentWorkspaceAgent', () => {
     it('validates action id and required input before reporting a dry-run would run', async () => {
         const showSidebar = ref(false);
         const sidebarTab = ref<'annotations' | 'bookmarks' | 'thumbnails' | 'search'>('annotations');
+        const before = [createBookmark('Parent', [createBookmark('Child')])];
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>(before);
+        const bookmarksDirty = ref(false);
         const agent = createDocumentWorkspaceAgent(createAgentOptions({
             showSidebar,
             sidebarTab,
+            bookmarkItems,
+            bookmarksDirty,
+            handleBookmarksChange: ({
+                bookmarks, dirty,
+            }) => {
+                bookmarkItems.value = bookmarks;
+                bookmarksDirty.value = dirty;
+            },
         }));
 
         await expect(agent.runAgentAction('missing.action', {}, {dryRun: true}))
@@ -556,6 +567,41 @@ describe('createDocumentWorkspaceAgent', () => {
             });
         expect(showSidebar.value).toBe(false);
         expect(sidebarTab.value).toBe('annotations');
+
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.set_tree',
+                    {bookmarks: []},
+                ],
+                [
+                    'bookmarks.apply_plan',
+                    {entries: []},
+                ],
+                [
+                    'bookmarks.update',
+                    {
+                        path: [0],
+                        children: [],
+                    },
+                ],
+            ] as const) {
+            await expect(agent.runAgentAction(id, input, {dryRun: true}))
+                .resolves.toMatchObject({
+                    ok: true,
+                    actionId: id,
+                    dryRun: true,
+                    wouldRun: true,
+                });
+            expect(bookmarkItems.value).toEqual(before);
+            expect(bookmarksDirty.value).toBe(false);
+        }
+
+        await agent.runAgentAction('bookmarks.set_tree', {bookmarks: []});
+        expect(bookmarkItems.value).toEqual([]);
+        expect(bookmarksDirty.value).toBe(true);
     });
 
     it('does not create phantom view state when the active viewer lacks a capability', async () => {
