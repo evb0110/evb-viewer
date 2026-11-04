@@ -35,8 +35,10 @@ import {
 } from '@electron/file-access/workingCopyDirectory';
 import {
     captureWorkingCopyAdmissionSnapshot,
+    findWorkingCopyPathByOriginalPath,
     forgetRetiredWorkingCopyOriginal,
     getWorkingCopyBackingEntry,
+    getWorkingCopyOriginalFileExpectation,
     getWorkingCopyOriginalPath,
     getWorkingCopyRole,
     hasWorkingCopyRecoveryClaim,
@@ -318,9 +320,20 @@ export async function createWorkingCopyFromPath(
 
         const role = options.role ?? (getWorkingCopyOriginalPath(sourcePath, ownerWebContentsId) ? 'snapshot' : 'current');
         if (mappedOriginalPath) {
+            // A copy of a working copy, such as an Undo restoring an older
+            // one, holds that document's bytes, not the original's on disk:
+            // it keeps the document's admitted original, which a save has
+            // moved on and an external edit has not.
+            const documentWorkingPath = sourcePath === mappedOriginalPath
+                ? null
+                : findWorkingCopyPathByOriginalPath(mappedOriginalPath, ownerWebContentsId);
+            const originalFileExpectation = documentWorkingPath
+                ? getWorkingCopyOriginalFileExpectation(documentWorkingPath, ownerWebContentsId)
+                : null;
             await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
                 backingState: 'eager',
                 ...(copiedSourceFingerprint ? {copiedSourceFingerprint} : {}),
+                ...(originalFileExpectation ? {originalFileExpectation} : {}),
                 role,
             });
         }
