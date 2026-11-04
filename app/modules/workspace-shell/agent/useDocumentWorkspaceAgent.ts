@@ -132,6 +132,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         annotationTool,
         bookmarkItems,
         bookmarksDirty,
+        getBookmarksRevision,
         canSave,
         canUndo,
         canRedo,
@@ -229,6 +230,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
     const bookmarksAgent = createDocumentAgentBookmarks({
         bookmarkItems,
         bookmarksDirty,
+        getBookmarksRevision,
         handleBookmarksChange,
         t,
         totalPages,

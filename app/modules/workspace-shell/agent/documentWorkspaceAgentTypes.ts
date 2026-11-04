@@ -37,6 +37,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     annotationTool: Ref<TAnnotationTool>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
+    getBookmarksRevision: () => number;
     canSave: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;

@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 import {
     describe,
     expect,
@@ -178,6 +179,7 @@ function createAgentOptions(
         handleBookmarksChange: vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         }),
+        getBookmarksRevision: () => 0,
         updateTextMarkupColorWithHistory: vi.fn(() => true),
         handleDeleteAnnotationComment: vi.fn(async () => undefined),
         handleDropdownOpen: vi.fn(),
@@ -1371,6 +1373,55 @@ describe('createDocumentWorkspaceAgent', () => {
             },
             template.inputSchema,
         )).toThrow(/did not match its advertised schema/u);
+    });
+
+    it('refuses a bookmark write by path once the reader has changed the outline since it was read', async () => {
+        const bookmarkState = useBookmarkState({markDirty: vi.fn()});
+        const entry = (title: string, pageIndex: number): IPdfBookmarkEntry => ({
+            title,
+            pageIndex: requirePageIndex(pageIndex),
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        });
+        bookmarkState.handleBookmarksChange({
+            bookmarks: [
+                entry('A', 0),
+                entry('B', 1),
+                entry('C', 2),
+            ],
+            dirty: false,
+        });
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            ...bookmarkState,
+            totalPages: ref(3),
+        }));
+        const read = await agent.runAgentAction('bookmarks.read', {}) as {revision: number};
+
+        // The reader deletes A in the sidebar; path [1] now names C.
+        bookmarkState.handleBookmarksChange({
+            bookmarks: bookmarkState.bookmarkItems.value.slice(1),
+            dirty: true,
+        });
+        await expect(agent.runAgentAction('bookmarks.delete', {
+            path: [1],
+            revision: read.revision,
+        })).rejects.toThrow(/changed since revision/u);
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
+            'B',
+            'C',
+        ]);
+
+        const reread = await agent.runAgentAction('bookmarks.read', {}) as {revision: number};
+        const deleted = await agent.runAgentAction('bookmarks.delete', {
+            path: [1],
+            revision: reread.revision,
+        }) as {revision: number};
+        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual(['B']);
+        expect(deleted.revision, 'the write returns the revision after it').toBeGreaterThan(reread.revision);
     });
 
     it('lets file.save observe save readiness after an immediate bookmark action', async () => {

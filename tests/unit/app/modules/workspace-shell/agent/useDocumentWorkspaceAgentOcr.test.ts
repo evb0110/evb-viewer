@@ -60,6 +60,7 @@ function createAgentOptions(
         handleBookmarksChange: vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         }),
+        getBookmarksRevision: () => 0,
         updateTextMarkupColorWithHistory: vi.fn(() => true),
         handleDeleteAnnotationComment: vi.fn(async () => undefined),
         handleDropdownOpen: vi.fn(),
