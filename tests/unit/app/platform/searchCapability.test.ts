@@ -996,7 +996,7 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
-        expect(record.version).toBe(9);
+        expect(record.version).toBe(10);
         expect(record.pageCount).toBe(3);
         expect(record.pages).toEqual([{
             pageNumber: 2,
