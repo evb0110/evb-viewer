@@ -347,7 +347,10 @@ pub(crate) fn resolve_page_user_unit(
     let Some(object) = dict.get(b"UserUnit").ok() else {
         return Ok(1.0);
     };
-    let resolved = document.resolved(object)?;
+    // A reference that does not resolve is malformed too.
+    let Ok(resolved) = document.resolved(object) else {
+        return Ok(1.0);
+    };
     let value = match resolved {
         Object::Integer(value) => *value as f64,
         Object::Real(value) => f64::from(*value),

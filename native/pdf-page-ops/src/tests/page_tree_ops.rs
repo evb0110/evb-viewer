@@ -1005,3 +1005,135 @@ fn browser_page_labels_accept_flat_indirect_nums() {
         assert_eq!(geometry.crop_box.unwrap().height(), 80.0);
         assert_eq!(geometry.rotation, 90);
     }
+
+#[test]
+fn browser_page_rewrites_keep_page_numbers_for_an_empty_label_tree() {
+    for empty_tree in [
+        dictionary! {"Nums" => Vec::<Object>::new()},
+        dictionary! {"Kids" => Vec::<Object>::new()},
+    ] {
+        let mut source = Document::with_version("1.4");
+        let pages_id = source.new_object_id();
+        let page_ids = (0..3)
+            .map(|_| {
+                source.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                })
+            })
+            .collect::<Vec<_>>();
+        source.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_ids.len() as i64,
+            },
+        );
+        let catalog = source.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "PageLabels" => empty_tree,
+        });
+        source.trailer.set("Root", catalog);
+        let mut source_bytes = Vec::new();
+        source.save_to(&mut source_bytes).unwrap();
+
+        let result = delete_browser_pdf_pages(&source_bytes, &[2]).unwrap();
+        let output = Document::load_mem(&result.data).unwrap();
+        let page_labels = resolve_dictionary_object(
+            &output,
+            output.catalog().unwrap().get(b"PageLabels").unwrap(),
+            "PageLabels",
+        )
+        .unwrap();
+        let labels = page_labels
+            .get(b"Nums")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .chunks_exact(2)
+            .map(|pair| {
+                let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
+                lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(labels, ["1", "3"]);
+    }
+}
+
+#[test]
+fn browser_page_rewrites_keep_a_long_flat_outline() {
+    const BOOKMARKS: usize = 20_000;
+    let mut source = Document::with_version("1.4");
+    let pages_id = source.new_object_id();
+    let page_ids = (0..2)
+        .map(|_| {
+            source.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    source.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let outlines_id = source.new_object_id();
+    let bookmark_ids = (0..BOOKMARKS)
+        .map(|_| source.new_object_id())
+        .collect::<Vec<_>>();
+    for (index, id) in bookmark_ids.iter().copied().enumerate() {
+        let mut bookmark = dictionary! {
+            "Title" => lopdf::text_string(&format!("Section {index}")),
+            "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page_ids[0]), "Fit".into()],
+        };
+        if index > 0 {
+            bookmark.set("Prev", bookmark_ids[index - 1]);
+        }
+        if index + 1 < BOOKMARKS {
+            bookmark.set("Next", bookmark_ids[index + 1]);
+        }
+        source.set_object(id, bookmark);
+    }
+    source.set_object(
+        outlines_id,
+        dictionary! {
+            "Type" => "Outlines",
+            "First" => bookmark_ids[0],
+            "Last" => bookmark_ids[BOOKMARKS - 1],
+            "Count" => BOOKMARKS as i64,
+        },
+    );
+    let catalog = source.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "Outlines" => outlines_id,
+    });
+    source.trailer.set("Root", catalog);
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+
+    let result = delete_browser_pdf_pages(&source_bytes, &[2]).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+    let outlines = resolve_dictionary_object(
+        &output,
+        output.catalog().unwrap().get(b"Outlines").unwrap(),
+        "Outlines",
+    )
+    .unwrap();
+    let mut count = 0;
+    let mut cursor = outlines.get(b"First").ok().cloned();
+    while let Some(Object::Reference(id)) = cursor {
+        count += 1;
+        cursor = output.get_dictionary(id).unwrap().get(b"Next").ok().cloned();
+    }
+    assert_eq!(count, BOOKMARKS);
+}

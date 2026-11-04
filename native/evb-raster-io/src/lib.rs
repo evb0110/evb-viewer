@@ -517,7 +517,11 @@ fn write_png_row(
         }
         PngColorType::Rgb8 | PngColorType::Rgba8 => {
             for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
-                *target = luma(pixel);
+                *target = if transparency == Some(PngTransparencyKey::rgb(pixel)) {
+                    255
+                } else {
+                    luma(pixel)
+                };
             }
             if let Some(rgb_row) = rgb_row {
                 for (target, pixel) in rgb_row
@@ -1037,22 +1041,55 @@ struct PngHeader {
     interlace_method: u8,
     ihdr: [u8; 13],
 }
+/// Adam7 passes as (first column, first row, column step, row step).
+const ADAM7_PASSES: [(u32, u32, u32, u32); 7] = [
+    (0, 0, 8, 8),
+    (4, 0, 8, 8),
+    (0, 4, 4, 8),
+    (2, 0, 4, 4),
+    (0, 2, 2, 4),
+    (1, 0, 2, 2),
+    (0, 1, 1, 2),
+];
+
 impl PngHeader {
+    /// Filtered image data length: one filter byte and the packed samples of
+    /// every row, and with Adam7 the rows of every nonempty pass.
     fn expected_data_len(self) -> Result<usize, RasterError> {
         let bits_per_pixel = self
             .color_type
             .channels()
             .checked_mul(self.bit_depth as usize)
             .ok_or_else(|| RasterError::invalid("Invalid PNG bits per pixel"))?;
-        let row_bytes = (self.width as usize)
-            .checked_mul(bits_per_pixel)
-            .and_then(|value| value.checked_add(7))
-            .map(|value| value / 8)
-            .ok_or_else(|| RasterError::invalid("Invalid PNG image row length"))?;
-        row_bytes
-            .checked_add(1)
-            .and_then(|value| value.checked_mul(self.height as usize))
-            .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))
+        let filtered_len = |width: u32, height: u32| {
+            (width as usize)
+                .checked_mul(bits_per_pixel)
+                .and_then(|value| value.checked_add(7))
+                .map(|value| value / 8 + 1)
+                .and_then(|row| row.checked_mul(height as usize))
+                .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))
+        };
+        if self.interlace_method == 0 {
+            return filtered_len(self.width, self.height);
+        }
+        let pass_extent =
+            |size: u32, start: u32, step: u32| size.saturating_sub(start).div_ceil(step);
+        ADAM7_PASSES
+            .iter()
+            .try_fold(0usize, |total, &(x0, y0, dx, dy)| {
+                let (width, height) = (
+                    pass_extent(self.width, x0, dx),
+                    pass_extent(self.height, y0, dy),
+                );
+                let pass = if width == 0 || height == 0 {
+                    0
+                } else {
+                    filtered_len(width, height)?
+                };
+                total
+                    .checked_add(pass)
+                    .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))
+            })
     }
 }
 struct WalkedPng {
