@@ -983,6 +983,64 @@ describe('scan cleanup renderer preference store', () => {
         }
     });
 
+    it('takes the document-wide settings another view saved when it comes on screen, keeping its own edit', async () => {
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const sourceSha256 = 'b'.repeat(64);
+        const active = ref(false);
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => sourceSha256),
+                sourceSha256: computed(() => sourceSha256),
+                active: () => active.value,
+            });
+            return () => h('output', JSON.stringify({
+                outputMode: settings.values.outputMode,
+                marginsMm: settings.values.marginsMm,
+                defaultRotation: settings.values.pageOverrideDefaults?.rotationDegrees,
+            }));
+        }}));
+        app.mount(host);
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            settings.values.outputMode = 'grayscale';
+            const savedMargins = {
+                leftMm: 11,
+                topMm: 12,
+                rightMm: 13,
+                bottomMm: 14,
+            };
+            await store.update({document: {
+                sourceSha256,
+                patch: {
+                    outputMode: 'bw',
+                    marginsMm: savedMargins,
+                    pageOverrideDefaults: createScanCleanupPageOverride({rotationDegrees: 90}),
+                },
+            }});
+
+            active.value = true;
+
+            await vi.waitFor(() => expect(JSON.parse(host.textContent ?? '{}')).toEqual({
+                outputMode: 'grayscale',
+                marginsMm: savedMargins,
+                defaultRotation: 90,
+            }));
+            await flushScanCleanupDocumentPreferencesStore();
+            expect((await store.get()).documentOverrides[sourceSha256]).toMatchObject({
+                outputMode: 'grayscale',
+                marginsMm: savedMargins,
+                pageOverrideDefaults: {rotationDegrees: 90},
+            });
+        } finally {
+            app.unmount();
+            await flushScanCleanupDocumentPreferencesStore();
+            await store.get();
+        }
+    });
+
     it('keeps cleanup settings unavailable when document hydration fails', async () => {
         const failure = new Error('document settings unavailable');
         capability.value.getSettings
