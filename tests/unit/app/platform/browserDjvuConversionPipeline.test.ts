@@ -264,6 +264,64 @@ describe('browserDjvuConversionPipeline', () => {
         }
     });
 
+    it('fails a conversion that keeps bookmarks when the outline cannot be read', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        mocks.createWorker.mockResolvedValueOnce({
+            doc: {getContents: () => ({run: async () => {
+                throw new Error('NAVM chunk could not be decoded');
+            }})},
+            terminate: vi.fn(),
+        });
+        mocks.getPageSizes.mockResolvedValueOnce([{
+            width: 100,
+            height: 100,
+            dpi: 300,
+        }]);
+        mocks.buildCompactPage.mockResolvedValueOnce({
+            route: 'photo',
+            spec: {
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: 'page.ppm',
+                    data: new Uint8Array([
+                        0x50,
+                        0x36,
+                    ]),
+                },
+            },
+        });
+        mocks.combineWorker.mockResolvedValueOnce({data: new Uint8Array([
+            0x25,
+            0x50,
+            0x44,
+            0x46,
+        ])});
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId: requireJobId('djvu-outline-unreadable'),
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: true,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                error: expect.stringContaining('NAVM'),
+            });
+        } finally {
+            stat.mockRestore();
+        }
+    });
+
     it('reports text that only an unsampled middle page carries', async () => {
         // First, middle and last pages of five are 1, 3 and 5; only page 2 has text.
         const pageTexts = [
