@@ -83,6 +83,16 @@ function publishBackingStatus(dispatch: IWorkingCopyBackingStatusDispatch) {
         registrationId: dispatch.registrationId,
         status,
     });
+    // A record lives as long as its registration; a closed document's goes
+    // with the next publish instead of staying for the life of the app.
+    for (const [
+        path,
+        record,
+    ] of latestBackingStatus) {
+        if (getWorkingCopyBackingEntry(record.status.documentRef)?.registrationId !== record.registrationId) {
+            latestBackingStatus.delete(path);
+        }
+    }
     for (const listener of listeners) {
         listener({
             ...dispatch,
