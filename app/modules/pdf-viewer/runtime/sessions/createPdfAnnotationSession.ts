@@ -611,10 +611,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         const requestedPageNumber = Number.isFinite(target.pageNumber)
             ? Math.max(1, Math.trunc(target.pageNumber))
             : viewport.currentPage.value;
-        const pageNumber = requirePageNumber(
-            requestedPageNumber,
-            documentSession.numPages.value > 0 ? documentSession.numPages.value : undefined,
-        );
+        const pageNumber = requirePageNumber(requestedPageNumber);
         const requestedText = target.text.trim();
         const occurrence = typeof target.occurrence === 'number' && Number.isFinite(target.occurrence)
             ? Math.max(1, Math.trunc(target.occurrence))
@@ -668,7 +665,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             style: requestedStyle,
             withNote: target.withNote === true,
             requireActiveTool: false,
-        });
+        }, isCurrent);
         if (outcome.status === 'cancelled') {
             return result(false, match.matchedText, 'The document changed before the text markup was created.');
         }
