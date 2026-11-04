@@ -85,7 +85,7 @@ const documentRef = (page: Page) => page.evaluate(() => (Reflect.get(window, '__
 // The tab holds a document again, and not the one it held before.
 const newDocumentRef = async (page: Page, previous: string | undefined) => {
     const ref = await documentRef(page);
-    return typeof ref === 'string' && ref !== previous;
+    return typeof ref === 'string' && ref.length > 0 && ref !== previous;
 };
 
 
@@ -343,8 +343,13 @@ describe('browser Scan Cleanup workspace', () => {
             await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
-            await writeFile(join(evidenceRoot, 'case-1-views-console.json'), JSON.stringify(problems, null, 2));
-            await context.close();
+            try {
+                await writeFile(join(evidenceRoot, 'case-1-views-console.json'), JSON.stringify(problems, null, 2));
+            } catch (error) {
+                console.warn('Views evidence was not written', error);
+            } finally {
+                await context.close();
+            }
         }
     }, scanCleanupUiTimeoutMs);
 
