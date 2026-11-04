@@ -118,4 +118,50 @@ describe('PDF embedded shape index IPC contracts', () => {
             }],
         })).toThrow(/objectNumber/iu);
     });
+
+    it('reads a shape date before 1970 as unknown and still refuses a fractional one', () => {
+        const chunkCodec = codecs[channels.readPdfEmbeddedShapeIndexChunk]!;
+        const chunkWithDates = (createdAt: number, modifiedAt: number) => ({
+            offset: 0,
+            nextOffset: null,
+            byteLength: 0,
+            done: true,
+            entries: [{
+                pageIndex: 0,
+                objectNumber: 17,
+                generationNumber: 0,
+                stableKey: 'shape-17',
+                pdfSubtype: 'Square',
+                type: 'rectangle',
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                x2: null,
+                y2: null,
+                color: '#000000',
+                fillColor: null,
+                opacity: 1,
+                strokeWidth: 1,
+                points: null,
+                strokes: null,
+                lineStartStyle: null,
+                lineEndStyle: null,
+                createdAt,
+                modifiedAt,
+            }],
+        });
+
+        expect(chunkCodec.decodeResult(chunkWithDates(-1_000, -2_000))).toMatchObject({entries: [{
+            stableKey: 'shape-17',
+            createdAt: null,
+            modifiedAt: null,
+        }]});
+        expect(chunkCodec.decodeResult(chunkWithDates(1_000, 2_000))).toMatchObject({entries: [{
+            createdAt: 1_000,
+            modifiedAt: 2_000,
+        }]});
+        expect(() => chunkCodec.decodeResult(chunkWithDates(-1.5, 0))).toThrow(/createdAt/iu);
+    });
 });
+
