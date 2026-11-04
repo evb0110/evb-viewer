@@ -299,39 +299,18 @@ export async function runOcrFileBased(
         };
     };
 
-    let stderrText: string;
-    let tsvContent: string;
     try {
-        stderrText = await runTesseract(run, outputBase, languages, {
+        const stderrText = await runTesseract(run, outputBase, languages, {
             pdf: true,
             tsv: true,
         });
-        tsvContent = (await readUtf8FileBounded(tsvPath, TESSERACT_MAX_TSV_BYTES)).trim();
-    } catch (error) {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-        const result = await failure(getErrorMessage(error));
-        if (isAbortError(error) || signal?.aborted) {
-            throw error;
-        }
-        return result;
-    }
-
-    let earlyPrint: Awaited<ReturnType<typeof readEarlyPrint>>;
-    try {
-        earlyPrint = prepareEarlyPrintModels === undefined || !canReadEarlyPrint(languages)
+        const tsvContent = (await readUtf8FileBounded(tsvPath, TESSERACT_MAX_TSV_BYTES)).trim();
+        const earlyPrint = prepareEarlyPrintModels === undefined || !canReadEarlyPrint(languages)
             ? {
                 tsvContent,
                 wordEdits: [],
             }
             : await readEarlyPrint(run, outputBase, languages, tsvContent, prepareEarlyPrintModels);
-    } catch (error) {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-        // Canceled while the early-print models were prepared or read: the
-        // first pass's PDF and TSV go too, as they do for a canceled first pass.
-        await failure(getErrorMessage(error));
-        throw error;
-    }
-    try {
         const parsedTsv = parseTsvOcrData(earlyPrint.tsvContent, {}, earlyPrint.wordEdits);
         const {words} = parsedTsv;
         let pageText = parsedTsv.text;
@@ -360,7 +339,10 @@ export async function runOcrFileBased(
             },
             pdfPath,
         };
-    } catch (parseError) {
-        return failure(getErrorMessage(parseError));
+    } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        const result = await failure(getErrorMessage(error));
+        if (isAbortError(error) || signal?.aborted) throw error;
+        return result;
     }
 }
