@@ -1,4 +1,6 @@
 import { ref } from 'vue';
+import {cast} from '@tests/helpers/cast';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 import {
     describe,
@@ -1721,6 +1723,54 @@ describe('createDocumentWorkspaceAgent', () => {
             stableKey: comment.stableKey,
             text: 'Updated note',
         }), 'Updated note');
+    });
+
+    it('undoes an assistant note edit back to the open, unsaved draft', async () => {
+        const comment = createAnnotationComment({
+            text: 'Original note',
+            hasNote: true,
+            kindLabel: 'Note',
+            subtype: 'Text',
+        });
+        const annotationId = annotationIdForSummary(comment);
+        // The reader typed into the open note; the debounce has not saved it.
+        const noteWindows = ref([cast<IAnnotationNoteWindowViewModel>({
+            annotationId,
+            draftText: 'Reader draft',
+            dirty: true,
+        })]);
+        const updateAnnotationNoteText = vi.fn((id: string, text: string) => {
+            noteWindows.value = noteWindows.value.map(note => note.annotationId === id ? {
+                ...note,
+                draftText: text,
+            } : note);
+        });
+        const historyCommands: Array<{
+            cmd: () => void;
+            undo: () => void;
+        }> = [];
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            annotationComments: ref([comment]),
+            sortedAnnotationNoteWindows: noteWindows,
+            updateAnnotationNoteText,
+            pdfViewerRef: ref(createAgentViewerPort({registerAnnotationHistoryCommand: vi.fn((command: {
+                cmd: () => void;
+                undo: () => void;
+            }) => {
+                historyCommands.push(command);
+            })})),
+        }));
+
+        // Back to the stored text: still a change from what the reader sees.
+        await agent.runAgentAction('annotation.update_note', {
+            stableKey: comment.stableKey,
+            text: 'Original note',
+        });
+        expect(noteWindows.value[0]?.draftText).toBe('Original note');
+        expect(historyCommands).toHaveLength(1);
+
+        historyCommands[0]!.undo();
+        expect(noteWindows.value[0]?.draftText, 'Undo brings back the reader draft').toBe('Reader draft');
     });
 
     it('passes an exact compact selection to page-operation actions', async () => {
