@@ -502,17 +502,20 @@ describe('workspace checkpoint latest-only writer', () => {
         firstGate.resolve();
 
         await activeSave;
-        await expect(staleClaim).resolves.toMatchObject({capturedAt: 1});
+        // Discard installs its claim barrier synchronously, even while the
+        // earlier save still holds the disk writer. The retiring owner cannot
+        // be reclaimed or implicitly resumed by this already queued claim.
+        await expect(staleClaim).resolves.toBeNull();
         const discardToken = await discard;
         await retiringRendererSave;
         await saveWorkspaceCheckpoint(createCheckpoint(3), 10);
         expect(await readRecords()).toEqual([]);
-        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
+        expect(mocks.atomicReplace).toHaveBeenCalledOnce();
 
         resumeWorkspaceCheckpoint(10, discardToken);
         await saveWorkspaceCheckpoint(createCheckpoint(4), 10);
         expect(await capturedAtOf(10)).toBe(4);
-        expect(mocks.atomicReplace).toHaveBeenCalledTimes(3);
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
     });
 
     it('rejects a stale resume token after a newer discard', async () => {

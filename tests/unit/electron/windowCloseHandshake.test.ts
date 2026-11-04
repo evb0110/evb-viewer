@@ -17,6 +17,20 @@ import {
 } from '@electron/window/windowCloseHandshake';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
+const resources = vi.hoisted(() => ({
+    copies: new Map<string, {ownerWebContentsId: number}>(),
+    recovery: new Set<number>(),
+    discard: vi.fn(async (owner: number) => {
+        resources.recovery.delete(owner);
+        return `discard-${owner}`;
+    }),
+}));
+vi.mock('@electron/workspaceCheckpointStore', () => ({discardWorkspaceCheckpoint: resources.discard}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({workingCopyMap: resources.copies}));
+vi.mock('@electron/file-access/workingCopyCleanup', () => ({cleanupWorkingCopy: async (path: string, owner: number) => {
+    if (resources.copies.get(path)?.ownerWebContentsId === owner) resources.copies.delete(path);
+}}));
+
 type TResponseHandler = (event: IpcMainEvent, payload: unknown) => void;
 interface ITestIpcMain {
     on(channel: string, handler: TResponseHandler): ITestIpcMain;
@@ -38,6 +52,7 @@ function createHarness(options: {
     const responseHandlers = options.shared?.responseHandlers ?? new Set<TResponseHandler>();
     const webContentsHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
     const webContents = {
+        id: options.windowId ?? 7,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
         on(event: string, handler: (...args: unknown[]) => void) {
@@ -80,9 +95,13 @@ function createHarness(options: {
             return window;
         },
         close: vi.fn(() => {
-            const event = {preventDefault: vi.fn()};
+            const event = {
+                defaultPrevented: false,
+                preventDefault: vi.fn(() => { event.defaultPrevented = true; }),
+            };
             emitWindowEvent('close', event);
-            if (event.preventDefault.mock.calls.length === 0) {
+            if (!event.defaultPrevented) {
+                emitWebContentsEvent('destroyed');
                 emitWindowEvent('closed');
             }
         }),
@@ -151,10 +170,69 @@ function createHarness(options: {
 describe('native window close handshake', () => {
     beforeEach(() => {
         vi.useRealTimers();
+        resources.copies.clear();
+        resources.recovery.clear();
+        resources.discard.mockReset().mockImplementation(async owner => {
+            resources.recovery.delete(owner);
+            return `discard-${owner}`;
+        });
     });
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it.each([
+        'save',
+        'discard',
+    ] as const)('retires only the actually closed owner after %s and checkpoint retirement', async decision => {
+        const harness = createHarness();
+        resources.recovery.add(7);
+        resources.recovery.add(8);
+        resources.copies.set('current-A', {ownerWebContentsId: 7});
+        resources.copies.set('history-A', {ownerWebContentsId: 7});
+        resources.copies.set('current-B', {ownerWebContentsId: 8});
+        resources.copies.set('transferred', {ownerWebContentsId: 7});
+        harness.window.on('closed', () => resources.copies.set('transferred', {ownerWebContentsId: 8}));
+        const retirement = Promise.withResolvers<string>();
+        resources.discard.mockImplementationOnce(async owner => {
+            await retirement.promise;
+            resources.recovery.delete(owner);
+            return 'retired';
+        });
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision,
+        });
+        expect([...resources.copies.keys()]).toEqual([
+            'current-A',
+            'history-A',
+            'current-B',
+            'transferred',
+        ]);
+        expect(resources.recovery.has(7)).toBe(true);
+        retirement.resolve('retired');
+        await vi.waitFor(() => expect([...resources.copies.keys()]).toEqual([
+            'current-B',
+            'transferred',
+        ]));
+        expect([...resources.recovery]).toEqual([8]);
+    });
+
+    it('retains bytes and recovery evidence if checkpoint retirement fails', async () => {
+        const harness = createHarness();
+        resources.recovery.add(7);
+        resources.copies.set('current-A', {ownerWebContentsId: 7});
+        resources.discard.mockRejectedValueOnce(new Error('disk failure'));
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'discard',
+        });
+        await vi.waitFor(() => expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Could not retire window resources')));
+        expect([...resources.copies.keys()]).toEqual(['current-A']);
+        expect(resources.recovery.has(7)).toBe(true);
     });
 
     it('records the real response listener and removes it on cleanup', () => {
@@ -240,6 +318,8 @@ describe('native window close handshake', () => {
 
     it('does not leave a one-shot approval armed when another listener vetoes close', () => {
         const harness = createHarness();
+        resources.recovery.add(7);
+        resources.copies.set('vetoed', {ownerWebContentsId: 7});
         harness.window.on('close', (...args: unknown[]) => {
             const event = args[0] as {preventDefault(): void};
             event.preventDefault();
@@ -258,6 +338,8 @@ describe('native window close handshake', () => {
             CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
             {requestId: 'close-request-2'},
         );
+        expect(resources.recovery.has(7)).toBe(true);
+        expect(resources.copies.has('vetoed')).toBe(true);
         harness.cleanup();
     });
 
@@ -265,6 +347,8 @@ describe('native window close handshake', () => {
         vi.useFakeTimers();
         const harness = createHarness({timeoutMs: 25});
         const firstCloseEvent = {preventDefault: vi.fn()};
+        resources.recovery.add(7);
+        resources.copies.set('cancelled', {ownerWebContentsId: 7});
 
         harness.emitWindowEvent('close', firstCloseEvent);
         harness.emitResponse({
@@ -272,6 +356,8 @@ describe('native window close handshake', () => {
             decision: 'cancel',
         });
         expect(harness.window.close).not.toHaveBeenCalled();
+        expect(resources.recovery.has(7)).toBe(true);
+        expect(resources.copies.has('cancelled')).toBe(true);
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
         harness.emitResponse({
@@ -382,6 +468,8 @@ describe('native window close handshake', () => {
         },
     ])('settles an acknowledged request on $name without closing', ({emit}) => {
         const harness = createHarness();
+        resources.recovery.add(7);
+        resources.copies.set('interrupted', {ownerWebContentsId: 7});
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
         harness.emitResponse({
@@ -394,6 +482,8 @@ describe('native window close handshake', () => {
             decision: 'save',
         });
         expect(harness.window.close).not.toHaveBeenCalled();
+        expect(resources.recovery.has(7)).toBe(true);
+        expect(resources.copies.has('interrupted')).toBe(true);
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
         expect(harness.webContents.send).toHaveBeenLastCalledWith(

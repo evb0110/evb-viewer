@@ -1,9 +1,9 @@
 # DjVu fidelity corpus
 
-This directory contains the deterministic eight-class DjVu conversion
-fidelity corpus. Goldens are rendered and compared at the same physical
-page size (points derived from each page's own DPI), never at equal raw pixel
-dimensions.
+This directory contains the deterministic DjVu conversion fidelity corpus and
+focused browser export fixtures. Goldens are rendered and compared at the
+same physical page size (points derived from each page's own DPI), never at
+equal raw pixel dimensions.
 
 Run `node scripts/generate-djvu-fidelity-corpus.mjs` with DjVuLibre installed to
 recreate every source and golden. The generated images use geometric patterns
@@ -22,3 +22,7 @@ FILE holding `(page 0 0 512 512 "…")`. The browser DjVu search budget case
 opens it and searches `a+.a+$`, which Chromium evaluates in quadratic time on
 this text, to show that a catastrophic regular expression stops with the
 budget error.
+
+`sources/browser-tiff-5-pages.djvu` repeats the same 300-DPI bitonal page five
+times for bounded TIFF grouping acceptance. The corpus generator recreates it
+with `djvm`; tests need no host generator tools or 501-page document setup.

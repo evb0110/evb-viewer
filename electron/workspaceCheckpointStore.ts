@@ -590,6 +590,9 @@ function getWorkspaceRecoveryOwnerId(
     if (knownId) {
         return knownId;
     }
+    // A normally closed window that never checkpointed has no UUID owner to
+    // retire. Do not start watching an already-destroyed WebContents.
+    if (owner.isDestroyed()) return getLegacyRecoveryOwnerId(ownerWebContentsId);
     const recoveryId = randomUUID();
     recoveryOwnerIdsByWebContents.set(owner, recoveryId);
     liveRecoveryOwners.set(recoveryId, owner);
@@ -1100,6 +1103,7 @@ export async function saveWorkspaceCheckpoint(
 }
 
 function isClaimable(record: IStoredWorkspaceCheckpoint, claimantRecoveryId: string) {
+    if (discardedOwners.has(record.ownerRecoveryId)) return false;
     return record.ownerRecoveryId === claimantRecoveryId
         ? !claimedInCurrentLoad.has(claimantRecoveryId)
         : !isLiveOwner(record);

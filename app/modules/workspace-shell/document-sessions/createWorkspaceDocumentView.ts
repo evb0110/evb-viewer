@@ -21,7 +21,7 @@ export interface IWorkspaceDocumentView {
     readonly readingAnchor: Readonly<ShallowRef<IPdfSemanticAnchor | null>>;
     readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
     publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
-    applyViewState(state: ITabViewSessionState): void;
+    applyViewState(state: ITabViewSessionState, anchor?: IPdfSemanticAnchor | null): void;
     /**
      * Sets the place a checkpoint kept for this view before it is first
      * shown; its first source then opens there instead of at the defaults.
@@ -78,7 +78,8 @@ export function createWorkspaceDocumentView(tabId: string, options: {
         }
     }
 
-    function applyViewState(state: ITabViewSessionState) {
+    function applyViewState(state: ITabViewSessionState, anchor?: IPdfSemanticAnchor | null) {
+        if (anchor !== undefined) readingAnchor.value = anchor;
         if (!isEqual(viewState.value, state)) {
             viewState.value = state;
         }

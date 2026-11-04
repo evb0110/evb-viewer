@@ -1,4 +1,5 @@
 import { tryOnScopeDispose } from '@vueuse/core';
+import type { IHistoryRevisionSwapOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -12,7 +13,7 @@ import type {
     IWorkspaceViewerLifecycleHooks,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type {
-    TPdfProjectionReason, IDocumentOpenSurfaceSession,  
+    TPdfProjectionReason, IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
 import {
     didOpenDocument,
@@ -31,7 +32,7 @@ import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/co
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
-interface IUseWorkspaceFileLifecycleControllerOptions {
+interface IUseWorkspaceFileLifecycleControllerOptions extends IHistoryRevisionSwapOptions {
     createViewerLifecycleHooks?: (
         context: IWorkspaceViewerLifecycleContext,
     ) => IWorkspaceViewerLifecycleHooks[];
@@ -156,6 +157,7 @@ export const useWorkspaceFileLifecycleController = (
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
+        mapHistoryPage,
         loadPdfFromData,
         persistPdfDataSilently,
         closeFile,
@@ -173,7 +175,7 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile();
+    } = usePdfFile(options);
 
     const {
         isDjvuMode,
@@ -445,6 +447,7 @@ export const useWorkspaceFileLifecycleController = (
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
+        mapHistoryPage,
         loadPdfFromData,
         persistPdfDataSilently,
         closeFile,

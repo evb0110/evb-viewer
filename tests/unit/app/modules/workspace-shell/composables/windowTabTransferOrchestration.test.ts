@@ -62,6 +62,7 @@ const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown})
     transferId: 'transfer-source',
     targetWindowId: 7,
 })));
+const closeTransferredWindowMock = vi.hoisted(() => vi.fn(async () => true));
 // A clean document's split capture clones its working copy; the clone is the
 // only platform call a merge capture makes.
 const createWorkingCopyFromPathMock = vi.hoisted(() => vi.fn(async (path: string) => `${path}.snapshot.pdf`));
@@ -72,6 +73,7 @@ vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     getDocumentWorkingCopyCapability: () => ({
         createWorkingCopyFromPath: createWorkingCopyFromPathMock,
         createWorkingCopyFromData: createWorkingCopyFromDataMock,
+        cleanupFile: async () => undefined,
     }),
 }));
 vi.mock('@app/utils/platformWindowTabs', () => ({
@@ -79,6 +81,7 @@ vi.mock('@app/utils/platformWindowTabs', () => ({
     getWindowTabsCapability: () => ({
         transferAck: transferAckMock,
         transfer: transferMock,
+        closeCurrentWindow: closeTransferredWindowMock,
     }),
 }));
 
@@ -1136,5 +1139,181 @@ describe('window tab transfer orchestration helpers', () => {
             2,
             4,
         ]);
+    });
+
+    it.each([
+        'merge',
+        'rejected',
+        'user-selection',
+        'superseded',
+        'late-refusal',
+        'late-refusal-user-selection',
+        'late-refusal-before-handoff-user-selection',
+    ] as const)('captures a cold tab through residency and preserves source selection: %s', async scenario => {
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        onTestFinished(() => {vi.unstubAllGlobals();});
+        const lateRefusal = scenario.startsWith('late-refusal');
+        transferMock.mockClear();
+        transferAckMock.mockClear();
+        closeTransferredWindowMock.mockClear();
+        const controllers = new Map<string, IWorkspaceDocumentController>();
+        for (const id of [
+            'cold',
+            'hot',
+            'survivor',
+        ]) {
+            const controller = createWorkspaceDocumentController({tabId: id});
+            controller.commitDocument({
+                fileName: `${id}.pdf`,
+                originalPath: requireDocumentRef(`/docs/${id}.pdf`),
+                isDjvu: false,
+                revisionInfo: null,
+            });
+            controllers.set(id, controller);
+        }
+        const cold = controllers.get('cold')!;
+        // A surviving linked view keeps the source document mounted when the
+        // broker refuses ACK after the internal selection handoff.
+        if (lateRefusal) cold.addView('linked');
+        cold.getView('cold')!.applyViewState({
+            ...cold.getView('cold')!.viewState.value,
+            currentPage: 6,
+            zoom: 1.5,
+            zoomMode: 'custom',
+        });
+        const mount = (id: string) => controllers.get(id)!.attachWorkspace(id, createWorkspaceExposeFixture({
+            waitForDocumentOpenSettled: () => Promise.withResolvers<undefined>().promise,
+            captureSplitPayload: async () => ({
+                kind: 'pdfSnapshot',
+                fileName: `${id}.pdf`,
+                originalPath: requireDocumentRef(`/docs/${id}.pdf`),
+                snapshotPath: requireDocumentRef(`/docs/${id}.snapshot.pdf`),
+                isDirty: false,
+                currentPage: id === 'cold' ? cold.getView('cold')!.viewState.value.currentPage! : 4,
+            }),
+            handleCloseFileFromUi: async options => {
+                await options?.onCloseCommit?.();
+                return true;
+            },
+        }));
+        mount('hot');
+        mount('survivor');
+        const pane = {
+            paneId: 'pane-source',
+            activeTabId: lateRefusal ? 'cold' : 'hot',
+            tabIds: [
+                'cold',
+                'hot',
+                'survivor',
+            ],
+        };
+        const tabs = ref<ITab[]>(pane.tabIds.map(createTab));
+        const activePaneId = ref<string | null>(pane.paneId);
+        const activated = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const transfers = useWindowTabTransfers({
+            activePaneId,
+            panes: ref([pane]),
+            tabs,
+            layout: ref(null),
+            createTab: () => {throw new Error('No incoming tab');},
+            getPaneById: id => id === pane.paneId ? pane : null,
+            getTabById: id => tabs.value.find(tab => tab.id === id) ?? null,
+            getPaneByTabId: id => pane.tabIds.includes(id) ? pane : null,
+            activatePane: id => {activePaneId.value = id;},
+            activateTab: (_pane, id) => {
+                pane.activeTabId = id;
+                if (id === 'cold' && !cold.getView(id)!.mountedWorkspace.value) {
+                    void nextTick(async () => {
+                        activated.resolve(undefined);
+                        if (scenario === 'superseded') await release.promise;
+                        mount('cold');
+                    });
+                }
+            },
+            removeTabFromState: () => undefined,
+            cleanupEmptyPanes: () => undefined,
+            closeTabInState: (_pane, id) => {
+                tabs.value = tabs.value.filter(tab => tab.id !== id);
+                pane.tabIds = pane.tabIds.filter(tabId => tabId !== id);
+                controllers.get(id)?.removeView(id);
+            },
+            documentSessions: cast<TWorkspaceDocumentSessions>({getSession: (id: string) => controllers.get(id) ?? null}),
+            workspaceRestoreTracker: {
+                start: () => undefined,
+                finish: () => undefined,
+            },
+            handleCloseTab: async () => undefined,
+            handoffActiveTabBeforeClose: async () => {
+                if (lateRefusal && pane.activeTabId === 'cold') pane.activeTabId = 'hot';
+            },
+        });
+        if (lateRefusal) {
+            if (scenario === 'late-refusal-before-handoff-user-selection') {
+                transferMock.mockImplementationOnce(async () => {
+                    pane.activeTabId = 'survivor';
+                    return {
+                        success: true,
+                        transferId: 'transfer-source',
+                        targetWindowId: 7,
+                    };
+                });
+            }
+            transferAckMock.mockImplementationOnce(async () => {
+                if (scenario === 'late-refusal-user-selection') pane.activeTabId = 'survivor';
+                return false;
+            });
+        }
+        if (scenario === 'rejected' || scenario === 'user-selection') {
+            transferMock.mockImplementationOnce(async () => {
+                if (scenario === 'user-selection') pane.activeTabId = 'survivor';
+                throw new Error('target refused');
+            });
+        }
+        expect(cold.getView('cold')!.mountedWorkspace.value).toBeNull();
+        const moving = scenario === 'merge' ? transfers.mergeWindowInto(7) : transfers.moveTabToWindow(7, 'cold');
+        if (scenario === 'superseded') {
+            // Observe activation without a sleep. The baseline never activates,
+            // so settle its existing capture deadline before this assertion.
+            await Promise.race([
+                activated.promise,
+                moving,
+            ]);
+            expect(pane.activeTabId).toBe('cold');
+            const replacement = createWorkspaceDocumentController({tabId: 'cold'});
+            controllers.set('cold', replacement);
+            // Satisfy the original view, whose controller no longer owns the tab.
+            cold.attachWorkspace('cold', createWorkspaceExposeFixture());
+            release.resolve(undefined);
+        }
+        await moving;
+        if (scenario === 'merge') {
+            expect(transferMock.mock.calls.map(([request]) => request.payload)).toEqual([
+                expect.objectContaining({
+                    fileName: 'cold.pdf',
+                    currentPage: 6,
+                }),
+                expect.objectContaining({
+                    fileName: 'hot.pdf',
+                    currentPage: 4,
+                }),
+                expect.objectContaining({
+                    fileName: 'survivor.pdf',
+                    currentPage: 4,
+                }),
+            ]);
+            expect(tabs.value).toEqual([]);
+            expect(closeTransferredWindowMock).toHaveBeenCalledOnce();
+        } else {
+            expect(cold.getView('cold')!.mountedWorkspace.value).not.toBeNull();
+            expect(pane.activeTabId).toBe(scenario === 'user-selection' || scenario.endsWith('user-selection')
+                ? 'survivor' : lateRefusal ? 'cold' : 'hot');
+            expect(tabs.value.map(tab => tab.id)).toEqual([
+                'cold',
+                'hot',
+                'survivor',
+            ]);
+            if (scenario === 'superseded') expect(transferMock).not.toHaveBeenCalled();
+        }
     });
 });

@@ -15,6 +15,7 @@ import type * as NodeFs from 'node:fs';
 import type * as AtomicReplace from '@electron/utils/atomicReplace';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {restoreCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import type * as NodeFsPromises from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import {
     dirname,
@@ -98,8 +99,25 @@ const state = vi.hoisted(() => ({
     failNextCheckpointWrite: false,
     blockCleanup: vi.fn(),
     failNextCheckpointRead: false,
+    holdCheckpointRead: null as null | (() => Promise<void>),
     touchScanCleanupGeneratedOutput: vi.fn(async (_path: string) => true),
 }));
+
+vi.mock('node:fs/promises', async importOriginal => {
+    const actual = await importOriginal<typeof NodeFsPromises>();
+    return {
+        ...actual,
+        readFile: async (...args: Parameters<typeof actual.readFile>) => {
+            const contents = await actual.readFile(...args);
+            if (String(args[0]).includes('workspace-recovery') && state.holdCheckpointRead) {
+                const hold = state.holdCheckpointRead;
+                state.holdCheckpointRead = null;
+                await hold();
+            }
+            return contents;
+        },
+    };
+});
 
 vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeFs>();
@@ -380,6 +398,7 @@ describe('workspace checkpoint store', () => {
         state.failNextCheckpointWrite = false;
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
+        state.holdCheckpointRead = null;
         state.touchScanCleanupGeneratedOutput.mockClear();
         state.presentWorkingCopies.clear();
         state.presentWorkingCopies.add(workingCopyRef);
@@ -524,6 +543,46 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(22)).resolves.toBeNull();
         expect(state.owners.get(workingCopyRef)).toBe(11);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
+    });
+
+    it.each([
+        true,
+        false,
+    ])('a claim held across destruction preserves approved retirement=%s', async retire => {
+        const owner = createWebContents(11);
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, owner);
+        await saveWorkspaceCheckpoint(checkpoint, 11, owner);
+        await flushPendingWorkspaceCheckpointSave();
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        state.holdCheckpointRead = () => {
+            entered.resolve(undefined);
+            return release.promise;
+        };
+        const claim = claimWorkspaceCheckpoint(22);
+        await entered.promise;
+        // The handshake installs the existing discard barrier before the
+        // recovery owner's destroyed listener makes the record orphaned.
+        const discard = retire ? discardWorkspaceCheckpoint(11, owner) : null;
+        owner.emit('destroyed');
+        state.liveOwners.delete(11);
+        release.resolve(undefined);
+        expect(await claim).toEqual(retire ? null : checkpoint);
+        expect(state.owners.get(workingCopyRef)).toBe(retire ? 11 : 22);
+        await discard;
+        expect(await readRecoveryRecords()).toHaveLength(retire ? 0 : 1);
+    });
+
+    it('does not register a live recovery owner for an already destroyed window with no record', async () => {
+        const owner = createWebContents(99);
+        vi.spyOn(owner, 'isDestroyed').mockReturnValue(true);
+        await discardWorkspaceCheckpoint(99, owner);
+        expect(await readRecoveryRecords()).toEqual([]);
+        expect(owner.listenerCount('destroyed')).toBe(0);
+        expect(owner.listenerCount('did-start-navigation')).toBe(0);
     });
 
     it('does not treat a reused webContents id as the saved owner', async () => {

@@ -25,6 +25,7 @@ const expectedClasses = [
     'mixed-dpi',
     'huge-pages',
     'corrupt-missing-tool-enospc',
+    'browser-tiff',
     'browser-boundary',
 ] as const;
 const execFileAsync = promisify(execFile);
@@ -153,10 +154,11 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
         }, DJVU_TEST_TIMEOUT_MS);
     }
 
-    it('proves the huge-page and 501-page browser admission boundaries', async () => {
+    it('proves the huge-page admission boundary and browser fixture page counts', async () => {
         const [
             {stdout: hugeSize},
             {stdout: boundaryPages},
+            {stdout: tiffPages},
         ] = await Promise.all([
             execFileAsync(djvuToolPath('djvused'), [
                 resolve(corpusDirectory, 'sources/huge-page.djvu'),
@@ -168,10 +170,16 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
                 '-e',
                 'n',
             ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
+            execFileAsync(djvuToolPath('djvused'), [
+                resolve(corpusDirectory, 'sources/browser-tiff-5-pages.djvu'),
+                '-e',
+                'n',
+            ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
         ]);
 
         expect(hugeSize).toContain('width=10000 height=8001');
         expect(boundaryPages.trim()).toBe('501');
+        expect(tiffPages.trim()).toBe('5');
     }, DJVU_TEST_TIMEOUT_MS);
 
     it('rejects the deterministic truncated DjVu fixture', async () => {

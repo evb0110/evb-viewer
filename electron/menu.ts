@@ -233,6 +233,8 @@ function buildWindowTargetSubmenu(
     const duplicateCounts = buildDuplicateWindowTitleMap(otherWindows);
 
     return otherWindows.map((window) => ({
+        // Stable per action and target, so automation can choose a target window.
+        id: `${createAction(window).kind}:${window.id}`,
         label: getWindowDisplayLabel(window, duplicateCounts),
         click: () => {
             sendWindowTabsAction(sourceWindowId, createAction(window));

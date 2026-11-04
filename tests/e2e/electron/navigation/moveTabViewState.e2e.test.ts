@@ -4,7 +4,7 @@ import {
 import {readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
-    delimiter,
+    basename, delimiter,
     join, resolve,
 } from 'node:path';
 import {deflateSync} from 'node:zlib';
@@ -27,6 +27,7 @@ import {
 import {
     ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
     setRememberPlaceAsUser,
+    setTabMemoryPolicyForE2E,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     installPageEvaluationShims, waitForFunctionInPage,
@@ -48,6 +49,7 @@ import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMe
 import {
     electronAppTempDirPath,
     electronUserDataPath,
+    sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 
 const sessionName = `e2e-move-tab-view-state-${Date.now()}`;
@@ -80,6 +82,12 @@ async function createTwelvePageFixture(filePath: string) {
             size: 24,
             font,
             color: rgb(0.1, 0.1, 0.1),
+        });
+        page.drawText(`Source ${basename(filePath)}`, {
+            x: 72,
+            y: 665,
+            size: 14,
+            font,
         });
     }
     writeFileSync(filePath, await document.save());
@@ -157,6 +165,7 @@ async function readView(page: Page) {
             });
         return {
             page: Number(centerPage?.dataset.documentPageNumber ?? 0),
+            text: centerPage?.querySelector('.text-layer[data-pdf-text-layer-ready="true"]')?.textContent ?? '',
             sidebarOpen: Boolean(document.querySelector('.editor-pane.is-active .sidebar-wrapper:not(.is-closed)')),
             zoomText: document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? '',
             zoomMode: snapshot?.zoomMode ?? '',
@@ -221,6 +230,88 @@ async function releaseIncomingOpen(target: Page) {
 }
 
 describe('Move Tab to New Window view state', () => {
+    it('merges every cold and hot tab with its own content page and zoom', async () => {
+        onTestFinished(async () => {
+            // Merge closes the fixture's source window. Give the next case a
+            // live primary page using the suite's existing session lifecycle.
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+        });
+        const session = sessions.getSession();
+        const source = session.page;
+        const root = electronAppTempDirPath(session.name);
+        mkdirSync(root, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(root, 'cold-window-merge-')));
+        const seed = join(outputDirectory, 'target.pdf');
+        const cold = join(outputDirectory, 'cold.pdf');
+        const hot = join(outputDirectory, 'hot.pdf');
+        for (const path of [
+            seed,
+            cold,
+            hot,
+        ]) await createTwelvePageFixture(path);
+        await openPdfInApp(source, seed);
+        const target = await moveTabToNewWindow(source, {tabTitle: 'target.pdf'});
+        await installPageEvaluationShims(target);
+        await setTabMemoryPolicyForE2E(source, 'aggressive');
+        await openPdfInApp(source, cold);
+        const coldId = await source.$eval('.tab.is-active[data-tab-id]', element => (element as HTMLElement).dataset.tabId!);
+        await goToPageViaToolbar(source, 6);
+        await clickAsUser(source, '#editor-global-toolbar-host .zoom-controls-display');
+        await clickAsUser(source, '.zoom-chip-custom-input', {count: 3});
+        await source.keyboard.type('150');
+        await source.keyboard.press('Enter');
+        await source.waitForFunction(() => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === '150%');
+        await clickAsUser(source, '.tab-new');
+        await openPdfInApp(source, hot);
+        await goToPageViaToolbar(source, 9);
+        await clickAsUser(source, '#editor-global-toolbar-host .zoom-controls-display');
+        await clickAsUser(source, '.zoom-chip-custom-input', {count: 3});
+        await source.keyboard.type('200');
+        await source.keyboard.press('Enter');
+        await source.waitForFunction(() => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === '200%');
+        await source.waitForFunction((id: string) => !document.querySelector(`.workspace-host[data-workspace-tab-id="${id}"]`), {}, coldId);
+        const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs.listTargetWindows()))[0]!.windowId;
+
+        await activateMenuItemAsUser(source, {id: `merge-window-into:${targetId}`});
+
+        // The oracle is target document text and order, not the capture's timer.
+        await expect.poll(() => target.$$eval('.tab-list [role="tab"]', elements => elements.map(element => element.textContent?.replace(/\s+/gu, ' ').trim())), {timeout: 30_000}).toEqual([
+            expect.stringContaining('target.pdf'),
+            expect.stringContaining('cold.pdf'),
+            expect.stringContaining('hot.pdf'),
+        ]);
+        // All incoming tabs exist before their restores commit. Let the merge
+        // close its source before selecting a destination tab.
+        await expect.poll(() => source.isClosed(), {timeout: 30_000}).toBe(true);
+        for (const expected of [
+            {
+                name: 'cold.pdf',
+                page: 6,
+                zoom: '150%',
+            },
+            {
+                name: 'hot.pdf',
+                page: 9,
+                zoom: '200%',
+            },
+        ]) {
+            await clickFoundAsUser(target, (name: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
+                .find(element => element.textContent?.includes(name)), expected.name, {description: `merged ${expected.name}`});
+            await waitForViewerInteractive(target);
+            await expect.poll(() => readView(target), {timeout: 30_000}).toMatchObject({
+                page: expected.page,
+                text: expect.stringContaining(`Transfer view page ${expected.page}`),
+                zoomText: expected.zoom,
+            });
+            expect((await readView(target)).text).toContain(`Source ${expected.name}`);
+            await target.screenshot({path: join(sessionDir(session.name), `merged-${expected.name}.png`)});
+        }
+        expect(target.isClosed()).toBe(false);
+    }, 180_000);
+
 
     it.each([
         'commits',

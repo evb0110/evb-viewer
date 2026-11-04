@@ -13,6 +13,7 @@ import {
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
+    IPageIdentityDelta,
     IPageOpsMetadataSnapshot,
     IPageOpsMutationOptions,
     IPageOpsResult,
@@ -140,7 +141,10 @@ export const usePageOperations = (deps: {
     bookmarksResolved?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     saveAnnotationsForPageMutation?: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (opts?: {
+        markDirty?: boolean;
+        pageIdentityDelta?: IPageIdentityDelta
+    }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
@@ -591,7 +595,10 @@ export const usePageOperations = (deps: {
                         documentRevisionToken.value = result.documentRevision.token;
                     }
                     invalidateCaches(path);
-                    const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
+                    const didReload = await reloadWorkingCopyIntoHistory({
+                        markDirty: true,
+                        ...(result.pageIdentityDelta ? {pageIdentityDelta: result.pageIdentityDelta} : {}),
+                    });
                     if (!didReload || workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({
                             status: 'stale',

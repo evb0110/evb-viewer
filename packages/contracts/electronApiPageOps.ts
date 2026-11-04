@@ -193,6 +193,28 @@ export function getPageIdentityDeltaNextPageCount(delta: IPageIdentityDelta) {
     return delta.nextPageCount ?? delta.pages?.length;
 }
 
+/** Reverses surviving page identity without expanding compact page ranges. */
+export function invertPageIdentityDelta(delta: IPageIdentityDelta): IPageIdentityDelta {
+    const ranges: IPageIdentityRangeMapping[] = delta.pages !== undefined
+        ? delta.pages.flatMap((page, index) => 'fromPageNumber' in page ? [{
+            kind: 'move' as const,
+            fromPageNumber: requirePageNumber(index + 1),
+            toPageNumber: page.fromPageNumber,
+            count: 1,
+        }] : [])
+        : (delta.ranges ?? []).flatMap(range => range.kind === 'retain' || range.kind === 'move' ? [{
+            kind: range.kind,
+            fromPageNumber: range.toPageNumber,
+            toPageNumber: range.fromPageNumber,
+            count: range.count,
+        }] : []);
+    return {
+        previousPageCount: getPageIdentityDeltaNextPageCount(delta) ?? 0,
+        nextPageCount: delta.previousPageCount,
+        ranges,
+    };
+}
+
 export function mapPageNumberThroughPageIdentityDelta(
     delta: IPageIdentityDelta,
     pageNumber: TPageNumber,
