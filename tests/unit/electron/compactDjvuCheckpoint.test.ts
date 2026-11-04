@@ -164,7 +164,7 @@ describe('compact DjVu checkpoints', () => {
             exitCode: 0,
         });
         await expect(getDjvuIndirectComponentPaths(index)).resolves.toHaveLength(10_000);
-        // The real tool stops at this limit; the listing above needs about 480 KB.
+        // The real tool stops at the 8 MiB component-list limit; this listing is 349,999 bytes.
         const [
             , , , commandOptions,
         ] = (runDjvuSourceCommand.mock.lastCall ?? []) as unknown[];
