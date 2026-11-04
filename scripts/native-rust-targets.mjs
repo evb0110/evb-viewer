@@ -81,12 +81,13 @@ export function getRequestedNativeRustTarget(
     return {
         arch,
         binaryExtension: platform === 'win32' ? '.exe' : '',
-        cargoTargetArgs: isHostTarget
-            ? []
-            : [
-                '--target',
-                rustTarget,
-            ],
+        // Named even for the host: an ambient CARGO_BUILD_TARGET or a Cargo
+        // config default would otherwise send the build elsewhere, and an older
+        // binary at the unqualified path would be staged in its place.
+        cargoTargetArgs: [
+            '--target',
+            rustTarget,
+        ],
         isHostTarget,
         platform,
         platformArch,
