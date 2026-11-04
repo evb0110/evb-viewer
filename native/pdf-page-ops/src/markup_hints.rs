@@ -42,8 +42,6 @@ pub(crate) const SQUIGGLY_APPEARANCE_MAX_AMPLITUDE: f64 = 2.0;
 pub(crate) const SQUIGGLY_APPEARANCE_MIN_AMPLITUDE: f64 = 0.6;
 pub(crate) const SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO: f64 = 0.07;
 pub(crate) const MIN_POINT_MARKER_SIZE: f64 = 0.0016;
-pub(crate) const SAME_TEXT_MARKUP_LINE_CENTER_TOLERANCE_RATIO: f64 = 0.35;
-pub(crate) const MIN_TEXT_MARKUP_QUAD_HEIGHT: f64 = 0.01;
 pub(crate) const MAX_MARKUP_SUBTYPE_HINTS: usize = 512;
 pub(crate) const MARKUP_HINT_GRID_DIMENSION: u8 = 8;
 pub(crate) const MAX_MARKUP_HINT_COMPARISONS: usize = 65_536;
@@ -461,6 +459,8 @@ pub(crate) fn merge_subtype_hints(
         color: existing.color.clone().or_else(|| incoming.color.clone()),
         opacity: existing.opacity.or(incoming.opacity),
         author: existing.author.clone().or_else(|| incoming.author.clone()),
+        created_at: existing.created_at.or(incoming.created_at),
+        modified_at: existing.modified_at.or(incoming.modified_at),
         contents: existing
             .contents
             .clone()

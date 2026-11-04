@@ -4,10 +4,7 @@ import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
-import {
-    isNewPageLocalShape,
-    toLegacyShapeAnnotation,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {toLegacyShapeAnnotation} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IShapeEntity,
     AnnotationEntity,
@@ -740,18 +737,15 @@ function buildClassifiedNativeMutationProjection(
         return 'annotation-work-not-covered-by-native-mutations';
     }
 
-    // Workspace shape dirtiness requests a complete rewrite by default. The
-    // canonical frontier proves when only fresh shapes need publishing instead.
-    const changedShapes = plan.expected.filter((entity): entity is IShapeEntity => entity.kind === 'shape');
-    const additiveShapes = changedShapes.length > 0
-        && changedShapes.every(isNewPageLocalShape)
-        && capabilities.deletedEmbeddedShapeAnnotationIds.length === 0
-        && capabilities.deletedEmbeddedShapeStableKeys.length === 0;
+    // The frozen frontier owns upserts. Only explicit tombstones authorize deletion.
+    const changedShapes = plan.expected.filter((entity): entity is IShapeEntity => (
+        entity.kind === 'shape' && !entity.deleted && isActuallyChangedEntity(entity)
+    ));
     const shapes = buildNativeShapesMutationForSave({
         shapeStateDirty: admitted.dirtyState.shapeStateDirty,
-        rewriteShapeState: capabilities.rewriteShapeState && !additiveShapes,
+        rewriteShapeState: false,
         totalPageCount: capabilities.totalPageCount,
-        shapes: additiveShapes ? changedShapes.map(toLegacyShapeAnnotation) : capabilities.shapes,
+        shapes: changedShapes.map(toLegacyShapeAnnotation),
         deletedAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
         deletedStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
     });

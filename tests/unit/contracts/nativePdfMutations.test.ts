@@ -86,6 +86,35 @@ const validShape = {
     strokeWidth: 3,
 };
 
+describe('text markup date boundary', () => {
+    it.each([
+        -1,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.MAX_SAFE_INTEGER + 1,
+        '1793750400000',
+    ])(
+        'rejects invalid markup date %s', value => {
+            for (const field of [
+                'createdAt',
+                'modifiedAt',
+            ]) {
+                expect(() => normalizePdfNativeMutationSet({markup: {hints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.1,
+                    },
+                    [field]: value,
+                }]}}, 'invalid markup date')).toThrow();
+            }
+        },
+    );
+});
+
 const validImage = {
     pageIndex: 0,
     x: 0.1,

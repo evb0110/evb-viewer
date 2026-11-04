@@ -1,3 +1,6 @@
+#[path = "../../../test-support/external_tool.rs"]
+mod markup_external_tool;
+
 fn assert_quad_points_approximately(actual: &[f64], expected: &[f64]) {
     assert_eq!(actual.len(), expected.len());
     for (actual, expected) in actual.iter().zip(expected) {
@@ -45,6 +48,8 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                     color: Some("#00ff00".to_string()),
                     opacity: Some(0.45),
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -118,6 +123,8 @@ fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
                 annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: Some("#00ff00".to_string()),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: Some("updated contents".to_string()),
                 id: Some("markup-preserve".to_string()),
                 page_markup_index: Some(0),
@@ -162,6 +169,8 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
         annotation_id: None,
         color: Some("#00ff00".to_string()),
         author: None,
+        created_at: None,
+        modified_at: None,
         contents: None,
         id: Some("legacy-markup".to_string()),
         page_markup_index: Some(0),
@@ -219,6 +228,8 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
                     color: None,
                     opacity: None,
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -246,66 +257,403 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
 
 #[test]
 fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
-    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
-    let original_quad_points = vec![
-        20.0, 80.0, 60.0, 80.0, 20.0, 70.0, 60.0, 70.0,
-        80.0, 55.0, 140.0, 55.0, 80.0, 45.0, 140.0, 45.0,
-    ];
-    let original_rect = vec![20.0, 45.0, 140.0, 80.0];
-    document
-        .get_dictionary_mut(markup_id)
-        .unwrap()
-        .set("QuadPoints", quad_points_object(&original_quad_points));
-    document
-        .get_dictionary_mut(markup_id)
-        .unwrap()
-        .set("Rect", Object::Array(original_rect.iter().copied().map(number_object).collect()));
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        for rotation in [0, 90] {
+            for multiline in [false, true] {
+                let (mut document, page_id, markup_id) = create_test_markup_pdf(subtype);
+                document
+                    .get_dictionary_mut(page_id)
+                    .unwrap()
+                    .set("MediaBox", vec![0.into(), 0.into(), 200.into(), 200.into()]);
+                document
+                    .get_dictionary_mut(page_id)
+                    .unwrap()
+                    .set("Rotate", rotation);
+                let mut quads = vec![20.0, 140.0, 120.0, 160.0, 20.0, 130.0, 120.0, 150.0];
+                if multiline {
+                    quads.extend([20.0, 120.0, 120.0, 140.0, 20.0, 110.0, 120.0, 130.0]);
+                }
+                let mut annotation = document.get_dictionary(markup_id).unwrap().clone();
+                annotation.set("QuadPoints", quad_points_object(&quads));
+                annotation.set(
+                    "Rect",
+                    vec![
+                        20.into(),
+                        if multiline { 110.into() } else { 130.into() },
+                        120.into(),
+                        160.into(),
+                    ],
+                );
+                annotation.set("C", vec![1.into(), 0.into(), 0.into()]);
+                annotation.set("CA", 1);
+                let appearances = regression_appearance(&mut document, &mut annotation);
+                document.set_object(markup_id, annotation.clone());
+                let entries = collect_parsed_annotations(&document, "D:20261104000000Z").unwrap();
+                let parsed = entries
+                    .iter()
+                    .find_map(|entry| match entry {
+                        PdfAnnotationParseEntry::Highlight(value) => Some(value),
+                        _ => None,
+                    })
+                    .expect("real parser exposes the source bounds");
+                for projected_bounds in [true, false] {
+                    let mut hint = serde_json::json!({
+                        "subtype": subtype, "pageIndex": 0,
+                        "markerRect": parsed.quad_points[0],
+                        "annotationId": format!("{} 0 R", markup_id.0),
+                        "color": "#ff0000", "opacity": 1,
+                        "contents": "Comment-only edit", "source": "pdf",
+                    });
+                    if projected_bounds {
+                        hint["markupGeometry"] = serde_json::to_value(&parsed.quad_points).unwrap();
+                    }
+                    let mutation = NativeMutationsFile {
+                        markup: Some(MarkupMutation {
+                            hints: vec![serde_json::from_value(hint).unwrap()],
+                        }),
+                        ..NativeMutationsFile::default()
+                    };
+                    for route in ["full", "path", "bytes"] {
+                        let saved = saved_annotation_regression(
+                            &document,
+                            &mutation,
+                            route,
+                            "D:20261104000100Z",
+                        );
+                        let after = saved.get_dictionary(markup_id).unwrap();
+                        for key in [b"QuadPoints".as_slice(), b"Rect", b"AP"] {
+                            assert_eq!(
+                                after.get(key).unwrap(),
+                                annotation.get(key).unwrap(),
+                                "{subtype}, {rotation}, multiline={multiline}, projected={projected_bounds}, {route}: {key:?}"
+                            );
+                        }
+                        assert_regression_appearance(&document, &saved, appearances);
+                        assert_eq!(
+                            pdf_string_to_text(after.get(b"Contents").unwrap()).as_deref(),
+                            Some("Comment-only edit")
+                        );
+                        assert_eq!(
+                            pdf_string_to_text(after.get(b"M").unwrap()).as_deref(),
+                            Some("D:20261104000100Z")
+                        );
+                    }
+                }
+            }
+        }
+    }
 
-    apply_markup_mutations(
-        &mut document,
-        &MarkupMutation {
-            hints: vec![MarkupSubtypeHint {
-                subtype: "Highlight".to_string(),
-                page_index: 0,
-                marker_rect: MarkerRect {
-                    left: 0.1,
-                    top: 0.1,
-                    width: 0.2,
-                    height: 0.1,
-                },
-                markup_geometry: None,
-                app_annotation_id: None,
-                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
-                color: Some("#00ff00".to_string()),
-                opacity: None,
-                author: None,
-                contents: None,
-                id: None,
-                page_markup_index: Some(0),
-                source: Some("editor".to_string()),
-            }],
-        },
-        "D:20260831130000Z",
-    )
-    .unwrap();
-
-    let annotation = document.get_dictionary(markup_id).unwrap();
-    assert_quad_points_approximately(
-        &read_markup_quad_points(&document, annotation).unwrap(),
-        &original_quad_points,
-    );
-    let rect = annotation.get(b"Rect").unwrap().as_array().unwrap();
-    assert_quad_points_approximately(
-        &rect
+    let painted_pixels = |document: &Document, page_id, markup_id| {
+        let mut document = document.clone();
+        let appearance = document
+            .get_dictionary(markup_id)
+            .unwrap()
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .clone();
+        // Render the saved /AP itself: readers can synthesize a highlight
+        // from /QuadPoints and conceal a broken appearance stream.
+        let contents = document.add_object(Stream::new(
+            dictionary! {},
+            b"q /MarkupAppearance Do Q\n".to_vec(),
+        ));
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.remove(b"Annots");
+        page.set(
+            "Resources",
+            dictionary! {"XObject" => dictionary! {"MarkupAppearance" => appearance}},
+        );
+        page.set("Contents", contents);
+        let path = temp_pdf_path("markup-style-coverage");
+        document.save(&path).unwrap();
+        let rendered = std::process::Command::new(markup_external_tool::tool_path(
+            "PDFTOPPM_PATH",
+            "poppler",
+            "pdftoppm",
+        ))
+        .args(["-r", "72", "-aa", "no", "-aaVector", "no", "-singlefile"])
+        .arg(&path)
+        .output()
+        .unwrap();
+        remove_file(path).unwrap();
+        assert!(
+            rendered.status.success(),
+            "{}",
+            String::from_utf8_lossy(&rendered.stderr)
+        );
+        let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+        assert_eq!(header.next().unwrap(), b"P6");
+        assert_eq!(header.next().unwrap(), b"200 100");
+        assert_eq!(header.next().unwrap(), b"255");
+        header
+            .next()
+            .unwrap()
+            .chunks_exact(3)
+            .filter(|rgb| {
+                let low = *rgb.iter().min().unwrap();
+                let high = *rgb.iter().max().unwrap();
+                low < 32 && high > 224 && high - low > 192
+            })
+            .count()
+    };
+    for (order, quads) in [
+        (
+            "z-order",
+            [20.0, 50.0, 120.0, 50.0, 20.0, 20.0, 120.0, 20.0],
+        ),
+        (
+            "counterclockwise",
+            [20.0, 20.0, 120.0, 20.0, 120.0, 50.0, 20.0, 50.0],
+        ),
+    ] {
+        let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+        let appearance = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Form",
+                "BBox" => vec![20.into(), 20.into(), 120.into(), 50.into()],
+                "Resources" => dictionary! {},
+            },
+            b"q 1 0 0 rg 20 20 m 120 20 l 120 50 l 20 50 l h f Q\n".to_vec(),
+        ));
+        let annotation = document.get_dictionary_mut(markup_id).unwrap();
+        annotation.set("Rect", vec![20.into(), 20.into(), 120.into(), 50.into()]);
+        annotation.set("QuadPoints", quad_points_object(&quads));
+        annotation.set("C", vec![1.into(), 0.into(), 0.into()]);
+        annotation.set("CA", 1);
+        annotation.set("F", 4);
+        annotation.set("P", page_id);
+        annotation.set("Contents", Object::string_literal(""));
+        annotation.set("NM", Object::string_literal("iso-counterclockwise"));
+        annotation.set("AP", dictionary! {"N" => appearance});
+        let original = annotation.clone();
+        let source_pixels = painted_pixels(&document, page_id, markup_id);
+        assert_eq!(source_pixels, 3000, "{order} source rectangle");
+        let parsed = collect_parsed_annotations(&document, "D:20261104000000Z").unwrap();
+        let parsed = parsed
             .iter()
-            .map(|value| value.as_float().unwrap() as f64)
-            .collect::<Vec<_>>(),
-        &original_rect,
-    );
+            .find_map(|entry| match entry {
+                PdfAnnotationParseEntry::Highlight(value) => Some(value),
+                _ => None,
+            })
+            .expect("the real parser admits both corner orders");
+        let hint = serde_json::json!({
+            "subtype": "Highlight", "pageIndex": 0,
+            "annotationId": format!("{} {} R", markup_id.0, markup_id.1),
+            "markerRect": parsed.quad_points[0], "markupGeometry": parsed.quad_points,
+            "color": "#0000ff", "opacity": 1, "contents": "", "source": "pdf",
+        });
+        let mutation = NativeMutationsFile {
+            markup: Some(MarkupMutation {
+                hints: vec![serde_json::from_value(hint).unwrap()],
+            }),
+            ..NativeMutationsFile::default()
+        };
+        let mut coverage = Vec::new();
+        for route in ["full", "path", "bytes"] {
+            let saved =
+                saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+            let after = saved.get_dictionary(markup_id).unwrap();
+            for key in [b"QuadPoints".as_slice(), b"Rect"] {
+                assert_eq!(
+                    after.get(key).unwrap(),
+                    original.get(key).unwrap(),
+                    "{order} {route} {key:?}"
+                );
+            }
+            assert_eq!(
+                pdf_string_to_text(after.get(b"Contents").unwrap()).as_deref(),
+                Some(""),
+                "{order} {route} keeps the empty comment"
+            );
+            let color: Vec<_> = after
+                .get(b"C")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| f64::from(value.as_float().unwrap()))
+                .collect();
+            assert_quad_points_approximately(&color, &[0.0, 0.0, 1.0]);
+            if order == "z-order" {
+                let ap = after
+                    .get(b"AP")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"N")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap();
+                let stream = saved.get_object(ap).unwrap().as_stream().unwrap();
+                let content = stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone());
+                assert_eq!(content, b"q\n/GS0 gs\n0 0 1 RG\n0 0 1 rg\n20 50 m\n120 50 l\n120 20 l\n20 20 l\nh\nf\nQ\n", "{route} retains the Z-order saved appearance bytes");
+            }
+            coverage.push((route, painted_pixels(&saved, page_id, markup_id)));
+        }
+        println!("{order} saved appearance coverage: {coverage:?}");
+        assert_eq!(
+            coverage,
+            vec![
+                ("full", source_pixels),
+                ("path", source_pixels),
+                ("bytes", source_pixels)
+            ],
+            "{order} style-only Save must keep the complete filled rectangle"
+        );
+    }
+}
+
+fn saves_new_markup_dates_on_all_writer_routes() {
+    let save_time = "D:20261105000000Z";
+    let cases = [
+        ("missing", None, None, save_time, save_time),
+        (
+            "explicit",
+            Some(1_793_750_400_000u64),
+            Some(1_793_750_460_000u64),
+            "D:20261104000000Z",
+            "D:20261104000100Z",
+        ),
+        ("null", None, None, save_time, save_time),
+        (
+            "epoch",
+            Some(0),
+            Some(0),
+            "D:19700101000000Z",
+            "D:19700101000000Z",
+        ),
+        (
+            "subsecond",
+            Some(1_793_750_400_999),
+            Some(1_793_750_460_999),
+            "D:20261104000000Z",
+            "D:20261104000100Z",
+        ),
+        (
+            "modified-only",
+            None,
+            Some(1_793_750_460_000),
+            "D:20261104000100Z",
+            "D:20261104000100Z",
+        ),
+        (
+            "created-only",
+            Some(1_793_750_400_000),
+            None,
+            "D:20261104000000Z",
+            save_time,
+        ),
+    ];
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        for (label, created, modified, expected_created, expected_modified) in cases {
+            let id = format!("dates-{subtype}-{label}");
+            let mut hint = serde_json::json!({
+                "subtype": subtype, "pageIndex": 0,
+                "markerRect": {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.1},
+                "markupGeometry": [{"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.1}],
+                "id": id, "appAnnotationId": id, "source": "editor", "contents": "New dated markup",
+                "color": "#ff0000", "opacity": 1,
+            });
+            if label != "missing" {
+                hint["createdAt"] = serde_json::json!(created);
+                hint["modifiedAt"] = serde_json::json!(modified);
+            }
+            let mutation = NativeMutationsFile {
+                markup: Some(MarkupMutation {
+                    hints: vec![serde_json::from_value(hint).unwrap()],
+                }),
+                ..NativeMutationsFile::default()
+            };
+            for route in ["full", "path", "bytes"] {
+                let (source, page_id) = create_test_document();
+                let saved = saved_annotation_regression(&source, &mutation, route, save_time);
+                let annots = get_page_annots(&saved, page_id).unwrap();
+                assert_eq!(annots.len(), 1);
+                let annotation = saved
+                    .get_dictionary(annots[0].as_reference().unwrap())
+                    .unwrap();
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"CreationDate").unwrap()).as_deref(),
+                    Some(expected_created),
+                    "{subtype}, {label}, {route}"
+                );
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"M").unwrap()).as_deref(),
+                    Some(expected_modified),
+                    "{subtype}, {label}, {route}"
+                );
+                let parsed = collect_parsed_annotations(&saved, save_time).unwrap();
+                let parsed = parsed
+                    .iter()
+                    .find_map(|entry| match entry {
+                        PdfAnnotationParseEntry::Highlight(value) => Some(value),
+                        _ => None,
+                    })
+                    .unwrap();
+                let expected_epoch = |value: &str| parse_pdf_date_timestamp(value).unwrap();
+                assert_eq!(parsed.created_at, Some(expected_epoch(expected_created)));
+                assert_eq!(parsed.modified_at, Some(expected_epoch(expected_modified)));
+                let repeated =
+                    saved_annotation_regression(&saved, &mutation, route, "D:20261106000000Z");
+                let annots = get_page_annots(&repeated, page_id).unwrap();
+                assert_eq!(
+                    annots.len(),
+                    1,
+                    "identity upsert must not duplicate {subtype}"
+                );
+                let annotation = repeated
+                    .get_dictionary(annots[0].as_reference().unwrap())
+                    .unwrap();
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"CreationDate").unwrap()).as_deref(),
+                    Some(expected_created)
+                );
+            }
+        }
+        for created in [
+            serde_json::Value::Null,
+            serde_json::json!(1_793_750_400_000u64),
+        ] {
+            let (mut source, _page_id, markup_id) = create_test_markup_pdf(subtype);
+            let original = Object::string_literal("D:19691231235959Z");
+            source
+                .get_dictionary_mut(markup_id)
+                .unwrap()
+                .set("CreationDate", original.clone());
+            let hint = serde_json::json!({
+                "subtype": subtype, "pageIndex": 0,
+                "markerRect": {"left": 0.1, "top": 0.5, "width": 0.4, "height": 0.3},
+                "annotationId": format!("{} 0 R", markup_id.0),
+                "contents": "Changed imported comment", "createdAt": created,
+            });
+            let mutation = NativeMutationsFile {
+                markup: Some(MarkupMutation {
+                    hints: vec![serde_json::from_value(hint).unwrap()],
+                }),
+                ..NativeMutationsFile::default()
+            };
+            for route in ["full", "path", "bytes"] {
+                let saved = saved_annotation_regression(&source, &mutation, route, save_time);
+                let annotation = saved.get_dictionary(markup_id).unwrap();
+                assert_eq!(annotation.get(b"CreationDate").unwrap(), &original);
+                assert_eq!(
+                    pdf_string_to_text(annotation.get(b"Contents").unwrap()).as_deref(),
+                    Some("Changed imported comment")
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn creates_new_text_markup_annotations_with_quad_geometry() {
+    saves_new_markup_dates_on_all_writer_routes();
     let (document, page_id) = create_test_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let marker_rect = MarkerRect {
@@ -342,6 +690,8 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         app_annotation_id: None,
         color: Some(color.to_string()),
         author: None,
+        created_at: None,
+        modified_at: None,
         contents: None,
         id: Some(id.to_string()),
         page_markup_index: None,
@@ -352,9 +702,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
 
     apply_markup_mutations_incremental(
         &mut incremental,
-        &MarkupMutation {
-            hints,
-        },
+        &MarkupMutation { hints },
         "D:20260829120500+04'00'",
     )
     .expect("new text markup annotations should be created");
@@ -367,11 +715,22 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         .enumerate()
     {
         let object_id = annots[index].as_reference().expect("annotation reference");
-        let annotation = revision.dictionary(object_id).expect("annotation dictionary");
-        assert_eq!(canonical_markup_subtype(annotation).as_deref(), Some(subtype));
-        assert_eq!(annotation.get(b"Type").unwrap().as_name().unwrap(), b"Annot");
+        let annotation = revision
+            .dictionary(object_id)
+            .expect("annotation dictionary");
+        assert_eq!(
+            canonical_markup_subtype(annotation).as_deref(),
+            Some(subtype)
+        );
+        assert_eq!(
+            annotation.get(b"Type").unwrap().as_name().unwrap(),
+            b"Annot"
+        );
         assert_eq!(annotation.get(b"F").unwrap().as_i64().unwrap() & 4, 4);
-        assert_eq!(annotation.get(b"P").unwrap().as_reference().unwrap(), page_id);
+        assert_eq!(
+            annotation.get(b"P").unwrap().as_reference().unwrap(),
+            page_id
+        );
         assert!(annotation.get(b"NM").is_ok());
         assert!(annotation.get(b"Rect").is_ok());
         assert!(annotation.get(b"QuadPoints").is_ok());
@@ -379,8 +738,8 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         let quad_points = read_markup_quad_points(&revision, annotation).unwrap();
         let expected_quad_points = if subtype == "Underline" {
             vec![
-                20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0,
-                120.0, 40.0, 160.0, 40.0, 120.0, 30.0, 160.0, 30.0,
+                20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0, 120.0, 40.0, 160.0, 40.0, 120.0,
+                30.0, 160.0, 30.0,
             ]
         } else {
             vec![20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0]
@@ -425,6 +784,8 @@ fn recreates_markup_after_deleted_pdf_ref_in_the_same_revision() {
             annotation_id: None,
             color: Some("#ff0000".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some(format_pdfjs_annotation_ref(markup_id)),
             page_markup_index: None,
@@ -468,6 +829,8 @@ fn emits_exact_identity_binding_for_new_native_markup() {
             annotation_id: None,
             color: Some("#ff0000".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
@@ -527,6 +890,8 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
             annotation_id: None,
             color: Some("#ff0000".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
@@ -626,6 +991,8 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
                 annotation_id: None,
                 color: Some(color.to_string()),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: None,
                 id: Some(id.to_string()),
                 page_markup_index: None,
@@ -737,6 +1104,8 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                     annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: Some("#ff0000".to_string()),
                     author: None,
+                    created_at: None,
+                    modified_at: None,
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -800,6 +1169,8 @@ fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
                         color: None,
                         opacity: None,
                         author: None,
+                        created_at: None,
+                        modified_at: None,
                         contents: None,
                         id: None,
                         page_markup_index: Some(0),
@@ -856,6 +1227,8 @@ fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
                 color: None,
                 opacity: Some(0.45),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: None,
                 id: None,
                 page_markup_index: Some(0),
@@ -904,6 +1277,8 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
                 annotation_id: None,
                 color: Some("#ffd400".to_string()),
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: Some(String::new()),
                 id: Some("9R".to_string()),
                 page_markup_index: Some(0),
@@ -1014,6 +1389,8 @@ fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
                 annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: None,
                 author: None,
+                created_at: None,
+                modified_at: None,
                 contents: Some("edited imported markup note".to_string()),
                 id: None,
                 page_markup_index: Some(0),
@@ -1182,6 +1559,8 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
             annotation_id: None,
             color: Some("#336699".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("high-index-page-hint".to_string()),
             page_markup_index: Some(0),
@@ -1235,6 +1614,8 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
             annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
             color: Some("#00ff00".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some("stale-markup-page-hint".to_string()),
             page_markup_index: Some(0),
@@ -1463,6 +1844,8 @@ fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
         annotation_id: None,
         color: Some("#ffff00".to_string()),
         author: None,
+        created_at: None,
+        modified_at: None,
         contents: None,
         id: Some(format!("hint-{index}")),
         page_markup_index: Some(index as u32),
@@ -1685,6 +2068,8 @@ fn spatial_markup_assignment_preserves_best_geometry_matches() {
             annotation_id: None,
             color: Some("#336699".to_string()),
             author: None,
+            created_at: None,
+            modified_at: None,
             contents: None,
             id: Some(format!("spatial-{index}")),
             page_markup_index: Some(index as u32),
@@ -1880,58 +2265,140 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
     assert!(get_page_annots(&revision, page_id).unwrap().is_empty());
 }
 
+fn saved_annotation_regression(
+    source: &Document,
+    mutations: &NativeMutationsFile,
+    route: &str,
+    modified_at: &str,
+) -> Document {
+    let mut source = source.clone();
+    let mut bytes = Vec::new();
+    source.save_to(&mut bytes).unwrap();
+    let saved = match route {
+        "full" => {
+            let mut document = Document::load_mem(&bytes).unwrap();
+            apply_native_mutations(&mut document, mutations, modified_at).unwrap();
+            let mut saved = Vec::new();
+            document.save_to(&mut saved).unwrap();
+            saved
+        }
+        "path" => {
+            let path = temp_pdf_path("annotation-fidelity");
+            write(&path, &bytes).unwrap();
+            append_native_mutations(&path, &path, mutations, modified_at).unwrap();
+            let saved = read(&path).unwrap();
+            remove_file(path).unwrap();
+            assert!(saved.starts_with(&bytes));
+            saved
+        }
+        "bytes" => {
+            append_native_mutations_to_bytes(&bytes, mutations, modified_at)
+                .unwrap()
+                .data
+        }
+        _ => panic!("unknown save route"),
+    };
+    Document::load_mem(&saved).unwrap()
+}
+
+fn add_shape_discussion(
+    document: &mut Document,
+    page_id: ObjectId,
+    parent: ObjectId,
+) -> (ObjectId, ObjectId) {
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "Parent" => parent,
+        "P" => page_id, "Rect" => vec![10.into(), 10.into(), 40.into(), 40.into()],
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "IRT" => parent,
+        "P" => page_id, "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        "Contents" => Object::string_literal("Important reply"),
+    });
+    document
+        .get_dictionary_mut(parent)
+        .unwrap()
+        .set("Popup", popup);
+    (popup, reply)
+}
+
 #[test]
 fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys() {
     let (mut document, page_id) = create_test_document();
     let mut shape = shape_with_stale_appearance("Square");
-    shape.set("NM", Object::string_literal("bare-shape"));
-    shape.set("RC", Object::string_literal("<p>rich shape</p>"));
+    shape.remove(b"AP");
+    shape.set("NM", Object::string_literal("acrobat-square"));
+    shape.set("Contents", Object::string_literal("Parent discussion"));
+    shape.set("RC", Object::string_literal("<p>Parent discussion</p>"));
     shape.set("State", Object::Name(b"Accepted".to_vec()));
-    shape.set("IRT", Object::Reference((900, 0)));
+    shape.set("CreationDate", Object::string_literal("D:19691231235959Z"));
     shape.set("UnknownKey", Object::Integer(77));
-    let shape_id = document.add_object(Object::Dictionary(shape));
-    document
-        .get_dictionary_mut(page_id)
-        .unwrap()
-        .set("Annots", vec![Object::Reference(shape_id)]);
+    let shape_id = document.add_object(shape);
+    let (popup_id, reply_id) = add_shape_discussion(&mut document, page_id, shape_id);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![shape_id.into(), popup_id.into(), reply_id.into()],
+    );
     let before = document.get_dictionary(shape_id).unwrap().clone();
-    let mut requested = rectangle_shape("bare-shape", "#112233");
-    requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
-
-    apply_shape_annotations(
-        &mut document,
-        &ShapesMutation {
-            total_pages: 1,
-            rewrite_shape_state: true,
-            shapes: vec![requested],
-            deleted_annotation_ids: Vec::new(),
-            deleted_stable_keys: Vec::new(),
-        },
-        "D:20260831130000Z",
-        &mut None,
-    )
-    .unwrap();
-
-    let after = document.get_dictionary(shape_id).unwrap();
-    assert_unowned_keys_unchanged(
-        &before,
-        after,
-        &[
-            b"P",
-            b"Rect",
-            b"C",
-            b"CA",
-            b"Border",
-            b"IC",
-            b"AP",
-            b"CreationDate",
-            b"M",
-            b"NM",
-            b"EVBShapeKey",
-        ],
-    )
-    .unwrap();
-    assert_eq!(read_annotation_name(after).as_deref(), Some("bare-shape"));
+    for route in ["full", "path", "bytes"] {
+        for key in ["evb-shape:acrobat-square", "acrobat-square"] {
+            let mut requested = rectangle_shape(key, "#112233");
+            requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
+            requested.created_at = None;
+            let loaded = saved_annotation_regression(
+                &document,
+                &shapes_mutation(vec![requested]),
+                route,
+                "D:20260831130000Z",
+            );
+            let annots = get_page_annots(&loaded, page_id).unwrap();
+            assert_eq!(
+                annots,
+                vec![shape_id.into(), popup_id.into(), reply_id.into()],
+                "{route}: original parent and listed thread"
+            );
+            let after = loaded.get_dictionary(shape_id).unwrap();
+            for key in [
+                b"NM".as_slice(),
+                b"Contents",
+                b"RC",
+                b"State",
+                b"UnknownKey",
+                b"CreationDate",
+                b"Popup",
+            ] {
+                assert_eq!(
+                    after.get(key).unwrap(),
+                    before.get(key).unwrap(),
+                    "{route}: {key:?}"
+                );
+            }
+            assert_eq!(
+                after.get(b"C").unwrap(),
+                &Object::Array(vec![
+                    number_object(17.0 / 255.0),
+                    number_object(34.0 / 255.0),
+                    number_object(51.0 / 255.0)
+                ])
+            );
+            assert_eq!(
+                loaded
+                    .get_dictionary(popup_id)
+                    .unwrap()
+                    .get(b"Parent")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+                shape_id
+            );
+            let reply = loaded.get_dictionary(reply_id).unwrap();
+            assert_eq!(reply.get(b"IRT").unwrap().as_reference().unwrap(), shape_id);
+            assert_eq!(
+                pdf_string_to_text(reply.get(b"Contents").unwrap()).as_deref(),
+                Some("Important reply")
+            );
+        }
+    }
 }
 
 #[test]
@@ -2508,77 +2975,180 @@ fn removes_stale_appearances_when_updating_imported_shapes() {
     let _ = remove_file(pdf_path);
 }
 
+fn regression_appearance(document: &mut Document, dict: &mut Dictionary) -> (ObjectId, ObjectId) {
+    let resources = document.add_object(dictionary! {
+        "ExtGState" => dictionary! {"GS0" => dictionary! {"Type" => "ExtGState", "CA" => 1, "ca" => 1}},
+    });
+    let appearance = document.add_object(Stream::new(dictionary! {
+        "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+        "Resources" => resources,
+    }, b"q /GS0 gs 1 0 0 RG 0 1 0 rg 20 20 80 40 re B Q\n".to_vec()));
+    dict.set("AP", dictionary! {"N" => appearance});
+    (appearance, resources)
+}
+
+fn assert_regression_appearance(source: &Document, saved: &Document, refs: (ObjectId, ObjectId)) {
+    for id in [refs.0, refs.1] {
+        assert_eq!(
+            saved.get_object(id).unwrap(),
+            source.get_object(id).unwrap(),
+            "appearance graph {id:?}"
+        );
+    }
+}
+
 #[test]
 fn preserves_an_untouched_imported_appearance_when_a_sibling_shape_changes() {
-    let untouched_key = "evb-shape:untouched-appearance";
-    let changed_key = "evb-shape:changed-appearance";
-    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_appearances(&[
-        (untouched_key, shape_with_stale_appearance("Square")),
-        (changed_key, shape_with_stale_appearance("Square")),
-    ]);
-    let pdf_path = seed_shape_pdf(&mut document, "shape-preserve-untouched-appearance");
-
-    let mut untouched = imported_on_page_square(untouched_key);
-    untouched.color = "#ff0000".to_string();
-    untouched.fill_color = None;
-    untouched.opacity = 1.0;
-    untouched.stroke_width = 2.0;
-    let mut changed = untouched.clone();
-    changed.stable_key = Some(changed_key.to_string());
-    changed.x += 0.05;
-
-    append_native_mutations(
-        &pdf_path,
-        &pdf_path,
-        &shapes_mutation(vec![untouched, changed]),
-        "D:20260609123456+03'00'",
-    )
-    .unwrap();
-
-    let loaded = Document::load(&pdf_path).unwrap();
-    assert!(shape_dict(&loaded, untouched_key).get(b"AP").is_ok());
-    assert!(shape_dict(&loaded, changed_key).get(b"AP").is_err());
-
-    let _ = remove_file(pdf_path);
+    let (mut document, page_id) = create_test_document();
+    let mut foreign = shape_with_stale_appearance("Square");
+    foreign.set("NM", Object::string_literal("foreign-dashed"));
+    foreign.set("P", page_id);
+    foreign.set(
+        "BS",
+        dictionary! {"W" => 2, "S" => "D", "D" => vec![3.into(), 2.into()]},
+    );
+    foreign.set("Contents", Object::string_literal("Foreign discussion"));
+    let appearances = regression_appearance(&mut document, &mut foreign);
+    let foreign_id = document.add_object(foreign);
+    let (popup, reply) = add_shape_discussion(&mut document, page_id, foreign_id);
+    let mut editable = shape_with_stale_appearance("Square");
+    editable.remove(b"AP");
+    editable.set("NM", Object::string_literal("evb-shape:editable"));
+    editable.set("P", page_id);
+    let editable_id = document.add_object(editable);
+    let (editable_popup, editable_reply) =
+        add_shape_discussion(&mut document, page_id, editable_id);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![
+            foreign_id.into(),
+            popup.into(),
+            reply.into(),
+            editable_id.into(),
+            editable_popup.into(),
+            editable_reply.into(),
+        ],
+    );
+    let parsed = collect_parsed_annotations(&document, "D:20261104000000Z").unwrap();
+    assert!(parsed.iter().any(|entry| matches!(entry, PdfAnnotationParseEntry::Foreign(value) if value.object_number == u64::from(foreign_id.0))), "real parser must reject the dashed Square as foreign");
+    let mut changed = imported_on_page_square("evb-shape:editable");
+    changed.annotation_id = Some(format!("{} 0 R", editable_id.0));
+    changed.color = "#112233".to_string();
+    for route in ["full", "path", "bytes"] {
+        for rewrite in [false, true] {
+            let mut mutation = shapes_mutation(vec![changed.clone()]);
+            mutation.shapes.as_mut().unwrap().rewrite_shape_state = rewrite;
+            let saved =
+                saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+            assert_eq!(
+                get_page_annots(&saved, page_id).unwrap(),
+                get_page_annots(&document, page_id).unwrap(),
+                "{route}, rewrite={rewrite}: the foreign thread remains listed on the page"
+            );
+            for id in [foreign_id, popup, reply] {
+                assert_eq!(
+                    saved.get_dictionary(id).unwrap(),
+                    document.get_dictionary(id).unwrap(),
+                    "{route}, rewrite={rewrite}: foreign thread {id:?}"
+                );
+            }
+            assert_regression_appearance(&document, &saved, appearances);
+            assert_ne!(
+                saved
+                    .get_dictionary(editable_id)
+                    .unwrap()
+                    .get(b"C")
+                    .unwrap(),
+                document
+                    .get_dictionary(editable_id)
+                    .unwrap()
+                    .get(b"C")
+                    .unwrap()
+            );
+        }
+        for by_key in [false, true] {
+            let mut deletion = shapes_mutation(Vec::new());
+            let shapes = deletion.shapes.as_mut().unwrap();
+            shapes.rewrite_shape_state = false;
+            if by_key {
+                shapes
+                    .deleted_stable_keys
+                    .push("evb-shape:editable".to_string());
+            } else {
+                shapes
+                    .deleted_annotation_ids
+                    .push(format!("{} 0 R", editable_id.0));
+            }
+            let saved =
+                saved_annotation_regression(&document, &deletion, route, "D:20261104000100Z");
+            let annots = get_page_annots(&saved, page_id).unwrap();
+            assert_eq!(
+                annots,
+                vec![foreign_id.into(), popup.into(), reply.into()],
+                "{route}: only the explicitly selected editable thread is deleted"
+            );
+            assert_regression_appearance(&document, &saved, appearances);
+        }
+    }
 }
 
 #[test]
 fn preserves_an_untouched_line_appearance_when_a_sibling_shape_changes() {
-    let untouched_key = "evb-shape:untouched-line-appearance";
-    let changed_key = "evb-shape:changed-square-appearance";
-    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_appearances(&[
-        (untouched_key, shape_with_stale_appearance("Line")),
-        (changed_key, shape_with_stale_appearance("Square")),
-    ]);
-    let pdf_path = seed_shape_pdf(&mut document, "shape-preserve-untouched-line-appearance");
-
-    let mut untouched = rectangle_shape(untouched_key, "#ff0000");
-    untouched.shape_type = "line".to_string();
-    untouched.fill_color = None;
-    untouched.x = 0.1;
-    untouched.y = 0.8;
-    untouched.x2 = Some(0.5);
-    untouched.y2 = Some(0.4);
-    untouched.width = 0.4;
-    untouched.height = 0.4;
-    untouched.opacity = 1.0;
-    untouched.stroke_width = 2.0;
-    let mut changed = imported_on_page_square(changed_key);
-    changed.x += 0.05;
-
-    append_native_mutations(
-        &pdf_path,
-        &pdf_path,
-        &shapes_mutation(vec![untouched, changed]),
-        "D:20260609123456+03'00'",
-    )
-    .unwrap();
-
-    let loaded = Document::load(&pdf_path).unwrap();
-    assert!(shape_dict(&loaded, untouched_key).get(b"AP").is_ok());
-    assert!(shape_dict(&loaded, changed_key).get(b"AP").is_err());
-
-    let _ = remove_file(pdf_path);
+    let (mut document, page_id) = create_test_document();
+    let mut arrow = shape_with_stale_appearance("Line");
+    arrow.set("NM", Object::string_literal("evb-shape:untouched-arrow"));
+    arrow.set(
+        "LE",
+        vec![
+            Object::Name(b"None".to_vec()),
+            Object::Name(b"ClosedArrow".to_vec()),
+        ],
+    );
+    arrow.set("CreationDate", Object::string_literal("D:20260101000000Z"));
+    arrow.set("M", Object::string_literal("D:20260102000000Z"));
+    arrow.set("P", page_id);
+    let appearances = regression_appearance(&mut document, &mut arrow);
+    let arrow_id = document.add_object(arrow);
+    let mut editable = shape_with_stale_appearance("Square");
+    editable.remove(b"AP");
+    editable.set("NM", Object::string_literal("evb-shape:changed-square"));
+    editable.set("P", page_id);
+    let editable_id = document.add_object(editable);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![arrow_id.into(), editable_id.into()]);
+    let mut changed = imported_on_page_square("evb-shape:changed-square");
+    changed.annotation_id = Some(format!("{} 0 R", editable_id.0));
+    changed.color = "#112233".to_string();
+    let mut mutation = shapes_mutation(vec![changed]);
+    mutation.shapes.as_mut().unwrap().rewrite_shape_state = false;
+    for route in ["full", "path", "bytes"] {
+        let saved = saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+        assert_eq!(
+            get_page_annots(&saved, page_id).unwrap(),
+            get_page_annots(&document, page_id).unwrap(),
+            "{route}: untouched arrow remains listed beside its edited sibling"
+        );
+        assert_eq!(
+            saved.get_dictionary(arrow_id).unwrap(),
+            document.get_dictionary(arrow_id).unwrap(),
+            "{route}: raw IC, L, Rect, dates and AP"
+        );
+        assert_regression_appearance(&document, &saved, appearances);
+        assert_ne!(
+            saved
+                .get_dictionary(editable_id)
+                .unwrap()
+                .get(b"C")
+                .unwrap(),
+            document
+                .get_dictionary(editable_id)
+                .unwrap()
+                .get(b"C")
+                .unwrap()
+        );
+    }
 }
 
 #[test]

@@ -4,6 +4,7 @@ import {
     existsSync,
     mkdtempSync,
     readFileSync,
+    writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,6 +18,8 @@ import {
 import { delay } from 'es-toolkit/promise';
 import {
     createBlankFixturePdf,
+    createAnnotationFidelityFixtureBytes,
+    readAnnotationFidelitySnapshot,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -24,11 +27,15 @@ import {
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     clickAnnotationTool,
     setAnnotationColor,
+    selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     clickToolbarButtonWhenEnabled,
@@ -2237,6 +2244,87 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             rendererErrorTracker = null;
             await sessionFixture.stop();
         }
+    });
+
+    it('preserves foreign threads, closed arrows and skewed markup through a sibling edit and comment Save', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'a37-save-fidelity-'));
+        const sourcePath = join(directory, 'source.pdf');
+        const source = await createAnnotationFidelityFixtureBytes();
+        writeFileSync(sourcePath, source);
+        writeFileSync(join(directory, 'before.pdf'), source);
+        const before = await readAnnotationFidelitySnapshot(source);
+        writeFileSync(join(directory, 'before.json'), JSON.stringify(before, null, 2));
+        const session = await startDrawShapeSession({EVB_RECORD_SESSION: '1'});
+        const {page} = session;
+        await openPdfInApp(page, sourcePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Select');
+        await waitForShapeCount(page, 2);
+        await page.screenshot({path: join(directory, 'opened.png')});
+        const siblingSelector = '.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id*="sibling"] [data-annotation-hit-target]';
+        await clickAsUser(page, siblingSelector);
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('Escape');
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('.editor-pane.is-active .note-item'))
+            .find(row => row.textContent?.includes('Skewed original comment'))?.querySelector('.note-item-content'), undefined,
+        {
+            description: 'the imported skewed markup comment',
+            count: 2,
+        });
+        const textarea = 'textarea.note-window__textarea';
+        await page.waitForSelector(textarea, {visible: true});
+        await clickAsUser(page, textarea);
+        await selectAllFocusedAnnotationText(page);
+        await page.keyboard.type('Edited skewed comment with real input');
+        await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>('textarea.note-window__textarea')?.value === 'Edited skewed comment with real input');
+        await page.keyboard.press('Tab');
+        await clickAsUser(page, '.note-window .note-window__close');
+        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .notes-list')?.textContent?.includes('Edited skewed comment with real input') === true);
+        await waitForWorkspaceToolbarIdle(page);
+        await page.screenshot({path: join(directory, 'edited.png')});
+        await clickAsUser(page, '.save-split-primary');
+        await waitForWorkspaceToolbarIdle(page);
+        await expect.poll(async () => (await readAnnotationFidelitySnapshot(readFileSync(sourcePath)))
+            .find(row => row.name === 'skewed-markup')?.contents).toBe('Edited skewed comment with real input');
+        const after = await readAnnotationFidelitySnapshot(readFileSync(sourcePath));
+        writeFileSync(join(directory, 'after.json'), JSON.stringify(after, null, 2));
+        // Collect every preservation failure from the same saved bytes.
+        expect.soft(after).toHaveLength(before.length);
+        for (const name of [
+            'foreign-dashed',
+            'evb-shape:closed-arrow',
+        ]) {
+            expect.soft(after.find(row => row.name === name), name).toEqual(before.find(row => row.name === name));
+        }
+        for (const sourceThread of before.filter(row => row.name === null)) {
+            expect.soft(after.find(row => row.ref === sourceThread.ref), 'foreign Popup/reply').toEqual(sourceThread);
+        }
+        const markupBefore = before.find(row => row.name === 'skewed-markup')!;
+        const markupAfter = after.find(row => row.name === 'skewed-markup')!;
+        for (const key of [
+            'quads',
+            'rect',
+            'appearance',
+            'appearanceStream',
+            'appearanceDictionary',
+            'resources',
+        ] as const) {
+            expect.soft(markupAfter[key], key).toEqual(markupBefore[key]);
+        }
+        expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
+        await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await expect.poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath).toBeNull();
+        await openPdfInApp(page, sourcePath);
+        await waitForPdfLoaded(page);
+        await waitForShapeCount(page, 2);
+        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .notes-list')?.textContent?.includes('Edited skewed comment with real input') === true);
+        await page.screenshot({path: join(directory, 'reopened.png')});
+        execFileSync(getPdfNativeToolPaths().qpdf, [
+            '--check',
+            sourcePath,
+        ], {encoding: 'utf8'});
+        console.log(`A37 saved-byte evidence: ${directory}`);
     });
 
     it('preserves repeated draw-save-delete-redraw cycles without ghost shapes or auto-selecting new strokes', async () => {

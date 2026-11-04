@@ -90,6 +90,8 @@ export function collectMarkupSubtypeHints(
         hints.push({
             ...(comment.appAnnotationId ? {appAnnotationId: comment.appAnnotationId} : {}),
             annotationId: comment.annotationId,
+            ...(comment.createdAt === undefined ? {} : {createdAt: comment.createdAt}),
+            ...(comment.modifiedAt === undefined ? {} : {modifiedAt: comment.modifiedAt}),
             color: shouldCollectMarkupSubtypeHintColor(comment, options.includeContents === true)
                 ? comment.color
                 : null,

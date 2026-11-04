@@ -1,4 +1,5 @@
 import type { TPageIndex } from '@contracts/pageNumbers';
+import type {TEpochMs} from '@contracts/timestamps';
 
 import type {
     IAnnotationCommentSummary,
@@ -10,6 +11,8 @@ export type TMarkupSubtypeHintSource = 'editor-live' | IAnnotationCommentSummary
 
 export interface IMarkupSubtypeHint {
     author?: string | null;
+    createdAt?: TEpochMs | null;
+    modifiedAt?: TEpochMs | null;
     subtype: TMarkupSubtype;
     pageIndex: TPageIndex;
     markerRect: IAnnotationMarkerRect;

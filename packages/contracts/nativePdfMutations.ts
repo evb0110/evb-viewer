@@ -929,6 +929,8 @@ function normalizeMarkupHint(
         ...(value.contents === undefined
             ? {}
             : {contents: normalizeMarkupOptionalString(value.contents, `${label}.contents`, options)}),
+        ...(value.createdAt === undefined ? {} : {createdAt: normalizeOptionalTimestamp(value.createdAt, `${label}.createdAt`, options)}),
+        ...(value.modifiedAt === undefined ? {} : {modifiedAt: normalizeOptionalTimestamp(value.modifiedAt, `${label}.modifiedAt`, options)}),
         id: normalizeOptionalString(value.id, `${label}.id`, options, PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes),
         pageMarkupIndex: normalizeMarkupOptionalIndex(value.pageMarkupIndex, `${label}.pageMarkupIndex`, options),
         source: normalizeMarkupOptionalString(value.source, `${label}.source`, options),
