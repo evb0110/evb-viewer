@@ -24,58 +24,62 @@ import {
 
 describe('browser document lifecycle UI', () => {
 
-    // T3/T4: geometry appends to signed bytes, and a page subset keeps only its form membership.
-    it.each([
+    // Keep document preparation in bounded hooks, as in the signature-field cases.
+    // The five-second test body covers the real operation and its saved-byte contract.
+    describe.each([
         'rotate',
         'crop',
-    ] as const)('preserves the historical CMS digest after real browser %s and Save', async operation => {
+    ] as const)('historical CMS preservation after browser %s', operation => {
+        let page: Page;
+        let original: PDFDocument;
+        let verify: (bytes: Buffer, label: string) => void;
         const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/signed.pdf'));
         const evidence = resolve('.devkit/fixes16/evidence/signed-browser');
-        mkdirSync(evidence, {recursive: true});
-        const original = await PDFDocument.load(source);
-        const signature = original.context.enumerateIndirectObjects().find(([
-            , object,
-        ]) => object instanceof PDFDict && object.has(PDFName.of('ByteRange')))?.[1];
-        if (!(signature instanceof PDFDict)) throw new Error('Fixture signature missing');
-        const contents = signature.get(PDFName.of('Contents'));
-        if (!(contents instanceof PDFHexString)) throw new Error('Fixture CMS missing');
-        const der = Buffer.from(contents.asBytes());
-        writeFileSync(resolve(evidence, 'signature.der'), der);
-        const verify = (bytes: Buffer, label: string) => {
-            const ranges = bytes.toString('latin1').match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/u);
-            if (!ranges) throw new Error('Saved signature ByteRange missing');
-            const [
-                a,
-                b,
-                c,
-                d,
-            ] = ranges.slice(1).map(Number) as [number, number, number, number];
-            writeFileSync(resolve(evidence, `${label}.ranges.bin`), Buffer.concat([
-                bytes.subarray(a, a + b),
-                bytes.subarray(c, c + d),
-            ]));
-            const result = spawnSync('openssl', [
-                'cms',
-                '-verify',
-                '-binary',
-                '-inform',
-                'DER',
-                '-in',
-                resolve(evidence, 'signature.der'),
-                '-content',
-                resolve(evidence, `${label}.ranges.bin`),
-                '-noverify',
-                '-out',
-                resolve(evidence, `${label}.verified.bin`),
-            ], {encoding: 'utf8'});
-            writeFileSync(resolve(evidence, `${label}.cms.log`), result.stderr);
-            expect(result.status, `${label}: ${result.stderr}`).toBe(0);
-        };
-        verify(source, 'original');
+        beforeAll(async () => {
+            mkdirSync(evidence, {recursive: true});
+            original = await PDFDocument.load(source);
+            const signature = original.context.enumerateIndirectObjects().find(([
+                , object,
+            ]) => object instanceof PDFDict && object.has(PDFName.of('ByteRange')))?.[1];
+            if (!(signature instanceof PDFDict)) throw new Error('Fixture signature missing');
+            const contents = signature.get(PDFName.of('Contents'));
+            if (!(contents instanceof PDFHexString)) throw new Error('Fixture CMS missing');
+            const der = Buffer.from(contents.asBytes());
+            writeFileSync(resolve(evidence, 'signature.der'), der);
+            verify = (bytes: Buffer, label: string) => {
+                const ranges = bytes.toString('latin1').match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/u);
+                if (!ranges) throw new Error('Saved signature ByteRange missing');
+                const [
+                    a,
+                    b,
+                    c,
+                    d,
+                ] = ranges.slice(1).map(Number) as [number, number, number, number];
+                writeFileSync(resolve(evidence, `${label}.ranges.bin`), Buffer.concat([
+                    bytes.subarray(a, a + b),
+                    bytes.subarray(c, c + d),
+                ]));
+                const result = spawnSync('openssl', [
+                    'cms',
+                    '-verify',
+                    '-binary',
+                    '-inform',
+                    'DER',
+                    '-in',
+                    resolve(evidence, 'signature.der'),
+                    '-content',
+                    resolve(evidence, `${label}.ranges.bin`),
+                    '-noverify',
+                    '-out',
+                    resolve(evidence, `${label}.verified.bin`),
+                ], {encoding: 'utf8'});
+                writeFileSync(resolve(evidence, `${label}.cms.log`), result.stderr);
+                expect(result.status, `${label}: ${result.stderr}`).toBe(0);
+            };
+            verify(source, 'original');
 
-        const context = await lifecycle.browser.newContext({acceptDownloads: true});
-        const page = await context.newPage();
-        try {
+            const context = await lifecycle.browser.newContext({acceptDownloads: true});
+            page = await context.newPage();
             await openPdfFromChooser(page, {
                 name: 'signed.pdf',
                 mimeType: 'application/pdf',
@@ -91,6 +95,13 @@ describe('browser document lifecycle UI', () => {
                 name: 'Pages',
                 exact: true,
             }).click();
+        });
+
+        afterAll(async () => {
+            await page?.context().close();
+        });
+
+        it('preserves the historical CMS digest and saves the page edit', async () => {
             if (operation === 'rotate') {
                 await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
                 await page.getByRole('menuitem', {
@@ -115,10 +126,6 @@ describe('browser document lifecycle UI', () => {
                     exact: true,
                 }).click();
             }
-            await page.waitForFunction(() => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
-            });
             const download = page.waitForEvent('download');
             await page.getByRole('button', {
                 name: 'Save',
@@ -127,26 +134,24 @@ describe('browser document lifecycle UI', () => {
             const path = await (await download).path();
             if (!path) throw new Error('Signed Save As produced no download');
             const saved = readFileSync(path);
-            writeFileSync(resolve(evidence, `${operation}.pdf`), saved);
-            await page.screenshot({path: resolve(evidence, `${operation}.png`)});
             verify(saved, operation);
             expect(saved.subarray(0, source.length)).toEqual(source);
             const reopened = await PDFDocument.load(saved);
             if (operation === 'rotate') expect(reopened.getPage(0).getRotation().angle).toBe(90);
             else expect(reopened.getPage(0).getCropBox().width).toBeLessThan(original.getPage(0).getCropBox().width);
-        } finally {
-            await context.close();
-        }
+        });
     });
 
-    it.each([
+    describe.each([
         'delete',
         'extract',
-    ] as const)('removes deleted-page form values after browser %s through the page menu', async operation => {
-        const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/forms.pdf'));
-        const context = await lifecycle.browser.newContext({acceptDownloads: true});
-        const page = await context.newPage();
-        try {
+    ] as const)('form membership after browser %s', operation => {
+        let page: Page;
+
+        beforeAll(async () => {
+            const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/forms.pdf'));
+            const context = await lifecycle.browser.newContext({acceptDownloads: true});
+            page = await context.newPage();
             await openPdfFromChooser(page, {
                 name: 'forms.pdf',
                 mimeType: 'application/pdf',
@@ -162,6 +167,13 @@ describe('browser document lifecycle UI', () => {
                 name: 'Pages',
                 exact: true,
             }).click();
+        });
+
+        afterAll(async () => {
+            await page?.context().close();
+        });
+
+        it('removes deleted-page form values through the page menu and saved bytes', async () => {
             await clickCenter(page, `[data-thumbnail-page="${operation === 'delete' ? 2 : 1}"]`, 'right');
             const download = page.waitForEvent('download');
             await page.getByRole('menuitem', {
@@ -177,29 +189,26 @@ describe('browser document lifecycle UI', () => {
             }
             const path = await (await download).path();
             if (!path) throw new Error('Page operation produced no downloaded PDF');
-            const evidence = resolve('.devkit/fixes16/evidence/forms-browser');
-            mkdirSync(evidence, {recursive: true});
-            writeFileSync(resolve(evidence, `${operation}.pdf`), readFileSync(path));
-            await page.screenshot({path: resolve(evidence, `${operation}.png`)});
             const saved = await PDFDocument.load(readFileSync(path));
             expect(saved.getPageCount()).toBe(1);
             expect(saved.getForm().getFields().map(field => field.getName())).toEqual(['retained']);
             expect(saved.getForm().getTextField('retained').getText()).toBe('VISIBLE');
-        } finally {
-            await context.close();
-        }
+        });
     });
 
-    it.each([
+    describe.each([
         'StructTreeRoot',
         'OCProperties',
-    ])('shows the localized Combine refusal for browser %s without a generated tab', async key => {
-        const context = await lifecycle.browser.newContext();
-        const page = await context.newPage();
-        const source = await PDFDocument.load(readFileSync(resolve('tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
-        source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
-        const feature = Buffer.from(await source.save());
-        try {
+    ])('browser Combine refusal for %s', key => {
+        let page: Page;
+        let tabCount: number;
+
+        beforeAll(async () => {
+            const context = await lifecycle.browser.newContext();
+            page = await context.newPage();
+            const source = await PDFDocument.load(readFileSync(resolve('tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+            source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
+            const feature = Buffer.from(await source.save());
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
@@ -221,21 +230,23 @@ describe('browser document lifecycle UI', () => {
                     buffer: readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')),
                 },
             ]);
-            await expect.poll(() => page.locator('[data-combine-row]').count()).toBe(2);
-            const tabCount = await page.getByRole('tab').count();
+            await page.locator('[data-combine-row]').nth(1).waitFor();
+            tabCount = await page.getByRole('tab').count();
+        });
+
+        afterAll(async () => {
+            await page?.context().close();
+        });
+
+        it('shows the localized refusal without saving a result or generating a tab', async () => {
             await page.locator('footer.combine-actions button').click();
             await expect.poll(async () => await page.locator('.app-toast, .page_container').count() > 0
                 || await page.getByRole('tab').count() > tabCount).toBe(true);
-            const evidence = resolve('.devkit/fixes16/evidence/combine-browser');
-            mkdirSync(evidence, {recursive: true});
-            await page.screenshot({path: resolve(evidence, `${key}.png`)});
             expect((await page.locator('.app-toast').allTextContents()).join('\n')).toContain('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
             expect(await page.locator('[data-combine-row]').count()).toBe(2);
             expect(await page.getByRole('tab').count()).toBe(tabCount);
             expect(await page.locator('.page_container').count()).toBe(0);
-        } finally {
-            await context.close();
-        }
+        });
     });
 
     it('saves a note and rotation in a PDF over 16 MiB', async () => {
