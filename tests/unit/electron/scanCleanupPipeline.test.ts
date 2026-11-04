@@ -860,6 +860,65 @@ describe('scan cleanup pipeline', () => {
     });
 
     it.each([
+        {format: 'evb-pdf-annotation-name-index'},
+        {schemaVersion: 2},
+        {pageCount: -1},
+        {pageCount: 1.5},
+        {pageCount: Number.MAX_SAFE_INTEGER + 1},
+        {chunkBytes: 63},
+        {chunkBytes: 4 * 1024 * 1024 + 1},
+        {chunkBytes: 64.5},
+        {unexpected: true},
+        null,
+    ])('validates the non-affine annotation index header before publication (%j)', async (override) => {
+        const fixture = await setup();
+        const raster = join(fixture.dir, 'rasterized.pdf');
+        const staged = join(fixture.dir, 'staged.pdf');
+        await writeFile(raster, 'unpublished raster');
+        const header = override === null ? {
+            format: 'evb-pdf-annotation-name-index',
+            schemaVersion: 1,
+            pageCount: 1,
+            chunkBytes: 64,
+        } : 'format' in override ? override : {
+            format: 'evb-pdf-annotation-name-index',
+            schemaVersion: 1,
+            pageCount: 1,
+            chunkBytes: 64,
+            ...override,
+        };
+        const deps = dependencies(vi.fn());
+        deps.runCommand = async (_binary, args) => {
+            if (args[0] === 'annotation-index') {
+                await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify(header)}\n`);
+            }
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        };
+        const assemble = assembleWithCompactSourcePages(
+            [], pipelinePaths(fixture.dir), fixture.sourcePdfPath, raster, staged,
+            fixture.dir, new AbortController().signal, vi.fn(), deps, undefined,
+            {
+                pages: [],
+                skippedNonAffine: [1],
+                alreadyPreserved: [],
+            },
+        );
+        if (override === null) {
+            await expect(assemble).resolves.toBeUndefined();
+            await expect(readFile(staged, 'utf8')).resolves.toBe('unpublished raster');
+            await expect(stat(raster)).rejects.toMatchObject({code: 'ENOENT'});
+        } else {
+            await expect(assemble).rejects.toThrow('Invalid source annotation header');
+            await expect(stat(staged)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(raster, 'utf8')).resolves.toBe('unpublished raster');
+        }
+    });
+
+    it.each([
         false,
         true,
     ])('saves the final catalog map when all pages are link-only (unmapped=%s)', async (unmappedGeometry) => {

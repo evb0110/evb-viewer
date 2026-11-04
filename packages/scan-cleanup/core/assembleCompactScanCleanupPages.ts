@@ -1,3 +1,5 @@
+import * as v from 'valibot';
+import {PDF_ANNOTATION_INDEX_SIDECAR_HEADER_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
 import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {createReadStream} from 'node:fs';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -267,7 +269,7 @@ async function assertSourceAnnotationsHaveGeometry(
             signal.throwIfAborted();
             const value: unknown = JSON.parse(line);
             if (!headerRead) {
-                if (!isRecord(value) || value.format !== 'evb-pdf-annotation-name-index') {
+                if (!v.safeParse(PDF_ANNOTATION_INDEX_SIDECAR_HEADER_SCHEMA, value).success) {
                     throw new ScanCleanupContractError('Invalid source annotation header');
                 }
                 headerRead = true;

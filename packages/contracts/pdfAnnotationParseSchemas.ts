@@ -370,3 +370,11 @@ export const PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA = v.strictObject({
     chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES)),
     pageIndices: v.optional(pageIndicesSchema),
 });
+
+/** The first line of `evb-pdf-page-ops annotation-index` JSONL output. */
+export const PDF_ANNOTATION_INDEX_SIDECAR_HEADER_SCHEMA = v.strictObject({
+    format: v.literal('evb-pdf-annotation-name-index'),
+    schemaVersion: PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries.schemaVersion,
+    pageCount: PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries.pageCount,
+    chunkBytes: PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries.chunkBytes,
+});
