@@ -1,3 +1,4 @@
+import type * as PdfCore from '@pdf-core';
 import {
     findPdfSearchMatches, normalizeSearchText,
 } from '@pdf-core';
@@ -296,3 +297,61 @@ describe('extractBrowserSearchPageText', () => {
         expect(page.cleanup).toHaveBeenCalledOnce();
     });
 });
+
+// Real PDF.js operator lists for one-line PDFs, read by the real geometry helper.
+describe('word boxes from real PDF operators', () => {
+    function onePagePdf(stream: string) {
+        const objects = [
+            '<< /Type /Catalog /Pages 2 0 R >>',
+            '<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+            `<< /Length ${String(stream.length)} >>\nstream\n${stream}\nendstream`,
+        ];
+        let text = '%PDF-1.4\n';
+        const offsets: number[] = [];
+        objects.forEach((object, index) => {
+            offsets.push(text.length);
+            text += `${String(index + 1)} 0 obj\n${object}\nendobj\n`;
+        });
+        const xref = text.length;
+        text += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`;
+        for (const offset of offsets) text += `${String(offset).padStart(10, '0')} 00000 n \n`;
+        text += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R >>\nstartxref\n${String(xref)}\n%%EOF\n`;
+        return new TextEncoder().encode(text);
+    }
+
+    async function wordBoxes(stream: string) {
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        const geometry = await vi.importActual<typeof PdfCore>('@pdf-core');
+        const task = pdfjs.getDocument({
+            data: onePagePdf(stream),
+            useSystemFonts: true,
+        });
+        try {
+            const page = await (await task.promise).getPage(1);
+            const operators = await page.getOperatorList();
+            return geometry.extractPdfjsWordBoxesFromOperatorList(operators, geometry.getPdfjsPageViewBox(page), pdfjs.OPS);
+        } finally {
+            await task.destroy();
+        }
+    }
+
+    it('splits words a wide TJ gap separates and keeps kerned letters together', async () => {
+        const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm [(he) -40 (llo) -600 (world)] TJ ET');
+
+        expect(words.map(word => word.text)).toEqual([
+            'hello',
+            'world',
+        ]);
+    });
+
+    it('restores the font size a graphics-state restore brings back', async () => {
+        const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm (A) Tj ET\nq\nBT /F1 20 Tf 1 0 0 1 10 130 Tm (B) Tj ET\nQ\nBT 1 0 0 1 10 90 Tm (C) Tj ET');
+        const a = words.find(word => word.text === 'A')!;
+        const c = words.find(word => word.text === 'C')!;
+
+        expect(c.height).toBeCloseTo(a.height, 5);
+    });
+});
+
