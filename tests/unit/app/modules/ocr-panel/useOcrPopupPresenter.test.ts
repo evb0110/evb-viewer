@@ -443,6 +443,52 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
+    it.each([
+        'aborted',
+        'replaced',
+    ] as const)('starts no agent OCR when its command is %s while languages load', async (change) => {
+        const harness = createPresenterHarness();
+        const languagesLoaded = Promise.withResolvers<undefined>();
+        harness.ocr.loadLanguages.mockImplementation(() => languagesLoaded.promise);
+        const command = new AbortController();
+        let documentReplaced = false;
+
+        try {
+            const run = harness.presenter.runOcrForAgent({open: false}, {
+                signal: command.signal,
+                assertCurrentDocument: () => {
+                    if (documentReplaced) throw new Error('The document changed');
+                },
+            });
+            if (change === 'aborted') command.abort(new DOMException('Interrupted', 'AbortError'));
+            else documentReplaced = true;
+            languagesLoaded.resolve(undefined);
+
+            await expect(run).rejects.toThrow(change === 'aborted' ? 'Interrupted' : 'The document changed');
+            expect(harness.ocr.runOcr).not.toHaveBeenCalled();
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('cancels a running agent OCR when its command is aborted', async () => {
+        const harness = createPresenterHarness();
+        const command = new AbortController();
+        harness.ocr.runOcr.mockImplementation(async () => {
+            command.abort(new DOMException('Interrupted', 'AbortError'));
+        });
+
+        try {
+            await harness.presenter.runOcrForAgent({open: false}, {
+                signal: command.signal,
+                assertCurrentDocument: () => undefined,
+            });
+            expect(harness.ocr.cancelOcr).toHaveBeenCalled();
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
     it('treats an expected no-pages outcome as a handled agent run', async () => {
         const harness = createPresenterHarness();
         harness.ocr.runOcr.mockImplementation(async () => {

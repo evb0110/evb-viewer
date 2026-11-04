@@ -16,6 +16,7 @@ import type {
 } from '@app/types/annotations';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
 import type {IWorkspacePdfViewerAgentPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {createDocumentWorkspaceAgent} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import type {
@@ -126,7 +127,7 @@ function createAgentOptions(
 
 describe('createDocumentWorkspaceAgent', () => {
     it('passes OCR quality profile through the OCR start action', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
+        const runOcrForAgent = vi.fn<IOcrPopupAgentExpose['runOcrForAgent']>(async () => ({ok: true}));
         const handleDropdownOpen = vi.fn();
         const ocr = {
             runOcrForAgent,
@@ -153,7 +154,7 @@ describe('createDocumentWorkspaceAgent', () => {
         });
 
         expect(handleDropdownOpen).toHaveBeenCalledWith('ocr', true);
-        expect(runOcrForAgent).toHaveBeenCalledWith({
+        expect(runOcrForAgent.mock.lastCall?.[0]).toEqual({
             pageRange: 'all',
             languages: ['rus'],
             qualityProfile: 'poor-scan',
@@ -166,7 +167,7 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('keeps a contract-requested OCR run in the background', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
+        const runOcrForAgent = vi.fn<IOcrPopupAgentExpose['runOcrForAgent']>(async () => ({ok: true}));
         const handleDropdownOpen = vi.fn();
         const agent = createDocumentWorkspaceAgent(createAgentOptions({
             handleDropdownOpen,
@@ -183,14 +184,14 @@ describe('createDocumentWorkspaceAgent', () => {
         });
 
         expect(handleDropdownOpen).not.toHaveBeenCalled();
-        expect(runOcrForAgent).toHaveBeenCalledWith({
+        expect(runOcrForAgent.mock.lastCall?.[0]).toEqual({
             languages: ['eng'],
             open: false,
         });
     });
 
     it('drops invalid OCR tuning inputs before invoking the popup', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
+        const runOcrForAgent = vi.fn<IOcrPopupAgentExpose['runOcrForAgent']>(async () => ({ok: true}));
         const ocr = {
             runOcrForAgent,
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
@@ -205,11 +206,11 @@ describe('createDocumentWorkspaceAgent', () => {
             selectedLanguages: ['rus'],
         });
 
-        expect(runOcrForAgent).toHaveBeenCalledWith({open: true});
+        expect(runOcrForAgent.mock.lastCall?.[0]).toEqual({open: true});
     });
 
     it('passes a multi-language OCR request to the popup', async () => {
-        const runOcrForAgent = vi.fn(async () => ({ok: true}));
+        const runOcrForAgent = vi.fn<IOcrPopupAgentExpose['runOcrForAgent']>(async () => ({ok: true}));
         const agent = createDocumentWorkspaceAgent(createAgentOptions({ocr: {
             runOcrForAgent,
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
@@ -223,7 +224,7 @@ describe('createDocumentWorkspaceAgent', () => {
             ok: true,
             actionId: 'ocr.start',
         });
-        expect(runOcrForAgent).toHaveBeenCalledWith({
+        expect(runOcrForAgent.mock.lastCall?.[0]).toEqual({
             languages: [
                 'eng',
                 'rus',

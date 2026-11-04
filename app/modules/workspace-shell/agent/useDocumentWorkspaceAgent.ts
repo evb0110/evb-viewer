@@ -482,7 +482,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 if (runOptions.open !== false) handleDropdownOpen('ocr', true);
                 await nextTick();
                 context?.assertCurrentDocument();
-                return ocr.runOcrForAgent(runOptions);
+                return ocr.runOcrForAgent(runOptions, context && {
+                    signal: context.signal,
+                    assertCurrentDocument: () => context.assertCurrentDocument(),
+                });
             },
         },
         {
