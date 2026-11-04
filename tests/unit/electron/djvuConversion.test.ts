@@ -1,6 +1,7 @@
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TDjvuArtifactManifestModule from '@electron/features/djvu/main/djvuArtifactManifest';
 
 import {
     beforeEach,
@@ -68,6 +69,8 @@ const mocks = vi.hoisted(() => {
     const spawnCalls: ISpawnCall[] = [];
     let spawnMode: TSpawnMode = 'success';
     let quotaFailure: Error | null = null;
+    let sourceMtimeNs = 1n;
+    const publishedOutputs = new Set<string>();
     let nextPid = 1000;
 
     function isRangeDdjvuCall(command: string, args: string[]) {
@@ -126,6 +129,9 @@ const mocks = vi.hoisted(() => {
                 return;
             }
             proc.close(0);
+            if (command === '/tools/qpdf' || (command === '/tools/ddjvu' && !isRangeDdjvuCall(command, args))) {
+                publishedOutputs.add(args.at(-1)!);
+            }
         });
 
         return proc;
@@ -153,9 +159,24 @@ const mocks = vi.hoisted(() => {
         };
     });
 
+    async function statFile(path: string) {
+        return path === '/input.djvu' ? {
+            size: 4096n,
+            mtimeNs: sourceMtimeNs,
+            ctimeNs: 1n,
+            dev: 1n,
+            ino: 1n,
+        } : {size: 4096};
+    }
+
     return {
         spawn,
+        statFile,
         spawnCalls,
+        publishedOutputs,
+        setSourceMtime: (value: bigint) => {
+            sourceMtimeNs = value;
+        },
         setSpawnMode: (mode: TSpawnMode) => {
             spawnMode = mode;
         },
@@ -166,7 +187,7 @@ const mocks = vi.hoisted(() => {
         mkdtemp: vi.fn(async () => '/tmp/djvu-pages-test'),
         readFile: vi.fn(),
         rm: vi.fn(async () => undefined),
-        stat: vi.fn(async () => ({size: 4096})),
+        stat: vi.fn(statFile),
         unlink: vi.fn(async () => undefined),
         writeFile: vi.fn(async () => undefined),
         existsSync: vi.fn(() => true),
@@ -222,7 +243,8 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
-vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({
+vi.mock('@electron/features/djvu/main/djvuArtifactManifest', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuArtifactManifestModule>(),
     DJVU_ARTIFACT_MAX_TOTAL_BYTES: 4 * 1024 * 1024 * 1024,
     createDjvuDiskQuotaMonitor: mocks.createDjvuDiskQuotaMonitor,
     openDjvuArtifactJob: vi.fn(async (_sourcePath: string, ranges: Array<{
@@ -235,6 +257,14 @@ vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({
             status: 'pending' as const,
         }))};
         return {
+            sourceIdentity: {
+                size: 4096n,
+                mtimeNs: 1n,
+                ctimeNs: 1n,
+                dev: 1n,
+                ino: 1n,
+                sourceSha256: 'unchanged-source',
+            },
             directory: '/tmp/djvu-pages-test',
             manifestPath: '/tmp/djvu-pages-test/manifest.json',
             manifest,
@@ -289,6 +319,45 @@ describe('convertDjvuToPdfFile', () => {
         mocks.spawnCalls.length = 0;
         mocks.setSpawnMode('success');
         mocks.setQuotaFailure(null);
+        mocks.setSourceMtime(1n);
+        mocks.stat.mockImplementation(mocks.statFile);
+        mocks.publishedOutputs.clear();
+    });
+
+    it('refuses a source changed between completed ranges without publishing a fallback PDF', async () => {
+        mocks.setSpawnMode('hang-ranges');
+        const progress = vi.fn();
+        const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'source-changed', {
+            pageCount: 24,
+            onProgress: progress,
+        });
+        const outcome = converting.catch((error: unknown) => error);
+        try {
+            await vi.waitFor(() => expect(mocks.spawnCalls.length).toBeGreaterThanOrEqual(2));
+            mocks.spawnCalls[0]!.proc.close(0);
+            await vi.waitFor(() => expect(progress.mock.calls.some(([percent]) => percent > 0)).toBe(true));
+
+            mocks.setSourceMtime(2n);
+            mocks.setSpawnMode('success');
+            for (const call of mocks.spawnCalls.slice(1)) {
+                call.proc.close(0);
+            }
+
+            await expect(outcome).resolves.toMatchObject({message: 'DjVu source changed while a checkpoint export was in progress'});
+            expect(mocks.publishedOutputs.has('/output.pdf')).toBe(false);
+        } finally {
+            await cancelConversion('source-changed');
+        }
+    });
+
+    it('publishes a complete PDF when the source identity stays unchanged across ranges', async () => {
+        await expect(convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'source-unchanged', {pageCount: 24}))
+            .resolves.toEqual({
+                success: true,
+                outputPath: '/output.pdf',
+                fileSize: 4096,
+            });
+        expect(mocks.publishedOutputs.has('/output.pdf')).toBe(true);
     });
 
     it('splits large full-document conversions into parallel native page ranges', async () => {
@@ -487,7 +556,9 @@ describe('convertDjvuToPdfFile', () => {
         pageCount,
     }) => {
         mocks.setSpawnMode('fail-merge');
-        mocks.stat.mockImplementation(async (...args: unknown[]) => ({size: String(args[0]).includes('/tmp/djvu-pages-test/') ? chunkSize : 4096}));
+        mocks.stat.mockImplementation(async path => path === '/input.djvu'
+            ? mocks.statFile(path)
+            : {size: path.includes('/tmp/djvu-pages-test/') ? chunkSize : 4096});
 
         const error = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-large-merge', { pageCount })
             .catch((caughtError: unknown) => caughtError);
