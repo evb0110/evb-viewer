@@ -25,6 +25,7 @@ import {
     type IScanCleanupRetainedRasterInput,
 } from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {TScanCleanupLayoutClassification} from '@contracts/scan-cleanup/domain';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,
@@ -461,6 +462,8 @@ function createStagedSidecar(options: {
     onLease?: (event: 'acquired' | 'released', pageNumber: number) => void;
     /** Extra native fields on each page's final verdict. */
     pageComplete?: (pageNumber: number) => Partial<TNativeScanCleanupProgressV3>;
+    /** A layout reconciliation rewrites into the page's metadata before its final verdict. */
+    reconciledLayout?: TScanCleanupLayoutClassification;
 } = {}) {
     const leaseHistory: Array<{
         event: 'acquired' | 'released';
@@ -555,6 +558,13 @@ function createStagedSidecar(options: {
             await release(pageNumber);
         }
         for (const page of manifest.pages) {
+            if (options.reconciledLayout !== undefined) {
+                const metadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as Record<string, unknown>;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    ...metadata,
+                    layoutClassification: options.reconciledLayout,
+                }));
+            }
             await onProgress({
                 stage: 'page-complete' as const,
                 completedPages: totalPages,
@@ -741,6 +751,31 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         resultStores.push(detection.resultStore);
 
         expect(detection.blankPageCount).toBe(1);
+    });
+
+    it('publishes the matched canvas of the reconciled layout, not the first pass', async () => {
+        const finalCanvasSignature = async (reconciledLayout?: TScanCleanupLayoutClassification) => {
+            const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-canvas-test-'));
+            dirs.push(tempDir);
+            const harness = createSinglePageDetectionHarness(tempDir, createLazyPageSizeStore(1), reconciledLayout === undefined ? {} : {reconciledLayout});
+            const publish = vi.fn<(results: unknown, progress: unknown, documentCanvasSignature: string) => void>();
+            const detection = await runScanCleanupDetection(
+                createRequest(),
+                new AbortController().signal,
+                harness.retention,
+                harness.dependencies,
+                {rasterConcurrency: 1},
+                publish,
+            );
+            resultStores.push(detection.resultStore);
+            return publish.mock.calls.at(-1)?.[2];
+        };
+
+        // The first pass calls the page single; reconciliation finds a spread.
+        const spread = await finalCanvasSignature('two-page-spread');
+        const single = await finalCanvasSignature();
+
+        expect(spread).not.toBe(single);
     });
 
     it('preserves a successful result when scratch removal fails after publication', async () => {

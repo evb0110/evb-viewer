@@ -1,40 +1,23 @@
-import {createHash} from 'node:crypto';
 import {
     mkdir, readFile, writeFile,
 } from 'node:fs/promises';
-import {
-    join, resolve,
-} from 'node:path';
+import {join} from 'node:path';
 import {encode} from 'fast-png';
 import {PDFDocument} from 'pdf-lib';
-import type {
-    Locator, Page,
-} from 'playwright';
+import type {Page} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
 import {
-    collectConsoleProblems, lifecycle, openPdfFromChooser, waitForOpenFileReady,
+    collectConsoleProblems, lifecycle, waitForOpenFileReady,
 } from './documentLifecycleTestHelpers';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
+import type {IProbe} from './scanCleanupUiTestHelpers';
+import {
+    evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
+} from './scanCleanupUiTestHelpers';
 
-const evidenceRoot = resolve(process.env.SC3B_EVIDENCE_DIR ?? `.devkit/parity/sc3b-ui-${String(process.pid)}`);
-const scanCleanupUiTimeoutMs = 120_000;
-const previewImage = '.preview-comparison-layer.is-visible img.preview-pixel:not(.is-outgoing):not(.is-incoming)';
-const cleanedImage = '.cleaned-outputs img.preview-pixel:not(.is-outgoing):not(.is-incoming)';
-const browserOnlyReason = 'In the browser, scan cleanup previews pages but cannot clean up the document yet. Use the desktop app to clean it up.';
-const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-
-interface IProbe {
-    holdNext: boolean;
-    held: Array<() => void>;
-    inputs: Array<{
-        type: string;
-        trusted: boolean
-    }>;
-}
-
-async function fixture() {
+async function createFixture() {
     const pdf = await PDFDocument.create();
     pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
     pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
@@ -93,192 +76,22 @@ async function fixture() {
     };
 }
 
-async function installProbe(page: Page) {
-    await page.addInitScript(() => {
-        // Cache Storage is an OCR prerequisite, not a cleanup prerequisite.
-        // Leave Workers, WASM, IndexedDB and the cleanup engine intact.
-        Object.defineProperty(window, 'caches', {
-            configurable: true,
-            value: undefined,
-        });
-        const probe: IProbe = {
-            holdNext: false,
-            held: [],
-            inputs: JSON.parse(window.sessionStorage.getItem('sc3b:trusted-inputs') ?? '[]'),
-        };
-        Reflect.set(window, '__sc3bProbe', probe);
-        for (const type of [
-            'pointerdown',
-            'keydown',
-        ]) {
-            document.addEventListener(type, event => {
-                probe.inputs.push({
-                    type,
-                    trusted: event.isTrusted,
-                });
-                window.sessionStorage.setItem('sc3b:trusted-inputs', JSON.stringify(probe.inputs));
-            }, true);
-        }
-        const post = Worker.prototype.postMessage;
-        const add = Worker.prototype.addEventListener;
-        const remove = Worker.prototype.removeEventListener;
-        const requests = new WeakMap<Worker, Map<number, string>>();
-        const listeners = new WeakMap<object, EventListenerOrEventListenerObject>();
-        Worker.prototype.postMessage = function(message, transfer) {
-            if (message?.type === 'render-preview') {
-                const types = requests.get(this) ?? new Map<number, string>();
-                types.set(message.id, message.type);
-                requests.set(this, types);
-            }
-            return Reflect.apply(post, this, [
-                message,
-                transfer ?? [],
-            ]);
-        };
-        Reflect.set(Worker.prototype, 'addEventListener', function(this: Worker, type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) {
-            if (!listener) return;
-            if (type !== 'message') return add.call(this, type, listener, options);
-            const wrapped: EventListener = event => {
-                const deliver = () => typeof listener === 'function'
-                    ? listener.call(this, event)
-                    : listener.handleEvent(event);
-                if (requests.get(this)?.get((event as MessageEvent).data?.id) === 'render-preview' && probe.holdNext) {
-                    // Delay a real completed engine response at the Worker boundary.
-                    // No fake raster, cleanup result, or application method is used.
-                    probe.holdNext = false;
-                    probe.held.push(deliver);
-                } else deliver();
-            };
-            listeners.set(listener, wrapped);
-            return add.call(this, type, wrapped, options);
-        });
-        Reflect.set(Worker.prototype, 'removeEventListener', function(this: Worker, type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions) {
-            if (!listener) return;
-            return remove.call(this, type, listeners.get(listener) ?? listener, options);
-        });
-    });
-}
+// Built once: every case scans the same three pages.
+let fixtureOnce: ReturnType<typeof createFixture> | undefined;
+const fixture = () => fixtureOnce ??= createFixture();
 
-async function openWorkspace(page: Page, source: Awaited<ReturnType<typeof fixture>>) {
-    await openPdfFromChooser(page, source);
-    await showWorkspace(page);
-}
+const documentRef = (page: Page) => page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
+    .readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
+// The tab holds a document again, and not the one it held before.
+const newDocumentRef = async (page: Page, previous: string | undefined) => {
+    const ref = await documentRef(page);
+    return typeof ref === 'string' && ref.length > 0 && ref !== previous;
+};
 
-async function showWorkspace(page: Page) {
-    await page.locator('.page_container[data-page="1"] canvas').first().waitFor();
-    expect(await page.getByRole('button', {
-        name: 'OCR',
-        exact: true,
-    }).count(), 'OCR is unavailable in this context').toBe(0);
-    const trigger = page.locator('#editor-global-toolbar-host').getByRole('button', {
-        name: 'Scan cleanup',
-        exact: true,
-    });
-    await expect.poll(() => trigger.count(), {timeout: 15_000}).toBe(1);
-    await trigger.click();
-    await page.locator('.scan-cleanup-surface').waitFor();
-    const guidance = page.getByRole('button', {
-        name: 'Got it',
-        exact: true,
-    });
-    if (await guidance.count()) await guidance.click();
-}
-
-async function waitForPixels(page: Page, pageNumber: number) {
-    await page.locator('.page-label .scan-cleanup-stable-width-value').filter({hasText: `Page ${String(pageNumber)} of 3`}).waitFor();
-    await page.waitForFunction(({
-        selector, pageNumber,
-    }) => {
-        const images = [...document.querySelectorAll<HTMLImageElement>(selector)];
-        return images.length > 0 && images.every(image => image.complete && image.naturalWidth > 0
-            && image.alt.startsWith(`Cleaned scan preview for page ${String(pageNumber)},`))
-            && !document.querySelector('.refresh-indicator, .page-loading-overlay, .preview-loading, .preview-refresh-error, .preview-message.is-error')
-            && !document.querySelector('.cleaned-outputs .is-incoming, .cleaned-outputs .is-outgoing, .cutter-stage.is-stale-content');
-    }, {
-        selector: cleanedImage,
-        pageNumber,
-    }, {timeout: 30_000});
-}
-
-async function pixels(image: Locator) {
-    return image.evaluate(element => {
-        const img = element as HTMLImageElement;
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        canvas.getContext('2d')!.drawImage(img, 0, 0);
-        return canvas.toDataURL('image/png').split(',')[1]!;
-    });
-}
-
-async function cleanedPixels(page: Page) {
-    return JSON.stringify(await Promise.all((await page.locator(cleanedImage).all()).map(async image => sha256(Buffer.from(await pixels(image), 'base64')))));
-}
-
-async function assertPreviewOnly(page: Page) {
-    expect(await page.getByRole('button', {
-        name: 'Detect layout for all pages',
-        exact: true,
-    }).isDisabled()).toBe(true);
-    expect(await page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u}).isDisabled()).toBe(true);
-    expect(await page.locator('[data-run-disabled-reason]').innerText()).toBe(browserOnlyReason);
-    expect(await page.locator('.scan-cleanup-surface').getAttribute('data-detection-status')).toBe('idle');
-    expect(await page.getByText('Aligning page placement', {exact: true}).count()).toBe(0);
-    expect(await page.evaluate(`(async () => {
-        const {getPlatformAPI} = await import('/_nuxt/utils/platform.ts');
-        return getPlatformAPI().scanCleanup.getSupport();
-    })()`)).toEqual({
-        preview: true,
-        detection: false,
-        calibration: false,
-        conversion: false,
-    });
-    const inputs = await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs);
-    expect(inputs.length).toBeGreaterThan(0);
-    expect(inputs.every(input => input.trusted), 'all pointer and keyboard input is trusted').toBe(true);
-}
-
-async function select(page: Page, name: string, option: string) {
-    await page.getByRole('combobox', {
-        name,
-        exact: true,
-    }).click();
-    await page.getByRole('option', {
-        name: option,
-        exact: true,
-    }).click();
-}
-
-async function drag(page: Page, locator: Locator, dx: number, dy: number) {
-    const box = await locator.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box!.x + box!.width / 2 + dx, box!.y + box!.height / 2 + dy, {steps: 8});
-    await page.mouse.up();
-}
-
-async function undoRedo(page: Page, label: string, observe: () => Promise<string>, before: string, after: string) {
-    await page.screenshot({path: join(evidenceRoot, `${label}-edited.png`)});
-    await page.keyboard.press('ControlOrMeta+z');
-    try {
-        await expect.poll(observe).toBe(before);
-    } finally {
-        await writeFile(join(evidenceRoot, `${label}-undo.json`), JSON.stringify({
-            before,
-            edited: after,
-            afterUndo: await observe(),
-        }, null, 2));
-        await page.screenshot({path: join(evidenceRoot, `${label}-undo.png`)});
-    }
-    await page.keyboard.press('ControlOrMeta+Shift+z');
-    await expect.poll(observe).toBe(after);
-}
 
 
 describe('browser Scan Cleanup workspace', () => {
-    // T1/T6/C2: Save As retains document settings, Recent reopens the saved
-    // identity, and a different document opened in the same tab stays isolated.
+    // T1/T6: Save As retains document settings and Recent reopens the saved identity.
     it('retains the page override after Save As and reopening the saved Recent document', async () => {
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1440,
@@ -293,8 +106,6 @@ describe('browser Scan Cleanup workspace', () => {
             documentGrayscale: string | null;
             previewSha256: string;
         }> = [];
-        const documentRef = () => page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
-            .readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
         const observePage = async (stage: string, pageNumber: number, expectedMode: string) => {
             await page.locator(`.scan-thumbnail-rail [data-thumbnail-page="${String(pageNumber)}"]`).click();
             await page.getByRole('radio', {
@@ -326,14 +137,14 @@ describe('browser Scan Cleanup workspace', () => {
                 await writeFile(join(evidenceRoot, `${stage}-page-${String(pageNumber)}-preview-${String(index)}.png`), Buffer.from(await pixels(image), 'base64'));
             }
             expect(outputMode, `${stage}: Page ${String(pageNumber)} output mode`).toBe(expectedMode);
-            if (stage !== 'replacement') expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('true');
+            expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('true');
             return previewSha256;
         };
         try {
             await installProbe(page);
             const source = await fixture();
             await openWorkspace(page, source);
-            const originalRef = await documentRef();
+            const originalRef = await documentRef(page);
             expect(originalRef).toBeTypeOf('string');
             await page.getByRole('radio', {
                 name: 'Grayscale',
@@ -370,9 +181,8 @@ describe('browser Scan Cleanup workspace', () => {
             const saved = await readFile(savedPath);
             expect((await PDFDocument.load(saved)).getPageCount()).toBe(3);
             expect(sha256(saved), 'Save As preserves the unedited scanned PDF bytes').toBe(sha256(source.buffer));
-            await expect.poll(documentRef).toBeTypeOf('string');
-            await expect.poll(documentRef).not.toBe(originalRef);
-            const savedRef = await documentRef();
+            await expect.poll(() => newDocumentRef(page, originalRef)).toBe(true);
+            const savedRef = await documentRef(page);
             await writeFile(join(evidenceRoot, 'save-as.json'), JSON.stringify({
                 mode: 'download',
                 originalRef,
@@ -384,8 +194,9 @@ describe('browser Scan Cleanup workspace', () => {
                 pages: 3,
             }, null, 2));
             await showWorkspace(page);
+            // The open view keeps the override under its new identity; the
+            // reload below checks both pages against that saved identity.
             expect(await observePage('after-save', 1, 'Color')).toBe(colorPage1);
-            expect(await observePage('after-save', 2, 'Follow document setting')).toBe(grayscalePage2);
 
             await page.getByRole('button', {
                 name: 'Done',
@@ -396,10 +207,45 @@ describe('browser Scan Cleanup workspace', () => {
             await page.reload({waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
             await page.getByRole('button', {name: /sc3b-three-scans\.pdf/u}).first().click();
-            await expect.poll(documentRef).toBe(savedRef);
+            await expect.poll(() => documentRef(page)).toBe(savedRef);
             await showWorkspace(page);
             expect(await observePage('after-reload', 1, 'Color')).toBe(colorPage1);
             expect(await observePage('after-reload', 2, 'Follow document setting')).toBe(grayscalePage2);
+            await assertBrowserScope(page);
+            expect(problems).toEqual([]);
+        } finally {
+            // Evidence is best-effort; it never hides the outcome or skips closing the context.
+            try {
+                await writeFile(join(evidenceRoot, 'save-as-observations.json'), JSON.stringify(observations, null, 2));
+                await writeFile(join(evidenceRoot, 'save-as-console.json'), JSON.stringify(problems, null, 2));
+                await writeFile(join(evidenceRoot, 'save-as-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs), null, 2));
+            } catch (error) {
+                console.warn('Save As evidence was not written', error);
+            } finally {
+                await context.close();
+            }
+        }
+    }, scanCleanupUiTimeoutMs);
+
+    // C2: a different document opened in the same tab stays isolated.
+    it('opens a different document in the same tab with its own output setting', async () => {
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1440,
+            height: 1000,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await installProbe(page);
+            const source = await fixture();
+            await openWorkspace(page, source);
+            const originalRef = await documentRef(page);
+            expect(originalRef).toBeTypeOf('string');
+            await page.getByRole('radio', {
+                name: 'Grayscale',
+                exact: true,
+            }).click();
+            await waitForPixels(page, 1);
             await page.getByRole('button', {
                 name: 'Done',
                 exact: true,
@@ -427,29 +273,29 @@ describe('browser Scan Cleanup workspace', () => {
             await expect.poll(() => activeTab.innerText()).toContain('cb3-different-scans.pdf');
             await expect.poll(() => page.locator('.page_container[data-page="1"] .textLayer').first().innerText()).toContain('Different document');
             expect(await activeTab.getAttribute('data-tab-id'), 'Open File replaces the current tab').toBe(tabId);
-            await expect.poll(documentRef).not.toBe(savedRef);
+            await expect.poll(() => newDocumentRef(page, originalRef)).toBe(true);
             await showWorkspace(page);
-            await observePage('replacement', 1, 'Follow document setting');
+            await waitForPixels(page, 1);
+            await page.getByRole('radio', {
+                name: 'Page 1',
+                exact: true,
+            }).click();
+            await page.screenshot({path: join(evidenceRoot, 'replacement-page-1.png')});
+            expect(await page.getByRole('combobox', {
+                name: 'Output mode',
+                exact: true,
+            }).innerText(), 'the replacement has no page override').toBe('Follow document setting');
             expect(await page.getByRole('radio', {name: /^Auto.*recommended per page$/u}).getAttribute('aria-checked'), 'the replacement starts with its own document output setting').toBe('true');
-            await assertPreviewOnly(page);
+            await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
-            // Evidence is best-effort; it never hides the outcome or skips closing the context.
-            try {
-                await writeFile(join(evidenceRoot, 'save-as-observations.json'), JSON.stringify(observations, null, 2));
-                await writeFile(join(evidenceRoot, 'save-as-console.json'), JSON.stringify(problems, null, 2));
-                await writeFile(join(evidenceRoot, 'save-as-input.json'), JSON.stringify(await page.evaluate(() => (Reflect.get(window, '__sc3bProbe') as IProbe).inputs), null, 2));
-            } catch (error) {
-                console.warn('Save As evidence was not written', error);
-            } finally {
-                await context.close();
-            }
+            await context.close();
         }
     }, scanCleanupUiTimeoutMs);
 
-    it('opens without OCR, edits crop, cutter and zones with undo/redo, and reloads durable settings', async () => {
+    it('opens without OCR and paints black and white, original, grayscale and zoomed detail pixels', async () => {
         const context = await lifecycle.browser.newContext({
-            ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-video')}} : {}),
+            ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-views-video')}} : {}),
             viewport: {
                 width: 1440,
                 height: 1000,
@@ -494,8 +340,34 @@ describe('browser Scan Cleanup workspace', () => {
             });
             expect(await page.locator('.preview-detail-pixel').first().evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
             await page.screenshot({path: join(evidenceRoot, 'detail.png')});
-            await page.getByRole('button', {
-                name: 'Fit whole page in view',
+            await assertBrowserScope(page);
+            expect(problems).toEqual([]);
+        } finally {
+            try {
+                await writeFile(join(evidenceRoot, 'case-1-views-console.json'), JSON.stringify(problems, null, 2));
+            } catch (error) {
+                console.warn('Views evidence was not written', error);
+            } finally {
+                await context.close();
+            }
+        }
+    }, scanCleanupUiTimeoutMs);
+
+    it('edits crop, cutter and zones with undo/redo, and reloads durable settings', async () => {
+        const context = await lifecycle.browser.newContext({
+            ...(process.env.SC3B_RECORD_VIDEO === '1' ? {recordVideo: {dir: join(evidenceRoot, 'case-1-video')}} : {}),
+            viewport: {
+                width: 1440,
+                height: 1000,
+            },
+        });
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await installProbe(page);
+            await openWorkspace(page, await fixture());
+            await page.getByRole('radio', {
+                name: 'Grayscale',
                 exact: true,
             }).click();
             await waitForPixels(page, 1);
@@ -617,7 +489,7 @@ describe('browser Scan Cleanup workspace', () => {
             }).click();
             await expect.poll(zoneShape).toBe(afterZone);
             await page.screenshot({path: join(evidenceRoot, 'reloaded.png')});
-            await assertPreviewOnly(page);
+            await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
             await page.screenshot({path: join(evidenceRoot, 'case-1-final.png')}).catch(() => undefined);
@@ -731,7 +603,7 @@ describe('browser Scan Cleanup workspace', () => {
             await waitForPixels(page, 2);
             expect(await cleanedPixels(page)).not.toBe(latest);
             await page.screenshot({path: join(evidenceRoot, 'latest-after-hidden-return.png')});
-            await assertPreviewOnly(page);
+            await assertBrowserScope(page);
             expect(problems).toEqual([]);
         } finally {
             await page.screenshot({path: join(evidenceRoot, 'case-2-final.png')}).catch(() => undefined);
