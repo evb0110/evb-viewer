@@ -38,8 +38,8 @@
                 :frame-style="{aspectRatio: item.aspectRatio}"
                 :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
                 :aria-label="showsRenderError(item.pageNumber)
-                    ? t('documentSourceSidebar.goToPageRenderFailed', {page: item.pageNumber})
-                    : t('documentSourceSidebar.goToPage', {page: item.pageNumber})"
+                    ? t('documentSourceSidebar.goToPageRenderFailed', {page: labelPage(item.pageNumber)})
+                    : t('documentSourceSidebar.goToPage', {page: labelPage(item.pageNumber)})"
                 :data-thumbnail-page="item.pageNumber"
                 :data-thumbnail-render-error="showsRenderError(item.pageNumber) ? '' : undefined"
                 :data-thumbnail-request-width="states.get(item.pageNumber)?.widthPx ?? ''"
@@ -96,8 +96,11 @@ const props = defineProps<{
     /** The row that holds the tab stop; the current page by default. */
     focusPage?: number | null;
     pageRevision?: (pageNumber: number) => string;
+    /** The document page a row names, when rows are not in page order. */
+    documentPage?: (pageNumber: number) => number;
     disabled?: boolean;
 }>();
+const labelPage = (pageNumber: number) => props.documentPage?.(pageNumber) ?? pageNumber;
 const emit = defineEmits<IDocumentThumbnailListEmits>();
 const {t} = useTypedI18n();
 const scrollRoot = ref<HTMLElement | null>(null);
