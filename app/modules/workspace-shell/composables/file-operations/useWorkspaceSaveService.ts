@@ -394,8 +394,6 @@ async function executeNativeMutationSave(
             markAnnotationStateSaved: annotationEditsWritten,
             markBookmarksStateSaved: bookmarks !== undefined,
             markPageLabelsStateSaved: pageLabels !== undefined,
-            allowBookmarksSaveStateRefresh: bookmarks !== undefined,
-            allowPageLabelsSaveStateRefresh: pageLabels !== undefined,
         },
     };
 }
@@ -459,9 +457,6 @@ async function executeNativeRepairSave(
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: projection.mutations.bookmarks !== undefined,
             markPageLabelsStateSaved: projection.mutations.pageLabels !== undefined,
-            allowAnnotationSaveStateRefresh: false,
-            allowBookmarksSaveStateRefresh: false,
-            allowPageLabelsSaveStateRefresh: false,
         },
     };
 }

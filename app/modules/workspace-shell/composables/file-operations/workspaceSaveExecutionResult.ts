@@ -23,9 +23,6 @@ export interface IPostSaveReloadWaiter {
  * close guard stops asking.
  */
 export interface ISaveCompletionPolicy {
-    allowAnnotationSaveStateRefresh?: boolean;
-    allowBookmarksSaveStateRefresh?: boolean;
-    allowPageLabelsSaveStateRefresh?: boolean;
     markAnnotationStateSaved: boolean;
     markBookmarksStateSaved: boolean;
     markPageLabelsStateSaved: boolean;
@@ -158,9 +155,6 @@ export function workingCopySaveResult(
         serializedChanges: false,
         reloadWaiter,
         completion: {
-            allowAnnotationSaveStateRefresh: false,
-            allowBookmarksSaveStateRefresh: false,
-            allowPageLabelsSaveStateRefresh: false,
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: false,
             markPageLabelsStateSaved: false,

@@ -94,7 +94,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preservesSourceReload,
         onBookmarksSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.markCurrentStateClean('bookmarkItems'); },
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
-        onBookmarksSaved: () => metadataHistory?.markCurrentStateClean(),
+        onBookmarksSaved: () => metadataHistory?.markCurrentStateClean('bookmarkItems'),
     });
     const {
         bookmarkItems,
@@ -118,7 +118,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preservesSourceReload,
         onPageLabelsSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.markCurrentStateClean('pageLabelRanges'); },
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
-        onPageLabelsSaved: () => metadataHistory?.markCurrentStateClean(),
+        onPageLabelsSaved: () => metadataHistory?.markCurrentStateClean('pageLabelRanges'),
         // The outline is re-read from new bytes, not from another view's copy of the same.
         onDocumentBytesChanged: () => {
             bookmarksResolved.value = false;

@@ -457,8 +457,10 @@ export interface IWorkspaceSaveCompletionDependencies {
         getSaveStateToken?: () => unknown;
     };
     metadata: {
+        pageLabelsDirty: Readonly<Ref<boolean>>;
         markPageLabelsSaved: () => void;
         getPageLabelsSaveStateToken?: () => unknown;
+        bookmarksDirty: Readonly<Ref<boolean>>;
         markBookmarksSaved: () => void;
         getBookmarksSaveStateToken?: () => unknown;
     };
@@ -499,17 +501,18 @@ export function completeSuccessfulSaveState(
         deps.annotations.markSaved();
     }
 
+    // A metadata field is acknowledged only at the revision the save wrote.
+    // A later revision that is no longer dirty is the save's own reload; one
+    // that is still dirty is an edit made while saving, and stays unsaved.
     const pageLabelsUnchanged = !deps.metadata.getPageLabelsSaveStateToken
         || Object.is(deps.metadata.getPageLabelsSaveStateToken(), baseline.pageLabels);
-    if (policy.markPageLabelsStateSaved
-        && (pageLabelsUnchanged || policy.allowPageLabelsSaveStateRefresh === true)) {
+    if (policy.markPageLabelsStateSaved && (pageLabelsUnchanged || !deps.metadata.pageLabelsDirty.value)) {
         deps.metadata.markPageLabelsSaved();
     }
 
     const bookmarksUnchanged = !deps.metadata.getBookmarksSaveStateToken
         || Object.is(deps.metadata.getBookmarksSaveStateToken(), baseline.bookmarks);
-    if (policy.markBookmarksStateSaved
-        && (bookmarksUnchanged || policy.allowBookmarksSaveStateRefresh === true)) {
+    if (policy.markBookmarksStateSaved && (bookmarksUnchanged || !deps.metadata.bookmarksDirty.value)) {
         deps.metadata.markBookmarksSaved();
     }
 
