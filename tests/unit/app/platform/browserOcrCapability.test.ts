@@ -5,6 +5,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -379,10 +380,12 @@ describe('browser scan cleanup preview admission', () => {
 
 describe('browser OCR raster size', () => {
     it('renders a UserUnit page in user-space units, as desktop Poppler does', async () => {
-        const {
-            BrowserOcrRasterTooLargeError,
-            renderBrowserOcrRaster,
-        } = await import('@app/platform/browser-api/browserOcrRaster');
+        const {renderBrowserOcrRaster} = await import('@app/platform/browser-api/browserOcrRaster');
+        vi.stubGlobal('document', {createElement: () => ({getContext: () => ({})})});
+        onTestFinished(() => {
+            vi.unstubAllGlobals();
+        });
+        const renderedWidths: number[] = [];
         const userUnit = 10;
         const page = cast<Parameters<typeof renderBrowserOcrRaster>[0]>({
             getViewport: ({scale}: {scale: number}) => ({
@@ -401,12 +404,15 @@ describe('browser OCR raster size', () => {
                 ],
                 clone: () => page.getViewport({scale}),
             }),
-            render: () => ({promise: Promise.reject(new Error('rendered at the user-space size'))}),
+            render: ({viewport}: {viewport: {width: number}}) => {
+                renderedWidths.push(viewport.width);
+                return {promise: Promise.reject(new Error('rendered'))};
+            },
         });
 
         // 85 dpi over a 612x792 unit page is about 723x935 pixels, under the
         // guard; scaled by UserUnit it was 7225x9350 and refused.
-        const outcome = await renderBrowserOcrRaster(page, 85, new AbortController().signal).catch((error: unknown) => error);
-        expect(outcome).not.toBeInstanceOf(BrowserOcrRasterTooLargeError);
+        await expect(renderBrowserOcrRaster(page, 85, new AbortController().signal)).rejects.toThrow('rendered');
+        expect(renderedWidths).toEqual([612 * 85 / 72]);
     });
 });

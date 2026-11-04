@@ -177,7 +177,7 @@ describe('createDocxFromTextChunks', () => {
     });
 
     it('leaves out characters XML cannot carry, which OCR text and PDF fonts can produce', async () => {
-        const xml = await collectDocumentXml(['form\u000Cfeed bell\u0007 lone\uD800 \uFFFF & <kept> \u{1F600}']);
+        const xml = await collectDocumentXml(['form\u000Cfeed bell\u0007 lone\uD800 \uFFFE\uFFFF & <kept> \u{1F600}']);
 
         expect(xml).toContain('<w:t xml:space="preserve">formfeed bell lone  &amp; &lt;kept&gt; \u{1F600}</w:t>');
         expect([...xml].filter(character => {
