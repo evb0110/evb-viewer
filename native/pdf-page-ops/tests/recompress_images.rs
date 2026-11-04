@@ -317,6 +317,29 @@ fn shared_photo_uses_the_largest_placement_across_pages() {
 }
 
 #[test]
+fn user_unit_page_sizes_the_photo_by_its_physical_placement() {
+    // 144x108 units at UserUnit 5 is 10x7.5 inches: at 200 dpi the 1200x900
+    // photo is already below the target and keeps every pixel.
+    let scratch = Scratch::new("user-unit");
+    let mut pdf = Pdf::new();
+    let image = pdf.image(1200, 900, 96, false, false);
+    let page = pdf.page(
+        dictionary! { "Photo" => image },
+        "q 144 0 0 108 40 500 cm /Photo Do Q",
+    );
+    pdf.document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("UserUnit", 5);
+    pdf.save(&scratch.path("source.pdf"));
+
+    run(&scratch, &[]);
+
+    let output = Document::load(scratch.path("output.pdf")).unwrap();
+    assert_dimensions(&output, image, 1200, 900);
+}
+
+#[test]
 fn form_matrix_contributes_to_the_photos_drawn_size() {
     let scratch = Scratch::new("form");
     let mut pdf = Pdf::new();
