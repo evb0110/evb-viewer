@@ -463,6 +463,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return;
         }
         rendererReadyNotified = true;
+        traceRendererStartup('tabs shell dispatching app:rendererReady');
         getWindowTabsCapability().notifyRendererReady();
         const profile = resolveStartupWorkProfile();
         desktopViewerWarmupHandle = scheduleDesktopViewerWarmup({
@@ -645,7 +646,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             })();
             await nextTick();
             if (!lifecycle.isDisposed.valueOf()) {
-                traceRendererStartup('tabs shell dispatching app:rendererReady');
                 notifyRendererReadyAndScheduleViewerWarmup();
             }
             await startupOpen;
@@ -667,7 +667,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             setFatalRuntimeError('startup', presentation);
             dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
-            traceRendererStartup('tabs shell dispatching app:rendererReady');
             notifyRendererReadyAndScheduleViewerWarmup();
         });
 
