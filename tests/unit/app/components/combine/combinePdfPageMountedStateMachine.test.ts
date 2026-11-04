@@ -405,6 +405,39 @@ describe('mounted Combine PDF page state machine', () => {
         }
     });
 
+    it('leaves a newer pending result alone when an older Save As finishes late', async () => {
+        const pendingResult = (name: string): TOpenFileResult => ({
+            kind: 'pdf',
+            workingPath: requireDocumentRef(`/tmp/${name}.pdf`),
+            originalPath: requireDocumentRef(`/tmp/${name}.pdf`),
+            isGenerated: true,
+        });
+        mocks.combinePdfFiles
+            .mockResolvedValueOnce(pendingResult('combined-a'))
+            .mockResolvedValueOnce(pendingResult('combined-b'));
+        const saveA = deferred<string | null>();
+        mocks.savePdfAs.mockReturnValueOnce(saveA.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(false));
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        (page.host.querySelector('.save-as') as HTMLButtonElement).click();
+        await flushUpdates();
+        // A's Save As is still writing when A is discarded and B replaces it.
+        (page.host.querySelector('.discard') as HTMLButtonElement).click();
+        await nextTick();
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
+        saveA.resolve('/tmp/saved-a.pdf');
+        await flushUpdates();
+
+        expect(page.host.querySelector('.save-as')).not.toBeNull();
+        expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
+        expect(mocks.cleanupFile).not.toHaveBeenCalledWith('/tmp/combined-b.pdf');
+        page.unmount();
+    });
+
     it('discards a failed-open result without changing the queued files', async () => {
         const combined = deferred<TOpenFileResult>();
         mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);

@@ -113,25 +113,22 @@ export const useCombinePdfOperation = <T extends {
         } catch (error) {
             const failedPhase = phase.value;
             progress.value = null;
-            const expected = error instanceof CombinePdfError && [
-                'canceled',
+            const canceled = error instanceof CombinePdfError && error.code === 'canceled';
+            const engineLimit = error instanceof CombinePdfError && [
                 'invalid-input',
                 'limit',
                 'unsupported',
             ].includes(error.code);
+            const expected = canceled || engineLimit;
             combineFailure.value = expected
                 ? null
                 : error instanceof CombinePdfError && error.failure
                     ? error.failure
                     : BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'});
             combineErrorIsExpected.value = expected;
-            combineError.value = error instanceof CombinePdfError && error.code === 'canceled'
+            combineError.value = canceled
                 ? null
-                : error instanceof CombinePdfError && [
-                    'invalid-input',
-                    'limit',
-                    'unsupported',
-                ].includes(error.code)
+                : engineLimit
                     ? describeCombineEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
                     : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
@@ -153,19 +150,15 @@ export const useCombinePdfOperation = <T extends {
             return;
         }
         try {
-            // No document opened this file, so its revision comes from the
-            // working copy's owner rather than a document session.
+            // No document opened this file: its working copy's owner has its revision.
             const documentFiles = getDocumentFilesCapability();
             const {token} = await documentFiles.getDocumentRevision(pending.workingPath);
             const savedPath = await documentFiles.savePdfAs(pending.workingPath, undefined, {expectedDocumentRevisionToken: token});
-            if (savedPath) {
-                combineError.value = null;
-                combineFailure.value = null;
-                combineErrorIsExpected.value = false;
-                releasePendingResult();
-                progress.value = null;
-            }
+            // Discarded or replaced while saving: no longer this save's.
+            if (pendingCombinedResult.value !== pending) return;
+            if (savedPath) discardPendingResult();
         } catch (error) {
+            if (pendingCombinedResult.value !== pending) return;
             combineError.value = options.translate('errors.file.save');
             combineErrorIsExpected.value = false;
             combineFailure.value = BrowserLogger.error(
