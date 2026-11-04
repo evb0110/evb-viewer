@@ -310,6 +310,140 @@ function expectStructuredCloneable(value: unknown) {
 }
 
 describe('processMcpRequest', () => {
+    it.each([
+        {
+            id: 'annotation.create_text_markup',
+            alias: {query: 'Heading'},
+            primary: {text: 'Heading'},
+            missing: {page: 1},
+        },
+        {
+            id: 'annotation.create_shape',
+            alias: {
+                tool: 'rectangle',
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+            primary: {
+                shape: 'rectangle',
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+            missing: {
+                x: 0.1,
+                y: 0.2,
+            },
+        },
+    ])('accepts alias-only $id inputs while refusing missing selectors and unknown fields', async ({
+        id, alias, primary, missing,
+    }) => {
+        const options = createOptions();
+        options.runCommand.mockImplementation(async command => {
+            if (command.name !== 'run_action') throw new Error('Expected an action command');
+            return {
+                ok: true,
+                dryRun: command.arguments.dryRun,
+                input: command.arguments.input,
+            };
+        });
+        for (const input of [
+            alias,
+            primary,
+        ]) {
+            const response = await runAction(options, id, input, {dryRun: true});
+            expect(response?.error).toBeUndefined();
+            expect(response?.result).toMatchObject({structuredContent: {
+                ok: true,
+                dryRun: true,
+                input,
+            }});
+            expect(response?.result).not.toHaveProperty('isError', true);
+        }
+        for (const input of [
+            missing,
+            {
+                ...alias,
+                unexpected: true,
+            },
+        ]) {
+            const response = await runAction(options, id, input, {dryRun: true});
+            expect(response?.result).toMatchObject({
+                isError: true,
+                structuredContent: {message: expect.stringContaining('did not match its advertised schema')},
+            });
+        }
+    });
+
+    it.each([
+        'direct',
+        'wrapped',
+    ])('refuses insertion placement fields in %s bookmark updates while preserving additions', async (form) => {
+        const options = createOptions();
+        for (const placement of [
+            {parentPath: [0]},
+            {index: 0},
+        ]) {
+            const entry = {
+                title: 'Renamed',
+                ...placement,
+            };
+            const input = form === 'direct' ? {
+                path: [1],
+                ...entry,
+            } : {
+                path: [1],
+                bookmark: entry,
+            };
+            const response = await runAction(options, 'bookmarks.update', input);
+            expect(response?.result).toMatchObject({
+                isError: true,
+                structuredContent: {message: expect.stringContaining('did not match its advertised schema')},
+            });
+        }
+        const update = form === 'direct' ? {
+            path: [1],
+            title: 'Renamed',
+        } : {
+            path: [1],
+            bookmark: {title: 'Renamed'},
+        };
+        for (const [
+            id,
+            input,
+        ] of [
+                [
+                    'bookmarks.update',
+                    update,
+                ],
+                [
+                    'bookmarks.add',
+                    {
+                        title: 'Inserted',
+                        parentPath: [0],
+                        index: 0,
+                    },
+                ],
+                [
+                    'bookmarks.add_batch',
+                    {
+                        parentPath: [0],
+                        bookmarks: [{
+                            title: 'Inserted',
+                            index: 0,
+                        }],
+                    },
+                ],
+            ] as const) {
+            const response = await runAction(options, id, input);
+            expect(response?.result).toMatchObject({structuredContent: {ok: true}});
+            expect(response?.result).not.toHaveProperty('isError', true);
+        }
+    });
+
     afterEach(async () => {
         await shutdownEmbeddedMcpServer();
         await shutdownLocalMcpServer();
