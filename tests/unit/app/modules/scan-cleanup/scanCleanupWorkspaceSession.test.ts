@@ -4667,6 +4667,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const pageOnePreviewCalls = () => vi.mocked(harness.value.preview).mock.calls
             .filter(([request]) => request?.pageNumber === 1).length;
         const callsBeforeExclusion = pageOnePreviewCalls();
+        const shownBeforeExclusion = mounted.session.preview.result.value;
+        const presentationBeforeExclusion = mounted.session.preview.resultPresentationKey.value;
 
         mounted.session.selection.updatePageOverride(3, {
             rotationDegrees: 0,
@@ -4676,6 +4678,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         await vi.waitFor(() => expect(pageOnePreviewCalls()).toBeGreaterThan(callsBeforeExclusion));
+        await vi.waitFor(() => expect(mounted.session.preview.result.value).not.toBe(shownBeforeExclusion));
+        // The pane keeps a settled frame against later frames of the same
+        // presentation, so the redrawn page must arrive as a new one.
+        expect(mounted.session.preview.resultPresentationKey.value).not.toBe(presentationBeforeExclusion);
         mounted.unmount();
     });
 });
