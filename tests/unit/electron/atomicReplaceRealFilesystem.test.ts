@@ -95,6 +95,9 @@ describe('atomicReplace real filesystem policy', () => {
         await link(sourcePath, linkedPath);
         await atomicReplace(linkedPath, destinationPath);
         expect((await stat(sourcePath)).mode & 0o777).toBe(0o644);
+        // ...while the destination still keeps its own.
+        expect((await stat(destinationPath)).mode & 0o777).toBe(0o600);
+        await expect(readFile(destinationPath, 'utf8')).resolves.toBe('source bytes');
     });
 
     it.skipIf(process.platform === 'win32')('saves even when the filesystem refuses to keep the destination mode', async () => {

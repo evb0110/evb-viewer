@@ -7,6 +7,7 @@ import {
     open,
     readFile,
     readdir,
+    copyFile,
     rename,
     stat,
     unlink,
@@ -368,8 +369,8 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
 /**
  * A replaced file keeps its permission bits: a staged copy is created with
  * the default mode, so a private 0600 PDF would otherwise become readable to
- * others. A staged hard link shares its inode with a source, whose mode must
- * not change, so it is left as it is.
+ * others. A staged hard link shares its inode with a source whose mode must
+ * not change, so it is first replaced by a copy of its own.
  */
 async function keepDestinationMode(srcTemp: string, dst: string) {
     if (process.platform === 'win32') return;
@@ -380,7 +381,13 @@ async function keepDestinationMode(srcTemp: string, dst: string) {
         stat(srcTemp),
         stat(dst).catch(() => null),
     ]);
-    if (replaced === null || staged.nlink !== 1 || (staged.mode & 0o7777) === (replaced.mode & 0o7777)) return;
+    if (replaced === null || (staged.mode & 0o7777) === (replaced.mode & 0o7777)) return;
+    // A staged hard link takes the mode as its own copy, so the source keeps its.
+    if (staged.nlink !== 1) {
+        const ownCopy = `${srcTemp}.mode`;
+        await copyFile(srcTemp, ownCopy);
+        await rename(ownCopy, srcTemp);
+    }
     // A filesystem that refuses the mode keeps the staged one; the save goes on.
     await chmod(srcTemp, replaced.mode & 0o7777).catch((error: unknown) => {
         logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
