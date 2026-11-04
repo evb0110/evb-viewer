@@ -471,3 +471,92 @@ describe('agentMetadataPlans', () => {
         });
     });
 });
+
+describe('page-label duplicate analysis completeness', () => {
+    it.each([
+        200,
+        201,
+    ])('reports restarted numbering honestly at %i pages', (totalPages) => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages,
+            dirty: false,
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 101,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                },
+            ],
+        });
+        expect(snapshot.summary).toMatchObject({
+            duplicateLabelCount: totalPages === 200 ? 100 : null,
+            duplicateLabelAnalysisComplete: totalPages === 200,
+        });
+        if (totalPages === 201) {
+            expect(snapshot.labels).toBeNull();
+            expect(snapshot.issues).toContainEqual(expect.objectContaining({code: 'duplicate_page_label_analysis_incomplete'}));
+        }
+    });
+
+    it.each([
+        200,
+        201,
+        1_000_000,
+    ])('counts distinct repeated literal labels at %i pages', (totalPages) => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages,
+            dirty: false,
+            pageLabelRanges: [{
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            }],
+        });
+        expect(snapshot.summary).toMatchObject({
+            duplicateLabelCount: 1,
+            duplicateLabelAnalysisComplete: true,
+        });
+        expect(snapshot.issues).toContainEqual(expect.objectContaining({
+            code: 'duplicate_page_label',
+            message: `Page label "Cover" appears on ${totalPages} pages.`,
+        }));
+        if (totalPages > 200) expect(snapshot.labels).toBeNull();
+    });
+
+    it('does not claim a partial literal count is a complete mixed-range result', () => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages: 201,
+            dirty: false,
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: null,
+                    prefix: 'A1',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 101,
+                    style: 'D',
+                    prefix: 'A',
+                    startNumber: 1,
+                },
+            ],
+        });
+        expect(snapshot.summary).toMatchObject({
+            duplicateLabelCount: null,
+            duplicateLabelAnalysisComplete: false,
+        });
+        expect(snapshot.issues).toContainEqual(expect.objectContaining({
+            code: 'duplicate_page_label',
+            message: expect.stringContaining('at least 100 pages'),
+        }));
+    });
+});

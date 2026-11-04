@@ -236,6 +236,8 @@ Page numbering tools use PDF page-label ranges:
 
 Supported styles are `D` decimal, `R`/`r` roman, `A`/`a` alphabetic, or `null`/`literal` for prefix-only labels.
 
+`summary.duplicateLabelCount` counts distinct nonempty labels that occur more than once. It is `null` when `summary.duplicateLabelAnalysisComplete` is false. Compact numbered ranges are not exhaustively analyzed; the accompanying `duplicate_page_label_analysis_incomplete` issue is not evidence of uniqueness. Literal-only ranges have exact counts without expanding pages. Partial literal duplicate issues say "at least".
+
 When agents reconstruct page labels from printed paper-page numbers, OCR/searchable text is only the starting hypothesis. They should verify range boundaries, restarts, front matter, appendices, and doubtful OCR hits with `document.capture_page_image`, run `page_labels.preview`, inspect the diff/issues/samples, then commit with `page_labels.apply_plan`. Page-label edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
 
 ### Bookmark Capabilities
