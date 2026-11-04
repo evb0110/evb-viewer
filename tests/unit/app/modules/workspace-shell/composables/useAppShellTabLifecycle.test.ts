@@ -18,6 +18,7 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type * as TRecentReadingViewModule from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
 import {
     createWorkspaceDocumentController,
@@ -31,6 +32,11 @@ import {
 } from '@app/types/workspaceExpose';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
+const readingView = vi.hoisted(() => ({remember: vi.fn(async () => undefined)}));
+vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', async importOriginal => ({
+    ...await importOriginal<typeof TRecentReadingViewModule>(),
+    rememberReadingView: readingView.remember,
+}));
 
 const asyncHelpersMock = vi.hoisted(() => ({
     waitForVisualFrames: vi.fn(async () => {}),
@@ -313,6 +319,43 @@ describe('useAppShellTabLifecycle', () => {
         expect(activeTabId.value).toBe('tab-document');
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
         expect(asyncHelpersMock.waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
+    });
+
+    it('asks about unsaved work when the other view lets go of the document while this view closes', async () => {
+        const session = createDocumentSession('tab-a', {dirty: true});
+        session.addView('tab-b');
+        const workspace = attachDocumentWorkspace(session, false);
+        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-b', [
+            'tab-a',
+            'tab-b',
+        ])]);
+        const tabs = ref<ITab[]>([
+            {id: 'tab-a'},
+            {id: 'tab-b'},
+        ]);
+        const {
+            lifecycle,
+            requestDirtyTabCloseConfirmation,
+        } = createLifecycle({
+            panes,
+            tabs,
+            sessions: {
+                'tab-a': session,
+                'tab-b': session,
+            },
+        });
+        const remembered = Promise.withResolvers<undefined>();
+        readingView.remember.mockReturnValueOnce(remembered.promise);
+
+        const closing = lifecycle.handleCloseTab('pane-1', 'tab-a');
+        await vi.waitFor(() => expect(readingView.remember).toHaveBeenCalled());
+        // Tab B opens another file meanwhile and leaves this document.
+        session.removeView('tab-b');
+        remembered.resolve(undefined);
+        await closing;
+
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-a');
+        expect(workspace.handleCloseFileFromUi).toHaveBeenCalled();
     });
 
     it('keeps the last tab as the empty tab after its document closes', async () => {
