@@ -246,62 +246,91 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
 
 #[test]
 fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
-    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
-    let original_quad_points = vec![
-        20.0, 80.0, 60.0, 80.0, 20.0, 70.0, 60.0, 70.0,
-        80.0, 55.0, 140.0, 55.0, 80.0, 45.0, 140.0, 45.0,
-    ];
-    let original_rect = vec![20.0, 45.0, 140.0, 80.0];
-    document
-        .get_dictionary_mut(markup_id)
-        .unwrap()
-        .set("QuadPoints", quad_points_object(&original_quad_points));
-    document
-        .get_dictionary_mut(markup_id)
-        .unwrap()
-        .set("Rect", Object::Array(original_rect.iter().copied().map(number_object).collect()));
-
-    apply_markup_mutations(
-        &mut document,
-        &MarkupMutation {
-            hints: vec![MarkupSubtypeHint {
-                subtype: "Highlight".to_string(),
-                page_index: 0,
-                marker_rect: MarkerRect {
-                    left: 0.1,
-                    top: 0.1,
-                    width: 0.2,
-                    height: 0.1,
-                },
-                markup_geometry: None,
-                app_annotation_id: None,
-                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
-                color: Some("#00ff00".to_string()),
-                opacity: None,
-                author: None,
-                contents: None,
-                id: None,
-                page_markup_index: Some(0),
-                source: Some("editor".to_string()),
-            }],
-        },
-        "D:20260831130000Z",
-    )
-    .unwrap();
-
-    let annotation = document.get_dictionary(markup_id).unwrap();
-    assert_quad_points_approximately(
-        &read_markup_quad_points(&document, annotation).unwrap(),
-        &original_quad_points,
-    );
-    let rect = annotation.get(b"Rect").unwrap().as_array().unwrap();
-    assert_quad_points_approximately(
-        &rect
-            .iter()
-            .map(|value| value.as_float().unwrap() as f64)
-            .collect::<Vec<_>>(),
-        &original_rect,
-    );
+    for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+        for rotation in [0, 90] {
+            for multiline in [false, true] {
+                let (mut document, page_id, markup_id) = create_test_markup_pdf(subtype);
+                document
+                    .get_dictionary_mut(page_id)
+                    .unwrap()
+                    .set("MediaBox", vec![0.into(), 0.into(), 200.into(), 200.into()]);
+                document
+                    .get_dictionary_mut(page_id)
+                    .unwrap()
+                    .set("Rotate", rotation);
+                let mut quads = vec![20.0, 140.0, 120.0, 160.0, 20.0, 130.0, 120.0, 150.0];
+                if multiline {
+                    quads.extend([20.0, 120.0, 120.0, 140.0, 20.0, 110.0, 120.0, 130.0]);
+                }
+                let mut annotation = document.get_dictionary(markup_id).unwrap().clone();
+                annotation.set("QuadPoints", quad_points_object(&quads));
+                annotation.set(
+                    "Rect",
+                    vec![
+                        20.into(),
+                        if multiline { 110.into() } else { 130.into() },
+                        120.into(),
+                        160.into(),
+                    ],
+                );
+                annotation.set("C", vec![1.into(), 0.into(), 0.into()]);
+                annotation.set("CA", 1);
+                let appearances = regression_appearance(&mut document, &mut annotation);
+                document.set_object(markup_id, annotation.clone());
+                let entries = collect_parsed_annotations(&document, "D:20261104000000Z").unwrap();
+                let parsed = entries
+                    .iter()
+                    .find_map(|entry| match entry {
+                        PdfAnnotationParseEntry::Highlight(value) => Some(value),
+                        _ => None,
+                    })
+                    .expect("real parser exposes the source bounds");
+                for projected_bounds in [true, false] {
+                    let mut hint = serde_json::json!({
+                        "subtype": subtype, "pageIndex": 0,
+                        "markerRect": parsed.quad_points[0],
+                        "annotationId": format!("{} 0 R", markup_id.0),
+                        "color": "#ff0000", "opacity": 1,
+                        "contents": "Comment-only edit", "source": "pdf",
+                    });
+                    if projected_bounds {
+                        hint["markupGeometry"] = serde_json::to_value(&parsed.quad_points).unwrap();
+                    }
+                    let mutation = NativeMutationsFile {
+                        markup: Some(MarkupMutation {
+                            hints: vec![serde_json::from_value(hint).unwrap()],
+                        }),
+                        ..NativeMutationsFile::default()
+                    };
+                    for route in ["full", "path", "bytes"] {
+                        let saved = saved_annotation_regression(
+                            &document,
+                            &mutation,
+                            route,
+                            "D:20261104000100Z",
+                        );
+                        let after = saved.get_dictionary(markup_id).unwrap();
+                        for key in [b"QuadPoints".as_slice(), b"Rect", b"AP"] {
+                            assert_eq!(
+                                after.get(key).unwrap(),
+                                annotation.get(key).unwrap(),
+                                "{subtype}, {rotation}, multiline={multiline}, projected={projected_bounds}, {route}: {key:?}"
+                            );
+                        }
+                        assert_regression_appearance(&document, &saved, appearances);
+                        assert_eq!(
+                            pdf_string_to_text(after.get(b"Contents").unwrap()).as_deref(),
+                            Some("Comment-only edit")
+                        );
+                        assert_eq!(
+                            pdf_string_to_text(after.get(b"M").unwrap()).as_deref(),
+                            Some("D:20261104000100Z")
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]

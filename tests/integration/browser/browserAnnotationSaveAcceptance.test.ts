@@ -182,7 +182,18 @@ describe('browser annotation save acceptance in Chromium', () => {
             for (const thread of before.filter(row => row.name === null)) {
                 expect(after.find(row => row.ref === thread.ref)).toEqual(thread);
             }
+            const oldMarkup = before.find(row => row.name === 'skewed-markup')!;
             const newMarkup = after.find(row => row.name === 'skewed-markup')!;
+            for (const key of [
+                'quads',
+                'rect',
+                'appearance',
+                'appearanceStream',
+                'appearanceDictionary',
+                'resources',
+            ] as const) {
+                expect(newMarkup[key], key).toEqual(oldMarkup[key]);
+            }
             expect(newMarkup.contents).toBe('Browser edited skewed comment');
             expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
         } finally {

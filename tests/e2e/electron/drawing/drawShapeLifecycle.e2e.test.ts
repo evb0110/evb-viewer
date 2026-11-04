@@ -2300,6 +2300,18 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         for (const sourceThread of before.filter(row => row.name === null)) {
             expect.soft(after.find(row => row.ref === sourceThread.ref), 'foreign Popup/reply').toEqual(sourceThread);
         }
+        const markupBefore = before.find(row => row.name === 'skewed-markup')!;
+        const markupAfter = after.find(row => row.name === 'skewed-markup')!;
+        for (const key of [
+            'quads',
+            'rect',
+            'appearance',
+            'appearanceStream',
+            'appearanceDictionary',
+            'resources',
+        ] as const) {
+            expect.soft(markupAfter[key], key).toEqual(markupBefore[key]);
+        }
         expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
         await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
         await expect.poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath).toBeNull();
