@@ -2372,6 +2372,61 @@
           }
         }
       ]
+    },
+    {
+      "id": "ligature-single-letter-identities",
+      "description": "Every normalized occurrence keeps an ordinal even when two occurrences map to one source glyph.",
+      "text": "ﬃ ﬃ",
+      "query": "f",
+      "options": {},
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "ﬃ",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "ﬃ",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "ﬃ",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "ﬃ",
+            "after": ""
+          }
+        }
+      ]
     }
   ],
   "geometryCase": {

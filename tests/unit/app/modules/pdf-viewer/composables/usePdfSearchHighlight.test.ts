@@ -491,6 +491,88 @@ describe('usePdfSearchHighlight', () => {
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
     it.each([
+        'dom',
+        'css',
+    ])('retains every repeated ligature identity in %s paint without changing selection', async mode => {
+        const registry = new Map<string, Set<Range>>();
+        vi.stubGlobal('CSS', {highlights: registry});
+        vi.stubGlobal('Highlight', class extends Set<Range> {});
+        window.localStorage.setItem(STORAGE_KEYS.HIGHLIGHT_MODE, mode);
+        const layer = document.createElement('div');
+        const items = [
+            'ﬃ',
+            ' ',
+            'ﬃ',
+        ];
+        const spans = items.map(text => {
+            const span = document.createElement('span'); span.textContent = text; layer.append(span); return span;
+        });
+        registerTextLayerTextMapping(layer, {
+            textDivs: spans,
+            textContentItemsStr: items,
+        });
+        const matches = findPdfSearchMatches('ﬃ ﬃ', 'f').map((range, index) => ({
+            start: range.startOffset,
+            end: range.endOffset,
+            matchIndex: 40 + index,
+            pageMatchIndex: index,
+        }));
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'f',
+            matches,
+        };
+        const highlight = usePdfSearchHighlight();
+        try {
+            const visual = await reconcileVisualMatches(pageMatches, 'ﬃ ﬃ');
+            expect(visual.map(match => match.pageMatchIndex)).toEqual([
+                0,
+                1,
+                2,
+                3,
+            ]);
+            const select = (index: number) => highlight.highlightPage(layer, pageMatches, {
+                pageIndex: pageMatches.pageIndex,
+                matchIndex: 40 + index,
+                pageMatchIndex: index,
+                startOffset: matches[index]!.start,
+                endOffset: matches[index]!.end,
+            });
+            select(0);
+            if (mode === 'dom') await expect.poll(() => spans[0]!.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
+            else await expect.poll(() => highlight.getCurrentMatchRanges(layer).length).toBeGreaterThan(0);
+            const selection = document.createRange(); selection.selectNodeContents(layer);
+            for (const index of [
+                0,
+                1,
+                2,
+                3,
+                2,
+                1,
+                0,
+            ]) {
+                select(index);
+                const span = spans[index < 2 ? 0 : 2]!;
+                if (mode === 'dom') await expect.poll(() => span.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
+                else {
+                    const ranges = highlight.getCurrentMatchRanges(layer);
+                    expect(ranges.length).toBeGreaterThan(0);
+                    for (const range of ranges) {
+                        expect(span.contains(range.startContainer)).toBe(true);
+                        expect(range.toString()).toBe('ﬃ');
+                        expect(registry.get('pdf-search-current-match')?.has(range)).toBe(true);
+                    }
+                }
+                expect(selection.toString()).toBe('ﬃ ﬃ');
+                expect(layer.textContent).toBe('ﬃ ﬃ');
+                if (mode === 'dom') expect(spans[index < 2 ? 2 : 0]!.querySelector('.pdf-search-highlight--current')).toBeNull();
+            }
+        } finally {
+            highlight.clearHighlights(layer); window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE); vi.unstubAllGlobals();
+        }
+    });
+    it.each([
         false,
         true,
     ])('keeps selected text intact while next and previous change the current mark (drift: %s)', async (drift) => {

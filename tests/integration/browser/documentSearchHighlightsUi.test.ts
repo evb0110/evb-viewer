@@ -1037,10 +1037,34 @@ it.each([
 }, 120000);
 
 it.each([
-    'dom',
-    'css',
-])('real ligature regex overlap preserves the rendered text (%s)', async (mode) => {
-    const out = resolve(process.cwd(), '.devkit/core4-r6/app', process.env.PROOF_REVISION ?? 'head', `overlap-${mode}`);
+    {
+        mode: 'dom',
+        query: 'f|if',
+        ordinal: 2,
+        expected: 'ﬃﬃ',
+    },
+    {
+        mode: 'css',
+        query: 'f|if',
+        ordinal: 2,
+        expected: 'ﬃﬃ',
+    },
+    {
+        mode: 'dom',
+        query: 'f',
+        ordinal: 3,
+        expected: 'ﬃ',
+    },
+    {
+        mode: 'css',
+        query: 'f',
+        ordinal: 3,
+        expected: 'ﬃ',
+    },
+])('real ligature search preserves text and current identity ($mode, $query)', async ({
+    mode, query, ordinal, expected,
+}) => {
+    const out = resolve(process.cwd(), '.devkit/core4-r6/app', process.env.PROOF_REVISION ?? 'head', `overlap-${mode}-${ordinal}`);
     mkdirSync(out, {recursive: true});
     // Keep actual ligature glyphs and Unicode source ranges in the public PDF.
     const fontData = readFileSync(resolve(process.cwd(), 'public/fonts/annotation/DejaVuSans.ttf'));
@@ -1145,10 +1169,13 @@ end
     writeFileSync(resolve(out, 'fixture.pdf'), bytes);
     let page: Page | undefined;
     try {
-        page = await lifecycle.browser.newPage({viewport: {
-            width: 1280,
-            height: 900,
-        }});
+        page = await lifecycle.browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            recordVideo: {dir: out},
+        });
         // Geometry-free results exercise the actual text-layer compositor.
         // The matcher still supplies all four real normalized regex ranges.
         await page.route('**/runtime/composables/usePdfSearch.ts*', async route => {
@@ -1218,14 +1245,19 @@ end
         });
         await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
         const input = page.locator('.document-search-bar input:visible').first();
-        await input.fill('f|if');
+        await input.fill(query);
         await input.press('Enter');
         await expect.poll(() => page!.locator('.document-search-result:visible').count(), {timeout: 30000}).toBe(4);
-        await page.locator('.document-search-result:visible').nth(2).click();
+        await page.locator('.document-search-result:visible').nth(ordinal).click();
         const readCurrent = () => mode === 'dom'
             ? layer.locator('.pdf-search-highlight--current').allTextContents().then(texts => texts.join(''))
-            : page!.evaluate(() => [...CSS.highlights.get('pdf-search-current-match') ?? []].map(range => range.toString()).join(''));
-        await expect.poll(readCurrent, {timeout: 10000}).toBe(before);
+            : page!.evaluate(() => [...CSS.highlights.get('pdf-search-current-match') ?? []]
+                .filter((range, index, ranges) => !ranges.slice(0, index).some(previous => (
+                    previous.startContainer === range.startContainer && previous.startOffset === range.startOffset
+                    && previous.endContainer === range.endContainer && previous.endOffset === range.endOffset
+                )))
+                .map(range => range.toString()).join(''));
+        await expect.poll(readCurrent, {timeout: 10000}).toBe(expected);
         const state = {
             before,
             after: await layer.textContent(),
@@ -1234,7 +1266,26 @@ end
         };
         writeFileSync(resolve(out, 'state.json'), JSON.stringify(state, null, 2));
         expect(state.after).toBe(before);
-        expect(state.current).toBe(before);
+        expect(state.current).toBe(expected);
+        if (query === 'f') {
+            const current = await page.evaluate(() => {
+                const layer = document.querySelector('.page_container[data-page="1"] .textLayer')!;
+                const span = layer.querySelector(':scope > span')!;
+                const current = [...CSS.highlights.get('pdf-search-current-match') ?? []];
+                const range = current[0];
+                const dom = span.querySelector('.pdf-search-highlight--current');
+                return dom ? {
+                    text: dom.textContent,
+                    preceding: dom.previousSibling?.textContent ?? '',
+                }
+                    : {
+                        text: range?.toString(),
+                        preceding: range instanceof Range ? span.textContent?.slice(0, range.startOffset) : '',
+                    };
+            });
+            expect(current.text).toBe('ﬃ');
+            expect(current.preceding).toBe('ﬃ');
+        }
         const paintBounds = mode === 'dom'
             ? await layer.locator('.pdf-search-highlight').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
             : await page.evaluate(() => [...CSS.highlights.get('pdf-search-current-match') ?? []].flatMap(range => range instanceof Range ? [range.getBoundingClientRect().toJSON()] : []));
