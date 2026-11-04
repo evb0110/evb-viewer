@@ -35,6 +35,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import { copyFileAtomic } from '@electron/file-access/documentFileWriteAtomic';
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 import {
@@ -159,7 +160,9 @@ export async function savePdfAs(
             try {
                 await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
                 if (optimizedValidation || stagedOutput) {
-                    await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
+                    // Replaced through a temporary file, so a failed copy
+                    // leaves the live working copy as it was.
+                    await copyFileAtomic(targetPath, normalizedWorkingPath);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
                 }
             } catch (syncError) {
