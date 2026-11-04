@@ -24,6 +24,7 @@ import {
     resolve,
 } from 'node:path';
 import {getAppTempDir} from '@electron/utils/appTempDir';
+import {getDjvuIndirectComponentPaths} from '@electron/features/djvu/main/metadata';
 import * as v from 'valibot';
 import {
     getNativeToolBuildIdentity,
@@ -61,13 +62,19 @@ type TDjvuArtifactRangeUpdate = {
     [TKey in keyof IDjvuArtifactRange]?: IDjvuArtifactRange[TKey] | undefined;
 };
 
-export interface IDjvuSourceIdentity {
-    sourceSha256: string;
+interface IDjvuFileStats {
     size: bigint;
     mtimeNs: bigint;
     ctimeNs: bigint;
     dev: bigint;
     ino: bigint;
+}
+
+export interface IDjvuSourceIdentity extends IDjvuFileStats {
+    /** The document's bytes, an indirect document's component files included. */
+    sourceSha256: string;
+    /** An indirect document's component files, which its pages are read from. */
+    components: ReadonlyArray<IDjvuFileStats & {path: string}>;
 }
 
 const djvuArtifactManifestSchema = v.object({
@@ -270,10 +277,7 @@ async function sha256File(path: string, signal?: AbortSignal) {
 // Windows input aliases change ctime without changing bytes. File identity,
 // size and write time detect replacement/writes; resume still hashes the bytes.
 // Unix keeps its previous change-time check, since its tools need no aliases.
-function sourceStatsMatch(
-    left: Pick<IDjvuSourceIdentity, 'size' | 'mtimeNs' | 'ctimeNs' | 'dev' | 'ino'>,
-    right: Pick<IDjvuSourceIdentity, 'size' | 'mtimeNs' | 'ctimeNs' | 'dev' | 'ino'>,
-) {
+function sourceStatsMatch(left: IDjvuFileStats, right: IDjvuFileStats) {
     return left.size === right.size
         && left.mtimeNs === right.mtimeNs
         && left.dev === right.dev
@@ -288,28 +292,61 @@ export async function assertDjvuSourceIdentity(
 ) {
     signal?.throwIfAborted();
     const source = await stat(sourcePath, {bigint: true});
-    if (!sourceStatsMatch(identity, source)) {
+    const components = await Promise.all(identity.components.map(component => stat(component.path, {bigint: true})));
+    if (!sourceStatsMatch(identity, source) || identity.components.some((component, index) => !sourceStatsMatch(component, components[index]!))) {
         throw new Error('DjVu source changed while a checkpoint export was in progress');
     }
 }
 
-async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal) {
+async function captureFileIdentity(path: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
-    const sourceBeforeHash = await stat(sourcePath, {bigint: true});
-    const sourceSha256 = await sha256File(sourcePath, signal);
-    const source = await stat(sourcePath, {bigint: true});
-    const identity = {
-        sourceSha256,
-        size: source.size,
-        mtimeNs: source.mtimeNs,
-        ctimeNs: source.ctimeNs,
-        dev: source.dev,
-        ino: source.ino,
-    } satisfies IDjvuSourceIdentity;
-    if (!sourceStatsMatch(sourceBeforeHash, identity)) {
+    const before = await stat(path, {bigint: true});
+    const sha256 = await sha256File(path, signal);
+    const after = await stat(path, {bigint: true});
+    const stats = {
+        size: after.size,
+        mtimeNs: after.mtimeNs,
+        ctimeNs: after.ctimeNs,
+        dev: after.dev,
+        ino: after.ino,
+    } satisfies IDjvuFileStats;
+    if (!sourceStatsMatch(before, stats)) {
         throw new Error('DjVu source changed while its resume fingerprint was being computed');
     }
-    return identity;
+    return {
+        sha256,
+        stats,
+    };
+}
+
+// An indirect document's index names its pages' files; an edit to a page or a
+// shared dictionary changes the document, so each joins the fingerprint.
+async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal): Promise<IDjvuSourceIdentity> {
+    const source = await captureFileIdentity(sourcePath, signal);
+    const componentPaths = await getDjvuIndirectComponentPaths(sourcePath, signal ? {signal} : {});
+    const components: Array<Awaited<ReturnType<typeof captureFileIdentity>> & {path: string}> = [];
+    for (const path of componentPaths) {
+        components.push({
+            path,
+            ...await captureFileIdentity(path, signal),
+        });
+    }
+    return {
+        sourceSha256: components.length === 0
+            ? source.sha256
+            : createHash('sha256').update(JSON.stringify([
+                source.sha256,
+                ...components.map(component => [
+                    relative(resolve(sourcePath, '..'), component.path),
+                    component.sha256,
+                ]),
+            ])).digest('hex'),
+        ...source.stats,
+        components: components.map(component => ({
+            path: component.path,
+            ...component.stats,
+        })),
+    };
 }
 
 /**
@@ -427,7 +464,8 @@ export async function openDjvuArtifactJob(
         pageRanges,
         recipe: {
             // Bump when TypeScript compact representation/fidelity semantics change.
-            // 2: each page's own resolution and orientation size its page.
+            // 2: each page's own resolution and orientation size its page, and
+            // an indirect document's component files join its fingerprint.
             version: 2,
             djvulibre: getRuntimeToolArchiveIdentity('djvulibre'),
             imageCombine: options.artifactKind === 'compact-page'

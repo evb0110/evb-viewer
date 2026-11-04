@@ -1,3 +1,8 @@
+import { open } from 'node:fs/promises';
+import {
+    dirname,
+    resolve,
+} from 'node:path';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
     getDjvuNativeToolPaths,
@@ -119,6 +124,36 @@ export function parseDjvuInfoLine(line: string) {
         dpi: Number(match?.[3]),
     };
     return Object.values(info).every(value => Number.isSafeInteger(value) && value > 0) ? info : null;
+}
+
+/**
+ * The files an indirect document's pages and shared dictionaries live in, or
+ * none for a bundled or single-page document, whose one file holds them all.
+ * The header tells which: an indirect directory chunk leaves its bundled flag
+ * clear, so only an indirect document pays for listing its components.
+ */
+export async function getDjvuIndirectComponentPaths(filePath: string, options: IDjvuMetadataOptions = {}) {
+    const header = Buffer.alloc(25);
+    const file = await open(filePath, 'r');
+    try {
+        await file.read(header, 0, header.length, 0);
+    } finally {
+        await file.close();
+    }
+    const isIndirect = header.toString('latin1', 0, 4) === 'AT&T'
+        && header.toString('latin1', 12, 20) === 'DJVMDIRM'
+        && (header[24]! & 0x80) === 0;
+    if (!isIndirect) {
+        return [];
+    }
+    const result = await runDjvused([
+        filePath,
+        '-e',
+        'ls',
+    ], options);
+    const names = result.stdout.split(/\r?\n/u)
+        .flatMap(line => line.match(/^\s*(?:\d+\s+)?[PITS]\s+\d+\s+(\S.*?)\s*$/u)?.[1] ?? []);
+    return [...new Set(names.map(name => resolve(dirname(filePath), name)))];
 }
 
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
