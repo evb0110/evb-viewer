@@ -36,7 +36,11 @@ import {
     scanCleanupSourceIdentityKey,
     type TScanCleanupSourceIdentityState,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
-import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/utils/browserScanCleanupPreferences';
+import {
+    DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
+    loadScanCleanupDocumentOutputMode,
+    SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
+} from '@app/utils/browserScanCleanupPreferences';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
     flushScanCleanupDocumentPreferencesStore,
@@ -83,7 +87,8 @@ function connectMainProcessSettings(store: ReturnType<typeof createScanCleanupSe
     capability.value.updateSettings.mockImplementation(store.update);
 }
 
-vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
+const platform = vi.hoisted(() => ({desktop: true}));
+vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => platform.desktop}));
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 
 describe('scan cleanup renderer preference store', () => {
@@ -110,6 +115,8 @@ describe('scan cleanup renderer preference store', () => {
 
     afterEach(async () => {
         vi.useRealTimers();
+        vi.restoreAllMocks();
+        platform.desktop = true;
         resetScanCleanupPreferencesStore();
         await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
             recursive: true,
@@ -117,6 +124,24 @@ describe('scan cleanup renderer preference store', () => {
         })));
     });
 
+
+    it('keeps a browser document edit whose debounced write hit a full storage, and writes it once there is room', async () => {
+        platform.desktop = false;
+        vi.useFakeTimers();
+        const sourceSha256 = 'd'.repeat(64);
+        getScanCleanupPreferencesStore();
+        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('Storage is full', 'QuotaExceededError');
+        });
+        await scheduleScanCleanupDocumentPreferencesInStore(sourceSha256, 'browser://quota.pdf', {outputMode: 'color'});
+        await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS + 1);
+        expect(setItem).toHaveBeenCalled();
+        expect(loadScanCleanupDocumentOutputMode(sourceSha256)).not.toBe('color');
+
+        setItem.mockRestore();
+        await flushScanCleanupDocumentPreferencesStore();
+        expect(loadScanCleanupDocumentOutputMode(sourceSha256)).toBe('color');
+    });
 
     it('keeps another window reading-order commit when an older local save reply arrives late', async () => {
         const {
