@@ -838,6 +838,108 @@ describe('processMcpRequest', () => {
         }});
     });
 
+    it.each([
+        [
+            'view.activate_tab',
+            false,
+        ],
+        [
+            'view.activate_tab',
+            true,
+        ],
+        [
+            'view.go_to_page',
+            false,
+        ],
+        [
+            'view.go_to_page',
+            true,
+        ],
+    ] as const)('keeps navigation passive for dry-run %s with nested target %s', async (id, nested) => {
+        const options = createOptions();
+        let snapshot = structuredClone(workspaceSnapshot);
+        const other = {
+            ...snapshot.tabs[0]!,
+            tabId: requireTabId('tab-2'),
+        };
+        snapshot = {
+            ...snapshot,
+            tabs: [
+                ...snapshot.tabs,
+                other,
+            ],
+            panes: snapshot.panes.map(pane => ({
+                ...pane,
+                tabIds: [
+                    ...pane.tabIds,
+                    other.tabId,
+                ],
+            })),
+        };
+        options.getWorkspaceSnapshot.mockImplementation(async windowId => {
+            expect(windowId).toBe(42);
+            return snapshot;
+        });
+        options.runCommand.mockImplementation(async command => {
+            if (command.name === 'activate_tab' || command.name === 'go_to_page') {
+                snapshot = {
+                    ...snapshot,
+                    activeTabId: other.tabId,
+                };
+                if (command.name === 'go_to_page') other.currentPage = command.arguments.page;
+            }
+            return {ok: true};
+        });
+        const target = {
+            tabId: 'tab-2',
+            ...(id === 'view.go_to_page' ? {page: 9} : {}),
+        };
+        const response = await runAction(options, id, {
+            ...(id === 'view.go_to_page' ? {page: 9} : {}),
+            ...(nested ? {tabId: 'tab-2'} : {}),
+        }, {
+            windowId: 42,
+            dryRun: true,
+            ...(nested ? {} : {tabId: 'tab-2'}),
+        });
+        expect(response?.result).toMatchObject({structuredContent: {
+            actionId: id,
+            dryRun: true,
+            wouldRun: true,
+            targetTabId: 'tab-2',
+            ...(id === 'view.go_to_page' ? {page: 9} : {}),
+        }});
+        expect(snapshot.activeTabId).toBe('tab-1');
+        expect(other.currentPage).toBe(5);
+        expect(options.runCommand).not.toHaveBeenCalled();
+
+        const actual = await runAction(options, id, target, {windowId: 42});
+        expect(actual?.result).not.toHaveProperty('isError', true);
+        expect(snapshot.activeTabId).toBe('tab-2');
+        expect(other.currentPage).toBe(id === 'view.go_to_page' ? 9 : 5);
+        expect(options.runCommand).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        {
+            id: 'view.activate_tab',
+            tabId: 'missing',
+        },
+        {
+            id: 'view.go_to_page',
+            tabId: 'tab-1',
+            page: 0,
+        },
+    ])('rejects invalid passive navigation intent $id', async args => {
+        const options = createOptions();
+        const response = await callTool(options, 'evb_run_action', {
+            ...args,
+            dryRun: true,
+        });
+        expect(response?.result).toMatchObject({isError: true});
+        expect(options.runCommand).not.toHaveBeenCalled();
+    });
+
     it('dispatches bookmark previews through the read-only action tool', async () => {
         const options = {
             ...createOptions(),

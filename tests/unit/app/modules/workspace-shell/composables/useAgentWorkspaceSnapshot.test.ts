@@ -1,3 +1,5 @@
+import {createAgentOptions} from '@tests/unit/app/modules/workspace-shell/agent/createAgentOptions';
+import {createDocumentWorkspaceAgent} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 // @vitest-environment happy-dom
 import {
     afterEach,
@@ -259,6 +261,8 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     return {
         agent,
         app,
+        activePaneId,
+        activeTabId,
         commandResponses,
         firstIdentity,
         session,
@@ -886,5 +890,141 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         expect(String(response.error)).toMatch(/stale-command-target|target document changed/u);
         expect(readAgentResource).not.toHaveBeenCalled();
         harness.app.unmount();
+    });
+});
+
+
+describe('passive agent actions', () => {
+    it.each([
+        [
+            'bookmarks.set_tree',
+            {bookmarks: [{
+                title: 'Proposed',
+                page: 2,
+            }]},
+            true,
+        ],
+        [
+            'bookmarks.preview_tree',
+            {entries: [{
+                level: 1,
+                title: 'Proposed',
+                page: 2,
+            }]},
+            false,
+        ],
+        [
+            'toc.preview_tree',
+            {entries: [{
+                level: 1,
+                title: 'Proposed',
+                page: 2,
+            }]},
+            false,
+        ],
+        [
+            'page_labels.preview',
+            {ranges: [{
+                startPage: 1,
+                style: 'D',
+                prefix: 'Preview-',
+                startNumber: 1,
+            }]},
+            false,
+        ],
+        [
+            'page_numbering.preview',
+            {ranges: [{
+                startPage: 1,
+                style: 'D',
+                prefix: 'Preview-',
+                startNumber: 1,
+            }]},
+            false,
+        ],
+    ] as const)('keeps the selected tab and metadata unchanged for passive %s', async (id, input, dryRun) => {
+        const options = createAgentOptions({
+            tabId: 'tab-2',
+            documentIdentity: ref(createDocumentIdentity()),
+        });
+        const agent = createDocumentWorkspaceAgent(options);
+        const workspace = createWorkspace({hasPdf: true}, {runAgentAction: agent.runAgentAction});
+        const h = await mountAgentWorkspaceSnapshotHarness({linkedWorkspace: workspace});
+        try {
+            const before = JSON.stringify({
+                bookmarks: options.bookmarkItems.value,
+                labels: options.pageLabelRanges.value,
+            });
+            const response = await h.submitCommand({
+                requestId: requireRequestId('passive-action'),
+                command: {
+                    name: 'run_action',
+                    arguments: {
+                        tabId: requireTabId('tab-2'),
+                        id,
+                        input,
+                        dryRun,
+                    },
+                },
+            });
+            expect(response.ok, response.error).toBe(true);
+            expect(response.result).toMatchObject({
+                activeTabId: 'tab-1',
+                activePaneId: 'pane-1',
+                targetTabId: 'tab-2',
+            });
+            expect(h.activeTabId.value).toBe('tab-1');
+            expect(h.workspace.getToolbarSnapshot()).toMatchObject({
+                currentPage: 1,
+                totalPages: 3,
+            });
+            expect(JSON.stringify({
+                bookmarks: options.bookmarkItems.value,
+                labels: options.pageLabelRanges.value,
+            })).toBe(before);
+            expect(options.bookmarksDirty.value).toBe(false);
+            expect(options.pageLabelsDirty.value).toBe(false);
+        } finally {
+            h.app.unmount();
+        }
+    });
+
+    it.each([
+        'action',
+        'resource',
+    ] as const)('reports a cold passive %s without activation or deferred execution', async kind => {
+        const workspace = createWorkspace({hasPdf: true});
+        const h = await mountAgentWorkspaceSnapshotHarness({linkedWorkspace: workspace});
+        h.session.detachWorkspace('tab-2', workspace);
+        try {
+            const response = await h.submitCommand({
+                requestId: requireRequestId('cold-passive'),
+                command: kind === 'action'
+                    ? {
+                        name: 'run_action',
+                        arguments: {
+                            tabId: requireTabId('tab-2'),
+                            id: 'bookmarks.preview_tree',
+                            input: {entries: []},
+                        },
+                    }
+                    : {
+                        name: 'read_resource',
+                        arguments: {
+                            tabId: requireTabId('tab-2'),
+                            uri: 'evb://tabs/tab-2/bookmarks',
+                        },
+                    },
+            });
+            expect(response.ok).toBe(false);
+            expect(response.error).toContain('not available without activating it');
+            expect(h.activeTabId.value).toBe('tab-1');
+            h.session.attachWorkspace('tab-2', workspace);
+            await flushAsyncWork();
+            expect(h.activeTabId.value).toBe('tab-1');
+            expect(h.commandResponses).toEqual([response]);
+        } finally {
+            h.app.unmount();
+        }
     });
 });

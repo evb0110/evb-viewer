@@ -384,6 +384,19 @@ async function runAgentActionTool(
 
     const windowId = getOptionalWindowId(params);
     const actionParams = createActionParams(params);
+    if (dryRun === true && (id === 'view.activate_tab' || id === 'view.go_to_page')) {
+        const tabId = id === 'view.activate_tab' ? getRequiredTabId(actionParams) : getOptionalTabId(actionParams);
+        const page = id === 'view.go_to_page' ? getRequiredPage(actionParams) : undefined;
+        const snapshot = await options.getWorkspaceSnapshot(windowId);
+        const tab = getTargetTab(snapshot, tabId);
+        return {
+            actionId: id,
+            dryRun: true,
+            wouldRun: true,
+            targetTabId: tab.tabId,
+            ...(page === undefined ? {} : {page}),
+        };
+    }
     if (id === 'workspace.snapshot') {
         return options.getWorkspaceSnapshot(windowId);
     }

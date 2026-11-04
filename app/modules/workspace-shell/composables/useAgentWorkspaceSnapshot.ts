@@ -391,9 +391,13 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     async function waitForCommandWorkspace(
         tabId: string,
         expectedCommandTarget: TAgentWorkspaceCommandTarget | null,
+        passive = false,
     ) {
         const session = getTabSession(tabId);
-        const workspace = await session?.getView(tabId)?.whenMounted() ?? null;
+        const view = session?.getView(tabId);
+        const workspace = passive
+            ? view?.mountedWorkspace.value ?? null
+            : await view?.whenMounted() ?? null;
         return expectedCommandTarget && session && !session.validateCommandTarget(expectedCommandTarget).ok
             ? null
             : workspace;
@@ -457,10 +461,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget);
+            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget, true);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available.`);
+                throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
             }
 
             const context = createCommandContext(request, tabId, signal, expectedIdentity, expectedCommandTarget);
@@ -484,12 +488,19 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const paneId = await activateTabForAgent(tabId);
+            // The document handler validates input before its dry-run return.
+            // Only these preview handlers execute passively without dryRun.
+            const passive = request.command.arguments.dryRun === true
+                || request.command.arguments.id === 'bookmarks.preview_tree'
+                || request.command.arguments.id === 'page_labels.preview'
+                || request.command.arguments.id === 'toc.preview_tree'
+                || request.command.arguments.id === 'page_numbering.preview';
+            if (!passive) await activateTabForAgent(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget);
+            const workspace = await waitForCommandWorkspace(tabId, expectedCommandTarget, passive);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available.`);
+                throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
             }
 
             const context = createCommandContext(request, tabId, signal, expectedIdentity, expectedCommandTarget);
@@ -502,11 +513,12 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 context,
             );
             await nextTick();
-            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, false, expectedCommandTarget);
+            assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, passive, expectedCommandTarget);
             return {
-                activePaneId: paneId,
-                activeTabId: tabId,
                 ...result,
+                activePaneId: options.activePaneId.value,
+                activeTabId: options.activeTabId.value,
+                targetTabId: tabId,
             };
         }
 
