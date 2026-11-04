@@ -3100,3 +3100,44 @@ fn existing_targets_keep_whole_fallback_for_ambiguous_names_and_missing_library(
         assert_eq!(fs::metadata(&pdf).unwrap().len(), size);
     }
 }
+
+#[test]
+fn lazy_catalog_admission_refuses_tags_and_layers_before_publication() {
+    for key in ["StructTreeRoot", "OCProperties"] {
+        let input = temp_path("catalog-preservation", "pdf");
+        let _cleanup = TempFiles(vec![input.clone()]);
+        let fixture =
+            include_bytes!("../../../tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf");
+        let mut document = Document::load_mem(fixture).unwrap();
+        let catalog = document.catalog_mut().unwrap();
+        catalog.remove(if key == "StructTreeRoot" {
+            b"OCProperties".as_slice()
+        } else {
+            b"StructTreeRoot".as_slice()
+        });
+        document.save(&input).unwrap();
+        let commands = if key == "StructTreeRoot" {
+            vec!["read-catalog", "validate-page-structure"]
+        } else {
+            vec!["read-catalog"]
+        };
+        for command in commands {
+            let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .arg(command)
+                .arg("--input")
+                .arg(&input)
+                .arg("--qpdf")
+                .arg(qpdf_path())
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "{command} admitted {key}");
+            let envelope: Value = serde_json::from_slice(&output.stderr).unwrap();
+            assert_eq!(envelope["code"], "invalid-request");
+            assert!(envelope["message"]
+                .as_str()
+                .unwrap()
+                .contains("ERR_PDF_STRUCTURE_PRESERVATION:"));
+            assert!(output.stdout.is_empty());
+        }
+    }
+}

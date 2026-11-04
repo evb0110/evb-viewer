@@ -246,6 +246,28 @@ describe('direct batch open cancellation', () => {
         }
     });
 
+    it('preserves a nested structure refusal in the message that crosses batch-open IPC', async () => {
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        const refusal = {
+            code: 'invalid-request',
+            message: 'ERR_PDF_STRUCTURE_PRESERVATION: accessibility tags cannot be preserved',
+        };
+        mocks.openInputPaths.mockRejectedValueOnce(Object.assign(new Error('Native capability failed', {cause: Object.assign(new Error(refusal.message), {code: refusal.code})}), {code: 'native-failure'}));
+
+        const error: unknown = await handlers.handleOpenPdfDirectBatch(handlerContext(senderContext(7)), ['/tmp/tagged.pdf'])
+            .then(() => null, (caught: unknown) => caught);
+        if (!(error instanceof Error)) throw new Error('Batch open did not refuse the tagged input');
+        // Electron transports the message, not custom code/cause properties.
+        expect(findSerializableErrorEnvelope(new Error(error.message), NATIVE_ERROR_ENVELOPE_SCHEMA)).toEqual(refusal);
+    });
+
+    it('keeps ordinary batch-open failure details for diagnostics', async () => {
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        mocks.openInputPaths.mockRejectedValueOnce(new Error('Output volume is full'));
+        await expect(handlers.handleOpenPdfDirectBatch(handlerContext(senderContext(7)), ['/tmp/ordinary.pdf']))
+            .rejects.toThrow('Output volume is full');
+    });
+
     it('sends a picked file the main process refused as its code and name, without tool output', async () => {
         const {
             DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA,

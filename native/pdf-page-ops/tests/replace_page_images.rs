@@ -583,3 +583,117 @@ fn images_the_page_does_not_draw_are_not_counted_as_its_bytes() {
     assert_eq!(page_report["sourceBytes"], source.stream_bytes as u64);
     assert!(!scratch.path("output.pdf").exists());
 }
+
+fn semantic_replacement_case(kind: &str, expected: &str) {
+    let scratch = Scratch::new(kind);
+    let source = save_source(&scratch.path("source.pdf"), false, false, false);
+    save_replacement(&scratch.path("replacement.pdf"), false, false);
+    let mut document = Document::load(scratch.path("source.pdf")).unwrap();
+    let layer = document.add_object(
+        dictionary! { "Type" => "OCG", "Name" => Object::string_literal("Hidden image") },
+    );
+    let content = document.get_page_content(source.page);
+    let mut prefix = "";
+    match kind {
+        "page-key" => document
+            .get_dictionary_mut(source.page)
+            .unwrap()
+            .set("StructParents", 0),
+        "image-key" => document
+            .get_object_mut(source.image)
+            .unwrap()
+            .as_stream_mut()
+            .unwrap()
+            .dict
+            .set("StructParent", 0),
+        "image-ocg" => document
+            .get_object_mut(source.image)
+            .unwrap()
+            .as_stream_mut()
+            .unwrap()
+            .dict
+            .set("OC", layer),
+        "image-ocmd" => {
+            let membership = document.add_object(dictionary! { "Type" => "OCMD", "OCGs" => vec![Object::Reference(layer)], "P" => "AllOn" });
+            document
+                .get_object_mut(source.image)
+                .unwrap()
+                .as_stream_mut()
+                .unwrap()
+                .dict
+                .set("OC", membership);
+        }
+        "direct-properties" => prefix = "/Figure <</MCID 0 /ActualText (Preserved text)>> BDC\n",
+        "named-properties" => prefix = "/Figure /Semantics BDC\n",
+        "ocg-bdc" => prefix = "/OC /Hidden BDC\n",
+        "artifact-control" => prefix = "/Artifact BMC\n",
+        "stream-key" => {}
+        "stream-oc" => {}
+        _ => panic!("unknown case {kind}"),
+    }
+    let mut stream = Stream::new(
+        dictionary! {},
+        [
+            prefix.as_bytes(),
+            content.as_slice(),
+            if prefix.is_empty() { b"" } else { b"EMC\n" },
+        ]
+        .concat(),
+    );
+    if kind == "stream-key" {
+        stream.dict.set("StructParents", 0);
+    }
+    if kind == "stream-oc" {
+        stream.dict.set("OC", layer);
+    }
+    let contents = document.add_object(stream);
+    document
+        .get_dictionary_mut(source.page)
+        .unwrap()
+        .set("Contents", contents);
+    let resources = document
+        .get_dictionary_mut(source.page)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap();
+    resources.set("Properties", dictionary! { "Hidden" => layer, "Semantics" => dictionary! { "MCID" => 0, "Alt" => Object::string_literal("Figure") } });
+    document.save(scratch.path("source.pdf")).unwrap();
+    let before = fs::read(scratch.path("source.pdf")).unwrap();
+    let output = run(&scratch, instructions(&scratch));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["pages"][0]["outcome"], expected, "{kind}: {value}");
+    assert_eq!(fs::read(scratch.path("source.pdf")).unwrap(), before);
+    assert_eq!(scratch.path("output.pdf").exists(), expected == "replaced");
+}
+
+#[test]
+fn replacement_preserves_tagged_page_image_stream_and_property_bindings() {
+    for kind in [
+        "page-key",
+        "image-key",
+        "stream-key",
+        "direct-properties",
+        "named-properties",
+    ] {
+        semantic_replacement_case(kind, "tagged-content");
+    }
+}
+
+#[test]
+fn replacement_preserves_ocg_ocmd_and_optional_marked_content() {
+    for kind in ["image-ocg", "image-ocmd", "stream-oc", "ocg-bdc"] {
+        semantic_replacement_case(kind, "optional-content");
+    }
+}
+
+#[test]
+fn replacement_still_accepts_untagged_artifact_marked_content() {
+    semantic_replacement_case("artifact-control", "replaced");
+}

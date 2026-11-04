@@ -54,6 +54,7 @@ import type {
 } from '@contracts/pageNumbers';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {assertNativePageStructureSupported} from '@electron/features/page-ops/main/readNativePdfCatalog';
 
 const log = createLogger('page-ops-qpdf');
 export {
@@ -77,6 +78,7 @@ type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
     & {
         workingCopyMaterialization?: IQpdfWorkingCopyMaterialization;
         scratchDirectory?: string;
+        pageStructureSources?: readonly string[];
     };
 
 const NON_COMMITTING_MATERIALIZATION_SIGNAL = {markCommitStarted: () => undefined};
@@ -199,6 +201,7 @@ export async function runQpdfCommand(
     const {
         workingCopyMaterialization,
         scratchDirectory,
+        pageStructureSources,
         ...nativeOptions
     } = options;
     if (workingCopyMaterialization) {
@@ -207,6 +210,15 @@ export async function runQpdfCommand(
             workingCopyMaterialization.senderWebContentsId,
             workingCopyMaterialization.signal,
         );
+    }
+    for (const inputPath of pageStructureSources ?? []) {
+        const binary = resolveNativePageOpsPath();
+        if (!binary) throw new Error('Native page structure validation is unavailable');
+        await assertNativePageStructureSupported(binary, inputPath, {
+            commandLabel: 'pdf-page-ops(validate-page-structure)',
+            ...(nativeOptions.signal ? {signal: nativeOptions.signal} : {}),
+            ...(nativeOptions.cancelGroup ? {cancelGroup: nativeOptions.cancelGroup} : {}),
+        });
     }
     const runWithArguments = async (tempDir: string) => {
         const argsPath = join(tempDir, 'args.txt');
@@ -350,6 +362,7 @@ async function extractPageList(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel,
+            pageStructureSources: [physicalReadPath],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
@@ -436,6 +449,7 @@ export async function deletePages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
+            pageStructureSources: [materializedPath],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
@@ -492,6 +506,7 @@ export async function deletePageRanges(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-page-ranges)',
+            pageStructureSources: [materializedPath],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
@@ -530,6 +545,7 @@ export async function reorderPages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(reorder-pages)',
+            pageStructureSources: [materializedPath],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
@@ -584,6 +600,7 @@ export async function movePages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(move-pages)',
+            pageStructureSources: [materializedPath],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
@@ -637,6 +654,7 @@ export async function movePageRanges(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(move-page-ranges)',
+            pageStructureSources: [materializedPath],
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });

@@ -355,6 +355,45 @@ fn recompress_images_appends_the_revision_the_desktop_command_appends() {
             "q 200 0 0 120 0 0 cm /Im Do Q BT /F1 9 Tf 10 10 Td (Photo) Tj ET\n",
         ),
     ]);
+    let mut semantic = Document::load_mem(&input).unwrap();
+    let page = semantic.get_pages()[&1];
+    let contents = semantic.get_page_content(page);
+    let layer = semantic.add_object(
+        dictionary! { "Type" => "OCG", "Name" => Object::string_literal("Hidden scan") },
+    );
+    let content = semantic.add_object(Stream::new(
+        dictionary! {},
+        [
+            b"/Figure <</MCID 0>> BDC /OC /Hidden BDC\n".as_slice(),
+            &contents,
+            b"EMC EMC\n",
+        ]
+        .concat(),
+    ));
+    semantic
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Contents", content);
+    semantic
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("StructParents", 0);
+    semantic
+        .get_dictionary_mut(page)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap()
+        .set("Properties", dictionary! { "Hidden" => layer });
+    let root = semantic.new_object_id();
+    let figure = semantic.add_object(dictionary! { "Type" => "StructElem", "S" => "Figure", "P" => root, "Pg" => page, "K" => 0 });
+    let parent_tree = semantic
+        .add_object(dictionary! { "Nums" => vec![0.into(), Object::Array(vec![figure.into()])] });
+    semantic.set_object(root, dictionary! { "Type" => "StructTreeRoot", "K" => vec![Object::Reference(figure)], "ParentTree" => parent_tree });
+    semantic.catalog_mut().unwrap().set("StructTreeRoot", root);
+    semantic.catalog_mut().unwrap().set("OCProperties", dictionary! { "OCGs" => vec![Object::Reference(layer)], "D" => dictionary! { "OFF" => vec![Object::Reference(layer)] } });
+    let input = save(&mut semantic);
     for (max_byte_ratio, changed) in [(0.9, true), (0.0001, false)] {
         let instructions = serde_json::json!({
             "targetDpi": 72, "quality": 70, "maxByteRatio": max_byte_ratio, "skipPages": [],
@@ -384,7 +423,21 @@ fn recompress_images_appends_the_revision_the_desktop_command_appends() {
             }
         );
         if let Some(desktop) = desktop {
-            Document::load_mem(&desktop).unwrap();
+            let saved = Document::load_mem(&desktop).unwrap();
+            assert_eq!(
+                saved.get_page_content(page),
+                semantic.get_page_content(page)
+            );
+            for id in [root, figure, parent_tree, layer] {
+                assert_eq!(
+                    saved.get_object(id).unwrap(),
+                    semantic.get_object(id).unwrap()
+                );
+            }
+            assert_eq!(
+                saved.catalog().unwrap().get(b"OCProperties").unwrap(),
+                semantic.catalog().unwrap().get(b"OCProperties").unwrap()
+            );
         }
     }
 }
@@ -733,4 +786,31 @@ fn replace_page_images_refuses_a_replacement_box_no_pdf_real_can_scale_to() {
         &[&replacement],
     );
     assert!(error.contains("placement"), "{error}");
+}
+
+#[test]
+fn semantic_replacement_skips_return_an_empty_revision_on_both_platforms() {
+    for (prefix, outcome) in [
+        (
+            "/Figure <</MCID 0 /ActualText (Figure)>> BDC",
+            "tagged-content",
+        ),
+        ("/OC /Hidden BDC", "optional-content"),
+    ] {
+        let scratch = Scratch::new(outcome);
+        let input = image_pdf(&[(800, 480, 95, &format!("{prefix}\n{SCAN}\nEMC\n"))]);
+        let replacement = image_pdf(&[(1, 1, 50, SCAN)]);
+        let path = arg(&scratch.write("replacement.pdf", &replacement));
+        let desktop = run_cli(&scratch, "replace-page-images", &input,
+            &serde_json::json!({"maxByteRatio": 0.9, "pages": [{"pageNumber": 1, "replacement": path, "replacementPageNumber": 1}]}).to_string(), None);
+        let browser = run_wasm(
+            OP_REPLACE_PAGE_IMAGES,
+            &input,
+            r#"{"maxByteRatio":0.9,"pages":[{"pageNumber":1,"replacement":0,"replacementPageNumber":1}]}"#,
+            &[&replacement],
+        );
+        assert!(desktop.is_none());
+        assert!(browser.data.is_empty());
+        assert_eq!(browser.report["pages"][0]["outcome"], outcome);
+    }
 }

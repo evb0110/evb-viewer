@@ -361,6 +361,208 @@ describe('browser page-ops WASM fast path', () => {
         vi.unstubAllGlobals();
     });
 
+    it.each([
+        'rotate',
+        'crop',
+        'removeCrop',
+    ] as const)('preserves the signed historical revision for browser %s', async operation => {
+        const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/signed.pdf')));
+        const wasm = await loadWasmRunner();
+        const result = operation === 'rotate'
+            ? await wasm.run('rotate', {
+                data,
+                pages: [1],
+                angle: 90,
+            })
+            : operation === 'crop'
+                ? await wasm.run('crop', {
+                    data,
+                    pages: [1],
+                    margins: {
+                        top: 4,
+                        bottom: 6,
+                        left: 8,
+                        right: 10,
+                    },
+                })
+                : await wasm.run('removeCrop', {
+                    data,
+                    pages: [1],
+                });
+        assertSuccessfulWasmMutation(result);
+        expect(result.data.subarray(0, data.length)).toEqual(data);
+        const original = await PDFDocument.load(data);
+        const saved = await PDFDocument.load(result.data);
+        const signatures = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects().flatMap(([
+            , object,
+        ]) => {
+            if (!(object instanceof PDFDict) || !object.has(PDFName.of('ByteRange'))) return [];
+            return [[
+                String(object.get(PDFName.of('ByteRange'))),
+                String(object.get(PDFName.of('Contents'))),
+            ]];
+        });
+        expect(signatures(saved)).toEqual(signatures(original));
+        expect(signatures(saved)).toHaveLength(1);
+        if (operation === 'rotate') expect(saved.getPage(0).getRotation().angle).toBe(90);
+        if (operation === 'crop') expect(saved.getPage(0).getCropBox()).toEqual({
+            x: 8,
+            y: 6,
+            width: 102,
+            height: 110,
+        });
+    });
+
+    it.each([
+        'deletePages',
+        'extractPages',
+    ] as const)('removes discarded form values from saved %s bytes', async operation => {
+        const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/forms.pdf')));
+        const wasm = await loadWasmRunner();
+        const result = operation === 'deletePages'
+            ? await wasm.run('deletePages', {
+                data,
+                pages: [2],
+            })
+            : await wasm.run('extractPages', {
+                data,
+                pages: [1],
+            });
+        assertSuccessfulWasmMutation(result);
+        const output = await PDFDocument.load(result.data);
+        expect(output.getPageCount()).toBe(1);
+        expect(output.getForm().getFields().map(field => field.getName())).toEqual(['retained']);
+        expect(output.getForm().getTextField('retained').getText()).toBe('VISIBLE');
+        const strings: string[] = [];
+        const visit = (object: unknown): void => {
+            if (object instanceof PDFString || object instanceof PDFHexString) strings.push(object.decodeText());
+            else if (object instanceof PDFDict) object.values().forEach(visit);
+            else if (object instanceof PDFArray) object.asArray().forEach(visit);
+            else if (object instanceof PDFRawStream) visit(object.dict);
+        };
+        output.context.enumerateIndirectObjects().forEach(([
+            , object,
+        ]) => visit(object));
+        expect(strings).not.toContain('REMOVED-SECRET');
+        expect(strings).not.toContain('removed');
+    });
+
+    it('keeps shared field values and reciprocal widget membership after subset and reorder saves', async () => {
+        const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/shared-field.pdf')));
+        const original = await PDFDocument.load(data);
+        const [originalField] = original.getForm().getFields();
+        if (!originalField) throw new Error('Shared field fixture is empty');
+        const name = originalField.getName();
+        const value = original.getForm().getTextField(name).getText();
+        const wasm = await loadWasmRunner();
+        for (const operation of [
+            'extractPages',
+            'deletePages',
+            'reorderPages',
+        ] as const) {
+            const result = operation === 'reorderPages'
+                ? await wasm.run(operation, {
+                    data,
+                    newOrder: [
+                        2,
+                        1,
+                    ],
+                })
+                : await wasm.run(operation, {
+                    data,
+                    pages: [operation === 'extractPages' ? 1 : 2],
+                });
+            assertSuccessfulWasmMutation(result);
+            const saved = await PDFDocument.load(result.data);
+            const fields = saved.getForm().getFields();
+            expect(fields.map(field => field.getName())).toEqual([name]);
+            expect(saved.getForm().getTextField(name).getText()).toBe(value);
+            const field = fields[0]!;
+            const kids = field.acroField.dict.lookup(PDFName.of('Kids'), PDFArray).asArray();
+            expect(kids).toHaveLength(operation === 'reorderPages' ? 2 : 1);
+            kids.forEach((kid, index) => {
+                const widget = saved.context.lookup(kid, PDFDict);
+                const page = saved.getPage(operation === 'reorderPages' ? 1 - index : 0);
+                expect(String(widget.get(PDFName.of('Parent')))).toBe(String(field.ref));
+                expect(String(widget.get(PDFName.of('P')))).toBe(String(page.ref));
+                expect(page.node.Annots()?.asArray().map(String)).toContain(String(kid));
+            });
+        }
+    });
+
+    it.each([
+        'StructTreeRoot',
+        'OCProperties',
+    ])('refuses browser Combine %s in either source position', async key => {
+        const source = await PDFDocument.load(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+        source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
+        const feature = new Uint8Array(await source.save());
+        const ordinary = await createPdf({pageWidths: [200]});
+        const wasm = await loadWasmRunner();
+        for (const documents of [
+            [
+                feature,
+                ordinary,
+            ],
+            [
+                ordinary,
+                feature,
+            ],
+        ]) {
+            const result = await wasm.run('mergePages', {documents});
+            expect(result).toMatchObject({
+                status: 'failed',
+                error: {code: 'invalid-request'},
+            });
+            expect(result && 'status' in result ? result.error.message : '').toContain('ERR_PDF_STRUCTURE_PRESERVATION:');
+        }
+    });
+
+    it('refuses tagged page subsets and insertion from either source', async () => {
+        const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/tagged.pdf')));
+        const ordinary = await createPdf({pageWidths: [200]});
+        const wasm = await loadWasmRunner();
+        const results = [
+            await wasm.run('deletePages', {
+                data,
+                pages: [2],
+            }),
+            await wasm.run('extractPages', {
+                data,
+                pages: [1],
+            }),
+            await wasm.run('reorderPages', {
+                data,
+                newOrder: [
+                    2,
+                    1,
+                ],
+            }),
+            await wasm.run('insertPages', {
+                data,
+                insertionData: ordinary,
+                afterPage: 1,
+            }),
+            await wasm.run('insertPages', {
+                data: ordinary,
+                insertionData: data,
+                afterPage: 1,
+            }),
+            await wasm.run('insertPages', {
+                data,
+                insertionData: data,
+                afterPage: 1,
+            }),
+        ];
+        results.forEach(result => {
+            expect(result).toMatchObject({
+                status: 'failed',
+                error: {code: 'invalid-request'},
+            });
+            expect(result && 'status' in result ? result.error.message : '').toContain('ERR_PDF_STRUCTURE_PRESERVATION:');
+        });
+    });
+
     it('judges only the live append-admission allocation with its matching pointer and length', async () => {
         const bytes = await createPdf({pageWidths: [200]});
         const module = await NativeWebAssembly.compile(await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm')));
@@ -1605,6 +1807,57 @@ describe('browser page-ops WASM fast path', () => {
         const stored = reopened.context.lookup(PDFRef.of(entry!.objectNumber));
         if (!(stored instanceof PDFRawStream)) throw new Error('Expected the recompressed image stream');
         expect(stored.getContentsSize()).toBe(entry!.recompressedBytes);
+    });
+
+    it.each([
+        [
+            'tagged-content',
+            '/Figure <</MCID 0>> BDC',
+        ],
+        [
+            'optional-content',
+            '/OC /Hidden BDC',
+        ],
+    ])('decodes a %s image-replacement refusal with an empty browser revision', async (outcome, prefix) => {
+        const source = await PDFDocument.create();
+        const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
+        const page = source.addPage([
+            200,
+            218,
+        ]);
+        const image = await source.embedJpg(jpeg);
+        page.node.set(PDFName.of('Contents'), source.context.register(source.context.stream(
+            `${prefix}\nq 200 0 0 218 0 0 cm /Scan Do Q\nEMC\n`,
+        )));
+        const layer = source.context.register(source.context.obj({
+            Type: 'OCG',
+            Name: PDFString.of('Hidden'),
+        }));
+        page.node.set(PDFName.of('Resources'), source.context.obj({
+            XObject: {Scan: image.ref},
+            Properties: {Hidden: layer},
+        }));
+        source.catalog.set(PDFName.of('OCProperties'), source.context.obj({
+            OCGs: [layer],
+            D: {OFF: [layer]},
+        }));
+        const data = new Uint8Array(await source.save());
+        const replacement = await PDFDocument.create();
+        replacement.addPage([
+            200,
+            218,
+        ]);
+        const core = await loadCoreWithWasm();
+        const result = await core.replacePdfPageImages(data, [new Uint8Array(await replacement.save())], {
+            maxByteRatio: 0.9,
+            pages: [{
+                pageNumber: 1,
+                replacement: 0,
+                replacementPageNumber: 1,
+            }],
+        });
+        expect(result.report.pages[0]?.outcome).toBe(outcome);
+        expect(result.data.byteLength).toBe(0);
     });
 
     it('replaces a scanned page image from an attached replacement PDF', async () => {

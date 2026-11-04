@@ -1,4 +1,6 @@
+import {findPdfStructurePreservationRefusal} from '@contracts/nativeErrors';
 import { isRecord } from '@contracts/runtimeGuards';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { QPDF_TIMEOUT_MS } from '@electron/pdf/pdfPageCount';
@@ -16,7 +18,7 @@ interface INativePdfCatalogReadOptions {
 }
 
 async function readCatalogJson(
-    operation: 'read-catalog' | 'read-document-catalog',
+    operation: 'read-catalog' | 'read-document-catalog' | 'validate-page-structure',
     binaryPath: string,
     inputPath: string,
     options: INativePdfCatalogReadOptions,
@@ -34,6 +36,11 @@ async function readCatalogJson(
         maxStdoutBytes: PDF_CATALOG_MAX_BYTES,
         rejectOnStdoutTruncation: true,
         ...options,
+    }).catch((error: unknown) => {
+        // IPC keeps only an error's message, so a structure refusal travels
+        // encoded and the renderer can say why the edit was refused.
+        const refusal = findPdfStructurePreservationRefusal(error);
+        throw refusal ? new Error(encodeSerializableErrorEnvelope(refusal), {cause: error}) : error;
     });
     // The reader reports, one JSON line each, what it read but could not keep,
     // such as an outline action it leaves without a target.
@@ -68,4 +75,10 @@ export async function readNativePdfCatalogPart(
         throw new Error(typeof error === 'string' ? error : `Native PDF catalog read returned no ${part}`);
     }
     return value as unknown[];
+}
+
+export async function assertNativePageStructureSupported(
+    binaryPath: string, inputPath: string, options: INativePdfCatalogReadOptions,
+) {
+    await readCatalogJson('validate-page-structure', binaryPath, inputPath, options);
 }

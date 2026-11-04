@@ -82,3 +82,12 @@ pub(super) fn split_tags(
     }
     Ok(())
 }
+
+/// Structural page edits cannot yet reconcile structure trees and ParentTree keys.
+pub(crate) fn assert_page_structure_supported(source: &impl PdfObjectSource) -> Result<()> {
+    if source.dictionary(source.root_id()?)?.has(b"StructTreeRoot") {
+        return Err(domain_error(NativeErrorCode::InvalidRequest,
+            "ERR_PDF_STRUCTURE_PRESERVATION: PDF page operations cannot preserve accessibility tags; operation refused"));
+    }
+    Ok(())
+}

@@ -128,3 +128,55 @@ fn native_rotation_payload_rejects_non_quarter_turn_angles() {
     };
     assert!(duplicate.to_string().contains("duplicate page index"));
 }
+
+
+#[test]
+fn browser_geometry_preserves_signed_bytes_across_successive_revisions() {
+    let input = include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/signed.pdf");
+    let signature_objects = |document: &Document| {
+        document
+            .objects
+            .values()
+            .filter_map(|object| {
+                let dict = object.as_dict().ok()?;
+                Some((
+                    dict.get(b"ByteRange").ok()?.clone(),
+                    dict.get(b"Contents").ok()?.clone(),
+                ))
+            })
+            .collect::<Vec<_>>()
+    };
+    let original = Document::load_mem(input).unwrap();
+    let signatures = signature_objects(&original);
+    assert_eq!(signatures.len(), 1);
+    let margins = CropMargins {
+        top: 4.0,
+        bottom: 6.0,
+        left: 8.0,
+        right: 10.0,
+    };
+    let independent = [
+        rotate_browser_pdf_bytes(input, &[1], 90).unwrap(),
+        crop_browser_pdf_bytes(input, &[1], margins).unwrap(),
+        remove_crop_browser_pdf_bytes(input, &[1]).unwrap(),
+    ];
+    for result in independent {
+        assert!(
+            result.data.starts_with(input),
+            "whole signed revision must be retained"
+        );
+        assert_eq!(
+            signature_objects(&Document::load_mem(&result.data).unwrap()),
+            signatures
+        );
+    }
+    let rotated = rotate_browser_pdf_bytes(input, &[1], 90).unwrap();
+    let cropped = crop_browser_pdf_bytes(&rotated.data, &[1], margins).unwrap();
+    let restored = remove_crop_browser_pdf_bytes(&cropped.data, &[1]).unwrap();
+    assert!(cropped.data.starts_with(&rotated.data));
+    assert!(restored.data.starts_with(&cropped.data));
+    let output = Document::load_mem(&restored.data).unwrap();
+    let page = output.get_pages()[&1];
+    assert_eq!(resolve_page_rotation(&output, page).unwrap(), 90);
+    assert_eq!(signature_objects(&output), signatures);
+}

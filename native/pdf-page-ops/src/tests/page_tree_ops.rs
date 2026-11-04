@@ -1137,3 +1137,303 @@ fn browser_page_rewrites_keep_a_long_flat_outline() {
     }
     assert_eq!(count, BOOKMARKS);
 }
+
+
+#[test]
+fn browser_subsets_prune_removed_form_values_and_rebuild_shared_widget_membership() {
+    fn decoded_strings(object: &Object, values: &mut Vec<String>) {
+        match object {
+            Object::String(_, _) => values.push(pdf_string_to_text(object).unwrap()),
+            Object::Array(items) => {
+                for item in items {
+                    decoded_strings(item, values);
+                }
+            }
+            Object::Dictionary(dict) => {
+                for (_, value) in dict {
+                    decoded_strings(value, values);
+                }
+            }
+            Object::Stream(stream) => {
+                for (_, value) in &stream.dict {
+                    decoded_strings(value, values);
+                }
+            }
+            _ => {}
+        }
+    }
+    let input = include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/forms.pdf");
+    for result in [
+        delete_browser_pdf_pages(input, &[2]).unwrap(),
+        extract_browser_pdf_pages(input, &[1]).unwrap(),
+    ] {
+        let output = Document::load_mem(&result.data).unwrap();
+        assert_eq!(output.get_pages().len(), 1);
+        let mut values = Vec::new();
+        for object in output.objects.values() {
+            decoded_strings(object, &mut values);
+        }
+        assert!(values.contains(&"VISIBLE".to_string()));
+        assert!(!values.contains(&"REMOVED-SECRET".to_string()));
+        assert!(!values.contains(&"removed".to_string()));
+        let form = output
+            .resolved(output.catalog().unwrap().get(b"AcroForm").unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert_eq!(
+            output
+                .resolved(form.get(b"Fields").unwrap())
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+    let shared =
+        include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/shared-field.pdf");
+    for (result, count) in [
+        (extract_browser_pdf_pages(shared, &[1]).unwrap(), 1),
+        (delete_browser_pdf_pages(shared, &[2]).unwrap(), 1),
+        (reorder_browser_pdf_pages(shared, &[2, 1]).unwrap(), 2),
+    ] {
+        let output = Document::load_mem(&result.data).unwrap();
+        let form = output
+            .resolved(output.catalog().unwrap().get(b"AcroForm").unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let roots = output
+            .resolved(form.get(b"Fields").unwrap())
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(roots.len(), 1);
+        let parent = roots[0].as_reference().unwrap();
+        let field = output.get_dictionary(parent).unwrap();
+        let kids = field.get(b"Kids").unwrap().as_array().unwrap();
+        assert_eq!(kids.len(), count);
+        assert!(field.has(b"V"));
+        for kid in kids {
+            let widget = output.get_dictionary(kid.as_reference().unwrap()).unwrap();
+            assert_eq!(
+                widget.get(b"Parent").unwrap().as_reference().unwrap(),
+                parent
+            );
+            let page = widget.get(b"P").unwrap().as_reference().unwrap();
+            assert!(output.get_pages().values().any(|id| *id == page));
+            let annots = output
+                .resolved(output.get_dictionary(page).unwrap().get(b"Annots").unwrap())
+                .unwrap()
+                .as_array()
+                .unwrap();
+            assert!(annots.contains(kid));
+        }
+    }
+}
+
+#[test]
+fn browser_structural_operations_refuse_tagged_sources_without_mutation_bytes() {
+    let tagged = include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/tagged.pdf");
+    let inserted =
+        include_bytes!("../../../../tests/fixtures/electron/pdf-preservation/tagged-insert.pdf");
+    let (mut ordinary, _) = create_test_document();
+    let mut ordinary_bytes = Vec::new();
+    ordinary.save_to(&mut ordinary_bytes).unwrap();
+    let results = [
+        delete_browser_pdf_pages(tagged, &[2]),
+        extract_browser_pdf_pages(tagged, &[1]),
+        reorder_browser_pdf_pages(tagged, &[2, 1]),
+        insert_browser_pdf_pages(tagged, &ordinary_bytes, 1),
+        insert_browser_pdf_pages(&ordinary_bytes, inserted, 1),
+        insert_browser_pdf_pages(tagged, inserted, 1),
+    ];
+    for result in results {
+        let error = result
+            .err()
+            .expect("tagged operation must refuse")
+            .to_string();
+        assert!(error.contains("ERR_PDF_STRUCTURE_PRESERVATION:"), "{error}");
+    }
+    assert!(rotate_browser_pdf_bytes(tagged, &[1], 90).is_ok());
+}
+
+#[test]
+fn browser_form_remaps_indirect_values_resources_calculation_order_and_nonwidget_fields() {
+    let mut source = Document::load_mem(include_bytes!(
+        "../../../../tests/fixtures/electron/pdf-preservation/forms.pdf"
+    ))
+    .unwrap();
+    let form = source
+        .resolved(source.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .clone();
+    let mut fields = source
+        .resolved(form.get(b"Fields").unwrap())
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    let retained = fields[0].as_reference().unwrap();
+    let removed = fields[1].as_reference().unwrap();
+    let value = source.add_object(Object::string_literal("INDIRECT-VALUE"));
+    let appearance = source.add_object(Object::string_literal("/FormFont 12 Tf 0 g"));
+    let font = source.add_object(
+        dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" },
+    );
+    source.get_dictionary_mut(retained).unwrap().set("V", value);
+    let nonwidget = source.add_object(dictionary! { "FT" => "Tx", "T" => Object::string_literal("non-widget"), "V" => Object::string_literal("LEGITIMATE") });
+    fields.push(nonwidget.into());
+    let mut form = form;
+    form.set("Fields", fields);
+    form.set("DA", appearance);
+    form.set(
+        "DR",
+        dictionary! { "Font" => dictionary! { "FormFont" => font } },
+    );
+    form.set(
+        "CO",
+        vec![Object::Reference(retained), Object::Reference(removed)],
+    );
+    source.catalog_mut().unwrap().set("AcroForm", form);
+    let mut input = Vec::new();
+    source.save_to(&mut input).unwrap();
+    let result = extract_browser_pdf_pages(&input, &[1]).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+    let form = output
+        .resolved(output.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let fields = form.get(b"Fields").unwrap().as_array().unwrap();
+    assert_eq!(fields.len(), 2);
+    let retained = output.resolved(&fields[0]).unwrap().as_dict().unwrap();
+    assert_eq!(
+        pdf_string_to_text(output.resolved(retained.get(b"V").unwrap()).unwrap()).unwrap(),
+        "INDIRECT-VALUE"
+    );
+    assert_eq!(
+        pdf_string_to_text(output.resolved(form.get(b"DA").unwrap()).unwrap()).unwrap(),
+        "/FormFont 12 Tf 0 g"
+    );
+    let resources = output
+        .resolved(form.get(b"DR").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let fonts = output
+        .resolved(resources.get(b"Font").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let font = output
+        .resolved(fonts.get(b"FormFont").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    assert_eq!(
+        font.get(b"BaseFont").unwrap().as_name().unwrap(),
+        b"Helvetica"
+    );
+    assert_eq!(
+        form.get(b"CO").unwrap().as_array().unwrap(),
+        &vec![fields[0].clone()]
+    );
+    let nonwidget = output.resolved(&fields[1]).unwrap().as_dict().unwrap();
+    assert_eq!(
+        pdf_string_to_text(nonwidget.get(b"V").unwrap()).unwrap(),
+        "LEGITIMATE"
+    );
+}
+
+#[test]
+fn browser_form_keeps_inherited_button_exports_and_indirect_choice_options() {
+    let mut shared = Document::load_mem(include_bytes!(
+        "../../../../tests/fixtures/electron/pdf-preservation/shared-field.pdf"
+    ))
+    .unwrap();
+    let form = shared
+        .resolved(shared.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let parent = form.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let first = shared.add_object(Object::string_literal("FIRST-EXPORT"));
+    let second = shared.add_object(Object::string_literal("SECOND-EXPORT"));
+    let options = shared.add_object(vec![Object::Reference(first), Object::Reference(second)]);
+    let field = shared.get_dictionary_mut(parent).unwrap();
+    field.set("FT", "Btn");
+    field.set("Opt", options);
+    let mut input = Vec::new();
+    shared.save_to(&mut input).unwrap();
+    let result = extract_browser_pdf_pages(&input, &[1]).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+    let form = output
+        .resolved(output.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let field = output
+        .resolved(&form.get(b"Fields").unwrap().as_array().unwrap()[0])
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let options = field.get(b"Opt").unwrap().as_array().unwrap();
+    assert_eq!(options.len(), 1);
+    assert_eq!(
+        pdf_string_to_text(output.resolved(&options[0]).unwrap()).unwrap(),
+        "FIRST-EXPORT"
+    );
+    assert_eq!(field.get(b"Kids").unwrap().as_array().unwrap().len(), 1);
+    let mut choice = Document::load_mem(include_bytes!(
+        "../../../../tests/fixtures/electron/pdf-preservation/forms.pdf"
+    ))
+    .unwrap();
+    let form = choice
+        .resolved(choice.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let field_id = form.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let export = choice.add_object(Object::string_literal("A"));
+    let label = choice.add_object(Object::string_literal("Alpha"));
+    let options = choice.add_object(vec![Object::Array(vec![export.into(), label.into()])]);
+    let field = choice.get_dictionary_mut(field_id).unwrap();
+    field.set("FT", "Ch");
+    field.set("Opt", options);
+    let mut input = Vec::new();
+    choice.save_to(&mut input).unwrap();
+    let result = extract_browser_pdf_pages(&input, &[1]).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+    let form = output
+        .resolved(output.catalog().unwrap().get(b"AcroForm").unwrap())
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let field = output
+        .resolved(&form.get(b"Fields").unwrap().as_array().unwrap()[0])
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let options = output
+        .resolved(field.get(b"Opt").unwrap())
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let pair = options[0].as_array().unwrap();
+    assert_eq!(
+        pdf_string_to_text(output.resolved(&pair[0]).unwrap()).unwrap(),
+        "A"
+    );
+    assert_eq!(
+        pdf_string_to_text(output.resolved(&pair[1]).unwrap()).unwrap(),
+        "Alpha"
+    );
+}

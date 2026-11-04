@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import {isPdfStructurePreservationRefusal} from '@contracts/nativeErrors';
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
@@ -613,7 +614,9 @@ export const usePageOperations = (deps: {
                 });
             });
         } catch (e) {
-            const errorMessage = t(options.errorKey, undefined);
+            const errorMessage = isPdfStructurePreservationRefusal(e)
+                ? t('errors.pdfStructurePreservation', undefined)
+                : t(options.errorKey, undefined);
             const failure = BrowserLogger.error('page-ops', `${options.operationName} failed`, e, {code: 'RENDERER_PDF_PAGE_OPERATION_FAILED'});
             reportRuntimeError({
                 failure,

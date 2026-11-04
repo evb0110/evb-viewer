@@ -97,6 +97,7 @@ const translate: TTranslateFn = (key, ...args) => {
             return EN_MESSAGES.errors.browser.documentTooLarge.replace('{limitMiB}', String(params.limitMiB));
         }
     }
+    if (key === 'errors.pdfStructurePreservation') return EN_MESSAGES.errors.pdfStructurePreservation;
     if (key === 'errors.browser.notEnoughMemory') return EN_MESSAGES.errors.browser.notEnoughMemory;
     return key;
 };
@@ -372,6 +373,26 @@ describe('mounted Combine PDF page state machine', () => {
         expect(failedOpen.host.querySelector('.error')?.textContent).toBe('errors.file.open');
         expect(failedOpen.host.querySelector('.combine')?.textContent).toBe('Retry');
         failedOpen.unmount();
+    });
+
+    it('shows the localized structure refusal through an outer capability failure', async () => {
+        mocks.combinePdfFiles.mockRejectedValueOnce(new CombinePdfError('invalid-input', {cause: {
+            code: 'native-failure',
+            message: 'Native capability failed',
+            cause: new SerializableError({
+                code: 'invalid-request',
+                message: 'ERR_PDF_STRUCTURE_PRESERVATION: layers cannot be preserved',
+            }),
+        }}));
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
+        try {
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            expect(page.host.querySelector('.error')?.textContent).toBe('This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.');
+            expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
+        } finally {
+            page.unmount();
+        }
     });
 
     it.each([

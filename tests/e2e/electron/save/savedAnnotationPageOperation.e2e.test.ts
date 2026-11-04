@@ -1,7 +1,9 @@
 import {
-    mkdtemp, readFile, rm,
+    mkdtemp, readFile, rm, mkdir, writeFile,
 } from 'node:fs/promises';
-import {join} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { Page } from 'puppeteer-core';
@@ -41,6 +43,90 @@ import {
     revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+
+// T3/T4: unsupported tag graphs never become a structural page edit or an extracted output.
+it.each([
+    'delete',
+    'extract',
+    'insert-tagged-destination',
+    'insert-tagged-source',
+])('refuses tagged %s through real page input without changing saved or working bytes', async operation => {
+    const evidence = resolve('.devkit/fixes16/evidence/tagged-electron', operation);
+    await mkdir(evidence, {recursive: true});
+    const tagged = await readFile(resolve('tests/fixtures/electron/pdf-preservation/tagged.pdf'));
+    const ordinary = await readFile(resolve('tests/fixtures/electron/generated-text.pdf'));
+    const inputPath = join(evidence, 'input.pdf');
+    const insertPath = join(evidence, 'insert.pdf');
+    const extractedPath = join(evidence, 'extracted.pdf');
+    await writeFile(inputPath, operation === 'insert-tagged-source' ? ordinary : tagged);
+    await writeFile(insertPath, operation === 'insert-tagged-source' ? tagged : ordinary);
+    await writeFile(extractedPath, ordinary);
+    const original = await readFile(inputPath);
+    let session: IElectronE2ESession | undefined;
+    try {
+        session = await startElectronE2ESession(`e2e-tagged-refusal-${operation}`, {
+            clean: true,
+            initialOpenPaths: [inputPath],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: extractedPath},
+        });
+        const {page} = session;
+        await waitForViewerInteractive(page);
+        const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+        const baseline = await readFile(workingPath);
+        const baselinePdf = await PDFDocument.load(baseline);
+        await openDocumentSidebarTab(page, 'Pages');
+        if (operation.startsWith('insert-')) {
+            const point = await revealForPointer(page, '.editor-pane.is-active [data-thumbnail-page="1"]');
+            const client = await page.createCDPSession();
+            try {
+                for (const type of [
+                    'dragEnter',
+                    'dragOver',
+                    'drop',
+                ] as const) {
+                    await client.send('Input.dispatchDragEvent', {
+                        type,
+                        x: point.x,
+                        y: point.y,
+                        data: {
+                            items: [],
+                            files: [insertPath],
+                            dragOperationsMask: 1,
+                        },
+                    });
+                }
+            } finally {
+                await client.detach();
+            }
+        } else {
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+            const label = operation === 'delete' ? 'Delete Pages' : 'Extract to New PDF';
+            await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(element => element.textContent?.trim() === text), label, {description: label});
+        }
+        await page.waitForFunction((before: number) => document.querySelector('.app-toast-failure')
+            || document.querySelector('.page-controls-total')?.textContent?.trim() !== String(before), {}, baselinePdf.getPageCount());
+        await writeFile(join(evidence, 'working-after-operation.pdf'), await readFile(workingPath));
+        await page.screenshot({path: join(evidence, 'refused.png')});
+        expect(await page.$$eval('.app-toast-failure', elements => elements.map(element => element.textContent).join('\n'))).toContain(
+            'This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.',
+        );
+        expect(await page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe(String(baselinePdf.getPageCount()));
+        expect(await readFile(workingPath)).toEqual(baseline);
+        expect(await readFile(inputPath)).toEqual(original);
+        expect(await readFile(extractedPath)).toEqual(ordinary);
+        const saved = await PDFDocument.load(await readFile(workingPath));
+        expect(saved.getPageCount()).toBe(baselinePdf.getPageCount());
+        if (operation !== 'insert-tagged-source') {
+            const root = saved.catalog.lookup(PDFName.of('StructTreeRoot'), PDFDict);
+            expect(root.has(PDFName.of('ParentTree'))).toBe(true);
+            expect(root.has(PDFName.of('K'))).toBe(true);
+        }
+    } finally {
+        await session?.stop();
+    }
+});
 
 async function readAnnotations(path: string) {
     const pdf = await PDFDocument.load(await readFile(path));

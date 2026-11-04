@@ -738,6 +738,7 @@ pub(crate) enum Operation {
     PageSizes {
         metadata_only: bool,
     },
+    ValidatePageStructure,
     ReadCatalog,
     ReadDocumentCatalog(Option<PathBuf>),
     PrintLayout {

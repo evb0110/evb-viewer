@@ -1717,6 +1717,7 @@ export default {
         'tiffImages': 'Imágenes TIFF',
     }},
     'errors': {
+        'pdfStructurePreservation': 'Esta operación se detuvo porque no puede conservar las etiquetas de accesibilidad o las capas del PDF. No se guardó ningún resultado.',
         'recent': {
             'load': 'No se pudieron cargar los archivos recientes',
             'remove': 'No se pudo eliminar el archivo',
