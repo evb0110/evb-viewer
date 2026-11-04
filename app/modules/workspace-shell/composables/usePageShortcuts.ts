@@ -307,8 +307,14 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         }
     }
 
+    // A dialog owns the keys pressed in it; the document behind it does not act.
+    function isInDialog(target: EventTarget | null) {
+        return typeof Element !== 'undefined' && target instanceof Element
+            && target.closest('[role="dialog"], [role="alertdialog"]') !== null;
+    }
+
     function handleCapturedWebMenuAccelerator(event: KeyboardEvent) {
-        if (!shouldHandleRendererMenuAccelerators()) {
+        if (!shouldHandleRendererMenuAccelerators() || isInDialog(event.target)) {
             return;
         }
         if (!eventHasCommandModifier(event) || event.altKey) {
@@ -343,7 +349,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleKeyboardShortcut(event: KeyboardEvent) {
-        if (event.defaultPrevented || event.isComposing) {
+        if (event.defaultPrevented || event.isComposing || isInDialog(event.target)) {
             return;
         }
         suppressBrowserDefaultForConflictingAccelerator(event);
@@ -404,7 +410,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleImagePaste(event: ClipboardEvent) {
-        if (!isActive.value || !interactiveDocument.value || event.defaultPrevented || isEditingText(event.target)) {
+        if (!isActive.value || !interactiveDocument.value || event.defaultPrevented || isEditingText(event.target) || isInDialog(event.target)) {
             return;
         }
         const file = readPageAnnotationImageFileFromPasteData(event.clipboardData);
