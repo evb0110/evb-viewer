@@ -277,10 +277,14 @@ vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
         run: (scratchPath: string) => Promise<unknown>,
     ) => {
         const scratchPath = await mocks.createManagedScratchTempDir(prefix);
+        let failure: unknown;
         try {
             return await run(scratchPath);
+        } catch (error) {
+            failure = error;
+            throw error;
         } finally {
-            await rm(scratchPath, {
+            if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(scratchPath, {
                 force: true,
                 recursive: true,
             });
@@ -1825,6 +1829,18 @@ describe('image export', () => {
             .rejects
             .toThrow('timed out');
         expect(existsSync(outputPath)).toBe(false);
+        const retained = mocks.managedScratchDirs.filter(({path}) => existsSync(path));
+        expect(retained).not.toHaveLength(0);
+        const files = (await Promise.all(retained.map(({path}) => readdir(path)))).flat();
+        expect(files.some(name => name.endsWith('.ppm'))).toBe(true);
+        for (const {path} of retained) {
+            // The native seam is mocked and has no live writer. Reclaim only
+            // after asserting that the real export owner retained its input.
+            await rm(path, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it.each([
@@ -2723,4 +2739,77 @@ describe('image export', () => {
         await expect(readdir(appTempRoot)).resolves.toEqual([]);
         expect(listStagedNames(tempDir)).toEqual([]);
     });
+
+    it.runIf(process.platform !== 'win32')('exports the requested newline source through bundled qpdf and cleans its scope', async () => {
+        const source = join(tempDir, 'source\nname.pdf');
+        const sibling = join(tempDir, 'source name.pdf');
+        const requested = await realPdfLib.PDFDocument.create();
+        requested.addPage().drawText('EXACT_EXPORT_SENTINEL');
+        const wrong = await realPdfLib.PDFDocument.create();
+        wrong.addPage().drawText('WRONG_EXPORT_SIBLING'); wrong.addPage();
+        await writeFile(source, await requested.save()); await writeFile(sibling, await wrong.save());
+        mocks.pdfPageCount = 2; mocks.renderPageCount = 1;
+        const defaultRun = mocks.runCommand.getMockImplementation()!;
+        const qpdf = resolveRealPdfToolPaths().qpdf;
+        let subsetVerified = false;
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                const result = await runFile(qpdf, args);
+                const subset = (await readFile(args[0].slice(1), 'utf8')).split('\n').at(-1)!;
+                expect((await realPdfLib.PDFDocument.load(await readFile(subset))).getPageCount()).toBe(1);
+                const pages = await runFile(qpdf, [
+                    '--show-pages',
+                    subset,
+                ]);
+                const content = /content:\s+(\d+) (\d+) R/u.exec(pages.stdout)!;
+                const stream = await runFile(qpdf, [
+                    `--show-object=${content[1]},${content[2]}`,
+                    '--filtered-stream-data',
+                    subset,
+                ]);
+                expect(stream.stdout.toUpperCase()).toContain(Buffer.from('EXACT_EXPORT_SENTINEL').toString('hex').toUpperCase());
+                subsetVerified = true;
+                return {
+                    ...result,
+                    exitCode: 0,
+                };
+            }
+            return defaultRun(command, args, options);
+        });
+        const output = join(tempDir, 'published.png');
+        await expect(exportPdfPagesAsImages(source, output, {pageNumbers: [1]})).resolves.toEqual([output]);
+        expect(subsetVerified).toBe(true);
+        expect((await readFile(output)).length).toBeGreaterThan(0);
+        for (const scope of mocks.managedScratchDirs) expect(existsSync(scope.path)).toBe(false);
+    });
+
+    it.runIf(process.platform !== 'win32')('retains the outer subset scope and qpdf aliases on a marked subset failure', async () => {
+        const source = join(tempDir, 'source\nname.pdf');
+        await writeFile(source, '%PDF-1.7\n%%EOF\n');
+        mocks.pdfPageCount = 2;
+        const defaultRun = mocks.runCommand.getMockImplementation()!;
+        const error = markUnprovenNativeTermination(new Error('subset qpdf timeout'), 'subset writer still alive');
+        let argsPath = ''; let subsetPath = '';
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
+                argsPath = args[0].slice(1);
+                subsetPath = (await readFile(argsPath, 'utf8')).split('\n').at(-1)!;
+                await writeFile(subsetPath, 'partially written subset');
+                throw error;
+            }
+            return defaultRun(command, args, options);
+        });
+        const output = join(tempDir, 'unpublished.png');
+        await expect(exportPdfPagesAsImages(source, output, {pageNumbers: [1]})).rejects.toBe(error);
+        expect(await readFile(subsetPath, 'utf8')).toBe('partially written subset');
+        expect(existsSync(argsPath)).toBe(true);
+        expect((await readdir(dirname(argsPath))).some(name => name.startsWith('path-'))).toBe(true);
+        expect(existsSync(output)).toBe(false);
+        // The seam has no live child. Dispose only this test's retained fixtures.
+        await Promise.all(mocks.managedScratchDirs.map(scope => realFs.rm(scope.path, {
+            recursive: true,
+            force: true,
+        })));
+    });
+
 });
