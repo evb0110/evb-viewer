@@ -71,8 +71,8 @@ export function onWorkingCopyBackingStatusChanged(listener: (dispatch: IWorkingC
     if (!subscribedToMaterialization) {
         subscribedToMaterialization = true;
         onWorkingCopyMaterializationProgress((progress) => {
-            // The registration whoever owns it: the dispatch names its owner,
-            // and only that window is told.
+            // Look up the registration regardless of owner; the dispatch
+            // names its owner, and only that window is told.
             const entry = workingCopyMap.get(progress.documentRef);
             if (!entry) {
                 return;
