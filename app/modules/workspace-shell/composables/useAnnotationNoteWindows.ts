@@ -45,7 +45,6 @@ const ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS = 5_000;
 
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
-    markAnnotationDirty: () => void;
     reportNoteFailure?: TWorkspaceFailureSurface['reportNoteFailure'];
     updateAnnotationCommentInViewer: (
         annotationId: AnnotationId,
@@ -419,7 +418,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         draftGenerations.set(id, (draftGenerations.get(id) ?? 0) + 1);
         metadata.dirty = text !== metadata.canonicalText;
         metadata.error = null;
-        if (metadata.dirty) deps.markAnnotationDirty();
         schedulePersist(id);
     }
 
@@ -488,10 +486,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return;
         }
         state.draftText = draft.text;
-        metadata.dirty = true;
+        metadata.dirty = draft.text !== metadata.canonicalText;
         metadata.error = null;
         draftGenerations.set(draft.annotationId, draft.generation);
-        deps.markAnnotationDirty();
     }
 
     function persistAnnotationNote(value: string): boolean | Promise<boolean> {

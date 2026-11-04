@@ -7,6 +7,7 @@ import {
 import {
     copyFileSync,
     mkdtempSync,
+    mkdirSync,
     realpathSync,
     rmSync,
     writeFileSync,
@@ -573,7 +574,7 @@ function preserveFixtureAcrossRestart(path: string) {
 }
 
 async function moveFocusedTextCaretToEnd(page: Page) {
-    await page.waitForFunction(() => document.activeElement?.getAttribute('contenteditable') === 'true');
+    await page.waitForFunction(() => document.activeElement?.matches('textarea, [contenteditable="true"]'));
     if (process.platform === 'darwin') {
         const client = await page.createCDPSession();
         try {
@@ -1153,6 +1154,74 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
+    });
+
+    it('clears dirty and Save after a saved-note draft reverts, preserving other accepted edits', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createCanonicalAnnotationSurfaceFixturePdf(`draft-revert-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(fixture, {force: true}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+        const input = 'textarea.note-window__textarea';
+        await page.waitForSelector(input, {visible: true});
+        await clickAsUser(page, input);
+        await moveFocusedTextCaretToEnd(page);
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note');
+        await page.keyboard.type('X');
+        expect(await page.$eval('.tab.is-active', tab => tab.classList.contains('is-dirty'))).toBe(true);
+        await page.keyboard.press('Backspace');
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note');
+        const evidence = process.env.EVB_D15_EVIDENCE_DIR ?? '.devkit/d15/screenshots';
+        mkdirSync(evidence, {recursive: true});
+        try {
+            await page.waitForFunction(() => !document.querySelector('.tab.is-active')?.classList.contains('is-dirty'));
+            expect(await page.$eval('button[aria-label="Save"]', button => (button as HTMLButtonElement).disabled)).toBe(true);
+        } finally {
+            await page.screenshot({path: join(evidence, 'note-revert.png')});
+        }
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await clickAsUser(page, '.tab.is-active .tab-close');
+        await page.waitForFunction(() => document.querySelector('.page_container') === null);
+        expect(await page.$('[role="dialog"]')).toBeNull();
+
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+        await page.waitForSelector(input, {visible: true});
+        await clickAsUser(page, input);
+        await moveFocusedTextCaretToEnd(page);
+        await page.keyboard.type(' accepted');
+        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Store-owned note accepted');
+        await page.keyboard.press('Tab');
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await page.waitForFunction(() => [...document.querySelectorAll('.note-item-content')].some(node => node.textContent?.includes('Store-owned note accepted')));
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .note-item[data-annotation-kind="note"] .note-item-content', 2);
+        await clickAsUser(page, input);
+        await moveFocusedTextCaretToEnd(page);
+        await page.keyboard.type('X');
+        await page.keyboard.press('Backspace');
+        expect(await page.$eval('.tab.is-active', tab => tab.classList.contains('is-dirty'))).toBe(true);
+        expect(await page.$eval('button[aria-label="Save"]', button => (button as HTMLButtonElement).disabled)).toBe(false);
+        await clickLatestVisibleNoteWindowClose(page);
+        await clickAsUser(page, '.tab.is-active .tab-close');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await page.waitForFunction(() => {
+            for (let node = document.querySelector('[role="dialog"]'); node; node = node.parentElement) {
+                if (Number(getComputedStyle(node).opacity) < 1) return false;
+            }
+            return true;
+        });
+        await page.screenshot({path: join(evidence, 'note-accepted-edit-protected.png')});
+        const dialogText = await page.$eval('[role="dialog"]', dialog => dialog.textContent);
+        expect(dialogText).toContain('Close tab with unsaved changes?');
+        expect(dialogText).toContain('Save changes');
     });
 
     it('places a new note over an imported highlight without moving the highlight', async () => {
