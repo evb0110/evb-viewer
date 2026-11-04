@@ -335,6 +335,9 @@ describe('registerDjvuIpcAdapter', () => {
             registerDjvuIpcAdapter();
             await expect(getHandler('djvu:getInfo')(event, path)).rejects.toThrow(failure.message);
             await expect(getHandler('djvu:getOutline')(event, path)).rejects.toThrow(failure.message);
+            mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
+            mocks.getDjvuPageComponentMap.mockRejectedValue(failure);
+            await expect(getHandler('djvu:getOutline')(event, path)).rejects.toBe(failure);
         } finally {
             rmSync(directory, {
                 recursive: true,
@@ -441,6 +444,42 @@ describe('registerDjvuIpcAdapter', () => {
                 pageNumber: 2,
                 children: [],
             }]);
+        } finally {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('keeps readable numeric bookmarks when optional component metadata fails', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-component-outline-failure-'));
+        try {
+            const path = join(directory, 'index.djvu');
+            writeFileSync(path, 'AT&TFORM');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(1);
+            allowOpenPath(path, event.sender as never);
+            const {parseDjvuOutline} = await vi.importActual<typeof TViMockOriginalModule>(
+                '@electron/features/djvu/main/parseDjvuOutline',
+            );
+            mocks.parseDjvuOutline.mockImplementationOnce(parseDjvuOutline);
+            mocks.getDjvuOutline.mockResolvedValue('(bookmarks ("Numeric" "#2") ("Component" "#p0002.djvu"))');
+            mocks.getDjvuPageComponentMap.mockRejectedValue(new Error('djvused ls exceeded its output limit'));
+            registerDjvuIpcAdapter();
+
+            await expect(getHandler('djvu:getOutline')(event, path)).resolves.toEqual([
+                {
+                    title: 'Numeric',
+                    pageNumber: 2,
+                    children: [],
+                },
+                {
+                    title: 'Component',
+                    pageNumber: null,
+                    children: [],
+                },
+            ]);
         } finally {
             rmSync(directory, {
                 recursive: true,

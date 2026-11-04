@@ -912,7 +912,11 @@ export async function handleDjvuGetOutline(
         components,
     ] = await Promise.all([
         getOptionalDjvuOutline(normalizedDjvuPath),
-        getDjvuPageComponentMap(normalizedDjvuPath),
+        getDjvuPageComponentMap(normalizedDjvuPath).catch((error: unknown) => {
+            if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            logger.debug(`Failed to read optional DjVu page components for ${normalizedDjvuPath}: ${String(error)}`);
+            return new Map<string, number>();
+        }),
     ]);
     return parseDjvuOutline(outline, components).map(mapDjvuOutlineItem);
 }
