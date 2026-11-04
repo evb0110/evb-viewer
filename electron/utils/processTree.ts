@@ -151,27 +151,21 @@ export async function terminateProcessTree(
     const taskkillTimeoutMs = options.taskkillTimeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS;
     const isDirectTargetAlive = options.isTargetAlive ?? (() => isPidAlive(pid));
 
+    if (platform === 'win32') {
+        // A dead root gives no descendant identity, and signalling a reused PID is unsafe.
+        if (!isDirectTargetAlive()) return false;
+        const gracefulTreeKill = await runTaskkill(pid, false, taskkillTimeoutMs);
+        if (await waitForExit(isDirectTargetAlive, graceMs)) return gracefulTreeKill;
+        if (!isDirectTargetAlive()) return false;
+        const forcedTreeKill = await runTaskkill(pid, true, taskkillTimeoutMs);
+        const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
+        return await waitForExit(isDirectTargetAlive, forceKillWaitMs) && forcedTreeKill;
+    }
+
     const targetAlive = preferProcessGroup
         ? isProcessGroupAlive(pid) || isDirectTargetAlive()
         : isDirectTargetAlive();
-    if (!targetAlive) {
-        return true;
-    }
-
-    if (platform === 'win32') {
-        await runTaskkill(pid, false, taskkillTimeoutMs);
-        const exitedGracefully = await waitForExit(isDirectTargetAlive, graceMs);
-        if (exitedGracefully) {
-            return true;
-        }
-        if (isDirectTargetAlive()) {
-            await runTaskkill(pid, true, taskkillTimeoutMs);
-            const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
-            const exitedAfterForce = await waitForExit(isDirectTargetAlive, forceKillWaitMs);
-            return exitedAfterForce;
-        }
-        return !isDirectTargetAlive();
-    }
+    if (!targetAlive) return true;
 
     const processGroupWasAlive = preferProcessGroup && isProcessGroupAlive(pid);
     sendPosixSignal(pid, 'SIGTERM', processGroupWasAlive);

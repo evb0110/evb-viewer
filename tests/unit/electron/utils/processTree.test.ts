@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
     isProcessTreeAlive,
     processTreeRuntime,
@@ -283,7 +284,7 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         expect(execFileSpy.mock.calls[1]?.[1]).toContain('/F');
     });
 
-    it('accepts confirmed process exit when taskkill loses the exit race', async () => {
+    it('rejects tree proof when taskkill loses the exit race', async () => {
         const pid = makeTestPid(5252);
         let alive = true;
         vi.spyOn(processTreeRuntime, 'execFile').mockImplementation((() => {
@@ -300,6 +301,94 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         await expect(terminateProcessTree(pid, {
             graceMs: 0,
             platform: 'win32',
-        })).resolves.toBe(true);
+        })).resolves.toBe(false);
     });
+
+    it('keeps an already-dead Windows root unproven without signalling a reused PID', async () => {
+        const exec = vi.spyOn(processTreeRuntime, 'execFile');
+        await expect(terminateProcessTree(makeTestPid(5353), {
+            platform: 'win32',
+            isTargetAlive: () => false,
+        })).resolves.toBe(false);
+        expect(exec).not.toHaveBeenCalled();
+    });
+
+});
+
+
+const describeWindows = process.platform === 'win32' ? describe : describe.skip;
+describeWindows('Windows native tree containment with real descendants', () => {
+    it.each([
+        'dead-root',
+        'exit-before-taskkill',
+        'successful-tree-kill',
+    ] as const)(
+        'never authorizes cleanup while a descendant lives: %s', async mode => {
+            const {createServer} = await import('node:net');
+            const {randomUUID} = await import('node:crypto');
+            const pipe = `\\\\.\\pipe\\evb-d11-${randomUUID()}`;
+            const server = createServer();
+            server.listen(pipe);
+            await once(server, 'listening');
+            const connected = once(server, 'connection');
+            const leafSource = `require('node:net').connect(${JSON.stringify(pipe)}).on('connect', function () { this.write('ready'); }); setInterval(() => {}, 60000);`;
+            const rootSource = `const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(leafSource)}], {detached: true, windowsHide: true, stdio: 'ignore'}); child.unref(); process.send({pid: child.pid}); process.on('message', () => process.exit(0));`;
+            const root = spawn(process.execPath, [
+                '-e',
+                rootSource,
+            ], {
+                windowsHide: true,
+                stdio: [
+                    'ignore',
+                    'ignore',
+                    'ignore',
+                    'ipc',
+                ],
+            });
+            const rootExit = once(root, 'exit');
+            const [message] = await once(root, 'message');
+            const leafPid = (message as {pid: number}).pid;
+            const [socket] = await connected;
+            expect(String((await once(socket, 'data'))[0])).toBe('ready');
+            const leafExit = once(socket, 'close');
+            const alive = (pid: number) => {
+                try { process.kill(pid, 0); return true; } catch { return false; }
+            };
+            const exitRoot = async () => { root.send('exit'); await rootExit; };
+            const realExec = processTreeRuntime.execFile;
+            let spy: ReturnType<typeof vi.spyOn> | undefined;
+            try {
+                if (mode === 'dead-root') await exitRoot();
+                if (mode === 'exit-before-taskkill') {
+                    spy = vi.spyOn(processTreeRuntime, 'execFile').mockImplementation(async (...args) => {
+                        await exitRoot();
+                        return realExec(...args);
+                    });
+                }
+                const proven = await terminateProcessTree(root.pid!, {
+                    platform: 'win32',
+                    graceMs: 1000,
+                    isTargetAlive: () => root.exitCode === null && root.signalCode === null,
+                });
+                if (mode === 'successful-tree-kill') {
+                    expect(proven).toBe(true);
+                    await leafExit;
+                    await vi.waitFor(() => expect(alive(leafPid)).toBe(false));
+                } else {
+                    expect(alive(leafPid)).toBe(true);
+                    expect(proven).toBe(false);
+                }
+            } finally {
+                spy?.mockRestore();
+                if (root.exitCode === null && root.signalCode === null) root.kill();
+                await rootExit;
+                if (alive(leafPid)) process.kill(leafPid);
+                await leafExit;
+                await vi.waitFor(() => expect(alive(leafPid)).toBe(false));
+                expect(alive(root.pid!)).toBe(false);
+                server.close();
+                await once(server, 'close');
+            }
+        },
+    );
 });
