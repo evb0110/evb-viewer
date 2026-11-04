@@ -58,6 +58,7 @@
             :is-active="active"
             :current-page="leaderPosition"
             :selected-pages="selectedPositions"
+            :document-page="naturalPage"
             :item-metrics-key="leaderPosition"
             :disabled="disabled"
             item-tag="div"
@@ -426,38 +427,27 @@ function handleRowClick(position: number, event?: MouseEvent) {
     emit('select-page', naturalPage(position), intent, orderedPages.value);
 }
 
+const KEY_TARGETS: Readonly<Record<string, (position: number, count: number) => number>> = {
+    ArrowUp: position => position - 1,
+    ArrowDown: position => position + 1,
+    Home: () => 1,
+    End: (_, count) => count,
+    PageUp: position => position - PAGE_KEYBOARD_STEP,
+    PageDown: position => position + PAGE_KEYBOARD_STEP,
+};
 function handleKeydown(event: KeyboardEvent) {
-    if (props.disabled) {
+    if (props.disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) return;
+    const pages = orderedPages.value;
+    if (event.key === ' ' && !event.repeat) {
+        event.preventDefault();
+        emit('select-page', props.selectionLeader, 'toggle', pages);
         return;
     }
-    if (
-        event.target instanceof HTMLElement
-        && [
-            'BUTTON',
-            'INPUT',
-            'SELECT',
-        ].includes(event.target.tagName)
-    ) {
-        return;
-    }
-    const currentPosition = Math.max(1, orderedPages.value.positionOf(props.selectionLeader));
-    let nextIndex: number | null = null;
-    if (event.key === 'ArrowUp') nextIndex = currentPosition - 1;
-    else if (event.key === 'ArrowDown') nextIndex = currentPosition + 1;
-    else if (event.key === 'Home') nextIndex = 1;
-    else if (event.key === 'End') nextIndex = orderedPages.value.length;
-    else if (event.key === 'PageUp') nextIndex = currentPosition - PAGE_KEYBOARD_STEP;
-    else if (event.key === 'PageDown') nextIndex = currentPosition + PAGE_KEYBOARD_STEP;
-    if (nextIndex === null || orderedPages.value.length === 0) {
-        return;
-    }
+    const target = KEY_TARGETS[event.key]?.(Math.max(1, pages.positionOf(props.selectionLeader)), pages.length);
+    const page = target === undefined ? undefined : pages.pageAt(Math.min(pages.length, Math.max(1, target)));
+    if (page === undefined) return;
     event.preventDefault();
-    const boundedPosition = Math.min(orderedPages.value.length, Math.max(1, nextIndex));
-    const page = orderedPages.value.pageAt(boundedPosition);
-    if (page === undefined) {
-        return;
-    }
-    emit('select-page', page, 'single', orderedPages.value);
+    emit('select-page', page, event.shiftKey ? 'range' : 'single', pages);
 }
 
 </script>

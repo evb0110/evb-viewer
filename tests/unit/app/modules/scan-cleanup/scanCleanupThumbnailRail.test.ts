@@ -739,6 +739,31 @@ describe('ScanCleanupThumbnailRail', () => {
         }));
         await nextTick();
         expect(harness.leader.value).toBe(1);
+
+        // The keyboard builds a multi-page selection too.
+        for (let step = 0; step < 2; step += 1) {
+            list.dispatchEvent(new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowDown',
+                shiftKey: true,
+            }));
+            await nextTick();
+        }
+        expect(harness.leader.value).toBe(3);
+        expect([...harness.selected.value].sort()).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        list.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: ' ',
+        }));
+        await nextTick();
+        expect([...harness.selected.value].sort()).toEqual([
+            1,
+            2,
+        ]);
     });
 
     it('sorts only rail positions by classification and confidence with unknowns last', async () => {
