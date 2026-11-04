@@ -35,6 +35,7 @@ import {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
 import { getErrorMessage } from '@electron/utils/error';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { isAbortError } from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -208,6 +209,7 @@ async function readEarlyPrint(
         longS: `${outputBase}-ita_old`,
         ligatures: `${outputBase}-fra`,
     };
+    let failure: unknown;
     try {
         await prepareEarlyPrintModels();
         await runTesseract(run, bases.base, languages, {
@@ -237,7 +239,8 @@ async function readEarlyPrint(
             wordEdits,
         };
     } catch (error) {
-        if (isAbortError(error) || run.signal?.aborted) {
+        failure = error;
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || isAbortError(error) || run.signal?.aborted) {
             throw error;
         }
         return {
@@ -246,13 +249,15 @@ async function readEarlyPrint(
             unavailable: getErrorMessage(error),
         };
     } finally {
-        await Promise.all([
-            `${bases.base}.pdf`,
-            `${bases.base}.tsv`,
-            `${bases.base}.hocr`,
-            `${bases.longS}.hocr`,
-            `${bases.ligatures}.hocr`,
-        ].map(safeUnlink));
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {
+            await Promise.all([
+                `${bases.base}.pdf`,
+                `${bases.base}.tsv`,
+                `${bases.base}.hocr`,
+                `${bases.longS}.hocr`,
+                `${bases.ligatures}.hocr`,
+            ].map(safeUnlink));
+        }
     }
 }
 
@@ -303,6 +308,7 @@ export async function runOcrFileBased(
         });
         tsvContent = (await readUtf8FileBounded(tsvPath, TESSERACT_MAX_TSV_BYTES)).trim();
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         const result = await failure(getErrorMessage(error));
         if (isAbortError(error) || signal?.aborted) {
             throw error;
@@ -319,6 +325,7 @@ export async function runOcrFileBased(
             }
             : await readEarlyPrint(run, outputBase, languages, tsvContent, prepareEarlyPrintModels);
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         // Canceled while the early-print models were prepared or read: the
         // first pass's PDF and TSV go too, as they do for a canceled first pass.
         await failure(getErrorMessage(error));
