@@ -1,5 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import {
+    mkdir, readFile, writeFile,
+} from 'node:fs/promises';
+import {
+    basename, join, resolve,
+} from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -87,6 +91,97 @@ interface IPaneView {
 }
 
 let session: IElectronE2ESession | null = null;
+
+// T4: a page edit is visible in every linked view, including its painted rail.
+it('refreshes the cropped page thumbnail in both linked PDF views', async () => {
+    const evidence = resolve(process.env.EVB_ROUND2_EVIDENCE_DIR ?? '.devkit/checks/round2/candidate', 'a45-linked-crop');
+    await mkdir(evidence, {recursive: true});
+    const pdfPath = await createMultiPageTextFixturePdf(`linked-crop-${Date.now()}.pdf`, 3);
+    await writeFile(join(evidence, 'fixture.pdf'), await readFile(pdfPath));
+    session = await startElectronE2ESession(`e2e-linked-crop-${Date.now()}`, {
+        clean: true,
+        initialOpenPaths: [pdfPath],
+    });
+    const {page} = session;
+    await writeFile(join(evidence, 'session.json'), JSON.stringify({
+        name: session.name,
+        pdfPath,
+    }, null, 2));
+    const readThumbnails = () => page.$$eval('.editor-pane', panes => panes.map(pane => {
+        const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
+        return {
+            pane: (pane as HTMLElement).dataset.editorPaneId,
+            width: canvas?.width,
+            height: canvas?.height,
+            pixels: canvas?.toDataURL(),
+        };
+    }));
+    try {
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await page.waitForSelector(`${paneSelector(rightPane!)} ${PAINTED_FIRST_PAGE}`);
+        await openDocumentSidebarTab(page, 'Pages');
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane')).length === 2
+            && Array.from(document.querySelectorAll('.editor-pane')).every(pane => {
+                const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
+                return canvas && canvas.width > 0 && canvas.height > 0;
+            }));
+        const before = await readThumbnails();
+        await writeFile(join(evidence, 'thumbnails-before.json'), JSON.stringify(before, null, 2));
+        await page.screenshot({path: join(evidence, 'before-crop.png')});
+        await activatePaneByTab(page, leftPane!);
+        await clickVisibleToolbarButton(page, 'Crop Pages');
+        await page.waitForSelector('.crop-overlay.is-active');
+        const drag = await page.$eval(`${paneSelector(leftPane!)} .page_container[data-page="1"]`, element => {
+            const rect = element.getBoundingClientRect();
+            const viewport = element.closest('#pdf-viewer')!.getBoundingClientRect();
+            const left = Math.max(rect.left, viewport.left) + 20;
+            const top = Math.max(rect.top, viewport.top) + 30;
+            const width = Math.min(rect.right, viewport.right) - left - 20;
+            const height = Math.min(rect.bottom, viewport.bottom) - top - 20;
+            return {
+                x: left,
+                y: top,
+                endX: left + width * 0.75,
+                endY: top + height * 0.3,
+            };
+        });
+        expect(await page.evaluate(({
+            x, y,
+        }) => Boolean(document.elementFromPoint(x, y)?.closest('.crop-overlay.is-active')), drag)).toBe(true);
+        await page.mouse.move(drag.x, drag.y);
+        await page.mouse.down();
+        await page.mouse.move(drag.endX, drag.endY, {steps: 6});
+        await page.mouse.up();
+        await page.waitForSelector('[role="dialog"] .crop-preview-area');
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Apply Crop' && !button.disabled), null, {description: 'Apply the selected crop'});
+        await page.waitForSelector('[role="dialog"] .crop-preview-area', {hidden: true});
+        await page.waitForFunction((originalRatio: number) => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active [data-thumbnail-page="1"] canvas');
+            return canvas && Math.abs(canvas.width / canvas.height - originalRatio) > 0.15;
+        }, {}, before[0]!.width! / before[0]!.height!);
+        await page.waitForFunction(() => {
+            const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('.editor-pane [data-thumbnail-page="1"] canvas'));
+            return canvases.length === 2 && canvases.every(canvas => Math.abs(canvas.width / canvas.height - canvases[0]!.width / canvases[0]!.height) < 0.02);
+        });
+        const after = await readThumbnails();
+        expect(after.every((thumbnail, index) => thumbnail.pixels !== before[index]!.pixels)).toBe(true);
+    } finally {
+        await writeFile(join(evidence, 'thumbnails-after.json'), JSON.stringify(await readThumbnails(), null, 2));
+        await page.screenshot({path: join(evidence, 'after-crop.png')});
+    }
+});
 
 afterEach(async () => {
     await session?.stop({preserveArtifacts: true});

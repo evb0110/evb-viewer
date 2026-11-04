@@ -5,7 +5,7 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    copyFile, readFile, writeFile, rm,
+    copyFile, readFile, writeFile, rm, cp, mkdir,
 } from 'node:fs/promises';
 import {
     existsSync, mkdtempSync,
@@ -32,6 +32,63 @@ const sourcePath = resolve('tests/fixtures/djvu/sources/bookmark-component-ids.d
 
 describe('DjVu converted bookmark destinations', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-bookmark-destinations-${Date.now()}`});
+
+    it('shows Unicode native DjVu bookmarks and follows a component-ID destination', async () => {
+        const evidence = resolve(process.env.EVB_ROUND2_EVIDENCE_DIR ?? '.devkit/checks/round2/candidate', 'a38-native-djvu');
+        await mkdir(evidence, {recursive: true});
+        const fixture = join(evidence, 'indirect');
+        await cp(resolve('tests/fixtures/djvu/sources/indirect'), fixture, {recursive: true});
+        const djvuPath = join(fixture, 'index.djvu');
+        const titles = [
+            'Введение — café',
+            '章二: Ελληνικά',
+        ];
+        const quoted = (title: string) => Array.from(Buffer.from(title, 'utf8'), byte => `\\${byte.toString(8).padStart(3, '0')}`).join('');
+        const outlinePath = join(evidence, 'outline.txt');
+        await writeFile(outlinePath, `(bookmarks ("${quoted(titles[0]!)}" "#low-dpi.djvu") ("${quoted(titles[1]!)}" "#high-dpi.djvu"))`);
+        await execFileAsync(getDjvuNativeToolPaths().djvused, [
+            djvuPath,
+            '-e',
+            `set-outline "${outlinePath}"`,
+            '-s',
+        ]);
+        const header = await readFile(djvuPath);
+        expect(header.toString('ascii', 12, 20)).toBe('DJVMDIRM');
+        expect(header[24]! & 0x80, 'indirect indexes select the native desktop preview').toBe(0);
+        const session = await sessions.restart({
+            clean: true,
+            extraEnv: {EVB_PDF_IMAGE_COMBINE_ENABLE: '1'},
+        });
+        await writeFile(join(evidence, 'session.json'), JSON.stringify({
+            name: session.name,
+            djvuPath,
+        }, null, 2));
+        try {
+            await openDjvuInApp(session.page, djvuPath);
+            await waitForDjvuLoaded(session.page);
+            await openDocumentSidebarTab(session.page, 'Bookmarks');
+            await session.page.waitForFunction(() => document.querySelectorAll('.document-bookmark-item__row').length === 2);
+            const renderedTitles = await session.page.$$eval('.document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
+            await writeFile(join(evidence, 'titles.json'), JSON.stringify(renderedTitles, null, 2));
+            expect(renderedTitles).toEqual(titles);
+            await clickFoundAsUser(session.page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'))
+                .find(row => row.textContent?.trim() === title), titles[1]!, {description: 'native DjVu component-ID bookmark'});
+            await expect.poll(async () => (await readToolbarPageIndicator(session.page)).renderedPage).toBe(2);
+            await session.page.waitForFunction(() => {
+                const page = document.querySelector<HTMLElement>('[data-testid="document-page-source-page"][data-page-number="2"]');
+                const image = page?.querySelector<HTMLImageElement>('[data-document-page-visual="committed"]');
+                const viewport = page?.closest('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
+                const rect = page?.getBoundingClientRect();
+                return image?.complete && image.naturalWidth > 0 && viewport && rect
+                    && Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 8;
+            });
+            await writeFile(join(evidence, 'destination.json'), JSON.stringify(await readToolbarPageIndicator(session.page), null, 2));
+        } finally {
+            await session.page.screenshot({path: join(evidence, 'bookmarks.png')});
+            await writeFile(join(evidence, 'titles-final.json'), JSON.stringify(await session.page.$$eval('.document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim())), null, 2));
+            await writeFile(join(evidence, 'rendered-sidebar.txt'), await session.page.$eval('body', body => body.innerText));
+        }
+    });
 
     it('reports bookmark metadata failure and preserves the existing destination', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-outline-failure-'));
