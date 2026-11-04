@@ -286,24 +286,35 @@ const UNICODE_REGEX_ESCAPES: Readonly<Record<string, string>> = {
 
 function toUnicodeSearchRegex(pattern: string) {
     let output = '';
-    // u-mode cannot nest \W in a class, so a class holding it becomes a group
-    // of disjoint branches: [X\W] is X or a non-word character outside X, and
-    // [^X\W] a word character outside X.
+    // A complemented member cannot be nested in a u-mode class. Keep the
+    // positive sets it excludes and form disjoint branches when the class ends.
     let classOpen = -1;
-    let classHasNonWord = false;
+    let classComplements: string[] = [];
     for (let index = 0; index < pattern.length; index += 1) {
         const char = pattern[index]!;
         if (char === '\\' && index + 1 < pattern.length) {
             index += 1;
             const escape = pattern[index]!;
-            const unicode = UNICODE_REGEX_ESCAPES[escape];
-            if (unicode === undefined || classOpen < 0) {
-                output += unicode ?? char + escape;
+            let unicode = UNICODE_REGEX_ESCAPES[escape] ?? char + escape;
+            if (escape === 'P' && pattern[index + 1] === '{') {
+                const end = pattern.indexOf('}', index + 2);
+                if (end >= 0) {
+                    unicode = pattern.slice(index - 1, end + 1);
+                    index = end;
+                }
+            }
+            const complement = unicode.startsWith('\\P{')
+                ? `\\p${unicode.slice(2)}`
+                : escape === 'W' ? UNICODE_REGEX_WORD : undefined;
+            if (complement !== undefined) {
+                if (classOpen < 0) output += `[^${complement}]`;
+                else classComplements.push(complement);
+            } else if (classOpen < 0) {
+                output += unicode;
             } else if (escape === 'b' || escape === 'B') {
                 throw new Error(`Invalid search regex: \\${escape} is not supported inside a character class`);
             } else {
-                classHasNonWord ||= escape === 'W';
-                output += escape === 'w' ? UNICODE_REGEX_WORD : escape === 'W' ? '' : unicode;
+                output += escape === 'w' ? UNICODE_REGEX_WORD : unicode;
             }
             continue;
         }
@@ -311,14 +322,26 @@ function toUnicodeSearchRegex(pattern: string) {
             classOpen = output.length;
         } else if (classOpen >= 0 && char === ']') {
             const negated = output[classOpen + 1] === '^';
-            const members = `[${output.slice(classOpen + (negated ? 2 : 1))}]`;
+            const source = output.slice(classOpen + (negated ? 2 : 1));
+            const members = source ? `[${source}]` : '';
             const open = classOpen;
             classOpen = -1;
-            if (classHasNonWord) {
-                classHasNonWord = false;
-                output = output.slice(0, open) + (negated
-                    ? `(?:(?!${members})[${UNICODE_REGEX_WORD}])`
-                    : `(?:${members}|(?!${members})[^${UNICODE_REGEX_WORD}])`);
+            if (classComplements.length > 0) {
+                let replacement: string;
+                if (negated) {
+                    replacement = `(?:${members ? `(?!${members})` : ''}${classComplements.map(member => `(?=[${member}])`).join('')}[\\s\\S])`;
+                } else {
+                    const alternatives = members ? [members] : [];
+                    const branches = [...alternatives];
+                    for (const member of classComplements) {
+                        const atom = `[^${member}]`;
+                        branches.push(`${alternatives.length ? `(?!${alternatives.join('|')})` : ''}${atom}`);
+                        alternatives.push(atom);
+                    }
+                    replacement = `(?:${branches.join('|')})`;
+                }
+                classComplements = [];
+                output = output.slice(0, open) + replacement;
                 continue;
             }
         } else if (classOpen < 0 && char === '.') {
@@ -552,6 +575,8 @@ export function assertSafePdfSearchRegex(
     options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>,
 ) {
     try {
+        // Validate class syntax before complements are moved into branches.
+        new RegExp(query, 'u');
         const unicodeQuery = toUnicodeSearchRegex(query);
         new RegExp(options.wholeWord ? applyWholeWordBoundary(unicodeQuery) : unicodeQuery, options.matchCase ? 'gu' : 'giu');
     } catch (error) {

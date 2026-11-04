@@ -6,7 +6,7 @@
     "matching": "Default matching is Unicode-aware, case-insensitive literal matching. wholeWord adds letter/number/underscore boundaries. Regex cases use the guarded PDF search regex validator.",
     "excerpt": "Excerpts use a UTF-16 code unit context window. Only the before and after text collapse JavaScript whitespace runs to one space, then trim the outer edge nearest the excerpt boundary.",
     "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist.",
-    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b a boundary and \\B a non-boundary of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator.",
+    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b a boundary and \\B a non-boundary of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator. Property complements apply case folding before complementation, including inside positive and negated classes.",
     "normalization": "NFC plus PDF presentation-ligature and long-s folds, not general NFKC. Composed spans map to their complete original text; unchanged characters retain their own UTF-16 positions, including adjacent noncomposing Jamo and ZWJ components."
   },
   "cases": [
@@ -2368,6 +2368,400 @@
             "suffix": false,
             "before": "",
             "match": "ba’al",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-insensitive",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "\\P{Ll}+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 5,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": " ",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-alias",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Aa Bb",
+      "query": "\\P{Lowercase_Letter}+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": " ",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-sensitive",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "\\P{Ll}+",
+      "options": {
+        "useRegex": true,
+        "matchCase": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "H",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 5,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": " WORLD",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-alias-sensitive",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Aa Bb",
+      "query": "\\P{Lowercase_Letter}+",
+      "options": {
+        "useRegex": true,
+        "matchCase": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "A",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 2,
+          "endOffset": 4,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": " B",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-in-class",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "[\\P{Ll}]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 5,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": " ",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-negated-class",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "[^\\P{Ll}]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "Hello",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "WORLD",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-mixed-class",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "aX!b x",
+      "query": "[X\\P{Ll}]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 1,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "X!",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 4,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": " x",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-mixed-negated-class",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "aX!b x",
+      "query": "[^X\\P{Ll}]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "a",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 3,
+          "endOffset": 4,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "b",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-multiple",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "[\\P{Ll}\\P{Lu}]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 5,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": " ",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-multiple-sensitive",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "[\\P{Ll}\\P{Lu}]+",
+      "options": {
+        "useRegex": true,
+        "matchCase": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "Hello WORLD",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-and-nonword",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Aa_ Z9!",
+      "query": "[Z\\P{Ll}\\W]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 2,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "_ Z9!",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-and-nonword-negated",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Aa_ Z9!",
+      "query": "[^Z\\P{Ll}\\W]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "Aa",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-and-complement-cover-all",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "Hello WORLD",
+      "query": "[\\p{Ll}\\P{Ll}]+",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "Hello WORLD",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-property-complement-escaped-literal",
+      "description": "Unicode property complement follows Rust case-fold and class set semantics.",
+      "text": "\\P{Ll}",
+      "query": "\\\\P\\{Ll\\}",
+      "options": {
+        "useRegex": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "\\P{Ll}",
             "after": ""
           }
         }

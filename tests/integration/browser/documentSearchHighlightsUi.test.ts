@@ -1480,6 +1480,14 @@ it.each([
         painted: '本語',
         regex: false,
     },
+    {
+        label: 'Unicode property complement',
+        fixture: '',
+        pageNumber: 1,
+        query: '\\P{Ll}+',
+        painted: '123',
+        regex: true,
+    },
 ])('finds and paints faithful browser search text: $label', async ({
     label, fixture, pageNumber, query, painted, regex,
 }) => {
@@ -1550,11 +1558,23 @@ it.each([
         const input = page.locator('.document-search-bar input:visible').first();
         await input.fill(query); await input.press('Enter');
         const results = page.locator('.document-search-result:visible');
-        await expect.poll(() => results.count()).toBe(1);
-        await results.first().click();
+        if (regex) {
+            const excerpts = () => results.locator('.document-search-result-highlight').allTextContents();
+            // Property complements also match line separators; the only visible
+            // characters they select here must be digits, never either letter line.
+            await expect.poll(async () => (await excerpts()).map(text => text.trim()).filter(Boolean)).toEqual(['123']);
+            expect((await excerpts()).every(text => !/\p{L}/u.test(text))).toBe(true);
+            await results.filter({has: page.locator('.document-search-result-highlight', {hasText: '123'})}).click();
+        } else {
+            await expect.poll(() => results.count()).toBe(1);
+            await results.first().click();
+        }
         const layer = page.locator(`.page_container[data-page="${pageNumber}"] .textLayer`).first();
-        await expect.poll(() => layer.locator('.pdf-search-highlight--current').count()).toBeGreaterThan(0);
-        if (painted) await expect.poll(async () => (await layer.locator('.pdf-search-highlight--current').allTextContents()).join('')).toBe(painted);
+        const paint = regex
+            ? page.locator(`.page_container[data-page="${pageNumber}"] .pdf-word-box--current`)
+            : layer.locator('.pdf-search-highlight--current');
+        await expect.poll(() => paint.count()).toBeGreaterThan(0);
+        if (painted) await expect.poll(() => paint.evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.word ?? element.textContent).join(''))).toBe(painted);
         const target = await page.evaluate<{
             left: number;
             right: number;
@@ -1567,25 +1587,22 @@ it.each([
             if (!range) throw new Error('Intended rendered text range missing');
             return range.getBoundingClientRect().toJSON();
         })()`);
-        const geometry = await layer.evaluate((layer, target: {
+        const geometry = await paint.evaluateAll((marks, target: {
             left: number;
             right: number;
             top: number;
             bottom: number
-        }) => {
-            const marks = [...layer.querySelectorAll('.pdf-search-highlight--current')];
-            return marks.map(mark => {
-                const rect = mark.getBoundingClientRect();
-                return {
-                    text: mark.textContent,
-                    width: rect.width,
-                    height: rect.height,
-                    intersectsText: Math.min(rect.right, target.right) > Math.max(rect.left, target.left)
-                        && Math.min(rect.bottom, target.bottom) > Math.max(rect.top, target.top),
-                    visible: rect.bottom > 0 && rect.top < window.innerHeight,
-                };
-            });
-        }, target);
+        }) => marks.map(mark => {
+            const rect = mark.getBoundingClientRect();
+            return {
+                text: (mark as HTMLElement).dataset.word ?? mark.textContent,
+                width: rect.width,
+                height: rect.height,
+                intersectsText: Math.min(rect.right, target.right) > Math.max(rect.left, target.left)
+                    && Math.min(rect.bottom, target.bottom) > Math.max(rect.top, target.top),
+                visible: rect.bottom > 0 && rect.top < window.innerHeight,
+            };
+        }), target);
         writeFileSync(resolve(evidence, 'geometry.json'), JSON.stringify(geometry, null, 2));
         expect(geometry.every(rect => rect.width > 0 && rect.height > 0 && rect.intersectsText && rect.visible)).toBe(true);
         await page.screenshot({path: resolve(evidence, 'after.png')});
