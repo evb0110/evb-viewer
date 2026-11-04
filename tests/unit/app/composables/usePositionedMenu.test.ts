@@ -103,4 +103,39 @@ describe('usePositionedMenu', () => {
         expect(positionedMenu.menu.value.visible).toBe(false);
         scope.stop();
     });
+
+    it('closes when another menu opens by right-click elsewhere, but not for one inside it', async () => {
+        const scope = effectScope();
+        const positionedMenu = scope.run(() => usePositionedMenu<ITestPositionedMenuState>(
+            '.test-positioned-menu',
+            createInitialMenuState,
+            { autoDismiss: { onOutsideClick: true } },
+        ))!;
+        const menuElement = document.createElement('div');
+        menuElement.className = 'test-positioned-menu';
+        document.body.append(menuElement);
+        const open = () => positionedMenu.showPositionedMenu({
+            x: 10,
+            y: 10,
+            fallbackWidth: 5,
+            fallbackHeight: 5,
+            buildState: position => ({
+                visible: true,
+                x: position.x,
+                y: position.y,
+            }),
+        });
+        open();
+        await nextTick();
+
+        menuElement.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true}));
+        expect(positionedMenu.menu.value.visible).toBe(true);
+
+        // A secondary press produces no click event.
+        document.body.dispatchEvent(new Event('pointerdown', {bubbles: true}));
+        document.body.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true}));
+        await nextTick();
+        expect(positionedMenu.menu.value.visible).toBe(false);
+        scope.stop();
+    });
 });
