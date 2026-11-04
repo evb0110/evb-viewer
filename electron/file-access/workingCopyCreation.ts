@@ -327,9 +327,13 @@ export async function createWorkingCopyFromPath(
             const documentWorkingPath = sourcePath === mappedOriginalPath
                 ? null
                 : findWorkingCopyPathByOriginalPath(mappedOriginalPath, ownerWebContentsId);
-            const originalFileExpectation = documentWorkingPath
-                ? getWorkingCopyOriginalFileExpectation(documentWorkingPath, ownerWebContentsId)
+            const sourceFileExpectation = sourcePath !== mappedOriginalPath
+                && getWorkingCopyOriginalPath(sourcePath, ownerWebContentsId)?.originalPath === mappedOriginalPath
+                ? getWorkingCopyOriginalFileExpectation(sourcePath, ownerWebContentsId)
                 : null;
+            const originalFileExpectation = (documentWorkingPath
+                ? getWorkingCopyOriginalFileExpectation(documentWorkingPath, ownerWebContentsId)
+                : null) ?? sourceFileExpectation;
             await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
                 backingState: 'eager',
                 ...(copiedSourceFingerprint ? {copiedSourceFingerprint} : {}),

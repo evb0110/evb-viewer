@@ -1096,6 +1096,7 @@ describe('workingCopy', () => {
 
     it.each([
         'external-edit',
+        'external-edit-without-current-mapping',
         'saved-by-evb',
     ] as const)('keeps the document\'s admitted original when an older copy is restored (%s)', async (change) => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
@@ -1109,6 +1110,13 @@ describe('workingCopy', () => {
         const documentWorkingPath = await createWorkingCopyFromPath(trustedOriginalPath, undefined, 7);
         // A history snapshot of the document, as Undo keeps.
         const snapshotPath = await createWorkingCopyFromPath(documentWorkingPath as TOpenPath, originalPath, 7);
+        if (change === 'external-edit-without-current-mapping') {
+            const {
+                forgetWorkingCopyOriginalPath, findWorkingCopyPathByOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            expect(forgetWorkingCopyOriginalPath(documentWorkingPath)).toBe(true);
+            expect(findWorkingCopyPathByOriginalPath(originalPath, 7)).toBeNull();
+        }
         writeFileSync(originalPath, Buffer.from('revision B'));
         if (change === 'saved-by-evb') {
             await refreshWorkingCopyOriginalFileExpectation(documentWorkingPath, 7);
@@ -1119,7 +1127,7 @@ describe('workingCopy', () => {
         // Save of the restored copy is refused over another program's edit,
         // and admitted over the document's own save.
         const witness = await captureOriginalPathSaveWitness(restoredPath, originalPath, 7);
-        if (change === 'external-edit') expect(witness).toBeNull();
+        if (change !== 'saved-by-evb') expect(witness).toBeNull();
         else expect(witness).not.toBeNull();
     });
 
