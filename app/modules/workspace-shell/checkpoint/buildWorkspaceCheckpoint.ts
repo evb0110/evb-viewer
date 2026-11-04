@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type {TDocumentRef} from '@contracts/documentRef';
+import type {TTabId} from '@contracts/windowTabs';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -98,7 +99,7 @@ export function buildWorkspaceCheckpoint(
     workingCopyRef?: TDocumentRef | null,
 ) {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
-    const firstTabByDocument = new Map<IWorkspaceDocumentController, string>();
+    const firstTabByDocument = new Map<IWorkspaceDocumentController, TTabId>();
 
     return {
         version: 1,
