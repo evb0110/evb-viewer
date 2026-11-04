@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { constants as fsConstants } from 'fs';
 import {
     chmod,
     link,
@@ -30,7 +29,10 @@ import {
     capturePathSaveWitness,
 } from '@electron/file-access/originalPathSaveWitness';
 import type {IOriginalPathSaveJournalSnapshot} from '@electron/file-access/originalPathSnapshot';
-import { fsyncFile as fsyncPath } from '@electron/utils/fsyncPath';
+import {
+    fsyncDirectory,
+    fsyncFile as fsyncPath,
+} from '@electron/utils/fsyncPath';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('atomicReplace');
@@ -87,19 +89,7 @@ function randomSuffix() {
 
 
 export async function fsyncParentDirectory(filePath: string) {
-    if (process.platform === 'win32') {
-        return;
-    }
-
-    let handle: Awaited<ReturnType<typeof open>> | null = null;
-    try {
-        handle = await open(dirname(filePath), fsConstants.O_RDONLY);
-        await handle.sync();
-    } catch {
-        return;
-    } finally {
-        await handle?.close().catch(() => undefined);
-    }
+    await fsyncDirectory(dirname(filePath)).catch(() => undefined);
 }
 
 async function fileExists(filePath: string) {
@@ -366,32 +356,38 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
     await unlink(sourcePath);
 }
 
-/**
- * A replaced file keeps its permission bits: a staged copy is created with
- * the default mode, so a private 0600 PDF would otherwise become readable to
- * others. A staged hard link shares its inode with a source whose mode must
- * not change, so it is first replaced by a copy of its own.
- */
-async function keepDestinationMode(srcTemp: string, dst: string) {
-    if (process.platform === 'win32') return;
+/** Detach shared staging before opening the inode to chmod and durably publish. */
+async function prepareReplacement(srcTemp: string, dst: string, durable: boolean) {
     const [
         staged,
         replaced,
     ] = await Promise.all([
         stat(srcTemp),
-        stat(dst).catch(() => null),
+        process.platform === 'win32' ? null : stat(dst).catch(() => null),
     ]);
-    if (replaced === null || (staged.mode & 0o7777) === (replaced.mode & 0o7777)) return;
-    // A staged hard link takes the mode as its own copy, so the source keeps its.
-    if (staged.nlink !== 1) {
+    const mode = replaced && (staged.mode & 0o7777) !== (replaced.mode & 0o7777)
+        ? replaced.mode & 0o7777 : undefined;
+    if (mode !== undefined && staged.nlink !== 1) {
         const ownCopy = `${srcTemp}.mode`;
-        await copyFile(srcTemp, ownCopy);
-        await rename(ownCopy, srcTemp);
+        try {
+            await copyFile(srcTemp, ownCopy);
+            await rename(ownCopy, srcTemp);
+        } finally {
+            await unlink(ownCopy).catch(() => undefined);
+        }
     }
-    // A filesystem that refuses the mode keeps the staged one; the save goes on.
-    await chmod(srcTemp, replaced.mode & 0o7777).catch((error: unknown) => {
-        logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
-    });
+    const handle = durable ? await open(srcTemp, process.platform === 'win32' ? 'r+' : 'r') : undefined;
+    try {
+        if (mode !== undefined) {
+            await chmod(srcTemp, mode).catch(async (error: unknown) => {
+                if (((await stat(srcTemp)).mode & ~mode & 0o777) !== 0) throw error;
+                logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
+            });
+        }
+        await handle?.sync();
+    } finally {
+        await handle?.close();
+    }
 }
 
 export async function atomicReplace(
@@ -412,13 +408,10 @@ export async function atomicReplace(
         await recoverWindowsAtomicReplace(dst);
     }
     const durable = options.durable !== false;
-    await keepDestinationMode(srcTemp, dst);
+    await prepareReplacement(srcTemp, dst, durable);
     const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
     const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined
         && shouldMarkMutationCommitStarted;
-    if (durable) {
-        await fsyncPath(srcTemp);
-    }
     if (shouldMarkMutationCommitStarted && !shouldDeferMutationCommitStarted) {
         markActiveWorkingCopyMutationCommitStarted();
     }
