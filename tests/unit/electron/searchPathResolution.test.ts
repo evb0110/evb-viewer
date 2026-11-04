@@ -116,4 +116,46 @@ describe('resolveSearchablePdfPath', () => {
             workingCopyMap.delete(path);
         }
     });
+
+    it('refuses to search a retired copy kept in quarantine, but not an open one', async () => {
+        const path = '/tmp/pdf-work-retired/document.pdf';
+        mocks.resolveAllowedReadPath.mockResolvedValue(path);
+        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
+        const {
+            clearWorkingCopyQuarantinesForTests, quarantineWorkingCopy,
+        } = await import('@electron/file-access/workingCopyQuarantine');
+        const {prepareSearchMainBindings} = await import('@electron/features/search/main/ipc');
+        const {SEARCH_PLATFORM_FEATURE} = await import('@contracts/searchPlatformFeature');
+        const [request] = SEARCH_PLATFORM_FEATURE.ipcCodecs['pdf:search'].decodeArgs([{
+            pdfPath: path,
+            query: 'PRIVATE',
+            documentRevision: 'drt1:chosen-by-the-caller',
+        }]);
+        const search = (senderId: number) => prepareSearchMainBindings().run(cast({
+            sender: {id: senderId},
+            senderId,
+        }), request);
+        quarantineWorkingCopy(path, 'native sidecar exit was not proven');
+        try {
+            // Its window still has it open: that window may search it.
+            workingCopyMap.set(path, cast({
+                logicalPath: path,
+                originalPath: '/private/retired.pdf',
+                backingState: 'materialized',
+                ownerWebContentsId: 222,
+                registeredAtMs: 1,
+                registrationId: 1,
+                role: 'current',
+            }));
+            await expect(search(222)).resolves.toBe('drt1:chosen-by-the-caller');
+
+            // Retired: no window owns it, and its kept bytes are nobody's.
+            workingCopyMap.delete(path);
+            await expect(search(111)).rejects.toThrow('SEARCH_PATH_DENIED');
+            await expect(search(222)).rejects.toThrow('SEARCH_PATH_DENIED');
+        } finally {
+            workingCopyMap.delete(path);
+            clearWorkingCopyQuarantinesForTests();
+        }
+    });
 });
