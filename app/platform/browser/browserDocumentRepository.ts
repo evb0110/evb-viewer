@@ -63,6 +63,7 @@ import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/bro
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
+    type IDocumentRevisionInfo,
 } from '@contracts/documentRevision';
 import {
     createBrowserFileBytesWitness,
@@ -75,9 +76,9 @@ export interface IBrowserDocumentMutation {
     write(
         data: Uint8Array | ArrayBuffer,
         options?: Omit<IWriteDocumentOptions, 'expectedDocumentRevisionToken' | 'skipDocumentRevisionCheckForBootstrap'>,
-    ): Promise<boolean>;
+    ): Promise<IDocumentRevisionInfo>;
     assertPhysicalSourceBaseCurrent(): Promise<void>;
-    acknowledgePhysicalSourceCommit(): Promise<void>;
+    acknowledgePhysicalSourceCommit(): Promise<IDocumentRevisionInfo>;
 }
 export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation {
     /**
@@ -599,7 +600,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         data: Uint8Array | ArrayBuffer,
         options: IWriteDocumentOptions = {},
     ) {
-        return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, options));
+        return this.runRefMutation(ref, async () => Boolean(await this.writeUnlocked(ref, data, options)));
     }
 
     /**
@@ -795,7 +796,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, {
             ...options,
             skipDocumentRevisionCheckForBootstrap: true,
-        }));
+        })).then(Boolean);
     }
 
     public runDocumentMutationWithSource<T>(
@@ -840,8 +841,18 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 },
                 write: (data, options = {}) => this.writeUnlocked(ref, data, options, true),
                 assertPhysicalSourceBaseCurrent: () => this.assertPhysicalSourceBaseCurrent(ref, sourceRef),
-                writeSource: data => this.writeUnlocked(sourceRef, data, {}, true),
-                writeSourceFromDocument: () => this.writeFromDocumentUnlocked(sourceRef, ref),
+                writeSource: async data => Boolean(await this.writeUnlocked(sourceRef, data, {}, true)),
+                writeSourceFromDocument: async () => {
+                    const source = await this.requireEntry(ref);
+                    const {size} = await this.stat(ref);
+                    await this.replaceContentUnlocked(
+                        sourceRef,
+                        size,
+                        (offset, length) => this.readEntryRange(source, offset, length),
+                        () => this.readEntryBytes(source, size),
+                    );
+                    return true;
+                },
                 acknowledgePhysicalSourceCommit: () => this.acknowledgePhysicalSourceCommitUnlocked(ref, sourceRef),
             });
         });
@@ -893,18 +904,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             else delete entry.sourceBaseWitness;
             await this.persistEntry(entry);
         }
-    }
-
-    private async writeFromDocumentUnlocked(ref: string, sourceRef: string) {
-        const source = await this.requireEntry(sourceRef);
-        const {size} = await this.stat(sourceRef);
-        await this.replaceContentUnlocked(
-            ref,
-            size,
-            (offset, length) => this.readEntryRange(source, offset, length),
-            () => this.readEntryBytes(source, size),
-        );
-        return true;
+        return createBrowserDocumentRevisionInfo(workingEntry.storageMode === 'source-proxy' ? sourceEntry : workingEntry, workingEntry.ref);
     }
 
     private async writeUnlocked(
@@ -919,18 +919,15 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)
             : normalizePersistedWriteBytes(data);
-        await this.replaceContentUnlocked(
+        const documentRevision = await this.replaceContentUnlocked(
             ref,
             bytes.byteLength,
             (offset, length) => Promise.resolve(bytes.slice(offset, offset + length)),
             () => Promise.resolve(bytes),
         );
 
-        if (options.unloadAfterPersist) {
-            this.dropLoadedEntry(ref);
-            return true;
-        }
-        return true;
+        if (options.unloadAfterPersist) this.dropLoadedEntry(ref);
+        return documentRevision;
     }
 
     // A chunked result is staged from `readChunk`; only an inline one is read whole.
@@ -949,6 +946,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         let stagedChunkCount = 0;
 
         try {
+            let bytes: Uint8Array | undefined;
             if (nextStorageMode === 'chunked') {
                 const stagedLayout = await persistBrowserDocumentChunkGeneration(
                     entry.ref,
@@ -964,25 +962,22 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
                 entry.chunkGeneration = stagedLayout.generation;
                 entry.fileSize = size;
-                const previousToken = retainedIdentity ? null : updateBrowserDocumentEntryContentToken(entry);
-                Object.assign(entry, retainedIdentity ?? {updatedAt: Date.now()});
-                await this.persistEntry(entry);
-                if (previousToken) this.emitRevisionChangeForEntry(entry, previousToken, 'write');
-                stagedGeneration = undefined;
-                stagedChunkCount = 0;
             } else {
-                const bytes = await readAll();
+                bytes = await readAll();
                 entry.storageMode = nextStorageMode;
                 entry.chunkCount = 0;
                 entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
                 entry.fileSize = bytes.byteLength;
-                const previousToken = retainedIdentity ? null : updateBrowserDocumentEntryContentToken(entry);
-                Object.assign(entry, retainedIdentity ?? {updatedAt: Date.now()});
                 delete entry.chunkGeneration;
-                await this.persistEntry(entry, bytes);
-                entry.data = bytes;
-                if (previousToken) this.emitRevisionChangeForEntry(entry, previousToken, 'write');
             }
+            const previousToken = retainedIdentity ? null : updateBrowserDocumentEntryContentToken(entry);
+            Object.assign(entry, retainedIdentity ?? {updatedAt: Date.now()});
+            await this.persistEntry(entry, bytes);
+            if (bytes) entry.data = bytes;
+            if (previousToken) this.emitRevisionChangeForEntry(entry, previousToken, 'write');
+            stagedGeneration = undefined;
+            stagedChunkCount = 0;
+            return createBrowserDocumentRevisionInfo(entry);
         } catch (error) {
             restoreBrowserDocumentEntryStorageState(entry, previousEntryState);
             if (stagedGeneration && stagedGeneration !== previousChunkGeneration) {

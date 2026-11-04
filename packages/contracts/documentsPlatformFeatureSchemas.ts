@@ -302,16 +302,8 @@ const revisionInfoSchema = v.object({
     mintedAt: positiveEpochMsSchema,
 });
 const documentRevisionEventSchema = v.object({
-    version: v.literal(1),
-    token: documentRevisionTokenSchema,
+    ...revisionInfoSchema.entries,
     previousToken: v.exactOptional(documentRevisionTokenSchema),
-    documentRef: documentRefSchema,
-    authority: v.picklist([
-        'electron-working-copy',
-        'browser-document-store',
-    ]),
-    contentRevision: nonNegativeSafeInteger,
-    mintedAt: positiveEpochMsSchema,
     reason: v.picklist([
         'open',
         'write',
@@ -404,6 +396,7 @@ const documentSaveResultSchema = v.variant('ok', [
         ok: v.literal(true),
         externalWriteCommitted: v.boolean(),
         workingCopyRefreshed: v.boolean(),
+        documentRevision: v.exactOptional(revisionInfoSchema),
         validation: v.exactOptional(v.nullable(PDF_VALIDATION_RESULT_SCHEMA)),
         warning: v.exactOptional(documentSaveWarningSchema),
     }),
@@ -452,6 +445,7 @@ const nativeErrorEnvelopeSchema: v.GenericSchema<unknown, INativeErrorEnvelope> 
 );
 const nativeSaveResultSchema = v.object({
     applied: v.boolean(),
+    documentRevision: v.exactOptional(revisionInfoSchema),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
     reason: v.exactOptional(v.picklist([
         'original-changed',

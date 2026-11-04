@@ -1,6 +1,8 @@
 import type {TNativeAnnotationDeleteEffects} from '@contracts/nativePdfSaveReport';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo, TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type {
     TDocumentSaveFailureReason,
     IPdfNativeAnnotationIdentityBinding,
@@ -148,6 +150,8 @@ export interface IPdfPersistResult {
     outPath: TDocumentRef | null;
     saveMode: TPdfSaveMode;
     didSaveAs: boolean;
+    /** The revision returned by this write, never a later observation. */
+    documentRevision?: IDocumentRevisionInfo;
     /** Native incremental saves may bind newly authored app identities to PDF refs. */
     materializedIdentityBindings?: readonly IPdfNativeAnnotationIdentityBinding[];
     annotationDeleteEffects?: TNativeAnnotationDeleteEffects;

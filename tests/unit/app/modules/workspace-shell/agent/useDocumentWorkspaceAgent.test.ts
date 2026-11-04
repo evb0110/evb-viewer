@@ -1659,6 +1659,27 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(handleSave).toHaveBeenCalledOnce();
     });
 
+    it('delivers the committed save revision to its command context', async () => {
+        const committed = requireDocumentRevisionToken('agent-own-save');
+        const receipts: Array<typeof committed> = [];
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            canSave: ref(true),
+            handleSave: async onCommitted => {
+                onCommitted?.(committed);
+                return true;
+            },
+        }));
+
+        await expect(agent.runAgentAction('file.save', {}, {}, {
+            signal: new AbortController().signal,
+            documentIdentity: null,
+            documentInstanceId: null,
+            assertCurrentDocument: () => undefined,
+            recordDocumentCommit: revision => receipts.push(revision),
+        })).resolves.toMatchObject({saved: true});
+        expect(receipts).toEqual([committed]);
+    });
+
     it('does not serialize the document when file.save has no pending changes', async () => {
         const handleSave = vi.fn(async () => true);
         const agent = createDocumentWorkspaceAgent(createAgentOptions({

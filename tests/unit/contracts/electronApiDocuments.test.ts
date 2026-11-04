@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     OPEN_BATCH_PROGRESS_SCHEMA,
@@ -9,6 +10,12 @@ import {
     WORKING_COPY_BACKING_STATUS_SCHEMA,
 } from '@contracts/electronApiDocuments';
 import {PDF_IMAGE_COMBINE_PROGRESS_SCHEMA} from '@contracts/pdfImageCombineProgress';
+import {DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireLeaseId} from '@contracts/shared';
 import * as v from 'valibot';
 
 describe('progress event payload schemas', () => {
@@ -204,5 +211,67 @@ describe('working-copy backing status contract', () => {
         },
     ])('rejects malformed status %#', (status) => {
         expect(v.safeParse(WORKING_COPY_BACKING_STATUS_SCHEMA, status, {abortEarly: true}).success).toBe(false);
+    });
+});
+
+
+describe('document save revision through preload', () => {
+    it.each([
+        'structured',
+        'native',
+    ] as const)('retains the %s commit identity through the existing binding', async (path) => {
+        const working = requireDocumentRef('/tmp/receipt.pdf');
+        const documentRevision = {
+            version: 1 as const,
+            documentRef: working,
+            authority: 'electron-working-copy' as const,
+            token: requireDocumentRevisionToken('rev-own-save'),
+            contentRevision: 2,
+            mintedAt: requireEpochMs(2),
+        };
+        const response = path === 'structured'
+            ? {
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                documentRevision,
+            }
+            : {
+                applied: true,
+                validation: null,
+                documentRevision,
+            };
+        const channel = path === 'structured'
+            ? DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured
+            : DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations;
+        const client = createPlatformFeaturePreloadClient({
+            invoke: vi.fn(async () => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel].decodeResult(response)),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+        }, DOCUMENT_FILES_PLATFORM_FEATURE, {savePdfData: vi.fn()});
+        const options = {expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-before')};
+        const result = path === 'structured'
+            ? await client.saveFileStructured(working, options)
+            : await client.commitStagedPdfNativeMutations!(working, {
+                receiptVersion: 2,
+                artifactKind: 'pdf',
+                path: requireDocumentRef('/tmp/staged.pdf'),
+                size: 4,
+                leaseId: requireLeaseId('receipt-lease'),
+                revision: null,
+                fileIdentity: {
+                    platform: 'posix',
+                    deviceId: '1',
+                    inode: '2',
+                },
+                validations: {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: false,
+                    fsynced: true,
+                },
+            }, options);
+        expect(result).toMatchObject({documentRevision});
     });
 });

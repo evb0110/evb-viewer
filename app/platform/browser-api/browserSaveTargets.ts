@@ -135,12 +135,11 @@ export async function saveWorkingBytesToSource(
                 // record points at. Skipping it on the picker branch left the
                 // working copy describing the file it no longer saves to, so the
                 // next ordinary Save reported our own write as an external edit.
-                await mutation.acknowledgePhysicalSourceCommit();
+                const documentRevision = await mutation.acknowledgePhysicalSourceCommit();
                 await browserDocumentStore.touchRecentFile(sourceRef);
                 // The authored bytes go in last, so any earlier failure leaves
                 // the working copy at the base its unsaved annotations describe.
-                if (staged) await mutation.write(staged.bytes);
-                return true;
+                return staged ? mutation.write(staged.bytes) : documentRevision;
             },
         );
     } catch (error) {
@@ -163,37 +162,32 @@ export async function saveWorkingBytesToSourceStructured(
             workingCopyPath,
             revisionOptions,
         );
-        if (!saved) {
-            return {
+        return {
+            validation: null,
+            ...(saved ? {
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                documentRevision: saved,
+            } : {
                 ok: false,
                 reason: 'user-canceled',
                 externalWriteCommitted: false,
-                validation: null,
-            };
-        }
-        return {
-            ok: true,
-            externalWriteCommitted: true,
-            workingCopyRefreshed: true,
-            validation: null,
+            }),
         };
     } catch (error) {
-        if (error instanceof BrowserExternalSaveSyncRequiredError) {
-            return {
-                ok: false,
-                reason: 'working-copy-sync-required',
-                message: error.message,
-                externalWriteCommitted: error.externalWriteCommitted,
-                workingCopySyncRequired: true,
-                validation: null,
-            };
-        }
         return {
             ok: false,
-            reason: 'write-failed',
             message: getErrorMessage(error),
-            externalWriteCommitted: false,
             validation: null,
+            ...(error instanceof BrowserExternalSaveSyncRequiredError ? {
+                reason: 'working-copy-sync-required',
+                externalWriteCommitted: error.externalWriteCommitted,
+                workingCopySyncRequired: true,
+            } : {
+                reason: 'write-failed',
+                externalWriteCommitted: false,
+            }),
         };
     }
 }

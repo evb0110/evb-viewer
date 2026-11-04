@@ -18,7 +18,10 @@ import type {
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceViewerCapabilities,
+    TDocumentCommitReceipt,
+} from '@app/types/workspaceExpose';
 import type { IDocumentPageLabelModel } from '@app/modules/document-viewer/public';
 
 export type {IAgentOcrRunOptions} from '@contracts/agentOcr';
@@ -69,7 +72,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     handlePrint: () => void;
     handlePrintCurrentPage: () => Promise<unknown>;
     handleQuickNoteAction: () => Promise<unknown>;
-    handleSave: () => Promise<boolean>;
+    handleSave: (onCommitted?: TDocumentCommitReceipt) => Promise<boolean>;
     handleSaveAs: () => Promise<boolean>;
     handleZoomIn: () => void;
     handleZoomOut: () => void;

@@ -516,6 +516,95 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         if (outcome === 'cancel' || outcome === 'denied') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
     });
 
+    it.each([
+        [
+            'structured',
+            'download',
+            'proxy',
+        ],
+        [
+            'structured',
+            'download',
+            'edited',
+        ],
+        [
+            'structured',
+            'handle',
+            'proxy',
+        ],
+        [
+            'structured',
+            'handle',
+            'edited',
+        ],
+        [
+            'native',
+            'download',
+            'edited',
+        ],
+        [
+            'native',
+            'handle',
+            'edited',
+        ],
+    ] as const)('returns its committed revision after a reader write during %s %s %s settlement', async (path, target, content) => {
+        let afterCommit = async () => {};
+        let physical = Uint8Array.of(37, 80, 68, 70, 1);
+        const handle = createFileSystemFileHandle({
+            name: 'receipt.pdf',
+            getFile: async () => new File([physical], 'receipt.pdf', {lastModified: 1}),
+            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
+                physical = new Uint8Array(requireArrayBufferChunk(chunk));
+            }}),
+        });
+        if (target === 'download') {
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {value: () => 'blob:receipt-download'},
+                revokeObjectURL: {value: () => {}},
+            });
+            vi.stubGlobal('URL', DownloadURL);
+        }
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: target === 'handle' ? async () => handle : undefined},
+            clearSearchCaches: async () => afterCommit(),
+        });
+        const source = await store.createStoredDocument('receipt.pdf', physical, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        if (content === 'edited') await store.write(working, Uint8Array.of(37, 80, 68, 70, 2), await getRevisionOptions(store, working));
+        const revisionOptions = await getRevisionOptions(store, working);
+        const stage = await store.createStoredDocument('receipt-staged.pdf', Uint8Array.of(37, 80, 68, 70, 3), {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'output',
+        });
+        const stagedOutput = await createBrowserStoreStagedArtifact(store, stage, {
+            leaseId: 'receipt-lease',
+            sha256: createHash('sha256').update(Uint8Array.of(37, 80, 68, 70, 3)).digest('hex'),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: true,
+                semanticScopeSha256: 'a'.repeat(64),
+            },
+        });
+        let ownRevision: Awaited<ReturnType<typeof store.getDocumentRevision>> | undefined;
+        afterCommit = async () => {
+            ownRevision = await store.getDocumentRevision(working);
+            await store.write(working, Uint8Array.of(37, 80, 68, 70, 4), {expectedDocumentRevisionToken: ownRevision.token});
+        };
+        const result = path === 'structured'
+            ? await capability.saveFileStructured(working, revisionOptions)
+            : await capability.commitStagedPdfNativeMutations!(working, stagedOutput, revisionOptions);
+        expect(result).toMatchObject({documentRevision: ownRevision});
+        expect(ownRevision).toBeDefined();
+        expect((await store.getDocumentRevision(working)).token).not.toBe(ownRevision?.token);
+        await expect(store.read(working)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 4));
+        if (path === 'native') expect(physical).toEqual(target === 'handle' ? Uint8Array.of(37, 80, 68, 70, 3) : physical);
+    });
+
     it('returns typed unsupported results for desktop-only folder actions', async () => {
         const { capability } = await loadBrowserDocumentsFileCapability();
 

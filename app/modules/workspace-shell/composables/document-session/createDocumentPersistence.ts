@@ -401,40 +401,6 @@ export function createDocumentPersistence(
         return true;
     }
 
-    async function saveWorkingCopyToOriginal(
-        workingPath: TDocumentRef,
-        expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
-    ): Promise<{ok: true} | {
-        ok: false;
-        failure: IPdfPersistFailure
-    }> {
-        const documentFiles = getDocumentFilesCapability();
-        const result = await documentFiles.saveFileStructured(
-            workingPath,
-            createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
-        );
-        if (!result.ok) {
-            const failure: IPdfPersistFailure = {
-                channel: 'file:saveStructured',
-                operation: 'saveFileStructured',
-                phase: 'publish-original',
-                reason: result.reason,
-                ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
-                ...(result.message === undefined ? {} : {message: result.message}),
-                ...(result.validation === undefined ? {} : {validation: result.validation}),
-                ...saveOutcomeFields(result),
-            };
-            return {
-                ok: false,
-                failure,
-            };
-        }
-        if (result.warning) {
-            BrowserLogger.warn('workspace', 'Working-copy save completed with a platform warning', result.warning);
-        }
-        return {ok: true};
-    }
-
     async function saveFile(
         data: Uint8Array,
         opts?: {
@@ -522,12 +488,24 @@ export function createDocumentPersistence(
                 });
             }
 
-            const persistenceResult = await saveWorkingCopyToOriginal(
+            const result = await getDocumentFilesCapability().saveFileStructured(
                 workingPath,
-                stagedRequest.expectedDocumentRevisionToken,
+                createDocumentMutationRevisionOptions(stagedRequest.expectedDocumentRevisionToken),
             );
-            if (!persistenceResult.ok) {
-                return createFailedPersistResult(requestedSaveMode, false, persistenceResult.failure);
+            if (!result.ok) {
+                return createFailedPersistResult(requestedSaveMode, false, {
+                    channel: 'file:saveStructured',
+                    operation: 'saveFileStructured',
+                    phase: 'publish-original',
+                    reason: result.reason,
+                    ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
+                    ...(result.message === undefined ? {} : {message: result.message}),
+                    ...(result.validation === undefined ? {} : {validation: result.validation}),
+                    ...saveOutcomeFields(result),
+                });
+            }
+            if (result.warning) {
+                BrowserLogger.warn('workspace', 'Working-copy save completed with a platform warning', result.warning);
             }
             if (!state.isActiveWorkingCopy(workingPath)) {
                 return skipStale('working-copy save completion', workingPath, requestedSaveMode);
@@ -536,7 +514,10 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, false);
             }
             state.lastSaveMode.value = requestedSaveMode;
-            return createPersistResult(true, requestedSaveMode, false);
+            return {
+                ...createPersistResult(true, requestedSaveMode, false),
+                ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
+            };
         }, opts?.expectedWorkingPath);
     }
 
@@ -885,7 +866,7 @@ export function createDocumentPersistence(
             const result = await measurePdfPersistPhase(
                 phaseTimings,
                 'native-ipc',
-                async () => {
+                async (): Promise<IPdfNativeSaveResult> => {
                     const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
                     if (!revisionOptions) {
                         throw new Error(
@@ -989,7 +970,7 @@ export function createDocumentPersistence(
                                 revisionOptions,
                             ),
                         );
-                        const workingCopyResult: IPdfNativeSaveResult = replaced
+                        return replaced
                             ? {
                                 applied: true,
                                 validation: {
@@ -1007,7 +988,6 @@ export function createDocumentPersistence(
                                 applied: false,
                                 validation: null,
                             };
-                        return workingCopyResult;
                     }
                     const committed = await measurePdfPersistPhase(
                         phaseTimings,
@@ -1105,6 +1085,7 @@ export function createDocumentPersistence(
             logRendererTimings('applied');
             return {
                 ...createPersistResult(true, opts.saveMode, false),
+                ...(result.documentRevision ? {documentRevision: result.documentRevision} : {}),
                 ...(materializedIdentityBindings.length > 0 ? {materializedIdentityBindings} : {}),
                 ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
             };

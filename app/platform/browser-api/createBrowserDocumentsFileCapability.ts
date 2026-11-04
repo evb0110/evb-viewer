@@ -86,7 +86,6 @@ import {
     readBrowserStoreStagedArtifact,
     sha256Hex,
 } from '@app/platform/browser/browserStagedArtifact';
-import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 import {
     parseDocumentRef,
@@ -258,7 +257,7 @@ export function createBrowserDocumentsFileCapability(
         }
     }
 
-    const capability: TCanonicalDocumentsFileCapability = {
+    return {
         async openDocumentDialog() {
             // Several files open as one combined document, as on desktop. An
             // indirect DjVu index picked with the files beside it opens as
@@ -470,14 +469,14 @@ export function createBrowserDocumentsFileCapability(
         },
         async commitStagedPdfNativeMutations(
             path,
-            stagedOutput: ITypedStagedArtifact,
+            stagedOutput,
             options,
         ) {
             if (!options?.expectedDocumentRevisionToken) {
                 throw new Error('Browser staged PDF save requires the document revision');
             }
             const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
-            let committed: boolean;
+            let committed: Awaited<ReturnType<typeof saveWorkingBytesToSource>>;
             try {
                 committed = await saveWorkingBytesToSource(path, options, stagedOutput);
             } catch (error) {
@@ -508,6 +507,7 @@ export function createBrowserDocumentsFileCapability(
                 applied: true,
                 validation: createValidBrowserOutputResult(),
                 nativeMutationPostconditionsVerified: true,
+                documentRevision: committed,
                 ...(identityBindings ? {identityBindings} : {}),
             } satisfies IPdfNativeSaveResult;
         },
@@ -826,6 +826,4 @@ export function createBrowserDocumentsFileCapability(
             }
         },
     };
-
-    return capability;
 }

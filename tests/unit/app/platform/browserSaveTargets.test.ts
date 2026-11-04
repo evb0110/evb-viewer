@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createFileSystemFileHandle,
@@ -13,6 +14,15 @@ import {
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type * as BrowserFilePickerAdapter from '@app/platform/browser-api/browserFilePickerAdapter';
 import type * as BrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
+
+const savedRevision = {
+    version: 1 as const,
+    documentRef: requireDocumentRef('browser://documents/working'),
+    authority: 'browser-document-store' as const,
+    token: requireDocumentRevisionToken('drt1:browser:own-save'),
+    contentRevision: 2,
+    mintedAt: requireEpochMs(2),
+};
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     getSourceRef: vi.fn(),
@@ -86,6 +96,7 @@ describe('browserSaveTargets', () => {
             acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
         }));
         browserDocumentStoreMock.write.mockResolvedValue(true);
+        browserDocumentStoreMock.acknowledgePhysicalSourceCommit.mockResolvedValue(savedRevision);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
         filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
@@ -106,6 +117,7 @@ describe('browserSaveTargets', () => {
                 ok: true,
                 externalWriteCommitted: true,
                 workingCopyRefreshed: true,
+                documentRevision: savedRevision,
                 validation: null,
             });
     });

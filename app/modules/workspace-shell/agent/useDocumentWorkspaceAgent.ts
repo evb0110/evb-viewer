@@ -533,9 +533,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 previewAgentPageLabelPlan(input, actionId);
                 return input;
             },
-            run: createSettledMutationRunner(applyAgentPageLabelPlan, async () => {
-                await nextTick();
-            }),
+            run: createSettledMutationRunner(applyAgentPageLabelPlan, nextTick),
         },
         {
             ids: [
@@ -849,7 +847,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 await waitForAgentMutationStateSettled();
                 context?.assertCurrentDocument();
                 const hadPendingSave = canSave.value;
-                const saveSucceeded = !hadPendingSave || await handleSave();
+                const saveSucceeded = !hadPendingSave || await handleSave(context?.recordDocumentCommit);
                 await waitForAgentMutationStateSettled();
                 if (!saveSucceeded) {
                     throw new Error(`Save did not complete; EVB Viewer still reports pending changes. ${JSON.stringify({
@@ -857,7 +855,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                         bookmarksDirty: bookmarksDirty.value,
                         canSave: canSave.value,
                         pageLabelsDirty: pageLabelsDirty.value,
-                        saveSucceeded,
                     })}`);
                 }
                 return {

@@ -42,6 +42,12 @@ import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {
+    advanceAssistantTurnScope,
+    claimAssistantTurn,
+    createInitialAssistantTurnOwner,
+    getAssistantTurnScope,
+} from '@electron/features/agent/assistantTurnLifecycle';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IElectronAPI;}
 type TAgentHarnessCapability = Pick<IAgentCapability,
@@ -171,6 +177,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     detachedWorkspace?: boolean;
     shouldWaitForDesktopBridge?: () => boolean;
     workspace?: IWorkspaceExpose;
+    linkedWorkspace?: IWorkspaceExpose;
 } = {}) {
     const panes = ref<IEditorPaneState[]>([createPane('pane-1', ['tab-1'], 'tab-1')]);
     const tabs = ref<ITab[]>([{id: 'tab-1'}]);
@@ -187,6 +194,17 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         identity: firstIdentity,
         workspace: options.detachedWorkspace ? null : workspace,
     });
+    const documentSessionsByTabId = shallowRef<Record<string, IWorkspaceDocumentController>>({'tab-1': session});
+    if (options.linkedWorkspace) {
+        session.addView('tab-2');
+        session.attachWorkspace('tab-2', options.linkedWorkspace);
+        tabs.value.push({id: 'tab-2'});
+        panes.value.push(createPane('pane-2', ['tab-2'], 'tab-2'));
+        documentSessionsByTabId.value = {
+            'tab-1': session,
+            'tab-2': session,
+        };
+    }
     const commandCancelCallbacks: Array<(request: IAgentCommandCancelRequest) => void> = [];
     const commandCallbacks: Array<(request: IAgentCommandRequest) => void> = [];
     const snapshotCallbacks: Array<(request: IAgentWorkspaceSnapshotRequest) => void> = [];
@@ -221,7 +239,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             layout: ref(null),
             activePaneId,
             activeTabId,
-            documentSessionsByTabId: shallowRef({'tab-1': session}),
+            documentSessionsByTabId,
             shouldWaitForDesktopBridge: options.shouldWaitForDesktopBridge ?? (() => false),
             getPaneByTabId: options.getPaneByTabId
                 ?? (tabId => panes.value.find(pane => pane.tabIds.some(candidate => candidate === tabId)) ?? null),
@@ -607,6 +625,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         const harnessRef: {current?: Awaited<ReturnType<typeof mountAgentWorkspaceSnapshotHarness>>;} = {};
         const runAgentAction = vi.fn<IWorkspaceExpose['runAgentAction']>(async (_id, _input, _options, context) => {
             recommitIdentity(harnessRef.current!.session, '/tmp/document.pdf', createDocumentIdentity('revision-2', 2));
+            context?.recordDocumentCommit?.(requireDocumentRevisionToken('revision-2'));
             context?.assertCurrentDocument({allowRevisionChange: true});
             return {saved: true};
         });
@@ -659,6 +678,94 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         expect(unscoped).toMatchObject({ok: true});
         expect(unscoped).not.toHaveProperty('successor');
         harness.app.unmount();
+    });
+
+    it.each([
+        {
+            recordOwnCommit: false,
+            scenario: 'without a save receipt',
+        },
+        {
+            recordOwnCommit: true,
+            scenario: 'after its own save receipt is superseded',
+        },
+    ])('does not adopt a linked-view revision while file.save settles $scenario', async ({recordOwnCommit}) => {
+        const entered = Promise.withResolvers<undefined>();
+        const finish = Promise.withResolvers<undefined>();
+        const sessionRef: {current?: IWorkspaceDocumentController;} = {};
+        const runAgentAction: IWorkspaceExpose['runAgentAction'] = async (_id, _input, _options, context) => {
+            if (recordOwnCommit) {
+                const identity = createDocumentIdentity('revision-2', 2);
+                recommitIdentity(sessionRef.current!, '/tmp/document.pdf', identity);
+                context?.recordDocumentCommit?.(identity.token);
+            }
+            entered.resolve(undefined);
+            await finish.promise;
+            return {saved: true};
+        };
+        const linkedWorkspace = createWorkspace({hasPdf: true}, {runAgentAction: async () => {
+            recommitIdentity(sessionRef.current!, '/tmp/document.pdf', createDocumentIdentity('reader-revision', 3));
+            return {saved: true};
+        }});
+        const harness = await mountAgentWorkspaceSnapshotHarness({
+            workspace: createWorkspace({hasPdf: true}, {runAgentAction}),
+            linkedWorkspace,
+        });
+        const session = harness.session;
+        sessionRef.current = session;
+        const tabId = requireTabId('tab-1');
+        const before = session.createCommandTarget(tabId);
+        const turn = claimAssistantTurn(createInitialAssistantTurnOwner(), {
+            sessionKey: 'linked-reader-session',
+            scopeKey: 'linked-reader-scope',
+            provider: 'codex',
+            windowId: 1,
+            tabId,
+            documentRef: before.documentRef,
+            documentIdentity: harness.firstIdentity,
+            commandTarget: before,
+        });
+        try {
+            const responsePromise = harness.submitCommand({
+                requestId: requireRequestId(`linked-reader-during-save-${recordOwnCommit}`),
+                command: {
+                    name: 'run_action',
+                    arguments: {
+                        id: 'file.save',
+                        tabId,
+                    },
+                },
+                scope: {
+                    windowId: 1,
+                    tabId,
+                    commandTarget: before,
+                    documentRef: before.documentRef,
+                    documentIdentity: harness.firstIdentity,
+                    documentInstanceId: before.documentInstanceId ?? null,
+                },
+            });
+            await entered.promise;
+            const savedTarget = recordOwnCommit ? session.createCommandTarget(tabId) : null;
+            await linkedWorkspace.runAgentAction('file.save', {});
+            finish.resolve(undefined);
+            const response = await responsePromise;
+            const after = response.successor
+                ? advanceAssistantTurnScope(turn, turn.generation, response.successor)
+                : turn;
+            expect(response).toMatchObject({
+                ok: true,
+                result: {saved: true},
+            });
+            expect(session.snapshot.value.identity.revisionInfo?.token).toBe('reader-revision');
+            expect(session.validateCommandTarget(before).ok).toBe(false);
+            if (savedTarget) expect(session.validateCommandTarget(savedTarget).ok).toBe(false);
+            expect(getAssistantTurnScope(after)?.documentIdentity?.token).toBe('revision-1');
+            expect(getAssistantTurnScope(after)?.commandTarget).toEqual(before);
+            expect(response.successor).toBeUndefined();
+        } finally {
+            finish.resolve(undefined);
+            harness.app.unmount();
+        }
     });
 
     it('rejects a command when the session target changes after activation', async () => {

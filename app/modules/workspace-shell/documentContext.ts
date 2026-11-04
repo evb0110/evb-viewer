@@ -293,9 +293,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             sourceCapabilities.value = EMPTY_SOURCE_CAPABILITIES;
         }
     }, {immediate: true});
-    const saveThroughDriver = (action: 'save' | 'save-as') => (
-        driver.activeDocumentDriver.value?.operations.save.execute(action) ?? Promise.resolve(false)
-    );
     useShutdownSaveFlushReporting({
         workingCopyPath: file.workingCopyPath,
         hasPendingUnsavedChanges,
@@ -308,12 +305,12 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const save = {
         ...saveService,
         canSave: computed(() => !isMoving.value && saveService.canSave.value),
-        isAnySaving: saveService.isAnySaving,
         isSaving,
         isSavingAs,
         hasPendingUnsavedChanges,
-        handleSave: () => saveThroughDriver('save'),
-        handleSaveAs: () => saveThroughDriver('save-as'),
+        // An agent's Save learns the revision it committed, not whichever is current afterwards.
+        handleSave: driver.handleSave,
+        handleSaveAs: driver.handleSaveAs,
         optimizeDialog: useDocumentWorkspaceOptimizeDialog({handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy}),
     };
 

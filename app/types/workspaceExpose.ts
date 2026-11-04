@@ -186,12 +186,17 @@ export interface IWorkspaceOpenFailure {
     fileName?: string | null;
 }
 
+/** Receives the revision an operation committed, once it is still the current one. */
+export type TDocumentCommitReceipt = (revision: TDocumentRevisionToken) => void;
+
 export interface IWorkspaceAgentCommandContext {
     signal: AbortSignal;
     documentIdentity: IDocumentRevisionInfo | null;
     documentInstanceId: TDocumentInstanceId | null;
     commandTarget?: TWorkspaceCommandTarget;
     assertCurrentDocument: (options?: {allowRevisionChange?: boolean}) => void;
+    /** Receives a revision the command itself committed; only that one may succeed it. */
+    recordDocumentCommit?: TDocumentCommitReceipt;
 }
 
 export interface IWorkspaceAutomationStateSnapshot {

@@ -6,8 +6,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    computed, ref,
+} from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -51,6 +54,127 @@ describe('workspace save failure surfacing', () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    it('reports the revision committed by a successful save', async () => {
+        const committed = requireDocumentRevisionToken('rev-own-save');
+        const revision = ref(requireDocumentRevisionToken('rev-before-save'));
+        const receipts: Array<typeof committed> = [];
+        const {deps} = createDeps({
+            documentRevisionToken: revision,
+            hasPendingUnsavedChanges: computed(() => true),
+            saveWorkingCopy: async () => {
+                revision.value = committed;
+                return {
+                    success: true,
+                    documentRevision: {
+                        version: 1,
+                        token: committed,
+                        documentRef: requireDocumentRef('/tmp/work.pdf'),
+                        authority: 'electron-working-copy',
+                        contentRevision: 2,
+                        mintedAt: requireEpochMs(1),
+                    },
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
+                    saveMode: 'rewrite',
+                    didSaveAs: false,
+                };
+            },
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+        expect(receipts).toEqual([committed]);
+        expect(revision.value).toBe(committed);
+    });
+
+    it('does not attribute a linked-view revision while save persistence settles', async () => {
+        const committed = requireDocumentRevisionToken('rev-own-save');
+        const readerRevision = requireDocumentRevisionToken('rev-linked-reader');
+        const revision = ref(requireDocumentRevisionToken('rev-before-save'));
+        const entered = Promise.withResolvers<undefined>();
+        const finish = Promise.withResolvers<undefined>();
+        const receipts: Array<typeof committed> = [];
+        const {deps} = createDeps({
+            documentRevisionToken: revision,
+            hasPendingUnsavedChanges: computed(() => true),
+            saveWorkingCopy: async () => {
+                revision.value = committed;
+                entered.resolve(undefined);
+                await finish.promise;
+                return {
+                    success: true,
+                    documentRevision: {
+                        version: 1,
+                        token: committed,
+                        documentRef: requireDocumentRef('/tmp/work.pdf'),
+                        authority: 'electron-working-copy',
+                        contentRevision: 2,
+                        mintedAt: requireEpochMs(1),
+                    },
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
+                    saveMode: 'rewrite',
+                    didSaveAs: false,
+                };
+            },
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const saving = service.handleSave(token => receipts.push(token));
+
+        try {
+            await entered.promise;
+            // A linked view's revision broadcast arrives before this call returns.
+            revision.value = readerRevision;
+            finish.resolve(undefined);
+            const saved = await saving;
+            expect(receipts).toEqual([]);
+            expect(saved).toBe(false);
+            expect(revision.value).toBe(readerRevision);
+            expect(receipts).not.toContain(readerRevision);
+        } finally {
+            finish.resolve(undefined);
+            await saving;
+        }
+    });
+
+    it('does not infer a receipt when persistence returned no revision', async () => {
+        const {deps} = createDeps({hasPendingUnsavedChanges: computed(() => true)});
+        const receipts: Array<ReturnType<typeof requireDocumentRevisionToken>> = [];
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+        expect(receipts).toEqual([]);
+    });
+
+    it('does not report a commit when a clean save writes nothing', async () => {
+        const receipts: Array<ReturnType<typeof requireDocumentRevisionToken>> = [];
+        const {deps} = createDeps({hasPendingUnsavedChanges: computed(() => false)});
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const before = deps.documentRevisionToken.value;
+
+        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+        expect(receipts).toEqual([]);
+        expect(deps.documentRevisionToken.value).toBe(before);
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+    });
+
+    it('does not report a commit when save fails', async () => {
+        const receipts: Array<ReturnType<typeof requireDocumentRevisionToken>> = [];
+        const {deps} = createDeps({
+            hasPendingUnsavedChanges: computed(() => true),
+            saveWorkingCopy: async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(false);
+        expect(receipts).toEqual([]);
+        expect(service.hasSaveFailure.value).toBe(true);
     });
 
     it('saves dirty changes before optimizing the PDF for interaction', async () => {

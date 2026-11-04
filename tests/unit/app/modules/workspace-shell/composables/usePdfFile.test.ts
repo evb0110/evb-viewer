@@ -10,6 +10,8 @@ import type {
     IDocumentsFileIoCapability,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -316,6 +318,91 @@ describe('usePdfFile façade', () => {
             expect(file.pdfData.value).toEqual(PDF_BYTES);
         } finally {
             cleanup.resolve(true);
+        }
+    });
+
+    it.each([
+        'structured',
+        'native',
+    ] as const)('retains the %s writer revision after another revision is observed during adoption', async (path) => {
+        const file = createFacade();
+        await file.openFile(pdfResult('receipt'));
+        const documentRevision = {
+            version: 1 as const,
+            documentRef: requireDocumentRef('/tmp/receipt.pdf'),
+            authority: 'electron-working-copy' as const,
+            contentRevision: 2,
+            mintedAt: requireEpochMs(2),
+            token: requireDocumentRevisionToken('rev-own-save'),
+        };
+        // Adoption observes the superseding reader, which must not supply the receipt.
+        mocks.getRevision.mockResolvedValue({
+            ...documentRevision,
+            token: requireDocumentRevisionToken('rev-reader'),
+            contentRevision: 3,
+        });
+        const saveSpy = vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+            documentRevision,
+        });
+        const validation = {
+            isValid: true,
+            tool: 'native' as const,
+            errors: [],
+            warnings: [],
+        };
+        mocks.nativeApply.mockResolvedValueOnce({
+            applied: true,
+            validation,
+            nativeMutationPostconditionsVerified: true,
+            identityBindings: [],
+            stagedOutput: {
+                receiptVersion: 2,
+                artifactKind: 'pdf',
+                path: '/tmp/receipt-staged.pdf',
+                size: PDF_BYTES.byteLength,
+                leaseId: 'receipt-stage',
+                revision: null,
+                fileIdentity: {
+                    platform: 'posix',
+                    deviceId: '1',
+                    inode: '2',
+                },
+                validations: {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: false,
+                    fsynced: true,
+                },
+            },
+        });
+        mocks.nativeCommit.mockResolvedValueOnce({
+            applied: true,
+            validation,
+            documentRevision,
+        });
+        try {
+            const result = path === 'structured'
+                ? await file.saveWorkingCopy()
+                : await file.trySavePdfNativeMutations({bookmarks: {
+                    totalPages: 1,
+                    untitledLabel: 'Untitled',
+                    items: [],
+                }}, {
+                    saveMode: 'incremental',
+                    modifiedAt: requirePdfDateString('D:20261008000000Z'),
+                });
+            expect(result).toMatchObject({
+                success: true,
+                documentRevision,
+            });
+            expect(file.documentRevisionToken.value).toBe('rev-reader');
+        } finally {
+            saveSpy.mockRestore();
+            mocks.nativeApply.mockReset();
+            mocks.nativeCommit.mockReset();
         }
     });
 

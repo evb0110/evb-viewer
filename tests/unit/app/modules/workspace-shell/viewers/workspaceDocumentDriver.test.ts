@@ -32,7 +32,11 @@ import type {IDjvuPrintOptions} from '@contracts/electronApiDjvu';
 import type {
     TJobId, TPdfZoomState, TPdfViewMode,
 } from '@contracts/shared';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    requireDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import type {TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import {
     createDocumentSessionState,
@@ -248,7 +252,12 @@ describe('WorkspaceDocumentDriver', () => {
         });
         expect(pdfWithPrintPath.operations.print.path).toBe('/managed/working.pdf');
 
-        const save = vi.fn(async () => true);
+        const committed = requireDocumentRevisionToken('driver-own-save');
+        const receipts: Array<typeof committed> = [];
+        const save = vi.fn(async (onCommitted?: TDocumentCommitReceipt) => {
+            onCommitted?.(committed);
+            return true;
+        });
         const saveAs = vi.fn(async () => true);
         const saveAsDjvuProjection = vi.fn(async () => true);
         const djvuWithSave = useWorkspaceDocumentDriver({
@@ -262,8 +271,9 @@ describe('WorkspaceDocumentDriver', () => {
                 saveAsDjvuProjection,
             },
         }).activeDocumentDriver.value!;
-        await djvuWithSave.operations.save.execute('save');
+        await djvuWithSave.operations.save.execute('save', revision => receipts.push(revision));
         await djvuWithSave.operations.save.execute('save-as');
+        expect(receipts).toEqual([committed]);
         expect(save).toHaveBeenCalledOnce();
         expect(saveAs).not.toHaveBeenCalled();
         expect(saveAsDjvuProjection).toHaveBeenCalledOnce();
