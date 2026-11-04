@@ -18,6 +18,7 @@ import type {
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { requireIsoTimestamp } from '@contracts/timestamps';
 import { requireTabId } from '@contracts/windowTabs';
+import { requireSessionId } from '@contracts/shared';
 import type * as AgentWorkspaceBridgeModule from '@electron/features/agent/workspaceBridge';
 
 const mocks = vi.hoisted(() => ({fromWebContents: vi.fn()}));
@@ -615,6 +616,44 @@ describe('agent workspace bridge', () => {
         });
 
         await expect(pending).rejects.toThrow('did not match the expected contract');
+    });
+
+    it('hands a command\'s successor to its caller before acknowledging the response', async () => {
+        const window = createFakeWindow(610);
+        mocks.fromWebContents.mockReturnValue(window);
+        const order: string[] = [];
+        const onSuccessor = vi.fn(() => order.push('successor'));
+        const pending = requestAgentCommand(toBrowserWindow(window), {
+            name: 'activate_tab',
+            arguments: {tabId: requireTabId('tab-1')},
+        }, undefined, undefined, undefined, onSuccessor);
+        const successor = {
+            commandTarget: {
+                kind: 'revision',
+                tabId: requireTabId('tab-1'),
+                sessionId: requireSessionId('session-1'),
+                documentRef: null,
+                documentInstanceId: null,
+                sessionRevision: 2,
+            },
+            documentIdentity: null,
+        } as const;
+
+        const ack = submitAgentCommandResponse(createResponseEvent(window), {
+            requestId: getCommandRequestId(window),
+            ok: true,
+            result: {},
+            successor,
+        });
+        order.push('ack');
+
+        expect(ack).toEqual({accepted: true});
+        expect(onSuccessor).toHaveBeenCalledWith(successor);
+        expect(order).toEqual([
+            'successor',
+            'ack',
+        ]);
+        await expect(pending).resolves.toEqual({});
     });
 
     it('returns actionable acknowledgements for invalid and stale snapshot responses', () => {

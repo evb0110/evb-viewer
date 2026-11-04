@@ -92,6 +92,8 @@ export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null;
     chatScope?: IAgentAssistantChatScope | null;
     isChatScopePending?: boolean;
+    /** An assistant command is running in the chat's tab and may commit a revision. */
+    isAssistantCommandRunning?: boolean;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
     width?: number | undefined;
@@ -1054,6 +1056,21 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         return t('assistant.roleAssistant');
     }
+    const isAssistantCommandRunning = computed(() => props.isAssistantCommandRunning ?? false);
+    // The turn's own save, crop or OCR commits a new revision while its command
+    // runs; main adopts it before the command ends. Only a revision main did
+    // not adopt by then ends the turn.
+    const isOwnRevision = () => isTurnActive.value && (
+        isAssistantCommandRunning.value
+        || (state.value !== null && isAssistantStateCurrent(state.value, selectedProvider.value, chatScope.value))
+    );
+    let pendingOwnRevision = false;
+    watch(isAssistantCommandRunning, (running) => {
+        if (!running && pendingOwnRevision && !isOwnRevision()) {
+            pendingOwnRevision = false;
+            handleScopeChange(false);
+        }
+    });
     watch([
         () => buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value),
         // Composed work belongs to the document/provider, not its byte revision.
@@ -1070,10 +1087,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     ], [
         , previousDraftOwner,
     ]) => {
+        const ownerChanged = draftOwner !== previousDraftOwner;
+        pendingOwnRevision = !ownerChanged && isOwnRevision();
+        if (!pendingOwnRevision) handleScopeChange(ownerChanged);
+    });
+    function handleScopeChange(ownerChanged: boolean) {
         interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before switching scope');
         stateGeneration += 1;
         sendGeneration += 1;
-        if (draftOwner !== previousDraftOwner) {
+        if (ownerChanged) {
             draft.value = '';
             clearComposerImages();
             composerError.value = '';
@@ -1093,7 +1115,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }),
             createAssistantActionOptions('scope-refresh', 'Failed to refresh assistant state for document'),
         );
-    });
+    }
     let unsubscribe: (() => void) | null = null;
     useAssistantComposerAutofocus(composerInputRef, canFocusComposerInput);
     watch([

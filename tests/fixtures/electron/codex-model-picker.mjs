@@ -26,6 +26,30 @@ if (process.argv.includes('--version')) {
         }});
         emit('turn/completed');
     };
+    // Calls the embedded EVB MCP server the way Codex does: the URL from the
+    // generated config, the bearer token from the environment.
+    const callEvbTool = async (name, args, callId) => {
+        const config = readFileSync(`${process.env.CODEX_HOME}/config.toml`, 'utf8');
+        const url = /^url = "([^"]+)"$/mu.exec(config)?.[1];
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${process.env.EVB_MCP_TOKEN}`,
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: callId,
+                method: 'tools/call',
+                params: {
+                    name,
+                    arguments: args,
+                },
+            }),
+        });
+        const {result} = await response.json();
+        return result?.isError ? `error ${result.content?.[0]?.text ?? ''}`.slice(0, 160) : 'ok';
+    };
     createInterface({input: process.stdin}).on('line', line => {
         const request = JSON.parse(line);
         if (request.id !== undefined) {
@@ -72,6 +96,16 @@ if (process.argv.includes('--version')) {
                         '```',
                         'After',
                     ].join('\n'));
+                } else if (prompt.includes('A10-4 own save')) {
+                    // The turn saves its own document, then must still read it.
+                    void (async () => {
+                        const save = await callEvbTool('evb_run_action', {
+                            id: 'file.save',
+                            input: {},
+                        }, `${turnId}-save`);
+                        const read = await callEvbTool('evb_workspace_snapshot', {}, `${turnId}-read`);
+                        finishTurn(emit, turnId, `save:${save} read:${read}`);
+                    })().catch(error => finishTurn(emit, turnId, `fixture:${error.message}`));
                 } else if (prompt.includes('AP-B02 tool activity')) {
                     const transcript = JSON.parse(readFileSync(new URL('./assistant-tool-transcript.json', import.meta.url), 'utf8'));
                     for (const event of transcript) {

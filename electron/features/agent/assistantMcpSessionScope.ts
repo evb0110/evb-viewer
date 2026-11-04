@@ -1,5 +1,6 @@
 import type {
     IAgentCommandExecutionScope,
+    IAgentCommandSuccessor,
     IAgentTabSnapshot,
     IAgentWorkspaceSnapshot,
     TAgentWorkspaceCommandTarget,
@@ -43,6 +44,18 @@ export function syncAssistantMcpSessionScope(
         return;
     }
     clearAssistantMcpSessionScope(sessionKey);
+}
+
+type TAssistantTurnSuccessorListener = (binding: IAssistantSessionScopeBinding, successor: IAgentCommandSuccessor) => void;
+let turnSuccessorListener: TAssistantTurnSuccessorListener | null = null;
+
+/** The session owner adopts a successor its turn's own command committed. */
+export function setAssistantTurnSuccessorListener(listener: TAssistantTurnSuccessorListener | null) {
+    turnSuccessorListener = listener;
+}
+
+export function adoptAssistantTurnSuccessor(binding: IAssistantSessionScopeBinding, successor: IAgentCommandSuccessor) {
+    turnSuccessorListener?.(binding, successor);
 }
 
 export function resolveAssistantMcpSessionScope(explicitWindowId?: number) {

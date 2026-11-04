@@ -7,6 +7,7 @@ import {
     AGENT_WORKSPACE_SNAPSHOT_RESPONSE_SCHEMA,
     type IAgentCommandRequest,
     type IAgentCommandExecutionScope,
+    type IAgentCommandSuccessor,
     type IAgentRendererAck,
     type IAgentWorkspaceSnapshot,
     type IAgentWorkspaceSnapshotRequest,
@@ -65,6 +66,9 @@ interface IPendingRequest<TResponse> {
 
 const pendingSnapshotRequests = new Map<TRequestId, IPendingRequest<IAgentWorkspaceSnapshot>>();
 const pendingCommandRequests = new Map<TRequestId, IPendingRequest<Record<string, unknown>>>();
+// Called while the renderer's response is handled, before it is acknowledged,
+// so main has adopted a command's own successor before the renderer moves on.
+const commandSuccessorHandlers = new Map<TRequestId, (successor: IAgentCommandSuccessor) => void>();
 const snapshotCacheByWindowId = new Map<number, ICachedWorkspaceSnapshot>();
 const snapshotLifecycleByWindowId = new Map<number, IWorkspaceSnapshotLifecycle>();
 let nextSnapshotGeneration = 1;
@@ -404,12 +408,14 @@ export function requestAgentCommand(
     timeoutMs?: number,
     scope?: IAgentCommandExecutionScope,
     signal?: AbortSignal,
+    onSuccessor?: (successor: IAgentCommandSuccessor) => void,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     if (signal?.aborted) {
         return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
     }
     const requestId = createRequestId('agent-command');
+    if (onSuccessor) commandSuccessorHandlers.set(requestId, onSuccessor);
     const effectiveTimeoutMs = resolveAgentCommandRequestTimeoutMs(command, timeoutMs);
     const request: IAgentCommandRequest = {
         requestId,
@@ -428,6 +434,7 @@ export function requestAgentCommand(
         },
         () => sendAgentCommandCancel(window, requestId),
     );
+    pending.catch(() => undefined).finally(() => commandSuccessorHandlers.delete(requestId));
 
     try {
         if (pendingCommandRequests.has(requestId)) {
@@ -582,6 +589,9 @@ export function submitAgentCommandResponse(
         return acceptRendererAck();
     }
 
+    if (response.successor && pendingCommandRequests.has(response.requestId)) {
+        commandSuccessorHandlers.get(response.requestId)?.(response.successor);
+    }
     resolvePendingRequest(
         pendingCommandRequests,
         response.requestId,

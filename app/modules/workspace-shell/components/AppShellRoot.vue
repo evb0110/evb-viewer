@@ -185,6 +185,7 @@
                 v-if="assistantPanelEnabled && assistantPanelOpen && !isFullscreen"
                 :chat-scope="assistantChatScope"
                 :is-chat-scope-pending="assistantChatScopePending"
+                :is-assistant-command-running="assistantCommandRunning"
                 :has-active-document="assistantHasActiveDocument"
                 :has-any-document="assistantHasAnyDocument"
                 :active-document-name="assistantActiveDocumentName"
@@ -277,6 +278,7 @@ import { useWorkspaceToolbarContentPresence } from '@app/modules/workspace-shell
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
+import { useAssistantChatScope } from '@app/modules/workspace-shell/composables/useAssistantChatScope';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
@@ -300,14 +302,11 @@ import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/res
 import { createFallbackToolbarCommandListeners } from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
 import { useScanCleanupRunCoordinator } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
 import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
-import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
-import { parseTabId } from '@contracts/windowTabs';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
 // User-initiated surfaces load on first open; split policy: warmupDesktopViewerChunks.ts.
@@ -751,50 +750,21 @@ function isTabEmpty(tabId: string) {
     return !session || !snapshotOccupiesTab(session.snapshot.value);
 }
 
-const assistantHasActiveDocument = computed(() => (activeTabId.value ? !isTabEmpty(activeTabId.value) : false));
-const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpty(tab.id)));
-const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
-    ? activeTabDocument.value?.fileName ?? null
-    : null);
-const assistantChatScopePending = computed(() => {
-    const phase = activeDocumentSession.value?.snapshot.value.phase;
-    return phase === 'opening' || phase === 'closing';
-});
-const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
-    const session = activeDocumentSession.value;
-    const tabDocument = activeTabDocument.value;
-    if (!session || !tabDocument || !assistantHasActiveDocument.value) {
-        return null;
-    }
-
-    const tabId = parseTabId(activeTabId.value);
-    if (tabId === null) {
-        return null;
-    }
-    const identity = session.snapshot.value.identity;
-    const documentSessionKey = identity.documentSessionKey;
-    const documentInstanceId = identity.documentInstanceId;
-    const documentRef = tabDocument.originalPath;
-    const documentBackend = resolveDocumentRefBackend(documentRef);
-    const documentIdentity = identity.revisionInfo;
-    const commandTarget = session.createCommandTarget(tabId);
-    const title = tabDocument.fileName ?? documentRef ?? null;
-    return {
-        kind: 'document',
-        // Saved chats are looked up by this key after a relaunch, and every
-        // open mints a new document session key, so the key follows the file.
-        key: documentRef
-            ? `document:${documentBackend ?? 'unknown'}:${documentRef}`
-            : `tab:${tabId}`,
-        title,
-        tabId,
-        ...(documentSessionKey ? { documentSessionKey } : {}),
-        ...(documentInstanceId ? { documentInstanceId } : {}),
-        ...(documentRef ? { documentRef } : {}),
-        ...(documentBackend === undefined ? {} : {documentBackend}),
-        ...(documentIdentity ? { documentIdentity } : {}),
-        commandTarget,
-    };
+const {
+    hasActiveDocument: assistantHasActiveDocument,
+    hasAnyDocument: assistantHasAnyDocument,
+    activeDocumentName: assistantActiveDocumentName,
+    chatScopePending: assistantChatScopePending,
+    chatScope: assistantChatScope,
+    commandRunning: assistantCommandRunning,
+} = useAssistantChatScope({
+    activeTabId,
+    tabs,
+    activeDocumentSession,
+    activeTabDocument,
+    isTabEmpty,
+    // Read lazily: the command owner is set up further down.
+    isScopedCommandRunning: tabId => isScopedCommandRunning(tabId),
 });
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
 watch(assistantPanelEnabled, (enabled) => {
@@ -829,7 +799,7 @@ const {
     clearRecentFiles,
 } = useRecentFiles();
 
-useAgentWorkspaceSnapshot({
+const {isScopedCommandRunning} = useAgentWorkspaceSnapshot({
     panes,
     tabs,
     layout,
