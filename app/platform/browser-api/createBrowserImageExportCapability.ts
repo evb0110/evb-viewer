@@ -21,6 +21,7 @@ import {
 } from '@app/platform/browserDocumentStore';
 import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     BrowserFileWriteOutcomeError,
@@ -693,6 +694,12 @@ type TImageExportDestination =
     }
     | {kind: 'download'};
 
+// Keep directory claims, publication and cleanup under their own origin-wide
+// owner. Document saves use a separate lock and remain available.
+function withDirectoryPublication<T>(destination: TImageExportDestination, publish: () => Promise<T>) {
+    return destination.kind === 'directory' ? runBrowserLock('evb-viewer:browser-directory-export', publish) : publish();
+}
+
 // One page goes to the file the person names, in the format its name selects.
 // Several pages go, as on desktop, into one chosen folder under deterministic
 // names, or into one ZIP download where the browser cannot choose a folder.
@@ -756,7 +763,7 @@ async function writeBrowserImagePages(
     if (destination.kind === 'directory') {
         return {
             success: true as const,
-            outputPaths: await exportImagePagesToDirectory(destination.directory, names, targetPages, renderPage, onPageWritten),
+            outputPaths: await withDirectoryPublication(destination, () => exportImagePagesToDirectory(destination.directory, names, targetPages, renderPage, onPageWritten)),
         };
     }
     await exportImagePagesAsZip(names, targetPages, renderPage, onPageWritten);
@@ -895,7 +902,7 @@ async function exportBrowserDjvuAsTiff(
         }
 
         const pageDescriptors = buildDjvuTiffPageDescriptors(sizes, targetPages);
-        return await exportRenderedPagesAsTiff(pageDescriptors, pageNumber => renderBrowserDjvuPage(worker, pageNumber), destination, fileName, requestId);
+        return await withDirectoryPublication(destination, () => exportRenderedPagesAsTiff(pageDescriptors, pageNumber => renderBrowserDjvuPage(worker, pageNumber), destination, fileName, requestId));
     } finally {
         worker.terminate();
     }
@@ -1172,7 +1179,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
 
                 const descriptors = await collectTiffPageDescriptors(pdfDocument.pdfDocument, targetPages);
 
-                return await exportRenderedPagesAsTiff(descriptors, pageNumber => renderPdfPage(pdfDocument.pdfDocument, pageNumber), destination, outputFileName, requestId);
+                return await withDirectoryPublication(destination, () => exportRenderedPagesAsTiff(descriptors, pageNumber => renderPdfPage(pdfDocument.pdfDocument, pageNumber), destination, outputFileName, requestId));
             } finally {
                 await pdfDocument.destroy();
             }

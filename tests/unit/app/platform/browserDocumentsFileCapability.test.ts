@@ -2726,8 +2726,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             saveName: name,
             saveHandle: handle,
         });
+        const updated = await PDFDocument.load(await store.read(working));
+        updated.setTitle('Ordinary Save reaches the physical PDF');
+        await store.write(working, await updated.save(), await getRevisionOptions(store, working));
         await expect(capability.saveFileStructured(working, await getRevisionOptions(store, working))).resolves.toMatchObject({ok: true});
-        expect(await store.getSaveTarget(saved)).toMatchObject({
+        expect((await PDFDocument.load(await (await handle.getFile()).arrayBuffer())).getTitle()).toBe('Ordinary Save reaches the physical PDF');
+        expect(await store.getSaveTarget(source)).toMatchObject({
             saveName: name,
             saveHandle: handle,
         });

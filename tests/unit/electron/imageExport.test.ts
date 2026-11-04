@@ -1318,7 +1318,6 @@ describe('image export', () => {
         mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
 
         const outputPath = join(tempDir, 'exported.png');
-        const tempPath = `${outputPath}.tmp`;
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
 
@@ -1327,7 +1326,7 @@ describe('image export', () => {
             0,
             0,
         ]);
-        expect(existsSync(tempPath)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('refuses an extensionless accepted image destination', async () => {
@@ -2075,7 +2074,6 @@ describe('image export', () => {
         mocks.atomicReplace.mockRejectedValue(new Error('replace failed'));
 
         const outputPath = join(tempDir, 'existing.png');
-        const tempPath = `${outputPath}.tmp`;
         await writeFile(outputPath, 'old-target');
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
@@ -2083,7 +2081,7 @@ describe('image export', () => {
             .toThrow('replace failed');
 
         expect(await readFile(outputPath, 'utf8')).toBe('old-target');
-        expect(existsSync(tempPath)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('removes promoted multi-page image targets when a later promotion fails', async () => {
@@ -2328,7 +2326,7 @@ describe('image export', () => {
             .toThrow('The operation was aborted');
 
         expect(existsSync(outputPath)).toBe(false);
-        expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('keeps the rendered TIFF pages of a window whose native writer may still read them', async () => {
@@ -2805,26 +2803,17 @@ describe('image export', () => {
             join(tempDir, 'page-001.png'),
             join(tempDir, 'page-002.png'),
         ];
-        // The folder turns read-only after the first replacement: the second
-        // backup and the first restore both fail.
-        mocks.atomicReplace.mockImplementationOnce(async (sourcePath: string, targetPath: string) => {
-            await realAtomicReplace.atomicReplace(sourcePath, targetPath);
+        // The folder turns read-only after the first publication: the second
+        // publication and removal of the first published file both fail.
+        mocks.moveFileToMissingPath.mockImplementationOnce(async (sourcePath: string, targetPath: string) => {
+            await realAtomicReplace.moveFileToMissingPath(sourcePath, targetPath);
             await chmod(tempDir, 0o555);
-        }).mockImplementation(realAtomicReplace.atomicReplace);
+        }).mockImplementation(realAtomicReplace.moveFileToMissingPath);
         try {
-            await writeOriginals(targets);
-            const staged = targets.map(target => `${target}.staged`);
-            await Promise.all(staged.map(path => writeFile(path, 'new-image')));
-            const failure = await scratch.using('pdfExport-', scratchPath => promoteStagedFiles(
-                targets.map((targetPath, index) => ({
-                    stagedPath: staged[index]!,
-                    targetPath,
-                    suffix: '',
-                    allowOverwrite: true,
-                })),
-                undefined,
-                scratchPath,
-            )).catch((error: unknown) => error);
+            const failure = await exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'page.png'), {
+                scratch,
+                beforePublish: () => writeOriginals(targets),
+            }).catch((error: unknown) => error);
             expect(readRollbackOutcome(failure)).toBe(RESTORED_ON_NEXT_START);
             expect((await readdir(appTempRoot)).filter(name => name.startsWith('pdfExport-'))).toHaveLength(1);
         } finally {
@@ -2839,6 +2828,11 @@ describe('image export', () => {
         ]);
         expect(listStagedNames(tempDir)).toEqual([]);
         await expect(readdir(appTempRoot)).resolves.toEqual([]);
+        expect((await readdir(tempDir)).sort()).toEqual([
+            'app-temp',
+            'page-001.png',
+            'page-002.png',
+        ]);
     });
 
     it('keeps a target replaced after the crash and puts its original beside it under a free name, on the next start', async () => {

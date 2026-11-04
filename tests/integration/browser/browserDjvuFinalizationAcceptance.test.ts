@@ -516,6 +516,52 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
     });
 
     it.each([
+        1,
+        2,
+        3,
+    ])('keeps every image from two overlapping folder exports: run %s', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallConcurrentFolderAcceptance') === 'function');
+            await page.evaluate(() => Reflect.get(globalThis, '__evbInstallConcurrentFolderAcceptance')());
+            await page.locator('#concurrent-folder-export').click();
+            await page.waitForFunction(() => Boolean(document.querySelector('#concurrent-folder-result')?.textContent));
+            const outcome = JSON.parse(await page.locator('#concurrent-folder-result').innerText()) as {
+                results: Array<{success: boolean}>;
+                savedPages: number;
+                files: Array<{
+                    name: string;
+                    bytesBase64: string;
+                    decodable: boolean
+                }>;
+            };
+            expect(outcome.results.map(result => result.success)).toEqual([
+                true,
+                true,
+            ]);
+            expect(outcome.savedPages).toBe(2);
+            expect(outcome.files.map(file => file.name)).toEqual([
+                'document-pages-001-1.jpg',
+                'document-pages-001.jpg',
+                'document-pages-002-1.jpg',
+                'document-pages-002.jpg',
+            ]);
+            for (const file of outcome.files) {
+                expect(file.decodable).toBe(true);
+                expect(Buffer.from(file.bytesBase64, 'base64').byteLength).toBeGreaterThan(100);
+            }
+        } finally {
+            await browser.close();
+        }
+    });
+
+    it.each([
         'encode',
         'open',
         'write',

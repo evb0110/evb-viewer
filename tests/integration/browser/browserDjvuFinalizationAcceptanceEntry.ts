@@ -808,3 +808,98 @@ async function installTypedPdfSaveAcceptance() {
     }, {once: true});
 }
 Reflect.set(globalThis, '__evbInstallTypedPdfSaveAcceptance', installTypedPdfSaveAcceptance);
+// Hold the first vacancy response until its rival has observed the vacancy or
+// queued on the directory lock. The assertions read real OPFS files; these
+// gates only arrange the reported overlap without wall-clock delays.
+async function installConcurrentFolderAcceptance() {
+    const source = await stagePdfFixture(2);
+    const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+    const {createBrowserDocumentsFileCapability} = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
+    const root = await navigator.storage.getDirectory();
+    const saveHandle = await root.getFileHandle(`concurrent-save-${crypto.randomUUID()}.pdf`, {create: true});
+    Reflect.set(window, 'showSaveFilePicker', async () => saveHandle);
+    const directory = await root.getDirectoryHandle(`concurrent-${crypto.randomUUID()}`, {create: true});
+    Reflect.set(window, 'showDirectoryPicker', async () => directory);
+    const vacancyReached = Promise.withResolvers<undefined>();
+    const vacanciesReleased = Promise.withResolvers<undefined>();
+    const writerOpened = Promise.withResolvers<undefined>();
+    const writerReleased = Promise.withResolvers<undefined>();
+    const getFileHandle = FileSystemDirectoryHandle.prototype.getFileHandle;
+    const createWritable = FileSystemFileHandle.prototype.createWritable;
+    const request = navigator.locks.request;
+    let vacancyReads = 0;
+    let firstPageWriters = 0;
+    let directoryRequests = 0;
+    FileSystemDirectoryHandle.prototype.getFileHandle = async function (name, options) {
+        try {
+            return await getFileHandle.call(this, name, options);
+        } catch (error) {
+            if (this.name === directory.name && name === 'document-pages-001.jpg' && !options?.create
+                && error instanceof DOMException && error.name === 'NotFoundError') {
+                vacancyReads += 1;
+                vacancyReached.resolve(undefined);
+                if (vacancyReads === 2) vacanciesReleased.resolve(undefined);
+                await vacanciesReleased.promise;
+            }
+            throw error;
+        }
+    };
+    Reflect.set(navigator.locks, 'request', function (...args: unknown[]) {
+        if (args[0] === 'evb-viewer:browser-directory-export' && ++directoryRequests === 2) {
+            vacanciesReleased.resolve(undefined);
+            writerReleased.resolve(undefined);
+        }
+        return Reflect.apply(request, navigator.locks, args);
+    });
+    FileSystemFileHandle.prototype.createWritable = async function (options) {
+        if (!/^document-pages-001(?:-\d+)?\.jpg$/u.test(this.name)) return createWritable.call(this, options);
+        firstPageWriters += 1;
+        if (firstPageWriters === 2) {
+            await writerOpened.promise;
+            return createWritable.call(this, options);
+        }
+        const writer = await createWritable.call(this, options);
+        const write = writer.write.bind(writer);
+        writer.write = async chunk => {
+            writerOpened.resolve(undefined);
+            await writerReleased.promise;
+            await write(chunk);
+        };
+        return writer;
+    };
+    document.body.insertAdjacentHTML('beforeend', '<button id="concurrent-folder-export">Export twice</button><output id="concurrent-folder-result"></output>');
+    document.querySelector('#concurrent-folder-export')!.addEventListener('click', async event => {
+        if (!event.isTrusted) throw new Error('Concurrent exports require trusted input');
+        const capability = createBrowserImageExportCapability();
+        const pages = [
+            requirePageNumber(1),
+            requirePageNumber(2),
+        ];
+        try {
+            const first = capability.exportPdfToImages(source, pages, requireRequestId('concurrent-first'), 'pdf');
+            await vacancyReached.promise;
+            const revision = await browserDocumentStore.getDocumentRevision(working);
+            await createBrowserDocumentsFileCapability({clearSearchCaches: () => {}}).savePdfAs(working, undefined, {expectedDocumentRevisionToken: revision.token});
+            const savedPages = (await PDFDocument.load(await (await saveHandle.getFile()).arrayBuffer())).getPageCount();
+            const second = capability.exportPdfToImages(source, pages, requireRequestId('concurrent-rival'), 'pdf')
+                .finally(() => writerReleased.resolve(undefined));
+            const results = await Promise.all([
+                first,
+                second,
+            ]);
+            document.querySelector('#concurrent-folder-result')!.textContent = JSON.stringify({
+                results,
+                savedPages,
+                files: await readDirectoryImages(directory),
+            });
+        } finally {
+            FileSystemDirectoryHandle.prototype.getFileHandle = getFileHandle;
+            FileSystemFileHandle.prototype.createWritable = createWritable;
+            Reflect.set(navigator.locks, 'request', request);
+            await browserDocumentStore.remove(working);
+            await browserDocumentStore.remove(source);
+            await root.removeEntry(saveHandle.name);
+        }
+    }, {once: true});
+}
+Reflect.set(globalThis, '__evbInstallConcurrentFolderAcceptance', installConcurrentFolderAcceptance);

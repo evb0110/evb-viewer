@@ -765,6 +765,11 @@ describe('DjVu image export limits', () => {
         await expect(readFile(targets[1]!, 'utf8')).resolves.toBe('old-2');
         expect(listStagedNames(tempDir)).toEqual([]);
         await expect(readdir(appTempRoot)).resolves.toEqual([]);
+        expect((await readdir(tempDir)).sort()).toEqual([
+            'app-temp',
+            'book-part-001.tif',
+            'book-part-002.tif',
+        ]);
     });
 });
 
