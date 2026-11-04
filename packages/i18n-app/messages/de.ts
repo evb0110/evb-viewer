@@ -1717,6 +1717,7 @@ export default {
         'tiffImages': 'TIFF-Bilder',
     }},
     'errors': {
+        'pdfStructurePreservation': 'Dieser Vorgang wurde abgebrochen, da die Barrierefreiheits-Tags oder Ebenen der PDF-Datei nicht erhalten werden können. Es wurde kein Ergebnis gespeichert.',
         'recent': {
             'load': 'Zuletzt verwendete Dateien konnten nicht geladen werden',
             'remove': 'Datei konnte nicht entfernt werden',

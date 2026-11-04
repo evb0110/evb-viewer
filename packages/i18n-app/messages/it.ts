@@ -1717,6 +1717,7 @@ export default {
         'tiffImages': 'Immagini TIFF',
     }},
     'errors': {
+        'pdfStructurePreservation': 'L’operazione è stata interrotta perché non può preservare i tag di accessibilità o i livelli del PDF. Nessun risultato è stato salvato.',
         'recent': {
             'load': 'Impossibile caricare i file recenti',
             'remove': 'Impossibile rimuovere il file',

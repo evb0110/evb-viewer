@@ -19,9 +19,12 @@ import {existsSync} from 'node:fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type * as NodeCrypto from 'node:crypto';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
+const validatePageStructureMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyMaterializedMock = vi.hoisted(() => vi.fn());
 const getWorkingCopyBackingEntryMock = vi.hoisted(() => vi.fn());
@@ -55,7 +58,12 @@ vi.mock('node:crypto', async (importOriginal) => {
         randomUUID: () => randomUuidMock(),
     };
 });
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => (
+    Array.isArray(args[1]) && args[1][0] === 'validate-page-structure'
+        ? validatePageStructureMock(...args)
+        : runNativeToolCommandMock(...args)
+)}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
@@ -76,6 +84,11 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 describe('page-ops qpdf extract', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        validatePageStructureMock.mockResolvedValue({
+            exitCode: 0,
+            stdout: '{}',
+            stderr: '',
+        });
         vi.unstubAllEnvs();
         ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
         ensureWorkingCopyMaterializedMock.mockImplementation(async (path: string) => ({
@@ -84,6 +97,63 @@ describe('page-ops qpdf extract', () => {
             sourceFingerprint: '',
         }));
         getWorkingCopyBackingEntryMock.mockReturnValue(null);
+    });
+
+    it.each([
+        'read-catalog',
+        'validate-page-structure',
+    ])('encodes the %s structure refusal for message-only IPC transport', async operation => {
+        const refusal = {
+            code: 'invalid-request',
+            message: 'ERR_PDF_STRUCTURE_PRESERVATION: accessibility tags cannot be preserved',
+        };
+        const command = operation === 'read-catalog' ? runNativeToolCommandMock : validatePageStructureMock;
+        command.mockRejectedValueOnce(new Error('Native catalog failed', {cause: Object.assign(new Error(refusal.message), {code: refusal.code})}));
+        const catalog = await import('@electron/features/page-ops/main/readNativePdfCatalog');
+        const read = operation === 'read-catalog' ? catalog.readNativePdfCatalog : catalog.assertNativePageStructureSupported;
+        const error: unknown = await read('/mock/pdf-page-ops', '/tmp/tagged.pdf', {commandLabel: 'test'})
+            .then(() => null, (caught: unknown) => caught);
+        if (!(error instanceof Error)) throw new Error('Catalog admission did not refuse the tagged input');
+        expect(findSerializableErrorEnvelope(new Error(error.message), NATIVE_ERROR_ENVELOPE_SCHEMA)).toEqual(refusal);
+    });
+
+    it('preserves an ordinary native catalog error for diagnostics', async () => {
+        const original = new Error('Catalog input could not be read');
+        runNativeToolCommandMock.mockRejectedValueOnce(original);
+        const {readNativePdfCatalog} = await import('@electron/features/page-ops/main/readNativePdfCatalog');
+        await expect(readNativePdfCatalog('/mock/pdf-page-ops', '/tmp/unreadable.pdf', {commandLabel: 'test'}))
+            .rejects.toBe(original);
+    });
+
+    it('keeps a pre-existing extraction destination exact when native structure admission refuses', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-structure-refusal-'));
+        const source = join(workDir, 'source.pdf');
+        const destination = join(workDir, 'destination.pdf');
+        const original = await readFile(join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+        const sourceBytes = await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/tagged.pdf'));
+        try {
+            await writeFile(source, sourceBytes);
+            await writeFile(destination, original);
+            runNativeToolCommandMock.mockImplementation(async (_binary, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                await writeFile(qpdfArgs.at(-1)!, '%PDF-1.7\nextracted');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+            validatePageStructureMock.mockRejectedValueOnce(new Error('ERR_PDF_STRUCTURE_PRESERVATION: accessibility tags cannot be preserved'));
+            const {extractPages} = await import('@electron/features/page-ops/main/qpdf');
+            await expect(extractPages(source, destination, [1])).rejects.toThrow('ERR_PDF_STRUCTURE_PRESERVATION:');
+            expect(await readFile(destination)).toEqual(original);
+            expect(await readFile(source)).toEqual(sourceBytes);
+        } finally {
+            await rm(workDir, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('holds selected-page print qpdf at spawn and publishes its argument file', async () => {

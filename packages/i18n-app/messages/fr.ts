@@ -1728,6 +1728,7 @@ export default {
         'tiffImages': 'Images TIFF',
     }},
     'errors': {
+        'pdfStructurePreservation': 'Cette opération a été arrêtée car elle ne peut pas préserver les balises d’accessibilité ou les calques du PDF. Aucun résultat n’a été enregistré.',
         'recent': {
             'load': 'Échec du chargement des fichiers récents',
             'remove': 'Échec de la suppression du fichier',

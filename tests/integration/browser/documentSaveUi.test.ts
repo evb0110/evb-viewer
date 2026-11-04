@@ -6,7 +6,7 @@ import {
 } from 'node:fs';
 import {resolve} from 'node:path';
 import {
-    PDFDocument, PDFName, pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject, setTextRenderingMode, TextRenderingMode,
+    PDFDocument, PDFDict, PDFHexString, PDFName, pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject, setTextRenderingMode, TextRenderingMode,
 } from 'pdf-lib';
 import {spawnSync} from 'node:child_process';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -23,6 +23,173 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+
+    // T3/T4: geometry appends to signed bytes, and a page subset keeps only its form membership.
+    it.each([
+        'rotate',
+        'crop',
+    ] as const)('preserves the historical CMS digest after real browser %s and Save', async operation => {
+        const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/signed.pdf'));
+        const evidence = resolve('.devkit/fixes16/evidence/signed-browser');
+        mkdirSync(evidence, {recursive: true});
+        const original = await PDFDocument.load(source);
+        const signature = original.context.enumerateIndirectObjects().find(([
+            , object,
+        ]) => object instanceof PDFDict && object.has(PDFName.of('ByteRange')))?.[1];
+        if (!(signature instanceof PDFDict)) throw new Error('Fixture signature missing');
+        const contents = signature.get(PDFName.of('Contents'));
+        if (!(contents instanceof PDFHexString)) throw new Error('Fixture CMS missing');
+        const der = Buffer.from(contents.asBytes());
+        writeFileSync(resolve(evidence, 'signature.der'), der);
+        const verify = (bytes: Buffer, label: string) => {
+            const ranges = bytes.toString('latin1').match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/u);
+            if (!ranges) throw new Error('Saved signature ByteRange missing');
+            const [
+                a,
+                b,
+                c,
+                d,
+            ] = ranges.slice(1).map(Number) as [number, number, number, number];
+            writeFileSync(resolve(evidence, `${label}.ranges.bin`), Buffer.concat([
+                bytes.subarray(a, a + b),
+                bytes.subarray(c, c + d),
+            ]));
+            const result = spawnSync('openssl', [
+                'cms',
+                '-verify',
+                '-binary',
+                '-inform',
+                'DER',
+                '-in',
+                resolve(evidence, 'signature.der'),
+                '-content',
+                resolve(evidence, `${label}.ranges.bin`),
+                '-noverify',
+                '-out',
+                resolve(evidence, `${label}.verified.bin`),
+            ], {encoding: 'utf8'});
+            writeFileSync(resolve(evidence, `${label}.cms.log`), result.stderr);
+            expect(result.status, `${label}: ${result.stderr}`).toBe(0);
+        };
+        verify(source, 'original');
+
+        const context = await lifecycle.browser.newContext({acceptDownloads: true});
+        const page = await context.newPage();
+        try {
+            await openPdfFromChooser(page, {
+                name: 'signed.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            await settleActiveOpen(page);
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+            if (operation === 'rotate') {
+                await clickCenter(page, '[data-thumbnail-page="1"]', 'right');
+                await page.getByRole('menuitem', {
+                    name: 'Rotate Clockwise',
+                    exact: true,
+                }).click();
+            } else {
+                await page.getByRole('button', {
+                    name: 'Crop Pages',
+                    exact: true,
+                }).click();
+                const overlay = page.locator('.crop-overlay.is-active').first();
+                await overlay.waitFor();
+                const box = await overlay.boundingBox();
+                if (!box) throw new Error('Crop overlay has no painted rectangle');
+                await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+                await page.mouse.down();
+                await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.8, {steps: 8});
+                await page.mouse.up();
+                await page.getByRole('button', {
+                    name: 'Apply Crop',
+                    exact: true,
+                }).click();
+            }
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress: boolean}>(['isPageOperationInProgress']).isPageOperationInProgress === false;
+            });
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const path = await (await download).path();
+            if (!path) throw new Error('Signed Save As produced no download');
+            const saved = readFileSync(path);
+            writeFileSync(resolve(evidence, `${operation}.pdf`), saved);
+            await page.screenshot({path: resolve(evidence, `${operation}.png`)});
+            verify(saved, operation);
+            expect(saved.subarray(0, source.length)).toEqual(source);
+            const reopened = await PDFDocument.load(saved);
+            if (operation === 'rotate') expect(reopened.getPage(0).getRotation().angle).toBe(90);
+            else expect(reopened.getPage(0).getCropBox().width).toBeLessThan(original.getPage(0).getCropBox().width);
+        } finally {
+            await context.close();
+        }
+    });
+
+    it.each([
+        'delete',
+        'extract',
+    ] as const)('removes deleted-page form values after browser %s through the page menu', async operation => {
+        const source = readFileSync(resolve('tests/fixtures/electron/pdf-preservation/forms.pdf'));
+        const context = await lifecycle.browser.newContext({acceptDownloads: true});
+        const page = await context.newPage();
+        try {
+            await openPdfFromChooser(page, {
+                name: 'forms.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor();
+            await settleActiveOpen(page);
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Pages',
+                exact: true,
+            }).click();
+            await clickCenter(page, `[data-thumbnail-page="${operation === 'delete' ? 2 : 1}"]`, 'right');
+            const download = page.waitForEvent('download');
+            await page.getByRole('menuitem', {
+                name: operation === 'delete' ? 'Delete Pages' : 'Extract to New PDF',
+                exact: true,
+            }).click();
+            if (operation === 'delete') {
+                await expect.poll(() => page.locator('.page-controls-total').first().innerText()).toBe('1');
+                await page.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).click();
+            }
+            const path = await (await download).path();
+            if (!path) throw new Error('Page operation produced no downloaded PDF');
+            const evidence = resolve('.devkit/fixes16/evidence/forms-browser');
+            mkdirSync(evidence, {recursive: true});
+            writeFileSync(resolve(evidence, `${operation}.pdf`), readFileSync(path));
+            await page.screenshot({path: resolve(evidence, `${operation}.png`)});
+            const saved = await PDFDocument.load(readFileSync(path));
+            expect(saved.getPageCount()).toBe(1);
+            expect(saved.getForm().getFields().map(field => field.getName())).toEqual(['retained']);
+            expect(saved.getForm().getTextField('retained').getText()).toBe('VISIBLE');
+        } finally {
+            await context.close();
+        }
+    });
+
 
     it('saves a note and rotation in a PDF over 16 MiB', async () => {
         const context = await lifecycle.browser.newContext({

@@ -687,6 +687,8 @@ mod platform {
                         c"/Names",
                         c"/AcroForm",
                         c"/AF",
+                        c"/StructTreeRoot",
+                        c"/OCProperties",
                     ][..],
                     QpdfMetadataPurpose::Conformance => {
                         &[c"/Type", c"/AcroForm", c"/StructTreeRoot"][..]

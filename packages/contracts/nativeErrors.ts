@@ -2,7 +2,9 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
+import {
+    SERIALIZABLE_ERROR_ENVELOPE_SCHEMA, findSerializableErrorEnvelope,
+} from '@contracts/serializableError';
 import * as v from 'valibot';
 
 export const NATIVE_ERROR_CODES = [
@@ -33,4 +35,18 @@ export function isNativeErrorEnvelope(value: unknown): value is INativeErrorEnve
 
 export function hasNativeErrorCode(value: unknown): value is {code: TNativeErrorCode} {
     return isRecord(value) && isOneOf(NATIVE_ERROR_CODES, value.code);
+}
+
+const PDF_STRUCTURE_REFUSAL_SCHEMA = v.object({
+    ...NATIVE_ERROR_ENVELOPE_SCHEMA.entries,
+    code: v.literal('invalid-request'),
+    message: v.pipe(v.string(), v.check(message => message.startsWith('ERR_PDF_STRUCTURE_PRESERVATION:'))),
+});
+
+export function findPdfStructurePreservationRefusal(value: unknown) {
+    return findSerializableErrorEnvelope(value, PDF_STRUCTURE_REFUSAL_SCHEMA);
+}
+
+export function isPdfStructurePreservationRefusal(value: unknown): boolean {
+    return findPdfStructurePreservationRefusal(value) !== null;
 }

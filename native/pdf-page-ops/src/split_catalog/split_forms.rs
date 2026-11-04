@@ -8,12 +8,25 @@ pub(crate) fn split_form(
     target: &mut Document,
     annotations: &SplitAnnotationMap,
 ) -> Result<Option<Dictionary>> {
+    split_form_with_copy(source, target, annotations, &mut |object| Ok(object))
+}
+
+pub(crate) fn split_form_with_copy(
+    source: &Document,
+    target: &mut Document,
+    annotations: &SplitAnnotationMap,
+    copy: &mut impl FnMut(Object) -> Result<Object>,
+) -> Result<Option<Dictionary>> {
     if let Ok(form) = source.catalog()?.get(b"AcroForm") {
-        let mut form = source.resolved(form)?.as_dict()?.clone();
+        let source_form = source.resolved(form)?.as_dict()?;
+        let mut form = source_form.clone();
+        form.remove(b"Fields");
+        form.remove(b"CO");
+        let mut form = copy(Object::Dictionary(form))?.as_dict()?.clone();
         let mut state = CatalogWalkState::new();
         let mut fields = HashMap::new();
         let mut roots = Vec::new();
-        for field in form
+        for field in source_form
             .get(b"Fields")
             .ok()
             .and_then(|fields| source.resolved(fields).ok())
@@ -25,18 +38,18 @@ pub(crate) fn split_form(
                 source,
                 target,
                 field,
-                None,
-                None,
+                (None, None),
                 annotations,
                 &mut fields,
                 &mut state,
+                copy,
                 0,
             )? {
                 roots.push(field.into());
             }
         }
         form.set("Fields", roots);
-        if let Ok(order) = form.get(b"CO") {
+        if let Ok(order) = source_form.get(b"CO") {
             let order = source
                 .resolved(order)?
                 .as_array()?
@@ -66,11 +79,12 @@ fn split_form_field(
     source: &Document,
     target: &mut Document,
     object: &Object,
-    parent: Option<ObjectId>,
-    field_type: Option<&[u8]>,
+    // The parent field and the field type it passes down.
+    (parent, field_type): (Option<ObjectId>, Option<&[u8]>),
     annotations: &SplitAnnotationMap,
     fields: &mut HashMap<ObjectId, ObjectId>,
     state: &mut CatalogWalkState,
+    copy: &mut impl FnMut(Object) -> Result<Object>,
     depth: usize,
 ) -> Result<Vec<ObjectId>> {
     if depth >= 256 || !state.enter(object) {
@@ -84,13 +98,17 @@ fn split_form_field(
         .and_then(|value| source.resolved(value).ok())
         .and_then(|value| value.as_name().ok())
         .or(field_type);
-    let mut field = field.clone();
-    let widget = field
+    let source_field = field;
+    let widget = source_field
         .get(b"Subtype")
         .ok()
         .and_then(|value| source.resolved(value).ok())
         .and_then(|value| value.as_name().ok())
         == Some(b"Widget");
+    let mut field = source_field.clone();
+    field.remove(b"Kids");
+    field.remove(b"Parent");
+    let mut field = copy(Object::Dictionary(field))?.as_dict()?.clone();
     let id = if widget {
         let copies = source_id.and_then(|id| annotations.get(&id));
         let Some(copies) = copies.filter(|copies| !copies.is_empty()) else {
@@ -144,9 +162,9 @@ fn split_form_field(
         id
     } else {
         let id = target.new_object_id();
-        if let Ok(kids) = field.get(b"Kids") {
+        if let Ok(kids) = source_field.get(b"Kids") {
             let kids = source.resolved(kids)?.as_array()?;
-            let options = field
+            let options = source_field
                 .get(b"Opt")
                 .ok()
                 .and_then(|value| source.resolved(value).ok())
@@ -159,16 +177,16 @@ fn split_form_field(
                     source,
                     target,
                     child,
-                    Some(id),
-                    field_type,
+                    (Some(id), field_type),
                     annotations,
                     fields,
                     state,
+                    copy,
                     depth + 1,
                 )? {
                     kept.push(Object::Reference(child));
                     if let Some(options) = options {
-                        kept_options.push(options[index].clone());
+                        kept_options.push(copy(options[index].clone())?);
                     }
                 }
             }

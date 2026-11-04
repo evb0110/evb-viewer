@@ -1729,6 +1729,7 @@ export default {
         'tiffImages': 'Imagens TIFF',
     }},
     'errors': {
+        'pdfStructurePreservation': 'Esta operação foi interrompida porque não consegue preservar as tags de acessibilidade ou as camadas do PDF. Nenhum resultado foi salvo.',
         'recent': {
             'load': 'Falha ao carregar arquivos recentes',
             'remove': 'Falha ao remover arquivo',

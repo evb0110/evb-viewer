@@ -1717,6 +1717,7 @@ export default {
         'tiffImages': 'TIFF Images',
     }},
     'errors': {
+        'pdfStructurePreservation': 'This operation was stopped because it cannot preserve the PDF’s accessibility tags or layers. No result was saved.',
         'recent': {
             'load': 'Failed to load recent files',
             'remove': 'Failed to remove file',

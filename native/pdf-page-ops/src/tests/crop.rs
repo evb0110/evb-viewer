@@ -1,3 +1,17 @@
+fn crop_pages(document: &mut Document, pages: &[u32], margins: CropMargins) -> Result<()> {
+    let source = save_document_to_bytes(document)?;
+    let result = crop_browser_pdf_bytes(&source, pages, margins)?;
+    *document = Document::load_mem(&result.data)?;
+    Ok(())
+}
+
+fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
+    let source = save_document_to_bytes(document)?;
+    let result = remove_crop_browser_pdf_bytes(&source, pages)?;
+    *document = Document::load_mem(&result.data)?;
+    Ok(())
+}
+
 #[test]
 fn crops_pages_using_inherited_media_box() {
     let (mut document, page_id) = create_test_document();
