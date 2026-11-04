@@ -652,6 +652,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     const nativeDjvu = await shouldUseNativeDesktopDjvuPreview(djvuPath);
     const nativeTextSearch = createNativeDjvuTextSearchBridge(djvuPath);
     if (nativeDjvu) {
+        const {
+            getOutline: getNativeOutline,
+            getPageText: getNativePageText,
+        } = nativeDjvu;
         let terminated = false;
         let nextPreviewRequestId = 0;
         const activePreviewRequestIds = new Set<TRequestId>();
@@ -691,6 +695,9 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 requirePageNumber(pageNumber),
             ),
             ...(nativeTextSearch ? {searchText: nativeTextSearch.searchText} : {}),
+            // The sidebar's bookmarks and the text layer read these, as from djvu.js.
+            ...(getNativeOutline ? {getOutline: () => getNativeOutline(djvuPath)} : {}),
+            ...(getNativePageText ? {getPageText: (pageNumber: number) => getNativePageText(djvuPath, requirePageNumber(pageNumber))} : {}),
             async renderPageObjectUrl(
                 pageNumber: number,
                 options?: IDjvuPagePreviewOptions,

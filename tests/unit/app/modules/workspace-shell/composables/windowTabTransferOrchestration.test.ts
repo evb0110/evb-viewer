@@ -49,6 +49,8 @@ import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { cast } from '@tests/helpers/cast';
 import {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
+import * as pageOpsHandlers from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import {useWorkspaceViewerShellState} from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 
 const transferAckMock = vi.hoisted(() => vi.fn(async (_ack: {
     transferId: string;
@@ -85,6 +87,129 @@ function createTab(id: string): ITab {
 }
 
 describe('window tab transfer orchestration helpers', () => {
+    it.each([
+        'left',
+        'right',
+    ])('invalidates thumbnail state in every linked view when %s is active', async activeTab => {
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useToast', () => ({
+            add: vi.fn(),
+            remove: vi.fn(),
+            update: vi.fn(),
+        }));
+        const nuxtState = new Map<string, unknown>();
+        vi.stubGlobal('useState', (key: string, initialValue?: () => unknown) => {
+            if (!nuxtState.has(key)) {
+                nuxtState.set(key, shallowRef(initialValue?.()));
+            }
+            return nuxtState.get(key);
+        });
+        vi.stubGlobal('useCookie', (_key: string, options?: {default?: () => unknown}) => shallowRef(options?.default?.() ?? null));
+        vi.stubGlobal('useRuntimeConfig', () => ({public: {
+            analyticsEnabled: false,
+            landingUrl: '',
+            siteUrl: '',
+        }}));
+        vi.stubGlobal('useRoute', () => ({path: '/'}));
+        onTestFinished(() => {
+            vi.unstubAllGlobals();
+            vi.restoreAllMocks();
+        });
+
+        // Exercise the document's page-operation boundary and observe the real
+        // per-view state consumed by thumbnail rails, without mocking the views.
+        let invalidate!: pageOpsHandlers.IPageOpsHandlersDeps['invalidateThumbnailPages'];
+        const createPageOpsHandlers = pageOpsHandlers.usePageOpsHandlers;
+        vi.spyOn(pageOpsHandlers, 'usePageOpsHandlers').mockImplementation(deps => {
+            invalidate = deps.invalidateThumbnailPages;
+            return createPageOpsHandlers(deps);
+        });
+        const controller = createWorkspaceDocumentController({tabId: 'left'});
+        controller.addView('right');
+        let context!: ReturnType<typeof createDocumentContext>;
+        const states: Array<ReturnType<typeof useWorkspaceViewerShellState>> = [];
+        let detachPeer!: () => void;
+        const app = createApp({setup() {
+            context = createDocumentContext({controller});
+            for (const tabId of [
+                'left',
+                'right',
+            ]) {
+                const view = useWorkspaceViewerShellState();
+                view.totalPages.value = 5;
+                view.setSelectedThumbnailPages([tabId === 'left' ? 1 : 5]);
+                states.push(view);
+                const detach = context.views.attachView(cast<IDocumentViewPort>({
+                    tabId,
+                    isActive: ref(tabId === activeTab),
+                    openSurface: createDocumentOpenSurfaceSession(),
+                    view,
+                    search: {
+                        resetSearchCache: vi.fn(),
+                        closeSearch: vi.fn(),
+                    },
+                    navigation: {
+                        canUndo: ref(false),
+                        canRedo: ref(false),
+                    },
+                    pageContextMenu: {closePageContextMenu: vi.fn()},
+                    closeAnnotationContextMenu: vi.fn(),
+                    annotationTool: ref('none'),
+                }));
+                if (tabId !== activeTab) detachPeer = detach;
+            }
+            return () => null;
+        }});
+        const host = document.createElement('div');
+        document.body.append(host);
+        app.mount(host);
+        onTestFinished(() => {
+            app.unmount();
+            host.remove();
+        });
+        await nextTick();
+
+        for (const rotationOnly of [
+            false,
+            true,
+        ]) {
+            invalidate([
+                2,
+                4,
+            ], 'revision-after-crop', {rotationOnly});
+            for (const view of states) {
+                expect(view.thumbnailInvalidationRequest.value).toEqual({
+                    id: rotationOnly ? 2 : 1,
+                    pages: [
+                        2,
+                        4,
+                    ],
+                    expectedDocumentRevision: 'revision-after-crop',
+                    ...(rotationOnly ? {rotationOnly: true} : {}),
+                });
+            }
+        }
+        expect(states.map(view => view.selectedThumbnailPages.value)).toEqual([
+            [1],
+            [5],
+        ]);
+        detachPeer();
+        invalidate([3]);
+        expect(states.find((_view, index) => [
+            'left',
+            'right',
+        ][index] === activeTab)?.thumbnailInvalidationRequest.value)
+            .toEqual({
+                id: 3,
+                pages: [3],
+            });
+        expect(states.find((_view, index) => [
+            'left',
+            'right',
+        ][index] !== activeTab)?.thumbnailInvalidationRequest.value?.id)
+            .toBe(2);
+    });
+
     it('collects pane order by stable layout traversal', () => {
         const layout: TEditorLayoutNode = {
             type: 'split',

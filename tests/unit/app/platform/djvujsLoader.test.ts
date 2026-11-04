@@ -338,6 +338,39 @@ describe('DjVu document components', () => {
         return vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(async (_ref, offset, length) => bytes.slice(offset, offset + length));
     }
 
+    it('exposes native outline and page text for an indirect desktop DjVu source', async () => {
+        const path = requireDocumentRef('/books/indirect/index.djvu');
+        const outline = [{
+            title: 'Глава café',
+            pageNumber: requirePageNumber(2),
+            children: [],
+        }];
+        const electronAPI = createElectronPlatformApiFixture({
+            documentFiles: {
+                statFile: async () => ({size: index.byteLength}),
+                readFileRange: async (_path, start, length) => index.slice(start, start + length),
+            },
+            djvu: {
+                getOutline: async documentRef => documentRef === path ? outline : [],
+                getPageText: async (documentRef, pageNumber) => (
+                    documentRef === path && pageNumber === 2 ? 'Native page text: 続き' : ''
+                ),
+            },
+        });
+        vi.stubGlobal('window', {electronAPI});
+
+        const source = await createDjvuPagePreviewSourceFromPath(path);
+        try {
+            expect(source.getOutline).toBeTypeOf('function');
+            expect(source.getPageText).toBeTypeOf('function');
+            await expect(source.getOutline!()).resolves.toEqual(outline);
+            await expect(source.getPageText!(2)).resolves.toBe('Native page text: 続き');
+            expect(() => source.getPageText!(0)).toThrow();
+        } finally {
+            source.terminate();
+        }
+    });
+
     it('refuses a browser index without a sibling-file grant before missing page geometry escapes', async () => {
         vi.stubGlobal('window', {DjVu: installWorker().djvuGlobal});
         stubBrowserSource(index);

@@ -8,6 +8,7 @@ import {
     getDjvuHasText,
     getDjvuMetadata,
     getDjvuOutline,
+    getDjvuPageComponentMap,
     getDjvuPageCount,
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
@@ -905,9 +906,19 @@ export async function handleDjvuGetOutline(
     if (!isAllowedDjvuViewingPath(normalizedDjvuPath, context.senderId)) {
         throw new Error('DjVu viewing path is not active');
     }
-    return parseDjvuOutline(
-        await getOptionalDjvuOutline(normalizedDjvuPath),
-    ).map(mapDjvuOutlineItem);
+    // An indirect document's outline can name its pages by component file.
+    const [
+        outline,
+        components,
+    ] = await Promise.all([
+        getOptionalDjvuOutline(normalizedDjvuPath),
+        getDjvuPageComponentMap(normalizedDjvuPath).catch((error: unknown) => {
+            if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            logger.debug(`Failed to read optional DjVu page components for ${normalizedDjvuPath}: ${String(error)}`);
+            return new Map<string, number>();
+        }),
+    ]);
+    return parseDjvuOutline(outline, components).map(mapDjvuOutlineItem);
 }
 
 export async function handleDjvuGetPageSourceInfo(

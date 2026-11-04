@@ -1,4 +1,5 @@
 import {existsSync} from 'node:fs';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     captureWorkingCopyAdmissionSnapshot,
     getWorkingCopyBackingEntry,
@@ -57,6 +58,9 @@ async function assertOriginalBackingCurrent(
     if (!await workingCopyAdmissionSnapshotsMatch(currentSnapshot, entry.admissionSnapshot, entry.originalPath, entry.originalFileExpectation)) {
         throwBackingError(entry, logicalRef, 'SOURCE_BACKING_CHANGED');
     }
+    if (entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE') {
+        delete entry.sourceBackingErrorCode;
+    }
 }
 
 /**
@@ -88,22 +92,31 @@ export async function runWithWorkingCopyReadBacking<TResult>(
                 // separate original whose mtime could drift underneath us.
                 return operation(logicalRef, () => Promise.resolve());
             }
-            if (
-                currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-            ) {
+            if (currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED') {
                 throw new WorkingCopyMaterializationError(
-                    currentEntry.sourceBackingErrorCode,
-                    currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                        ? 'The original document changed after it was opened'
-                        : 'The original document is unavailable',
+                    'SOURCE_BACKING_CHANGED',
+                    'The original document changed after it was opened',
                 );
             }
             await assertOriginalBackingCurrent(currentEntry, logicalRef);
-            const result = await operation(
-                currentEntry.originalPath,
-                () => assertOriginalBackingCurrent(currentEntry, logicalRef),
-            );
+            let result: TResult;
+            try {
+                result = await operation(
+                    currentEntry.originalPath,
+                    () => assertOriginalBackingCurrent(currentEntry, logicalRef),
+                );
+            } catch (error) {
+                try {
+                    await assertOriginalBackingCurrent(currentEntry, logicalRef);
+                } catch (snapshotError) {
+                    if (getUnprovenNativeTerminationDetail(error) === undefined) throw snapshotError;
+                    throw new AggregateError([
+                        error,
+                        snapshotError,
+                    ], 'Read and source backing validation failed');
+                }
+                throw error;
+            }
             // Callers that publish something durable check freshness themselves
             // at the moment of publication; this trailing check is for the ones
             // whose result is only meaningful if the file held still throughout.

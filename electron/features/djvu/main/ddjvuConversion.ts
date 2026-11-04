@@ -22,6 +22,7 @@ import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import {
+    assertDjvuSourceIdentity,
     createDjvuDiskQuotaMonitor,
     openDjvuArtifactJob,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
@@ -252,6 +253,14 @@ async function _convertDjvuToPdfWithRanges(
                 firstError = `Converted pages ${chunk.startPage}-${chunk.endPage} produced an empty artifact`;
                 return firstError;
             }
+            // A range read after the source changed renders another revision.
+            // It is not kept, and the export fails rather than fall back to
+            // rendering the changed source whole.
+            await assertDjvuSourceIdentity(inputPath, artifactJob.sourceIdentity, options.signal).catch(async (error: unknown) => {
+                await cleanupPartialOutput(chunk.outputPath);
+                await cancelConversion(jobId);
+                throw error;
+            });
             try {
                 await quotaMonitor.checkNow();
                 await artifactJob.updateRange(chunk.index, {

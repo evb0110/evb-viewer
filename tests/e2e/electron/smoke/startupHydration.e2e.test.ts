@@ -8,7 +8,7 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
-    mkdtempSync, copyFileSync,
+    mkdtempSync, copyFileSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -18,6 +18,11 @@ import {
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {createNewWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
+    activateMenuItemAsUser,
+    clickAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 
 const HYDRATION_CONSOLE_QUIET_WINDOW_MS = 1_500;
 const HYDRATION_CONSOLE_POLL_INTERVAL_MS = 100;
@@ -26,6 +31,99 @@ const STARTUP_READY_MAX_WAIT_MS = 60_000;
 const TOOLBAR_STARTUP_SAMPLE_WINDOW_MS = 1_800;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_STARTUP_SHIFT_PX = 2;
+
+describe('Electron E2E - startup external-open ownership', () => {
+    it('opens one encrypted startup document after a password wait longer than 30 seconds', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-startup-claim-evidence-'));
+        const requested = join(directory, 'encrypted-startup.pdf');
+        writeFileSync(requested, Buffer.from(readFileSync(
+            resolve('tests/fixtures/electron/password-protected.pdf.b64'), 'utf8',
+        ).trim(), 'base64'));
+        let session: IElectronE2ESession | null = null;
+        try {
+            session = await startElectronE2ESession(`e2e-startup-claim-${Date.now()}`, {
+                initialOpenPaths: [requested],
+                extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: requested},
+            });
+            const {page} = session;
+            const passwordInput = '[role="dialog"] input[type="password"]';
+            await page.waitForSelector(passwordInput, {visible: true});
+            await page.screenshot({path: join(directory, 'password-prompt.png')});
+            const holdStartedAt = Date.now();
+            // Bounded harness hold reproduces a person leaving the real prompt open.
+            await delay(31_000);
+            const heldForMs = Date.now() - holdStartedAt;
+            await page.screenshot({path: join(directory, 'held-password-prompt.png')});
+            expect(heldForMs).toBeGreaterThan(30_000);
+            expect(await page.evaluate(() => Boolean(document.getElementById('evb-startup-overlay'))),
+                'the startup loading overlay must not cover the password prompt').toBe(false);
+            await clickAsUser(page, passwordInput);
+            await page.keyboard.type('frame-secret');
+            await page.keyboard.press('Enter');
+            await waitForPdfLoaded(page);
+            await page.waitForFunction(() => (
+                (window as IE2EWindow).__evbTestApi?.isStartupOpenClaimPending() === false
+            ));
+            // Observe the manager's queued delivery after startup has settled.
+            await delay(HYDRATION_CONSOLE_QUIET_WINDOW_MS);
+            const first = await readWorkspaceStateValues(page, [
+                'documentIdentity',
+                'originalPath',
+            ]);
+            const startup = await page.evaluate(() => ({
+                passwordPrompts: document.querySelectorAll('[role="dialog"] input[type="password"]').length,
+                tabs: Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]')).map(tab => ({
+                    id: tab.dataset.tabId,
+                    label: tab.querySelector('.tab-label')?.textContent?.trim(),
+                })),
+            }));
+            writeFileSync(join(directory, 'startup.json'), JSON.stringify({
+                heldForMs,
+                first,
+                startup,
+            }, null, 2));
+            await page.screenshot({path: join(directory, 'startup-settled.png')});
+            console.log(`[startup claim evidence] ${directory}`);
+            expect(startup.passwordPrompts, 'one startup request must not prompt again').toBe(0);
+            expect(startup.tabs).toHaveLength(1);
+            expect(first.originalPath).toBe(requested);
+            expect(first.documentIdentity).toBeTruthy();
+
+            // T4: opening the same source in a new tab creates its own document.
+            await createNewWorkspaceTab(session);
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+            await page.waitForSelector(passwordInput, {visible: true});
+            await clickAsUser(page, passwordInput);
+            await page.keyboard.type('frame-secret');
+            await page.keyboard.press('Enter');
+            await waitForPdfLoaded(page);
+            await page.waitForFunction(() => (
+                document.querySelectorAll('.tab[data-tab-id]').length === 2
+                && !document.querySelector('[role="dialog"] input[type="password"]')
+            ));
+            const second = await readWorkspaceStateValues(page, [
+                'documentIdentity',
+                'originalPath',
+            ]);
+            expect(second.originalPath).toBe(requested);
+            expect(second.documentIdentity).toBeTruthy();
+            expect(second.documentIdentity).not.toEqual(first.documentIdentity);
+            await clickAsUser(page, `.tab[data-tab-id="${startup.tabs[0]!.id}"]`);
+            expect((await readWorkspaceStateValues(page, ['documentIdentity'])).documentIdentity).toEqual(first.documentIdentity);
+            writeFileSync(join(directory, 'deliberate-open.json'), JSON.stringify({
+                first,
+                second,
+            }, null, 2));
+            await page.screenshot({path: join(directory, 'deliberate-open.png')});
+        } catch (error) {
+            await session?.captureFailureArtifacts('startup-claim-password-wait');
+            throw error;
+        } finally {
+            await session?.stop({preserveArtifacts: true});
+            await rm(requested, {force: true});
+        }
+    });
+});
 
 describe.skipIf(process.platform === 'win32')('Electron E2E - literal POSIX quoted filename', () => {
     it('opens and renders a literal quoted PDF filename on a cold CLI launch', async () => {

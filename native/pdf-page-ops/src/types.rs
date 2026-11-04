@@ -316,6 +316,27 @@ impl PdfRect {
     }
 }
 
+pub(crate) fn read_normalized_rect(
+    document: &impl PdfObjectSource,
+    object: &Object,
+) -> Result<Option<PdfRect>> {
+    let values = document.resolved(object)?.as_array()?;
+    if values.len() != 4 {
+        return Ok(None);
+    }
+    let mut numbers = [0.0; 4];
+    for (slot, value) in numbers.iter_mut().zip(values) {
+        *slot = object_to_f64(document.resolved(value)?)?;
+    }
+    let rect = PdfRect {
+        x1: numbers[0].min(numbers[2]),
+        y1: numbers[1].min(numbers[3]),
+        x2: numbers[0].max(numbers[2]),
+        y2: numbers[1].max(numbers[3]),
+    };
+    Ok((rect.width() > 0.0 && rect.height() > 0.0).then_some(rect))
+}
+
 const PDF_REFERENCE_LIMIT: usize = 128;
 const PAGE_TREE_DEPTH_LIMIT: usize = 256;
 
