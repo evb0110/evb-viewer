@@ -1880,58 +1880,140 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
     assert!(get_page_annots(&revision, page_id).unwrap().is_empty());
 }
 
+fn saved_annotation_regression(
+    source: &Document,
+    mutations: &NativeMutationsFile,
+    route: &str,
+    modified_at: &str,
+) -> Document {
+    let mut source = source.clone();
+    let mut bytes = Vec::new();
+    source.save_to(&mut bytes).unwrap();
+    let saved = match route {
+        "full" => {
+            let mut document = Document::load_mem(&bytes).unwrap();
+            apply_native_mutations(&mut document, mutations, modified_at).unwrap();
+            let mut saved = Vec::new();
+            document.save_to(&mut saved).unwrap();
+            saved
+        }
+        "path" => {
+            let path = temp_pdf_path("annotation-fidelity");
+            write(&path, &bytes).unwrap();
+            append_native_mutations(&path, &path, mutations, modified_at).unwrap();
+            let saved = read(&path).unwrap();
+            remove_file(path).unwrap();
+            assert!(saved.starts_with(&bytes));
+            saved
+        }
+        "bytes" => {
+            append_native_mutations_to_bytes(&bytes, mutations, modified_at)
+                .unwrap()
+                .data
+        }
+        _ => panic!("unknown save route"),
+    };
+    Document::load_mem(&saved).unwrap()
+}
+
+fn add_shape_discussion(
+    document: &mut Document,
+    page_id: ObjectId,
+    parent: ObjectId,
+) -> (ObjectId, ObjectId) {
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "Parent" => parent,
+        "P" => page_id, "Rect" => vec![10.into(), 10.into(), 40.into(), 40.into()],
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "IRT" => parent,
+        "P" => page_id, "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        "Contents" => Object::string_literal("Important reply"),
+    });
+    document
+        .get_dictionary_mut(parent)
+        .unwrap()
+        .set("Popup", popup);
+    (popup, reply)
+}
+
 #[test]
 fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys() {
     let (mut document, page_id) = create_test_document();
     let mut shape = shape_with_stale_appearance("Square");
-    shape.set("NM", Object::string_literal("bare-shape"));
-    shape.set("RC", Object::string_literal("<p>rich shape</p>"));
+    shape.remove(b"AP");
+    shape.set("NM", Object::string_literal("acrobat-square"));
+    shape.set("Contents", Object::string_literal("Parent discussion"));
+    shape.set("RC", Object::string_literal("<p>Parent discussion</p>"));
     shape.set("State", Object::Name(b"Accepted".to_vec()));
-    shape.set("IRT", Object::Reference((900, 0)));
+    shape.set("CreationDate", Object::string_literal("D:19691231235959Z"));
     shape.set("UnknownKey", Object::Integer(77));
-    let shape_id = document.add_object(Object::Dictionary(shape));
-    document
-        .get_dictionary_mut(page_id)
-        .unwrap()
-        .set("Annots", vec![Object::Reference(shape_id)]);
+    let shape_id = document.add_object(shape);
+    let (popup_id, reply_id) = add_shape_discussion(&mut document, page_id, shape_id);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![shape_id.into(), popup_id.into(), reply_id.into()],
+    );
     let before = document.get_dictionary(shape_id).unwrap().clone();
-    let mut requested = rectangle_shape("bare-shape", "#112233");
-    requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
-
-    apply_shape_annotations(
-        &mut document,
-        &ShapesMutation {
-            total_pages: 1,
-            rewrite_shape_state: true,
-            shapes: vec![requested],
-            deleted_annotation_ids: Vec::new(),
-            deleted_stable_keys: Vec::new(),
-        },
-        "D:20260831130000Z",
-        &mut None,
-    )
-    .unwrap();
-
-    let after = document.get_dictionary(shape_id).unwrap();
-    assert_unowned_keys_unchanged(
-        &before,
-        after,
-        &[
-            b"P",
-            b"Rect",
-            b"C",
-            b"CA",
-            b"Border",
-            b"IC",
-            b"AP",
-            b"CreationDate",
-            b"M",
-            b"NM",
-            b"EVBShapeKey",
-        ],
-    )
-    .unwrap();
-    assert_eq!(read_annotation_name(after).as_deref(), Some("bare-shape"));
+    for route in ["full", "path", "bytes"] {
+        for key in ["evb-shape:acrobat-square", "acrobat-square"] {
+            let mut requested = rectangle_shape(key, "#112233");
+            requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
+            requested.created_at = None;
+            let loaded = saved_annotation_regression(
+                &document,
+                &shapes_mutation(vec![requested]),
+                route,
+                "D:20260831130000Z",
+            );
+            let annots = get_page_annots(&loaded, page_id).unwrap();
+            assert_eq!(
+                annots,
+                vec![shape_id.into(), popup_id.into(), reply_id.into()],
+                "{route}: original parent and listed thread"
+            );
+            let after = loaded.get_dictionary(shape_id).unwrap();
+            for key in [
+                b"NM".as_slice(),
+                b"Contents",
+                b"RC",
+                b"State",
+                b"UnknownKey",
+                b"CreationDate",
+                b"Popup",
+            ] {
+                assert_eq!(
+                    after.get(key).unwrap(),
+                    before.get(key).unwrap(),
+                    "{route}: {key:?}"
+                );
+            }
+            assert_eq!(
+                after.get(b"C").unwrap(),
+                &Object::Array(vec![
+                    number_object(17.0 / 255.0),
+                    number_object(34.0 / 255.0),
+                    number_object(51.0 / 255.0)
+                ])
+            );
+            assert_eq!(
+                loaded
+                    .get_dictionary(popup_id)
+                    .unwrap()
+                    .get(b"Parent")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+                shape_id
+            );
+            let reply = loaded.get_dictionary(reply_id).unwrap();
+            assert_eq!(reply.get(b"IRT").unwrap().as_reference().unwrap(), shape_id);
+            assert_eq!(
+                pdf_string_to_text(reply.get(b"Contents").unwrap()).as_deref(),
+                Some("Important reply")
+            );
+        }
+    }
 }
 
 #[test]
