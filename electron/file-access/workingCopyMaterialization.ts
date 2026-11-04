@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 import { statSync } from 'node:fs';
 import {dirname} from 'node:path';
 import {
@@ -235,27 +236,6 @@ async function assertSourceSnapshot(
     }
 }
 
-async function writeAll(
-    outputHandle: FileHandle,
-    buffer: Buffer,
-    length: number,
-    position: number,
-) {
-    let written = 0;
-    while (written < length) {
-        const result = await outputHandle.write(
-            buffer,
-            written,
-            length - written,
-            position + written,
-        );
-        if (result.bytesWritten < 1) {
-            throw new Error('Working-copy materialization write made no progress');
-        }
-        written += result.bytesWritten;
-    }
-}
-
 async function hashMaterializedTarget(
     targetPath: string,
     size: number,
@@ -383,7 +363,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
                     'The original document changed while it was being materialized',
                 );
             }
-            await writeAll(outputHandle, buffer, length, bytesCopied);
+            await writeFileHandleFully(outputHandle, buffer.subarray(0, length), bytesCopied);
             hash.update(buffer.subarray(0, length));
             bytesCopied += length;
             emitProgress(flight, {

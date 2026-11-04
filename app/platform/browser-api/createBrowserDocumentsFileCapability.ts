@@ -560,7 +560,6 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
-        readTextFile: path => browserDocumentStore.readText(path),
         fileExists: path => browserDocumentStore.exists(path),
         getDocumentRevision(path) {
             return browserDocumentStore.getDocumentRevision(path);

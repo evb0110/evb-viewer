@@ -208,4 +208,72 @@ describe('document zoom anchor', () => {
             top: 84,
         });
     });
+
+    it('anchors on the same page as a full scan in continuous single-column and facing layouts', () => {
+        // The nearest page by a full scan: first page with the least distance.
+        const scanNearest = (layouts: ReadonlyArray<{
+            top: number;
+            height: number
+        }>, y: number) => {
+            let best = 0;
+            let bestDistance = Number.POSITIVE_INFINITY;
+            layouts.forEach((layout, index) => {
+                const bottom = layout.top + layout.height;
+                const distance = y < layout.top ? layout.top - y : y > bottom ? y - bottom : 0;
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = index;
+                }
+            });
+            return best;
+        };
+        let seed = 7;
+        const random = () => {
+            // Exact 32-bit arithmetic: a float product would lose its low bits.
+            seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
+            return seed / 4_294_967_296;
+        };
+        for (let trial = 0; trial < 300; trial += 1) {
+            const facing = trial % 2 === 1;
+            const gap = trial % 3 === 0 ? 0 : 16;
+            const layouts: Array<{
+                top: number;
+                height: number;
+                width: number;
+                left: number
+            }> = [];
+            let top = 0;
+            const pageCount = 1 + Math.floor(random() * 40);
+            for (let index = 0; index < pageCount; index += facing ? 2 : 1) {
+                const heights = [
+                    200 + Math.floor(random() * 400),
+                    200 + Math.floor(random() * 400),
+                ];
+                layouts.push({
+                    top,
+                    height: heights[0]!,
+                    width: 300,
+                    left: 0,
+                });
+                if (facing && index + 1 < pageCount) layouts.push({
+                    top,
+                    height: heights[1]!,
+                    width: 300,
+                    left: 320,
+                });
+                top += Math.max(heights[0]!, facing ? heights[1]! : 0) + gap;
+            }
+            for (let probe = 0; probe < 20; probe += 1) {
+                const scrollTop = Math.floor(random() * (top + 400)) - 200;
+                const container = {
+                    clientHeight: 0,
+                    clientWidth: 640,
+                    scrollLeft: 0,
+                    scrollTop,
+                };
+                expect(captureDocumentZoomAnchor(container, layouts)?.pageIndex, `trial ${trial} y ${scrollTop}`)
+                    .toBe(scanNearest(layouts, scrollTop));
+            }
+        }
+    });
 });

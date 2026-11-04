@@ -11,6 +11,7 @@ import {
     HOST_ENVIRONMENT_ARGUMENT_PREFIX,
     HOST_PLATFORM_FEATURE,
     type IHostEnvironmentSnapshot,
+    type IHostWindowSize,
     type IHostWindowState,
     type IHostZenModeState,
     type THostPlatform,
@@ -281,15 +282,33 @@ export async function setHostZenModeForWindow(
 }
 
 function snapshotHostWindowStateForWindow(window: BrowserWindow): IHostWindowState {
+    const [
+        contentWidth,
+        contentHeight,
+    ] = window.getContentSize();
+    const workArea = screen.getDisplayMatching(window.getBounds()).workAreaSize;
     return {
         fullScreen: isWindowInHostZenMode(window),
         maximized: window.isMaximized(),
         supported: true,
+        ...(contentWidth && contentHeight
+            ? {contentSize: {
+                width: contentWidth,
+                height: contentHeight,
+            }}
+            : {}),
+        workAreaSize: {
+            width: workArea.width,
+            height: workArea.height,
+        },
     };
 }
 
 // Changes only this window's own state and never focuses or shows it.
-export async function restoreHostNormalWindowForWindow(window: BrowserWindow | null): Promise<IHostWindowState> {
+export async function restoreHostNormalWindowForWindow(
+    window: BrowserWindow | null,
+    contentSize?: IHostWindowSize,
+): Promise<IHostWindowState> {
     if (!window || window.isDestroyed()) {
         return {
             fullScreen: false,
@@ -321,6 +340,9 @@ export async function restoreHostNormalWindowForWindow(window: BrowserWindow | n
             supported: false,
         };
     }
+    // The content area itself, not the window: its frame differs by
+    // platform and by whether the window has been shown.
+    if (contentSize !== undefined) window.setContentSize(contentSize.width, contentSize.height, false);
     return snapshotHostWindowStateForWindow(window);
 }
 
@@ -331,8 +353,8 @@ export const hostMainBindings = {
     snapshotHostZenModeForWindow: context => snapshotHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender)),
     setHostZenModeForWindow: (context, active) =>
         setHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender), active),
-    restoreHostNormalWindowForWindow: context =>
-        restoreHostNormalWindowForWindow(BrowserWindow.fromWebContents(context.sender)),
+    restoreHostNormalWindowForWindow: (context, contentSize?: IHostWindowSize) =>
+        restoreHostNormalWindowForWindow(BrowserWindow.fromWebContents(context.sender), contentSize),
     writeHostBugReportBundleForWindow: (context, bundle) =>
         writeHostBugReportBundle(BrowserWindow.fromWebContents(context.sender), bundle),
 } satisfies TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, Electron.IpcMainInvokeEvent>;

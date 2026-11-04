@@ -1,0 +1,20 @@
+--- a/out/util/filter.js
++++ b/out/util/filter.js
+@@ -5,16 +5,7 @@
+ const path = require("path");
+ /** @internal */
+ function hasMagic(pattern) {
+-    const set = pattern.set;
+-    if (set.length > 1) {
+-        return true;
+-    }
+-    for (const i of set[0]) {
+-        if (typeof i !== "string") {
+-            return true;
+-        }
+-    }
+-    return false;
++    return pattern.globSet.length > 1 || pattern.hasMagic();
+ }
+ // sometimes, destination may not contain path separator in the end (path to folder), but the src does. So let's ensure paths have path separators in the end
+ function ensureEndSlash(s) {

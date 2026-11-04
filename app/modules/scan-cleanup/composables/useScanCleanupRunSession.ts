@@ -109,7 +109,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         options.settings.pageOverrideDefaults,
         options.settings.marginsMm,
     );
-    const {t} = useTypedI18n();
+    const i18n = useTypedI18n();
+    const {t} = i18n;
 
     function formatStartFailure(
         result: Extract<TScanCleanupRendererStartResult, {started: false}>,
@@ -121,7 +122,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return t('scanCleanup.runDisabled.unavailable');
         }
         return formatScanCleanupErrorByCode(
-            t,
+            i18n,
             result.errorCode,
             result.error,
             result.scratchShortfall,
@@ -165,35 +166,28 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
         || (scanCleanupRun.ownerId === options.ownerId
             && scanCleanupRun.jobState?.status === 'canceling'));
+    // The run this workspace reads its outcome under.
+    const runIdentity = () => [
+        options.ownerId,
+        options.sourcePath.value,
+        options.documentRevision.value,
+    ] as const;
     const error = computed(() => {
-        const description = getScanCleanupRunError(
-            options.ownerId,
-            options.sourcePath.value,
-            options.documentRevision.value,
-        );
-        const failure = getScanCleanupRunFailure(
-            options.ownerId,
-            options.sourcePath.value,
-            options.documentRevision.value,
-        );
+        const description = getScanCleanupRunError(...runIdentity());
+        const failure = getScanCleanupRunFailure(...runIdentity());
         return description && failure
             ? formatFailurePresentationDescription({
                 failure,
                 title: '',
                 description,
-            })
+            }, t)
             : description;
     });
-    const errorCode = computed(() => getScanCleanupRunErrorCode(
-        options.ownerId,
-        options.sourcePath.value,
-        options.documentRevision.value,
-    ));
-    const runPageNumbers = computed(() => options.sourcePageNumbers.value);
-    const runPageCount = computed(() => runPageNumbers.value?.length
+    const errorCode = computed(() => getScanCleanupRunErrorCode(...runIdentity()));
+    const runPageCount = computed(() => options.sourcePageNumbers.value?.length
         ?? Math.max(1, Math.trunc(options.totalPages.value)));
     const hasIncludedPage = computed(() => {
-        const selected = runPageNumbers.value;
+        const selected = options.sourcePageNumbers.value;
         if (selected !== null) {
             return selected.some(page => !getScanCleanupPageOverride(
                 options.settings.pageOverrides,
@@ -253,7 +247,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             && options.placementAnchorSummary?.value !== undefined) {
             return null;
         }
-        const requested = runPageNumbers.value;
+        const requested = options.sourcePageNumbers.value;
         if (requested === null) {
             // Xlarge runs carry their bounded document calibration through the
             // detection state. Small full runs retain every page map, so only
@@ -410,7 +404,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         // the run. Detection evidence does not: page verdicts can still arrive
         // while the background job is settling, and snapshotting those maps
         // here silently discarded the newest usable page plans.
-        const requestedPageNumbers = runPageNumbers.value;
+        const requestedPageNumbers = options.sourcePageNumbers.value;
         const requestSourcePdfPath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
         const requestOptions = options.resolvedOptions?.value
@@ -712,7 +706,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 options.ownerId,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? formatReconciliationFailure(caught)
-                    : formatScanCleanupErrorByCode(t, 'internal', caught),
+                    : formatScanCleanupErrorByCode(i18n, 'internal', caught),
                 requestSourcePdfPath,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? caught.errorCode

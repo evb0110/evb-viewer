@@ -55,7 +55,10 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         hasSaveFailure,
         handleSave,
     } = deps;
-    const { t } = useTypedI18n();
+    const {
+        t,
+        locale,
+    } = useTypedI18n();
     const documentFiles = getDocumentFilesCapability();
     const workingCopyBackingStatus = shallowRef<IWorkingCopyBackingStatus | null>(null);
     let backingStatusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -215,7 +218,10 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (statusFileSizeBytes.value === null) {
             return t('status.fileSizeUnknown');
         }
-        return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
+        return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value, {
+            t,
+            locale: locale.value,
+        }) });
     });
     const statusZoomLabel = computed(() => {
         if (!hasDocument.value) {

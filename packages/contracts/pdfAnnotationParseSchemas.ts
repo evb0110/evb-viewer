@@ -44,8 +44,18 @@ function nullableString(fieldName: string, allowEmpty = true) {
     return v.optional(v.nullable(nonEmptyString(fieldName, allowEmpty)), null);
 }
 
+/**
+ * A PDF date before 1970 parses to a negative timestamp, which the
+ * application does not hold; it reads as an unknown date rather than
+ * rejecting every annotation of the document.
+ */
 function nullableTimestamp(fieldName: string) {
-    return v.optional(v.nullable(nonNegativeInteger(fieldName, `${fieldName} must be a safe integer timestamp or null`)), null);
+    const message = `${fieldName} must be a safe integer timestamp or null`;
+    return v.optional(v.nullable(v.pipe(
+        v.number(message),
+        v.safeInteger(message),
+        v.transform(value => (value < 0 ? null : value)),
+    )), null);
 }
 
 const pageIndexSchema = v.pipe(nonNegativeInteger('pageIndex'), v.transform(value => value as TPageIndex));

@@ -405,6 +405,98 @@ describe('mounted Combine PDF page state machine', () => {
         }
     });
 
+    it('leaves a newer pending result alone when an older Save As finishes late', async () => {
+        const pendingResult = (name: string): TOpenFileResult => ({
+            kind: 'pdf',
+            workingPath: requireDocumentRef(`/tmp/${name}.pdf`),
+            originalPath: requireDocumentRef(`/tmp/${name}.pdf`),
+            isGenerated: true,
+        });
+        mocks.combinePdfFiles
+            .mockResolvedValueOnce(pendingResult('combined-a'))
+            .mockResolvedValueOnce(pendingResult('combined-b'));
+        const saveA = deferred<string | null>();
+        mocks.savePdfAs.mockReturnValueOnce(saveA.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(false));
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        (page.host.querySelector('.save-as') as HTMLButtonElement).click();
+        await flushUpdates();
+        // A's Save As is still writing when A is discarded and B replaces it.
+        (page.host.querySelector('.discard') as HTMLButtonElement).click();
+        await nextTick();
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
+        saveA.resolve('/tmp/saved-a.pdf');
+        await flushUpdates();
+
+        expect(page.host.querySelector('.save-as')).not.toBeNull();
+        expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
+        expect(mocks.cleanupFile).not.toHaveBeenCalledWith('/tmp/combined-b.pdf');
+        page.unmount();
+    });
+
+    it('keeps a pending result that Retry is opening when its Save As finishes', async () => {
+        const path = requireDocumentRef('/tmp/combined-retry.pdf');
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: path,
+            originalPath: path,
+        });
+        const saving = deferred<string | null>();
+        const opening = deferred<boolean>();
+        mocks.savePdfAs.mockReturnValueOnce(saving.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValueOnce(false).mockReturnValueOnce(opening.promise));
+        try {
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            (page.host.querySelector('.save-as') as HTMLButtonElement).click();
+            await flushUpdates();
+            // Retry opens the same file while its Save As is still writing.
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            expect(page.host.querySelector('.phase')?.textContent).toBe('opening');
+            saving.resolve('/tmp/saved.pdf');
+            await flushUpdates();
+            expect(mocks.cleanupFile).not.toHaveBeenCalledWith(path);
+            expect(page.host.querySelector('.phase')?.textContent).toBe('opening');
+        } finally {
+            opening.resolve(true);
+            await flushUpdates();
+            page.unmount();
+        }
+    });
+
+    it('reports a Save As failure even while Retry is opening the same result', async () => {
+        const path = requireDocumentRef('/tmp/combined-retry-failure.pdf');
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: path,
+            originalPath: path,
+        });
+        const saving = Promise.withResolvers<string | null>();
+        const opening = deferred<boolean>();
+        mocks.savePdfAs.mockReturnValueOnce(saving.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValueOnce(false).mockReturnValueOnce(opening.promise));
+        try {
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            (page.host.querySelector('.save-as') as HTMLButtonElement).click();
+            await flushUpdates();
+            (page.host.querySelector('.combine') as HTMLButtonElement).click();
+            await flushUpdates();
+            saving.reject(new Error('disk full'));
+            await flushUpdates();
+            expect(page.host.querySelector('.error')?.textContent).toBe('errors.file.save');
+        } finally {
+            opening.resolve(true);
+            await flushUpdates();
+            page.unmount();
+        }
+    });
+
     it('discards a failed-open result without changing the queued files', async () => {
         const combined = deferred<TOpenFileResult>();
         mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
@@ -464,6 +556,46 @@ describe('mounted Combine PDF page state machine', () => {
         });
         await flushUpdates();
         page.unmount();
+
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
+    });
+
+    it('removes the combined file when the page goes away while its open fails', async () => {
+        const opened = deferred<boolean>();
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        const page = await mountCombinePageStateMachine(() => opened.promise);
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        // The user leaves while the result is still opening; then it fails.
+        page.unmount();
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
+        opened.resolve(false);
+        await flushUpdates();
+
+        expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
+    });
+
+    it('leaves the combined file to the document when the page goes away while it opens', async () => {
+        const opened = deferred<boolean>();
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        const page = await mountCombinePageStateMachine(() => opened.promise);
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        page.unmount();
+        opened.resolve(true);
+        await flushUpdates();
 
         expect(mocks.cleanupFile).not.toHaveBeenCalled();
     });

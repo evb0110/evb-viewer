@@ -22,6 +22,8 @@ interface IAuditSummary {
 interface IAuditAdvisories {
     fixable: string[];
     unpatched: string[];
+    /** Vulnerable installs the advisories cover; pnpm counts each one. */
+    occurrences: number;
 }
 
 interface IAuditProject {
@@ -111,11 +113,13 @@ export function partitionAuditAdvisories(report: unknown, label = 'project'): IA
     const partition: IAuditAdvisories = {
         fixable: [],
         unpatched: [],
+        occurrences: 0,
     };
     for (const advisory of Object.values(advisories)) {
-        if (!isRecord(advisory) || typeof advisory.module_name !== 'string') {
+        if (!isRecord(advisory) || typeof advisory.module_name !== 'string' || !Array.isArray(advisory.findings)) {
             throw new Error(`${label} pnpm audit report has a malformed advisory.`);
         }
+        partition.occurrences += advisory.findings.length;
         // Only pnpm's explicit no-release range is exempt; an advisory with an
         // unknown patched status fails like a fixable one.
         const target = advisory.patched_versions === NO_PATCHED_RELEASE ? partition.unpatched : partition.fixable;
@@ -133,9 +137,8 @@ export function partitionAuditAdvisories(report: unknown, label = 'project'): IA
 export function assertProductionAuditIsClean(report: unknown, label = 'project') {
     const summary = summarizeProductionAuditReport(report, label);
     const advisories = partitionAuditAdvisories(report, label);
-    const listed = advisories.fixable.length + advisories.unpatched.length;
-    if (listed !== summary.total) {
-        throw new Error(`${label} pnpm audit counts ${summary.total} vulnerabilities but lists ${listed} advisories.`);
+    if (advisories.occurrences !== summary.total) {
+        throw new Error(`${label} pnpm audit counts ${summary.total} vulnerabilities but its advisories list ${advisories.occurrences}.`);
     }
     if (advisories.fixable.length > 0) {
         throw new Error(`${label} dependency audit found ${advisories.fixable.length} advisories with a patched release or an unknown patched status:\n${advisories.fixable.join('\n')}`);

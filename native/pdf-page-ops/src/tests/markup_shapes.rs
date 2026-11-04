@@ -1935,6 +1935,55 @@ fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys(
 }
 
 #[test]
+fn keeps_an_existing_creation_date_the_edit_does_not_know() {
+    let original = Object::string_literal("D:19691231235959Z");
+    let edit = |shape_id: (u32, u16)| {
+        let mut requested = rectangle_shape("dated-shape", "#112233");
+        requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
+        requested.created_at = None;
+        ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![requested],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        }
+    };
+    let dated_document = || {
+        let (mut document, page_id) = create_test_document();
+        let mut shape = shape_with_stale_appearance("Square");
+        shape.set("NM", Object::string_literal("dated-shape"));
+        shape.set("CreationDate", original.clone());
+        let shape_id = document.add_object(Object::Dictionary(shape));
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(shape_id)]);
+        (document, shape_id)
+    };
+    let assert_dates = |after: &Dictionary| {
+        assert_eq!(after.get(b"CreationDate").unwrap(), &original);
+        assert_ne!(after.get(b"M").unwrap(), &original);
+    };
+
+    let (mut document, shape_id) = dated_document();
+    apply_shape_annotations(&mut document, &edit(shape_id), "D:20260831130000Z", &mut None)
+        .unwrap();
+    assert_dates(document.get_dictionary(shape_id).unwrap());
+
+    let (document, shape_id) = dated_document();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    apply_shape_annotations_incremental(
+        &mut incremental,
+        &edit(shape_id),
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+    assert_dates(AppendedRevision::new(&incremental).dictionary(shape_id).unwrap());
+}
+
+#[test]
 fn writes_the_supplied_shape_identity_to_nm_without_a_generated_prefix() {
     let shape = rectangle_shape("shape-created-bare", "#112233");
     let dict = create_shape_annotation_dict(

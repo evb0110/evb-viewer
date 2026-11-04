@@ -670,7 +670,6 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfEmbeddedShapeIndexChunk>;
     releasePdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<boolean>;
     decryptPdfWorkingCopy?: (path: TDocumentRef, request?: IPdfDecryptRequest) => Promise<IPdfDecryptResult>;
-    readTextFile: (path: TDocumentRef) => Promise<string>;
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
     getWorkingCopyBackingStatus?: (path: TDocumentRef) => Promise<IWorkingCopyBackingStatus | null>;
@@ -842,7 +841,6 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'
     | 'decryptPdfWorkingCopy'
-    | 'readTextFile'
     | 'fileExists'
     | 'getDocumentRevision'
     | 'getWorkingCopyBackingStatus'

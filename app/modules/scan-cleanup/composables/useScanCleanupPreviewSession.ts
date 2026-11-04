@@ -318,7 +318,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         options.settings.pageOverrideDefaults,
         options.settings.marginsMm,
     );
-    const {t} = useTypedI18n();
+    const i18n = useTypedI18n();
+    const {t} = i18n;
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
     const resultKey = shallowRef<string | null>(null);
@@ -1062,7 +1063,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 const envelope = findSerializableErrorEnvelope(caught, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
                 if (envelope) {
                     error.value = formatScanCleanupErrorByCode(
-                        t,
+                        i18n,
                         envelope.code,
                         envelope.message,
                         envelope.details?.scratchShortfall,
@@ -1071,7 +1072,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 } else {
                     error.value = caught instanceof Error
                         && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? formatScanCleanupErrorByCode(t, 'internal', caught)
+                        ? formatScanCleanupErrorByCode(i18n, 'internal', caught)
                         : t('scanCleanup.preview.unavailable');
                     errorCode.value = 'internal';
                 }

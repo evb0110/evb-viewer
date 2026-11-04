@@ -44,9 +44,9 @@ interface IPageSaveOrchestrationDeps {
         'annotationDirty' | 'annotationNoteWindows' | 'pendingEmbeddedAnnotationDeleteCount'
         | 'hasAnnotationChanges' | 'markAnnotationSaved' | 'getAnnotationSaveStateToken'
         | 'persistAllAnnotationNotes' | 'getAnnotationNoteFailurePresentation'>;
-    markPageLabelsSaved: () => void;
+    markPageLabelsSaved: (written?: IPdfPageLabelRange[]) => void;
     getPageLabelsSaveStateToken?: () => unknown;
-    markBookmarksSaved: () => void;
+    markBookmarksSaved: (written?: IPdfBookmarkEntry[]) => void;
     getBookmarksSaveStateToken?: () => unknown;
     isDirty: Ref<boolean>;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;

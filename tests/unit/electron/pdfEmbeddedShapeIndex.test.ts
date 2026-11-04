@@ -245,6 +245,53 @@ describe('PDF embedded shape index main session', () => {
             .rejects.toThrow('session is not available');
     });
 
+    it.each([
+        [
+            'reads a date before 1970 as unknown',
+            -1_000,
+            null,
+        ],
+        [
+            'refuses a date that is no timestamp',
+            -1.5,
+            'createdAt must be an epoch millisecond timestamp',
+        ],
+    ] as const)('%s', async (_label, createdAt, refusal) => {
+        const [
+            header,
+            firstChunk,
+            ...rest
+        ] = sidecarText.split('\n');
+        const chunk = JSON.parse(firstChunk!) as {entries: Array<Record<string, unknown>>};
+        chunk.entries[0] = {
+            ...chunk.entries[0],
+            createdAt,
+            modifiedAt: -2_000,
+        };
+        sidecarText = [
+            header,
+            JSON.stringify(chunk),
+            ...rest,
+        ].join('\n');
+        const begin = beginPdfEmbeddedShapeIndex(
+            context,
+            requireDocumentRef('/tmp/document.pdf'),
+            {expectedDocumentRevisionToken: revisionToken},
+        );
+        if (refusal !== null) {
+            await expect(begin).rejects.toThrow(refusal);
+            return;
+        }
+        const session = await begin;
+        const first = await readPdfEmbeddedShapeIndexChunk(context, session.sessionId, 0);
+        expect(first.entries[0]).toMatchObject({
+            stableKey: 'shape-11',
+            createdAt: null,
+            modifiedAt: null,
+        });
+        await releasePdfEmbeddedShapeIndex(context, session.sessionId);
+    });
+
     it('starts the stale-artifact sweep only while a session exists', async () => {
         const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
         const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');

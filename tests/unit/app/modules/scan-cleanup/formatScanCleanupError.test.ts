@@ -34,15 +34,24 @@ describe('formatScanCleanupErrorByCode', () => {
     const translate = ((key: string) => key) as never;
 
     it('selects a distinct localized sentence for each native cause family', () => {
-        expect(formatScanCleanupErrorByCode(translate, 'encrypted', 'native encrypted detail'))
+        expect(formatScanCleanupErrorByCode({
+            t: translate,
+            locale: 'en',
+        }, 'encrypted', 'native encrypted detail'))
             .toBe('scanCleanup.errors.encrypted (native encrypted detail)');
-        expect(formatScanCleanupErrorByCode(translate, 'needs-password', 'native password detail'))
+        expect(formatScanCleanupErrorByCode({
+            t: translate,
+            locale: 'en',
+        }, 'needs-password', 'native password detail'))
             .toBe('scanCleanup.errors.needsPassword (native password detail)');
     });
 
     it('uses the typed scratch figures instead of the native exception text', () => {
         expect(formatScanCleanupErrorByCode(
-            translate,
+            {
+                t: translate,
+                locale: 'en',
+            },
             'insufficient-scratch',
             'English native scratch exception',
             {
@@ -70,25 +79,34 @@ describe('formatScanCleanupScratchMessage', () => {
     }) as never;
 
     it('states both figures without any raw technical detail', () => {
-        const message = formatScanCleanupScratchMessage(translate(LOCALE_MESSAGES.ru), {
+        const message = formatScanCleanupScratchMessage({
+            t: translate(LOCALE_MESSAGES.ru),
+            locale: 'ru',
+        }, {
             availableBytes: 520 * 1024 * 1024,
             requiredBytes: 1_100 * 1024 * 1024,
         });
 
         expect(message).toBe(
             'На временном диске недостаточно свободного места для анализа этого документа.'
-            + ' Освободите место на диске и повторите попытку: требуется 1.07 GB, свободно 520.0 MB.',
+            + ' Освободите место на диске и повторите попытку: требуется 1,07 ГБ, свободно 520,0 МБ.',
         );
         // Nothing English, and nothing from an exception, reaches the alert.
         expect(message).not.toMatch(/[A-Za-z]{4}/u);
     });
 
     it('states the headline alone when the filesystem reported no free space figure', () => {
-        expect(formatScanCleanupScratchMessage(translate(en), {
+        expect(formatScanCleanupScratchMessage({
+            t: translate(en),
+            locale: 'en',
+        }, {
             availableBytes: null,
             requiredBytes: 1_024,
         })).toBe(en.scanCleanup.errors.insufficientScratch);
-        expect(formatScanCleanupScratchMessage(translate(en), undefined))
+        expect(formatScanCleanupScratchMessage({
+            t: translate(en),
+            locale: 'en',
+        }, undefined))
             .toBe(en.scanCleanup.errors.insufficientScratch);
     });
 });

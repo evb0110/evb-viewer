@@ -108,7 +108,7 @@ function isReadablePathAllowedForSender(path: string, senderId?: number) {
         || (typeof senderId === 'number' && hasWorkingCopyTransferAccess(path, senderId));
 }
 
-export async function resolveReadablePath(
+async function resolveReadablePath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
@@ -175,7 +175,7 @@ function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: numbe
  * the failing path). Paths already appear in sibling errors ("File not
  * found: ..."), so this leaks nothing new.
  */
-export function describeRejectedReadPath(normalizedPath: string, senderId?: number) {
+function describeRejectedReadPath(normalizedPath: string, senderId?: number) {
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
     const scopedBacking = getWorkingCopyBackingEntry(normalizedPath, senderId)?.backingState ?? 'none';
     const unscopedBacking = getWorkingCopyBackingEntry(normalizedPath)?.backingState ?? 'none';

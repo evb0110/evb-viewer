@@ -30,7 +30,13 @@ function truncateWindowTitleFileName(value: string) {
         return value;
     }
 
-    return `${value.slice(0, MAX_WINDOW_TITLE_FILE_NAME_LENGTH - 1).trimEnd()}…`;
+    // Whole characters only, so an emoji or accented letter is never cut in half.
+    let kept = '';
+    for (const {segment} of new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(value)) {
+        if (kept.length + segment.length > MAX_WINDOW_TITLE_FILE_NAME_LENGTH - 1) break;
+        kept += segment;
+    }
+    return `${kept.trimEnd()}…`;
 }
 
 export function resolveAppWindowTitle(options: IResolveAppWindowTitleOptions) {

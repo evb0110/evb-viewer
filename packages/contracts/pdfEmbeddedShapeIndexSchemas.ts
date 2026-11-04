@@ -122,8 +122,8 @@ const nullableTimestampSchema = (fieldName: string) => v.pipe(
     v.nullish(v.pipe(
         v.number(`${fieldName} must be a safe integer timestamp or null`),
         v.safeInteger(`${fieldName} must be a safe integer timestamp or null`),
-        v.minValue(0, `${fieldName} must be a safe integer timestamp or null`),
-        v.transform(value => parseEpochMs(value)!),
+        // A date before 1970 reads as unknown, as annotation parsing does.
+        v.transform(value => (value < 0 ? null : parseEpochMs(value)!)),
     )),
     v.transform(value => value ?? null),
 );

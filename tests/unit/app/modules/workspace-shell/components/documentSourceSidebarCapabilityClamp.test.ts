@@ -39,7 +39,10 @@ import {
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({
+        t: (key: string) => key,
+        locale: {value: 'en'},
+    }),
 }));
 
 function panelStub(marker: string) {

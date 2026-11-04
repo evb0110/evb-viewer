@@ -4,7 +4,6 @@ import {
     readFile,
 } from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
-import { extname } from 'path';
 import { MAX_CHUNK } from '@electron/config/constants';
 import type {IFileStatResult} from '@contracts/electronApiDocuments';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -28,21 +27,13 @@ import {
 } from '@electron/file-access/workingCopyMaterialization';
 import {
     assertWithinIpcReadBudget,
-    describeRejectedReadPath,
-    normalizeNonEmptyPath,
     resolveExistingReadableDocumentOrImagePath,
-    resolveReadablePath,
     resolveReadablePathSync,
 } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
-const ALLOWED_READ_EXTENSIONS = new Set([
-    '.json',
-    '.txt',
-    '.tsv',
-]);
 const RANGE_READ_HANDLE_CACHE_LIMIT = 6;
 const RANGE_READ_HANDLE_IDLE_MS = 30_000;
 const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
@@ -820,34 +811,6 @@ export async function handleFileReadRange(
             pendingRangeReads.delete(readKey);
         }
     });
-}
-
-export async function handleFileReadText(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-) {
-    const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
-
-    if (!ALLOWED_READ_EXTENSIONS.has(extension)) {
-        throw new Error('Invalid file type: only .json, .txt, and .tsv files are allowed');
-    }
-
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
-    if (!resolvedPath) {
-        throw new Error(describeRejectedReadPath(normalizedPath, context.senderId));
-    }
-
-    let size: number;
-    try {
-        ({size} = statSync(resolvedPath));
-    } catch {
-        throw new Error(`File not found: ${normalizedPath}`);
-    }
-
-    assertWithinIpcReadBudget(resolvedPath, size);
-    const buffer = await readFile(resolvedPath, 'utf-8');
-    return buffer;
 }
 
 export function handleFileExists(

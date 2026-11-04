@@ -3,6 +3,7 @@ import type * as TViMockOriginalModule from '@ocr-core/resolveTesseractLanguageC
 import { EventEmitter } from 'node:events';
 import {
     mkdtemp,
+    readdir,
     rm,
     writeFile,
 } from 'fs/promises';
@@ -223,6 +224,44 @@ describe('file-based Tesseract arguments', () => {
             '-c',
             'textonly_pdf=1',
         ]));
+    });
+
+    it('removes the first pass outputs when early-print reading is canceled', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-ocr-early-print-cancel-'));
+        try {
+            const image = join(directory, 'page-1.png');
+            await writeFile(image, PNG_SIGNATURE);
+            // The first pass writes its TSV and PDF; long-s-shaped words send
+            // the page on to early-print reading.
+            mocks.spawn.mockImplementation((_command: string, args: string[]) => {
+                const child = new MockChildProcess();
+                const outputBase = args[1]!;
+                const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
+                const rows = Array.from({length: 20}, (_, index) => `5\t1\t1\t1\t1\t${index + 1}\t${index * 12}\t10\t10\t10\t95\tfafa`);
+                void Promise.all([
+                    writeFile(`${outputBase}.tsv`, [
+                        header,
+                        ...rows,
+                    ].join('\n')),
+                    writeFile(`${outputBase}.pdf`, '%PDF-1.4\n'),
+                ]).then(() => child.emit('close', 0));
+                return child;
+            });
+            const controller = new AbortController();
+            const { runOcrFileBased } = await import('@electron/features/ocr/pipeline/tesseractRunner');
+
+            await expect(runOcrFileBased(image, ['lat'], 512, 512, 300, '/mock/tesseract', directory, 1, controller.signal, {}, async () => {
+                controller.abort();
+                throw controller.signal.reason;
+            })).rejects.toMatchObject({name: 'AbortError'});
+
+            expect(await readdir(directory)).toEqual(['page-1.png']);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('preserves dictionaries for the accurate quality profile', async () => {

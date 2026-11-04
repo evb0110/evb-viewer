@@ -141,4 +141,44 @@ describe('pdfAnnotationComments', () => {
             match: false,
         }]);
     });
+
+    it('highlights the matched characters when lowercasing changes a character length', () => {
+        // İ lowercases to two code units, which used to shift every later highlight.
+        expect(splitByQueryMatches('İXabcX', 'x')).toEqual([
+            {
+                text: 'İ',
+                match: false,
+            },
+            {
+                text: 'X',
+                match: true,
+            },
+            {
+                text: 'abc',
+                match: false,
+            },
+            {
+                text: 'X',
+                match: true,
+            },
+        ]);
+        expect(splitByQueryMatches('İİ', 'i')).toEqual([
+            {
+                text: 'İ',
+                match: true,
+            },
+            {
+                text: 'İ',
+                match: true,
+            },
+        ]);
+    });
+
+    it('highlights a word ending in a capital sigma for its lowercase query', () => {
+        // ΟΔΟΣ lowercases to οδος as a whole: the final sigma is ς, not σ.
+        expect(splitByQueryMatches('ΟΔΟΣ', 'οδος')).toEqual([{
+            text: 'ΟΔΟΣ',
+            match: true,
+        }]);
+    });
 });

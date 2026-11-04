@@ -1,0 +1,28 @@
+--- a/rimraf.js
++++ b/rimraf.js
+@@ -59,14 +59,14 @@
+   var errState = null
+   var n = 0
+ 
+-  if (options.disableGlob || !glob.hasMagic(p))
++  if (options.disableGlob || !glob.hasMagic(p, { magicalBraces: true }))
+     return afterGlob(null, [p])
+ 
+   options.lstat(p, function (er, stat) {
+     if (!er)
+       return afterGlob(null, [p])
+ 
+-    glob(p, options.glob, afterGlob)
++    glob.glob(p, options.glob).then(function (results) { afterGlob(null, results) }, afterGlob)
+   })
+ 
+   function next (er) {
+@@ -270,7 +270,7 @@
+ 
+   var results
+ 
+-  if (options.disableGlob || !glob.hasMagic(p)) {
++  if (options.disableGlob || !glob.hasMagic(p, { magicalBraces: true })) {
+     results = [p]
+   } else {
+     try {

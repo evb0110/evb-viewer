@@ -1,6 +1,7 @@
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfMutations';
 import {TYPED_STAGED_ARTIFACT_SCHEMA} from '@contracts/stagedArtifacts';
+import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import * as v from 'valibot';
 
 const pdfObjectRefPattern = /^\d+\s+\d+\s+R$/u;
@@ -66,6 +67,12 @@ export const PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA = v.pipe(
         ...(identityBindings === undefined ? {} : {identityBindings}),
     })),
 );
+
+/** Save As wrote its target but could not refresh the open working copy from it. */
+export const SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA = v.object({
+    ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
+    code: v.literal('working-copy-sync-required'),
+});
 
 export const PDF_SAVE_AS_WARNING_SCHEMA = v.object({
     reason: v.literal('working-copy-sync-required'),

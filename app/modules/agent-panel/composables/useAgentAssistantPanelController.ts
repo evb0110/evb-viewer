@@ -1,3 +1,4 @@
+import {formatElapsedClock} from '@app/utils/progressFormatting';
 import type {
     IAgentAssistantChatScope,
     IAgentAssistantEvent,
@@ -81,7 +82,6 @@ import {
     ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS,
     ASSISTANT_STATUS_HEARTBEAT_MS,
     ASSISTANT_STATUS_TEXT_LIMIT,
-    formatAssistantElapsed,
     formatAssistantTurnStatus,
     isAssistantBtwCommand,
     isAssistantMessageListNearBottom,
@@ -381,12 +381,12 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
         const now = Date.now();
         const elapsed = turnStartedAtMs.value === null
-            ? '0s'
-            : formatAssistantElapsed(now - turnStartedAtMs.value);
+            ? formatElapsedClock(0)
+            : formatElapsedClock(now - turnStartedAtMs.value);
         const activity = turnActivityText.value || t('assistant.working');
         const lastActivityAge = turnActivityAtMs.value === null
             ? elapsed
-            : formatAssistantElapsed(now - turnActivityAtMs.value);
+            : formatElapsedClock(now - turnActivityAtMs.value);
         const lines = [
             t('assistant.btwAlive', {
                 phase: status.value.turn.phase,

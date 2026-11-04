@@ -1,3 +1,4 @@
+import type {TTranslateFn} from '@i18n-app';
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
@@ -131,6 +132,8 @@ export function createDocumentPageSourcePresentation(options: {
     readViewportScrollDirection: () => -1 | 0 | 1;
     renderSession: IDocumentViewerRenderSession | undefined;
     scheduleRender: () => void;
+    /** Failures are shown to the reader in the app's language. */
+    t: TTranslateFn;
 }) {
     const pageStates = shallowReactive(new Map<number, IDocumentPageSourceVisualState>());
     const renderControllers = new Map<number, AbortController>();
@@ -225,7 +228,7 @@ export function createDocumentPageSourcePresentation(options: {
             ?? (viewportVisual?.kind === 'page' && viewportVisual.pageNumber === pageNumber
                 ? viewportVisual.error
                 : null)
-            ?? `Unable to display page ${String(pageNumber)}`;
+            ?? options.t('common.pageRenderFailed');
     };
     const getVisualFailurePresentation = (pageNumber: number) => (
         pageStates.get(pageNumber)?.failurePresentation ?? null
@@ -249,17 +252,17 @@ export function createDocumentPageSourcePresentation(options: {
         state.lease?.release();
         state.unsubscribeInvalidation = null;
         state.lease = null;
-        const message = `Unable to display page ${String(pageNumber)}`;
+        const message = options.t('common.pageRenderFailed');
         state.error = message;
         const receipt = state.failurePresentation?.failure ?? BrowserLogger.error(
             'pdf-page-source',
             'Failed to render document page',
-            cause ?? message,
+            cause ?? `Unable to display page ${String(pageNumber)}`,
             getFailureReceipt(cause) ?? {code: 'RENDERER_PDF_PAGE_RENDER_FAILED'},
         );
         state.failurePresentation = {
             failure: receipt,
-            title: 'Unable to display page',
+            title: options.t('common.pageRenderFailed'),
             description: message,
         };
         attachFailureReceipt(cause, receipt);

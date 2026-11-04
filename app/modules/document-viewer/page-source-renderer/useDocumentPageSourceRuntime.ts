@@ -1,3 +1,4 @@
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
@@ -139,6 +140,7 @@ function resolveDocumentPageDisplayLayout(
     availableWidth: number,
     manualZoom: number,
     zoomMode: TDocumentPageSourceRuntimeProps['zoomMode'],
+    fitWidthPageWidth: number | undefined,
 ) {
     const scale = resolveDocumentPageDisplayScale({
         availableHeight,
@@ -149,6 +151,7 @@ function resolveDocumentPageDisplayLayout(
             width: metric.widthPoints,
         },
         zoomMode,
+        fitWidthPageWidth,
     });
     return {
         height: Math.max(1, Math.round(metric.heightPoints * scale)),
@@ -156,12 +159,14 @@ function resolveDocumentPageDisplayLayout(
         width: Math.max(1, Math.round(metric.widthPoints * scale)),
     };
 }
+
 export function resolveDocumentPageDisplayLayoutsBounded(
     metrics: TDocumentPageMetricsCollection,
     availableHeight: number,
     availableWidth: number,
     manualZoom: number,
     zoomMode: TDocumentPageSourceRuntimeProps['zoomMode'],
+    continuousScroll = false,
 ) {
     if (!isLazyIndexedCollection(metrics)) {
         return resolveDocumentPageDisplayLayouts({
@@ -173,9 +178,30 @@ export function resolveDocumentPageDisplayLayoutsBounded(
                 width: metric.widthPoints,
             })),
             zoomMode,
+            continuousScroll,
         });
     }
     const sparseMetrics = isSparseDocumentPageMetrics(metrics) ? metrics : null;
+    // Continuous fit-width fits the widest page, one scale for the document.
+    // Measured once per layout, not per scroll; sparse metrics hold their
+    // measured pages apart, and every other page is the fallback.
+    let fitWidthPageWidth: number | undefined;
+    if (continuousScroll && zoomMode === 'fit-width') {
+        let widest = 0;
+        if (sparseMetrics) {
+            let exactCount = 0;
+            sparseMetrics.forEachExact((_pageNumber, metric) => {
+                exactCount += 1;
+                widest = Math.max(widest, metric.widthPoints);
+            });
+            if (exactCount < metrics.length) widest = Math.max(widest, metrics.fallbackMetric.widthPoints);
+        } else {
+            for (let index = 0; index < metrics.length; index += 1) {
+                widest = Math.max(widest, (metrics.get(index) ?? metrics.fallbackMetric).widthPoints);
+            }
+        }
+        fitWidthPageWidth = widest;
+    }
     const displayLayouts = createLazyIndexedCollection({
         cacheValues: false,
         chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
@@ -185,6 +211,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             availableWidth,
             manualZoom,
             zoomMode,
+            fitWidthPageWidth,
         ),
         length: metrics.length,
         maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
@@ -199,10 +226,11 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             availableWidth,
             manualZoom,
             zoomMode,
+            fitWidthPageWidth,
         ),
         getKnownIndices: () => sparseMetrics.getExactPageNumbers().map(pageNumber => pageNumber - 1),
     });
-    const fallbackLayout = resolveDocumentPageDisplayLayout(metrics.fallbackMetric, availableHeight, availableWidth, manualZoom, zoomMode);
+    const fallbackLayout = resolveDocumentPageDisplayLayout(metrics.fallbackMetric, availableHeight, availableWidth, manualZoom, zoomMode, fitWidthPageWidth);
     let correctionRevision = -1;
     let correctionIndices: number[] = [];
     let correctionPrefixes: number[] = [];
@@ -218,7 +246,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             if (!metric) {
                 continue;
             }
-            const exactLayout = resolveDocumentPageDisplayLayout(metric, availableHeight, availableWidth, manualZoom, zoomMode);
+            const exactLayout = resolveDocumentPageDisplayLayout(metric, availableHeight, availableWidth, manualZoom, zoomMode, fitWidthPageWidth);
             correctionIndices.push(index);
             correctionPrefixes.push((correctionPrefixes.at(-1) ?? 0) + exactLayout.height - fallbackLayout.height);
         }
@@ -489,6 +517,7 @@ export const useDocumentPageSourceRuntime = (options: {
         Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
         clampDocumentManualZoom(props.value.zoom),
         props.value.zoomMode,
+        props.value.continuousScroll,
     ));
     const effectiveZoom = computed(() => (
         pageDisplayLayouts.value[props.value.currentPage - 1]?.scale
@@ -748,7 +777,9 @@ export const useDocumentPageSourceRuntime = (options: {
         readRevisionToken: () => props.value.documentRevisionToken ?? null,
         readSrc: () => props.value.src,
     });
+    const {t} = useTypedI18n();
     const presentation = createDocumentPageSourcePresentation({
+        t,
         chassisAuthority,
         emit,
         ensureExactPageMetric,

@@ -25,6 +25,8 @@ import type {
     TPreparedPdfOptimizeCopy,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
+import { findSerializableErrorEnvelope } from '@contracts/serializableError';
+import { SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentsPersistenceSchemas';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type {
     ILazyHistoryBaseline,
@@ -255,6 +257,16 @@ export function createDocumentPersistence(
         };
     }
 
+    // A step whose working copy this document no longer holds.
+    function skipStale(step: string, workingPath: TDocumentRef, saveMode: TPdfSaveMode, didSaveAs = false) {
+        BrowserLogger.debug('workspace', `Skipped stale ${step}`, {
+            workingPath,
+            currentWorkingPath: state.workingCopyPath.value,
+            saveMode,
+        });
+        return createStalePersistResult(saveMode, didSaveAs);
+    }
+
     /** Whether a refused save still wrote the file, and that the open copy needs syncing. */
     function saveOutcomeFields(result: Pick<IPdfPersistFailure, 'externalWriteCommitted' | 'workingCopySyncRequired'>) {
         return {
@@ -312,13 +324,19 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(e) || (e instanceof DOMException && e.name === 'AbortError')) {
                 throw e;
             }
+            // Save As that wrote its file but could not refresh this copy from it.
+            const syncRequired = findSerializableErrorEnvelope(e, SAVE_AS_SYNC_REQUIRED_ERROR_ENVELOPE_SCHEMA) !== null;
             return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure(
                 'persist',
                 'write',
-                'write-failed',
+                syncRequired ? 'working-copy-sync-required' : 'write-failed',
                 {
                     message: getErrorMessage(e),
                     cause: e,
+                    ...(syncRequired ? saveOutcomeFields({
+                        externalWriteCommitted: true,
+                        workingCopySyncRequired: true,
+                    }) : {}),
                 },
             ));
         }
@@ -433,12 +451,7 @@ export function createDocumentPersistence(
             const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
             const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale PDF save before write', {
-                    workingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, false);
+                return skipStale('PDF save before write', workingPath, requestedSaveMode);
             }
             if (forceSaveAs) {
                 return saveWorkingCopyAs(data, {
@@ -466,12 +479,7 @@ export function createDocumentPersistence(
                 warnings: [],
             };
             if (!state.isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
-                    workingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, false);
+                return skipStale('PDF save completion', workingPath, requestedSaveMode);
             }
             if (!validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
@@ -522,12 +530,7 @@ export function createDocumentPersistence(
                 return createFailedPersistResult(requestedSaveMode, false, persistenceResult.failure);
             }
             if (!state.isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale working-copy save completion', {
-                    workingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, false);
+                return skipStale('working-copy save completion', workingPath, requestedSaveMode);
             }
             if (!await commitPersistedPdfState(undefined, workingPath, opts?.preserveLoadedSource === undefined ? undefined : {preserveLoadedSource: opts.preserveLoadedSource})) {
                 return createStalePersistResult(requestedSaveMode, false);
@@ -568,12 +571,7 @@ export function createDocumentPersistence(
                 createDocumentMutationRevisionOptions(stagedRequest.expectedDocumentRevisionToken),
             );
             if (!state.isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale working-copy repair completion', {
-                    workingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, false);
+                return skipStale('working-copy repair completion', workingPath, requestedSaveMode);
             }
             if (!validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
@@ -622,12 +620,7 @@ export function createDocumentPersistence(
                 createDocumentMutationRevisionOptions(stagedRequest.expectedDocumentRevisionToken),
             );
             if (!state.isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale working-copy optimize completion', {
-                    workingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, false);
+                return skipStale('working-copy optimize completion', workingPath, requestedSaveMode);
             }
             if (!validation.isValid) {
                 return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
@@ -683,13 +676,7 @@ export function createDocumentPersistence(
                 ));
             }
             if (!state.isActiveWorkingCopy(previousWorkingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale optimized-copy completion', {
-                    workingPath: previousWorkingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    savedPath: optimizeResult.path,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, true);
+                return skipStale('optimized-copy completion', previousWorkingPath, requestedSaveMode, true);
             }
 
             opts?.onResult?.(optimizeResult);
@@ -892,13 +879,8 @@ export function createDocumentPersistence(
 
         try {
             if (!state.isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save before write', {
-                    workingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    saveMode: opts.saveMode,
-                });
                 logRendererTimings('stale-before-write');
-                return createStalePersistResult(opts.saveMode, false);
+                return skipStale('native PDF mutation save before write', workingPath, opts.saveMode);
             }
             const result = await measurePdfPersistPhase(
                 phaseTimings,

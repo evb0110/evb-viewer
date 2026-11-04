@@ -3,11 +3,11 @@ import type {
     IScanCleanupScratchShortfall,
     TScanCleanupErrorCode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    TTranslateFn,
-    TTranslationKey,
-} from '@i18n-app';
-import {formatBytes} from '@app/utils/formatters';
+import type {TTranslationKey} from '@i18n-app';
+import {
+    formatBytes,
+    type IByteSizeFormat,
+} from '@app/utils/formatters';
 
 const SCAN_CLEANUP_ERROR_MESSAGE_KEYS = {
     encrypted: 'scanCleanup.errors.encrypted',
@@ -58,9 +58,10 @@ export function formatScanCleanupErrorMessage(message: string, error: unknown) {
  * the detection session's UI boundary.
  */
 export function formatScanCleanupScratchMessage(
-    t: TTranslateFn,
+    format: IByteSizeFormat,
     shortfall: IScanCleanupScratchShortfall | undefined,
 ) {
+    const {t} = format;
     const headline = t('scanCleanup.errors.insufficientScratch');
     if (
         shortfall === undefined
@@ -70,19 +71,19 @@ export function formatScanCleanupScratchMessage(
         return headline;
     }
     return `${headline} ${t('scanCleanup.errors.insufficientScratchSpace', {
-        required: formatBytes(shortfall.requiredBytes),
-        available: formatBytes(shortfall.availableBytes),
+        required: formatBytes(shortfall.requiredBytes, format),
+        available: formatBytes(shortfall.availableBytes, format),
     })}`;
 }
 
 export function formatScanCleanupErrorByCode(
-    t: TTranslateFn,
+    format: IByteSizeFormat,
     errorCode: TScanCleanupErrorCode,
     technicalDetail: unknown,
     scratchShortfall?: IScanCleanupScratchShortfall,
 ) {
     if (errorCode === 'insufficient-scratch') {
-        return formatScanCleanupScratchMessage(t, scratchShortfall);
+        return formatScanCleanupScratchMessage(format, scratchShortfall);
     }
-    return formatScanCleanupErrorMessage(t(SCAN_CLEANUP_ERROR_MESSAGE_KEYS[errorCode]), technicalDetail);
+    return formatScanCleanupErrorMessage(format.t(SCAN_CLEANUP_ERROR_MESSAGE_KEYS[errorCode]), technicalDetail);
 }

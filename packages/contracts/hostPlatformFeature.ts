@@ -37,11 +37,29 @@ const hostZenModeStateSchema = v.object({
 }, 'invalid host zen mode state');
 export type IHostZenModeState = v.InferOutput<typeof hostZenModeStateSchema>;
 
+// A whole number of device-independent pixels a window can have.
+const windowDimension = v.pipe(
+    v.number('invalid host window size'),
+    v.integer('invalid host window size'),
+    v.minValue(1, 'invalid host window size'),
+    v.maxValue(32_768, 'invalid host window size'),
+);
+const hostWindowSizeSchema = v.strictObject({
+    width: windowDimension,
+    height: windowDimension,
+}, 'invalid host window size');
+/** A width and height in device-independent pixels: a content area or a display's work area. */
+export type IHostWindowSize = v.InferOutput<typeof hostWindowSizeSchema>;
+
 /** Native placement of the window: fullscreen and maximized both override its own size. */
 const hostWindowStateSchema = v.object({
     fullScreen: v.boolean('invalid host window state'),
     maximized: v.boolean('invalid host window state'),
     supported: v.boolean('invalid host window state'),
+    /** The native content size the window reached, where the host can tell. */
+    contentSize: v.optional(hostWindowSizeSchema),
+    /** The work area of the display the window is on, which bounds its size. */
+    workAreaSize: v.optional(hostWindowSizeSchema),
 }, 'invalid host window state');
 export type IHostWindowState = v.InferOutput<typeof hostWindowStateSchema>;
 
@@ -109,12 +127,16 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             result: hostZenModeStateSchema,
             main: 'setHostZenModeForWindow',
         }),
-        // Leaves fullscreen and maximized, so a later size request is the window's own.
-        // Answers the state the window reached, which may still be fullscreen or maximized.
+        // Leaves fullscreen and maximized, so a later size request is the window's own,
+        // then gives the content area the size asked for, if any. Answers the state
+        // the window reached, which may still be fullscreen or maximized.
         restoreNormalWindow: defineForwardedPlatformMethod({
             name: 'restoreNormalWindow',
             channel: 'host:restoreNormalWindow',
-            args: noArgs,
+            args: v.union([
+                v.strictTuple([]),
+                v.strictTuple([hostWindowSizeSchema]),
+            ]),
             result: hostWindowStateSchema,
             main: 'restoreHostNormalWindowForWindow',
         }),

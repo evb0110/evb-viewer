@@ -89,4 +89,55 @@ describe('host platform feature schemas', () => {
             osScaleFactor: 0,
         })).toBeNull();
     });
+
+    it('accepts a window content size only as whole pixels from 1 to 32768', () => {
+        const decode = codecs[channels.restoreNormalWindow]!.decodeArgs;
+        expect(decode([])).toEqual([]);
+        for (const size of [
+            {
+                width: 1,
+                height: 1,
+            },
+            {
+                width: 640,
+                height: 480,
+            },
+            {
+                width: 32_768,
+                height: 32_768,
+            },
+        ]) {
+            expect(decode([size])).toEqual([size]);
+        }
+        for (const size of [
+            {
+                width: 640.5,
+                height: 480,
+            },
+            {
+                width: 0,
+                height: 480,
+            },
+            {
+                width: 640,
+                height: 32_769,
+            },
+            {
+                width: 640,
+                height: -480,
+            },
+            {
+                width: 640,
+                height: Number.POSITIVE_INFINITY,
+            },
+            {
+                width: 640,
+                height: 480,
+                x: 0,
+            },
+        ]) {
+            expect(() => decode([size]), JSON.stringify(size)).toThrow();
+        }
+    });
 });
+

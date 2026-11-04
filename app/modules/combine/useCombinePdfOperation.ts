@@ -113,30 +113,30 @@ export const useCombinePdfOperation = <T extends {
         } catch (error) {
             const failedPhase = phase.value;
             progress.value = null;
-            const expected = error instanceof CombinePdfError && [
-                'canceled',
+            const canceled = error instanceof CombinePdfError && error.code === 'canceled';
+            const engineLimit = error instanceof CombinePdfError && [
                 'invalid-input',
                 'limit',
                 'unsupported',
             ].includes(error.code);
+            const expected = canceled || engineLimit;
             combineFailure.value = expected
                 ? null
                 : error instanceof CombinePdfError && error.failure
                     ? error.failure
                     : BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'});
             combineErrorIsExpected.value = expected;
-            combineError.value = error instanceof CombinePdfError && error.code === 'canceled'
+            combineError.value = canceled
                 ? null
-                : error instanceof CombinePdfError && [
-                    'invalid-input',
-                    'limit',
-                    'unsupported',
-                ].includes(error.code)
+                : engineLimit
                     ? describeCombineEngineLimit(error.cause) ?? options.translate('errors.file.invalid')
                     : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             abortController = null;
             phase.value = 'idle';
+            // A page closed while this ran can no longer offer Retry or Save
+            // As: what is still pending is let go. An opened result is not.
+            if (disposed) releasePendingResult();
         }
     }
 
@@ -149,20 +149,16 @@ export const useCombinePdfOperation = <T extends {
         if (!pending || pending.kind !== 'pdf' || !pending.workingPath || isCombining.value) {
             return;
         }
+        // Discarded or replaced since: not this save's.
+        const replaced = () => pendingCombinedResult.value !== pending;
         try {
-            // No document opened this file, so its revision comes from the
-            // working copy's owner rather than a document session.
             const documentFiles = getDocumentFilesCapability();
             const {token} = await documentFiles.getDocumentRevision(pending.workingPath);
             const savedPath = await documentFiles.savePdfAs(pending.workingPath, undefined, {expectedDocumentRevisionToken: token});
-            if (savedPath) {
-                combineError.value = null;
-                combineFailure.value = null;
-                combineErrorIsExpected.value = false;
-                releasePendingResult();
-                progress.value = null;
-            }
+            if (replaced() || isCombining.value) return;
+            if (savedPath) discardPendingResult();
         } catch (error) {
+            if (replaced()) return;
             combineError.value = options.translate('errors.file.save');
             combineErrorIsExpected.value = false;
             combineFailure.value = BrowserLogger.error(
@@ -196,7 +192,9 @@ export const useCombinePdfOperation = <T extends {
         combineErrorIsExpected.value = false;
     }
 
+    let disposed = false;
     onScopeDispose(() => {
+        disposed = true;
         if (!isCombining.value) {
             releasePendingResult();
         }

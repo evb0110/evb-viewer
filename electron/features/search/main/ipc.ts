@@ -11,8 +11,10 @@ import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionSt
 import {
     findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry,
+    getWorkingCopyOwnerWebContentsId,
 } from '@electron/file-access/workingCopyStore';
 import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
+import { isWorkingCopyQuarantined } from '@electron/file-access/workingCopyQuarantine';
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
@@ -98,7 +100,16 @@ async function resolvePdfSearchDocument(
     signal: AbortSignal,
 ) {
     const resolvedPdfPath = await resolveSearchablePdfPath(pdfPath, senderId, signal);
-    if (!resolvedPdfPath) {
+    // Another window's working copy is not this one's to read, whatever
+    // revision the request names; nor is a retired copy whose bytes are kept
+    // in quarantine after no window owns it any more.
+    if (!resolvedPdfPath || [
+        pdfPath,
+        resolvedPdfPath,
+    ].some(path => {
+        const owner = getWorkingCopyOwnerWebContentsId(path);
+        return owner === undefined ? isWorkingCopyQuarantined(path) : owner !== senderId;
+    })) {
         throw searchPathDeniedError();
     }
     const revision = documentRevision ?? (await getWorkingCopyRevision(resolvedPdfPath, senderId)).token;

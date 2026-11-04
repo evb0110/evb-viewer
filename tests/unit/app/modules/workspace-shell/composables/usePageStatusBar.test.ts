@@ -81,18 +81,21 @@ describe('usePageStatusBar', () => {
     });
 
     it('shows the folder action only for filesystem-backed document refs', async () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: {
-            size?: string;
-            zoom?: number
-        }) => {
-            if (key === 'status.fileSizeValue') {
-                return `size:${params?.size ?? ''}`;
-            }
-            if (key === 'status.zoomValue') {
-                return `zoom:${params?.zoom ?? ''}`;
-            }
-            return key;
-        } }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string, params?: {
+                size?: string;
+                zoom?: number
+            }) => {
+                if (key === 'status.fileSizeValue') {
+                    return `size:${params?.size ?? ''}`;
+                }
+                if (key === 'status.zoomValue') {
+                    return `zoom:${params?.zoom ?? ''}`;
+                }
+                return key;
+            }, 
+        }));
 
         const browserStatusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('browser://documents/example.pdf') }));
         const fileStatusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('/tmp/example.pdf') }));
@@ -102,7 +105,10 @@ describe('usePageStatusBar', () => {
     });
 
     it('presents a failed save instead of a clean document', () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const hasSaveFailure = ref(true);
         const statusBar = usePageStatusBar(createDeps({
             pdfSrc: ref<TPdfSource | null>(pathPdfSource('/tmp/example.pdf', 1024)),
@@ -122,7 +128,10 @@ describe('usePageStatusBar', () => {
     });
 
     it('keeps the saving indicator ahead of a stale failure', () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({
             pdfSrc: ref<TPdfSource | null>(pathPdfSource('/tmp/example.pdf', 1024)),
             canSave: ref(true),
@@ -135,7 +144,10 @@ describe('usePageStatusBar', () => {
     });
 
     it('does not invoke show-in-folder for browser-backed refs', async () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('browser://documents/example.pdf') }));
 
         await statusBar.handleStatusShowInFolderClick();
@@ -144,7 +156,10 @@ describe('usePageStatusBar', () => {
     });
 
     it('reveals filesystem-backed refs through the window capability', async () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('/tmp/example.pdf') }));
 
         await statusBar.handleStatusShowInFolderClick();
@@ -153,7 +168,10 @@ describe('usePageStatusBar', () => {
     });
 
     it('explains browser-backed documents instead of saying no file is open', () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('browser://documents/source/%D0%A2%D1%80%D1%83%D0%B4.pdf') }));
 
         expect(statusBar.statusFilePath.value).toBe('Труд.pdf');
@@ -162,7 +180,10 @@ describe('usePageStatusBar', () => {
     });
 
     it('shows the file name for display while keeping the full path available', () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('/Users/evb/Desktop/To/book.djvu') }));
 
         expect(statusBar.statusFileName.value).toBe('book.djvu');
@@ -170,9 +191,14 @@ describe('usePageStatusBar', () => {
     });
 
     it('falls back to the on-disk size when the document has no in-memory bytes', async () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: { size?: string }) => (
-            key === 'status.fileSizeValue' ? `size:${params?.size ?? ''}` : key
-        ) }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string, params?: { size?: string }) => (
+                key === 'status.fileSizeValue'
+                    ? `size:${params?.size ?? ''}`
+                    : key === 'common.unitKilobyte' ? 'KB' : key
+            ),
+        }));
         statFileMock.mockResolvedValue({ size: 2048 });
 
         const statusBar = usePageStatusBar(createDeps({
@@ -181,27 +207,35 @@ describe('usePageStatusBar', () => {
         }));
 
         await vi.waitFor(() => {
-            expect(statusBar.statusFileSizeLabel.value).toContain('2.00 KB');
+            expect(statusBar.statusFileSizeLabel.value).toContain('2.00 common.unitKilobyte');
         });
         expect(statFileMock).toHaveBeenCalledWith('/tmp/managed/book.djvu');
         expect(statFileMock).not.toHaveBeenCalledWith('/Users/evb/Desktop/book.djvu');
     });
 
     it('uses trusted opening metadata for a DjVu without a managed working copy', () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: { size?: string }) => (
-            key === 'status.fileSizeValue' ? `size:${params?.size ?? ''}` : key
-        ) }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string, params?: { size?: string }) => (
+                key === 'status.fileSizeValue'
+                    ? `size:${params?.size ?? ''}`
+                    : key === 'common.unitKilobyte' ? 'KB' : key
+            ),
+        }));
         const statusBar = usePageStatusBar(createDeps({
             knownFileSizeBytes: ref(4096),
             originalPath: documentPathRef('/Users/evb/Desktop/book.djvu'),
         }));
 
-        expect(statusBar.statusFileSizeLabel.value).toContain('4.00 KB');
+        expect(statusBar.statusFileSizeLabel.value).toContain('4.00 common.unitKilobyte');
         expect(statFileMock).not.toHaveBeenCalled();
     });
 
     it('does not stat an unadopted filesystem path while its visual open is pending', async () => {
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const isDocumentVisualPending = ref(true);
         usePageStatusBar(createDeps({
             isDocumentVisualPending,
@@ -246,10 +280,13 @@ describe('usePageStatusBar', () => {
             progress: 0,
             state: 'materializing',
         });
-        vi.stubGlobal('useTypedI18n', () => ({ t: (
-            key: string,
-            params?: {progress?: number},
-        ) => params?.progress === undefined ? key : `${key}:${params.progress}` }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (
+                key: string,
+                params?: {progress?: number},
+            ) => params?.progress === undefined ? key : `${key}:${params.progress}`, 
+        }));
         const statusBar = usePageStatusBar(createDeps({workingCopyPath: documentPathRef('/tmp/managed.pdf')}));
 
         await vi.waitFor(() => {
@@ -307,7 +344,10 @@ describe('usePageStatusBar', () => {
                 state: 'materializing',
             });
         }));
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({workingCopyPath: documentPathRef('/tmp/managed.pdf')}));
 
         await vi.waitFor(() => {
@@ -348,7 +388,10 @@ describe('usePageStatusBar', () => {
                 state: 'materialized',
             });
         }));
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useTypedI18n', () => ({
+            locale: {value: 'en'},
+            t: (key: string) => key,
+        }));
         const statusBar = usePageStatusBar(createDeps({workingCopyPath: documentPathRef('/tmp/managed.pdf')}));
 
         await vi.waitFor(() => {
@@ -384,7 +427,10 @@ describe('usePageStatusBar', () => {
                     progress: 1,
                     state: 'materialized',
                 });
-            vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+            vi.stubGlobal('useTypedI18n', () => ({
+                locale: {value: 'en'},
+                t: (key: string) => key,
+            }));
             const statusBar = usePageStatusBar(createDeps({workingCopyPath: documentPathRef('/tmp/managed.pdf')}));
 
             await Promise.resolve();

@@ -179,30 +179,38 @@ describe('native markup builders', () => {
         },
     );
 
-    it('keeps the marker rectangle when detailed geometry exceeds the native bound', () => {
-        const markerRect = {
+    it('saves every rectangle up to the native bound and refuses a longer list', () => {
+        // One distinct line per rectangle, so a dropped one cannot hide.
+        const lines = (count: number) => Array.from({length: count}, (_, index) => ({
             left: 0.1,
-            top: 0.2,
+            top: index / 1_024,
             width: 0.3,
-            height: 0.4,
-        };
-        const nativeHint = toNativeMarkupHint({
-            subtype: 'Squiggly',
-            pageIndex: requirePageIndex(0),
-            markerRect,
-            markupGeometry: Array.from(
-                {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
-                () => markerRect,
-            ),
+            height: 0.0008,
+        }));
+        const comment = (count: number) => createComment({
+            subtype: 'Highlight',
             annotationId: null,
-            color: '#336699',
-            id: 'bounded-fallback',
-            pageMarkupIndex: null,
-            source: 'editor',
-            consumed: false,
+            markerRect: {
+                left: 0.1,
+                top: 0,
+                width: 0.3,
+                height: count / 1_024,
+            },
+            markupGeometry: lines(count),
         });
+        const limit = PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems;
+        const atLimit = comment(limit);
 
-        expect(nativeHint).toEqual(expect.objectContaining({markerRect}));
-        expect(nativeHint).not.toHaveProperty('markupGeometry');
+        expect(buildNativeMarkupMutationForSave({
+            canonicalComments: [atLimit],
+            changedComments: [atLimit],
+            annotationWorkDirty: true,
+        })?.hints[0]?.markupGeometry).toEqual(lines(limit));
+        const overLimit = comment(limit + 1);
+        expect(() => buildNativeMarkupMutationForSave({
+            canonicalComments: [overLimit],
+            changedComments: [overLimit],
+            annotationWorkDirty: true,
+        })).toThrow(`more than ${String(limit)} rectangles`);
     });
 });
