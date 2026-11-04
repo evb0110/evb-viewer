@@ -108,8 +108,9 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         selectedPageSelection: commandViewRef<TPageSelection | null>(port => port.view.selectedPageSelection, null),
         setSelectedThumbnailPages: (pages: number[]) => commandView.value?.view.setSelectedThumbnailPages(pages),
         setSelectedPageSelection: (selection: TPageSelection) => commandView.value?.view.setSelectedPageSelection(selection),
+        // Every view shows this document's thumbnails, not only the one acting.
         requestThumbnailInvalidation: (...args: Parameters<TViewShellState['requestThumbnailInvalidation']>) => (
-            commandView.value?.view.requestThumbnailInvalidation(...args)
+            viewPorts.value.forEach(port => port.view.requestThumbnailInvalidation(...args))
         ),
         closeAllDropdowns: () => commandView.value?.view.closeAllDropdowns(),
         openDropdown: (...args: Parameters<TViewShellState['openDropdown']>) => commandView.value?.view.openDropdown(...args),
