@@ -2266,6 +2266,22 @@ describe('image export', () => {
         expect(existsSync(outputPath)).toBe(false);
     });
 
+    it('starts crash recovery at or after the last filesystem write', async () => {
+        const appTempRoot = join(tempDir, 'app-temp');
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        const scratchStat = await realFs.lstat(scratchPath);
+        vi.useFakeTimers({
+            toFake: ['Date'],
+            now: Math.floor(Math.max(scratchStat.mtimeMs, scratchStat.ctimeMs)) - 1,
+        });
+        try {
+            await restartAfterCrash(appTempRoot);
+            expect(existsSync(scratchPath)).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('removes the staged TIFF of a multi-page export stopped before publishing, on the next start', async () => {
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;
