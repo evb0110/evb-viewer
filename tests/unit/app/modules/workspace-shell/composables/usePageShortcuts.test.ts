@@ -571,7 +571,8 @@ describe('usePageShortcuts', () => {
         expect(deps.pdfViewerRef.value?.deleteSelectedShape).not.toHaveBeenCalled();
     });
 
-    it('leaves Delete and paging keys pressed inside a dialog to the dialog', async () => {
+    it('leaves Delete, paging, Cmd+S and Cmd+B pressed inside a dialog to the dialog', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const deps = createDeps();
         // eslint-disable-next-line @typescript-eslint/no-extraneous-class
         vi.stubGlobal('Element', class ElementStub {});
@@ -596,6 +597,29 @@ describe('usePageShortcuts', () => {
             }));
             expect(preventDefault, key).not.toHaveBeenCalled();
         }
+        const save = createKeyboardEventFixture({
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: dialogButton,
+        });
+        getCapturedKeyDown()?.(save);
+        getCapturedOnEventFired()?.(createKeyboardEventFixture({
+            key: 'b',
+            code: 'KeyB',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: dialogButton,
+        }));
+        const keys = mocks.useMagicKeys.mock.results[0]?.value;
+        keys.meta.value = true;
+        keys.b.value = true;
+        // The one `whenever` gate is Cmd/Ctrl+B, the sidebar toggle.
+        expect(mocks.whenever.mock.calls[0]?.[0]()).toBeFalsy();
+        expect(deps.handleSave).not.toHaveBeenCalled();
         expect(deps.pdfViewerRef.value?.deleteSelectedShape).not.toHaveBeenCalled();
         vi.unstubAllGlobals();
     });

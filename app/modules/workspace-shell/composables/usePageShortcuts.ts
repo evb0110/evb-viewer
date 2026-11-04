@@ -349,7 +349,11 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleKeyboardShortcut(event: KeyboardEvent) {
-        if (event.defaultPrevented || event.isComposing || isInDialog(event.target)) {
+        if (event.defaultPrevented || event.isComposing) {
+            return;
+        }
+        if (isInDialog(event.target)) {
+            editableBlocked.value = true;
             return;
         }
         suppressBrowserDefaultForConflictingAccelerator(event);
@@ -421,8 +425,8 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         deps.handlePasteImageFile(file);
     }
 
-    // Tracks whether the most recent keydown targeted an editable element,
-    // so the reactive `whenever` watchers can skip those events.
+    // Tracks whether the most recent keydown targeted an editable element or
+    // a dialog, so the reactive `whenever` watchers can skip those events.
     const editableBlocked = ref(false);
 
     const keys = useMagicKeys({
