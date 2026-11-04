@@ -203,7 +203,6 @@ const pageSizesArgs = v.strictTuple([
     documentRefSchema,
     PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA,
 ]);
-const readTextFileArgs = pdfPathSchema;
 const fileExistsArgs = pdfPathSchema;
 const writeFileArgs = v.strictTuple([
     documentRefSchema,
@@ -563,7 +562,6 @@ export {
     readFileArgs,
     readFileRangeArgs,
     readPdfPageLabelRangesArgs,
-    readTextFileArgs,
     recentFilesResult,
     releaseManagedHandleArgs,
     repairPdfArgs,

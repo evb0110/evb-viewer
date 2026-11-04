@@ -227,7 +227,6 @@ export function createBrowserDocumentsCapability(
         readPdfPageLabelRanges: fileCapability.readPdfPageLabelRanges,
         statFile: fileCapability.statFile,
         readFileRange: fileCapability.readFileRange,
-        readTextFile: fileCapability.readTextFile,
         fileExists: fileCapability.fileExists,
         getDocumentRevision: fileCapability.getDocumentRevision,
         onDocumentRevisionChanged: fileCapability.onDocumentRevisionChanged,

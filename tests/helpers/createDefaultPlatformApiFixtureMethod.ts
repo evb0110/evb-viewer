@@ -275,9 +275,6 @@ function createAsyncDefault(path: string) {
     if (path.endsWith('.readFile') || path.endsWith('.readFileRange')) {
         return vi.fn(async () => new Uint8Array());
     }
-    if (path.endsWith('.readTextFile')) {
-        return vi.fn(async () => '');
-    }
     if (path.endsWith('.registerFilesForOpen')) {
         return vi.fn(async () => []);
     }
