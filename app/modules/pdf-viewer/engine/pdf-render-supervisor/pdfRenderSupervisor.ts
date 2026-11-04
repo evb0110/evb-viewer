@@ -84,12 +84,6 @@ interface IActivePdfRenderSupervisorTimer {
     token: number;
 }
 
-function getNextToken(tokensByKey: Map<string, number>, key: string) {
-    const token = (tokensByKey.get(key) ?? 0) + 1;
-    tokensByKey.set(key, token);
-    return token;
-}
-
 function buildEvent(
     activeTimer: IActivePdfRenderSupervisorTimer,
     cause: TPdfRenderSupervisorCause,
@@ -130,8 +124,9 @@ export function createPdfRenderSupervisor(
     options: ICreatePdfRenderSupervisorOptions = {},
 ): IPdfRenderSupervisor {
     const activeTimers = new Map<string, IActivePdfRenderSupervisorTimer>();
-    const tokensByKey = new Map<string, number>();
-    const explicitTokensByKey = new Map<string, number>();
+    // One counter for every timer and event: a token is never reused, so no
+    // history per key is kept and an old handle never matches a new timer.
+    let lastToken = 0;
     const now = options.now ?? (() => Date.now());
     const setTimeoutFn = options.setTimeoutFn ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     const clearTimeoutFn = options.clearTimeoutFn ?? (handle => clearTimeout(handle));
@@ -142,8 +137,7 @@ export function createPdfRenderSupervisor(
     }
 
     function isActiveTimerCurrent(activeTimer: IActivePdfRenderSupervisorTimer) {
-        return activeTimers.get(activeTimer.key) === activeTimer
-            && tokensByKey.get(activeTimer.key) === activeTimer.token;
+        return activeTimers.get(activeTimer.key) === activeTimer;
     }
 
     function fireTimer(activeTimer: IActivePdfRenderSupervisorTimer) {
@@ -168,7 +162,6 @@ export function createPdfRenderSupervisor(
             clearTimeoutFn(activeTimer.handle);
         }
         activeTimers.delete(key);
-        getNextToken(tokensByKey, key);
         return true;
     }
 
@@ -177,7 +170,7 @@ export function createPdfRenderSupervisor(
             clearTimerKey(armOptions.key);
         }
 
-        const token = getNextToken(tokensByKey, armOptions.key);
+        const token = ++lastToken;
         const activeTimer: IActivePdfRenderSupervisorTimer = {
             armedAtMs: now(),
             cause: armOptions.cause,
@@ -216,8 +209,7 @@ export function createPdfRenderSupervisor(
     function isTimerCurrent(timer: IPdfRenderSupervisorTimer | null | undefined) {
         return Boolean(
             timer
-            && activeTimers.get(timer.key)?.token === timer.token
-            && tokensByKey.get(timer.key) === timer.token,
+            && activeTimers.get(timer.key)?.token === timer.token,
         );
     }
 
@@ -225,7 +217,7 @@ export function createPdfRenderSupervisor(
         const event = buildExplicitEvent(
             reportOptions,
             now,
-            getNextToken(explicitTokensByKey, reportOptions.key),
+            ++lastToken,
         );
         emit(event);
         return event;
