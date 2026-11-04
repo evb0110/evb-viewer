@@ -208,6 +208,7 @@ export default {
             'title': 'Páginas de origem',
             'resetAction': 'Redefinir',
             'count': plural({
+                zero: '{count} páginas de origem',
                 one: '{count} página de origem',
                 other: '{count} páginas de origem',
             }),

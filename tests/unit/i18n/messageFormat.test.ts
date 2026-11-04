@@ -171,7 +171,7 @@ describe('message formatting', () => {
         [
             'pt',
             0,
-            '0 página de origem',
+            '0 páginas de origem',
             'A imprimir 0 página com L e orientação O.',
         ],
         [
@@ -189,7 +189,7 @@ describe('message formatting', () => {
         [
             'pt-BR',
             0,
-            '0 página de origem',
+            '0 páginas de origem',
             'Imprimindo 0 página com layout L e orientação O.',
         ],
         [
