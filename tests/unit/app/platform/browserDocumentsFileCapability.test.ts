@@ -1499,7 +1499,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             older,
             newer,
         ]));
-        expect(stored.find(file => file.originalPath === older)?.fileSize).toEqual(expect.any(Number));
+        expect(stored.find(file => file.originalPath === older)?.fileSize).toBe(3);
     });
 
     it('names an optimized dot-file without dropping its name', () => {

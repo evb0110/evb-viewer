@@ -740,8 +740,7 @@ export function createBrowserDocumentsFileCapability(
         recentFiles: {
             async get() {
                 const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
-                const validatedFiles: IRecentFile[] = [];
-                const sized = new Map<string, IRecentFile>();
+                const sized = new Map<string, number>();
                 for (const file of recentFiles) {
                     const {
                         available,
@@ -752,20 +751,19 @@ export function createBrowserDocumentsFileCapability(
                         await browserDocumentStore.removeRecentFile(file.originalPath);
                         continue;
                     }
-                    const validated = {
-                        ...file,
-                        fileSize: file.fileSize ?? entry.fileSize,
-                    };
-                    if (validated.fileSize !== file.fileSize) sized.set(file.originalPath, validated);
-                    validatedFiles.push(validated);
+                    sized.set(file.originalPath, entry.fileSize);
                 }
-                if (sized.size > 0) {
+                const withSize = (file: IRecentFile) => (file.fileSize ? file : {
+                    ...file,
+                    fileSize: sized.get(file.originalPath) ?? 0,
+                });
+                if (recentFiles.some(file => !file.fileSize && sized.get(file.originalPath))) {
                     await runSerializedRecentFilesStorageMutation(currentFiles => ({
-                        files: currentFiles.map(file => (file.fileSize === undefined ? sized.get(file.originalPath) : undefined) ?? file),
+                        files: currentFiles.map(withSize),
                         value: undefined,
                     }));
                 }
-                return validatedFiles;
+                return recentFiles.filter(file => sized.has(file.originalPath)).map(withSize);
             },
             async remove(path) {
                 await browserDocumentStore.removeRecentFile(path);
