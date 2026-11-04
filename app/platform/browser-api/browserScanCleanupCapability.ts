@@ -139,15 +139,6 @@ async function retire(work: IPreviewWork | null) {
     await work.promise.catch(() => undefined);
 }
 
-function previewSourceFor(ref: string, revision: string, signal: AbortSignal) {
-    if (previewSource === null || previewSource.key !== scanCleanupSourceKey(ref, revision) || previewSource.stale) {
-        const previous = previewSource;
-        previewSource = borrowBrowserScanCleanupSource(ref, revision);
-        previous?.release();
-    }
-    return awaitScanCleanupSource(previewSource.opened, signal);
-}
-
 function startWork(request: IScanCleanupPreviewRequest, identity: string, run: (signal: AbortSignal) => Promise<IBrowserScanCleanupPreviewRendering>): IPreviewWork {
     const controller = new AbortController();
     return {
@@ -165,18 +156,29 @@ async function renderPreview(
     detailBase: IBrowserScanCleanupPreviewBase | null,
 ) {
     const {renderBrowserScanCleanupWorkspacePreview} = await import('@app/platform/browser-api/browserScanCleanupJob');
-    const opened = await previewSourceFor(request.sourcePdfPath, request.documentRevision, signal);
-    signal.throwIfAborted();
-    return renderBrowserScanCleanupWorkspacePreview({
-        request,
-        source: opened,
-        signal,
-        base: detailBase,
-        emitRaw: event => {
-            if (signal.aborted) return;
-            for (const listener of [...previewRawListeners]) listener(event);
-        },
-    });
+    const {
+        sourcePdfPath: ref, documentRevision: revision,
+    } = request;
+    // The window keeps the revision open between pages; each render borrows
+    // it too, so a newer preview never closes what a render still reads.
+    if (previewSource?.key !== scanCleanupSourceKey(ref, revision) || previewSource.stale) {
+        previewSource?.release();
+        previewSource = borrowBrowserScanCleanupSource(ref, revision);
+    }
+    const borrow = borrowBrowserScanCleanupSource(ref, revision);
+    return awaitScanCleanupSource(borrow.opened, signal).then(opened => {
+        signal.throwIfAborted();
+        return renderBrowserScanCleanupWorkspacePreview({
+            request,
+            source: opened,
+            signal,
+            base: detailBase,
+            emitRaw: event => {
+                if (signal.aborted) return;
+                for (const listener of [...previewRawListeners]) listener(event);
+            },
+        });
+    }).finally(() => borrow.release());
 }
 
 function settled(work: IPreviewWork, requestId: TRequestId): Promise<TScanCleanupPreviewWireResult> {
@@ -304,9 +306,8 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
                 base,
                 detail,
             ].filter(owned);
-            // Canceled work keeps its slot until it settles, so the next
-            // preview waits for it before replacing the source it reads.
-            for (const work of claimed) work?.controller.abort(new DOMException('Scan cleanup preview was canceled.', 'AbortError'));
+            if (owned(base)) base = null;
+            if (owned(detail)) detail = null;
             if (retainedBase !== null && retainedBase.ownerId === request.ownerId && retainedBase.ref === request.sourcePdfPath
                 && (request.invalidateRawCache === true || !(request.retainPages ?? []).some(page => page === retainedBase?.pageNumber))) {
                 retainedBase = null;
@@ -314,8 +315,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
             return claimed;
         });
         await Promise.all(retiring.map(retire));
-        const idle = (work: IPreviewWork | null) => work === null || work.controller.signal.aborted;
-        if (request.invalidateRawCache === true && idle(base) && idle(detail)) {
+        if (request.invalidateRawCache === true && base === null && detail === null) {
             previewSource?.release();
             previewSource = null;
         }
