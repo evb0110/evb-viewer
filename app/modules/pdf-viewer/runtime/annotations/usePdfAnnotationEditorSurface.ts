@@ -84,6 +84,8 @@ export type TResolveTextMarkupPreview = (
 ) => string | null | undefined;
 
 export interface IAnnotationEditorSurface {
+    /** Whether this viewer takes the reader's input, as the active pane does. */
+    readonly isActive: ComputedRef<boolean>;
     readonly editingId: Readonly<Ref<AnnotationId | null>>;
     readonly selectionMoveDelta: Readonly<Ref<{
         x: number;
@@ -1099,6 +1101,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     return {
+        isActive: computed(() => options.isActive?.value !== false),
         editingId,
         selectionMoveDelta,
         setSelectionMoveDelta: delta => { selectionMoveDelta.value = delta; },
