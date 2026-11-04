@@ -1,5 +1,6 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
@@ -127,7 +128,7 @@ function createHarness() {
             window.getSelection()?.removeAllRanges();
             return true;
         },
-        logNonCriticalStageError: vi.fn(),
+        logNonCriticalStageError: vi.fn(() => STAGE_FAILURE_RECEIPT),
     });
 
     const harness = {
@@ -177,6 +178,8 @@ function createHarness() {
 
     return harness;
 }
+
+const STAGE_FAILURE_RECEIPT = cast<FailureReceipt>({errorId: 'text-layer-receipt'});
 
 describe('usePdfRendererTextLayerController', () => {
     it('keeps the selection and the mounted interaction across a scale step', async () => {
@@ -256,7 +259,8 @@ describe('usePdfRendererTextLayerController', () => {
             const render = harness.renderAtScale(1);
             await vi.advanceTimersByTimeAsync(15_000);
 
-            await expect(render).resolves.toMatchObject({failure: undefined});
+            // A receipt lets the page offer Retry for its text.
+            await expect(render).resolves.toMatchObject({failure: STAGE_FAILURE_RECEIPT});
             expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
             expect(harness.setupTextLayerInteraction).not.toHaveBeenCalled();
         } finally {

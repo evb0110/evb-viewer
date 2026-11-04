@@ -14,7 +14,6 @@ import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { isEqual } from 'es-toolkit';
 import { getTextLayerTextMapping } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { isRenderCancellation } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
@@ -151,20 +150,10 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         } catch (textLayerError) {
             if (isPageRenderTimeoutError(textLayerError)) {
                 cleanupText();
-                BrowserLogger.warn(
-                    'pdf-renderer',
-                    `Optional text layer enrichment timed out for page ${String(pageNumber)}`,
-                    {
-                        pageNumber,
-                        stage: textLayerError.stage,
-                        timeoutMs: textLayerError.timeoutMs,
-                    },
-                );
-                // The canvas is already mounted. A nonessential text layer must not
-                // turn a readable page into a blank page when it stalls.
+                // The canvas stays readable; the page offers Retry for its text.
                 isTextLayerRendered = false;
                 failure = {
-                    failure: undefined,
+                    failure: logNonCriticalStageError(pageNumber, 'text layer', textLayerError),
                     error: textLayerError,
                 };
             } else if (
