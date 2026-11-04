@@ -1,4 +1,5 @@
 import {
+    chmod,
     mkdtemp,
     readFile,
     rename,
@@ -76,6 +77,19 @@ describe('documentFileWriteAtomic immutable-source fallback', () => {
             'copy',
             'rename',
         ]));
+    });
+
+    it('keeps the source permission bits on the unsupported-clone fallback, as the clone does', async () => {
+        const sourcePath = join(tempRoot, 'source.pdf');
+        const targetPath = join(tempRoot, 'target.pdf');
+        await writeFile(sourcePath, 'source bytes', {mode: 0o640});
+        await chmod(sourcePath, 0o640);
+        const {copyFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+
+        await copyFileAtomic(sourcePath, targetPath, {durable: false});
+
+        await expect(readFile(targetPath, 'utf8')).resolves.toBe('source bytes');
+        expect((await stat(targetPath)).mode & 0o777).toBe(0o640);
     });
 
     it('checks the destination witness on the immutable publication fallback', async () => {

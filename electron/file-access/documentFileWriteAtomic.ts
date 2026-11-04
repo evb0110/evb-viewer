@@ -131,7 +131,7 @@ export async function copyFileAtomic(
             // one refuses a source that changes while it is copied.
             if (!linked) {
                 await measureCopyPhase(options.onPhase, 'copy', () =>
-                    copyFileFromStableSource(resolvedSourcePath, temporaryPath));
+                    copyFileFromStableSource(resolvedSourcePath, temporaryPath, {preserveMode: true}));
             }
         }
         if (options.durable !== false) {
