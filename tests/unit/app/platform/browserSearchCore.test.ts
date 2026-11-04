@@ -87,6 +87,30 @@ describe('browserSearchCore', () => {
         }, {signal});
     });
 
+    it.each([
+        {
+            paintedText: true,
+            evbOcrLayer: true,
+        },
+        {
+            paintedText: false,
+            evbOcrLayer: false,
+        },
+    ])('keeps repaired foreign or painted RTL text ($paintedText, $evbOcrLayer)', async metadata => {
+        mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'הַקְדְשָה'});
+        mocks.pageOps.mockResolvedValue({pages: [{
+            pageNumber: 1,
+            ...metadata,
+            evbOcrLines: [{
+                text: 'wrong override',
+                words: [],
+            }],
+        }]});
+        const {loadBrowserSearchDocument} = await import('@app/platform/browser-api/browserSearchCore');
+        const document = await loadBrowserSearchDocument('/tmp/foreign.pdf');
+        await expect(document.extractPage(1)).resolves.toMatchObject({text: 'הַקְדְשָה'});
+    });
+
     it('stops at the canceled search instead of returning the EVB read', async () => {
         mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'ש ל ו ם'});
         let continueSearch = true;

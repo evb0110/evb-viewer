@@ -4,7 +4,11 @@ import {
     buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
-import {pdfjsTextItemIntersectsBox} from '@pdf-core/pdfjsTextItems';
+import {
+    pdfjsTextItemIntersectsBox,
+    mergePositionedPdfjsGlyphItems,
+    type IPdfjsTextItem,
+} from '@pdf-core/pdfjsTextItems';
 import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import {
     extractPdfjsWordBoxesFromOperatorList,
@@ -16,9 +20,6 @@ import {
 interface IBrowserSearchTextPageLike {
     getTextContent: IPdfPage['getTextContent'];
     cleanup?: IPdfPage['cleanup'];
-}
-
-interface IBrowserSearchGeometryPageLike extends IBrowserSearchTextPageLike {
     getOperatorList?: IPdfPage['getOperatorList'];
     view?: unknown;
 }
@@ -55,10 +56,7 @@ async function extractTextContentPageText(
         disableNormalization: true,
     });
     await throwIfBrowserSearchCanceled(options.shouldContinue);
-    const textItems: Array<{
-        text: string;
-        separatorAfter: 'line' | 'none'
-    }> = [];
+    const textItems: IPdfjsTextItem[] = [];
     let hiddenItems = 0;
 
     for (let index = 0; index < content.items.length; index += 128) {
@@ -73,7 +71,8 @@ async function extractTextContentPageText(
                     continue;
                 }
                 textItems.push({
-                    text: String(item.str),
+                    ...item,
+                    text: item.str,
                     separatorAfter: item.hasEOL ? 'line' : 'none',
                 });
             }
@@ -86,8 +85,9 @@ async function extractTextContentPageText(
     }
 
     return {
-        text: assembleSearchablePageTextItems(textItems).text,
+        text: assembleSearchablePageTextItems(mergePositionedPdfjsGlyphItems(textItems)).text,
         hiddenItems,
+        hasVerticalText: textItems.some(item => item.dir === 'ttb'),
     };
 }
 
@@ -110,25 +110,18 @@ export async function extractBrowserSearchPageText(
     }
 }
 
-function hasUsableGeometry(page: IBrowserSearchPageData) {
-    return Array.isArray(page.words)
-        && page.words.length > 0
-        && typeof page.pageWidth === 'number'
-        && Number.isFinite(page.pageWidth)
-        && page.pageWidth > 0
-        && typeof page.pageHeight === 'number'
-        && Number.isFinite(page.pageHeight)
-        && page.pageHeight > 0;
-}
-
 export async function extractBrowserSearchPageData(
-    page: IBrowserSearchGeometryPageLike,
+    page: IBrowserSearchTextPageLike,
     pdfjsOps: TPdfjsTextOps,
     options: IExtractBrowserSearchPageTextOptions = {},
 ): Promise<IBrowserSearchPageData> {
     try {
+        const pageBox = getPdfjsPageViewBox(page);
+        const {
+            pageWidth, pageHeight,
+        } = pageBox;
+        let pageData: IBrowserSearchPageData | undefined;
         if (typeof page.getOperatorList === 'function') {
-            const pageBox = getPdfjsPageViewBox(page);
             const operatorList = await page.getOperatorList();
             await throwIfBrowserSearchCanceled(options.shouldContinue);
             const allWords = extractPdfjsWordBoxesFromOperatorList(operatorList, pageBox, pdfjsOps);
@@ -136,30 +129,34 @@ export async function extractBrowserSearchPageData(
             const words = allWords.filter(word => {
                 const x = word.x + word.width / 2;
                 const y = word.y + word.height / 2;
-                return x >= 0 && x <= pageBox.pageWidth && y >= 0 && y <= pageBox.pageHeight;
+                return x >= 0 && x <= pageWidth && y >= 0 && y <= pageHeight;
             });
-            const pageData: IBrowserSearchPageData = {
+            pageData = {
                 text: buildOcrTextLayerIndexText(words),
                 words,
-                pageWidth: pageBox.pageWidth,
-                pageHeight: pageBox.pageHeight,
+                pageWidth,
+                pageHeight,
                 ...(words.length < allWords.length ? {croppedText: true as const} : {}),
             };
-            // Operator-list glyphs are in paint order. For bidi text, use the
-            // same PDF.js logical items as the rendered text layer and let its
-            // existing range mapping supply geometry, including mixed runs.
-            if (hasUsableGeometry(pageData) && !hasRightToLeftSearchText(pageData.text)) {
-                return pageData;
-            }
         }
 
         await throwIfBrowserSearchCanceled(options.shouldContinue);
         const {
-            text, hiddenItems,
-        } = await extractTextContentPageText(page, options, getPdfjsPageViewBox(page));
+            text, hiddenItems, hasVerticalText,
+        } = await extractTextContentPageText(page, options, pageBox);
+        // Boxes are usable only when the operator walker retained the text.
+        // Ignore separators the two assemblers generate differently. Vertical
+        // writing and bidi runs use the rendered text layer's range geometry.
+        if (pageData?.words?.length && !hasVerticalText
+            && Number.isFinite(pageWidth) && pageWidth > 0
+            && Number.isFinite(pageHeight) && pageHeight > 0
+            && !hasRightToLeftSearchText(pageData.text)
+            && pageData.text.replace(/\s/gu, '') === text.replace(/\s/gu, '')) {
+            return pageData;
+        }
         return {
             text,
-            ...(hiddenItems > 0 ? {croppedText: true as const} : {}),
+            ...(pageData?.croppedText || hiddenItems > 0 ? {croppedText: true as const} : {}),
         };
     } finally {
         await cleanupBrowserSearchPage(page);

@@ -605,7 +605,7 @@ describe('createBrowserSearchCapability', () => {
             unicode,
             width: unicode === '«' || unicode === '»' ? 200 : 600,
         }));
-        const getTextContent = vi.fn(async () => makeTextContent('fallback'));
+        const getTextContent = vi.fn(async () => makeTextContent('«История»'));
         const getPage = vi.fn(async () => ({
             view: [
                 0,
@@ -672,7 +672,6 @@ describe('createBrowserSearchCapability', () => {
         });
         expect(word?.x).toBeCloseTo(12, 5);
         expect(word?.width).toBeCloseTo(42, 5);
-        expect(getTextContent).not.toHaveBeenCalled();
     });
 
     it('keeps Unicode excerpts and word rectangles when complete cached text needs evicted geometry', async () => {
@@ -691,6 +690,7 @@ describe('createBrowserSearchCapability', () => {
                     200,
                     200,
                 ],
+                getTextContent: async () => makeTextContent('«История»'),
                 getOperatorList: async () => ({
                     fnArray: [
                         pdfjsModule.OPS.beginText,
@@ -1050,7 +1050,7 @@ describe('createBrowserSearchCapability', () => {
         const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
-        expect(record.version).toBe(10);
+        expect(record.version).toBe(11);
         expect(record.pageCount).toBe(3);
         expect(record.pages).toEqual([{
             pageNumber: 2,
@@ -1082,9 +1082,9 @@ describe('createBrowserSearchCapability', () => {
         await capability.resetCache();
         const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
-        // Version 8 cached right-to-left OCR pages as PDF.js glyph items.
+        // Version 10 predates faithful glyph text and vertical-writing fallback.
         database?.getStoreRecords('document-text').set(path, {
-            version: 8,
+            version: 10,
             pdfPath: path,
             fileSize: 3,
             contentSignature: 'content-token-1',

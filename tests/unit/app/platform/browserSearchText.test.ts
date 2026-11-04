@@ -97,6 +97,91 @@ describe('extractBrowserSearchPageText', () => {
         await expect(extractBrowserSearchPageText(page)).resolves.toBe('Cafe\u0301 ex\uFB01le');
     });
 
+    it.each([
+        {
+            label: 'adjacent mirrored glyphs',
+            mirrored: true,
+            x: 90,
+            font: 'f1',
+            separator: '',
+            eol: false,
+            expected: 'הַקְ',
+        },
+        {
+            label: 'word separator',
+            mirrored: true,
+            x: 90,
+            font: 'f1',
+            separator: ' ',
+            eol: false,
+            expected: 'הַ קְ ',
+        },
+        {
+            label: 'line break',
+            mirrored: true,
+            x: 90,
+            font: 'f1',
+            separator: '',
+            eol: true,
+            expected: 'הַ\nקְ',
+        },
+        {
+            label: 'font change',
+            mirrored: true,
+            x: 90,
+            font: 'f2',
+            separator: '',
+            eol: false,
+            expected: 'הַ קְ',
+        },
+        {
+            label: 'large gap',
+            mirrored: true,
+            x: 40,
+            font: 'f1',
+            separator: '',
+            eol: false,
+            expected: 'הַ קְ',
+        },
+        {
+            label: 'upright visual glyphs',
+            mirrored: false,
+            x: 90,
+            font: 'f1',
+            separator: '',
+            eol: false,
+            expected: 'הַ קְ',
+        },
+    ])('retains RTL metadata boundaries: $label', async ({
+        mirrored, x, font, separator, eol, expected,
+    }) => {
+        const item = (str: string, origin: number, fontName: string, hasEOL: boolean): IPdfTextItem => ({
+            str,
+            dir: 'rtl',
+            transform: [
+                mirrored ? -10 : 10,
+                0,
+                0,
+                10,
+                origin,
+                100,
+            ],
+            width: 10,
+            height: 10,
+            fontName,
+            hasEOL,
+        });
+        const page = {getTextContent: async (): Promise<IPdfTextContent> => ({
+            items: [
+                item('ַה', 100, 'f1', eol),
+                item(`ְק${separator}`, x, font, false),
+            ],
+            styles: {},
+            lang: null,
+        })};
+        await expect(extractBrowserSearchPageText(page)).resolves.toBe(expected);
+    });
+
     it('collapses exact repeated hidden text streams before browser search indexes the page', async () => {
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
         const makeTextItem = (str: string): IPdfTextItem => ({
@@ -300,6 +385,130 @@ describe('extractBrowserSearchPageText', () => {
 
 // Real PDF.js operator lists for one-line PDFs, read by the real geometry helper.
 describe('word boxes from real PDF operators', () => {
+    beforeEach(async () => {
+        const geometry = await vi.importActual<typeof PdfCore>('@pdf-core');
+        mocks.extractPdfjsWordBoxesFromOperatorList.mockImplementation(geometry.extractPdfjsWordBoxesFromOperatorList);
+        mocks.getPdfjsPageViewBox.mockImplementation(geometry.getPdfjsPageViewBox);
+    });
+
+    async function readFixture(name: string, pageNumber = 1) {
+        const {readFileSync} = await import('node:fs');
+        const {resolve} = await import('node:path');
+        const {
+            extractTextWithPdfjs, createPdfjsNodeDocumentOptions,
+        } = await import('@electron/features/search/pdfjsPageTexts');
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        const path = resolve('tests/fixtures/browser/search', `${name}.pdf`);
+        const desktop = await extractTextWithPdfjs(path);
+        const task = pdfjs.getDocument({
+            data: new Uint8Array(readFileSync(path)),
+            ...createPdfjsNodeDocumentOptions(),
+        });
+        try {
+            const page = await (await task.promise).getPage(pageNumber);
+            return {
+                data: await extractBrowserSearchPageData(page, pdfjs.OPS),
+                desktop: desktop[pageNumber - 1]!.text,
+            };
+        } finally {
+            await task.destroy();
+        }
+    }
+
+    it('retains a zero-advance accent without inventing a word box', async () => {
+        const {collectSearchMatchWords} = await import('@pdf-core');
+        const {
+            data, desktop,
+        } = await readFixture('zero-mark');
+        expect(data.text).toBe(desktop);
+        expect(data.text).toBe('Cafe\u0301');
+        expect(findPdfSearchMatches(data.text, 'café')).toEqual([{
+            startOffset: 0,
+            endOffset: 5,
+        }]);
+        expect(findPdfSearchMatches(data.text, 'Cafe')).toEqual([]);
+        expect(data.words).toBeUndefined();
+        expect(collectSearchMatchWords(data, 0, 5)).toBeUndefined();
+    });
+
+    it('retains middle and leading zero-advance marks and following source offsets', async () => {
+        const {
+            data, desktop,
+        } = await readFixture('middle-mark');
+        expect(data.text).toBe(desktop);
+        expect(data.text).toBe('Cafe\u0301C\nCafe');
+        expect(findPdfSearchMatches(data.text, 'caféC')).toEqual([{
+            startOffset: 0,
+            endOffset: 6,
+        }]);
+        expect(findPdfSearchMatches(data.text, 'Cafe')).toEqual([{
+            startOffset: 7,
+            endOffset: 11,
+        }]);
+        expect(findPdfSearchMatches(data.text, 'éC')).toEqual([{
+            startOffset: 3,
+            endOffset: 6,
+        }]);
+        expect(data.words).toBeUndefined();
+        const leading = await readFixture('leading-mark');
+        expect(leading.data.text).toBe(leading.desktop);
+        expect(leading.data.text).toBe('\u0301Cafe');
+        expect(leading.data.words).toBeUndefined();
+    });
+
+    // Derived from saved-rtl-ocr.pdf: all EVB markers renamed and 3 Tr changed
+    // to painted 0 Tr. The eligible invisible EVB override cannot satisfy this.
+    it.each([
+        {
+            page: 1,
+            query: 'السلام',
+        },
+        {
+            page: 2,
+            query: 'הַקְדְשָה',
+        },
+    ])('repairs painted foreign RTL page $page', async ({
+        page, query,
+    }) => {
+        const {
+            data, desktop,
+        } = await readFixture('foreign-rtl', page);
+        expect(data.text).toBe(desktop);
+        const expected = findPdfSearchMatches(desktop, query);
+        expect(expected).toHaveLength(1);
+        if (page === 1) expect(expected).toEqual([{
+            startOffset: 0,
+            endOffset: 6,
+        }]);
+        expect(findPdfSearchMatches(data.text, query)).toEqual(expected);
+        expect(data.words).toBeUndefined();
+    });
+
+    it.each([
+        'vertical',
+        'mixed-vertical',
+    ])('uses text-layer geometry for $0 writing', async name => {
+        const {collectSearchMatchWords} = await import('@pdf-core');
+        const {
+            data, desktop,
+        } = await readFixture(name);
+        expect(data.text).toBe(desktop);
+        expect(findPdfSearchMatches(data.text, '本語')).toEqual([{
+            startOffset: 1,
+            endOffset: 3,
+        }]);
+        expect(data.words).toBeUndefined();
+        expect(data.pageWidth).toBeUndefined();
+        expect(data.pageHeight).toBeUndefined();
+        expect(collectSearchMatchWords(data, 1, 3)).toBeUndefined();
+    });
+
+    it('keeps finite word boxes for a rotated horizontal font', async () => {
+        const {data} = await readFixture('rotated-horizontal');
+        expect(data.text).toContain('horizontal');
+        expect(data.words?.length).toBeGreaterThan(0);
+        expect(data.words?.every(word => Number.isFinite(word.x) && Number.isFinite(word.y) && word.width > 0 && word.height > 0)).toBe(true);
+    });
     function onePagePdf(stream: string, form?: string, cropBox = '[0 0 300 200]') {
         const objects = [
             '<< /Type /Catalog /Pages 2 0 R >>',

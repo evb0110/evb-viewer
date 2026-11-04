@@ -144,7 +144,7 @@ const SEARCH_PERSISTED_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
 const SEARCH_CACHE_DB_VERSION = 2;
 // Moves on when extraction changes; records an earlier extraction wrote are discarded.
-const SEARCH_CACHE_RECORD_VERSION = 10;
+const SEARCH_CACHE_RECORD_VERSION = 11;
 const SEARCH_CACHE_STORE = 'document-text';
 const SEARCH_CACHE_LAST_ACCESSED_INDEX = 'last-accessed-at';
 const PDFJS_TEXT_SOURCE: ISearchDocumentTextSource = {

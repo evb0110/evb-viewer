@@ -1394,3 +1394,156 @@ it('recognizes a scanned page with browser OCR so search finds its words', async
         await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
     }
 }, 240_000);
+
+
+it.each([
+    {
+        label: 'zero-advance accent',
+        fixture: 'zero-mark',
+        pageNumber: 1,
+        query: 'café',
+        painted: 'Cafe\u0301',
+        regex: false,
+    },
+    {
+        label: 'foreign Arabic',
+        fixture: 'foreign-rtl',
+        pageNumber: 1,
+        query: 'السلام',
+        painted: '',
+        regex: false,
+    },
+    {
+        label: 'foreign pointed Hebrew',
+        fixture: 'foreign-rtl',
+        pageNumber: 2,
+        query: 'הַקְדְשָה',
+        painted: '',
+        regex: false,
+    },
+    {
+        label: 'vertical column',
+        fixture: 'vertical',
+        pageNumber: 1,
+        query: '本語',
+        painted: '本語',
+        regex: false,
+    },
+])('finds and paints faithful browser search text: $label', async ({
+    label, fixture, pageNumber, query, painted, regex,
+}) => {
+    const evidence = resolve('.devkit/fixes-14/proof', process.env.PROOF_REVISION ?? 'head', label.replaceAll(' ', '-'));
+    mkdirSync(evidence, {recursive: true});
+    const page = await lifecycle.browser.newPage({
+        viewport: {
+            width: 1280,
+            height: 900,
+        },
+        recordVideo: {dir: evidence},
+    });
+    try {
+        await page.addInitScript(() => {
+            Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            window.localStorage.setItem('pdfHighlightMode', 'dom');
+            window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+        });
+        await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+        await waitForOpenFileReady(page);
+        keepFileChooserInterceptionEnabled(page);
+        let bytes: Buffer;
+        if (fixture) bytes = readFileSync(resolve('tests/fixtures/browser/search', `${fixture}.pdf`));
+        else {
+            const pdf = await PDFDocument.create();
+            const font = await pdf.embedFont(StandardFonts.Helvetica);
+            const sheet = pdf.addPage([
+                612,
+                792,
+            ]);
+            [
+                'Hello',
+                'WORLD',
+                '123',
+            ].forEach((text, index) => sheet.drawText(text, {
+                font,
+                x: 72,
+                y: 700 - 50 * index,
+                size: 24,
+            }));
+            bytes = Buffer.from(await pdf.save());
+        }
+        const chooser = page.waitForEvent('filechooser');
+        await page.getByRole('button', {
+            name: 'Open File',
+            exact: true,
+        }).first().click();
+        await (await chooser).setFiles({
+            name: `${fixture || 'regex'}.pdf`,
+            mimeType: 'application/pdf',
+            buffer: bytes,
+        });
+        await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+        if (!await page.getByRole('tab', {
+            name: 'Search',
+            exact: true,
+        }).isVisible()) {
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+        }
+        await page.getByRole('tab', {
+            name: 'Search',
+            exact: true,
+        }).click();
+        if (regex) await page.locator('.document-search-bar button[aria-label="Use regular expression"]:visible').click();
+        const input = page.locator('.document-search-bar input:visible').first();
+        await input.fill(query); await input.press('Enter');
+        const results = page.locator('.document-search-result:visible');
+        await expect.poll(() => results.count()).toBe(1);
+        await results.first().click();
+        const layer = page.locator(`.page_container[data-page="${pageNumber}"] .textLayer`).first();
+        await expect.poll(() => layer.locator('.pdf-search-highlight--current').count()).toBeGreaterThan(0);
+        if (painted) await expect.poll(async () => (await layer.locator('.pdf-search-highlight--current').allTextContents()).join('')).toBe(painted);
+        const target = await page.evaluate<{
+            left: number;
+            right: number;
+            top: number;
+            bottom: number;
+        }>(`(async () => {
+            const {createTextLayerRangeForSearchOccurrence} = await import('/_nuxt/modules/pdf-viewer/engine/search/pdfSearchHighlightDom.ts');
+            const layer = document.querySelector('.page_container[data-page="${pageNumber}"] .textLayer');
+            const range = createTextLayerRangeForSearchOccurrence(layer, {text: ${JSON.stringify(regex ? painted : query)}, pageMatchIndex: 0});
+            if (!range) throw new Error('Intended rendered text range missing');
+            return range.getBoundingClientRect().toJSON();
+        })()`);
+        const geometry = await layer.evaluate((layer, target: {
+            left: number;
+            right: number;
+            top: number;
+            bottom: number
+        }) => {
+            const marks = [...layer.querySelectorAll('.pdf-search-highlight--current')];
+            return marks.map(mark => {
+                const rect = mark.getBoundingClientRect();
+                return {
+                    text: mark.textContent,
+                    width: rect.width,
+                    height: rect.height,
+                    intersectsText: Math.min(rect.right, target.right) > Math.max(rect.left, target.left)
+                        && Math.min(rect.bottom, target.bottom) > Math.max(rect.top, target.top),
+                    visible: rect.bottom > 0 && rect.top < window.innerHeight,
+                };
+            });
+        }, target);
+        writeFileSync(resolve(evidence, 'geometry.json'), JSON.stringify(geometry, null, 2));
+        expect(geometry.every(rect => rect.width > 0 && rect.height > 0 && rect.intersectsText && rect.visible)).toBe(true);
+        await page.screenshot({path: resolve(evidence, 'after.png')});
+        if (fixture === 'zero-mark') {
+            await input.fill('Cafe'); await input.press('Enter');
+            await expect.poll(() => results.count()).toBe(0);
+        }
+    } finally {
+        await page.close();
+        await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+    }
+}, 120000);
