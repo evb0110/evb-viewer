@@ -1,3 +1,4 @@
+import { isEqual } from 'es-toolkit/predicate';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
@@ -7,7 +8,7 @@ export const useBookmarkState = (deps: {
     preservesSourceReload?: () => boolean;
     onBookmarksSynchronized?: () => void;
     onBookmarksDirty?: () => void;
-    onBookmarksSaved?: () => void;
+    onBookmarksSaved?: (written?: IPdfBookmarkEntry[]) => void;
 }) => {
     const {
         onBookmarksSynchronized,
@@ -24,9 +25,10 @@ export const useBookmarkState = (deps: {
     const bookmarkEditMode = ref(false);
     let bookmarkRevision = 0;
 
-    function markBookmarksSaved() {
-        bookmarksDirty.value = false;
-        onBookmarksSaved?.();
+    // Saved as `written`: what the outline shows now is unsaved where it differs.
+    function markBookmarksSaved(written?: IPdfBookmarkEntry[]) {
+        bookmarksDirty.value = written !== undefined && !isEqual(bookmarkItems.value, written);
+        onBookmarksSaved?.(written);
     }
 
     function handleBookmarksChange(payload: IPdfBookmarkChangePayload) {

@@ -30,7 +30,7 @@ export const usePageLabelState = (deps: {
     preservesSourceReload?: () => boolean;
     onPageLabelsSynchronized?: () => void;
     onPageLabelsDirty?: () => void;
-    onPageLabelsSaved?: () => void;
+    onPageLabelsSaved?: (written?: IPdfPageLabelRange[]) => void;
     /** Another document's bytes arrived, so what was read from the last ones is stale. */
     onDocumentBytesChanged?: () => void;
 }) => {
@@ -202,9 +202,10 @@ export const usePageLabelState = (deps: {
         }
     }
 
-    function markPageLabelsSaved() {
-        pageLabelsDirty.value = false;
-        onPageLabelsSaved?.();
+    // Saved as `written`: the ranges shown now are unsaved where they differ.
+    function markPageLabelsSaved(written?: IPdfPageLabelRange[]) {
+        pageLabelsDirty.value = written !== undefined && !isEqual(pageLabelRanges.value, written);
+        onPageLabelsSaved?.(written);
     }
 
     function handlePageLabelRangesUpdate(ranges: IPdfPageLabelRange[]) {

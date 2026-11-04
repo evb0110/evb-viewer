@@ -510,8 +510,10 @@ describe('workspace save failure surfacing', () => {
         await expect(service.handleRepairSave()).resolves.toBe(true);
 
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
-        expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
-        expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
+        // Metadata is acknowledged as the values the Repair wrote, captured at
+        // its frontier; their owner keeps the later edits unsaved against them.
+        expect(deps.markBookmarksSaved).toHaveBeenCalledWith([expect.objectContaining({title: 'Pending bookmark'})]);
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledWith(deps.pageLabelRanges.value);
     });
 
     it('reports a rejected persist result', async () => {
