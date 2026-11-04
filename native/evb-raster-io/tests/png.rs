@@ -345,6 +345,24 @@ fn expanded_decode_paints_keyed_samples_white_on_every_gray_and_rgb_path() {
         decoded.gray.data()
     );
 
+    // The same keyed RGB without interlacing takes the ordinary row path.
+    let keyed = encode_variant(
+        2,
+        1,
+        png::ColorType::Rgb,
+        png::BitDepth::Eight,
+        None,
+        Some(&[0, 0, 0, 0, 0, 0]),
+        &[0, 0, 0, 1, 2, 3],
+    );
+    let decoded = decode_png(&keyed[..], DECODE).unwrap();
+    assert_eq!(decoded.rgb.data(), &[255, 255, 255, 1, 2, 3]);
+    assert_eq!(decoded.gray.data(), &[255, 2]);
+    assert_eq!(
+        decode_png_gray(&keyed[..], DECODE).unwrap().data(),
+        decoded.gray.data()
+    );
+
     // 16-bit gray with a 16-bit key. 0x1234 matches in full and turns white;
     // 0x12ff shares the high byte but must keep its gray value 0x12.
     let samples = [0x12, 0x34, 0x12, 0xff];

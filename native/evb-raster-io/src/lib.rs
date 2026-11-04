@@ -517,7 +517,11 @@ fn write_png_row(
         }
         PngColorType::Rgb8 | PngColorType::Rgba8 => {
             for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
-                *target = luma(pixel);
+                *target = if transparency == Some(PngTransparencyKey::rgb(pixel)) {
+                    255
+                } else {
+                    luma(pixel)
+                };
             }
             if let Some(rgb_row) = rgb_row {
                 for (target, pixel) in rgb_row
