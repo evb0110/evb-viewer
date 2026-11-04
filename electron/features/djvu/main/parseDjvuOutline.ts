@@ -1,4 +1,5 @@
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {decodeDjvuString} from '@electron/features/djvu/main/decodeDjvuString';
 import {
     requirePageIndex,
     type TPageIndex,
@@ -69,14 +70,16 @@ function readQuotedToken(input: string, startIndex: number): {
     let i = startIndex + 1;
     while (i < input.length) {
         const c = input[i]!;
+        // Kept raw until the closing quote, then decoded once: octal escapes
+        // are UTF-8 bytes that only make text together.
         if (c === '\\' && i + 1 < input.length) {
-            str += input[i + 1];
+            str += input.slice(i, i + 2);
             i += 2;
             continue;
         }
         if (c === '"') {
             return {
-                token: `"${str}"`,
+                token: `"${decodeDjvuString(str)}"`,
                 nextIndex: i + 1,
             };
         }
@@ -84,7 +87,7 @@ function readQuotedToken(input: string, startIndex: number): {
         i++;
     }
     return {
-        token: `"${str}"`,
+        token: `"${decodeDjvuString(str)}"`,
         nextIndex: i,
     };
 }
