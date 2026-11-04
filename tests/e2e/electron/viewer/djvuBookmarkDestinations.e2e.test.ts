@@ -63,31 +63,28 @@ describe('DjVu converted bookmark destinations', () => {
             name: session.name,
             djvuPath,
         }, null, 2));
-        try {
-            await openDjvuInApp(session.page, djvuPath);
-            await waitForDjvuLoaded(session.page);
-            await openDocumentSidebarTab(session.page, 'Bookmarks');
-            await session.page.waitForFunction(() => document.querySelectorAll('.document-bookmark-item__row').length === 2);
-            const renderedTitles = await session.page.$$eval('.document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
-            await writeFile(join(evidence, 'titles.json'), JSON.stringify(renderedTitles, null, 2));
-            expect(renderedTitles).toEqual(titles);
-            await clickFoundAsUser(session.page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'))
-                .find(row => row.textContent?.trim() === title), titles[1]!, {description: 'native DjVu component-ID bookmark'});
-            await expect.poll(async () => (await readToolbarPageIndicator(session.page)).renderedPage).toBe(2);
-            await session.page.waitForFunction(() => {
-                const page = document.querySelector<HTMLElement>('[data-testid="document-page-source-page"][data-page-number="2"]');
-                const image = page?.querySelector<HTMLImageElement>('[data-document-page-visual="committed"]');
-                const viewport = page?.closest('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
-                const rect = page?.getBoundingClientRect();
-                return image?.complete && image.naturalWidth > 0 && viewport && rect
-                    && Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 8;
-            });
-            await writeFile(join(evidence, 'destination.json'), JSON.stringify(await readToolbarPageIndicator(session.page), null, 2));
-        } finally {
-            await session.page.screenshot({path: join(evidence, 'bookmarks.png')});
-            await writeFile(join(evidence, 'titles-final.json'), JSON.stringify(await session.page.$$eval('.document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim())), null, 2));
-            await writeFile(join(evidence, 'rendered-sidebar.txt'), await session.page.$eval('body', body => body.innerText));
-        }
+        await openDjvuInApp(session.page, djvuPath);
+        await waitForDjvuLoaded(session.page);
+        await openDocumentSidebarTab(session.page, 'Bookmarks');
+        await session.page.waitForFunction(() => document.querySelectorAll('.document-bookmark-item__row').length === 2);
+        const renderedTitles = await session.page.$$eval('.document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
+        await writeFile(join(evidence, 'titles.json'), JSON.stringify(renderedTitles, null, 2));
+        expect(renderedTitles).toEqual(titles);
+        await clickFoundAsUser(session.page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'))
+            .find(row => row.textContent?.trim() === title), titles[1]!, {description: 'native DjVu component-ID bookmark'});
+        await expect.poll(async () => (await readToolbarPageIndicator(session.page)).renderedPage).toBe(2);
+        await session.page.waitForFunction(() => {
+            const page = document.querySelector<HTMLElement>('[data-testid="document-page-source-page"][data-page-number="2"]');
+            const image = page?.querySelector<HTMLImageElement>('[data-document-page-visual="committed"]');
+            const viewport = page?.closest('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
+            const rect = page?.getBoundingClientRect();
+            return image?.complete && image.naturalWidth > 0 && viewport && rect
+                && Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 8;
+        });
+        await writeFile(join(evidence, 'destination.json'), JSON.stringify(await readToolbarPageIndicator(session.page), null, 2));
+        await session.page.screenshot({path: join(evidence, 'bookmarks.png')});
+        await writeFile(join(evidence, 'titles-final.json'), JSON.stringify(renderedTitles, null, 2));
+        await writeFile(join(evidence, 'rendered-sidebar.txt'), await session.page.$eval('body', body => body.innerText));
     });
 
     it('reports bookmark metadata failure and preserves the existing destination', async () => {
