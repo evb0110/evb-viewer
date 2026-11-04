@@ -45,12 +45,6 @@ describe('DjVu converted bookmark destinations', () => {
         const previousBytes = '%PDF-1.4\nprevious destination bytes\n';
         await copyFile(sourcePath, djvuPath);
         await writeFile(outlinePath, `(bookmarks ("${'Large outline title '.repeat(16_000)}" "#1"))`);
-        await execFileAsync(getDjvuNativeToolPaths().djvused, [
-            djvuPath,
-            '-e',
-            `set-outline "${outlinePath.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
-            '-s',
-        ]);
         await writeFile(outputPath, previousBytes);
         const session = await sessions.restart({
             clean: true,
@@ -66,6 +60,17 @@ describe('DjVu converted bookmark destinations', () => {
             return Boolean(radio && !radio.disabled);
         }, {timeout: 30_000});
         await clickAsUser(session.page, '[role="radio"][value="direct-1"]');
+        await expect.poll(() => session.page.evaluate(() => document
+            .querySelector('[role="dialog"] .convert-option [role="checkbox"]')
+            ?.getAttribute('aria-checked'))).toBe('true');
+        // Make extraction fail only after the dialog offered preservation.
+        // An outline unreadable at dialog load correctly offers no checkbox.
+        await execFileAsync(getDjvuNativeToolPaths().djvused, [
+            djvuPath,
+            '-e',
+            `set-outline "${outlinePath.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
+            '-s',
+        ]);
         await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
             .find(element => element.textContent?.includes('Convert DjVu to PDF'))
             ?.querySelectorAll<HTMLButtonElement>('button') ?? [])

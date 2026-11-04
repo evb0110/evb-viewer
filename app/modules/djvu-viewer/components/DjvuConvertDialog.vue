@@ -482,7 +482,8 @@ function handleConvert() {
     }
     const selection = resolveDjvuConvertDialogSelection(selectedPresetValue.value);
     open.value = false;
-    emit('convert', selection.subsample, preserveBookmarks.value, selection.pdfStrategy);
+    // The checkbox shows only for a readable outline; without one there is nothing to keep.
+    emit('convert', selection.subsample, preserveBookmarks.value && info.value?.hasBookmarks === true, selection.pdfStrategy);
 }
 </script>
 

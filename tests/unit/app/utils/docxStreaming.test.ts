@@ -176,6 +176,20 @@ describe('createDocxFromTextChunks', () => {
         expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">123');
     });
 
+    it('leaves out characters XML cannot carry, which OCR text and PDF fonts can produce', async () => {
+        const xml = await collectDocumentXml(['form\u000Cfeed bell\u0007 lone\uD800 \uFFFE\uFFFF & <kept> \u{1F600}']);
+
+        expect(xml).toContain('<w:t xml:space="preserve">formfeed bell lone  &amp; &lt;kept&gt; \u{1F600}</w:t>');
+        expect([...xml].filter(character => {
+            const code = character.codePointAt(0)!;
+            return (code < 0x20 && ![
+                0x9,
+                0xA,
+                0xD,
+            ].includes(code)) || code === 0xFFFE || code === 0xFFFF;
+        })).toEqual([]);
+    });
+
     it('preserves a page break between streamed text pages', async () => {
         const xml = await collectDocumentXml([
             'cover page',

@@ -782,24 +782,10 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
             token,
         });
         if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
+        // The flush keeps a patch whose write fails and retries it.
         documentPersistenceTimer = setTimeout(() => {
             documentPersistenceTimer = null;
-            for (const [
-                key,
-                write,
-            ] of pendingLegacyDocumentUpdates) {
-                if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
-                    pendingLegacyDocumentUpdates.delete(key);
-                    continue;
-                }
-                if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) continue;
-                pendingLegacyDocumentUpdates.delete(key);
-                void Promise.resolve(saveScanCleanupDocumentPreferencesInStore(
-                    write.sourceSha256,
-                    write.legacyDocumentKey,
-                    write.patch,
-                )).catch(() => undefined);
-            }
+            void flushScanCleanupDocumentPreferencesStore().catch(() => undefined);
         }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
         return Promise.resolve();
     }

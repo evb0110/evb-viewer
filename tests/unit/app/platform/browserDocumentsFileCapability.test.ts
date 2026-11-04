@@ -1463,6 +1463,45 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         })]);
     });
 
+    it('adds missing Recent Files sizes without dropping an entry another tab added meanwhile', async () => {
+        const {
+            browserDocumentStore,
+            capability,
+        } = await loadBrowserDocumentsFileCapability();
+        const {BROWSER_RECENT_FILES_STORAGE_KEY} = await import('@app/utils/browserRuntimePersistence');
+        const older = await browserDocumentStore.createStoredDocument('older.pdf', new Uint8Array([
+            1,
+            2,
+            3,
+        ]), PDF_SOURCE_OPTIONS);
+        const newer = await browserDocumentStore.createStoredDocument('newer.pdf', new Uint8Array([4]), PDF_SOURCE_OPTIONS);
+        await browserDocumentStore.touchRecentFile(older);
+        // A list written before sizes were recorded.
+        const legacy = (JSON.parse(window.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!) as Array<Record<string, unknown>>)
+            .map(({
+                fileSize: _fileSize, ...file
+            }) => file);
+        window.localStorage.setItem(BROWSER_RECENT_FILES_STORAGE_KEY, JSON.stringify(legacy));
+        const ensure = browserDocumentStore.ensureEntryAvailability.bind(browserDocumentStore);
+        vi.spyOn(browserDocumentStore, 'ensureEntryAvailability').mockImplementationOnce(async (path) => {
+            // Another tab opens a document while this one validates its list.
+            await browserDocumentStore.touchRecentFile(newer);
+            return ensure(path);
+        });
+
+        await capability.recentFiles.get();
+
+        const stored = JSON.parse(window.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!) as Array<{
+            originalPath: string;
+            fileSize?: number
+        }>;
+        expect(stored.map(file => file.originalPath)).toEqual(expect.arrayContaining([
+            older,
+            newer,
+        ]));
+        expect(stored.find(file => file.originalPath === older)?.fileSize).toBe(3);
+    });
+
     it('names an optimized dot-file without dropping its name', () => {
         expect(getOptimizedPdfName('.hidden')).toBe('.hidden-optimized.pdf');
         expect(getOptimizedPdfName('book.pdf')).toBe('book-optimized.pdf');

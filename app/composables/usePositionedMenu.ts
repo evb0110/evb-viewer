@@ -115,6 +115,13 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
             dismissMenu();
         }
     }, { capture: true });
+    // A right-click makes no click, so another menu opening elsewhere closes
+    // this one first instead of both trapping focus.
+    useEventListener(windowTarget, 'contextmenu', (event) => {
+        if (options.autoDismiss?.onOutsideClick && !(event.target instanceof Node && menuElement.value?.contains(event.target))) {
+            dismissMenu();
+        }
+    }, { capture: true });
     useEventListener(windowTarget, 'resize', () => {
         if (options.autoDismiss?.onResize) {
             dismissMenu();

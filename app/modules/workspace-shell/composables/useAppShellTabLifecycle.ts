@@ -450,6 +450,12 @@ export const useAppShellTabLifecycle = (
         // its document open and remembers only the view being removed.
         if (!closesDocument) {
             await rememberReadingView(getDocumentSession(tabId), tabId);
+            // The other view may have let go of the document meanwhile; this
+            // one is then its last and closes it, asking about unsaved work.
+            if ((getDocumentSession(tabId)?.views.value.size ?? 0) < 2) {
+                await closeTabDuringTransition(paneId, tabId);
+                return;
+            }
         }
 
         if (closesDocument && tabOccupied(tabId)) {

@@ -728,7 +728,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                         delete targetEntry.chunkGeneration;
                         updateBrowserDocumentEntryContentToken(targetEntry);
 
-                        queuePersistedChunkDeletes(chunks, targetRecord);
                         queuePersistedChunkDeletes(chunks, stagedRecord);
                         Object.assign(targetEntry, queueBrowserDocumentRecordWrite(
                             transaction,
@@ -961,7 +960,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const nextStorageMode = resolveByteBackedStorageMode(size);
         const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
         const previousChunkGeneration = entry.chunkGeneration;
-        const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
         let stagedGeneration: string | undefined;
         let stagedChunkCount = 0;
 
@@ -1000,8 +998,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.data = bytes;
                 if (previousToken) this.emitRevisionChangeForEntry(entry, previousToken, 'write');
             }
-            await deleteBrowserDocumentChunks(entry.ref, previousChunkCount, previousChunkGeneration)
-                .catch(() => undefined);
         } catch (error) {
             restoreBrowserDocumentEntryStorageState(entry, previousEntryState);
             if (stagedGeneration && stagedGeneration !== previousChunkGeneration) {
@@ -1121,7 +1117,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             next.fileName = options.saveName;
         }
         await this.persistEntry(next);
-        await clearBrowserDocumentExternalChunkStorage(entry);
         delete entry.fileSnapshot;
         Object.assign(entry, next);
         if (options.saveHandle !== undefined) {
@@ -1195,8 +1190,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             const previousEntryState = captureBrowserDocumentEntryStorageState(entry);
             const previousFileName = entry.fileName;
             const previousSaveName = entry.saveName;
-            const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
-            const previousChunkGeneration = entry.chunkGeneration;
             const pendingChunkCount = entry.pendingChunkCount ?? options.chunkCount;
             entry.data = new Uint8Array();
             entry.storageMode = 'chunked';
@@ -1240,8 +1233,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 ).catch(() => undefined);
             }
             clearPendingBrowserDocumentChunkMetadata(entry);
-            await deleteBrowserDocumentChunks(ref, previousChunkCount, previousChunkGeneration)
-                .catch(() => undefined);
         });
     }
 

@@ -146,13 +146,15 @@ export function readPageSourceDpi(operatorList: IPdfOperatorList) {
 }
 
 /**
- * Renders the page view (crop box, rotation, user unit) at `dpi` the way
- * desktop's Poppler renders it for OCR: RGB on white, annotations included.
+ * Renders the page view (crop box, rotation) at `dpi` the way desktop's
+ * Poppler renders it for OCR: RGB on white, annotations included, and in
+ * user-space units, as Poppler ignores UserUnit and the source DPI measures.
  * Large pages render in tiles and are assembled into one raster, since
  * recognizing tiles separately would change Tesseract's layout analysis.
  */
 export function renderBrowserOcrRaster(page: IPdfPage, dpi: number, signal: AbortSignal): Promise<IBrowserOcrRaster> {
-    return renderBrowserPdfRaster(page, page.getViewport({scale: dpi / 72}), signal, {
+    const userUnit = page.getViewport({scale: 1}).userUnit || 1;
+    return renderBrowserPdfRaster(page, page.getViewport({scale: dpi / 72 / userUnit}), signal, {
         annotationMode: BROWSER_OCR_ANNOTATION_MODE,
         maxPixels: BROWSER_OCR_MAX_RASTER_PIXELS,
         maxDimensionPx: BROWSER_OCR_MAX_RASTER_DIMENSION_PX,

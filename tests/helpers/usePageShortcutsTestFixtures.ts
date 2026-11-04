@@ -101,7 +101,8 @@ export function resetPageShortcutsTest() {
     });
     pageShortcutsMocks.useMagicKeys.mockImplementation((opts?: {onEventFired?: (event: unknown) => void}) => {
         capturedOnEventFired = opts?.onEventFired;
-        return new Proxy({}, {get: () => ref(false)});
+        const keys = new Map<PropertyKey, ReturnType<typeof ref<boolean>>>();
+        return new Proxy({}, {get: (_, key) => keys.get(key) ?? keys.set(key, ref(false)).get(key)});
     });
 }
 

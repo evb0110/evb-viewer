@@ -1435,9 +1435,10 @@ describe('browser document lifecycle UI', () => {
                     name: 'Clear History',
                     exact: true,
                 }).click();
-                // Terminal transfer protection lasts 60 seconds. Observe collection
-                // after it expires and a normal lifecycle event publishes the graph.
-                const expiredAt = Date.now() + 61_000;
+                // Terminal transfer protection lasts 60 seconds, and superseded chunks
+                // have a ten-minute grace. Observe collection after both expire and
+                // a normal lifecycle event publishes the graph.
+                const expiredAt = Date.now() + 11 * 60_000;
                 await Promise.all([
                     page,
                     creator,
