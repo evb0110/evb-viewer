@@ -144,14 +144,12 @@ export async function extractBrowserSearchPageData(
         const {
             text, hiddenItems, hasVerticalText,
         } = await extractTextContentPageText(page, options, pageBox);
-        // Boxes are usable only when the operator walker retained the text.
-        // Ignore separators the two assemblers generate differently. Vertical
-        // writing and bidi runs use the rendered text layer's range geometry.
-        if (pageData?.words?.length && !hasVerticalText
-            && Number.isFinite(pageWidth) && pageWidth > 0
-            && Number.isFinite(pageHeight) && pageHeight > 0
+        // Boxes are usable only when the operator walker retained the text,
+        // then any annotation appearances. Ignore separators the assemblers
+        // differ in. Vertical and bidi runs use the text layer's ranges.
+        if (pageData?.words?.length && !hasVerticalText && pageWidth > 0 && pageHeight > 0
             && !hasRightToLeftSearchText(pageData.text)
-            && pageData.text.replace(/\s/gu, '') === text.replace(/\s/gu, '')) {
+            && pageData.text.replace(/\s/gu, '').startsWith(text.replace(/\s/gu, ''))) {
             return pageData;
         }
         return {
