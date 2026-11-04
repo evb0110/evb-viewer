@@ -250,6 +250,68 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         }
     });
 
+    it('keeps checkpoint rasters that another export of the same pages still needs', async () => {
+        // Room for two exports at once, as a desktop with spare cores has.
+        mainJobBroker.reconfigureCapacity({
+            cpuTokens: 8,
+            estimatedResidentBytes: 8 * 1024 * 1024 * 1024,
+            nativeProcesses: 8,
+            ioWeight: 16,
+        });
+        const firstHeld = Promise.withResolvers<undefined>();
+        const releaseFirst = Promise.withResolvers<undefined>();
+        const firstDone = Promise.withResolvers<undefined>();
+        const missing: string[] = [];
+        let combines = 0;
+        mocks.runRegisteredDjvuProcess.mockImplementation(async (_processId: string, _command: string, args: string[]) => {
+            combines += 1;
+            if (combines === 1) {
+                firstHeld.resolve(undefined);
+                await releaseFirst.promise;
+            } else {
+                await firstDone.promise;
+            }
+            const manifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
+            for (const line of manifest.trim().split('\n').slice(1)) {
+                const raster = line.split('\t').at(-1)!;
+                if (!await stat(raster).catch(() => null)) missing.push(raster);
+            }
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
+            return {success: true};
+        });
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        const convert = async (name: string) => {
+            const exportDir = join(tempDir, name);
+            await mkdir(exportDir, {recursive: true});
+            return buildCompactDjvuAwarePdfFromDjvu({
+                jobId: `job-${name}`,
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(exportDir, 'output.pdf'),
+                tempDir: exportDir,
+                pageCount: 44,
+                sourceDpi: 300,
+                pageSizes: pageSizes(44),
+                pages: [
+                    1,
+                    2,
+                ],
+            });
+        };
+
+        const first = convert('first');
+        await firstHeld.promise;
+        // The second export reuses the first one's checkpointed pages and
+        // then waits to assemble them.
+        const second = convert('second');
+        await vi.waitFor(() => expect(acquire.mock.calls.filter(([request]) => request.kind === 'djvu-compact-combine')).toHaveLength(2));
+        releaseFirst.resolve(undefined);
+        await expect(first).resolves.toMatchObject({success: true});
+        firstDone.resolve(undefined);
+
+        await expect(second).resolves.toMatchObject({success: true});
+        expect(missing).toEqual([]);
+    });
+
     it('uses bitonal mask output for native masks over a flat background', async () => {
         const progress = vi.fn();
         const acquireSpy = vi.spyOn(mainJobBroker, 'acquire');

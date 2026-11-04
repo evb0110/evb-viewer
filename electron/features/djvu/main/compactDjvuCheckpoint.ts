@@ -66,6 +66,7 @@ export function openCompactDjvuCheckpointJob(
         artifactKind: 'compact-page',
         qualityPreset: preset ?? 'balanced',
         outputExtension: '.json',
+        consumer: true,
         ...(signal ? {signal} : {}),
         ...(sourceIdentity ? {sourceIdentity} : {}),
     });

@@ -17,6 +17,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {
+    basename,
     isAbsolute,
     join,
     relative,
@@ -311,6 +312,33 @@ async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSigna
     return identity;
 }
 
+/**
+ * Exports still reading a job directory after closing its job. A directory
+ * goes only when its last consumer lets go, under its fingerprint lock, so it
+ * never disappears beneath an export that opened it.
+ */
+const artifactDirectoryConsumers = new Map<string, number>();
+
+export async function releaseDjvuArtifactConsumer(directory: string, options: {remove: boolean}) {
+    const releaseFingerprintLock = await acquireFingerprintLock(basename(directory));
+    try {
+        const remaining = (artifactDirectoryConsumers.get(directory) ?? 1) - 1;
+        if (remaining > 0) {
+            artifactDirectoryConsumers.set(directory, remaining);
+            return;
+        }
+        artifactDirectoryConsumers.delete(directory);
+        if (options.remove) {
+            await rm(directory, {
+                force: true,
+                recursive: true,
+            }).catch(() => undefined);
+        }
+    } finally {
+        releaseFingerprintLock();
+    }
+}
+
 async function acquireFingerprintLock(fingerprint: string) {
     const previous = activeFingerprintTails.get(fingerprint) ?? Promise.resolve();
     const gate = Promise.withResolvers<undefined>();
@@ -382,6 +410,8 @@ export async function openDjvuArtifactJob(
         maxTotalBytesForTests?: number;
         signal?: AbortSignal;
         sourceIdentity?: IDjvuSourceIdentity;
+        /** Counts the caller as a consumer until releaseDjvuArtifactConsumer. */
+        consumer?: boolean;
     },
 ): Promise<IDjvuArtifactJob> {
     const sourceIdentity = options.sourceIdentity
@@ -408,6 +438,7 @@ export async function openDjvuArtifactJob(
     const directory = join(jobRoot, fingerprint);
     const manifestPath = join(directory, 'manifest.json');
     const outputExtension = options.outputExtension ?? '.pdf';
+    if (options.consumer) artifactDirectoryConsumers.set(directory, (artifactDirectoryConsumers.get(directory) ?? 0) + 1);
     try {
         await mkdir(directory, {recursive: true});
         const fileSystem = await statfs(directory).catch(() => null);
@@ -593,6 +624,11 @@ export async function openDjvuArtifactJob(
             },
         };
     } catch (error) {
+        if (options.consumer) {
+            const remaining = (artifactDirectoryConsumers.get(directory) ?? 1) - 1;
+            if (remaining > 0) artifactDirectoryConsumers.set(directory, remaining);
+            else artifactDirectoryConsumers.delete(directory);
+        }
         releaseFingerprintLock();
         throw error;
     }
@@ -609,6 +645,7 @@ export async function pruneStaleDjvuArtifactJobs(now = Date.now()) {
     }> = [];
     await Promise.all(jobDirectories.map(async (entry) => {
         const directory = join(jobRoot, entry.name);
+        if (artifactDirectoryConsumers.has(directory) || activeFingerprintTails.has(entry.name)) return;
         const info = await stat(join(directory, 'manifest.json')).catch(() => null);
         if (!info || now - info.mtimeMs > STALE_JOB_MS) {
             await rm(directory, {
