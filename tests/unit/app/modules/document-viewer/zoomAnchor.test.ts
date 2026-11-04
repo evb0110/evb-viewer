@@ -229,8 +229,9 @@ describe('document zoom anchor', () => {
         };
         let seed = 7;
         const random = () => {
-            seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
-            return seed / 2_147_483_648;
+            // Exact 32-bit arithmetic: a float product would lose its low bits.
+            seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
+            return seed / 4_294_967_296;
         };
         for (let trial = 0; trial < 300; trial += 1) {
             const facing = trial % 2 === 1;

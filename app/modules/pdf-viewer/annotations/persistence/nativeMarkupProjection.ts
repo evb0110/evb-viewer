@@ -91,7 +91,7 @@ export function buildNativeMarkupMutationForSave(opts: {
         // The native writer takes a bounded list; a longer one must stay
         // unsaved work rather than be written as its first rectangle.
         if (comment.markupGeometry.length > PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
-            throw new Error(`Cannot save a text-markup annotation of more than ${String(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems)} rectangles`);
+            throw new Error(`Cannot save text-markup annotation ${comment.annotationId ?? comment.id} of more than ${String(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems)} rectangles`);
         }
     }
     const currentMarkupHints = collectMarkupSubtypeHints(opts.canonicalComments);
