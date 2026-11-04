@@ -249,6 +249,25 @@ fn decodes_standard_png_variants_into_the_existing_eight_bit_contract() {
 }
 
 #[test]
+fn admits_an_incompressible_interlaced_png_by_its_pass_layout() {
+    // Adam7 stores more filter bytes than a noninterlaced image, so noise that
+    // does not compress exceeds a bound sized for noninterlaced rows.
+    let mut state = 0x2545_f491_u32;
+    let pixels = (0..256 * 768 * 3)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        })
+        .collect::<Vec<_>>();
+    let png = make_adam7_png(256, 768, &pixels, None);
+    let metadata = read_png_metadata(png.as_slice(), PASSTHROUGH).unwrap();
+    assert_eq!((metadata.width, metadata.height), (256, 768));
+    assert_eq!(decode_png(png.as_slice(), DECODE).unwrap().rgb.data(), pixels);
+}
+
+#[test]
 fn composites_keyed_interlaced_rgb_onto_white() {
     // The black pixel matches the key, so it is transparent and paints white.
     let pixels = [0, 0, 0, 1, 2, 3];
