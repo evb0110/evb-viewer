@@ -2590,77 +2590,180 @@ fn removes_stale_appearances_when_updating_imported_shapes() {
     let _ = remove_file(pdf_path);
 }
 
+fn regression_appearance(document: &mut Document, dict: &mut Dictionary) -> (ObjectId, ObjectId) {
+    let resources = document.add_object(dictionary! {
+        "ExtGState" => dictionary! {"GS0" => dictionary! {"Type" => "ExtGState", "CA" => 1, "ca" => 1}},
+    });
+    let appearance = document.add_object(Stream::new(dictionary! {
+        "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+        "Resources" => resources,
+    }, b"q /GS0 gs 1 0 0 RG 0 1 0 rg 20 20 80 40 re B Q\n".to_vec()));
+    dict.set("AP", dictionary! {"N" => appearance});
+    (appearance, resources)
+}
+
+fn assert_regression_appearance(source: &Document, saved: &Document, refs: (ObjectId, ObjectId)) {
+    for id in [refs.0, refs.1] {
+        assert_eq!(
+            saved.get_object(id).unwrap(),
+            source.get_object(id).unwrap(),
+            "appearance graph {id:?}"
+        );
+    }
+}
+
 #[test]
 fn preserves_an_untouched_imported_appearance_when_a_sibling_shape_changes() {
-    let untouched_key = "evb-shape:untouched-appearance";
-    let changed_key = "evb-shape:changed-appearance";
-    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_appearances(&[
-        (untouched_key, shape_with_stale_appearance("Square")),
-        (changed_key, shape_with_stale_appearance("Square")),
-    ]);
-    let pdf_path = seed_shape_pdf(&mut document, "shape-preserve-untouched-appearance");
-
-    let mut untouched = imported_on_page_square(untouched_key);
-    untouched.color = "#ff0000".to_string();
-    untouched.fill_color = None;
-    untouched.opacity = 1.0;
-    untouched.stroke_width = 2.0;
-    let mut changed = untouched.clone();
-    changed.stable_key = Some(changed_key.to_string());
-    changed.x += 0.05;
-
-    append_native_mutations(
-        &pdf_path,
-        &pdf_path,
-        &shapes_mutation(vec![untouched, changed]),
-        "D:20260609123456+03'00'",
-    )
-    .unwrap();
-
-    let loaded = Document::load(&pdf_path).unwrap();
-    assert!(shape_dict(&loaded, untouched_key).get(b"AP").is_ok());
-    assert!(shape_dict(&loaded, changed_key).get(b"AP").is_err());
-
-    let _ = remove_file(pdf_path);
+    let (mut document, page_id) = create_test_document();
+    let mut foreign = shape_with_stale_appearance("Square");
+    foreign.set("NM", Object::string_literal("foreign-dashed"));
+    foreign.set("P", page_id);
+    foreign.set(
+        "BS",
+        dictionary! {"W" => 2, "S" => "D", "D" => vec![3.into(), 2.into()]},
+    );
+    foreign.set("Contents", Object::string_literal("Foreign discussion"));
+    let appearances = regression_appearance(&mut document, &mut foreign);
+    let foreign_id = document.add_object(foreign);
+    let (popup, reply) = add_shape_discussion(&mut document, page_id, foreign_id);
+    let mut editable = shape_with_stale_appearance("Square");
+    editable.remove(b"AP");
+    editable.set("NM", Object::string_literal("evb-shape:editable"));
+    editable.set("P", page_id);
+    let editable_id = document.add_object(editable);
+    let (editable_popup, editable_reply) =
+        add_shape_discussion(&mut document, page_id, editable_id);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![
+            foreign_id.into(),
+            popup.into(),
+            reply.into(),
+            editable_id.into(),
+            editable_popup.into(),
+            editable_reply.into(),
+        ],
+    );
+    let parsed = collect_parsed_annotations(&document, "D:20261104000000Z").unwrap();
+    assert!(parsed.iter().any(|entry| matches!(entry, PdfAnnotationParseEntry::Foreign(value) if value.object_number == u64::from(foreign_id.0))), "real parser must reject the dashed Square as foreign");
+    let mut changed = imported_on_page_square("evb-shape:editable");
+    changed.annotation_id = Some(format!("{} 0 R", editable_id.0));
+    changed.color = "#112233".to_string();
+    for route in ["full", "path", "bytes"] {
+        for rewrite in [false, true] {
+            let mut mutation = shapes_mutation(vec![changed.clone()]);
+            mutation.shapes.as_mut().unwrap().rewrite_shape_state = rewrite;
+            let saved =
+                saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+            assert_eq!(
+                get_page_annots(&saved, page_id).unwrap(),
+                get_page_annots(&document, page_id).unwrap(),
+                "{route}, rewrite={rewrite}: the foreign thread remains listed on the page"
+            );
+            for id in [foreign_id, popup, reply] {
+                assert_eq!(
+                    saved.get_dictionary(id).unwrap(),
+                    document.get_dictionary(id).unwrap(),
+                    "{route}, rewrite={rewrite}: foreign thread {id:?}"
+                );
+            }
+            assert_regression_appearance(&document, &saved, appearances);
+            assert_ne!(
+                saved
+                    .get_dictionary(editable_id)
+                    .unwrap()
+                    .get(b"C")
+                    .unwrap(),
+                document
+                    .get_dictionary(editable_id)
+                    .unwrap()
+                    .get(b"C")
+                    .unwrap()
+            );
+        }
+        for by_key in [false, true] {
+            let mut deletion = shapes_mutation(Vec::new());
+            let shapes = deletion.shapes.as_mut().unwrap();
+            shapes.rewrite_shape_state = false;
+            if by_key {
+                shapes
+                    .deleted_stable_keys
+                    .push("evb-shape:editable".to_string());
+            } else {
+                shapes
+                    .deleted_annotation_ids
+                    .push(format!("{} 0 R", editable_id.0));
+            }
+            let saved =
+                saved_annotation_regression(&document, &deletion, route, "D:20261104000100Z");
+            let annots = get_page_annots(&saved, page_id).unwrap();
+            assert_eq!(
+                annots,
+                vec![foreign_id.into(), popup.into(), reply.into()],
+                "{route}: only the explicitly selected editable thread is deleted"
+            );
+            assert_regression_appearance(&document, &saved, appearances);
+        }
+    }
 }
 
 #[test]
 fn preserves_an_untouched_line_appearance_when_a_sibling_shape_changes() {
-    let untouched_key = "evb-shape:untouched-line-appearance";
-    let changed_key = "evb-shape:changed-square-appearance";
-    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_appearances(&[
-        (untouched_key, shape_with_stale_appearance("Line")),
-        (changed_key, shape_with_stale_appearance("Square")),
-    ]);
-    let pdf_path = seed_shape_pdf(&mut document, "shape-preserve-untouched-line-appearance");
-
-    let mut untouched = rectangle_shape(untouched_key, "#ff0000");
-    untouched.shape_type = "line".to_string();
-    untouched.fill_color = None;
-    untouched.x = 0.1;
-    untouched.y = 0.8;
-    untouched.x2 = Some(0.5);
-    untouched.y2 = Some(0.4);
-    untouched.width = 0.4;
-    untouched.height = 0.4;
-    untouched.opacity = 1.0;
-    untouched.stroke_width = 2.0;
-    let mut changed = imported_on_page_square(changed_key);
-    changed.x += 0.05;
-
-    append_native_mutations(
-        &pdf_path,
-        &pdf_path,
-        &shapes_mutation(vec![untouched, changed]),
-        "D:20260609123456+03'00'",
-    )
-    .unwrap();
-
-    let loaded = Document::load(&pdf_path).unwrap();
-    assert!(shape_dict(&loaded, untouched_key).get(b"AP").is_ok());
-    assert!(shape_dict(&loaded, changed_key).get(b"AP").is_err());
-
-    let _ = remove_file(pdf_path);
+    let (mut document, page_id) = create_test_document();
+    let mut arrow = shape_with_stale_appearance("Line");
+    arrow.set("NM", Object::string_literal("evb-shape:untouched-arrow"));
+    arrow.set(
+        "LE",
+        vec![
+            Object::Name(b"None".to_vec()),
+            Object::Name(b"ClosedArrow".to_vec()),
+        ],
+    );
+    arrow.set("CreationDate", Object::string_literal("D:20260101000000Z"));
+    arrow.set("M", Object::string_literal("D:20260102000000Z"));
+    arrow.set("P", page_id);
+    let appearances = regression_appearance(&mut document, &mut arrow);
+    let arrow_id = document.add_object(arrow);
+    let mut editable = shape_with_stale_appearance("Square");
+    editable.remove(b"AP");
+    editable.set("NM", Object::string_literal("evb-shape:changed-square"));
+    editable.set("P", page_id);
+    let editable_id = document.add_object(editable);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![arrow_id.into(), editable_id.into()]);
+    let mut changed = imported_on_page_square("evb-shape:changed-square");
+    changed.annotation_id = Some(format!("{} 0 R", editable_id.0));
+    changed.color = "#112233".to_string();
+    let mut mutation = shapes_mutation(vec![changed]);
+    mutation.shapes.as_mut().unwrap().rewrite_shape_state = false;
+    for route in ["full", "path", "bytes"] {
+        let saved = saved_annotation_regression(&document, &mutation, route, "D:20261104000100Z");
+        assert_eq!(
+            get_page_annots(&saved, page_id).unwrap(),
+            get_page_annots(&document, page_id).unwrap(),
+            "{route}: untouched arrow remains listed beside its edited sibling"
+        );
+        assert_eq!(
+            saved.get_dictionary(arrow_id).unwrap(),
+            document.get_dictionary(arrow_id).unwrap(),
+            "{route}: raw IC, L, Rect, dates and AP"
+        );
+        assert_regression_appearance(&document, &saved, appearances);
+        assert_ne!(
+            saved
+                .get_dictionary(editable_id)
+                .unwrap()
+                .get(b"C")
+                .unwrap(),
+            document
+                .get_dictionary(editable_id)
+                .unwrap()
+                .get(b"C")
+                .unwrap()
+        );
+    }
 }
 
 #[test]

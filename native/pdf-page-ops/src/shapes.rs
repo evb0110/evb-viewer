@@ -882,7 +882,6 @@ pub(crate) fn apply_shape_annotation_decision(
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
     refs_to_delete: &mut HashSet<ObjectId>,
-    rewrite_shape_state: bool,
     page: ShapePageContext,
     listing: &OnceCell<AnnotationListing>,
     object_id: ObjectId,
@@ -921,10 +920,6 @@ pub(crate) fn apply_shape_annotation_decision(
             page,
             modified_at,
         );
-    }
-    if annotation_stable_key.is_some() && rewrite_shape_state {
-        collect_shape_delete(document, listing, object_id, refs_to_delete)?;
-        return Ok(true);
     }
     Ok(false)
 }
@@ -1006,7 +1001,6 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
     refs_to_delete: &mut HashSet<ObjectId>,
-    rewrite_shape_state: bool,
     page: ShapePageContext,
     listing: &OnceCell<AnnotationListing>,
     object_id: ObjectId,
@@ -1077,11 +1071,6 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         }
         state.consume(index);
         return Ok(modified);
-    }
-    if annotation_stable_key.is_some() && rewrite_shape_state {
-        let document = incremental.get_prev_documents();
-        collect_shape_delete(document, listing, object_id, refs_to_delete)?;
-        return Ok(true);
     }
     Ok(false)
 }
@@ -1322,7 +1311,6 @@ pub(crate) fn apply_shape_annotations(
                 &mut state,
                 &deleted_refs,
                 &mut refs_to_delete,
-                shapes.rewrite_shape_state,
                 ShapePageContext {
                     page_id,
                     page_view,
@@ -1399,7 +1387,6 @@ pub(crate) fn apply_shape_annotations_incremental(
                 &mut state,
                 &deleted_refs,
                 &mut refs_to_delete,
-                shapes.rewrite_shape_state,
                 ShapePageContext {
                     page_id,
                     page_view,

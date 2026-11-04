@@ -730,10 +730,10 @@ describe('native PDF save route', () => {
             throw new Error(`Expected native append, got ${decision.nativeRejection}`);
         }
         expect(decision.nativeMutationProjection.mutations.shapes).toMatchObject({
-            rewriteShapeState: true,
+            rewriteShapeState: false,
             shapes: [expect.objectContaining({
                 annotationId: '22R',
-                stableKey: nativeShape.stableKey,
+                stableKey: toLegacyShapeAnnotation(shape).stableKey,
                 type: 'rectangle',
             })],
         });
@@ -916,6 +916,70 @@ describe('additive shape projection and affected-page scope', () => {
                 },
             },
         })).toBeUndefined();
+    });
+
+    it('publishes only a changed live shape beside an untouched arrow, tombstone and reconciled entry', () => {
+        const edited = createShapeEntity({
+            revision: 2,
+            persistedRevision: 1,
+        });
+        const arrow = createShapeEntity({
+            identity: {
+                id: asAnnotationId('arrow'),
+                pdfRef: '23R0',
+            },
+            tool: 'arrow',
+            revision: 1,
+            persistedRevision: 1,
+        });
+        const deleted = createShapeEntity({
+            identity: {
+                id: asAnnotationId('deleted'),
+                pdfRef: '24R0',
+            },
+            deleted: true,
+        });
+        const reconciled = createShapeEntity({
+            identity: {
+                id: asAnnotationId('reconciled'),
+                pdfRef: '25R0',
+            },
+            revision: 3,
+            persistedRevision: 3,
+        });
+        const entries = [
+            edited,
+            arrow,
+            deleted,
+            reconciled,
+        ];
+        const plan = buildSerializationPlan({
+            documentRevisionToken: null,
+            epoch: 1,
+            entityBaselineHash: 'frontier',
+            revisions: new Map(entries.map(entity => [
+                entity.identity.id,
+                entity.persistedRevision,
+            ])),
+        }, entries, entries, {routeConstraints: {
+            allowedBackends: ['native-append'],
+            preserveLoadedSource: true,
+        }});
+        const route = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({
+            shapes: entries.map(toLegacyShapeAnnotation),
+            deletedEmbeddedShapeAnnotationIds: ['24R0'],
+            deletedEmbeddedShapeStableKeys: ['evb-shape:deleted'],
+        }));
+        expect(route.route).toBe('native-append');
+        if (route.route !== 'native-append') throw new Error('Expected native shape route');
+        const mutations = normalizePdfNativeMutationSet(route.nativeMutationProjection.mutations, 'changed live shapes');
+        expect(mutations.shapes).toMatchObject({
+            rewriteShapeState: false,
+            shapes: [{stableKey: toLegacyShapeAnnotation(edited).stableKey}],
+            deletedAnnotationIds: ['24R0'],
+            deletedStableKeys: ['evb-shape:deleted'],
+        });
+        expect(mutations.shapes?.shapes).toHaveLength(1);
     });
 
     it('requires native ownership proof for existing shape edits', () => {

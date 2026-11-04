@@ -28,6 +28,8 @@ import {
     PDFName,
     PDFNumber,
     PDFRef,
+    PDFRawStream,
+    PDFStream,
     PDFString,
     StandardFonts,
     beginText,
@@ -38,6 +40,7 @@ import {
     rgb,
     setFontAndSize,
     showText,
+    decodePDFRawStream,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {createCanvas} from '@napi-rs/canvas';
@@ -56,6 +59,210 @@ import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
+
+/** Imported objects whose raw dictionaries carry more than the editable model. */
+export async function createAnnotationFidelityFixtureBytes() {
+    const document = await PDFDocument.create();
+    const page = document.addPage([
+        200,
+        200,
+    ]);
+    const context = document.context;
+    const appearance = (content: string) => context.register(context.stream(content, {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [
+            0,
+            0,
+            200,
+            200,
+        ],
+        Resources: context.register(context.obj({ExtGState: {GS0: {
+            Type: 'ExtGState',
+            CA: 1,
+            ca: 1,
+        }}})),
+    }));
+    const annot = (fields: NonNullable<Parameters<typeof context.stream>[1]>) => context.register(context.obj({
+        Type: 'Annot',
+        P: page.ref,
+        F: 4,
+        ...fields,
+    }));
+    const foreign = annot({
+        Subtype: 'Square',
+        NM: PDFString.of('foreign-dashed'),
+        Rect: [
+            15,
+            20,
+            65,
+            55,
+        ],
+        C: [
+            1,
+            0,
+            0,
+        ],
+        CA: 1,
+        BS: {
+            W: 2,
+            S: 'D',
+            D: [
+                3,
+                2,
+            ],
+        },
+        Contents: PDFString.of('Foreign discussion'),
+        VendorKey: PDFString.of('retain me'),
+        AP: {N: appearance('q /GS0 gs 1 0 0 RG [3 2] 0 d 15 20 50 35 re S Q\n')},
+    });
+    const popup = annot({
+        Subtype: 'Popup',
+        Parent: foreign,
+        Rect: [
+            5,
+            5,
+            60,
+            60,
+        ],
+    });
+    context.lookup(foreign, PDFDict).set(PDFName.of('Popup'), popup);
+    const reply = annot({
+        Subtype: 'Text',
+        IRT: foreign,
+        Rect: [
+            15,
+            20,
+            30,
+            35,
+        ],
+        Contents: PDFString.of('Important reply'),
+    });
+    const sibling = annot({
+        Subtype: 'Square',
+        NM: PDFString.of('evb-shape:sibling'),
+        Rect: [
+            100,
+            20,
+            155,
+            55,
+        ],
+        C: [
+            0,
+            0,
+            1,
+        ],
+        CA: 1,
+        Border: [
+            0,
+            0,
+            2,
+        ],
+        AP: {N: appearance('q 0 0 1 RG 100 20 55 35 re S Q\n')},
+    });
+    const arrow = annot({
+        Subtype: 'Line',
+        NM: PDFString.of('evb-shape:closed-arrow'),
+        Rect: [
+            18,
+            68,
+            162,
+            92,
+        ],
+        L: [
+            20,
+            80,
+            160,
+            80,
+        ],
+        LE: [
+            'None',
+            'ClosedArrow',
+        ],
+        C: [
+            1,
+            0,
+            0,
+        ],
+        IC: [
+            0,
+            1,
+            0,
+        ],
+        CA: 1,
+        Border: [
+            0,
+            0,
+            2,
+        ],
+        CreationDate: PDFString.of('D:20260101000000Z'),
+        M: PDFString.of('D:20260102000000Z'),
+        AP: {N: appearance('q 1 0 0 RG 0 1 0 rg 20 80 m 160 80 l S 160 80 m 150 85 l 150 75 l h B Q\n')},
+    });
+    const markup = annot({
+        Subtype: 'Highlight',
+        NM: PDFString.of('skewed-markup'),
+        Rect: [
+            20,
+            130,
+            120,
+            160,
+        ],
+        QuadPoints: [
+            20,
+            140,
+            120,
+            160,
+            20,
+            130,
+            120,
+            150,
+        ],
+        C: [
+            1,
+            0,
+            0,
+        ],
+        CA: 1,
+        Contents: PDFString.of('Skewed original comment'),
+        CreationDate: PDFString.of('D:20260101000000Z'),
+        AP: {N: appearance('q 1 0 0 rg 20 140 m 120 160 l 120 150 l 20 130 l h f Q\n')},
+    });
+    page.node.set(PDFName.of('Annots'), context.obj([
+        foreign,
+        popup,
+        reply,
+        sibling,
+        arrow,
+        markup,
+    ]));
+    return document.save({useObjectStreams: false});
+}
+
+export async function readAnnotationFidelitySnapshot(bytes: Uint8Array) {
+    const document = await PDFDocument.load(bytes);
+    const annots = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    return Array.from({length: annots.size()}, (_, index) => {
+        const dict = annots.lookup(index, PDFDict);
+        const ap = dict.lookupMaybe(PDFName.of('AP'), PDFDict);
+        const normalObject = ap?.lookupMaybe(PDFName.of('N'), PDFStream);
+        const normal = normalObject instanceof PDFRawStream ? normalObject : null;
+        return {
+            ref: annots.get(index).toString(),
+            name: dict.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? null,
+            dictionary: dict.toString(),
+            contents: dict.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? null,
+            rect: dict.get(PDFName.of('Rect'))?.toString() ?? null,
+            quads: dict.get(PDFName.of('QuadPoints'))?.toString() ?? null,
+            color: dict.get(PDFName.of('C'))?.toString() ?? null,
+            interior: dict.get(PDFName.of('IC'))?.toString() ?? null,
+            appearance: ap?.toString() ?? null,
+            appearanceStream: normal ? Buffer.from(decodePDFRawStream(normal).decode()).toString('base64') : null,
+            appearanceDictionary: normal?.dict.toString() ?? null,
+            resources: normal?.dict.lookupMaybe(PDFName.of('Resources'), PDFDict)?.toString() ?? null,
+        };
+    });
+}
 const RUN_FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-run-fixtures');
 const FIXTURE_CACHE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixture-cache');
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
@@ -1965,7 +2172,7 @@ export async function createCanonicalAnnotationSurfaceFixturePdf(filename: strin
     });
 
     const context = document.context;
-    const annotation = (fields: Record<string, unknown>) => context.register(context.obj({
+    const annotation = (fields: NonNullable<Parameters<typeof context.stream>[1]>) => context.register(context.obj({
         Type: PDFName.of('Annot'),
         P: page.ref,
         F: PDFNumber.of(4),
