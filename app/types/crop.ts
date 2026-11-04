@@ -1,5 +1,7 @@
 import type { ILocalRect } from '@app/modules/document-viewer/public';
-import type { ICropMargins } from '@contracts/shared';
+import type {
+    ICropMargins, TPdfViewRotation,  
+} from '@contracts/shared';
 import type { TPageSelection } from '@contracts/pageNumbers';
 
 export type {
@@ -10,6 +12,8 @@ export type {
 
 export interface ICropSelectionResult {
     pageNumber: number;
+    /** The view's own rotation when the selection was drawn, over the page's. */
+    viewRotation: TPdfViewRotation;
     pageRect: {
         width: number;
         height: number;

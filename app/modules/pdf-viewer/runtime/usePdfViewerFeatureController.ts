@@ -80,7 +80,10 @@ export const usePdfViewerFeatureController = (
     const performancePolicy = resolvePdfRenderPerformancePolicy(performanceProfile);
     const outputScale = usePdfViewerOutputScale(performancePolicy);
     const viewportWritePort = chassisAuthority.viewportWritePort;
-    const cropSelection = usePdfCropSelection({ viewerContainer });
+    const cropSelection = usePdfCropSelection({
+        viewerContainer,
+        viewRotation,
+    });
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);
     const annotationSessionRef = shallowRef<TPdfAnnotationSession | null>(null);
