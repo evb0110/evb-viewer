@@ -164,14 +164,6 @@ function bindOptimizeTarget(target: TPickedSaveTarget): TPreparedPdfOptimizeCopy
     };
 }
 
-function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
-    return {
-        ...validation,
-        isValid: false,
-        errors: [],
-    };
-}
-
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
 ): TCanonicalDocumentsFileCapability {
@@ -623,9 +615,11 @@ export function createBrowserDocumentsFileCapability(
                 path,
                 {expectedDocumentRevisionToken: revision.token},
             );
-            if (!saved) {
-                return createCanceledSaveValidationResult(validation);
-            }
+            if (!saved) return {
+                ...validation,
+                isValid: false,
+                errors: [],
+            };
             await clearSearchCaches();
             return validation;
         },
@@ -747,38 +741,30 @@ export function createBrowserDocumentsFileCapability(
             async get() {
                 const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
                 const validatedFiles: IRecentFile[] = [];
-                let shouldBackfillStorage = false;
-
+                const sized = new Map<string, IRecentFile>();
                 for (const file of recentFiles) {
                     const {
                         available,
                         entry,
                     } = await browserDocumentStore.ensureEntryAvailability(file.originalPath);
-                    if (!available) {
-                        return recentFiles;
-                    }
-                    if (entry && entry.retention !== 'transient') {
-                        const fileSize = typeof file.fileSize === 'number'
-                            ? file.fileSize
-                            : entry.fileSize;
-                        shouldBackfillStorage ||= fileSize !== file.fileSize;
-                        validatedFiles.push({
-                            ...file,
-                            fileSize,
-                        });
+                    if (!available) return recentFiles;
+                    if (entry?.retention === 'transient' || !entry) {
+                        await browserDocumentStore.removeRecentFile(file.originalPath);
                         continue;
                     }
-
-                    await browserDocumentStore.removeRecentFile(file.originalPath);
+                    const validated = {
+                        ...file,
+                        fileSize: file.fileSize ?? entry.fileSize,
+                    };
+                    if (validated.fileSize !== file.fileSize) sized.set(file.originalPath, validated);
+                    validatedFiles.push(validated);
                 }
-
-                if (shouldBackfillStorage) {
-                    await runSerializedRecentFilesStorageMutation(() => ({
-                        files: validatedFiles,
+                if (sized.size > 0) {
+                    await runSerializedRecentFilesStorageMutation(currentFiles => ({
+                        files: currentFiles.map(file => (file.fileSize === undefined ? sized.get(file.originalPath) : undefined) ?? file),
                         value: undefined,
                     }));
                 }
-
                 return validatedFiles;
             },
             async remove(path) {
