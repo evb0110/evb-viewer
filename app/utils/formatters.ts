@@ -10,6 +10,7 @@ const BYTE_SIZE_UNITS = [
     'common.unitKilobyte',
     'common.unitMegabyte',
     'common.unitGigabyte',
+    'common.unitTerabyte',
 ] as const;
 
 /** A byte count in the app's language: its units and its decimal separator. */
@@ -34,7 +35,7 @@ export function formatBytes(bytes: number, {
         minimumFractionDigits: digits,
         maximumFractionDigits: digits,
     }).format(value);
-    return `${number} ${t(BYTE_SIZE_UNITS[unitIndex] ?? 'common.unitGigabyte')}`;
+    return `${number} ${t(BYTE_SIZE_UNITS[unitIndex] ?? 'common.unitTerabyte')}`;
 }
 
 interface IRelativeTimeLabels {
