@@ -12,6 +12,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Output},
+    sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -19,11 +20,39 @@ const SPARSE_STREAM_BYTES: u64 = 900 * 1024 * 1024;
 const SPARSE_STREAM_COUNT: u32 = 6;
 const STRUCTURAL_LOADER_STREAM_BYTES: u64 = 513 * 1024 * 1024;
 
-struct TempFiles(Vec<PathBuf>);
+struct TempFiles {
+    paths: Vec<PathBuf>,
+    // Drop removes every path before releasing the disk-heavy fixture slot.
+    _disk_guard: Option<MutexGuard<'static, ()>>,
+}
+
+impl TempFiles {
+    fn new(paths: Vec<PathBuf>) -> Self {
+        Self {
+            paths,
+            _disk_guard: None,
+        }
+    }
+
+    fn disk_heavy(paths: Vec<PathBuf>) -> Self {
+        // Non-reflink filesystems materialize sparse inputs during staged saves.
+        // Keep one fixture alive until its outputs have been removed, including
+        // unwinding after a failed assertion. Small nested sidecars need no slot.
+        static DISK_HEAVY_FIXTURE: Mutex<()> = Mutex::new(());
+        Self {
+            paths,
+            _disk_guard: Some(
+                DISK_HEAVY_FIXTURE
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            ),
+        }
+    }
+}
 
 impl Drop for TempFiles {
     fn drop(&mut self) {
-        for path in &self.0 {
+        for path in &self.paths {
             let _ = fs::remove_file(path).or_else(|_| fs::remove_dir_all(path));
         }
     }
@@ -480,7 +509,7 @@ fn write_scanned_annotation_pdf(
 /// The sidecar a command writes, or the error code it reports.
 fn page_ops_sidecar(pdf: &Path, command: &[&str], with_qpdf: bool) -> Result<Vec<u8>, String> {
     let sidecar = temp_path("page-ops-sidecar", "jsonl");
-    let _cleanup = TempFiles(vec![sidecar.clone()]);
+    let _cleanup = TempFiles::new(vec![sidecar.clone()]);
     let mut process = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
     process
         .arg(command[0])
@@ -530,7 +559,7 @@ fn parsed_annotation_entries_with_qpdf(pdf: &Path, qpdf: &Path) -> Vec<Value> {
 fn parse_annotations(pdf: &Path, qpdf: &Path, pages: Option<&[u32]>) -> (Value, Vec<Value>) {
     let sidecar = temp_path("annotation-parse", "ndjson");
     let pages_file = temp_path("annotation-parse-pages", "txt");
-    let _cleanup = TempFiles(vec![sidecar.clone(), pages_file.clone()]);
+    let _cleanup = TempFiles::new(vec![sidecar.clone(), pages_file.clone()]);
     let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
     command
         .args(["parse-annotations", "--input"])
@@ -1026,7 +1055,8 @@ fn split_pages_writes_a_new_revision_for_a_sparse_pdf_beyond_four_gib() {
     let pdf = temp_path("five-gib-split", "pdf");
     let output_pdf = temp_path("five-gib-split-output", "pdf");
     let instructions = temp_path("five-gib-split", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), output_pdf.clone(), instructions.clone()]);
+    let _cleanup =
+        TempFiles::disk_heavy(vec![pdf.clone(), output_pdf.clone(), instructions.clone()]);
     let original_len = write_sparse_five_gib_pdf(&pdf);
     fs::write(
         &instructions,
@@ -1052,7 +1082,7 @@ fn overlay_text_writes_a_new_revision_for_a_sparse_pdf_beyond_four_gib() {
     let output_pdf = temp_path("five-gib-overlay-output", "pdf");
     let source_pdf = temp_path("five-gib-overlay-source", "pdf");
     let instructions = temp_path("five-gib-overlay", "json");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         pdf.clone(),
         output_pdf.clone(),
         source_pdf.clone(),
@@ -1091,7 +1121,7 @@ fn non_append_mutations_write_a_new_revision_for_a_sparse_pdf_beyond_four_gib() 
     let pdf = temp_path("five-gib-non-append", "pdf");
     let output_pdf = temp_path("five-gib-non-append-output", "pdf");
     let mutations = temp_path("five-gib-non-append", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), output_pdf.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), output_pdf.clone(), mutations.clone()]);
     let original_len = write_sparse_five_gib_pdf(&pdf);
     save_bookmark_mutations(&mutations);
 
@@ -1122,7 +1152,7 @@ fn non_append_mutations_write_a_new_revision_for_a_sparse_pdf_beyond_four_gib() 
 fn appends_metadata_to_a_sparse_pdf_beyond_four_gib() {
     let pdf = temp_path("five-gib-append", "pdf");
     let mutations = temp_path("five-gib-append", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone()]);
     let original_len = write_sparse_five_gib_pdf(&pdf);
     fs::write(
         &mutations,
@@ -1145,7 +1175,7 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
     let pdf = temp_path("structural-loader-repeated-mutations", "pdf");
     let first_mutations = temp_path("structural-loader-first-mutations", "json");
     let second_mutations = temp_path("structural-loader-second-mutations", "json");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         pdf.clone(),
         first_mutations.clone(),
         second_mutations.clone(),
@@ -1200,7 +1230,7 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
 fn text_box_saves_through_the_structural_loader_embed_glyph_subsets() {
     let pdf = temp_path("structural-text-box-font", "pdf");
     let mutations = temp_path("structural-text-box-font-mutations", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone()]);
     write_sparse_structural_loader_pdf(&pdf);
 
     for index in 0..2 {
@@ -1231,7 +1261,7 @@ fn legacy_note_marker_recognition_matches_eager_and_structural_loads() {
     let mutations = temp_path("marker-recognition-mutations", "json");
     let small = temp_path("marker-recognition-small", "pdf");
     let large = temp_path("marker-recognition-large", "pdf");
-    let _cleanup = TempFiles(vec![mutations.clone(), small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![mutations.clone(), small.clone(), large.clone()]);
     fs::write(
         &mutations,
         br#"{"updates":[{"objectNumber":4,"generationNumber":0,"text":"edited real"},{"objectNumber":7,"generationNumber":0,"text":"edited legacy"}]}"#,
@@ -1278,7 +1308,7 @@ fn note_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_reader() {
     let padded = temp_path("page-local-note-padded", "pdf");
     let large = temp_path("page-local-note-large", "pdf");
     let mutations = temp_path("page-local-note-mutations", "json");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         small.clone(),
         padded.clone(),
         large.clone(),
@@ -1394,7 +1424,7 @@ fn catalog_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_writer() {
     let small = temp_path("page-local-catalog-small", "pdf");
     let large = temp_path("page-local-catalog-large", "pdf");
     let mutations = temp_path("page-local-catalog-mutations", "json");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone(), mutations.clone()]);
     write_page_local_note_pdf(&small, false, false);
     write_page_local_note_pdf(&large, true, true);
     assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
@@ -1444,7 +1474,7 @@ fn catalog_saves_on_a_pdf_too_large_to_load_whole_match_the_eager_writer() {
 fn long_outline_continuations_on_a_pdf_too_large_to_load_whole_read_only_their_path() {
     let large = temp_path("page-local-long-outline", "pdf");
     let mutations = temp_path("page-local-long-outline-mutations", "json");
-    let _cleanup = TempFiles(vec![large.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![large.clone(), mutations.clone()]);
     write_page_local_note_pdf(&large, true, true);
     // Three chunks of 5,000 top-level bookmarks, then later chunks at the top
     // level and under the last earlier bookmark.
@@ -1506,7 +1536,7 @@ fn scanned_file_sidecars_match_the_eager_reader() {
     let with_text_box = temp_path("scanned-sidecars-text-box", "pdf");
     let with_flate_empty_marker = temp_path("scanned-sidecars-flate-empty-marker", "pdf");
     let with_damaged_appearance = temp_path("scanned-sidecars-damaged-appearance", "pdf");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         with_note.clone(),
         with_text_box.clone(),
         with_flate_empty_marker.clone(),
@@ -1629,7 +1659,7 @@ fn scanned_file_sidecars_match_the_eager_reader() {
 fn note_with_a_small_appearance_parses_as_a_note_above_the_structural_ceiling() {
     let small = temp_path("note-appearance-small", "pdf");
     let large = temp_path("note-appearance-large", "pdf");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone()]);
     // A foreign sticky note whose normal appearance is a few bytes. Above the
     // eager-load ceiling the parse must still read that appearance, or the
     // note imports as foreign and drops out of the editable notes.
@@ -1656,7 +1686,7 @@ fn note_with_a_small_appearance_parses_as_a_note_above_the_structural_ceiling() 
 fn note_whose_appearance_draws_on_a_form_resource_parses_as_a_note_above_the_structural_ceiling() {
     let small = temp_path("note-resource-small", "pdf");
     let large = temp_path("note-resource-large", "pdf");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone()]);
     // The note's appearance is a form that paints a second form from its
     // /Resources. The second form is a stream the structural reader leaves
     // unread, so recovery needs it restored along with the appearance.
@@ -1684,7 +1714,7 @@ fn note_whose_appearance_draws_on_a_form_resource_parses_as_a_note_above_the_str
 fn note_with_a_reply_and_a_popup_parses_as_a_note_above_the_structural_ceiling() {
     let small = temp_path("note-reply-small", "pdf");
     let large = temp_path("note-reply-large", "pdf");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone()]);
     // The reply is a square, not a text note, and the popup has its own
     // appearance. Recovery snapshots both, so both need their streams.
     let objects: [&[u8]; 6] = [
@@ -1718,7 +1748,7 @@ fn note_whose_normal_appearance_names_a_state_dictionary_parses_as_a_note_above_
 ) {
     let small = temp_path("note-state-small", "pdf");
     let large = temp_path("note-state-large", "pdf");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone()]);
     // /N is a reference to a state dictionary, and its state names the only
     // stream the note draws on. The structural reader leaves that stream
     // unread, so the parse must resolve /N to reach it.
@@ -1746,7 +1776,7 @@ fn note_sharing_a_form_with_a_note_on_an_oversized_form_parses_as_a_note_above_t
 ) {
     let small = temp_path("note-shared-small", "pdf");
     let large = temp_path("note-shared-large", "pdf");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone()]);
     // Note A draws on the shared form 9 and on form 10, which is one byte over
     // the per-stream limit, so A stays foreign. Note B draws on the same shared
     // form 9 alone, so it must stay editable: A's failure may not withhold 9.
@@ -1782,7 +1812,7 @@ fn note_sharing_a_form_with_a_note_on_an_oversized_form_parses_as_a_note_above_t
 fn large_dictionary_in_one_appearance_leaves_its_neighbour_editable_above_the_structural_ceiling() {
     let small = temp_path("note-dictionary-small", "pdf");
     let large = temp_path("note-dictionary-large", "pdf");
-    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![small.clone(), large.clone()]);
     // Note A's form has 23 raw bytes but a 34 MiB dictionary string. That form
     // exceeds the note recovery budget, so A is foreign. Its dictionary must not
     // push the qpdf run that also reads note B's small form past its output limit.
@@ -1817,7 +1847,7 @@ fn a_failed_batch_read_keeps_each_note_whose_appearance_qpdf_can_read() {
     use std::os::unix::fs::PermissionsExt;
 
     let large = temp_path("note-failed-batch-large", "pdf");
-    let _cleanup = TempFiles(vec![large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![large.clone()]);
     // The batch that reads both appearances fails in one of two ways, each
     // tied to the first note's stream: a nonzero exit, or JSON cut short. The
     // read of each stream on its own still succeeds, so both notes stay editable.
@@ -1835,7 +1865,7 @@ fn a_failed_batch_read_keeps_each_note_whose_appearance_qpdf_can_read() {
         ("truncated-json", "printf '{\"qpdf\": ['; exit 0"),
     ] {
         let wrapper = temp_path(&format!("note-batch-{label}"), "sh");
-        let _wrapper_cleanup = TempFiles(vec![wrapper.clone()]);
+        let _wrapper_cleanup = TempFiles::new(vec![wrapper.clone()]);
         fs::write(
             &wrapper,
             format!(
@@ -1872,7 +1902,7 @@ fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_in_one_
     let large = temp_path("note-batch-large", "pdf");
     let wrapper = temp_path("note-batch-qpdf", "sh");
     let log = temp_path("note-batch-qpdf", "log");
-    let _cleanup = TempFiles(vec![large.clone(), wrapper.clone(), log.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![large.clone(), wrapper.clone(), log.clone()]);
     // Each note's normal appearance is an unread stream above the structural
     // ceiling. The parse must read them together, not spawn qpdf per note.
     let mut objects = Vec::new();
@@ -1937,7 +1967,7 @@ fn preserves_hash_named_resources_through_two_large_annotation_appends() {
     let pdf = temp_path("structural-hash-resources", "pdf");
     let first_mutations = temp_path("structural-hash-first", "json");
     let second_mutations = temp_path("structural-hash-second", "json");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         pdf.clone(),
         first_mutations.clone(),
         second_mutations.clone(),
@@ -1989,7 +2019,7 @@ fn preserves_hash_named_resources_through_two_large_annotation_appends() {
 fn appends_metadata_beyond_the_ten_gb_classic_xref_limit() {
     let pdf = temp_path("ten-gb-xref-stream-append", "pdf");
     let mutations = temp_path("ten-gb-xref-stream-append", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone()]);
     let original_len = write_sparse_ten_gib_xref_stream_pdf(&pdf);
     fs::write(
         &mutations,
@@ -2011,7 +2041,7 @@ fn appends_metadata_beyond_the_ten_gb_classic_xref_limit() {
 fn upgrades_a_classic_xref_when_the_append_crosses_ten_billion_bytes() {
     let pdf = temp_path("classic-xref-ceiling-append", "pdf");
     let mutations = temp_path("classic-xref-ceiling-append", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone()]);
     // A bookmark loads the whole document; a note loads only its page, but the
     // writer still upgrades the catalog's /Version.
     let saves: [(&[u8], bool); 2] = [
@@ -2060,7 +2090,7 @@ fn upgrades_a_classic_xref_when_the_append_crosses_ten_billion_bytes() {
 fn free_text_with_indirect_default_appearance_stays_editable_after_structural_append() {
     let mutations = temp_path("indirect-da-mutations", "json");
     let large = temp_path("indirect-da-large", "pdf");
-    let _cleanup = TempFiles(vec![mutations.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![mutations.clone(), large.clone()]);
     fs::write(
         &mutations,
         r#"{"updates":[{"objectNumber":4,"generationNumber":0,"text":"edited réal"}]}"#,
@@ -2094,7 +2124,7 @@ fn free_text_with_indirect_default_appearance_stays_editable_after_structural_ap
 fn auto_print_appends_a_missing_appearance_to_a_book_above_the_layout_ceiling() {
     let source = temp_path("auto-print-book", "pdf");
     let printed = temp_path("auto-print-book-printed", "pdf");
-    let _cleanup = TempFiles(vec![source.clone(), printed.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![source.clone(), printed.clone()]);
     write_scanned_annotation_pdf(
         &source,
         769 * 1024 * 1024,
@@ -2198,7 +2228,7 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
     let objects: Vec<&[u8]> = objects.iter().map(Vec::as_slice).collect();
     let wrapper = temp_path("auto-print-font-qpdf", "sh");
     let log = temp_path("auto-print-font-qpdf", "log");
-    let _wrapper = TempFiles(vec![wrapper.clone(), log.clone()]);
+    let _wrapper = TempFiles::new(vec![wrapper.clone(), log.clone()]);
     fs::write(
         &wrapper,
         format!(
@@ -2213,7 +2243,7 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
     let drawing = |image_bytes: u64| {
         let source = temp_path("auto-print-font", "pdf");
         let printed = temp_path("auto-print-font-printed", "pdf");
-        let _cleanup = TempFiles(vec![source.clone(), printed.clone()]);
+        let _cleanup = TempFiles::disk_heavy(vec![source.clone(), printed.clone()]);
         write_scanned_annotation_pdf(&source, image_bytes, &objects, &[5, 10, 15]);
         let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["print-layout", "--input"])
@@ -2299,7 +2329,7 @@ fn additive_annotation_saves_match_whole_and_scoped_readback_on_large_pdfs() {
         let padded = temp_path("additive-padded", "pdf");
         let large = temp_path("additive-large", "pdf");
         let mutations = temp_path("additive-mutations", "json");
-        let _cleanup = TempFiles(vec![
+        let _cleanup = TempFiles::disk_heavy(vec![
             small.clone(),
             padded.clone(),
             large.clone(),
@@ -2442,7 +2472,7 @@ fn placed_images_create_and_move_on_deep_large_trees_match_whole_readback() {
 fn placed_images_through_cli_match_whole_readback() {
     use std::os::unix::fs::PermissionsExt;
     let wrapper = temp_path("images-qpdf-cli", "sh");
-    let _cleanup = TempFiles(vec![wrapper.clone()]);
+    let _cleanup = TempFiles::new(vec![wrapper.clone()]);
     fs::write(
         &wrapper,
         format!("#!/bin/sh\nexec '{}' \"$@\"\n", qpdf_path().display()),
@@ -2473,7 +2503,7 @@ fn check_page_local_images(qpdf: &Path) {
     let padded = temp_path("images-padded", "pdf");
     let large = temp_path("images-large", "pdf");
     let mutations = temp_path("images-mutations", "json");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         small.clone(),
         padded.clone(),
         large.clone(),
@@ -2553,7 +2583,7 @@ fn check_page_local_images(qpdf: &Path) {
 fn deleting_notes_above_the_ceiling_avoids_unrelated_structure() {
     let pdf = temp_path("page-local-delete-heavy", "pdf");
     let mutations = temp_path("page-local-delete-heavy", "json");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone()]);
     write_page_local_note_pdf(&pdf, true, true);
     fs::write(&mutations, br#"{"deletes":[{"pageIndex":1,"objectNumber":6,"generationNumber":0}],"markup":{"hints":[{"subtype":"Highlight","pageIndex":1,"markerRect":{"left":0.1,"top":0.2,"width":0.3,"height":0.03},"appAnnotationId":"mixed-new","source":"editor"}]}}"#).unwrap();
     let output = append_mutations_in_place(&pdf, &mutations);
@@ -2656,7 +2686,7 @@ fn page_tree_deletes_match_whole_writes_and_scope_recursive_threads() {
     let report = temp_path("delete-closure-report", "json");
     // Each later delete reads the ownership snapshot the earlier one wrote.
     let cache = temp_path("delete-closure-ownership", "d");
-    let _cleanup = TempFiles(vec![
+    let _cleanup = TempFiles::disk_heavy(vec![
         small.clone(),
         padded.clone(),
         heavy.clone(),
@@ -2749,7 +2779,7 @@ fn orphan_only_ownership_is_ignored_only_above_the_byte_ceiling() {
     .unwrap();
     let small = temp_path("orphan-delete-small", "pdf");
     let large = temp_path("orphan-delete-large", "pdf");
-    let _cleanup = TempFiles(vec![mutations.clone(), small.clone(), large.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![mutations.clone(), small.clone(), large.clone()]);
     for (path, padded) in [(&small, false), (&large, true)] {
         write_delete_closure_pdf(path, padded, false, true);
         let output = append_mutations_in_place(path, &mutations);
@@ -2780,7 +2810,7 @@ fn delete_without_the_bundled_scan_keeps_the_whole_load_refusal() {
     let pdf = temp_path("delete-no-library", "pdf");
     let mutations = temp_path("delete-no-library", "json");
     let wrapper = temp_path("delete-no-library", "sh");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
     write_page_local_note_pdf(&pdf, true, true);
     let size = fs::metadata(&pdf).unwrap().len();
     fs::write(
@@ -2829,7 +2859,7 @@ fn existing_annotation_edits_match_whole_writes_and_scoped_readback() {
         let report = temp_path("existing-edits-report", "json");
         // The edit reads the ownership snapshot the seed's deletes wrote.
         let cache = temp_path("existing-edits-ownership", "d");
-        let _cleanup = TempFiles(
+        let _cleanup = TempFiles::disk_heavy(
             files
                 .iter()
                 .cloned()
@@ -3032,7 +3062,7 @@ fn existing_targets_keep_whole_fallback_for_ambiguous_names_and_missing_library(
     let pdf = temp_path("existing-fallback", "pdf");
     let mutations = temp_path("existing-fallback", "json");
     let wrapper = temp_path("existing-fallback", "sh");
-    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
+    let _cleanup = TempFiles::disk_heavy(vec![pdf.clone(), mutations.clone(), wrapper.clone()]);
     let heavy = format!("[{}]", "0 ".repeat(900_000));
     let shape = b"<</Type/Annot/Subtype/Square/Rect[10 10 30 30]/NM(evb-shape:duplicate)/P 3 0 R>>";
     let markup = b"<</Type/Annot/Subtype/Highlight/Rect[10 10 30 30]/QuadPoints[10 30 30 30 10 10 30 10]/NM(duplicate-markup)/P 3 0 R>>";
