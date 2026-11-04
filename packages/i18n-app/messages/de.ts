@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Gemischte Ausgabe verwenden',
             'delete': 'Ausgewählten Bereich löschen',
             'resizeHandle': 'Bereich von {direction} aus skalieren',
+            'zoneLabel': 'Bereich {number}: {kind}',
             'corners': {
                 'nw': 'obere linke Ecke',
                 'ne': 'obere rechte Ecke',

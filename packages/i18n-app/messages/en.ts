@@ -621,6 +621,7 @@ export default {
             'useMixedOutput': 'Use mixed output',
             'delete': 'Delete selected zone',
             'resizeHandle': 'Resize zone from the {direction}',
+            'zoneLabel': 'Zone {number}: {kind}',
             'corners': {
                 'nw': 'top-left corner',
                 'ne': 'top-right corner',

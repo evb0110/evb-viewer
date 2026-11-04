@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Usa output misto',
             'delete': 'Elimina la zona selezionata',
             'resizeHandle': 'Ridimensiona la zona da {direction}',
+            'zoneLabel': 'Zona {number}: {kind}',
             'corners': {
                 'nw': 'angolo superiore sinistro',
                 'ne': 'angolo superiore destro',

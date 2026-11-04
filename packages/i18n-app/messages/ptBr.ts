@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Usar saída mista',
             'delete': 'Excluir a zona selecionada',
             'resizeHandle': 'Redimensionar a zona a partir de {direction}',
+            'zoneLabel': 'Zona {number}: {kind}',
             'corners': {
                 'nw': 'canto superior esquerdo',
                 'ne': 'canto superior direito',

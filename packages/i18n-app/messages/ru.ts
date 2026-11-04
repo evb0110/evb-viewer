@@ -627,6 +627,7 @@ export default {
             'useMixedOutput': 'Включить смешанный режим',
             'delete': 'Удалить выбранную зону',
             'resizeHandle': 'Изменить размер зоны за {direction}',
+            'zoneLabel': 'Зона {number}: {kind}',
             'corners': {
                 'nw': 'левый верхний угол',
                 'ne': 'правый верхний угол',

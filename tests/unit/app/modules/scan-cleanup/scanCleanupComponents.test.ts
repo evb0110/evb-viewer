@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type {IScanCleanupZoneSelection} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 import type {TScanCleanupPageOverrides} from '@contracts/scan-cleanup/domain';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
@@ -5272,6 +5273,95 @@ describe('Scan cleanup components', () => {
             index: 0,
         });
         expect(updateManualZones).not.toHaveBeenCalled();
+    });
+
+    it('selects a zone and resizes it from a corner with the keyboard alone', async () => {
+        const disabled = ref(false);
+        const zones = ref<IScanCleanupManualZones>({
+            picture: [],
+            fill: [{
+                points: [
+                    {
+                        xNormalized: 0.2,
+                        yNormalized: 0.2,
+                    },
+                    {
+                        xNormalized: 0.4,
+                        yNormalized: 0.2,
+                    },
+                    {
+                        xNormalized: 0.4,
+                        yNormalized: 0.4,
+                    },
+                    {
+                        xNormalized: 0.2,
+                        yNormalized: 0.4,
+                    },
+                ],
+                rotationDegrees: 0,
+            }],
+        });
+        const selected = ref<IScanCleanupZoneSelection | null>(null);
+        const updates = vi.fn<(value: IScanCleanupManualZones) => void>();
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            disabled: disabled.value,
+            frame: {
+                height: 300,
+                left: 0,
+                top: 0,
+                width: 200,
+            },
+            manualZones: zones.value,
+            rotationDegrees: 0,
+            selected: selected.value,
+            zoneKind: 'fill',
+            'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
+                updates(value);
+                zones.value = value;
+            },
+            'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
+                selected.value = value;
+            },
+        })}));
+        const polygon = harness.host.querySelector<SVGPolygonElement>('.zone-editor-polygon')!;
+        expect(polygon.getAttribute('tabindex')).toBe('0');
+
+        polygon.focus();
+        await nextTick();
+        expect(selected.value).toEqual({
+            kind: 'fill',
+            index: 0,
+        });
+        const corner = harness.host.querySelector<HTMLButtonElement>('.zone-editor-handle.is-se')!;
+        corner.focus();
+        corner.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowRight',
+        }));
+        // Each key press is its own task; the view updates between them.
+        await nextTick();
+        corner.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowDown',
+            shiftKey: true,
+        }));
+        await nextTick();
+        expect(updates).toHaveBeenCalledTimes(2);
+        const points = harness.host.querySelector('.zone-editor-polygon')!.getAttribute('points')!
+            .split(' ').map(point => point.split(',').map(Number));
+        expect(Math.max(...points.map(([x]) => x!))).toBeCloseTo(0.41);
+        expect(Math.max(...points.map(([
+            , y,
+        ]) => y!))).toBeCloseTo(0.45);
+        expect(Math.min(...points.map(([x]) => x!))).toBeCloseTo(0.2);
+
+        disabled.value = true;
+        await nextTick();
+        harness.host.querySelector('.zone-editor-handle.is-se')!.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowRight',
+        }));
+        expect(updates, 'a disabled preview takes no edit').toHaveBeenCalledTimes(2);
     });
 
     it('drops a zone drawn across the moment edits become disabled', async () => {

@@ -141,6 +141,7 @@ export default {
             'useMixedOutput': 'Gemengde uitvoer gebruiken',
             'delete': 'Geselecteerde zone verwijderen',
             'resizeHandle': 'Zone vanaf {direction} groter of kleiner maken',
+            'zoneLabel': 'Zone {number}: {kind}',
             'corners': {
                 'nw': 'linkerbovenhoek',
                 'ne': 'rechterbovenhoek',
