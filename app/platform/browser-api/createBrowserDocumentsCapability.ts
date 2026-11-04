@@ -126,7 +126,7 @@ export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
 ): IBrowserDocumentCapabilities {
     const errorMessageProvider = {
-        imageExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.imageExtensionMismatch', {extensions}),
+        saveExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.saveExtensionMismatch', {extensions}),
         folderEmpty: () => translateBrowserMessage('errors.file.folderEmpty'),
     };
     configureBrowserFilePickerMessages(errorMessageProvider);

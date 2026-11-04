@@ -10,10 +10,13 @@ import {
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import {resolve} from 'node:path';
+import {
+    basename, resolve,
+} from 'node:path';
+import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {PDFDocument} from 'pdf-lib';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
-import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
@@ -171,17 +174,11 @@ describe('Electron E2E - PDF Conformance', () => {
             await triggerOpenPathInApp(session.page, largePdf, CONFORMANCE_WORKER_START_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, CONFORMANCE_WORKER_START_TIMEOUT_MS);
             await expect.poll(() => existsSync(gate.ready), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toBe(true);
-            // A durable checkpoint owns the bytes before close. Closing must
-            // still stop native readers while recovery retains those bytes.
-            await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint?: {
-                capturedAt?: number;
-                tabs?: Array<{
-                    sourceRef?: string | null;
-                    workingCopyRef?: string | null
-                }>;
-            }}>(session.name).some(record => record.checkpoint?.tabs?.some(tab => (
-                tab.sourceRef === largePdf && tab.workingCopyRef
-            ))), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toBe(true);
+            // Close must stop the reader even while the durable checkpoint still owns its bytes.
+            await expect.poll(() => readWorkspaceRecoveryRecords(session.name)
+                .some(record => decodeWorkspaceCheckpoint(record.checkpoint)?.tabs.some(tab => (
+                    tab.fileName === basename(largePdf) && tab.workingCopyRef !== null
+                ))), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toBe(true);
             await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
             await waitForActiveDocumentSource(session.page, stablePdf, 15_000);
             await waitForPdfLoaded(session.page, 15_000);

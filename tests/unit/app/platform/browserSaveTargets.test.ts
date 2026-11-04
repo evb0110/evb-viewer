@@ -110,6 +110,22 @@ describe('browserSaveTargets', () => {
             });
     });
 
+    it('records a stored handle save under its physical name rather than a stale saveName', async () => {
+        const handle = createFileSystemFileHandle({name: ' report.PDF'});
+        browserDocumentStoreMock.getSaveTarget.mockResolvedValue({
+            saveName: 'old.pdf',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const {saveWorkingBytesToSourceStructured} = await import('@app/platform/browser-api/browserSaveTargets');
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'))).resolves.toMatchObject({ok: true});
+        expect(browserDocumentStoreMock.replaceWithHandleBackedDocument).toHaveBeenCalledWith('browser://documents/source', expect.objectContaining({
+            saveName: handle.name,
+            saveHandle: handle,
+        }));
+        expect(browserDocumentStoreMock.assignSaveTarget).toHaveBeenCalledWith('browser://documents/source', handle.name, 'pdf', handle);
+    });
+
     it('advances the source base after a download save so the next save is not seen as an external edit', async () => {
         filePickerMock.downloadBrowserDocument.mockResolvedValue(undefined);
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');

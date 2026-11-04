@@ -7,12 +7,8 @@ import {
     rm,
 } from 'fs/promises';
 import { finished } from 'node:stream/promises';
-import { sumBy } from 'es-toolkit/math';
 import UTIF, { type IUtifFrame } from 'utif';
-import {
-    buildTiffImageIfd,
-    encodeTiffIfds,
-} from '@pdf-core/tiffEncoding';
+import {encodeMultiPageTiffHeader} from '@pdf-core/tiffEncoding';
 import type { ITiffImageDescriptor } from '@pdf-core/tiffEncoding';
 import {
     atomicReplace,
@@ -43,8 +39,6 @@ interface ICombinePagesIntoMultiPageTiffLocalOptions {
     // The temporary file the caller already recorded, beside the output.
     tempPath?: string;
 }
-
-const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) throw abortErrorFromSignal(signal);
@@ -282,91 +276,6 @@ function decodeSinglePageTiffRgba(
     throw new Error('Failed to decode TIFF page data');
 }
 
-function alignOffset(offset: number, alignment: number) {
-    if (alignment <= 1) {
-        return offset;
-    }
-    const remainder = offset % alignment;
-    return remainder === 0 ? offset : offset + (alignment - remainder);
-}
-
-function resolvePageDataOffsets(
-    pages: Array<Pick<ITiffImageDescriptor, 'dataLength'>>,
-    firstDataOffset: number,
-): number[] {
-    const offsets: number[] = [];
-    let cursor = firstDataOffset;
-
-    for (const page of pages) {
-        offsets.push(cursor);
-        cursor += page.dataLength;
-    }
-
-    return offsets;
-}
-
-function encodeMultiPageTiffHeader(pages: ITiffImageDescriptor[]) {
-    let firstDataOffset = 0;
-    let header = new Uint8Array();
-
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-        const pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
-        const ifds = pages.map((page, index) => buildTiffImageIfd(page, pageOffsets[index]!));
-        header = encodeTiffIfds(ifds, UTIF);
-        const nextFirstDataOffset = alignOffset(header.length, 8);
-        if (nextFirstDataOffset === firstDataOffset) {
-            break;
-        }
-        firstDataOffset = nextFirstDataOffset;
-    }
-
-    return {
-        firstPageDataOffset: alignOffset(header.length, 8),
-        header,
-    };
-}
-
-export function estimateMultiPageTiffByteLength(pages: ITiffImageDescriptor[]) {
-    const { firstPageDataOffset } = encodeMultiPageTiffHeader(pages);
-
-    return firstPageDataOffset + sumBy(pages, page => page.dataLength);
-}
-
-export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImageDescriptor>(
-    pages: TPage[],
-    maxByteLength = CLASSIC_TIFF_MAX_BYTE_LENGTH,
-) {
-    if (pages.length === 0) {
-        return [];
-    }
-
-    const groups: TPage[][] = [];
-    let currentGroup: TPage[] = [];
-
-    for (const page of pages) {
-        if (estimateMultiPageTiffByteLength([page]) > maxByteLength) {
-            throw new Error('A single TIFF page exceeds the Classic TIFF 4GB limit');
-        }
-
-        const nextGroup = [
-            ...currentGroup,
-            page,
-        ];
-        if (currentGroup.length > 0 && estimateMultiPageTiffByteLength(nextGroup) > maxByteLength) {
-            groups.push(currentGroup);
-            currentGroup = [page];
-        } else {
-            currentGroup = nextGroup;
-        }
-    }
-
-    if (currentGroup.length > 0) {
-        groups.push(currentGroup);
-    }
-
-    return groups;
-}
-
 export async function readTiffPageDescriptors(pagePaths: string[], signal?: AbortSignal, defaultDpi = 72) {
     const pages: ILocalTiffPageDescriptor[] = [];
 
@@ -448,15 +357,10 @@ export async function combinePagesIntoMultiPageTiffLocal(
     throwIfAborted(signal);
     const pages = await readTiffPageDescriptors(pagePaths, signal, defaultDpi);
     throwIfAborted(signal);
-    const totalByteLength = estimateMultiPageTiffByteLength(pages);
-    if (totalByteLength > CLASSIC_TIFF_MAX_BYTE_LENGTH) {
-        throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
-    }
-
     const {
-        firstPageDataOffset,
+        firstDataOffset,
         header,
-    } = encodeMultiPageTiffHeader(pages);
+    } = encodeMultiPageTiffHeader(pages, UTIF);
     const stream = createWriteStream(tempOutputPath, { flags: 'w' });
     const streamCompletion = finished(stream);
     void streamCompletion.catch(() => undefined);
@@ -470,7 +374,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
         throwIfAborted(signal);
         await writeChunkToStream(stream, header, streamCompletion);
 
-        const paddingLength = firstPageDataOffset - header.length;
+        const paddingLength = firstDataOffset - header.length;
         if (paddingLength > 0) {
             await writeChunkToStream(stream, new Uint8Array(paddingLength), streamCompletion);
         }
