@@ -4,6 +4,7 @@ import {
     copyFile,
     mkdir,
     mkdtemp,
+    utimes,
     readdir,
     readFile,
     rename,
@@ -11,6 +12,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import type * as NodeFs from 'node:fs';
+import type * as AtomicReplace from '@electron/utils/atomicReplace';
 import { EventEmitter } from 'node:events';
 import {
     dirname,
@@ -90,7 +92,8 @@ const state = vi.hoisted(() => ({
     }>(),
     originalPaths: new Map<string, string>(),
     restoredOptions: new Map<string, unknown>(),
-    recoveryClaims: new Set<string>(),
+    recoveryClaims: new Map<string, Set<number>>(),
+    failNextCheckpointWrite: false,
     blockCleanup: vi.fn(),
     failNextCheckpointRead: false,
     touchScanCleanupGeneratedOutput: vi.fn(async (_path: string) => true),
@@ -123,90 +126,119 @@ vi.mock('electron', () => ({
         : undefined},
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
-    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
-    captureWorkingCopyAdmissionSnapshot: () => Promise.resolve({
-        mtimeNs: 1n,
-        size: 987_654n,
-    }),
-    getWorkingCopyOwnerWebContentsId: (path: string) => state.owners.get(path),
-    getWorkingCopyOriginalPath: (path: string, owner: number) => state.owners.get(path) === owner
-        ? {originalPath: state.originalPaths.get(path)}
-        : null,
-    getWorkingCopyBackingEntry: (path: string, owner: number) => state.owners.get(path) === owner
-        ? state.backingEntries.get(path) ?? null
-        : null,
-    claimWorkingCopyOwnership: (path: string, expectedOwner: number, nextOwner: number) => {
-        if (state.owners.get(path) !== expectedOwner) {
-            return false;
-        }
-        state.owners.set(path, nextOwner);
-        const entry = state.backingEntries.get(path);
-        if (entry) {
-            entry.ownerWebContentsId = nextOwner;
-        }
-        return true;
-    },
-    claimWorkingCopyRecovery: vi.fn((path: string) => {
-        state.recoveryClaims.add(path);
-        return state.recoveryClaims.size;
-    }),
-    releaseWorkingCopyRecovery: vi.fn((path: string) => state.recoveryClaims.delete(path)),
-    setWorkingCopyOriginalPath: (
-        path: string,
-        originalPath: string,
-        owner: number,
-        options?: {
-            admissionSnapshot?: {
-                mtimeNs: bigint;
-                size: bigint;
-            };
-            backingState?: 'cloned' | 'eager' | 'lazy-original' | 'materializing' | 'materialized';
-            originalFileExpectation?: {
-                contentFingerprint?: string;
-                mtimeMs: number;
-                size: number;
-            };
-            role?: 'current' | 'snapshot';
-            withheld?: boolean;
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => {
+    const actual = await importOriginal_1<typeof TViMockOriginalModule>();
+    return {
+        ...actual,
+        captureWorkingCopyAdmissionSnapshot: () => Promise.resolve({
+            mtimeNs: 1n,
+            size: 987_654n,
+        }),
+        getWorkingCopyOwnerWebContentsId: (path: string) => state.owners.get(path),
+        getWorkingCopyOriginalPath: (path: string, owner: number) => state.owners.get(path) === owner
+            ? {originalPath: state.originalPaths.get(path)}
+            : null,
+        getWorkingCopyBackingEntry: (path: string, owner: number) => state.owners.get(path) === owner
+            ? state.backingEntries.get(path) ?? null
+            : null,
+        claimWorkingCopyOwnership: (path: string, expectedOwner: number, nextOwner: number) => {
+            if (state.owners.get(path) !== expectedOwner) {
+                return false;
+            }
+            state.owners.set(path, nextOwner);
+            const entry = state.backingEntries.get(path);
+            if (entry) {
+                entry.ownerWebContentsId = nextOwner;
+            }
+            return true;
         },
-    ) => {
-        state.owners.set(path, owner);
-        state.originalPaths.set(path, originalPath);
-        state.restoredOptions.set(path, options);
-        state.backingEntries.set(path, {
-            ...(options?.admissionSnapshot ? {admissionSnapshot: options.admissionSnapshot} : {}),
-            backingState: options?.backingState ?? 'eager',
-            originalPath,
-            ownerWebContentsId: owner,
-            ...(options?.originalFileExpectation
-                ? {originalFileExpectation: options.originalFileExpectation}
-                : {}),
-            registrationId: ++state.lastRegistrationId,
-            role: options?.role ?? 'current',
-            ...(options?.withheld ? {withheld: true} : {}),
-        });
-        return Promise.resolve();
-    },
-    transitionWorkingCopyBackingState: (
-        path: string,
-        registrationId: number,
-        backingState: 'lazy-original',
-        options: {sourceBackingErrorCode?: 'SOURCE_BACKING_CHANGED'},
-    ) => {
-        const entry = state.backingEntries.get(path);
-        if (!entry || entry.registrationId !== registrationId) {
-            return false;
-        }
-        entry.backingState = backingState;
-        if (options.sourceBackingErrorCode) {
-            entry.sourceBackingErrorCode = options.sourceBackingErrorCode;
-        } else {
-            delete entry.sourceBackingErrorCode;
-        }
-        return true;
-    },
-}));
+        claimWorkingCopyRecovery: (path: string) => {
+            const remember = (generation: number) => {
+                const generations = state.recoveryClaims.get(path) ?? new Set<number>();
+                generations.add(generation);
+                state.recoveryClaims.set(path, generations);
+                return generation;
+            };
+            const generation = actual.claimWorkingCopyRecovery(path);
+            // Keep HEAD differential runs faithful to their synchronous contract.
+            return typeof generation === 'number' ? remember(generation) : generation.then(remember);
+        },
+        releaseWorkingCopyRecovery: (path: string, generation?: number) => {
+            actual.releaseWorkingCopyRecovery(path, generation);
+            const generations = state.recoveryClaims.get(path);
+            if (!generations || generation !== undefined && !generations.delete(generation)) return false;
+            if (generation === undefined || generations.size === 0) state.recoveryClaims.delete(path);
+            return true;
+        },
+        setWorkingCopyOriginalPath: (
+            path: string,
+            originalPath: string,
+            owner: number,
+            options?: {
+                admissionSnapshot?: {
+                    mtimeNs: bigint;
+                    size: bigint;
+                };
+                backingState?: 'cloned' | 'eager' | 'lazy-original' | 'materializing' | 'materialized';
+                originalFileExpectation?: {
+                    contentFingerprint?: string;
+                    mtimeMs: number;
+                    size: number;
+                };
+                role?: 'current' | 'snapshot';
+                withheld?: boolean;
+            },
+        ) => {
+            state.owners.set(path, owner);
+            state.originalPaths.set(path, originalPath);
+            state.restoredOptions.set(path, options);
+            state.backingEntries.set(path, {
+                ...(options?.admissionSnapshot ? {admissionSnapshot: options.admissionSnapshot} : {}),
+                backingState: options?.backingState ?? 'eager',
+                originalPath,
+                ownerWebContentsId: owner,
+                ...(options?.originalFileExpectation
+                    ? {originalFileExpectation: options.originalFileExpectation}
+                    : {}),
+                registrationId: ++state.lastRegistrationId,
+                role: options?.role ?? 'current',
+                ...(options?.withheld ? {withheld: true} : {}),
+            });
+            return Promise.resolve();
+        },
+        transitionWorkingCopyBackingState: (
+            path: string,
+            registrationId: number,
+            backingState: 'lazy-original',
+            options: {sourceBackingErrorCode?: 'SOURCE_BACKING_CHANGED'},
+        ) => {
+            const entry = state.backingEntries.get(path);
+            if (!entry || entry.registrationId !== registrationId) {
+                return false;
+            }
+            entry.backingState = backingState;
+            if (options.sourceBackingErrorCode) {
+                entry.sourceBackingErrorCode = options.sourceBackingErrorCode;
+            } else {
+                delete entry.sourceBackingErrorCode;
+            }
+            return true;
+        },
+    };
+});
+vi.mock('@electron/utils/atomicReplace', async importOriginal => {
+    const actual = await importOriginal<typeof AtomicReplace>();
+    return {
+        ...actual,
+        writeJsonAtomic: async (...args: Parameters<typeof actual.writeJsonAtomic>) => {
+            if (state.failNextCheckpointWrite && dirname(args[0]) === join(state.userDataPath, 'workspace-recovery')) {
+                state.failNextCheckpointWrite = false;
+                throw Object.assign(new Error('injected checkpoint publication failure'), {code: 'EACCES'});
+            }
+            return actual.writeJsonAtomic(...args);
+        },
+    };
+});
 vi.mock('@electron/file-access/workingCopyCleanup', () => ({blockStaleWorkingCopyDirectoryCleanup: state.blockCleanup}));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touchScanCleanupGeneratedOutput: state.touchScanCleanupGeneratedOutput}));
 
@@ -277,6 +309,7 @@ describe('workspace checkpoint store', () => {
         state.originalPaths.clear();
         state.restoredOptions.clear();
         state.recoveryClaims.clear();
+        state.failNextCheckpointWrite = false;
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
         state.touchScanCleanupGeneratedOutput.mockClear();
@@ -345,7 +378,7 @@ describe('workspace checkpoint store', () => {
         await saveWorkspaceCheckpoint(checkpoint, 11);
         await expect(claimWorkspaceCheckpoint(22)).resolves.toBeNull();
         expect(state.owners.get(workingCopyRef)).toBe(11);
-        expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
+        expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
     });
 
     it('does not treat a reused webContents id as the saved owner', async () => {
@@ -1796,4 +1829,204 @@ describe('workspace checkpoint store', () => {
         const entries = await readdir(join(state.userDataPath, 'workspace-recovery'));
         expect(entries.some(name => name.endsWith('.corrupt'))).toBe(true);
     });
+});
+
+
+describe('workspace recovery reservation lifecycle on disk', () => {
+    beforeEach(async () => {
+        state.userDataPath = await mkdtemp(join(tmpdir(), 'evb-reservation-lifecycle-'));
+        state.failNextCheckpointRead = false;
+        state.failNextCheckpointWrite = false;
+        state.liveOwners.clear();
+        vi.stubEnv('EVB_APP_STATE_DIR', state.userDataPath);
+        vi.stubEnv('TMPDIR', state.userDataPath);
+        vi.stubEnv('TEMP', state.userDataPath);
+        vi.stubEnv('TMP', state.userDataPath);
+        vi.doUnmock('@electron/file-access/workingCopyStore');
+        vi.doUnmock('@electron/file-access/workingCopyCleanup');
+        vi.resetModules();
+    });
+
+    afterEach(async () => {
+        vi.unstubAllEnvs();
+        await rm(state.userDataPath, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    async function createCopy(name: string, owner = 11) {
+        const directory = join(state.userDataPath, 'evb-viewer', `pdf-work-${name}`);
+        const path = join(directory, 'document.pdf');
+        const original = join(state.userDataPath, `${name}.pdf`);
+        const bytes = Buffer.from(`%PDF edited ${name}`);
+        await mkdir(directory, {recursive: true});
+        await writeFile(path, bytes);
+        await writeFile(original, `%PDF original ${name}`);
+        const registry = await import('@electron/file-access/workingCopyStore');
+        await registry.setWorkingCopyOriginalPath(path, original, owner);
+        return {
+            path,
+            directory,
+            original,
+            bytes,
+        };
+    }
+
+    async function ageAndRetire(copies: Array<Awaited<ReturnType<typeof createCopy>>>) {
+        const registry = await import('@electron/file-access/workingCopyStore');
+        const date = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        for (const copy of copies) {
+            registry.forgetWorkingCopyOriginalPath(copy.path);
+            await utimes(copy.directory, date, date);
+        }
+    }
+
+    function withCopies(copies: Array<Awaited<ReturnType<typeof createCopy>>>, dirty = true): IWorkspaceCheckpoint {
+        return {
+            ...checkpoint,
+            capturedAt: requireEpochMs(Date.now()),
+            panes: [{
+                ...checkpoint.panes[0]!,
+                tabIds: copies.map((_, index) => requireTabId(`tab-${index + 1}`)),
+            }],
+            tabs: copies.map((copy, index) => ({
+                ...checkpoint.tabs[0]!,
+                tabId: requireTabId(`tab-${index + 1}`),
+                sourceRef: requireDocumentRef(copy.original),
+                workingCopyRef: requireDocumentRef(copy.path),
+                isDirty: dirty,
+            })),
+        };
+    }
+
+    async function publish(record: IWorkspaceCheckpoint, owner = 11) {
+        const store = await import('@electron/workspaceCheckpointStore');
+        const pending = store.saveWorkspaceCheckpoint(record, owner);
+        // Join admission first; the public flush drains a debounced successor.
+        await new Promise<void>(resolve => setImmediate(resolve));
+        await store.flushPendingWorkspaceCheckpointSave();
+        return pending;
+    }
+
+    async function reserve() {
+        const store = await import('@electron/workspaceCheckpointStore');
+        if (typeof store.reserveWorkspaceCheckpointWorkingCopies === 'function') await store.reserveWorkspaceCheckpointWorkingCopies();
+        else await store.hasRecoverableWorkspaceCheckpoints(99);
+    }
+
+    it('A39 repeated reads reserve once and discard leaves no leaked ownership', async () => {
+        const copy = await createCopy('repeated');
+        await publish(withCopies([copy]));
+        await ageAndRetire([copy]);
+        await reserve();
+        await reserve();
+        const cleanup = await import('@electron/file-access/workingCopyCleanup');
+        await cleanup.cleanupStaleWorkingCopyDirectories();
+        expect(await readFile(copy.path)).toEqual(copy.bytes);
+        const store = await import('@electron/workspaceCheckpointStore');
+        await store.discardWorkspaceCheckpoint(11);
+        await expect(cleanup.cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+        expect(await readRecoveryRecords()).toHaveLength(0);
+    });
+
+    it('A39 discarding one durable owner preserves another owner of the same physical ref', async () => {
+        const copy = await createCopy('two-record-owners');
+        await publish(withCopies([copy]));
+        const registry = await import('@electron/file-access/workingCopyStore');
+        await registry.setWorkingCopyOriginalPath(copy.path, copy.original, 12);
+        await publish(withCopies([copy]), 12);
+        await ageAndRetire([copy]);
+        const store = await import('@electron/workspaceCheckpointStore');
+        await store.discardWorkspaceCheckpoint(11);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        expect(await readFile(copy.path)).toEqual(copy.bytes);
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        await store.discardWorkspaceCheckpoint(12);
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+    });
+
+    it('A39 successor retires only omitted refs and keeps an unchanged ref reserved', async () => {
+        const kept = await createCopy('kept');
+        const omitted = await createCopy('omitted');
+        await publish(withCopies([
+            kept,
+            omitted,
+        ]));
+        await publish(withCopies([kept]));
+        await ageAndRetire([
+            kept,
+            omitted,
+        ]);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        expect(await readFile(kept.path)).toEqual(kept.bytes);
+        await expect(readFile(omitted.path)).rejects.toMatchObject({code: 'ENOENT'});
+        const store = await import('@electron/workspaceCheckpointStore');
+        await store.discardWorkspaceCheckpoint(11);
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+    });
+
+    it('A39 rename followed by failed body publication keeps renamed recovery bytes owned', async () => {
+        const copy = await createCopy('renamed');
+        await publish(withCopies([copy]));
+        await ageAndRetire([copy]);
+        const store = await import('@electron/workspaceCheckpointStore');
+        const originalNames = await readdir(join(state.userDataPath, 'workspace-recovery'));
+        state.failNextCheckpointWrite = true;
+        await expect(store.claimWorkspaceCheckpoint(22)).rejects.toThrow('injected checkpoint publication failure');
+        await ageAndRetire([copy]);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        expect(await readFile(copy.path)).toEqual(copy.bytes);
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        const renamedNames = await readdir(join(state.userDataPath, 'workspace-recovery'));
+        expect(renamedNames).toHaveLength(1);
+        expect(renamedNames).not.toEqual(originalNames);
+        vi.resetModules();
+        const restarted = await import('@electron/workspaceCheckpointStore');
+        await reserve();
+        expect((await restarted.claimWorkspaceCheckpoint(33))?.tabs[0]?.workingCopyRef).toBe(copy.path);
+    });
+
+    it.each([
+        'discard',
+        'reset',
+    ] as const)('A39 %s releases attempted claims even when no record installed', async action => {
+        const copy = await createCopy('failed-first-publication');
+        state.failNextCheckpointWrite = true;
+        await expect(publish(withCopies([copy]))).rejects.toThrow('injected checkpoint publication failure');
+        await ageAndRetire([copy]);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        expect(await readFile(copy.path)).toEqual(copy.bytes);
+        expect(await readRecoveryRecords()).toHaveLength(0);
+        const store = await import('@electron/workspaceCheckpointStore');
+        if (action === 'discard') await store.discardWorkspaceCheckpoint(11);
+        else await store.clearWorkspaceCheckpoint();
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+    });
+
+    it('A39 failed successor retains both predecessor and attempted working bytes until reset', async () => {
+        const old = await createCopy('predecessor');
+        const next = await createCopy('failed-successor');
+        await publish(withCopies([old]));
+        const before = await readRecoveryRecords();
+        state.failNextCheckpointWrite = true;
+        await expect(publish(withCopies([next]))).rejects.toThrow('injected checkpoint publication failure');
+        await ageAndRetire([
+            old,
+            next,
+        ]);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        expect(await readFile(old.path)).toEqual(old.bytes);
+        expect(await readFile(next.path)).toEqual(next.bytes);
+        expect(await readRecoveryRecords()).toEqual(before);
+        await (await import('@electron/workspaceCheckpointStore')).clearWorkspaceCheckpoint();
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 2});
+    });
+
+
 });

@@ -39,9 +39,15 @@ import type * as WorkingCopyMaterialization from '@electron/file-access/workingC
 import type * as FsPromises from 'fs/promises';
 import type * as CreateOriginalFileContentFingerprintHash from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import type * as PdfAppendBase from '@electron/pdf/pdfAppendBase';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
+import {requireEpochMs} from '@contracts/timestamps';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {waitUntilDone} from '@tests/unit/electron/waitForCondition';
 
 let tempRoot = '';
+const liveCheckpointOwners = new Set<number>();
 const originalPlatform = process.platform;
 
 function setPlatform(platform: NodeJS.Platform) {
@@ -79,7 +85,13 @@ function rewriteSourceInPlaceKeepingSizeAndMtime(sourcePath: string, bytes: Buff
     expect(statSync(sourcePath, {bigint: true}).ino).toBe(inode);
 }
 
-vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
+vi.mock('electron', () => ({
+    app: {getPath: vi.fn((_name: string) => tempRoot)},
+    webContents: {fromId: (id: number) => liveCheckpointOwners.has(id) ? {
+        id,
+        isDestroyed: () => false,
+    } : undefined},
+}));
 
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
 // These fixtures are placeholder bytes, not PDFs; append admission of real
@@ -108,10 +120,66 @@ await import('@electron/utils/atomicReplace');
 await import('@electron/pdf/pdfAppendBase');
 await import('@electron/file-access/originalPathSaveWitness');
 
+function recoveryCheckpoint(workingPath: string, originalPath: string, capturedAt = 123): IWorkspaceCheckpoint {
+    return {
+        version: 1,
+        capturedAt: requireEpochMs(capturedAt),
+        activePaneId: requirePaneId('pane-1'),
+        activeTabId: requireTabId('tab-1'),
+        layout: {
+            type: 'leaf',
+            paneId: requirePaneId('pane-1'),
+        },
+        panes: [{
+            paneId: requirePaneId('pane-1'),
+            tabIds: [requireTabId('tab-1')],
+            activeTabId: requireTabId('tab-1'),
+        }],
+        tabs: [{
+            tabId: requireTabId('tab-1'),
+            paneId: requirePaneId('pane-1'),
+            fileName: basename(originalPath),
+            sourceRef: requireDocumentRef(originalPath),
+            workingCopyRef: requireDocumentRef(workingPath),
+            isDirty: true,
+            isDjvu: false,
+            currentPage: 1,
+            zoom: 1,
+            zoomMode: 'fit-width',
+        }],
+    };
+}
+
+function ageWorkingDirectory(workDir: string) {
+    const date = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    utimesSync(workDir, date, date);
+}
+
+async function saveRecoveryCopy(workingPath: string, owner: number, capturedAt = 123) {
+    const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+    const {saveWorkspaceCheckpoint} = await import('@electron/workspaceCheckpointStore');
+    const originalPath = join(tempRoot, `original-${owner}.pdf`);
+    writeFileSync(originalPath, '%PDF-original');
+    await setWorkingCopyOriginalPath(workingPath, originalPath, owner);
+    await saveWorkspaceCheckpoint(recoveryCheckpoint(workingPath, originalPath, capturedAt), owner);
+}
+
+// HEAD has no explicit startup reservation API. Reading its records reaches
+// the same pre-maintenance boundary, so red evidence still checks lost bytes.
+async function reserveRecoveryCopies() {
+    const store = await import('@electron/workspaceCheckpointStore');
+    if (typeof store.reserveWorkspaceCheckpointWorkingCopies === 'function') {
+        await store.reserveWorkspaceCheckpointWorkingCopies();
+    } else {
+        await store.hasRecoverableWorkspaceCheckpoints(99);
+    }
+}
+
 describe('workingCopy', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        liveCheckpointOwners.clear();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-working-copy-test-'));
         vi.stubEnv('EVB_APP_STATE_DIR', tempRoot);
         vi.stubEnv('TMPDIR', tempRoot);
@@ -124,6 +192,8 @@ describe('workingCopy', () => {
         vi.unstubAllEnvs();
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
         vi.doUnmock('@electron/file-access/workingCopyMaterialization');
+        vi.doUnmock('fs/promises');
+        vi.doUnmock('node:fs/promises');
         vi.useRealTimers();
         rmSync(tempRoot, {
             force: true,
@@ -1607,7 +1677,7 @@ describe('workingCopy', () => {
             originalPath,
             retired: true,
         });
-        claimWorkingCopyRecovery(workingPath);
+        await claimWorkingCopyRecovery(workingPath);
         await expect(ensureWorkingCopyDirectory(workingPath)).resolves.toBe(true);
 
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
@@ -2200,7 +2270,7 @@ describe('workingCopy', () => {
         ]));
         await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
-        const generation = claimWorkingCopyRecovery(workingPath);
+        const generation = await claimWorkingCopyRecovery(workingPath);
         await cleanupWorkingCopy(workingPath, 7);
 
         expect(existsSync(workingPath)).toBe(true);
@@ -2369,6 +2439,262 @@ describe('workingCopy', () => {
         }
     });
 
+    it.each([
+        0,
+        1,
+    ])('A39 reserves every durable copy across restart with %s renderer claims', async claims => {
+        const paths = [
+            'older',
+            'newer',
+            'orphan',
+        ].map(name => join(tempRoot, 'evb-viewer', `pdf-work-${name}`, 'document.pdf'));
+        const buffers = paths.map((_, index) => Buffer.from(`%PDF exact unsaved bytes ${index}`));
+        for (const [
+            index,
+            path,
+        ] of paths.entries()) {
+            mkdirSync(dirname(path), {recursive: true});
+            writeFileSync(path, buffers[index]!);
+        }
+        await saveRecoveryCopy(paths[0]!, 11, 100);
+        await saveRecoveryCopy(paths[1]!, 12, 200);
+        for (const path of paths) ageWorkingDirectory(dirname(path));
+        vi.resetModules();
+        await reserveRecoveryCopies();
+        const store = await import('@electron/workspaceCheckpointStore');
+        if (claims) {
+            expect((await store.claimWorkspaceCheckpoint(22))?.tabs[0]?.workingCopyRef).toBe(paths[1]);
+        }
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        for (const index of [
+            0,
+            1,
+        ]) expect(readFileSync(paths[index]!)).toEqual(buffers[index]);
+        expect(existsSync(paths[2]!)).toBe(false);
+        if (!claims) await store.claimWorkspaceCheckpoint(22);
+        liveCheckpointOwners.add(22);
+        expect((await store.claimWorkspaceCheckpoint(23))?.tabs[0]?.workingCopyRef).toBe(paths[0]);
+        expect(readFileSync(paths[0]!)).toEqual(buffers[0]);
+    });
+
+    it.each([
+        'directory',
+        'legacy',
+        'record',
+        'schema',
+        'filename',
+    ] as const)(
+        'A39 fails closed on checkpoint %s uncertainty before a direct sweep', async failure => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const path = join(tempRoot, 'evb-viewer', 'pdf-work-unknown-owner', 'document.pdf');
+            const bytes = Buffer.from('%PDF unknown recovery owner edited bytes');
+            mkdirSync(dirname(path), {recursive: true});
+            writeFileSync(path, bytes);
+            await saveRecoveryCopy(path, 11);
+            const recordDir = join(tempRoot, 'workspace-recovery');
+            const recordPath = join(recordDir, readdirSync(recordDir).find(name => name.endsWith('.json'))!);
+            if (failure === 'schema') writeFileSync(recordPath, '{"version":-1}');
+            if (failure === 'filename') renameSync(recordPath, join(recordDir, '%E0%A4%A.json'));
+            ageWorkingDirectory(dirname(path));
+            vi.doMock('node:fs/promises', async importOriginal => {
+                const actual = await importOriginal<typeof FsPromises>();
+                const denied = () => Object.assign(new Error('checkpoint access denied'), {code: 'EACCES'});
+                return {
+                    ...actual,
+                    readdir: (...args: Parameters<typeof actual.readdir>) => {
+                        if (failure === 'directory' && String(args[0]) === recordDir) throw denied();
+                        return actual.readdir(...args);
+                    },
+                    readFile: (...args: Parameters<typeof actual.readFile>) => {
+                        const requested = String(args[0]);
+                        if (failure === 'record' && requested === recordPath
+                            || failure === 'legacy' && requested === join(tempRoot, 'workspace-checkpoint.json')) throw denied();
+                        return actual.readFile(...args);
+                    },
+                };
+            });
+            vi.resetModules();
+            await reserveRecoveryCopies().catch(() => undefined);
+            const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+            await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 0});
+            expect(readFileSync(path)).toEqual(bytes);
+        },
+    );
+
+    it.each([
+        'document.pdf',
+        'other-edited.pdf',
+    ])(
+        'A39 preserves %s registered through a directory alias during eligibility I/O', async leaf => {
+            const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-adoption-race');
+            const alias = join(tempRoot, 'adoption-alias');
+            mkdirSync(workDir, {recursive: true});
+            symlinkSync(workDir, alias, process.platform === 'win32' ? 'junction' : 'dir');
+            const path = join(workDir, leaf);
+            const aliasPath = join(alias, leaf);
+            const bytes = Buffer.from('%PDF edits admitted while sweep reads journal');
+            writeFileSync(path, bytes);
+            ageWorkingDirectory(workDir);
+            const entered = Promise.withResolvers<undefined>();
+            const resume = Promise.withResolvers<undefined>();
+            vi.doMock('fs/promises', async importOriginal => {
+                const actual = await importOriginal<typeof FsPromises>();
+                return {
+                    ...actual,
+                    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+                        if (String(args[0]) === join(workDir, 'journal.json')) {
+                            entered.resolve(undefined);
+                            await resume.promise;
+                        }
+                        return actual.readFile(...args);
+                    },
+                };
+            });
+            vi.resetModules();
+            const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+            const {
+                setWorkingCopyOriginalPath, getWorkingCopyBackingEntry,
+            } = await import('@electron/file-access/workingCopyStore');
+            const sweep = cleanupStaleWorkingCopyDirectories();
+            try {
+                await entered.promise;
+                await setWorkingCopyOriginalPath(aliasPath, join(tempRoot, 'original.pdf'), 7, {deferOriginalFileExpectation: true});
+                const registration = getWorkingCopyBackingEntry(path, 7);
+                expect(registration).not.toBeNull();
+                resume.resolve(undefined);
+                await expect(sweep).resolves.toEqual({removedDirectories: 0});
+                expect(readFileSync(path)).toEqual(bytes);
+                expect(getWorkingCopyBackingEntry(aliasPath, 7)).toEqual(registration);
+            } finally {
+                resume.resolve(undefined);
+                await sweep;
+            }
+        },
+    );
+
+    it.each([
+        'directory removal',
+        'Windows backup unlink',
+    ] as const)(
+        'A39 defers registration publication until awaited %s settles', async operation => {
+            if (operation === 'Windows backup unlink') setPlatform('win32');
+            const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-removal-race');
+            const path = join(workDir, 'other-edited.pdf');
+            const backup = `${path}.bak-0123456789abcdef`;
+            mkdirSync(workDir, {recursive: true});
+            writeFileSync(path, '%PDF orphan already being collected');
+            if (operation === 'Windows backup unlink') {
+                writeFileSync(backup, '%PDF previous bytes');
+                const date = new Date(Date.now() - 48 * 60 * 60 * 1000);
+                utimesSync(backup, date, date);
+            } else ageWorkingDirectory(workDir);
+            const entered = Promise.withResolvers<undefined>();
+            const resume = Promise.withResolvers<undefined>();
+            vi.doMock('fs/promises', async importOriginal => {
+                const actual = await importOriginal<typeof FsPromises>();
+                return {
+                    ...actual,
+                    rm: async (...args: Parameters<typeof actual.rm>) => {
+                        if (operation === 'directory removal' && String(args[0]) === workDir) {
+                            entered.resolve(undefined);
+                            await resume.promise;
+                        }
+                        return actual.rm(...args);
+                    },
+                    unlink: async (...args: Parameters<typeof actual.unlink>) => {
+                        if (operation === 'Windows backup unlink' && String(args[0]) === backup) {
+                            entered.resolve(undefined);
+                            await resume.promise;
+                        }
+                        return actual.unlink(...args);
+                    },
+                };
+            });
+            vi.resetModules();
+            const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+            const {
+                setWorkingCopyOriginalPath, getWorkingCopyBackingEntry,
+            } = await import('@electron/file-access/workingCopyStore');
+            const sweep = cleanupStaleWorkingCopyDirectories();
+            try {
+                await entered.promise;
+                const registration = setWorkingCopyOriginalPath(path, join(tempRoot, 'original.pdf'), 7, {deferOriginalFileExpectation: true});
+                await new Promise<void>(resolve => setImmediate(resolve));
+                expect(getWorkingCopyBackingEntry(path, 7)).toBeNull();
+                resume.resolve(undefined);
+                await sweep;
+                await registration;
+                expect(getWorkingCopyBackingEntry(path, 7)?.ownerWebContentsId).toBe(7);
+                if (operation === 'directory removal') expect(existsSync(workDir)).toBe(false);
+                else {
+                    expect(existsSync(backup)).toBe(false);
+                    expect(readFileSync(path, 'utf8')).toBe('%PDF orphan already being collected');
+                }
+            } finally {
+                resume.resolve(undefined);
+                await sweep;
+            }
+        },
+    );
+
+    it('A39 retains independent alias claims until the final generation is released', async () => {
+        const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-shared-claims');
+        const alias = join(tempRoot, 'claim-alias');
+        mkdirSync(workDir, {recursive: true});
+        symlinkSync(workDir, alias, process.platform === 'win32' ? 'junction' : 'dir');
+        const path = join(workDir, 'document.pdf');
+        const bytes = Buffer.from('%PDF shared physical leaf');
+        writeFileSync(path, bytes);
+        ageWorkingDirectory(workDir);
+        const {
+            claimWorkingCopyRecovery, releaseWorkingCopyRecovery,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const first = await claimWorkingCopyRecovery(path);
+        const second = await claimWorkingCopyRecovery(join(alias, 'document.pdf'));
+        releaseWorkingCopyRecovery(path, first);
+        await cleanupStaleWorkingCopyDirectories();
+        expect(readFileSync(path)).toEqual(bytes);
+        releaseWorkingCopyRecovery(path, first);
+        await cleanupStaleWorkingCopyDirectories();
+        expect(readFileSync(path)).toEqual(bytes);
+        releaseWorkingCopyRecovery(join(alias, 'document.pdf'), second);
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+        expect(existsSync(path)).toBe(false);
+        mkdirSync(workDir, {recursive: true});
+        writeFileSync(path, bytes);
+        ageWorkingDirectory(workDir);
+        const retained = await claimWorkingCopyRecovery(path);
+        const latest = await claimWorkingCopyRecovery(join(alias, 'document.pdf'));
+        releaseWorkingCopyRecovery(path, latest);
+        await cleanupStaleWorkingCopyDirectories();
+        expect(readFileSync(path)).toEqual(bytes);
+        releaseWorkingCopyRecovery(path, retained);
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+    });
+
+    it('A39 protects the logical directory of a claimed leaf symlink', async () => {
+        const workDir = join(tempRoot, 'evb-viewer', 'pdf-work-leaf-claim');
+        const target = join(tempRoot, 'outside.pdf');
+        mkdirSync(workDir, {recursive: true});
+        const bytes = Buffer.from('%PDF externally stored edited bytes');
+        writeFileSync(target, bytes);
+        const path = join(workDir, 'note-base.pdf');
+        symlinkSync(target, path);
+        ageWorkingDirectory(workDir);
+        const {
+            claimWorkingCopyRecovery, releaseWorkingCopyRecovery,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const generation = await claimWorkingCopyRecovery(path);
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 0});
+        expect(readFileSync(path)).toEqual(bytes);
+        releaseWorkingCopyRecovery(path, generation);
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+        expect(readFileSync(target)).toEqual(bytes);
+    });
+
     it('removes stale working-copy directories', async () => {
         const { cleanupStaleWorkingCopyDirectories } = await import('@electron/file-access/workingCopyCleanup');
         const appTempDir = join(tempRoot, 'evb-viewer');
@@ -2454,6 +2780,11 @@ describe('workingCopy', () => {
         const fresh = createBackup('fresh', true, new Date());
         const destinationless = createBackup('destinationless', false, staleDate);
         const active = createBackup('active', true, staleDate);
+        const durable = createBackup('durable-unclaimed', true, staleDate);
+        await saveRecoveryCopy(durable.destinationPath, 11);
+        const registry = await import('@electron/file-access/workingCopyStore');
+        registry.forgetWorkingCopyOriginalPath(durable.destinationPath);
+        await reserveRecoveryCopies();
         const unrelatedWorkDir = join(appTempDir, 'pdf-work-unrelated');
         const unrelatedPath = join(unrelatedWorkDir, 'unrelated.bak-not-an-atomic-backup');
         mkdirSync(unrelatedWorkDir, {recursive: true});
@@ -2481,6 +2812,14 @@ describe('workingCopy', () => {
             expect(existsSync(active.workDir)).toBe(true);
             expect(existsSync(unrelatedWorkDir)).toBe(true);
             expect(existsSync(unmanagedBackupPath)).toBe(true);
+            expect(readFileSync(durable.destinationPath)).toEqual(Buffer.from([2]));
+            expect(readFileSync(durable.backupPath)).toEqual(Buffer.from([1]));
+            await (await import('@electron/workspaceCheckpointStore')).discardWorkspaceCheckpoint(11);
+            await cleanupStaleWorkingCopyDirectories();
+            expect(existsSync(durable.backupPath)).toBe(false);
+            ageWorkingDirectory(durable.workDir);
+            await cleanupStaleWorkingCopyDirectories();
+            expect(existsSync(durable.workDir)).toBe(false);
         } finally {
             await clearAllWorkingCopies();
         }
