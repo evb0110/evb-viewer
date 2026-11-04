@@ -13,6 +13,8 @@ import {
 } from 'node:fs/promises';
 import type * as NodeFs from 'node:fs';
 import type * as AtomicReplace from '@electron/utils/atomicReplace';
+import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {restoreCanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import { EventEmitter } from 'node:events';
 import {
     dirname,
@@ -295,6 +297,72 @@ function reloadRenderer(window: Electron.WebContents) {
     window.emit('did-start-navigation', {}, 'app://electron', false, true);
 }
 
+function noteCheckpoint(contents = 'Only recoverable accepted note', generation = 1): IWorkspaceCheckpoint {
+    return {
+        ...checkpoint,
+        capturedAt: requireEpochMs(200 + generation),
+        tabs: [{
+            ...checkpoint.tabs[0]!,
+            annotationRecovery: {
+                artifactId: `capture-note-${generation}`,
+                documentInstanceId: 'restored-document',
+                workingCopyRef: requireDocumentRef(workingCopyRef),
+                workingByteRevision: `revision-${generation}`,
+                annotationMutationGeneration: generation,
+                payload: {
+                    version: 1,
+                    annotationMutationGeneration: generation,
+                    entities: [{
+                        kind: 'note',
+                        identity: {id: 'accepted-note'},
+                        pageIndex: 0,
+                        revision: generation,
+                        persistedRevision: -1,
+                        deleted: false,
+                        createdAt: null,
+                        modifiedAt: null,
+                        author: null,
+                        contents,
+                        position: {
+                            left: 0.2,
+                            top: 0.2,
+                            width: 0.03,
+                            height: 0.03,
+                        },
+                        color: '#ffff00',
+                        open: true,
+                    }],
+                    foreign: [],
+                    drafts: [],
+                },
+            },
+        }],
+    };
+}
+
+function replayNote(restored: IWorkspaceCheckpoint | null, contents: string) {
+    const payload = restored?.tabs[0]?.annotationRecovery?.payload;
+    expect(payload).toBeDefined();
+    const annotations = new AnnotationStore();
+    restoreCanonicalAnnotationRecovery(annotations, payload);
+    expect(annotations.list()).toHaveLength(1);
+    expect(annotations.list()[0]).toMatchObject({
+        kind: 'note',
+        contents,
+    });
+    expect(annotations.hasChangesSinceSavedBaseline()).toBe(true);
+    expect(restored?.tabs[0]?.isDirty).toBe(true);
+}
+
+async function artifactBuffers() {
+    const directory = join(state.userDataPath, 'workspace-annotation-recovery');
+    const names = await readdir(directory);
+    return Promise.all(names.sort().map(async name => ({
+        name,
+        bytes: await readFile(join(directory, name)),
+    })));
+}
+
 describe('workspace checkpoint store', () => {
     beforeAll(() => vi.useFakeTimers({toFake: ['Date']}));
     afterAll(() => vi.useRealTimers());
@@ -324,6 +392,79 @@ describe('workspace checkpoint store', () => {
         });
     });
 
+    it('A46 replays the exact dirty note after acknowledgement and a second crash without a successor', async () => {
+        const window = createWebContents(11);
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, window);
+        await saveWorkspaceCheckpoint(noteCheckpoint(), 11, window);
+        const artifacts = await artifactBuffers();
+        reloadRenderer(window);
+        replayNote(await claimWorkspaceCheckpoint(11, window), 'Only recoverable accepted note');
+        await acknowledgeWorkspaceCheckpoint(11, window);
+        // Startup has not admitted any capture: no clock advance and no save.
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        expect(await artifactBuffers()).toEqual(artifacts);
+        window.emit('render-process-gone', {}, {reason: 'crashed'});
+        reloadRenderer(window);
+        replayNote(await claimWorkspaceCheckpoint(11, window), 'Only recoverable accepted note');
+        expect(await artifactBuffers()).toEqual(artifacts);
+    });
+
+    it('A46 replaces only the admitted note artifact after dirty acknowledgement', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(noteCheckpoint(), 11);
+        await claimWorkspaceCheckpoint(22);
+        await acknowledgeWorkspaceCheckpoint(22);
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        const previous = await artifactBuffers();
+        await saveWorkspaceCheckpoint(noteCheckpoint('Fresh successor note', 2), 22);
+        await flushPendingWorkspaceCheckpointSave();
+        const artifacts = await artifactBuffers();
+        expect(artifacts).toHaveLength(1);
+        expect(artifacts[0]?.name).not.toBe(previous[0]?.name);
+        replayNote(await claimWorkspaceCheckpoint(33), 'Fresh successor note');
+        expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
+    });
+
+    it('A46 keeps the acknowledged note recoverable after a successor record write fails', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(noteCheckpoint(), 11);
+        await claimWorkspaceCheckpoint(22);
+        await acknowledgeWorkspaceCheckpoint(22);
+        const before = await artifactBuffers();
+        state.failNextCheckpointWrite = true;
+        await expect(saveWorkspaceCheckpoint(noteCheckpoint('Failed successor', 2), 22)).rejects.toThrow('injected checkpoint publication failure');
+        expect(await artifactBuffers()).toEqual(before);
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        replayNote(await claimWorkspaceCheckpoint(33), 'Only recoverable accepted note');
+    });
+
+    it('A46 keeps the admitted note after an acknowledged dirty capture is rejected', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(noteCheckpoint(), 11);
+        await claimWorkspaceCheckpoint(22);
+        await acknowledgeWorkspaceCheckpoint(22);
+        const before = await artifactBuffers();
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(300),
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                annotationRecoveryFailure: {
+                    reason: 'capture-rejected',
+                    message: 'capture not admitted',
+                },
+            }],
+        }, 22);
+        expect(await artifactBuffers()).toEqual(before);
+        replayNote(await claimWorkspaceCheckpoint(33), 'Only recoverable accepted note');
+    });
+
     it('atomically persists, claims once, and transfers working-copy ownership', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
@@ -340,8 +481,12 @@ describe('workspace checkpoint store', () => {
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
         expect(await readRecoveryRecords()).toHaveLength(1);
         await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
+        expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        await expect(claimWorkspaceCheckpoint(33)).resolves.toEqual(checkpoint);
+        await clearWorkspaceCheckpoint();
+        expect(await readRecoveryRecords()).toHaveLength(0);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
-        await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
     });
 
     it('refreshes generated output retention while saving its checkpoint', async () => {
@@ -628,7 +773,7 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 125});
     });
 
-    it('publishes annotation recovery as a fenced artifact and retires it after acknowledgement', async () => {
+    it('publishes annotation recovery as a fenced artifact and retains it after dirty acknowledgement', async () => {
         const recoveryCheckpoint: IWorkspaceCheckpoint = {
             ...checkpoint,
             tabs: checkpoint.tabs.map(tab => ({
@@ -665,6 +810,9 @@ describe('workspace checkpoint store', () => {
 
         await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{annotationRecovery: {payload: recoveryCheckpoint.tabs[0]?.annotationRecovery?.payload}}]});
         await acknowledgeWorkspaceCheckpoint(22);
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toEqual([`${storedRecovery.artifactId}.json`]);
+        expect(await readRecoveryRecords()).toHaveLength(1);
+        await clearWorkspaceCheckpoint();
         await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
     });
 
@@ -859,7 +1007,7 @@ describe('workspace checkpoint store', () => {
         expect(claimed?.tabs[0]).not.toHaveProperty('annotationRecovery');
     });
 
-    it('drops unacknowledged annotation recovery after the renderer acknowledges it', async () => {
+    it('retains acknowledged annotation recovery through a payload-free dirty save until a clean successor', async () => {
         const recoveryCheckpoint: IWorkspaceCheckpoint = {
             ...checkpoint,
             tabs: checkpoint.tabs.map(tab => ({
@@ -892,9 +1040,20 @@ describe('workspace checkpoint store', () => {
         }, 22);
         await flushPendingWorkspaceCheckpointSave();
 
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery).toEqual(recoveryRef);
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toEqual([`${recoveryRef.artifactId}.json`]);
+        const cleanSave = saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(125),
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                isDirty: false,
+            })),
+        }, 22);
+        await flushPendingWorkspaceCheckpointSave();
+        await cleanSave;
         expect((await readRecoveryRecord()).checkpoint.tabs[0]).not.toHaveProperty('annotationRecovery');
         await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
-        expect(recoveryRef).toBeDefined();
     });
 
     it('replaces an unacknowledged annotation artifact with a newer capture', async () => {
@@ -2028,5 +2187,47 @@ describe('workspace recovery reservation lifecycle on disk', () => {
         await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 2});
     });
 
-
+    it.each([
+        'clean',
+        'closed',
+    ] as const)('A46 %s successor retires annotations and reconciles working refs', async successor => {
+        const copy = await createCopy('note-successor');
+        const note = noteCheckpoint();
+        const recovery: IWorkspaceCheckpoint = {
+            ...withCopies([copy]),
+            tabs: [{
+                ...withCopies([copy]).tabs[0]!,
+                annotationRecovery: {
+                    ...note.tabs[0]!.annotationRecovery!,
+                    workingCopyRef: requireDocumentRef(copy.path),
+                },
+            }],
+        };
+        await publish(recovery);
+        const store = await import('@electron/workspaceCheckpointStore');
+        replayNote(await store.claimWorkspaceCheckpoint(22), 'Only recoverable accepted note');
+        await store.acknowledgeWorkspaceCheckpoint(22);
+        expect(await artifactBuffers()).toHaveLength(1);
+        const clean = withCopies([copy], false);
+        const closed: IWorkspaceCheckpoint = {
+            ...clean,
+            activeTabId: null,
+            panes: [{
+                ...clean.panes[0]!,
+                tabIds: [],
+                activeTabId: null,
+            }],
+            tabs: [],
+        };
+        await publish(successor === 'clean' ? clean : closed, 22);
+        expect(await artifactBuffers()).toHaveLength(0);
+        await ageAndRetire([copy]);
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        await cleanupStaleWorkingCopyDirectories();
+        if (successor === 'clean') {
+            expect(await readFile(copy.path)).toEqual(copy.bytes);
+            await store.clearWorkspaceCheckpoint();
+            await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
+        } else await expect(readFile(copy.path)).rejects.toMatchObject({code: 'ENOENT'});
+    });
 });

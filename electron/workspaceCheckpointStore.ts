@@ -1270,8 +1270,8 @@ export async function claimWorkspaceCheckpoint(
                 ...(workingCopyLost ? {workingCopyLost: true as const} : {}),
             };
         }));
-        // The claimant keeps the record until it has reopened every tab and
-        // acknowledges; renaming the file hands it over atomically.
+        // Renaming hands the record over atomically. Dirty recovery stays
+        // durable through acknowledgement until a successor or discard.
         const claimedStored: IStoredWorkspaceCheckpoint = {
             ...stored,
             ownerRecoveryId: newOwnerRecoveryId,
@@ -1335,7 +1335,7 @@ export function acknowledgeWorkspaceCheckpoint(
         const holdsStandIn = record?.checkpoint.tabs.some(tab => (
             tab.workingCopyRef !== null && getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId)?.withheld === true
         ));
-        if (record && !holdsStandIn) {
+        if (record && !holdsStandIn && !record.checkpoint.tabs.some(tab => tab.isDirty)) {
             await removeRecordAndArtifacts(ownerRecoveryId, record);
         }
         return record !== null;
