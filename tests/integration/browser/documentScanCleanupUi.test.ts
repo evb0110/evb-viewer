@@ -17,22 +17,24 @@ import {
     evidenceRoot, scanCleanupUiTimeoutMs, previewImage, cleanedImage, sha256, installProbe, openWorkspace, showWorkspace, waitForPixels, pixels, cleanedPixels, assertBrowserScope, select, drag, undoRedo,
 } from './scanCleanupUiTestHelpers';
 
-async function createFixture() {
+async function createFixture(pageScale = 1) {
     const pdf = await PDFDocument.create();
     pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
     pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
     for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
-        const width = 1800;
-        const height = 1200;
+        const width = 1800 * pageScale;
+        const height = 1200 * pageScale;
         const data = new Uint8Array(width * height * 3);
         // Distinct scans, with two text columns and a colored page marker.
         // Integer raster coordinates keep the fixture independent of fonts.
         for (let y = 0; y < height; y += 1) {
             for (let x = 0; x < width; x += 1) {
-                const columnX = x % 900;
-                const ink = y > 150 && y < 1000 && y % 54 < 12
+                const sourceX = x / pageScale;
+                const sourceY = y / pageScale;
+                const columnX = sourceX % 900;
+                const ink = sourceY > 150 && sourceY < 1000 && sourceY % 54 < 12
                     && columnX > 100 && columnX < 760 - pageIndex * 70 && columnX % 43 < 28;
-                const marker = y > 50 && y < 120 && x > 100 + pageIndex * 100 && x < 340 + pageIndex * 100;
+                const marker = sourceY > 50 && sourceY < 120 && sourceX > 100 + pageIndex * 100 && sourceX < 340 + pageIndex * 100;
                 const paper = 230 + Math.floor(20 * x / width);
                 const offset = (y * width + x) * 3;
                 for (let channel = 0; channel < 3; channel += 1) {
@@ -48,24 +50,25 @@ async function createFixture() {
             depth: 8,
         }));
         pdf.addPage([
-            432,
-            288,
+            432 * pageScale,
+            288 * pageScale,
         ]).drawImage(image, {
             x: 0,
             y: 0,
-            width: 432,
-            height: 288,
+            width: 432 * pageScale,
+            height: 288 * pageScale,
         });
     }
     const bytes = Buffer.from(await pdf.save());
     await mkdir(evidenceRoot, {recursive: true});
-    await writeFile(join(evidenceRoot, 'source.pdf'), bytes);
-    await writeFile(join(evidenceRoot, 'fixture.json'), JSON.stringify({
+    const evidencePrefix = pageScale === 1 ? '' : 'save-as-';
+    await writeFile(join(evidenceRoot, `${evidencePrefix}source.pdf`), bytes);
+    await writeFile(join(evidenceRoot, `${evidencePrefix}fixture.json`), JSON.stringify({
         sha256: sha256(bytes),
         pages: 3,
         raster: [
-            1800,
-            1200,
+            1800 * pageScale,
+            1200 * pageScale,
         ],
         sourceDpi: 300,
     }, null, 2));
@@ -76,7 +79,7 @@ async function createFixture() {
     };
 }
 
-// Built once: every case scans the same three pages.
+// Reuse the full-size fixture across the pixel and geometry checks.
 let fixtureOnce: ReturnType<typeof createFixture> | undefined;
 const fixture = () => fixtureOnce ??= createFixture();
 
@@ -93,6 +96,25 @@ const newDocumentRef = async (page: Page, previous: string | undefined) => {
 describe('browser Scan Cleanup workspace', () => {
     // T1/T6: Save As retains document settings and Recent reopens the saved identity.
     it('retains the page override after Save As and reopening the saved Recent document', async () => {
+        const startedAt = performance.now();
+        const timings: Array<{
+            phase: string;
+            stepMs: number;
+            elapsedMs: number;
+        }> = [];
+        let previousPhaseAt = startedAt;
+        const recordPhase = (phase: string) => {
+            const now = performance.now();
+            const timing = {
+                phase,
+                stepMs: Math.round(now - previousPhaseAt),
+                elapsedMs: Math.round(now - startedAt),
+            };
+            previousPhaseAt = now;
+            timings.push(timing);
+            // Emit immediately: a whole-test timeout may never reach catch.
+            console.info('Scan Cleanup Save As timing', JSON.stringify(timing));
+        };
         const context = await lifecycle.browser.newContext({viewport: {
             width: 1440,
             height: 1000,
@@ -112,7 +134,9 @@ describe('browser Scan Cleanup workspace', () => {
                 name: `Page ${String(pageNumber)}`,
                 exact: true,
             }).click();
+            recordPhase(`${stage}: page ${String(pageNumber)} preview wait`);
             await waitForPixels(page, pageNumber);
+            recordPhase(`${stage}: page ${String(pageNumber)} preview ready`);
             const outputMode = await page.getByRole('combobox', {
                 name: 'Output mode',
                 exact: true,
@@ -142,30 +166,47 @@ describe('browser Scan Cleanup workspace', () => {
         };
         try {
             await installProbe(page);
-            const source = await fixture();
+            // Settings and byte persistence use the same three scans at
+            // quarter size, keeping repeated WASM previews within the budget.
+            const source = await createFixture(0.25);
+            recordPhase('fixture ready');
+            recordPhase('workspace opening');
             await openWorkspace(page, source);
+            recordPhase('workspace opened');
             const originalRef = await documentRef(page);
             expect(originalRef).toBeTypeOf('string');
             await page.getByRole('radio', {
                 name: 'Grayscale',
                 exact: true,
             }).click();
+            // Pixel references must use the completed document layout; its
+            // provisional preview can still become a spread during analysis.
+            recordPhase('initial document analysis wait');
+            await assertBrowserScope(page);
+            recordPhase('initial document analysis ready');
+            recordPhase('Grayscale preview wait');
             await waitForPixels(page, 1);
             const grayscalePage1 = await cleanedPixels(page);
+            recordPhase('Grayscale preview ready');
             await page.getByRole('radio', {
                 name: 'Page 1',
                 exact: true,
             }).click();
             await select(page, 'Output mode', 'Color');
+            recordPhase('Color preview wait');
             await waitForPixels(page, 1);
+            recordPhase('Color preview ready');
             const colorPage1 = await observePage('before-save', 1, 'Color');
+            recordPhase('Color override ready');
             expect(colorPage1, 'the painted Color preview differs from Grayscale on the same scan').not.toBe(grayscalePage1);
             const grayscalePage2 = await observePage('before-save', 2, 'Follow document setting');
+            recordPhase('inherited Grayscale ready');
             // Finish editing as a person would, before using the reader's save controls.
             await page.getByRole('button', {
                 name: 'Done',
                 exact: true,
             }).click();
+            recordPhase('Save As requested');
             const downloaded = page.waitForEvent('download');
             await page.getByRole('button', {
                 name: 'Save options',
@@ -173,6 +214,7 @@ describe('browser Scan Cleanup workspace', () => {
             }).click();
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
             const download = await downloaded;
+            recordPhase('Save As download received');
             expect(download.suggestedFilename()).toBe(source.name);
             const savedPath = join(evidenceRoot, 'saved.pdf');
             await download.saveAs(savedPath);
@@ -191,10 +233,15 @@ describe('browser Scan Cleanup workspace', () => {
                 savedBytes: saved.byteLength,
                 pages: 3,
             }, null, 2));
+            recordPhase('Save As bytes and identity verified');
             await showWorkspace(page);
+            recordPhase('saved document analysis wait');
+            await assertBrowserScope(page);
+            recordPhase('saved document analysis ready');
             // The open view keeps the override under its new identity; the
             // reload below checks both pages against that saved identity.
             expect(await observePage('after-save', 1, 'Color')).toBe(colorPage1);
+            recordPhase('saved Color override verified');
 
             await page.getByRole('button', {
                 name: 'Done',
@@ -202,15 +249,34 @@ describe('browser Scan Cleanup workspace', () => {
             }).click();
             // Reload without closing/discarding. The newest Recent entry has
             // the same label as the imported original; verify its saved identity.
+            recordPhase('reload requested');
             await page.reload({waitUntil: 'domcontentloaded'});
+            recordPhase('reload document ready');
             await waitForOpenFileReady(page);
+            recordPhase('reloaded app ready');
             await page.getByRole('button', {name: /sc3b-three-scans\.pdf/u}).first().click();
             await expect.poll(() => documentRef(page)).toBe(savedRef);
+            recordPhase('Recent saved identity opened');
             await showWorkspace(page);
-            expect(await observePage('after-reload', 1, 'Color')).toBe(colorPage1);
-            expect(await observePage('after-reload', 2, 'Follow document setting')).toBe(grayscalePage2);
+            recordPhase('reopened document analysis wait');
             await assertBrowserScope(page);
+            recordPhase('reopened document analysis ready');
+            expect(await observePage('after-reload', 1, 'Color')).toBe(colorPage1);
+            recordPhase('reopened Color override verified');
+            expect(await observePage('after-reload', 2, 'Follow document setting')).toBe(grayscalePage2);
+            recordPhase('reopened inherited Grayscale verified');
+            await assertBrowserScope(page);
+            recordPhase('browser scope verified');
             expect(problems).toEqual([]);
+        } catch (error) {
+            // Use only observations already recorded; never wait for diagnostics.
+            console.info('SCAN_CLEANUP_SAVE_AS_FAILURE', JSON.stringify({
+                error: String(error),
+                elapsedMs: Math.round(performance.now() - startedAt),
+                timings,
+                problems,
+            }));
+            throw error;
         } finally {
             // Evidence is best-effort; it never hides the outcome or skips closing the context.
             try {
