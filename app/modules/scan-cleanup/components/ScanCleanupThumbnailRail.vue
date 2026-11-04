@@ -129,7 +129,7 @@
                                 :aria-label="t('scanCleanup.pages.processed')"
                             />
                             <AppTooltip
-                                v-else-if="needsAttention(naturalPage(position))"
+                                v-else-if="attentionHints(naturalPage(position)).length > 0"
                                 :text="attentionHints(naturalPage(position)).join(' ')"
                                 usefulness="always"
                             >
@@ -398,10 +398,6 @@ function attentionHints(page: number) {
     });
 }
 
-function needsAttention(page: number) {
-    return attentionHints(page).length > 0;
-}
-
 // A page keeps its spinner only while its own detection work is outstanding:
 // once the running job reports that page as read or analyzed it settles, even
 // though the rest of the batch is still going.
@@ -438,9 +434,9 @@ const KEY_TARGETS: Readonly<Record<string, (position: number, count: number) => 
 function handleKeydown(event: KeyboardEvent) {
     if (props.disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) return;
     const pages = orderedPages.value;
-    if (event.key === ' ' && !event.repeat) {
+    if (event.key === ' ') {
         event.preventDefault();
-        emit('select-page', props.selectionLeader, 'toggle', pages);
+        if (!event.repeat) emit('select-page', props.selectionLeader, 'toggle', pages);
         return;
     }
     const target = KEY_TARGETS[event.key]?.(Math.max(1, pages.positionOf(props.selectionLeader)), pages.length);
