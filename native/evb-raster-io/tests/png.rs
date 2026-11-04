@@ -264,7 +264,10 @@ fn admits_an_incompressible_interlaced_png_by_its_pass_layout() {
     let png = make_adam7_png(256, 768, &pixels, None);
     let metadata = read_png_metadata(png.as_slice(), PASSTHROUGH).unwrap();
     assert_eq!((metadata.width, metadata.height), (256, 768));
-    assert_eq!(decode_png(png.as_slice(), DECODE).unwrap().rgb.data(), pixels);
+    assert_eq!(
+        decode_png(png.as_slice(), DECODE).unwrap().rgb.data(),
+        pixels
+    );
 }
 
 #[test]
