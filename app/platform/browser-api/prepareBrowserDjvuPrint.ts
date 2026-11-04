@@ -48,6 +48,8 @@ export async function prepareBrowserDjvuPrint(
     const convertedPath = await createPrintDocument(`${baseName}-print.pdf`, new Uint8Array());
     let printablePath: TDocumentRef | null = null;
     try {
+        // Canceled while its output was being created: no conversion starts.
+        signal.throwIfAborted();
         const converted = await runBrowserDjvuConversion(djvuPath, convertedPath, {
             jobId,
             pdfStrategy: options.pdfStrategy ?? 'compact-djvu-aware',
