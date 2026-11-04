@@ -1633,6 +1633,40 @@ describe('updates robustness', () => {
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
     });
 
+    it('quits without installing when the health marker cannot be written after cleanup', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.markUpdateInstallPending.mockRejectedValueOnce(new Error('disk is full'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        });
+        const updates = await loadUpdatesModule();
+        const app = {
+            exit: vi.fn(),
+            quit: vi.fn(),
+        };
+        const coordinator = createShutdownCoordinator({
+            app,
+            logger: {
+                ...mocks.logger,
+                debug: vi.fn(),
+            },
+            runPreservationSteps: async () => {},
+            runBestEffortCleanupSteps: async () => {},
+        });
+        updates.configureUpdateInstallShutdown(install => coordinator.requestGracefulQuit({afterCleanup: install}));
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck(requester);
+        await flushPromises();
+
+        await updates.installDownloadedUpdate(requester);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        expect(app.quit).toHaveBeenCalledOnce();
+    });
+
     it('rejects oversized release metadata before reading its body', async () => {
         vi.resetModules();
         const metadata = await import('@electron/updates/fetchLatestReleaseMetadataVersion');

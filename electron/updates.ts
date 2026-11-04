@@ -1130,7 +1130,9 @@ export async function installDownloadedUpdate(requester: IUpdateRequester | null
                 percent: null,
                 message,
             }, requesters);
-            return;
+            // Cleanup has already shut the app's services down; failing here
+            // lets the shutdown coordinator finish the quit.
+            throw error;
         }
         autoUpdater.quitAndInstall(false, true);
     });
