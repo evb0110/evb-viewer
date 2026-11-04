@@ -279,6 +279,52 @@ function buildTwoPaneMarkup(panes: ReadonlyArray<{
 }
 
 describe('viewer invariant checker against real Chromium layout', () => {
+    it('keeps the viewer unquiet for 500 ms after a trusted window resize', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                height: 700,
+                width: 900,
+            }});
+            await loadFixture(page, buildFixtureMarkup());
+            await page.evaluate(() => globalThis.__evbWaitForViewerSettled());
+            await page.evaluate(() => {
+                Reflect.set(globalThis, '__evbResizeSettled', new Promise(resolve => {
+                    window.addEventListener('resize', (event) => {
+                        const resizedAt = Date.now();
+                        void globalThis.__evbWaitForViewerSettled().then(outcome => resolve({
+                            ...outcome,
+                            elapsedMs: Date.now() - resizedAt,
+                            trusted: event.isTrusted,
+                        }));
+                    }, {
+                        capture: true,
+                        once: true,
+                    });
+                }));
+                globalThis.__evbInstallViewerActionLog();
+            });
+
+            await page.setViewportSize({
+                height: 700,
+                width: 800,
+            });
+            const outcome = await page.evaluate(async () => (
+                await Reflect.get(globalThis, '__evbResizeSettled') as IViewerSettleOutcome & {
+                    elapsedMs: number;
+                    trusted: boolean;
+                }
+            ));
+
+            expect(outcome.trusted).toBe(true);
+            expect(outcome.settled).toBe(true);
+            expect(outcome.reason).toBeNull();
+            expect(outcome.elapsedMs).toBeGreaterThanOrEqual(500);
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
     it('reports nothing on a conforming viewer and exactly one violation on each known-bad fixture', async () => {
         const browser = await chromium.launch({headless: true});
         try {
