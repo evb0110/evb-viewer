@@ -15,7 +15,6 @@ import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/creat
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {TDocumentRef} from '@contracts/documentRef';
-import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {createMemoryScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore';
 import {createScanCleanupPlacementAnchorCalibrations} from '@evb/scan-cleanup/core/createScanCleanupPlacementAnchorCalibrations';
 import {
@@ -45,7 +44,7 @@ interface IStoreIdentity {
 }
 
 interface IStoreEntry {
-    store: IScanCleanupDetectionResultStore;
+    store: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>;
     identity: IStoreIdentity;
     leases: number;
     retired: boolean;
@@ -126,20 +125,6 @@ export function createBrowserScanCleanupDetectionOwner() {
     // its completed state has read the store's counts.
     const unkeptStoreByJob = new Map<string, string>();
     const ownerStore = new Map<string, string>();
-    // Every page's detected layout: the renderer keeps only a bounded window
-    // of them, and the matched canvas needs all. A running job still appends
-    // and reconciles, so only a finished job's kept store is read once.
-    const keptLayouts = new WeakMap<IScanCleanupDetectionResultStore, NonNullable<IScanCleanupPreviewRequest['layoutByPage']>>();
-    async function readStoreLayouts(store: IScanCleanupDetectionResultStore, finished: boolean) {
-        const kept = keptLayouts.get(store);
-        if (kept) return kept;
-        const layoutByPage: NonNullable<IScanCleanupPreviewRequest['layoutByPage']> = {};
-        await store.forEachChunk((results) => {
-            for (const result of results) layoutByPage[String(result.pageNumber)] = result.classification;
-        });
-        if (finished) keptLayouts.set(store, layoutByPage);
-        return layoutByPage;
-    }
     const closeIfIdle = (entry: IStoreEntry) => {
         if (entry.retired && entry.leases === 0) void entry.store.close().catch(() => undefined);
     };
@@ -347,11 +332,15 @@ export function createBrowserScanCleanupDetectionOwner() {
             const lease = live ?? leaseStore(ownerStore.get(request.ownerId), identity);
             if (lease === null) return request;
             try {
-                const result = await lease.store.getPage(request.pageNumber);
+                const {
+                    page: result, layoutByPage,
+                } = await lease.store.readPreviewSnapshot(
+                    request.pageNumber, request.options.matchPageSize,
+                );
                 const layouts = request.options.matchPageSize
                     ? {layoutByPage: {
                         ...request.layoutByPage,
-                        ...await readStoreLayouts(lease.store, live === null),
+                        ...layoutByPage,
                     }}
                     : {};
                 // The plan travels with the page view it was measured on.

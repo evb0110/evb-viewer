@@ -1,6 +1,9 @@
-import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    IScanCleanupDetectionResult,
+    TScanCleanupLayoutByPage,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
+import type {createMemoryScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore';
 import {
     assertMaxReadPages,
     assertPageCount,
@@ -108,7 +111,7 @@ function openWindowDatabase() {
 export async function createIndexedDbScanCleanupDetectionResultStore(
     pageCount: number,
     maxReadPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-): Promise<IScanCleanupDetectionResultStore> {
+): Promise<ReturnType<typeof createMemoryScanCleanupDetectionResultStore>> {
     assertPageCount(pageCount);
     assertMaxReadPages(maxReadPages);
     const database = await openWindowDatabase();
@@ -116,6 +119,7 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
     const present = new Uint8Array(pageCount + 1);
     let resultCount = 0;
     const pending = new Map<number, string>();
+    let layoutByPage: TScanCleanupLayoutByPage = {};
     let closed = false;
     let operation = Promise.resolve();
     const enqueue = <T>(task: () => Promise<T>) => {
@@ -151,6 +155,7 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
             throw new RangeError(`Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_RECORD_BYTES)} bytes`);
         }
         pending.set(pageNumber, record);
+        layoutByPage[String(pageNumber)] = result.classification;
         if (present[pageNumber] !== 1) {
             present[pageNumber] = 1;
             resultCount += 1;
@@ -174,6 +179,19 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
         ))) as IRecordRow[];
         return rows.map(row => JSON.parse(row.record) as IScanCleanupDetectionResult);
     };
+    const readPage = async (pageNumber: number) => {
+        assertOpen();
+        assertPageNumber(pageNumber, pageCount);
+        if (present[pageNumber] !== 1) return undefined;
+        const buffered = pending.get(pageNumber);
+        if (buffered !== undefined) return JSON.parse(buffered) as IScanCleanupDetectionResult;
+        const transaction = database.transaction(RECORDS_STORE, 'readonly');
+        const row = await request(transaction.objectStore(RECORDS_STORE).get([
+            storeId,
+            pageNumber,
+        ])) as IRecordRow | undefined;
+        return row === undefined ? undefined : JSON.parse(row.record) as IScanCleanupDetectionResult;
+    };
     return {
         pageCount,
         get resultCount() {
@@ -181,19 +199,11 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
         },
         append: result => enqueue(() => write(result.pageNumber, result, false)),
         replace: (pageNumber, result) => enqueue(() => write(pageNumber, result, true)),
-        getPage: pageNumber => enqueue(async () => {
-            assertOpen();
-            assertPageNumber(pageNumber, pageCount);
-            if (present[pageNumber] !== 1) return undefined;
-            const buffered = pending.get(pageNumber);
-            if (buffered !== undefined) return JSON.parse(buffered) as IScanCleanupDetectionResult;
-            const transaction = database.transaction(RECORDS_STORE, 'readonly');
-            const row = await request(transaction.objectStore(RECORDS_STORE).get([
-                storeId,
-                pageNumber,
-            ])) as IRecordRow | undefined;
-            return row === undefined ? undefined : JSON.parse(row.record) as IScanCleanupDetectionResult;
-        }),
+        getPage: pageNumber => enqueue(() => readPage(pageNumber)),
+        readPreviewSnapshot: (pageNumber, includeLayouts) => enqueue(async () => ({
+            page: await readPage(pageNumber),
+            layoutByPage: includeLayouts ? {...layoutByPage} : {},
+        })),
         readRange: (firstPageNumber, lastPageNumberExclusive) => enqueue(async () => {
             assertOpen();
             return readRange(firstPageNumber, lastPageNumberExclusive);
@@ -215,6 +225,7 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
             if (closed) return;
             closed = true;
             pending.clear();
+            layoutByPage = {};
             if (pageCount === 0) return;
             const transaction = database.transaction(RECORDS_STORE, 'readwrite');
             transaction.objectStore(RECORDS_STORE).delete(IDBKeyRange.bound(

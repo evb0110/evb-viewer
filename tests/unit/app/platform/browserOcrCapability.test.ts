@@ -404,6 +404,79 @@ describe('browser scan cleanup preview plan', () => {
         ]) vi.doUnmock(path);
     });
 
+    it('keeps a live preview page plan and all layouts in one snapshot during reconciliation', async () => {
+        vi.resetModules();
+        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const store = createMemoryScanCleanupDetectionResultStore(2000, 1);
+        const result = (pageNumber: number, classification: IScanCleanupDetectionResult['classification']): IScanCleanupDetectionResult => ({
+            pageNumber: requirePageNumber(pageNumber),
+            revision: 1,
+            classification,
+            confidence: 1,
+            cutterXPx: null,
+            tier1Verdict: classification,
+            reconciled: true,
+            clusterAgreement: 1,
+            documentPrior: null,
+            pagePlanEvidence: {
+                pageNumber: requirePageNumber(pageNumber),
+                rotationDegrees: 0,
+                layoutClassification: classification,
+                outputs: {},
+            },
+        });
+        await store.append(result(1, 'two-page-spread'));
+        await store.append(result(2000, 'two-page-spread'));
+        const walk = store.forEachChunk;
+        let reconciled = false;
+        store.forEachChunk = callback => walk(async (rows, firstPageNumber) => {
+            await callback(rows, firstPageNumber);
+            if (!reconciled) {
+                reconciled = true;
+                await store.replace(1, result(1, 'single-uncut-page'));
+                await store.replace(2000, result(2000, 'single-uncut-page'));
+            }
+        });
+        const running = Promise.withResolvers<undefined>();
+        const entered = Promise.withResolvers<undefined>();
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async () => store}));
+        vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
+            borrowBrowserScanCleanupSource: () => ({
+                opened: Promise.resolve({pageSizes: Array.from({length: 2000})}),
+                release() {},
+            }),
+            awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
+        }));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async () => {
+            entered.resolve(undefined);
+            await running.promise;
+            return {
+                resultStore: store,
+                results: [],
+                blankPageCount: 0,
+            };
+        }}));
+        const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
+        const owner = createBrowserScanCleanupDetectionOwner();
+        const preview = request({layoutByPage: {'2000': 'single-uncut-page'}});
+        await owner.detectAll(preview);
+        await entered.promise;
+        try {
+            const snapshot = await owner.resolvePreviewPagePlan(preview);
+            expect(snapshot.layoutByPage?.['2000']).toBe(snapshot.layoutByPage?.['1']);
+            expect(snapshot.pagePlanEvidence?.layoutClassification).toBe(snapshot.layoutByPage?.['1']);
+            await store.replace(1, result(1, 'single-uncut-page'));
+            await store.replace(2000, result(2000, 'single-uncut-page'));
+            const next = await owner.resolvePreviewPagePlan(preview);
+            expect(next.layoutByPage?.['2000']).toBe('single-uncut-page');
+            expect(next.pagePlanEvidence?.layoutClassification).toBe('single-uncut-page');
+            expect(snapshot.layoutByPage?.['1']).toBe('two-page-spread');
+        } finally {
+            running.resolve(undefined);
+            owner.closeSource(requireDocumentRef(preview.sourcePdfPath));
+        }
+    });
+
     it('reads a reconciled layout a running detection replaced since the last preview', async () => {
         vi.resetModules();
         const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
