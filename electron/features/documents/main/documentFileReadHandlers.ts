@@ -503,11 +503,8 @@ function resolveOriginalBackedRead(
     if (!entry || !readsThroughOriginal(entry.backingState)) {
         return null;
     }
-    if (
-        entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-        || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-    ) {
-        throw createSourceBackingError(entry.sourceBackingErrorCode);
+    if (entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED') {
+        throw createSourceBackingError('SOURCE_BACKING_CHANGED');
     }
     if (!entry.admissionSnapshot) {
         throw new WorkingCopyMaterializationError(
@@ -583,8 +580,13 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
         );
     }
     const sourceError = currentEntry.sourceBackingErrorCode;
-    if (sourceError === 'SOURCE_BACKING_CHANGED' || sourceError === 'SOURCE_BACKING_UNAVAILABLE') {
+    if (sourceError === 'SOURCE_BACKING_CHANGED') {
         throw createSourceBackingError(sourceError);
+    }
+    // The admission witness and exact registration were checked above. No
+    // await separates that check from clearing this registration's outage.
+    if (sourceError === 'SOURCE_BACKING_UNAVAILABLE') {
+        delete currentEntry.sourceBackingErrorCode;
     }
     return snapshot;
 }

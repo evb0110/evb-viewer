@@ -732,6 +732,62 @@ describe('fileOps path security', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+        'full',
+        'range',
+        'stat',
+        'probe',
+    ])(
+        'revalidates an unavailable lazy source through the %s transport', async (mode) => {
+            const entry = {
+                ...lazyOriginalEntry(),
+                admissionSnapshot: {
+                    size: 2n,
+                    mtimeNs: 1_000_000n,
+                },
+                sourceBackingErrorCode: 'SOURCE_BACKING_UNAVAILABLE',
+            };
+            mocks.resolveAllowedReadPath.mockResolvedValue(null);
+            mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+            mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue(entry.admissionSnapshot);
+            mocks.open.mockResolvedValue({
+                close: vi.fn(async () => {}),
+                read: vi.fn(async (buffer: Buffer, offset: number, length: number) => {
+                    buffer.set([
+                        8,
+                        9,
+                    ], offset);
+                    return {bytesRead: length};
+                }),
+            });
+            const logicalRef = '/tmp/electron-test/lazy.pdf';
+            try {
+                if (mode === 'stat') {
+                    expect(await handleFileStat(readContext, logicalRef)).toEqual({
+                        size: 2,
+                        modifiedAt: 1,
+                    });
+                } else {
+                    const bytes = mode === 'full'
+                        ? await handleFileRead(readContext, logicalRef)
+                        : mode === 'range'
+                            ? await handleFileReadRange(readContext, logicalRef, 0, 2)
+                            : await resolveOriginalBackedReadTransport(logicalRef, 42)?.read(async () => new Uint8Array([
+                                8,
+                                9,
+                            ]));
+                    expect(bytes).toEqual(new Uint8Array([
+                        8,
+                        9,
+                    ]));
+                }
+                expect(entry.sourceBackingErrorCode).toBeUndefined();
+            } finally {
+                await clearCachedRangeReadHandlesForTests();
+            }
+        },
+    );
+
     it('stats lazy-original documents against the admission witness', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());

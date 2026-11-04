@@ -520,7 +520,9 @@ function createFlight(
         'materializing',
         {
             expectedBackingState: 'lazy-original',
-            sourceBackingErrorCode: null,
+            sourceBackingErrorCode: entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
+                ? 'SOURCE_BACKING_UNAVAILABLE'
+                : null,
         },
     )) {
         flights.delete(key);
@@ -555,15 +557,10 @@ function getOrCreateFlight(
     if (entry.withheld) {
         throw new WorkingCopyMissingError('The unsaved changes of this document are in a working copy missing on this computer');
     }
-    if (
-        entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-        || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-    ) {
+    if (entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED') {
         throw new WorkingCopyMaterializationError(
-            entry.sourceBackingErrorCode,
-            entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                ? 'The original document changed after it was opened'
-                : 'The original document is unavailable',
+            'SOURCE_BACKING_CHANGED',
+            'The original document changed after it was opened',
         );
     }
     const key = createFlightKey(logicalRef, entry.registrationId);

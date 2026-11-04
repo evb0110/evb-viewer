@@ -41,7 +41,8 @@ function toBackingFailure(code: TWorkingCopyBackingErrorCode | undefined): IWork
     }
     return {
         code,
-        retryable: code === 'WORKING_COPY_MATERIALIZATION_CANCELLED'
+        retryable: code === 'SOURCE_BACKING_UNAVAILABLE'
+            || code === 'WORKING_COPY_MATERIALIZATION_CANCELLED'
             || code === 'WORKING_COPY_MATERIALIZATION_FAILED'
             || code === 'WORKING_COPY_MATERIALIZATION_NO_SPACE'
             || code === 'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',

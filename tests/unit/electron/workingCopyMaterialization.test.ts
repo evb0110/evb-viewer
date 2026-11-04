@@ -830,6 +830,86 @@ describe('workingCopyMaterialization', () => {
         expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
     });
 
+    it.each([
+        'read',
+        'materialize',
+    ] as const)(
+        'recovers the same lazy registration after an outage through %s', async (mode) => {
+            const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024, 47));
+            const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+            const {getWorkingCopyBackingStatus} = await import('@electron/features/documents/main/workingCopyBackingStatus');
+            const {runWithWorkingCopyReadBacking} = await import('@electron/file-access/runWithWorkingCopyReadBacking');
+            const {ensureWorkingCopyMaterialized} = await import('@electron/file-access/workingCopyMaterialization');
+            const registrationId = getWorkingCopyBackingEntry(fixture.workingPath, 7)?.registrationId;
+            const attempt = async () => {
+                if (mode === 'materialize') {
+                    await ensureWorkingCopyMaterialized(fixture.workingPath, {
+                        ownerWebContentsId: 7,
+                        reason: 'save',
+                    });
+                    return readFileSync(fixture.workingPath);
+                }
+                return runWithWorkingCopyReadBacking(fixture.workingPath, async path => readFileSync(path), {ownerWebContentsId: 7});
+            };
+            const offline = `${fixture.originalPath}.offline`;
+            renameSync(fixture.originalPath, offline);
+            await expect(attempt()).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+            const outageFailure = getWorkingCopyBackingStatus(7, fixture.workingPath)?.failure;
+            expect(existsSync(fixture.workingPath)).toBe(false);
+
+            renameSync(offline, fixture.originalPath);
+            expect((await attempt()).equals(fixture.bytes)).toBe(true);
+            expect(outageFailure).toEqual({
+                code: 'SOURCE_BACKING_UNAVAILABLE',
+                retryable: true,
+            });
+            expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)?.registrationId).toBe(registrationId);
+            expect(getWorkingCopyBackingStatus(7, fixture.workingPath)?.failure).toBeNull();
+            expect(readFileSync(fixture.originalPath).equals(fixture.bytes)).toBe(true);
+            expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+        },
+    );
+
+    it.each([
+        'read',
+        'materialize',
+    ] as const)(
+        'refuses a changed source returning after an outage through %s', async (mode) => {
+            const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024, 47));
+            const {runWithWorkingCopyReadBacking} = await import('@electron/file-access/runWithWorkingCopyReadBacking');
+            const {ensureWorkingCopyMaterialized} = await import('@electron/file-access/workingCopyMaterialization');
+            const {getWorkingCopyBackingStatus} = await import('@electron/features/documents/main/workingCopyBackingStatus');
+            const attempt = () => mode === 'materialize'
+                ? ensureWorkingCopyMaterialized(fixture.workingPath, {
+                    ownerWebContentsId: 7,
+                    reason: 'save',
+                })
+                : runWithWorkingCopyReadBacking(fixture.workingPath, async path => readFileSync(path), {ownerWebContentsId: 7});
+            const offline = `${fixture.originalPath}.offline`;
+            renameSync(fixture.originalPath, offline);
+            await expect(attempt()).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+            renameSync(offline, fixture.originalPath);
+            const replacement = Buffer.alloc(fixture.bytes.length, 99);
+            writeFileSync(fixture.originalPath, replacement);
+            const changedTime = new Date(FIXTURE_TIME.getTime() + 5_000);
+            utimesSync(fixture.originalPath, changedTime, changedTime);
+            await expect(attempt()).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+            expect(getWorkingCopyBackingStatus(7, fixture.workingPath)?.failure)
+                .toEqual({
+                    code: 'SOURCE_BACKING_CHANGED',
+                    retryable: false,
+                });
+            expect(readFileSync(fixture.originalPath).equals(replacement)).toBe(true);
+            expect(existsSync(fixture.workingPath)).toBe(false);
+            expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+
+            // A known change is terminal for this registration, even if bytes return.
+            writeFileSync(fixture.originalPath, fixture.bytes);
+            utimesSync(fixture.originalPath, FIXTURE_TIME, FIXTURE_TIME);
+            await expect(attempt()).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+        },
+    );
+
     it('registration-ID fences prevent an old flight publishing into a replacement registration', async () => {
         const firstFixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 53));
         const secondOriginalPath = join(tempRoot, 'replacement-original.pdf');

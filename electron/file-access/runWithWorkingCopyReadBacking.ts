@@ -57,6 +57,9 @@ async function assertOriginalBackingCurrent(
     if (!await workingCopyAdmissionSnapshotsMatch(currentSnapshot, entry.admissionSnapshot, entry.originalPath, entry.originalFileExpectation)) {
         throwBackingError(entry, logicalRef, 'SOURCE_BACKING_CHANGED');
     }
+    if (entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE') {
+        delete entry.sourceBackingErrorCode;
+    }
 }
 
 /**
@@ -88,15 +91,10 @@ export async function runWithWorkingCopyReadBacking<TResult>(
                 // separate original whose mtime could drift underneath us.
                 return operation(logicalRef, () => Promise.resolve());
             }
-            if (
-                currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-            ) {
+            if (currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED') {
                 throw new WorkingCopyMaterializationError(
-                    currentEntry.sourceBackingErrorCode,
-                    currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                        ? 'The original document changed after it was opened'
-                        : 'The original document is unavailable',
+                    'SOURCE_BACKING_CHANGED',
+                    'The original document changed after it was opened',
                 );
             }
             await assertOriginalBackingCurrent(currentEntry, logicalRef);
