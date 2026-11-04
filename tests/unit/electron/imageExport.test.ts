@@ -1037,13 +1037,29 @@ describe('image export', () => {
         mocks.runCommand.mockImplementation(async (
             command: string,
             args: string[],
-            options?: {onStdout?: (chunk: string) => void},
+            options?: {
+                onStdout?: (chunk: string) => void;
+                rejectOnStdoutTruncation?: boolean;
+            },
         ) => {
             if (command === '/mock/pdftoppm') {
                 mocks.requestedRenderDpis.push(Number.parseFloat(String(args[args.indexOf('-r') + 1])));
                 throw renderStopped;
             }
-            return defaultRunCommand(command, args, options);
+            // The real runner rejects output past its retained 256 KiB unless
+            // the caller says the streamed output is enough.
+            let streamedBytes = 0;
+            const result = await defaultRunCommand(command, args, {
+                ...options,
+                onStdout: (chunk: string) => {
+                    streamedBytes += Buffer.byteLength(chunk);
+                    options?.onStdout?.(chunk);
+                },
+            });
+            if (streamedBytes > 262_144 && options?.rejectOnStdoutTruncation !== false) {
+                throw new Error('stdout exceeded 262144 bytes');
+            }
+            return result;
         });
 
         const outputPath = join(tempDir, 'huge-first-page.png');
