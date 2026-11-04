@@ -19,14 +19,15 @@ import {
     convertRenderedPpmToImage,
     validateImageExportPath,
     createStagedFilePublicationLedger,
-    type IStagedImageFile,
     type TImageExportFormat,
     promoteStagedFiles,
     rollbackStagedFilePublications,
 } from '@electron/features/image-export/main/export';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
-import { resolveOutputPathConflicts } from '@electron/features/image-export/main/imageExportPathPlanning';
-import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
+import {
+    buildMultiPageTiffOutputSuffixes,
+    type IStagedImageFile,
+} from '@electron/features/image-export/main/imageExportPathPlanning';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
@@ -144,15 +145,6 @@ async function assertDjvuExportPageRasterBudget(
     return pageDpiByNumber;
 }
 
-function buildImageOutputPath(templatePath: string, page: number, outputCount: number, format: TImageExportFormat) {
-    const targetPath = validateImageExportPath(templatePath, format);
-    return outputCount === 1 ? targetPath : buildOutputPathWithSuffix(targetPath, `-page-${String(page).padStart(3, '0')}`);
-}
-
-function buildDjvuTiffOutputPath(templatePath: string, partNumber: number, splitOutput: boolean) {
-    return splitOutput ? buildOutputPathWithSuffix(templatePath, `-part-${String(partNumber).padStart(3, '0')}`) : templatePath;
-}
-
 async function renderDjvuImagePages(
     djvuPath: string,
     outputTemplatePath: string,
@@ -168,17 +160,14 @@ async function renderDjvuImagePages(
         const totalPages = getExportPageCount(pageCount, pages);
         const format = options.format ?? 'png';
         const exportPages = [...iterateExportPages(pageCount, pages)];
-        const outputPaths = exportPages.map(page => resolveOutputPathConflicts(
-            [buildImageOutputPath(outputTemplatePath, page, totalPages, format)],
-            totalPages === 1,
-        )[0]!);
-        const siblings = outputPaths.map(outputPath => makeSiblingTempPath(outputPath));
+        const outputPaths: string[] = [];
+        const siblings = exportPages.map(() => makeSiblingTempPath(outputTemplatePath));
         const promoteBatch = async () => {
             if (stagedFiles.length === 0) {
                 return;
             }
             await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal, publicationLedger);
+            outputPaths.push(...await promoteStagedFiles(stagedFiles, options.signal, publicationLedger));
             stagedFiles.length = 0;
             stagedBytes = 0;
         };
@@ -194,7 +183,6 @@ async function renderDjvuImagePages(
                 index,
                 page,
             ] of exportPages.entries()) {
-                const outputPath = outputPaths[index]!;
                 const sibling = siblings[index]!;
                 throwIfAborted(options.signal);
                 const brokerLease = await mainJobBroker.acquire({
@@ -244,13 +232,15 @@ async function renderDjvuImagePages(
                         pageDpiByNumber.get(page),
                     );
                 })().finally(() => brokerLease.release());
-                await mkdir(dirname(outputPath), {recursive: true});
+                await mkdir(dirname(outputTemplatePath), {recursive: true});
                 try {
                     await copyFile(imagePath, sibling);
                     throwIfAborted(options.signal);
                     stagedFiles.push({
                         stagedPath: sibling,
-                        targetPath: outputPath,
+                        targetPath: outputTemplatePath,
+                        suffix: totalPages === 1 ? '' : `-page-${String(page).padStart(3, '0')}`,
+                        allowOverwrite: totalPages === 1,
                     });
                 } finally {
                     await rm(ppmPath, {force: true}).catch(() => undefined);
@@ -289,6 +279,7 @@ export async function exportDjvuPagesAsImages(
     outputTemplatePath: string,
     options: IDjvuImageExportOptions = {},
 ) {
+    validateImageExportPath(outputTemplatePath, options.format ?? 'png');
     const {
         pageCount,
         pages,
@@ -319,8 +310,6 @@ export async function exportDjvuAsMultiPageTiff(
         let stagedBytes = 0;
         const exportPages = [...iterateExportPages(pageCount, pages)];
         const totalPages = exportPages.length;
-        const hasMixedPageDpi = new Set(exportPages.map(page => pageDpiByNumber.get(page) ?? null)).size > 1;
-        const splitOutput = totalPages > DJVU_TIFF_BATCH_MAX_PAGES || hasMixedPageDpi;
         const stagedGroups: Array<{stagedPath: string}> = [];
         const combineBatch = async () => {
             if (pagePaths.length === 0) {
@@ -417,22 +406,16 @@ export async function exportDjvuAsMultiPageTiff(
                 });
             }
             await combineBatch();
-            const outputPaths = resolveOutputPathConflicts(
-                stagedGroups.map((_, index) => buildDjvuTiffOutputPath(targetPath, index + 1, splitOutput)),
-            );
-            const stagedFiles = stagedGroups.map(({stagedPath}, index) => {
-                const targetOutputPath = outputPaths[index];
-                if (!targetOutputPath) {
-                    throw new Error('Multi-page TIFF export target path is missing');
-                }
-                return {
-                    stagedPath,
-                    targetPath: targetOutputPath,
-                };
-            });
+            const suffixes = buildMultiPageTiffOutputSuffixes(stagedGroups.length);
+            const stagedFiles = stagedGroups.map(({stagedPath}, index) => ({
+                stagedPath,
+                targetPath,
+                suffix: suffixes[index]!,
+                allowOverwrite: stagedGroups.length === 1,
+            }));
             throwIfAborted(options.signal);
             await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal, tempDirectory);
+            const outputPaths = await promoteStagedFiles(stagedFiles, options.signal, tempDirectory);
             promoted = true;
             options.onProgress?.({
                 phase: 'combining',

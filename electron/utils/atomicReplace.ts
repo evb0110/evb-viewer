@@ -39,7 +39,7 @@ const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ATOMIC_REPLACE_BACKUP_NAME_PATTERN = /^(?<destination>.+)\.bak-[0-9a-f]{16}$/u;
 const ATOMIC_REPLACE_JOURNAL_VERSION = 1;
-const WINDOWS_FALLBACK_CODES = new Set([
+const WINDOWS_FALLBACK_CODES = new Set<string | number>([
     'EACCES',
     'EBUSY',
     'EPERM',
@@ -240,15 +240,11 @@ export async function cleanupStaleAtomicReplaceBackups(
         return result;
     }
 
-    const configuredNow = options.now;
-    const now = configuredNow !== undefined && Number.isFinite(configuredNow)
-        ? configuredNow
-        : Date.now();
-    const configuredMaxAgeMs = options.maxAgeMs;
-    const maxAgeMs = configuredMaxAgeMs !== undefined
-        && Number.isFinite(configuredMaxAgeMs)
-        && configuredMaxAgeMs >= 0
-        ? configuredMaxAgeMs
+    const now = options.now !== undefined && Number.isFinite(options.now) ? options.now : Date.now();
+    const maxAgeMs = options.maxAgeMs !== undefined
+        && Number.isFinite(options.maxAgeMs)
+        && options.maxAgeMs >= 0
+        ? options.maxAgeMs
         : DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS;
     try {
         const directoryStat = await lstat(directoryPath);
@@ -350,6 +346,13 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
         await link(sourcePath, destinationPath);
     } catch (error) {
         if (!isNoHardLinkError(error)) throw error;
+        // A no-link volume still refuses an entry already present. Node cannot
+        // make this check and the following rename one no-replace operation.
+        const destination = await lstat(destinationPath).catch((lookupError: unknown) => {
+            if (isErrnoException(lookupError) && lookupError.code === 'ENOENT') return null;
+            throw lookupError;
+        });
+        if (destination) throw Object.assign(new Error(`File exists: ${destinationPath}`), {code: 'EEXIST'});
         await rename(sourcePath, destinationPath);
         return;
     }
@@ -409,15 +412,8 @@ export async function atomicReplace(
     }
     const durable = options.durable !== false;
     await prepareReplacement(srcTemp, dst, durable);
-    const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
-    const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined
-        && shouldMarkMutationCommitStarted;
-    if (shouldMarkMutationCommitStarted && !shouldDeferMutationCommitStarted) {
-        markActiveWorkingCopyMutationCommitStarted();
-    }
-
-    await options.assertDestinationCurrent?.();
-    if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
+    if (options.assertDestinationCurrent) await options.assertDestinationCurrent();
+    if (options.markMutationCommitStarted !== false) markActiveWorkingCopyMutationCommitStarted();
     if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
@@ -442,8 +438,7 @@ export async function atomicReplace(
         await waitForAtomicReplaceTestBarrier('before-publish');
         await rename(srcTemp, dst);
     } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await fileExists(dst))) {
+        if (!isErrnoException(error) || !WINDOWS_FALLBACK_CODES.has(error.code ?? '') || !(await fileExists(dst))) {
             throw error;
         }
 

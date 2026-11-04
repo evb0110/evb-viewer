@@ -1,9 +1,40 @@
 import { existsSync } from 'fs';
+import {
+    dirname,
+    resolve,
+} from 'path';
 import { range } from 'es-toolkit/math';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
 
-function buildNonConflictingOutputPath(targetPath: string, protectedSuffix: string, reservedPaths: Set<string>) {
+interface IImageExportTarget {
+    // The template and protected page/part suffix, before conflict resolution.
+    targetPath: string;
+    suffix: string;
+    allowOverwrite: boolean;
+    stagedPath?: string;
+}
+
+export interface IStagedImageFile extends IImageExportTarget {stagedPath: string;}
+
+export function resolveOutputPathConflict(
+    file: IImageExportTarget,
+    reservedPaths: Set<string>,
+) {
+    const {
+        targetPath, suffix: protectedSuffix, allowOverwrite, stagedPath,
+    } = file;
+    if (stagedPath !== undefined && resolve(dirname(stagedPath)) !== resolve(dirname(targetPath))) {
+        throw new Error(`Image export staged output is not beside its target: ${targetPath}`);
+    }
+    if (allowOverwrite) {
+        const candidatePath = protectedSuffix ? buildOutputPathWithSuffix(targetPath, protectedSuffix) : targetPath;
+        if (reservedPaths.has(normalizePathForLookup(candidatePath))) {
+            throw new Error(`Duplicate image export target: ${candidatePath}`);
+        }
+        reservedPaths.add(normalizePathForLookup(candidatePath));
+        return candidatePath;
+    }
     let candidatePath = buildOutputPathWithSuffix(targetPath, protectedSuffix);
     let conflictNumber = 1;
     while (reservedPaths.has(normalizePathForLookup(candidatePath)) || existsSync(candidatePath)) {
@@ -19,13 +50,18 @@ interface IOutputPathTarget {
     suffix: string;
 }
 
-export function resolveSuffixedOutputPathConflicts(targets: IOutputPathTarget[], allowSingleOverwrite = true) {
-    const reservedPaths = new Set<string>();
+export function resolveSuffixedOutputPathConflicts(
+    targets: IOutputPathTarget[],
+    allowSingleOverwrite = true,
+    reservedPaths = new Set<string>(),
+) {
     return targets.map(({
         path, suffix, 
-    }) => (targets.length === 1 && allowSingleOverwrite
-        ? (suffix ? buildOutputPathWithSuffix(path, suffix) : path)
-        : buildNonConflictingOutputPath(path, suffix, reservedPaths)));
+    }) => resolveOutputPathConflict({
+        targetPath: path,
+        suffix,
+        allowOverwrite: targets.length === 1 && allowSingleOverwrite,
+    }, reservedPaths));
 }
 
 export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
@@ -35,11 +71,8 @@ export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOve
     })), allowSingleOverwrite);
 }
 
-export function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
-    return partCount <= 1 ? [targetPath] : range(1, partCount + 1).map(partNumber =>
-        buildOutputPathWithSuffix(
-            targetPath,
-            `-part-${String(partNumber).padStart(3, '0')}`,
-        ),
+export function buildMultiPageTiffOutputSuffixes(partCount: number) {
+    return partCount <= 1 ? [''] : range(1, partCount + 1).map(partNumber =>
+        `-part-${String(partNumber).padStart(3, '0')}`,
     );
 }

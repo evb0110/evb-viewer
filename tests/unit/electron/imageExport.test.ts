@@ -73,6 +73,7 @@ const mocks = vi.hoisted(() => ({
     holdRemoval: null as ((path: string) => boolean) | null,
     beforeAppend: null as ((path: string, data: string) => Promise<void>) | null,
     atomicReplace: vi.fn(),
+    moveFileToMissingPath: vi.fn(),
     copyFileAtomic: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     createManagedScratchTempDir: vi.fn(async (_prefix: string) => ''),
@@ -263,10 +264,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/atomicReplace', async importOriginal => ({
+vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
-    moveFileToMissingPath: (await importOriginal<typeof TAtomicReplace>()).moveFileToMissingPath,
+    moveFileToMissingPath: (...args: [string, string]) => mocks.moveFileToMissingPath(...args),
 }));
 vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
     ...(await importOriginal<typeof TManagedScratch>()),
@@ -305,7 +306,7 @@ const {
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const { buildOutputPathWithSuffix } = await import('@electron/utils/boundedPathComponent');
 const {
-    buildMultiPageTiffOutputPaths,
+    buildMultiPageTiffOutputSuffixes,
     resolveSuffixedOutputPathConflicts,
 } = await import('@electron/features/image-export/main/imageExportPathPlanning');
 const {
@@ -414,12 +415,14 @@ describe('image export', () => {
         mocks.holdRemoval = null;
         mocks.beforeAppend = null;
         mocks.atomicReplace.mockReset();
+        mocks.moveFileToMissingPath.mockReset();
+        mocks.moveFileToMissingPath.mockImplementation(realAtomicReplace.moveFileToMissingPath);
         mocks.copyFileAtomic.mockReset();
         mocks.copyFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await copyFile(sourcePath, targetPath);
         });
         mocks.makeSiblingTempPath.mockReset();
-        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
         mocks.managedScratchDirs.length = 0;
         mocks.createManagedScratchTempDir.mockImplementation(async (prefix: string) => {
             const path = await realManagedScratch.createManagedScratchTempDir(prefix as TManagedScratch.TManagedScratchPrefix, tempDir);
@@ -1244,7 +1247,7 @@ describe('image export', () => {
         ]), 1, 1)));
         await import('node:fs/promises').then(({mkdir}) => mkdir(`${outputPath}.tmp`));
 
-        await expect(combinePagesIntoMultiPageTiffLocal([pagePath], outputPath))
+        await expect(combinePagesIntoMultiPageTiffLocal([pagePath], outputPath, {tempPath: `${outputPath}.tmp`}))
             .rejects.toBeInstanceOf(Error);
 
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
@@ -1454,12 +1457,116 @@ describe('image export', () => {
         ]);
         expect(new Set(paths).size).toBe(4);
         expect(paths.every(target => Buffer.byteLength(basename(target), 'utf8') <= 255)).toBe(true);
-        const tiffPaths = buildMultiPageTiffOutputPaths(join(tempDir, `${'a'.repeat(300)}.tif`), 2);
+        const tiffPaths = buildMultiPageTiffOutputSuffixes(2).map(suffix => buildOutputPathWithSuffix(join(tempDir, `${'a'.repeat(300)}.tif`), suffix));
         expect(tiffPaths.map(target => basename(target).slice(-13))).toEqual([
             '-part-001.tif',
             '-part-002.tif',
         ]);
         expect(tiffPaths.every(target => Buffer.byteLength(basename(target), 'utf8') === 255)).toBe(true);
+    });
+
+    // T3: successful concurrent jobs retain every complete physical output.
+    it.each([
+        1,
+        2,
+        3,
+    ])('keeps both overlapping exports and their distinct pixels, run %i', async () => {
+        const render = mocks.runCommand.getMockImplementation()!;
+        let renderedJobs = 0;
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
+            const result = await render(command, args, options);
+            if (command === '/mock/pdftoppm') {
+                const color = renderedJobs++ === 0 ? [
+                    255,
+                    0,
+                    0,
+                ] : [
+                    0,
+                    0,
+                    255,
+                ];
+                for (const page of [
+                    1,
+                    2,
+                ]) {
+                    await writeFile(`${args.at(-1)}-${page}.ppm`, Buffer.concat([
+                        Buffer.from('P6\n1 1\n255\n'),
+                        Buffer.from(color),
+                    ]));
+                }
+            }
+            return result;
+        });
+        const readyA = Promise.withResolvers<undefined>();
+        const readyB = Promise.withResolvers<undefined>();
+        const releaseA = Promise.withResolvers<undefined>();
+        const releaseB = Promise.withResolvers<undefined>();
+        const template = join(tempDir, 'book.png');
+        const a = exportPdfPagesAsImages('/tmp/input.pdf', template, {beforePublish: async () => { readyA.resolve(undefined); await releaseA.promise; }});
+        await readyA.promise;
+        const b = exportPdfPagesAsImages('/tmp/input.pdf', template, {beforePublish: async () => { readyB.resolve(undefined); await releaseB.promise; }});
+        await readyB.promise;
+        releaseA.resolve(undefined);
+        const pathsA = await a;
+        releaseB.resolve(undefined);
+        const pathsB = await b;
+        expect(pathsA.map(path => basename(path))).toEqual([
+            'book-001.png',
+            'book-002.png',
+        ]);
+        expect(pathsB.map(path => basename(path))).toEqual([
+            'book-001-1.png',
+            'book-002-1.png',
+        ]);
+        for (const path of pathsA) expectSinglePixelPng(await readFile(path), [
+            255,
+            0,
+            0,
+        ]);
+        for (const path of pathsB) expectSinglePixelPng(await readFile(path), [
+            0,
+            0,
+            255,
+        ]);
+        expect(listStagedNames(tempDir)).toEqual([]);
+        expect((await readdir(tempDir)).sort()).toEqual([
+            ...pathsA,
+            ...pathsB,
+        ].map(path => basename(path)).sort());
+    });
+
+    it.each([
+        'book',
+        '界'.repeat(80),
+    ])('preserves a rival appearing during installation and rolls back only its own suffixed files: %s', async (stem) => {
+        const template = join(tempDir, `${stem}.png`);
+        const target = buildOutputPathWithSuffix(template, '-001');
+        const stagedPath = join(tempDir, '.job.tmp');
+        const ledger = createStagedFilePublicationLedger();
+        await writeFile(stagedPath, 'job bytes');
+        let rivalCreated = false;
+        mocks.moveFileToMissingPath.mockImplementation(async (source: string, destination: string) => {
+            if (!rivalCreated) {
+                rivalCreated = true;
+                await writeFile(destination, 'rival bytes');
+            }
+            return realAtomicReplace.moveFileToMissingPath(source, destination);
+        });
+        const result = await promoteStagedFiles([{
+            stagedPath,
+            targetPath: template,
+            suffix: '-001',
+            allowOverwrite: false,
+        }], undefined, ledger);
+        const actual = buildOutputPathWithSuffix(template, '-001-1');
+        expect(result).toEqual([actual]);
+        expect(Buffer.byteLength(basename(actual))).toBeLessThanOrEqual(255);
+        expect(await readFile(target, 'utf8')).toBe('rival bytes');
+        expect(await readFile(actual, 'utf8')).toBe('job bytes');
+        await rollbackStagedFilePublications(ledger);
+        expect(await readFile(target, 'utf8')).toBe('rival bytes');
+        expect(existsSync(actual)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
     });
 
     it('rejects equivalent final targets before publishing any staged image', async () => {
@@ -1473,10 +1580,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: `${tempDir}/./duplicate.png`,
             },
         ])).rejects.toThrow('Duplicate image export target');
@@ -1541,10 +1652,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ], abortController.signal)).rejects.toThrow('The operation was aborted');
@@ -1553,6 +1668,7 @@ describe('image export', () => {
     });
 
     it('uses a durable atomic copy for rollback backups', async () => {
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         const targetPath = join(tempDir, 'durable-backup.png');
         const stagedPath = join(tempDir, 'durable-backup.staged');
         const ledger = createStagedFilePublicationLedger();
@@ -1561,6 +1677,8 @@ describe('image export', () => {
 
         await promoteStagedFiles([{
             stagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath,
         }], undefined, ledger);
 
@@ -1574,6 +1692,7 @@ describe('image export', () => {
     });
 
     it('keeps an unproven native termination on the promotion error when a backup is retained', async () => {
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         const targetPath = join(tempDir, 'unproven-promotion.png');
         const stagedPath = join(tempDir, 'unproven-promotion.staged');
         await writeFile(targetPath, 'original');
@@ -1589,6 +1708,8 @@ describe('image export', () => {
 
         const failure = await promoteStagedFiles([{
             stagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath,
         }]).catch((error: unknown) => error);
 
@@ -1975,7 +2096,7 @@ describe('image export', () => {
         const firstTargetPath = join(tempDir, 'new-export-001.png');
         const secondTargetPath = join(tempDir, 'new-export-002.png');
 
-        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+        mocks.moveFileToMissingPath.mockImplementation(async (sourcePath: string, targetPath: string) => {
             if (targetPath === secondTargetPath) {
                 throw new Error('second promotion failed');
             }
@@ -1992,6 +2113,7 @@ describe('image export', () => {
     });
 
     it('retains the only backup when rollback restoration fails', async () => {
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         const firstTargetPath = join(tempDir, 'first.png');
         const secondTargetPath = join(tempDir, 'second.png');
         const firstStagedPath = join(tempDir, 'first.staged');
@@ -2015,10 +2137,14 @@ describe('image export', () => {
         const failure = await promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: firstTargetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ]).catch((error: unknown) => error);
@@ -2041,10 +2167,14 @@ describe('image export', () => {
 
         await promoteStagedFiles([{
             stagedPath: firstStagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath: firstTargetPath,
         }], undefined, ledger);
         await promoteStagedFiles([{
             stagedPath: secondStagedPath,
+            suffix: '',
+            allowOverwrite: true,
             targetPath: secondTargetPath,
         }], undefined, ledger);
 
@@ -2075,10 +2205,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: firstTargetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ])).rejects.toThrow('second promotion failed');
@@ -2111,10 +2245,14 @@ describe('image export', () => {
         await expect(promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: firstTargetPath,
             },
             {
                 stagedPath: secondStagedPath,
+                suffix: '',
+                allowOverwrite: true,
                 targetPath: secondTargetPath,
             },
         ])).rejects.toThrow();
@@ -2325,10 +2463,14 @@ describe('image export', () => {
         });
         void promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: firstTargetPath,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: secondTargetPath,
             },
@@ -2361,10 +2503,14 @@ describe('image export', () => {
         const publication = createStagedFilePublicationLedger(scratchPath);
         await promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: firstTargetPath,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: secondTargetPath,
             },
@@ -2427,6 +2573,8 @@ describe('image export', () => {
             return copied.stop();
         });
         void promoteStagedFiles([{
+            suffix: '',
+            allowOverwrite: true,
             stagedPath: join(tempDir, 'first.staged'),
             targetPath,
         }], undefined, createStagedFilePublicationLedger(scratchPath));
@@ -2463,10 +2611,14 @@ describe('image export', () => {
         });
         void promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: firstTargetPath,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: secondTargetPath,
             },
@@ -2538,10 +2690,14 @@ describe('image export', () => {
         });
         void promoteStagedFiles([
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'first.staged'),
                 targetPath: first,
             },
             {
+                suffix: '',
+                allowOverwrite: true,
                 stagedPath: join(tempDir, 'second.staged'),
                 targetPath: second,
             },
@@ -2658,10 +2814,19 @@ describe('image export', () => {
             await chmod(tempDir, 0o555);
         }).mockImplementation(realAtomicReplace.atomicReplace);
         try {
-            const failure = await exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'page.png'), {
-                scratch,
-                beforePublish: () => writeOriginals(targets),
-            }).catch((error: unknown) => error);
+            await writeOriginals(targets);
+            const staged = targets.map(target => `${target}.staged`);
+            await Promise.all(staged.map(path => writeFile(path, 'new-image')));
+            const failure = await scratch.using('pdfExport-', scratchPath => promoteStagedFiles(
+                targets.map((targetPath, index) => ({
+                    stagedPath: staged[index]!,
+                    targetPath,
+                    suffix: '',
+                    allowOverwrite: true,
+                })),
+                undefined,
+                scratchPath,
+            )).catch((error: unknown) => error);
             expect(readRollbackOutcome(failure)).toBe(RESTORED_ON_NEXT_START);
             expect((await readdir(appTempRoot)).filter(name => name.startsWith('pdfExport-'))).toHaveLength(1);
         } finally {
@@ -2744,6 +2909,8 @@ describe('image export', () => {
         // The process stops before the backup copy creates anything.
         mocks.copyFileAtomic.mockImplementation(() => copying.stop());
         void promoteStagedFiles([{
+            suffix: '',
+            allowOverwrite: true,
             stagedPath: join(tempDir, 'first.staged'),
             targetPath,
         }], undefined, createStagedFilePublicationLedger(scratchPath));

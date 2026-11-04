@@ -17,7 +17,6 @@ import {
     dirname,
     extname,
     join,
-    resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { ResourceLimits } from 'worker_threads';
@@ -57,6 +56,7 @@ import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBun
 import {
     atomicReplace,
     makeSiblingTempPath,
+    moveFileToMissingPath,
 } from '@electron/utils/atomicReplace';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {
@@ -91,9 +91,9 @@ import {
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
-    buildMultiPageTiffOutputPaths,
-    resolveOutputPathConflicts,
-    resolveSuffixedOutputPathConflicts,
+    buildMultiPageTiffOutputSuffixes,
+    resolveOutputPathConflict,
+    type IStagedImageFile,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
 import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
@@ -418,11 +418,6 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
-export interface IStagedImageFile {
-    stagedPath: string;
-    targetPath: string;
-}
-
 // One publication, as the scratch record names it, so the rollback and the
 // startup recovery settle it the same way.
 interface IStagedFilePublication {
@@ -501,29 +496,22 @@ export async function promoteStagedFiles(
         const targetPaths = new Set(sharedLedger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
         const backupTemporaryPaths: string[] = [];
         for (const file of stagedFiles) {
-            const targetPath = normalizePathForLookup(file.targetPath);
-            if (targetPaths.has(targetPath)) {
-                throw new Error(`Duplicate image export target: ${file.targetPath}`);
-            }
-            if (resolve(dirname(file.stagedPath)) !== resolve(dirname(file.targetPath))) {
-                throw new Error(`Image export staged output is not beside its target: ${file.targetPath}`);
-            }
-            targetPaths.add(targetPath);
-            const original = await readFileIdentity(file.targetPath);
+            const targetPath = resolveOutputPathConflict(file, targetPaths);
+            const original = file.allowOverwrite ? await readFileIdentity(targetPath) : null;
             const published = await readFileIdentity(file.stagedPath);
             if (!published) throw new Error(`Image export staged output is missing for ${file.targetPath}`);
-            const backupPath = original ? makeSiblingTempPath(file.targetPath) : null;
+            const backupPath = original ? makeSiblingTempPath(targetPath) : null;
             batchLedger.promotedFiles.push({
-                targetPath: file.targetPath,
+                targetPath,
                 backupPath,
                 original,
                 published,
             });
             if (backupPath && original) {
                 backupTemporaryPaths.push(makeSiblingTempPath(backupPath));
-                await recordManagedScratchBackup(scratchPath, backupPath, file.targetPath, original);
+                await recordManagedScratchBackup(scratchPath, backupPath, targetPath, original);
             }
-            await recordManagedScratchPublish(scratchPath, file.targetPath, published);
+            await recordManagedScratchPublish(scratchPath, targetPath, published);
         }
         // One fsync makes the whole batch's record durable before any file of it
         // is copied or replaced; recovery settles a recorded file that was not replaced yet.
@@ -539,13 +527,26 @@ export async function promoteStagedFiles(
                     temporaryPath: backupTemporaryPaths.shift()!,
                 });
             }
-            throwIfAborted(signal);
-            await atomicReplace(stagedFiles[index]!.stagedPath, promotedFile.targetPath);
+            const file = stagedFiles[index]!;
+            for (;;) {
+                throwIfAborted(signal);
+                try {
+                    await (file.allowOverwrite ? atomicReplace : moveFileToMissingPath)(file.stagedPath, promotedFile.targetPath);
+                    break;
+                } catch (error) {
+                    if (file.allowOverwrite || !isErrnoException(error) || error.code !== 'EEXIST') throw error;
+                    promotedFile.targetPath = resolveOutputPathConflict(file, targetPaths);
+                    // Record and flush the replacement candidate before installing it.
+                    await recordManagedScratchPublish(scratchPath, promotedFile.targetPath, promotedFile.published!);
+                    await recordManagedScratchPaths(scratchPath, []);
+                }
+            }
         }
         throwIfAborted(signal);
-        if (!sharedLedger) {
-            await commitStagedFilePublications(batchLedger);
-        }
+        const publishedPaths = batchLedger.promotedFiles.map(file => file.targetPath);
+        if (!sharedLedger) await commitStagedFilePublications(batchLedger);
+        sharedLedger?.promotedFiles.push(...batchLedger.promotedFiles);
+        return publishedPaths;
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
         await rollbackStagedFilePublications(batchLedger).catch((rollbackError: unknown) => {
@@ -556,7 +557,6 @@ export async function promoteStagedFiles(
         });
         throw error;
     }
-    sharedLedger?.promotedFiles.push(...batchLedger.promotedFiles);
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -937,13 +937,8 @@ export async function exportPdfPagesAsImages(
             outputDirectory,
             estimateImageExportStagedBytes(pageCount, renderDpi, pageSizes),
         );
-        const exportedPaths = resolveSuffixedOutputPathConflicts(Array.from({length: pageCount}, (_, index) => ({
-            path: normalizedPath,
-            suffix: pageCount === 1 ? '' : `-${String(index + 1).padStart(3, '0')}`,
-        })));
-
         return usingExportScratch(options, 'pdfExport-', async stageDir => {
-            const stagedPaths = exportedPaths.map(path => makeSiblingTempPath(path));
+            const stagedPaths = Array.from({length: pageCount}, () => makeSiblingTempPath(normalizedPath));
             await recordManagedScratchPaths(stageDir, stagedPaths);
             const stagedFiles: IStagedImageFile[] = [];
             let processedPages = 0;
@@ -971,9 +966,8 @@ export async function exportPdfPagesAsImages(
                             options.cancelGroup,
                         );
                         for (const source of pageFiles) {
-                            const targetPath = exportedPaths[processedPages];
                             const stagedPath = stagedPaths[processedPages];
-                            if (!targetPath || !stagedPath) {
+                            if (!stagedPath) {
                                 throw new Error('Image export target path is missing');
                             }
 
@@ -983,7 +977,9 @@ export async function exportPdfPagesAsImages(
                                 'Image export exceeds the 2 GiB staged-output limit for one render window');
                             stagedFiles.push({
                                 stagedPath,
-                                targetPath,
+                                targetPath: normalizedPath,
+                                suffix: pageCount === 1 ? '' : `-${String(processedPages + 1).padStart(3, '0')}`,
+                                allowOverwrite: pageCount === 1,
                             });
                             processedPages += 1;
                             emitExportProgress(options, {
@@ -999,12 +995,11 @@ export async function exportPdfPagesAsImages(
                     throw new Error('PDF image export did not render every planned page');
                 }
                 await options.beforePublish?.();
-                await promoteStagedFiles(stagedFiles, options.signal, stageDir);
+                return await promoteStagedFiles(stagedFiles, options.signal, stageDir);
             } catch (error) {
                 await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
                 throw error;
             }
-            return exportedPaths;
         });
     });
 }
@@ -1218,20 +1213,16 @@ export async function exportPdfAsMultiPageTiff(
                         force: true,
                     }).catch(() => undefined);
                 }
-                const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
-                const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {
-                    const targetOutputPath = outputPaths[index];
-                    if (!targetOutputPath) {
-                        throw new Error('Multi-page TIFF export target path is missing');
-                    }
-                    return {
-                        stagedPath,
-                        targetPath: targetOutputPath,
-                    };
-                });
+                const suffixes = buildMultiPageTiffOutputSuffixes(stagedGroupPaths.length);
+                const stagedFiles = stagedGroupPaths.map((stagedPath, index) => ({
+                    stagedPath,
+                    targetPath,
+                    suffix: suffixes[index]!,
+                    allowOverwrite: stagedGroupPaths.length === 1,
+                }));
                 throwIfAborted(options.signal);
                 await options.beforePublish?.();
-                await promoteStagedFiles(stagedFiles, options.signal, tempDir);
+                const outputPaths = await promoteStagedFiles(stagedFiles, options.signal, tempDir);
                 for (const outputPath of outputPaths) {
                     if (!existsSync(outputPath)) {
                         throw new Error('Multi-page TIFF export did not produce an output file');
