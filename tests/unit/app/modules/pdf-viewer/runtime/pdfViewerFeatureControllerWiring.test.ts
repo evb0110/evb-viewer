@@ -18,7 +18,9 @@ import {
     effectScope,
     h,
     ref,
+    shallowRef,
 } from 'vue';
+import { cast } from '@tests/helpers/cast';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
     createPdfDocumentSessionSlot,
@@ -227,3 +229,85 @@ describe('usePdfViewerFeatureController wiring', () => {
         expect(readUserViewportInteractionEpoch(harness.controller)).toBeGreaterThan(before);
     });
 });
+
+describe('public annotation requests and document replacement', () => {
+    it('creates no shape when the document is replaced while its page renders', async () => {
+        const { usePdfViewerPublicApiController } = await import('@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController');
+        const releaseRender = Promise.withResolvers<undefined>();
+        const renderStarted = Promise.withResolvers<undefined>();
+        const viewer = document.createElement('div');
+        viewer.innerHTML = '<div class="page_container" data-page="1"></div>';
+        const original = {
+            shapes: [] as object[],
+            listCommentSummaries: () => [],
+        };
+        const replacement = {
+            shapes: [] as object[],
+            listCommentSummaries: () => [],
+        };
+        const application = shallowRef(original);
+        let revision = 1;
+        const api = usePdfViewerPublicApiController(cast({
+            viewerContainer: ref(viewer),
+            cancelPendingSearchScroll: vi.fn(),
+            documentSession: {
+                numPages: ref(2),
+                pdfDocument: shallowRef({}),
+                captureFence: () => revision,
+                isCurrent: (fence: number) => fence === revision,
+                ensurePageMetricsInRange: async () => undefined,
+                pageMetrics: ref([]),
+                pageMetricsVersion: ref(0),
+            },
+            viewportSession: {
+                currentPage: ref(1),
+                scale: {effectiveScale: ref(1)},
+                singlePageScroll: {scrollToPage: vi.fn()},
+            },
+            annotationSession: {
+                annotations: {commentSync: {}},
+                annotationMutationService: {},
+                annotationCommentModel: {},
+                annotationSettings: ref(null),
+                focusAnnotationComment: vi.fn(),
+                shapeTool: {handleShapeCreated: (shape: object) => application.value.shapes.push(shape)},
+                shapeComposable: {buildShapeAnnotation: (target: object) => ({
+                    id: 'shape',
+                    ...target,
+                })},
+                selectedShapeCommands: {},
+                annotationApplication: application,
+                appAnnotationHistory: {},
+                annotationEditorSurface: {},
+                highlightComposable: {},
+            },
+            waitForViewerLoadSettled: async () => undefined,
+            renderVisiblePages: async () => {
+                renderStarted.resolve(undefined);
+                await releaseRender.promise;
+            },
+        }));
+
+        const creation = api.createShapeAnnotation(cast({
+            pageNumber: 1,
+            tool: 'rectangle',
+            rect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.2,
+            },
+        }));
+        await renderStarted.promise;
+        // A page deletion reloads the document, with its own annotation store.
+        revision += 1;
+        application.value = replacement;
+        releaseRender.resolve(undefined);
+
+        await expect(creation).resolves.toMatchObject({created: false});
+        expect(original.shapes).toHaveLength(0);
+        expect(replacement.shapes).toHaveLength(0);
+        viewer.remove();
+    });
+});
+

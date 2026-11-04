@@ -595,6 +595,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     async function createTextMarkupFromText(
         target: ICreateTextMarkupFromTextOptions,
+        // The request's document; false once a reload or replacement took over.
+        isCurrent: () => boolean = () => true,
     ): Promise<ICreateTextMarkupFromTextResult> {
         const requestedTool = options.annotationTool.value;
         const requestedSubtype: ICreateTextMarkupFromTextResult['subtype'] = target.markup === 'underline'
@@ -635,6 +637,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         });
         if (!requestedText) {
             return result(false, null, 'Text is required.');
+        }
+        if (!isCurrent()) {
+            return result(false, null, 'The document changed before the annotation was created.');
         }
         if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return result(false, null, `Page ${pageNumber} is outside the document.`);
