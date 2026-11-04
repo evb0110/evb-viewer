@@ -28,6 +28,7 @@ import {
 import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
+import type {ITiffEncoderModule} from '@pdf-core/tiffEncoding';
 import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
@@ -305,17 +306,14 @@ const {
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const { buildOutputPathWithSuffix } = await import('@electron/utils/boundedPathComponent');
+const {resolveSuffixedOutputPathConflicts} = await import('@electron/features/image-export/main/imageExportPathPlanning');
+const {combinePagesIntoMultiPageTiffLocal} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 const {
-    buildMultiPageTiffOutputSuffixes,
-    resolveSuffixedOutputPathConflicts,
-} = await import('@electron/features/image-export/main/imageExportPathPlanning');
-const {
-    combinePagesIntoMultiPageTiffLocal,
-    estimateMultiPageTiffByteLength,
-    splitTiffPageDescriptorsForClassicLimit,
-} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
+    estimateMultiPageTiffByteLength, splitTiffPageDescriptorsForClassicLimit,
+} = await import('@pdf-core/tiffEncoding');
+const {buildMultiPageTiffOutputSuffixes} = await import('@pdf-core/imageExportFileName');
 
-const UTIF = utifModule;
+const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
 const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
 const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
 const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
@@ -1274,9 +1272,9 @@ describe('image export', () => {
                 dataLength: 400,
             },
         ];
-        const twoPageLimit = estimateMultiPageTiffByteLength(descriptors.slice(0, 2));
+        const twoPageLimit = estimateMultiPageTiffByteLength(descriptors.slice(0, 2), UTIF);
 
-        expect(splitTiffPageDescriptorsForClassicLimit(descriptors, twoPageLimit)).toEqual([
+        expect(splitTiffPageDescriptorsForClassicLimit(descriptors, UTIF, twoPageLimit)).toEqual([
             [
                 descriptors[0],
                 descriptors[1],
@@ -1294,8 +1292,8 @@ describe('image export', () => {
         };
 
         expect(() => splitTiffPageDescriptorsForClassicLimit(
-            [descriptor],
-            estimateMultiPageTiffByteLength([descriptor]) - 1,
+            [descriptor], UTIF,
+            estimateMultiPageTiffByteLength([descriptor], UTIF) - 1,
         )).toThrow('A single TIFF page exceeds the Classic TIFF 4GB limit');
     });
 

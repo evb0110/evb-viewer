@@ -1,6 +1,8 @@
 // fallow-ignore-file unused-file -- bundled by browserDjvuFinalizationAcceptance.test.ts for Chromium.
 
-import {PDFDocument} from 'pdf-lib';
+import {
+    PDFDocument, rgb,
+} from 'pdf-lib';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {browserDjvuCapability} from '@app/platform/browser-api/browserDjvuCapability';
 import {browserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
@@ -285,10 +287,17 @@ async function stageDjvuFixture(fixturePath: string) {
 async function stagePdfFixture(pageCount = 1) {
     const document = await PDFDocument.create();
     for (let page = 0; page < pageCount; page += 1) {
-        document.addPage([
+        const added = document.addPage([
             72,
             144,
         ]);
+        added.drawRectangle({
+            x: 0,
+            y: 0,
+            width: 72,
+            height: 144,
+            color: rgb((page + 1) / 10, 0.2, 0.3),
+        });
     }
     return browserDocumentStore.createStoredDocument(
         'browser-pdf-image-export.pdf',
@@ -374,21 +383,39 @@ async function runBrowserPdfImageExportAcceptance(chosenName: string) {
 
 Reflect.set(globalThis, '__evbRunBrowserPdfImageExportAcceptance', runBrowserPdfImageExportAcceptance);
 
-// Exports pages 1 and 2 as one TIFF under the chosen name and reads back the saved bytes and stored name.
-async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string) {
-    await installImageExportDestination(chosenName);
-    let result;
+// Multi-page TIFFs use one selected folder; an explicit one-page selection
+// keeps the selected physical handle name.
+async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string, singlePage = false) {
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle(`tiff-${crypto.randomUUID()}`, {create: true});
+    if (singlePage) {
+        await installImageExportDestination(chosenName);
+        Reflect.set(window, 'showDirectoryPicker', undefined);
+    } else {
+        Reflect.set(window, 'showSaveFilePicker', undefined);
+        Reflect.set(window, 'showDirectoryPicker', async () => directory);
+    }
     try {
-        result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+        const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
             sourcePath,
-            [
+            singlePage ? [requirePageNumber(1)] : [
                 requirePageNumber(1),
                 requirePageNumber(2),
             ],
             requireRequestId(`browser-${sourceKind}-multi-page-tiff-export`),
             sourceKind,
         );
+        if (!result.success || !result.outputPaths?.[0]) throw new Error('TIFF export did not succeed');
+        const storedName = getBrowserDocumentFileName(result.outputPaths[0]);
+        const file = await (singlePage ? imageExportHandle : await directory.getFileHandle(storedName)).getFile();
+        return {
+            bytesBase64: encodeBase64(new Uint8Array(await file.arrayBuffer())),
+            savedName: file.name,
+            storedName,
+            pickerOptions: imageExportPickerOptions,
+        };
     } catch (error) {
+        if (!singlePage) throw error;
         const {
             bytes, savedName, pickerOptions,
         } = await readImageExportDestination();
@@ -399,26 +426,16 @@ async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu
             savedName,
             pickerOptions,
         };
+    } finally {
+        Reflect.deleteProperty(window, 'showDirectoryPicker');
     }
-    const {
-        bytes, savedName, pickerOptions,
-    } = await readImageExportDestination();
-    if (!result.success || bytes.byteLength === 0) {
-        throw new Error(`Browser ${sourceKind} multi-page TIFF export did not write ${chosenName}`);
-    }
-    return {
-        bytesBase64: encodeBase64(bytes),
-        savedName,
-        pickerOptions,
-        storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
-    };
 }
 
-async function runBrowserDjvuMultiPageTiffExportAcceptance(chosenName: string) {
+async function runBrowserDjvuMultiPageTiffExportAcceptance(chosenName: string, singlePage = false) {
     // Pages 1 and 2 of this fixture are 72 and 300 DPI; the TIFF keeps each one.
     const sourcePath = await stageDjvuFixture('/fixtures/mixed-dpi.djvu');
     try {
-        return await exportMultiPageTiffAs(sourcePath, 'djvu', chosenName);
+        return await exportMultiPageTiffAs(sourcePath, 'djvu', chosenName, singlePage);
     } finally {
         await browserDocumentStore.remove(sourcePath);
     }
@@ -426,10 +443,10 @@ async function runBrowserDjvuMultiPageTiffExportAcceptance(chosenName: string) {
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance', runBrowserDjvuMultiPageTiffExportAcceptance);
 
-async function runBrowserPdfMultiPageTiffExportAcceptance(chosenName: string) {
+async function runBrowserPdfMultiPageTiffExportAcceptance(chosenName: string, singlePage = false) {
     const sourcePath = await stagePdfFixture(2);
     try {
-        return await exportMultiPageTiffAs(sourcePath, 'pdf', chosenName);
+        return await exportMultiPageTiffAs(sourcePath, 'pdf', chosenName, singlePage);
     } finally {
         await browserDocumentStore.remove(sourcePath);
     }
@@ -470,8 +487,10 @@ async function runBrowserLargeMultiPageTiffExportAcceptance(sourceKind: 'djvu' |
     const sourcePath = sourceKind === 'djvu'
         ? await stageDjvuFixture('/fixtures/browser-boundary-501-pages.djvu')
         : await stageLetterPdfFixture(pageCount);
-    if (sourceKind === 'djvu') await installImageExportDestination('large.tiff');
-    else Reflect.set(window, 'showSaveFilePicker', undefined);
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle(`large-tiff-${crypto.randomUUID()}`, {create: true});
+    Reflect.set(window, 'showSaveFilePicker', undefined);
+    Reflect.set(window, 'showDirectoryPicker', sourceKind === 'djvu' ? async () => directory : undefined);
     try {
         const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
             sourcePath,
@@ -481,7 +500,7 @@ async function runBrowserLargeMultiPageTiffExportAcceptance(sourceKind: 'djvu' |
         );
         return {
             success: result.success,
-            saved: sourceKind === 'djvu' ? summarizeTiff((await readImageExportDestination()).bytes) : null,
+            saved: sourceKind === 'djvu' ? summarizeTiff(new Uint8Array(await (await (await directory.getFileHandle('document.tiff')).getFile()).arrayBuffer())) : null,
         };
     } catch (error) {
         return {
@@ -489,6 +508,7 @@ async function runBrowserLargeMultiPageTiffExportAcceptance(sourceKind: 'djvu' |
             error: error instanceof Error ? error.message : String(error),
         };
     } finally {
+        Reflect.deleteProperty(window, 'showDirectoryPicker');
         await browserDocumentStore.remove(sourcePath);
     }
 }
@@ -568,3 +588,182 @@ async function runBrowserBatchImageExportAcceptance(sourceKind: 'djvu' | 'pdf', 
 }
 
 Reflect.set(globalThis, '__evbRunBrowserBatchImageExportAcceptance', runBrowserBatchImageExportAcceptance);
+
+// Test-owned OPFS entries exercise the actual renderer, encoders and file sinks.
+async function readDirectoryImages(directory: FileSystemDirectoryHandle) {
+    const files: Array<{
+        name: string;
+        bytesBase64: string;
+        decodable: boolean
+    }> = [];
+    const entries = Reflect.get(directory, 'entries') as () => AsyncIterable<[string, FileSystemHandle]>;
+    for await (const [
+        name,
+        entry,
+    ] of entries.call(directory)) {
+        if (entry.kind !== 'file') continue;
+        const file = await (entry as FileSystemFileHandle).getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const decodable = bytes[0] === 0xff || bytes[0] === 0x89
+            ? await createImageBitmap(file).then(bitmap => { bitmap.close(); return true; }, () => false)
+            : false;
+        files.push({
+            name,
+            bytesBase64: encodeBase64(bytes),
+            decodable,
+        });
+    }
+    return files.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function installFolderFailureAcceptance(mode: string) {
+    const source = await stagePdfFixture(2);
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle(`failed-${crypto.randomUUID()}`, {create: true});
+    Reflect.set(window, 'showDirectoryPicker', async () => directory);
+    const failedImages = Promise.withResolvers<Awaited<ReturnType<typeof readDirectoryImages>>>();
+    Reflect.set(globalThis, '__evbReadFailedFolderImages', () => failedImages.promise);
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    const createWritable = FileSystemFileHandle.prototype.createWritable;
+    const getFile = FileSystemFileHandle.prototype.getFile;
+    let encodes = 0;
+    HTMLCanvasElement.prototype.toBlob = function (...args) {
+        encodes += 1;
+        if (mode === 'encode' && encodes === 2) {
+            void readDirectoryImages(directory).then(files => {
+                failedImages.resolve(files);
+                args[0](null);
+            }, failedImages.reject);
+            return;
+        }
+        return toBlob.apply(this, args);
+    };
+    let failedHandleName: string | null = null;
+    FileSystemFileHandle.prototype.createWritable = async function (options) {
+        if (this.name !== 'document-pages-002.jpg') return createWritable.call(this, options);
+        failedHandleName = this.name;
+        if (mode === 'open') throw new Error('second page writer refused');
+        const writer = await createWritable.call(this, options);
+        if (mode === 'close-unknown') {
+            const close = writer.close.bind(writer);
+            writer.close = async () => { await close(); throw new Error('close receipt lost'); };
+            writer.abort = async () => { throw new Error('abort outcome unknown'); };
+        } else {
+            writer.write = async () => { throw new Error('second page write failed'); };
+            const abort = writer.abort.bind(writer);
+            writer.abort = async () => {
+                if (mode === 'abort-unknown') { await abort(); throw new Error('abort receipt lost'); }
+                await abort();
+                if (mode === 'replaced') {
+                    await directory.removeEntry(this.name);
+                    const replacement = await directory.getFileHandle(this.name, {create: true});
+                    const out = await createWritable.call(replacement);
+                    await out.write('external revision');
+                    await out.close();
+                } else if (mode === 'nonempty') {
+                    const out = await createWritable.call(this);
+                    await out.write('external revision');
+                    await out.close();
+                }
+            };
+        }
+        return writer;
+    };
+    if (mode === 'changed-empty') {
+        let reads = 0;
+        FileSystemFileHandle.prototype.getFile = async function () {
+            const file = await getFile.call(this);
+            if (this.name === 'document-pages-002.jpg' && ++reads > 1) {
+                return new File([], file.name, {lastModified: file.lastModified + 1});
+            }
+            return file;
+        };
+    }
+    document.body.insertAdjacentHTML('beforeend', '<button id="folder-failure-export">Export pages</button><output id="folder-failure-result"></output>');
+    document.querySelector('#folder-failure-export')!.addEventListener('click', async event => {
+        if (!event.isTrusted) throw new Error('Folder export requires trusted input');
+        let error = '';
+        try {
+            await createBrowserImageExportCapability().exportPdfToImages(source, [
+                requirePageNumber(1),
+                requirePageNumber(2),
+            ], requireRequestId('failed-folder'), 'pdf');
+        } catch (failure) {
+            error = failure instanceof Error ? failure.message : String(failure);
+        } finally {
+            HTMLCanvasElement.prototype.toBlob = toBlob;
+            FileSystemFileHandle.prototype.createWritable = createWritable;
+            FileSystemFileHandle.prototype.getFile = getFile;
+        }
+        if (mode === 'encode') await failedImages.promise;
+        const failed = await readDirectoryImages(directory);
+        const recent = await browserDocumentStore.getRecentFiles();
+        const retainedOutputs = await Promise.all(recent.filter(item => /document-pages/u.test(item.fileName)).map(item => browserDocumentStore.exists(item.originalPath)));
+        const retry = mode === 'encode'
+            ? await createBrowserImageExportCapability().exportPdfToImages(source, [
+                requirePageNumber(1),
+                requirePageNumber(2),
+            ], requireRequestId('retry-folder'), 'pdf')
+            : null;
+        const result = {
+            error,
+            failed,
+            retried: retry ? await readDirectoryImages(directory) : [],
+            retainedOutputs,
+            failedHandle: failedHandleName,
+        };
+        document.querySelector('#folder-failure-result')!.textContent = JSON.stringify(result);
+        await browserDocumentStore.remove(source);
+    }, {once: true});
+}
+Reflect.set(globalThis, '__evbInstallFolderFailureAcceptance', installFolderFailureAcceptance);
+
+async function installTiffPartsAcceptance(sourceKind: 'pdf' | 'djvu', destination: 'directory' | 'download' | 'cancel', collision: boolean, failPage: boolean) {
+    const source = sourceKind === 'pdf' ? await stagePdfFixture(5) : await stageDjvuFixture('/fixtures/browser-boundary-501-pages.djvu');
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle(`parts-${crypto.randomUUID()}`, {create: true});
+    Reflect.set(window, 'showSaveFilePicker', undefined);
+    Reflect.set(window, 'showDirectoryPicker', destination === 'download' ? undefined : async () => {
+        if (destination === 'cancel') throw new DOMException('Canceled', 'AbortError');
+        return directory;
+    });
+    const firstName = sourceKind === 'pdf' ? 'browser-pdf-image-export-part-001.tif' : 'document-part-001.tiff';
+    if (collision) {
+        const writer = await (await directory.getFileHandle(firstName, {create: true})).createWritable();
+        await writer.write('earlier TIFF');
+        await writer.close();
+    }
+    const capability = createBrowserImageExportCapability();
+    const progress: number[] = [];
+    const stop = capability.onProgress(event => {progress.push(event.percent);});
+    const getImageData = CanvasRenderingContext2D.prototype.getImageData;
+    let rendered = 0;
+    if (failPage) CanvasRenderingContext2D.prototype.getImageData = function (...args) {
+        if (++rendered === 3) throw new Error('third page raster failed');
+        return getImageData.apply(this, args);
+    };
+    document.body.insertAdjacentHTML('beforeend', '<button id="tiff-parts-export">Export TIFF</button><output id="tiff-parts-result"></output>');
+    document.querySelector('#tiff-parts-export')!.addEventListener('click', async event => {
+        if (!event.isTrusted) throw new Error('TIFF export requires trusted input');
+        let result;
+        try {
+            result = await capability.exportPdfToMultiPageTiff(source, Array.from({length: 5}, (_, index) => requirePageNumber(index + 1)), requireRequestId('tiff-parts'), sourceKind);
+        } catch (error) {
+            result = {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        } finally {
+            stop();
+            CanvasRenderingContext2D.prototype.getImageData = getImageData;
+        }
+        const files = destination === 'directory' ? await readDirectoryImages(directory) : [];
+        document.querySelector('#tiff-parts-result')!.textContent = JSON.stringify({
+            result,
+            files,
+            progress,
+        });
+        await browserDocumentStore.remove(source);
+    }, {once: true});
+}
+Reflect.set(globalThis, '__evbInstallTiffPartsAcceptance', installTiffPartsAcceptance);

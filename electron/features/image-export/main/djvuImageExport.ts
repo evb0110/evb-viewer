@@ -24,11 +24,9 @@ import {
     rollbackStagedFilePublications,
 } from '@electron/features/image-export/main/export';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
-import {
-    buildMultiPageTiffOutputSuffixes,
-    type IStagedImageFile,
-} from '@electron/features/image-export/main/imageExportPathPlanning';
+import type { IStagedImageFile } from '@electron/features/image-export/main/imageExportPathPlanning';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
+import {buildMultiPageTiffOutputSuffixes} from '@pdf-core/imageExportFileName';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { getAppTempDir } from '@electron/utils/appTempDir';

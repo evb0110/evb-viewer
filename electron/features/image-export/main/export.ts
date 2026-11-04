@@ -46,7 +46,6 @@ import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsy
 import {
     combinePagesIntoMultiPageTiffLocal,
     readTiffPageDescriptors,
-    splitTiffPageDescriptorsForClassicLimit,
 } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
 import {
     resolveUnpackedWorkerPath,
@@ -91,11 +90,12 @@ import {
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
-    buildMultiPageTiffOutputSuffixes,
     resolveOutputPathConflict,
     type IStagedImageFile,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
 import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
+import {splitTiffPageDescriptorsForClassicLimit} from '@pdf-core/tiffEncoding';
+import UTIF from 'utif';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
 import {TiffCombineWorkerStartupError} from '@electron/features/image-export/main/tiffCombineWorkerStartupError';
 import {
@@ -104,6 +104,7 @@ import {
 } from '@electron/features/image-export/main/parsePdfInfoPageSizes';
 import {
     IMAGE_EXPORT_FORMATS,
+    buildMultiPageTiffOutputSuffixes,
     resolveImageExportFormat,
     type TImageExportFormat,
 } from '@pdf-core/imageExportFileName';
@@ -1178,13 +1179,10 @@ export async function exportPdfAsMultiPageTiff(
                         percent: (renderedPageCount / pageCount) * 90,
                     });
 
-                    const tiffPageDescriptors = await readTiffPageDescriptors(
-                        renderedPageFiles.map(pageFile => pageFile.path),
-                        options.signal,
-                        renderDpi,
-                    );
-                    const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
-                    for (const tiffPageGroup of tiffPageGroups) {
+                    for (const tiffPageGroup of splitTiffPageDescriptorsForClassicLimit(
+                        await readTiffPageDescriptors(renderedPageFiles.map(pageFile => pageFile.path), options.signal, renderDpi),
+                        UTIF,
+                    )) {
                         throwIfAborted(options.signal);
                         const stagedPath = makeSiblingTempPath(targetPath);
                         const writerPath = makeSiblingTempPath(stagedPath);

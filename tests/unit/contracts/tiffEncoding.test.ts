@@ -9,6 +9,9 @@ import {
     encodeTiffIfds,
 } from '@pdf-core';
 import {
+    encodeMultiPageTiffHeader, estimateMultiPageTiffByteLength, splitTiffPageDescriptorsForClassicLimit,
+} from '@pdf-core/tiffEncoding';
+import {
     encode as encodePng, decode as decodePng,
 } from 'fast-png';
 import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
@@ -31,6 +34,110 @@ interface IUtifEncoderModule {
 const UTIF = utifModule as typeof utifModule & IUtifEncoderModule;
 
 describe('tiff encoding helpers', () => {
+    it('partitions a 600-page book at the real Classic TIFF limit without allocating rasters', () => {
+        const pages = Array.from({length: 600}, (_, index) => ({
+            index,
+            width: 1224,
+            height: 1584,
+            dataLength: 1224 * 1584 * 4,
+            dpiX: 144,
+            dpiY: 144,
+        }));
+        const groups = splitTiffPageDescriptorsForClassicLimit(pages, UTIF);
+        expect(groups.map(group => group.length)).toEqual([
+            553,
+            47,
+        ]);
+        expect(groups.flat()).toEqual(pages);
+        expect(groups.flat().every((page, index) => page === pages[index])).toBe(true);
+        for (const group of groups) expect(estimateMultiPageTiffByteLength(group, UTIF)).toBeLessThanOrEqual(0xFFFFFFFF);
+        expect(estimateMultiPageTiffByteLength([
+            ...groups[0]!,
+            groups[1]![0]!,
+        ], UTIF)).toBeGreaterThan(0xFFFFFFFF);
+        expect(() => encodeMultiPageTiffHeader([{
+            width: 32768,
+            height: 32768,
+            dataLength: 2 ** 32,
+        }], UTIF)).toThrow('Classic TIFF');
+        expect(() => splitTiffPageDescriptorsForClassicLimit([{
+            width: 32768,
+            height: 32768,
+            dataLength: 2 ** 32,
+        }], UTIF)).toThrow('A single TIFF page');
+    });
+
+    it('packs an exact two-page boundary and decodes all ordered pixels, densities and strip offsets', () => {
+        const pages = Array.from({length: 5}, (_, index) => ({
+            width: 1,
+            height: 1,
+            dataLength: 4,
+            dpiX: 72 + index,
+            dpiY: 144 + index,
+            marker: index + 1,
+        }));
+        const limit = estimateMultiPageTiffByteLength(pages.slice(0, 2), UTIF);
+        const groups = splitTiffPageDescriptorsForClassicLimit(pages, UTIF, limit);
+        expect(groups.map(group => group.length)).toEqual([
+            2,
+            2,
+            1,
+        ]);
+        expect(splitTiffPageDescriptorsForClassicLimit([], UTIF)).toEqual([]);
+        expect(splitTiffPageDescriptorsForClassicLimit([pages[0]!], UTIF)).toEqual([[pages[0]]]);
+        const decodedMarkers: number[] = [];
+        for (const group of groups) {
+            const {
+                header, firstDataOffset, totalByteLength,
+            } = encodeMultiPageTiffHeader(group, UTIF);
+            expect(firstDataOffset % 8).toBe(0);
+            expect(totalByteLength).toBeLessThanOrEqual(limit);
+            const bytes = new Uint8Array(totalByteLength);
+            bytes.set(header);
+            group.forEach((page, index) => bytes.set([
+                page.marker,
+                20,
+                30,
+                255,
+            ], firstDataOffset + index * 4));
+            const frames = UTIF.decode(bytes);
+            expect(frames).toHaveLength(group.length);
+            for (const [
+                index,
+                frame,
+            ] of frames.entries()) {
+                const page = group[index]!;
+                expect(frame.t256).toEqual([1]);
+                expect(frame.t257).toEqual([1]);
+                expect(frame.t282).toEqual([page.dpiX]);
+                expect(frame.t283).toEqual([page.dpiY]);
+                const offset = (frame.t273 as number[])[0]!;
+                expect(offset).toBeGreaterThanOrEqual(firstDataOffset);
+                expect(offset + 4).toBeLessThanOrEqual(bytes.byteLength);
+                UTIF.decodeImage(bytes, frame);
+                const rgba = UTIF.toRGBA8(frame);
+                expect(Array.from(rgba)).toEqual([
+                    page.marker,
+                    20,
+                    30,
+                    255,
+                ]);
+                decodedMarkers.push(rgba[0]!);
+            }
+            const view = new DataView(bytes.buffer);
+            let offset = view.getUint32(4);
+            for (let index = 0; index < group.length; index += 1) offset = view.getUint32(offset + 2 + view.getUint16(offset) * 12);
+            expect(offset).toBe(0);
+        }
+        expect(decodedMarkers).toEqual([
+            1,
+            2,
+            3,
+            4,
+            5,
+        ]);
+    });
+
     it('encodes a multi-page TIFF header', () => {
         const ifds = [
             buildTiffImageIfd({

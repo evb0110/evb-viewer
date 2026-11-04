@@ -3,7 +3,6 @@ import {
     dirname,
     resolve,
 } from 'path';
-import { range } from 'es-toolkit/math';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
 
@@ -69,10 +68,4 @@ export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOve
         path,
         suffix: '',
     })), allowSingleOverwrite);
-}
-
-export function buildMultiPageTiffOutputSuffixes(partCount: number) {
-    return partCount <= 1 ? [''] : range(1, partCount + 1).map(partNumber =>
-        `-part-${String(partNumber).padStart(3, '0')}`,
-    );
 }
