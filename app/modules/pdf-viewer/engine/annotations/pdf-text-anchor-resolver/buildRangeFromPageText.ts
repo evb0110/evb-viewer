@@ -13,9 +13,10 @@ interface ISourceCharacter {
 }
 
 // Case folds one character at a time, so each folded unit still names the
-// character it came from even where folding changes the length.
+// character it came from even where folding changes the length. A lone
+// capital sigma lowers to σ, so the word-final ς folds to σ as well.
 function fold(value: string, caseSensitive: boolean) {
-    return caseSensitive ? value : Array.from(value, character => character.toLocaleLowerCase()).join('');
+    return caseSensitive ? value : Array.from(value, character => character.toLocaleLowerCase().replace('ς', 'σ')).join('');
 }
 
 export function buildRangeFromPageText(

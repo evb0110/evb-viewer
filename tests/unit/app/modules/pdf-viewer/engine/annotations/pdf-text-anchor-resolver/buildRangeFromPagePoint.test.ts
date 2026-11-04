@@ -143,6 +143,11 @@ describe('buildRangeFromPageText', () => {
                     'ascii',
                     'ascii',
                 ],
+                [
+                    'στην οδός Αθηνάς',
+                    'ΟΔΌΣ',
+                    'οδός',
+                ],
             ] as const) {
             document.body.innerHTML = '';
             const result = buildRangeFromPageText(line(text), {text: query});
