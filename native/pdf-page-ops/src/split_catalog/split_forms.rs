@@ -3,6 +3,49 @@ use super::*;
 use crate::catalog::CatalogWalkState;
 use crate::split_output::SplitAnnotationMap;
 
+/// Finalize qpdf's page subset with the same field owner as browser subsets.
+pub(crate) fn write_subset_form_path(
+    input: &Path,
+    output: &Path,
+    qpdf: Option<&Path>,
+) -> Result<()> {
+    let mut incremental = load_dictionary_incremental_pdf_path(input, qpdf)?;
+    let source = &incremental.previous_document;
+    assert_page_structure_supported(source)?;
+    if !source.catalog()?.has(b"AcroForm") {
+        return if input == output {
+            Ok(())
+        } else {
+            with_staged_incremental_output(input, output, |_| Ok(()))
+        };
+    }
+    let mut annotations = SplitAnnotationMap::new();
+    for page in source.get_pages().values() {
+        for entry in crate::split_navigation::source_annotation_entries(source, *page) {
+            let (id, object) = source.dereference(&entry)?;
+            let dictionary = object.as_dict()?;
+            if dictionary.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget") {
+                let id = id.ok_or("Retained form widget must be indirect")?;
+                incremental.new_document.set_object(id, dictionary.clone());
+                annotations.entry(id).or_default().push((*page, id));
+            }
+        }
+    }
+    if let Some(form) = split_form(source, &mut incremental.new_document, &annotations)? {
+        let mut catalog = source.catalog()?.clone();
+        catalog.set("AcroForm", form);
+        incremental
+            .new_document
+            .set_object(source.trailer.get(b"Root")?.as_reference()?, catalog);
+    }
+    incremental.new_document.version = source.version.clone();
+    let revision = build_incremental_revision(&mut incremental)?;
+    let ids = collect_incremental_append_object_ids(&incremental);
+    with_staged_incremental_output(input, output, |staged| {
+        write_incremental_revision(staged, &incremental, &revision, &ids)
+    })
+}
+
 pub(crate) fn split_form(
     source: &Document,
     target: &mut Document,

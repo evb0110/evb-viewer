@@ -275,8 +275,23 @@ export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOp
     });
 }
 
-async function replaceQpdfOutput(tempPath: string, targetPath: string) {
-    await replaceTempOutput(tempPath, targetPath);
+async function finalizeSubsetForms(pdfPath: string, options: IQpdfOperationOptions) {
+    const binary = resolveNativePageOpsPath();
+    if (!binary) throw new Error('Native page structure finalization is unavailable');
+    await runNativeToolCommand(binary, [
+        'finalize-subset-forms',
+        '--input',
+        pdfPath,
+        '--output',
+        pdfPath,
+        '--qpdf',
+        getQpdfBinary(),
+    ], {
+        timeoutMs: QPDF_TIMEOUT_MS,
+        commandLabel: 'pdf-page-ops(finalize-subset-forms)',
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+    });
 }
 
 async function cleanupQpdfTemp(tempPath: string) {
@@ -367,9 +382,10 @@ async function extractPageList(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(qpdfOutput.outputPath, 'Extracting pages');
+        await finalizeSubsetForms(qpdfOutput.outputPath, options);
         await copyFile(qpdfOutput.outputPath, finalTempPath);
         await assertNonEmptyPdfOutput(finalTempPath, 'Extracting pages');
-        await replaceQpdfOutput(finalTempPath, destPath);
+        await replaceTempOutput(finalTempPath, destPath);
     } catch (err) {
         await cleanupQpdfTemp(finalTempPath);
         await cleanupEmptyTarget(destPath);
@@ -417,6 +433,22 @@ export async function deletePages(
     senderWebContentsId?: number,
     options: IQpdfOperationOptions = {},
 ) {
+    return deletePageSelection(
+        workingCopyPath,
+        totalPages => formatComplementPageList(pagesToDelete, totalPages),
+        expectedTotalPages,
+        senderWebContentsId,
+        options,
+    );
+}
+
+async function deletePageSelection(
+    workingCopyPath: string,
+    selection: (totalPages: number) => ReturnType<typeof formatComplementPageList>,
+    expectedTotalPages: number | undefined,
+    senderWebContentsId: number | undefined,
+    options: IQpdfOperationOptions,
+) {
     const materializedPath = await materializePageOperationWorkingCopy(
         workingCopyPath,
         senderWebContentsId,
@@ -430,7 +462,7 @@ export async function deletePages(
     const {
         pageList,
         keptCount,
-    } = formatComplementPageList(pagesToDelete, totalPages);
+    } = selection(totalPages);
     if (keptCount === 0) {
         throw new Error('Cannot delete all pages from the document');
     }
@@ -454,7 +486,8 @@ export async function deletePages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
-        await replaceQpdfOutput(tempPath, materializedPath);
+        await finalizeSubsetForms(tempPath, options);
+        await replaceTempOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;
@@ -475,49 +508,13 @@ export async function deletePageRanges(
     senderWebContentsId?: number,
     options: IQpdfOperationOptions = {},
 ) {
-    const materializedPath = await materializePageOperationWorkingCopy(
+    return deletePageSelection(
         workingCopyPath,
+        totalPages => formatPageDeleteRanges(ranges, totalPages),
+        expectedTotalPages,
         senderWebContentsId,
-        options.signal,
+        options,
     );
-    const totalPages = await getPdfPageCount(materializedPath, options);
-    if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
-        throw new Error('Renderer page count is stale');
-    }
-
-    const {
-        pageList,
-        keptCount,
-    } = formatPageDeleteRanges(ranges, totalPages);
-    if (keptCount === 0) {
-        throw new Error('Cannot delete all pages from the document');
-    }
-
-    const tempPath = makeTempPdfOutputPath(materializedPath);
-    try {
-        await runQpdfCommand([
-            materializedPath,
-            '--pages',
-            materializedPath,
-            pageList,
-            '--',
-            tempPath,
-        ], {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-            commandLabel: 'qpdf(delete-page-ranges)',
-            pageStructureSources: [materializedPath],
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        });
-        await assertNonEmptyPdfOutput(tempPath, 'Deleting page ranges');
-        await replaceQpdfOutput(tempPath, materializedPath);
-    } catch (err) {
-        await cleanupQpdfTemp(tempPath);
-        throw err;
-    }
-
-    return { pageCount: keptCount };
 }
 
 export async function reorderPages(
@@ -550,7 +547,7 @@ export async function reorderPages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
-        await replaceQpdfOutput(tempPath, materializedPath);
+        await replaceTempOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;
@@ -605,7 +602,7 @@ export async function movePages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Moving pages');
-        await replaceQpdfOutput(tempPath, materializedPath);
+        await replaceTempOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;
@@ -659,7 +656,7 @@ export async function movePageRanges(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Moving page ranges');
-        await replaceQpdfOutput(tempPath, materializedPath);
+        await replaceTempOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;
@@ -735,7 +732,7 @@ export async function rotatePages(
         });
         await assertNonEmptyPdfOutput(targetPath, 'Rotating pages');
         if (!appendInPlace) {
-            await replaceQpdfOutput(targetPath, materializedPath);
+            await replaceTempOutput(targetPath, materializedPath);
         }
     } catch (err) {
         if (!appendInPlace) {

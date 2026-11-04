@@ -1,5 +1,81 @@
 use super::*;
 
+pub(crate) enum Operation {
+    SplitPages {
+        instructions_file: PathBuf,
+    },
+    OverlayText {
+        source_path: PathBuf,
+        instructions_file: PathBuf,
+    },
+    OcrTextLayer {
+        instructions_file: PathBuf,
+    },
+    ReplacePageImages {
+        instructions_file: PathBuf,
+    },
+    RecompressImages {
+        instructions_file: PathBuf,
+    },
+    OcrTextVisibility {
+        pages_file: PathBuf,
+        /// Also report the text of each page's EVB OCR layer.
+        with_evb_ocr_text: bool,
+    },
+    Crop {
+        pages_file: PathBuf,
+        margins: CropMargins,
+    },
+    RemoveCrop {
+        pages_file: PathBuf,
+    },
+    SaveMutations {
+        mutations_file: PathBuf,
+        modified_at: String,
+        append: bool,
+        append_in_place: bool,
+        identity_bindings_file: Option<PathBuf>,
+        source_path: Option<PathBuf>,
+    },
+    TextBoxAppearance {
+        metadata_file: PathBuf,
+    },
+    ParseAnnotations {
+        modified_at: String,
+        pages_file: Option<PathBuf>,
+    },
+    AnnotationNameIndex,
+    EmbeddedShapeIndex,
+    PdfConformance,
+    AppendAdmission,
+    Decrypt {
+        password_file: Option<PathBuf>,
+    },
+    PageGeometry {
+        page_number: u32,
+    },
+    PageSizes {
+        metadata_only: bool,
+    },
+    ValidatePageStructure,
+    /// Rebuilds a qpdf page subset's form fields from its retained widgets.
+    FinalizeSubsetForms,
+    ReadCatalog,
+    ReadDocumentCatalog(Option<PathBuf>),
+    PrintLayout {
+        view_mode: PrintViewMode,
+        orientation: PrintOrientation,
+    },
+}
+
+pub(crate) struct Config {
+    pub(crate) operation: Operation,
+    pub(crate) input_path: PathBuf,
+    /// Absent for the queries that print their JSON result on stdout.
+    pub(crate) output_path: Option<PathBuf>,
+    pub(crate) qpdf_path: Option<PathBuf>,
+}
+
 pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
     let config = parse_args(args.into_iter())
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
@@ -216,6 +292,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
         "validate-page-structure" => Operation::ValidatePageStructure,
+        "finalize-subset-forms" => Operation::FinalizeSubsetForms,
         "read-catalog" => Operation::ReadCatalog,
         "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
         "print-layout" if pages_file.is_some() => {
@@ -324,6 +401,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         .ok_or("Missing --output value")?;
 
     match &config.operation {
+        Operation::FinalizeSubsetForms => {
+            return crate::split_catalog::split_forms::write_subset_form_path(
+                &config.input_path,
+                output_path,
+                config.qpdf_path.as_deref(),
+            );
+        }
         Operation::TextBoxAppearance { metadata_file } => {
             use evb_native_support::output::AtomicOutput;
             let bytes = read_file_bounded(

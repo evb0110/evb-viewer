@@ -681,72 +681,6 @@ impl PdfObjectSource for Document {
     }
 }
 
-pub(crate) enum Operation {
-    SplitPages {
-        instructions_file: PathBuf,
-    },
-    OverlayText {
-        source_path: PathBuf,
-        instructions_file: PathBuf,
-    },
-    OcrTextLayer {
-        instructions_file: PathBuf,
-    },
-    ReplacePageImages {
-        instructions_file: PathBuf,
-    },
-    RecompressImages {
-        instructions_file: PathBuf,
-    },
-    OcrTextVisibility {
-        pages_file: PathBuf,
-        /// Also report the text of each page's EVB OCR layer.
-        with_evb_ocr_text: bool,
-    },
-    Crop {
-        pages_file: PathBuf,
-        margins: CropMargins,
-    },
-    RemoveCrop {
-        pages_file: PathBuf,
-    },
-    SaveMutations {
-        mutations_file: PathBuf,
-        modified_at: String,
-        append: bool,
-        append_in_place: bool,
-        identity_bindings_file: Option<PathBuf>,
-        source_path: Option<PathBuf>,
-    },
-    TextBoxAppearance {
-        metadata_file: PathBuf,
-    },
-    ParseAnnotations {
-        modified_at: String,
-        pages_file: Option<PathBuf>,
-    },
-    AnnotationNameIndex,
-    EmbeddedShapeIndex,
-    PdfConformance,
-    AppendAdmission,
-    Decrypt {
-        password_file: Option<PathBuf>,
-    },
-    PageGeometry {
-        page_number: u32,
-    },
-    PageSizes {
-        metadata_only: bool,
-    },
-    ValidatePageStructure,
-    ReadCatalog,
-    ReadDocumentCatalog(Option<PathBuf>),
-    PrintLayout {
-        view_mode: PrintViewMode,
-        orientation: PrintOrientation,
-    },
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SplitPagesFile {
@@ -845,14 +779,6 @@ pub(crate) struct SplitCropRect {
     pub(crate) y: f64,
     pub(crate) width: f64,
     pub(crate) height: f64,
-}
-
-pub(crate) struct Config {
-    pub(crate) operation: Operation,
-    pub(crate) input_path: PathBuf,
-    /// Absent for the queries that print their JSON result on stdout.
-    pub(crate) output_path: Option<PathBuf>,
-    pub(crate) qpdf_path: Option<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]

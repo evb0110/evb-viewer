@@ -128,6 +128,91 @@ it.each([
     }
 });
 
+// T3: page subsets publish only widgets on retained pages, with one field identity.
+it.each([
+    'delete',
+    'extract',
+] as const)('prunes removed shared-field widgets after desktop %s', async operation => {
+    const directory = await mkdtemp(join(tmpdir(), 'shared-field-page-operation-'));
+    const inputPath = join(directory, 'input.pdf');
+    const extractedPath = join(directory, 'extracted.pdf');
+    const source = await PDFDocument.load(await readFile(resolve('tests/fixtures/electron/pdf-preservation/shared-field.pdf')));
+    const form = source.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+    const field = form.lookup(PDFName.of('Fields'), PDFArray).get(0);
+    form.set(PDFName.of('CO'), source.context.obj([field]));
+    for (const kind of [
+        'ResetForm',
+        'SubmitForm',
+    ]) {
+        const action = source.context.register(source.context.obj({
+            S: kind,
+            Fields: [field],
+            F: PDFString.of('https://example.invalid/form'),
+        }));
+        source.getPage(0).node.addAnnot(source.context.register(source.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [
+                120,
+                10,
+                130,
+                20,
+            ],
+            A: action,
+        })));
+    }
+    const original = await source.save({updateFieldAppearances: false});
+    await writeFile(inputPath, original);
+    let session: IElectronE2ESession | undefined;
+    try {
+        session = await startElectronE2ESession(`e2e-shared-field-${operation}`, {
+            clean: true,
+            initialOpenPaths: [inputPath],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: extractedPath},
+        });
+        const {page} = session;
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, `.editor-pane.is-active [data-thumbnail-page="${operation === 'delete' ? 2 : 1}"]`, {button: 'right'});
+        const label = operation === 'delete' ? 'Delete Pages' : 'Extract to New PDF';
+        await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(element => element.textContent?.trim() === text), label, {description: label});
+        await page.waitForFunction(() => document.querySelector('.page-controls-total')?.textContent?.trim() === '1'
+            || document.querySelector('.app-toast-failure'));
+        expect(await page.$('.app-toast-failure')).toBeNull();
+        await waitForViewerInteractive(page);
+        if (operation === 'delete') await saveViaVisibleToolbar(page);
+        else expect(await readFile(inputPath)).toEqual(Buffer.from(original));
+        const saved = await PDFDocument.load(await readFile(operation === 'delete' ? inputPath : extractedPath));
+        expect(saved.getPageCount()).toBe(1);
+        const savedForm = saved.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+        const savedField = savedForm.lookup(PDFName.of('Fields'), PDFArray).get(0);
+        const kids = saved.context.lookup(savedField, PDFDict).lookup(PDFName.of('Kids'), PDFArray).asArray();
+        const annotations = saved.getPage(0).node.Annots()!.asArray();
+        const widgets = annotations.filter(ref => saved.context.lookup(ref, PDFDict).get(PDFName.of('Subtype')) === PDFName.of('Widget'));
+        expect(widgets).toHaveLength(1);
+        expect(kids.map(String).sort(), `${operation}: field Kids must equal retained page widgets`).toEqual(widgets.map(String).sort());
+        for (const ref of widgets) {
+            expect(String(saved.context.lookup(ref, PDFDict).get(PDFName.of('Parent')))).toBe(String(savedField));
+        }
+        expect(String(savedForm.lookup(PDFName.of('CO'), PDFArray).get(0))).toBe(String(savedField));
+        const actions = annotations.flatMap(ref => {
+            const action = saved.context.lookup(ref, PDFDict).lookupMaybe(PDFName.of('A'), PDFDict);
+            return action ? [action] : [];
+        });
+        expect(actions).toHaveLength(2);
+        for (const action of actions) {
+            expect(String(action.lookup(PDFName.of('Fields'), PDFArray).get(0))).toBe(String(savedField));
+        }
+    } finally {
+        await session?.stop();
+        await rm(directory, {
+            recursive: true,
+            force: true,
+        });
+    }
+}, 120_000);
+
 async function readAnnotations(path: string) {
     const pdf = await PDFDocument.load(await readFile(path));
     const annotations = pdf.getPages().flatMap((page, index) => {

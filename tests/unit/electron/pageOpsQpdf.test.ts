@@ -25,6 +25,7 @@ import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 const validatePageStructureMock = vi.hoisted(() => vi.fn());
+const finalizeSubsetFormsMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyMaterializedMock = vi.hoisted(() => vi.fn());
 const getWorkingCopyBackingEntryMock = vi.hoisted(() => vi.fn());
@@ -59,11 +60,12 @@ vi.mock('node:crypto', async (importOriginal) => {
     };
 });
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => (
-    Array.isArray(args[1]) && args[1][0] === 'validate-page-structure'
-        ? validatePageStructureMock(...args)
-        : runNativeToolCommandMock(...args)
-)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => {
+    const command = Array.isArray(args[1]) ? args[1][0] : undefined;
+    if (command === 'validate-page-structure') return validatePageStructureMock(...args);
+    if (command === 'finalize-subset-forms') return finalizeSubsetFormsMock(...args);
+    return runNativeToolCommandMock(...args);
+}}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
@@ -80,6 +82,14 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: vi.fn(),
     error: vi.fn(),
 })}));
+
+beforeEach(() => {
+    finalizeSubsetFormsMock.mockResolvedValue({
+        exitCode: 0,
+        stdout: '{}',
+        stderr: '',
+    });
+});
 
 describe('page-ops qpdf extract', () => {
     beforeEach(() => {
